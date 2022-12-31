@@ -4,4 +4,4 @@ hello world
 `Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.`
 > "Make something people want"
 [Mark's Page](https://sites.google.com/site/markaweeks/home)
-![Oddball](https://imgur.com/3dMEd1I)
+![Oddball](https://i.imgur.com/3dMEd1I.png)
