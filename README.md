@@ -11,6 +11,6 @@ incididunt ut labore et dolore magna aliqua.
 
 > "Make something people want"
 
-[Mark's Page](https://sites.google.com/site/markaweeks/home)
+[Mark's Page](https://markweeks.dev)
 
 ![Oddball](https://i.imgur.com/3dMEd1I.png)
