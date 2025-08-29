@@ -1,16 +1,18 @@
 # hello-world
 
-hello world
+Welcome! This repo is totally normal. Absolutely nothing mysterious here. 😉
 
-## Earth orbits the Sun at a rate of 30 kilometers per second
+<details>
+  <summary>🪄 A small invitation</summary>
 
-```text
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor
-incididunt ut labore et dolore magna aliqua.
+Decode this to find your first door:
+
+```
+cHV6emxlcy9maXJzdC1sb2NrLm1k
 ```
 
-> "Make something people want"
+</details>
 
-[Mark's Page](https://markweeks.dev)
+---
 
-![Oddball](https://i.imgur.com/3dMEd1I.png)
+Tip: For the adventurous, the site at `/docs` also reacts to a certain nostalgic key sequence.

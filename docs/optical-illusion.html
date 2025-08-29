@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Portal</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; line-height: 1.55; }
+  p.hint { opacity: .6; }
+  /* Hidden text: only obvious in dark mode */
+  .secret { color: #111; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #0b0d12; color: #e7eaf0; }
+    .secret { color: #68a6ff; font-weight: 600; }
+  }
+  .egg {
+    display:none; position:fixed; inset:0; backdrop-filter: blur(6px);
+    background: rgba(0,0,0,.55); align-items:center; justify-content:center;
+  }
+  .card { background:white; color:#111; border-radius:12px; padding:24px; max-width:560px; box-shadow:0 10px 40px rgba(0,0,0,.25); }
+  .close { float:right; cursor:pointer; border:none; background:transparent; font-size:20px; }
+</style>
+</head>
+<body>
+  <h1>Portal</h1>
+  <p class="hint">If you’re in light mode, the path is shy. Dark mode makes it bold.</p>
+
+  <p class="secret">Look in the commit history. A message is ROT13.</p>
+
+  <div class="egg" id="egg">
+    <div class="card">
+      <button class="close" id="close">×</button>
+      <h2>🌟 Bonus door</h2>
+      <p>Nice reflexes. Try the old-school code… ↑↑↓↓←→←→BA</p>
+    </div>
+  </div>
+
+  <script src="./konami.js"></script>
+</body>
+</html>
