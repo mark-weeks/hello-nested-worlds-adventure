@@ -1,120 +1,133 @@
 # hello-nested-worlds-adventure
 
-**A nested simulation playground where procedural worlds, autonomous agents, and escape-room-style puzzles converge.**
-
-This project is an experimental platform for building and exploring multiverse-scale simulations — where each layer, from galaxies to subatomic particles, is procedurally generated and enriched with metadata for emergent behavior, agent decision-making, and narrative depth.
+A procedural multiverse simulation engine with autonomous agents and escape-room puzzles.
 
 ---
 
-## 🌌 Core Concept
+## What it does
 
-At its heart, this is a **choose-your-own-adventure simulation engine** built atop a **recursive multiverse hierarchy**. It blends:
-
-- **Procedural content generation** (PCG) across multiple scales  
-- **Agent-based behavior** driven by local node metadata  
-- **Escape-room and puzzle-style mechanics**  
-- **Narrative scaffolding** for emergent storytelling  
+Generates a recursive world hierarchy — Multiverse down to SubatomicParticle — and lets you run agents through it or discover and solve puzzles embedded in the world.
 
 ---
 
-## 🧱 Current Architecture
+## Quick start
 
-### 🧭 Spatial Hierarchy
+```bash
+# Print the generated world tree
+python main.py world
 
-The simulation spans 10 nested levels:
+# Run an agent through the world and print its traversal log
+python main.py agent
+
+# Find and interactively play puzzles in the world
+python main.py puzzles
+```
+
+All commands accept `--seed INT` for reproducible runs. Use `--help` on any subcommand for options:
+
+```bash
+python main.py world --help
+python main.py agent --name "Recon" --danger-threshold 4
+python main.py --seed 7 world --depth 6 --min-breadth 1 --max-breadth 3
+```
+
+---
+
+## Architecture
+
+### Spatial hierarchy
+
+10 nested levels, each with level-specific metadata:
 
 ```
 Multiverse → Universe → Galaxy → Planet → Region → Room → Object → Molecule → Atom → SubatomicParticle
 ```
 
-Each node in this hierarchy is represented by a `SpatialNode` object with:
+Example properties by level:
 
-- A unique name and level  
-- A set of **children** (recursively generated)  
-- A **properties** dictionary with level-specific metadata (e.g. `gravity`, `has_puzzle`, `element`)  
+| Level | Properties |
+|-------|------------|
+| Multiverse | theme, age, stability |
+| Planet | gravity, biome, inhabited, population, moons |
+| Region | danger_level, terrain, faction_control |
+| Room | has_puzzle, locked, lighting, exits |
+| Atom | element, ionized, atomic_number |
 
----
+### Agent system
 
-## 🧬 Procedural Generation
+Agents traverse the world using a finite state machine:
 
-A deterministic, seed-based generator builds the hierarchy using:
+```
+IDLE → EXPLORE → INTERACT → EXPLORE
+              └──► EXIT  (dangerous region or dead-end)
+```
 
-- Breadth and depth controls  
-- Randomized property templates per level  
-- Extensible logic to add new levels, metadata, or behaviors  
+- Avoid regions where `danger_level > threshold` (configurable)
+- Interact with rooms that have puzzles or interactive objects
+- Log every action with node name, level, and FSM state
 
----
+### Puzzle engine
 
-## 🚧 Development Phases
+Four puzzle kinds: **Riddle**, **Cipher**, **Lock**, **Sequence**
 
-| Phase      | Description                                                           | Status     |
-|------------|-----------------------------------------------------------------------|------------|
-| Phase 1    | Scaffold spatial hierarchy and generator                              | ✅ Complete |
-| Phase 1.5  | Add metadata to each node (e.g. `gravity`, `element`)                 | ✅ Complete |
-| Phase 2    | Introduce autonomous agents with basic state machines                 | 🔜 Next     |
-| Phase 3    | Puzzle engine with escape-room logic and decision trees               | ⏳ Planned  |
-| Phase 4    | UX interface (CLI/TUI), save/load support, testing framework          | ⏳ Planned  |
-
----
-
-## 🤖 What’s Next (Phase 2)
-
-We're building an **Agent System** with:
-
-- Finite state machines (FSMs): `Idle → Explore → Interact → Exit`  
-- Decision-making based on node metadata (e.g. avoid `danger_level > 5`)  
-- Simulated traversal and logging  
-- Hooks for future puzzle-solving and story arcs  
+- Each puzzle has a prompt, a canonical answer, hints, and a max-attempt limit
+- `PuzzleEngine` attaches puzzles to `Room` nodes and runs them interactively
+- Answers are case-insensitive and whitespace-tolerant
 
 ---
 
-## 🔧 Project Structure
+## Project structure
 
 ```
 hello-nested-worlds-adventure/
-├── main.py                    # CLI preview of worldgen output
+├── main.py                      # CLI entry point (world / agent / puzzles)
 ├── multiverse/
-│   ├── __init__.py
-│   ├── node.py                # SpatialNode class
-│   └── generator.py           # PCG logic + metadata generation
-├── agents/                    # (Coming soon) Agent logic
-├── puzzles/                   # (Coming soon) Puzzle engine
-├── docs/
-│   └── CHANGELOG.md           # Project evolution log
-└── README.md
+│   ├── node.py                  # SpatialNode class
+│   └── generator.py             # Procedural generation with named locations
+├── agents/
+│   ├── agent.py                 # Agent with FSM traversal and logging
+│   └── behaviors.py             # State enum and transition logic
+├── puzzles/
+│   ├── types.py                 # Puzzle dataclass (kind, attempts, hints)
+│   └── engine.py                # PuzzleEngine: attach, collect, run
+├── tests/
+│   ├── test_generator.py        # 8 tests: determinism, depth, properties
+│   ├── test_agent.py            # 14 tests: FSM, avoidance, deduplication
+│   └── test_puzzles.py          # 11 tests: solve, fail, hints, engine
+└── docs/
+    ├── CHANGELOG.md
+    └── architecture/overview.md
 ```
 
 ---
 
-## 🧠 Philosophy
+## Running tests
 
-This project is:
-- A **sandbox** for tinkering with agents, logic, and procedural systems  
-- A **toolkit** for simulating recursive systems across space and scale  
-- A **canvas** for interactive storytelling, education, and experimentation  
+```bash
+pip install pytest
+pytest tests/ -v
+```
 
----
-
-## 💡 Contributing
-
-We're early, but open to collaboration. Areas of interest:
-- Agent design and behavioral logic  
-- Puzzle frameworks and challenge design  
-- Procedural generation, compression, and entropy modeling  
-- Game design, UX/TUI, or narrative design  
-
-Feel free to open issues, fork the repo, or suggest improvements.
+33 tests, all passing.
 
 ---
 
-## 📜 License
+## Development phases
 
-MIT (subject to update once we open source officially)
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 1 | Scaffold spatial hierarchy and generator | Complete |
+| 1.5 | Add metadata to each node | Complete |
+| 2 | Agent FSM traversal and logging | Complete |
+| 3 | Puzzle engine with four puzzle kinds | Complete |
+| 4 | TUI, save/load, narrative arcs | Planned |
 
 ---
 
-## 🌱 Author
+## License
 
-**Mark Weeks**  
-[markweeks.dev](https://markweeks.dev) · [multilogue.io](https://multilogue.io)  
-AI + SaaS + Simulation + Storytelling
+MIT
+
+## Author
+
+**Mark Weeks** — [markweeks.dev](https://markweeks.dev) · [multilogue.io](https://multilogue.io)

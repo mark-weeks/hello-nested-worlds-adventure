@@ -13,37 +13,120 @@ LEVELS = [
     "Object",
     "Molecule",
     "Atom",
-    "SubatomicParticle"
+    "SubatomicParticle",
 ]
 
-def generate_properties(level: str) -> dict:
+_MULTIVERSE_NAMES = ["Aethon", "Vorrex", "Nullspace", "Cascade", "Ouroboros"]
+_UNIVERSE_NAMES = ["Aldric", "Solvane", "Mireth", "Cerulean", "Thornvast"]
+_GALAXY_NAMES = ["Vela", "Cygnus", "Andromeda", "Sable Arm", "Ember Drift"]
+_PLANET_NAMES = ["Kethara", "Droven", "Islune", "Pyreth", "Solmara", "Ashveil", "Quelris"]
+_REGION_NAMES = ["Ashfields", "The Mire", "Crystalpeak", "Undergate", "Verdant Hollow"]
+_ROOM_NAMES = ["Antechamber", "Vault", "Observatory", "Engine Room", "Sanctum", "The Pit", "Archive"]
+_OBJECT_NAMES = ["Obelisk", "Terminal", "Chest", "Mirror", "Mechanism", "Rune Stone", "Conduit"]
+_BIOMES = ["tundra", "jungle", "desert", "ocean", "volcanic", "temperate", "irradiated"]
+_FACTIONS = ["The Conclave", "Iron Veil", "Drifters", "Null Cult", "Reclaimer Order"]
+
+
+def _pick(pool: list, rng: random.Random) -> str:
+    return rng.choice(pool)
+
+
+def generate_properties(level: str, rng: random.Random) -> dict:
     templates = {
-        "Multiverse": {"theme": random.choice(["entropy", "expansion", "paradox"])},
-        "Universe": {"laws_of_physics": random.choice(["Newtonian", "Quantum", "Fractal"])},
-        "Galaxy": {"star_density": random.randint(50, 200)},
-        "Planet": {"gravity": round(random.uniform(0.5, 2.0), 2), "inhabited": random.choice([True, False])},
-        "Region": {"danger_level": random.randint(1, 10)},
-        "Room": {"has_puzzle": random.choice([True, False]), "locked": random.choice([True, False])},
-        "Object": {"interactive": random.choice([True, False])},
-        "Molecule": {"compound_type": random.choice(["organic", "inorganic"])},
-        "Atom": {"element": random.choice(["H", "C", "O", "N", "Fe"])},
-        "SubatomicParticle": {"particle_type": random.choice(["proton", "neutron", "electron"])},
+        "Multiverse": {
+            "theme": _pick(["entropy", "expansion", "paradox", "recursion", "stillness"], rng),
+            "age_billion_years": round(rng.uniform(1.0, 100.0), 1),
+            "stability": _pick(["stable", "fraying", "collapsing"], rng),
+        },
+        "Universe": {
+            "laws_of_physics": _pick(["Newtonian", "Quantum", "Fractal", "Inverted", "Probabilistic"], rng),
+            "dark_matter_ratio": round(rng.uniform(0.1, 0.9), 2),
+            "dominant_faction": _pick(_FACTIONS, rng),
+        },
+        "Galaxy": {
+            "star_density": rng.randint(50, 500),
+            "shape": _pick(["spiral", "elliptical", "irregular", "ring"], rng),
+            "black_hole_mass_solar": rng.randint(100_000, 10_000_000),
+        },
+        "Planet": {
+            "gravity": round(rng.uniform(0.1, 3.5), 2),
+            "biome": _pick(_BIOMES, rng),
+            "inhabited": rng.choice([True, False]),
+            "population": rng.randint(0, 10_000_000_000) if rng.random() > 0.4 else 0,
+            "moons": rng.randint(0, 8),
+        },
+        "Region": {
+            "danger_level": rng.randint(1, 10),
+            "terrain": _pick(["ruins", "wilderness", "urban", "underground", "floating"], rng),
+            "faction_control": _pick(_FACTIONS + ["contested", "none"], rng),
+            "has_settlement": rng.choice([True, False]),
+        },
+        "Room": {
+            "has_puzzle": rng.choice([True, False]),
+            "locked": rng.choice([True, False]),
+            "lighting": _pick(["bright", "dim", "dark", "flickering"], rng),
+            "exits": rng.randint(1, 4),
+            "contains_npc": rng.choice([True, False]),
+        },
+        "Object": {
+            "interactive": rng.choice([True, False]),
+            "material": _pick(["stone", "metal", "crystal", "wood", "energy", "bone"], rng),
+            "condition": _pick(["pristine", "worn", "damaged", "corrupted"], rng),
+            "weight_kg": round(rng.uniform(0.01, 500.0), 2),
+        },
+        "Molecule": {
+            "compound_type": _pick(["organic", "inorganic", "synthetic", "exotic"], rng),
+            "bond_count": rng.randint(1, 12),
+            "reactive": rng.choice([True, False]),
+        },
+        "Atom": {
+            "element": _pick(["H", "C", "O", "N", "Fe", "Au", "Si", "Xe", "Pb", "U"], rng),
+            "ionized": rng.choice([True, False]),
+            "atomic_number": rng.randint(1, 118),
+        },
+        "SubatomicParticle": {
+            "particle_type": _pick(["proton", "neutron", "electron", "quark", "neutrino", "photon"], rng),
+            "spin": _pick(["up", "down", "superposed"], rng),
+            "charge": _pick([-1, 0, 1], rng),
+        },
     }
     return templates.get(level, {})
 
-def generate_node_hierarchy(seed: int = 42, depth: int = 10, breadth: int = 2) -> SpatialNode:
-    random.seed(seed)
+
+_NAME_POOLS = {
+    "Multiverse": _MULTIVERSE_NAMES,
+    "Universe": _UNIVERSE_NAMES,
+    "Galaxy": _GALAXY_NAMES,
+    "Planet": _PLANET_NAMES,
+    "Region": _REGION_NAMES,
+    "Room": _ROOM_NAMES,
+    "Object": _OBJECT_NAMES,
+}
+
+
+def _generate_name(level: str, index: int, rng: random.Random) -> str:
+    pool = _NAME_POOLS.get(level)
+    if pool:
+        return f"{_pick(pool, rng)}-{index}"
+    suffixes = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]
+    return f"{level}-{_pick(suffixes, rng)}-{index}"
+
+
+def generate_node_hierarchy(seed: int = 42, max_depth: int = 10, min_breadth: int = 1, max_breadth: int = 3) -> SpatialNode:
+    rng = random.Random(seed)
+    counter = [0]
 
     def _generate(level_index: int) -> SpatialNode:
         level = LEVELS[level_index]
-        name = f"{level}_{random.randint(100, 999)}"
-        properties = generate_properties(level)
+        counter[0] += 1
+        name = _generate_name(level, counter[0], rng)
+        properties = generate_properties(level, rng)
         node = SpatialNode(name=name, level=level, properties=properties)
 
-        if level_index + 1 < depth:
+        if level_index + 1 < max_depth:
+            breadth = rng.randint(min_breadth, max_breadth)
             for _ in range(breadth):
-                child = _generate(level_index + 1)
-                node.add_child(child)
+                node.add_child(_generate(level_index + 1))
 
         return node
 
