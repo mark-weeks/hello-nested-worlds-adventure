@@ -1,7 +1,5 @@
-# agents/agent.py
-
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 from multiverse.node import SpatialNode
 from agents.behaviors import State, transition, should_avoid
 
@@ -22,7 +20,7 @@ class Agent:
     log: List[AgentLog] = field(default_factory=list)
     visited: List[str] = field(default_factory=list)
 
-    def _record(self, node: SpatialNode, action: str):
+    def _record(self, node: SpatialNode, action: str) -> None:
         self.log.append(AgentLog(
             node_name=node.name,
             level=node.level,
@@ -30,11 +28,11 @@ class Agent:
             action=action,
         ))
 
-    def _act(self, node: SpatialNode):
+    def _act(self, node: SpatialNode) -> bool:
         if self.state == State.EXPLORE:
             if should_avoid(node, self.danger_threshold):
                 self._record(node, f"avoided (danger_level={node.properties.get('danger_level')})")
-                return False  # signal: don't descend
+                return False
             self._record(node, "explored")
 
         elif self.state == State.INTERACT:
@@ -50,13 +48,20 @@ class Agent:
 
         return True
 
-    def traverse(self, node: SpatialNode, max_nodes: int = 50):
-        if len(self.visited) >= max_nodes:
+    def traverse(self, node: SpatialNode, max_nodes: int = 50) -> None:
+        """Reset agent state and traverse the hierarchy rooted at `node`."""
+        self.state = State.IDLE
+        self.log = []
+        self.visited = []
+        self._traverse(node, max_nodes, depth=0)
+
+    def _traverse(self, node: SpatialNode, max_nodes: int, depth: int) -> None:
+        if len(self.visited) >= max_nodes or depth > 500:
             return
-        if node.name in self.visited:
+        if node.id in self.visited:
             return
 
-        self.visited.append(node.name)
+        self.visited.append(node.id)
         self.state = transition(self.state, node)
         should_descend = self._act(node)
 
@@ -64,8 +69,7 @@ class Agent:
             for child in node.children:
                 if len(self.visited) >= max_nodes:
                     break
-                self.state = transition(self.state, child)
-                self.traverse(child, max_nodes)
+                self._traverse(child, max_nodes, depth + 1)
 
     def report(self) -> str:
         lines = [f"Agent '{self.name}' traversal report ({len(self.log)} events):"]

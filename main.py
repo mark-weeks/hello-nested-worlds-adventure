@@ -1,9 +1,24 @@
-# main.py
-
 import argparse
-from multiverse.generator import generate_node_hierarchy
+
+import persistence
 from agents.agent import Agent
+from multiverse.generator import generate_node_hierarchy
+from multiverse.node import SpatialNode
 from puzzles.engine import PuzzleEngine
+
+
+def _count_nodes(node: SpatialNode) -> int:
+    return 1 + sum(_count_nodes(c) for c in node.children)
+
+
+def _find_node(root: SpatialNode, name: str) -> SpatialNode | None:
+    if root.name == name:
+        return root
+    for child in root.children:
+        found = _find_node(child, name)
+        if found:
+            return found
+    return None
 
 
 def cmd_world(args):
@@ -14,6 +29,9 @@ def cmd_world(args):
         max_breadth=args.max_breadth,
     )
     print(root)
+    node_count = _count_nodes(root)
+    persistence.save_world(args.seed, node_count, args.depth, args.min_breadth, args.max_breadth)
+    print(f"[Saved: seed={args.seed}, {node_count} nodes]")
 
 
 def cmd_agent(args):
@@ -21,6 +39,12 @@ def cmd_agent(args):
     agent = Agent(name=args.name, danger_threshold=args.danger_threshold)
     agent.traverse(root, max_nodes=args.max_nodes)
     print(agent.report())
+    events = [
+        {"node": e.node_name, "level": e.level, "state": e.state.name, "action": e.action}
+        for e in agent.log
+    ]
+    persistence.save_agent_run(args.name, args.seed, len(agent.visited), events)
+    print(f"[Run saved: {len(agent.visited)} nodes visited]")
 
 
 def cmd_puzzles(args):
@@ -36,6 +60,44 @@ def cmd_puzzles(args):
     print(f"Found {len(puzzles)} puzzle(s) in this world.\n")
     for puzzle in puzzles:
         engine.run_puzzle(puzzle)
+        persistence.save_puzzle_result(args.seed, puzzle.name, puzzle.result.name, puzzle.attempts)
+
+
+def cmd_history(args):
+    worlds = persistence.list_worlds()
+    if not worlds:
+        print("No worlds saved yet. Run the 'world' or 'agent' command to generate some.")
+        return
+    print(f"{'Seed':>8}  {'Saved':>20}  {'Nodes':>8}  {'Depth':>6}")
+    print("-" * 50)
+    for w in worlds:
+        print(
+            f"{w['seed']:>8}  {w['created_at']:>20}"
+            f"  {str(w['node_count'] or '?'):>8}  {str(w['max_depth'] or '?'):>6}"
+        )
+        for r in persistence.get_agent_runs(w["seed"]):
+            print(f"          agent '{r['agent_name']}' — {r['nodes_visited']} nodes  ({r['started_at']})")
+
+
+def cmd_speak(args):
+    try:
+        import consciousness
+    except ImportError:
+        print("Consciousness module requires: pip install anthropic")
+        return
+
+    root = generate_node_hierarchy(seed=args.seed)
+    target = _find_node(root, args.node) if args.node else root
+    if target is None:
+        print(f"Node '{args.node}' not found in seed={args.seed}. Run 'world' to see available nodes.")
+        return
+
+    print(f"\n[{target.level}: {target.name}]")
+    try:
+        print(consciousness.speak(target, args.message))
+    except Exception as e:
+        print(f"Error: {e}")
+        print("Ensure ANTHROPIC_API_KEY is set in your environment.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -46,14 +108,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=42, help="RNG seed (default: 42)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # world subcommand
     p_world = sub.add_parser("world", help="Generate and print the world hierarchy")
     p_world.add_argument("--depth", type=int, default=10, help="Max hierarchy depth (default: 10)")
     p_world.add_argument("--min-breadth", type=int, default=1, dest="min_breadth")
     p_world.add_argument("--max-breadth", type=int, default=3, dest="max_breadth")
     p_world.set_defaults(func=cmd_world)
 
-    # agent subcommand
     p_agent = sub.add_parser("agent", help="Run an agent traversal of the world")
     p_agent.add_argument("--name", type=str, default="Scout", help="Agent name (default: Scout)")
     p_agent.add_argument("--danger-threshold", type=int, default=6, dest="danger_threshold",
@@ -62,9 +122,22 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Max nodes to visit (default: 50)")
     p_agent.set_defaults(func=cmd_agent)
 
-    # puzzles subcommand
     p_puzzles = sub.add_parser("puzzles", help="Find and play puzzles in the world")
     p_puzzles.set_defaults(func=cmd_puzzles)
+
+    p_history = sub.add_parser("history", help="Show saved worlds and agent runs")
+    p_history.set_defaults(func=cmd_history)
+
+    p_speak = sub.add_parser("speak", help="Speak to a node using Claude consciousness")
+    p_speak.add_argument("--node", type=str, default=None,
+                         help="Node name to address (default: root of world)")
+    p_speak.add_argument(
+        "--message",
+        type=str,
+        default="Describe yourself to a traveler who has just arrived.",
+        help="Message to send to the node",
+    )
+    p_speak.set_defaults(func=cmd_speak)
 
     return parser
 

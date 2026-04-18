@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+from typing import Any
+
+from multiverse.node import SpatialNode
+
+# Lazy-initialised so the module loads without requiring anthropic to be installed.
+_client: Any = None
+
+_SYSTEM_PREAMBLE = (
+    "You are a sentient entity within a nested multiverse simulation. "
+    "You speak as the location or object you embody — atmospheric, in-world, and brief. "
+    "Never break the fourth wall or reveal that you are an AI. "
+    "Respond in 1–3 sentences only."
+)
+
+
+def _get_client() -> Any:
+    global _client
+    if _client is None:
+        from anthropic import Anthropic
+        _client = Anthropic()
+    return _client
+
+
+def speak(node: SpatialNode, message: str) -> str:
+    """Send `message` to `node` and return its in-character response.
+
+    The shared behavioural preamble is marked for prompt caching so repeated
+    calls across different nodes reuse the cached prefix and avoid redundant
+    token processing.
+    """
+    props = "; ".join(f"{k}={v}" for k, v in node.properties.items())
+    node_context = f"You are {node.name}, a {node.level}. Your nature: {props}."
+
+    response = _get_client().messages.create(
+        model="claude-opus-4-7",
+        max_tokens=256,
+        system=[
+            {
+                "type": "text",
+                "text": _SYSTEM_PREAMBLE,
+                "cache_control": {"type": "ephemeral"},
+            },
+            {
+                "type": "text",
+                "text": node_context,
+            },
+        ],
+        messages=[{"role": "user", "content": message}],
+    )
+    return response.content[0].text
+
+
+def describe(node: SpatialNode) -> str:
+    """Ask the node to introduce itself to a newly arrived traveller."""
+    return speak(node, "Describe yourself to a traveler who has just arrived here.")
