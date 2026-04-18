@@ -1,126 +1,117 @@
-# hello-nested-worlds-adventure
+# nested-worlds
 
-A procedural multiverse simulation engine with autonomous agents and escape-room puzzles.
-
----
-
-## What it does
-
-Generates a recursive world hierarchy — Multiverse down to SubatomicParticle — and lets you run agents through it or discover and solve puzzles embedded in the world.
+**A shared persistent multiverse inhabited simultaneously by human players and AI agents.**
 
 ---
 
-## Quick start
+## Concept
 
-```bash
-# Print the generated world tree
-python main.py world
+Nested Worlds is an environment where the boundary between player, agent, and world is deliberately blurred.
 
-# Run an agent through the world and print its traversal log
-python main.py agent
+The multiverse is always running. You enter and find it already in motion — other humans and AI agents traversing different scales, each leaving traces the world carries forward. You may never encounter another player directly, but you will feel the consequences of their presence through cross-scale causality: a destabilized atom cascading into a volatile region, a solved puzzle stabilizing a galaxy, an agent's curiosity reshaping a planet's danger over time.
 
-# Find and interactively play puzzles in the world
-python main.py puzzles
-```
+Every node in the hierarchy is a perspective, not just a data structure. The Vault speaks from its history. The Mire remembers who passed through. Nodes are animated by Claude and respond in character — their voice seeded by accumulated properties and interaction history. Talking to a node is a way of learning what it *is*. Whether you're speaking to a world node or an AI agent who has settled into one is a question the system leaves deliberately open.
 
-All commands accept `--seed INT` for reproducible runs. Use `--help` on any subcommand for options:
-
-```bash
-python main.py world --help
-python main.py agent --name "Recon" --danger-threshold 4
-python main.py --seed 7 world --depth 6 --min-breadth 1 --max-breadth 3
-```
+Interaction is multi-modal: natural language for depth, visual navigation for movement, ambient observation for those who want to watch the world evolve without directing it. The visual layer is a piece of generative art that responds to world state — causal events visible as ripples, other presences as signatures in the field.
 
 ---
 
 ## Architecture
 
-### Spatial hierarchy
+### The Hierarchy
 
-10 nested levels, each with level-specific metadata:
+Ten nested scales, each with its own aesthetic register and causal weight:
 
 ```
 Multiverse → Universe → Galaxy → Planet → Region → Room → Object → Molecule → Atom → SubatomicParticle
 ```
 
-Example properties by level:
+### Core Systems
 
-| Level | Properties |
-|-------|------------|
-| Multiverse | theme, age, stability |
-| Planet | gravity, biome, inhabited, population, moons |
-| Region | danger_level, terrain, faction_control |
-| Room | has_puzzle, locked, lighting, exits |
-| Atom | element, ionized, atomic_number |
+**World Model** (`multiverse/`)
+The persistent spatial hierarchy. Nodes carry level-specific properties, accumulated interaction history, and causal state. The generator seeds the world deterministically; everything after that is live.
 
-### Agent system
+**Node Consciousness** (`consciousness/`)
+The Claude-powered voice layer. Each node has a persona derived from its properties and history. Nodes respond in character to direct interaction, reference past visitors, and hold perspective on their place in the hierarchy. The line between animated world and inhabiting agent is intentionally porous.
 
-Agents traverse the world using a finite state machine:
+**Causality Engine** (`causality/`)
+A propagation system that carries effects up and down the hierarchy with dampening and delay. Actions register as causal events; the engine resolves their consequences across scales over time. Players and agents shape each other's experiences without necessarily meeting.
 
-```
-IDLE → EXPLORE → INTERACT → EXPLORE
-              └──► EXIT  (dangerous region or dead-end)
-```
+**Agents** (`agents/`)
+Claude-powered entities with distinct personalities, goals, and relationships to specific nodes and scales. Agents traverse the world, interact with nodes and each other, accumulate memory, and can be engaged in conversation. Some destabilize; some tend. Their behavior is driven by goals and shaped by world state.
 
-- Avoid regions where `danger_level > threshold` (configurable)
-- Interact with rooms that have puzzles or interactive objects
-- Log every action with node name, level, and FSM state
+**Persistence** (`persistence/`)
+World state lives in a database. The multiverse exists between sessions. Interaction history, causal state, and agent memory persist. Multiple participants can be present simultaneously.
 
-### Puzzle engine
+**Server** (`server/`)
+Real-time API layer. WebSocket-based synchronization for multi-participant presence. Event stream for causal propagation. REST endpoints for world state queries.
 
-Four puzzle kinds: **Riddle**, **Cipher**, **Lock**, **Sequence**
+**Interface** (`interface/`)
+The visual and interaction layer. Generative art that reflects world state at each scale. Multi-modal interaction: conversational, spatial, ambient. Each scale has a distinct aesthetic vocabulary.
 
-- Each puzzle has a prompt, a canonical answer, hints, and a max-attempt limit
-- `PuzzleEngine` attaches puzzles to `Room` nodes and runs them interactively
-- Answers are case-insensitive and whitespace-tolerant
+**Puzzles** (`puzzles/`)
+Embedded challenges that interact with the causal system. Solving a puzzle isn't just a local event — its resolution propagates. Puzzles are voiced by their containing nodes.
 
 ---
 
-## Project structure
+## Interaction Modes
 
-```
-hello-nested-worlds-adventure/
-├── main.py                      # CLI entry point (world / agent / puzzles)
-├── multiverse/
-│   ├── node.py                  # SpatialNode class
-│   └── generator.py             # Procedural generation with named locations
-├── agents/
-│   ├── agent.py                 # Agent with FSM traversal and logging
-│   └── behaviors.py             # State enum and transition logic
-├── puzzles/
-│   ├── types.py                 # Puzzle dataclass (kind, attempts, hints)
-│   └── engine.py                # PuzzleEngine: attach, collect, run
-├── tests/
-│   ├── test_generator.py        # 8 tests: determinism, depth, properties
-│   ├── test_agent.py            # 14 tests: FSM, avoidance, deduplication
-│   └── test_puzzles.py          # 11 tests: solve, fail, hints, engine
-└── docs/
-    ├── CHANGELOG.md
-    └── architecture/overview.md
-```
+| Mode | Description |
+|------|-------------|
+| Conversational | Natural language exchange with nodes and agents |
+| Spatial | Visual navigation through the hierarchy |
+| Causal | Observing and triggering cross-scale effects |
+| Ambient | Passive presence — watching the world evolve |
 
 ---
 
-## Running tests
+## What Makes This Different
+
+Most games separate human players from AI. Most simulations exclude humans or treat them as inputs. Most interactive fiction is single-player and deterministic.
+
+This is a **shared consciousness space** — always inhabited, always causal, where the distinction between player, agent, and world is part of the experience rather than a technical boundary to manage.
+
+Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interaction patterns occur naturally within the same environment, governed by the same world model and causal rules.
+
+---
+
+## Current State
+
+| System | Status |
+|--------|--------|
+| World model (`multiverse/`) | Functional — named locations, variable branching, rich per-level properties |
+| Agent traversal (`agents/`) | Functional — FSM traversal, danger avoidance, interaction logging |
+| Puzzle engine (`puzzles/`) | Functional — four puzzle kinds, hints, attempt tracking |
+| CLI (`main.py`) | Functional — `world`, `agent`, `puzzles` subcommands |
+| Tests | 33 passing |
+| Node consciousness (`consciousness/`) | Scaffolded |
+| Causality engine (`causality/`) | Scaffolded |
+| Persistence (`persistence/`) | Scaffolded |
+| Server (`server/`) | Scaffolded |
+| Interface (`interface/`) | Scaffolded |
+
+---
+
+## Running Locally
+
+```bash
+# Generate and explore the world hierarchy
+python main.py world
+
+# Run an agent traversal
+python main.py agent --name Scout --danger-threshold 4
+
+# Find and play puzzles
+python main.py puzzles
+
+# All commands accept --seed INT for reproducible runs
+python main.py --seed 7 world --depth 6
+```
 
 ```bash
 pip install pytest
 pytest tests/ -v
 ```
-
-33 tests, all passing.
-
----
-
-## Development phases
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | Scaffold spatial hierarchy and generator | Complete |
-| 1.5 | Add metadata to each node | Complete |
-| 2 | Agent FSM traversal and logging | Complete |
-| 3 | Puzzle engine with four puzzle kinds | Complete |
-| 4 | TUI, save/load, narrative arcs | Planned |
 
 ---
 

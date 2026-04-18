@@ -1,65 +1,108 @@
 # Architecture Overview
 
+## Vision
+
+A shared persistent multiverse inhabited simultaneously by human players and AI agents. The world is always running, always causal, always inhabited. The distinction between player, agent, and world node is deliberately porous.
+
+---
+
+## System Map
+
+```
+┌─────────────────────────────────────────────────────┐
+│                     interface/                       │
+│         visual layer · conversation · ambient        │
+└──────────────────────┬──────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────┐
+│                      server/                         │
+│          WebSocket · REST API · event stream         │
+└────┬──────────────┬──────────────┬───────────────────┘
+     │              │              │
+┌────▼────┐  ┌──────▼──────┐  ┌───▼──────────┐
+│ agents/ │  │consciousness│  │  causality/  │
+│ FSM     │  │ node voice  │  │ propagation  │
+│ personas│  │ Claude layer│  │ engine       │
+└────┬────┘  └──────┬──────┘  └───┬──────────┘
+     │              │              │
+┌────▼──────────────▼──────────────▼──────────┐
+│                 multiverse/                  │
+│        SpatialNode tree · world model        │
+└──────────────────────┬───────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────┐
+│                 persistence/                  │
+│       world state · history · agent memory   │
+└───────────────────────────────────────────────┘
+```
+
+---
+
 ## Components
 
-### `multiverse/` — World Generation
+### `multiverse/` — World Model
+- **`node.py`** — `SpatialNode`: recursive data structure with name, level, children, properties, and interaction history
+- **`generator.py`** — deterministic PCG with named locations, variable branching, and level-specific property templates
 
-- **`node.py`** — `SpatialNode(name, level, children, properties)`: the core recursive data structure. Each node holds level-specific metadata and an ordered list of children.
-- **`generator.py`** — `generate_node_hierarchy(seed, max_depth, min_breadth, max_breadth)`: builds the full tree deterministically. Named locations are sampled per level from curated pools; branching factor is randomized within bounds per node.
+### `consciousness/` — Node Voice Layer
+Claude-powered persona system. Each node's voice is seeded by its properties and interaction history. Nodes respond in character, reference past visitors, and hold perspective. Planned components:
+- `persona.py` — maps node properties to Claude system prompts
+- `memory.py` — per-node interaction history
+- `voice.py` — conversation handler (Claude API integration)
 
-### `agents/` — Agent System
+### `causality/` — Causal Engine
+Propagation system for cross-scale effects. Actions register as events; consequences travel up and down the hierarchy with dampening and delay. Planned components:
+- `event.py` — causal event data model
+- `propagation.py` — hierarchy traversal with dampening
+- `registry.py` — event log and state tracking
 
-- **`behaviors.py`** — `State` enum (`IDLE`, `EXPLORE`, `INTERACT`, `EXIT`) and pure `transition(state, node)` function. Also exposes `should_avoid` and `should_interact` predicates.
-- **`agent.py`** — `Agent` dataclass. Holds traversal state, a visited-node set, and a structured log. `traverse(root, max_nodes)` walks the tree depth-first, applying FSM transitions and recording actions.
+### `agents/` — AI Agent System
+- **`agent.py`** — `Agent` dataclass with FSM traversal, danger avoidance, interaction logging
+- **`behaviors.py`** — `State` enum, `transition()` function, behavioral predicates
+- Planned: `persona.py` for Claude-powered agent personalities with goals and memory
 
-**FSM transitions:**
+### `persistence/` — World State
+Planned: database layer for persistent world state, node history, agent memory, and causal event log. Enables the world to exist between sessions and across multiple simultaneous participants.
 
-```
-IDLE ──► EXPLORE ──► INTERACT ──► EXPLORE
-                 │
-                 └──► EXIT  (dangerous node or dead-end locked room)
-```
+### `server/` — API Layer
+Planned: real-time API for multi-participant synchronization. WebSocket event stream for causal propagation and presence. REST endpoints for world state queries.
 
-### `puzzles/` — Puzzle Engine
+### `interface/` — Visual & Interaction Layer
+Planned: generative visual art responsive to world state. Multi-modal interaction (conversational, spatial, ambient). Distinct aesthetic vocabulary per scale level.
 
-- **`types.py`** — `Puzzle` dataclass with `kind` (`RIDDLE`, `CIPHER`, `LOCK`, `SEQUENCE`), `attempt(guess)`, `hint()`, and result tracking (`UNSOLVED`, `SOLVED`, `FAILED`).
-- **`engine.py`** — `PuzzleEngine`: attaches puzzle instances to `Room` nodes that carry `has_puzzle=True`; collects them back; provides `run_puzzle()` for interactive CLI play.
+### `puzzles/` — Embedded Challenges
+- **`types.py`** — `Puzzle` dataclass (kind, attempts, hints, result)
+- **`engine.py`** — `PuzzleEngine`: attach, collect, run puzzles interactively
+- Planned: causal integration — puzzle resolution propagates as causal events
 
-### `main.py` — CLI Entry Point
+---
 
-Three subcommands:
+## Interaction Patterns
 
-| Command | Description |
-|---------|-------------|
-| `python main.py world` | Print the generated world hierarchy |
-| `python main.py agent` | Run an agent traversal and print its log |
-| `python main.py puzzles` | Find and interactively play puzzles in the world |
+All four patterns occur naturally within the same world model:
 
-All subcommands accept `--seed` for reproducibility.
+| Pattern | Mechanism |
+|---------|-----------|
+| Human → Human | Shared world state, cross-scale causality |
+| Human → Agent | Direct conversation, shared traversal space |
+| Agent → Human | Causal effects, node voice encounters |
+| Agent → Agent | Shared traversal, goal conflict/cooperation |
 
-### `tests/` — Test Suite
-
-33 pytest tests across three modules:
-
-- `test_generator.py` — determinism, breadth/depth bounds, property schemas
-- `test_agent.py` — FSM transitions, avoidance, visit deduplication, report format
-- `test_puzzles.py` — solve/fail/hint logic, case insensitivity, engine idempotency
+---
 
 ## Data Flow
 
 ```
-generate_node_hierarchy(seed)
+Participant (human or agent) enters world
         │
         ▼
-    SpatialNode tree
+Navigate hierarchy (spatial / conversational / ambient)
         │
-        ├──► Agent.traverse()  ──► AgentLog[]  ──► Agent.report()
+        ├──► Interact with node ──► consciousness/ ──► Claude response in character
         │
-        └──► PuzzleEngine.attach_puzzles()
-                    │
-                    ▼
-             PuzzleEngine.collect_puzzles()
-                    │
-                    ▼
-             PuzzleEngine.run_puzzle()  ──► PuzzleResult
+        ├──► Trigger action ──► causality/ ──► propagate effects across scales
+        │
+        ├──► Encounter agent ──► agents/ ──► Claude-powered exchange
+        │
+        └──► All state changes ──► persistence/ ──► world evolves for all participants
 ```
