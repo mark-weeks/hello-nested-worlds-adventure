@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from multiverse.node import SpatialNode
+
+_MODEL = os.environ.get("NESTED_WORLDS_MODEL", "claude-opus-4-7")
 
 # Lazy-initialised so the module loads without requiring anthropic to be installed.
 _client: Any = None
@@ -34,7 +37,7 @@ def speak(node: SpatialNode, message: str) -> str:
     node_context = f"You are {node.name}, a {node.level}. Your nature: {props}."
 
     response = _get_client().messages.create(
-        model="claude-opus-4-7",
+        model=_MODEL,
         max_tokens=256,
         system=[
             {

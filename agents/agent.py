@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from typing import List
 from multiverse.node import SpatialNode
 from agents.behaviors import State, transition, should_avoid
+import causality
+from causality import EventKind
 
 
 @dataclass
@@ -32,12 +34,17 @@ class Agent:
         if self.state == State.EXPLORE:
             if should_avoid(node, self.danger_threshold):
                 self._record(node, f"avoided (danger_level={node.properties.get('danger_level')})")
+                causality.emit(node, EventKind.DANGER_ALERT, {"agent": self.name})
                 return False
             self._record(node, "explored")
+            causality.emit(node, EventKind.AGENT_VISIT, {"agent": self.name})
 
         elif self.state == State.INTERACT:
-            detail = "solved puzzle" if node.properties.get("has_puzzle") else "interacted"
+            has_puzzle = node.properties.get("has_puzzle")
+            detail = "interacted with puzzle" if has_puzzle else "interacted"
             self._record(node, detail)
+            kind = EventKind.PUZZLE_SOLVED if has_puzzle else EventKind.AGENT_VISIT
+            causality.propagate(node, kind, {"agent": self.name})
 
         elif self.state == State.EXIT:
             if should_avoid(node, self.danger_threshold):
@@ -56,6 +63,7 @@ class Agent:
         self._traverse(node, max_nodes, depth=0)
 
     def _traverse(self, node: SpatialNode, max_nodes: int, depth: int) -> None:
+        # Depth guard prevents runaway recursion on pathological trees
         if len(self.visited) >= max_nodes or depth > 500:
             return
         if node.id in self.visited:

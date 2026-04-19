@@ -74,3 +74,25 @@ def test_planet_properties():
         assert "inhabited" in planet.properties
         assert "moons" in planet.properties
         assert 0.1 <= planet.properties["gravity"] <= 3.5
+
+
+class TestGeneratorValidation:
+    def test_min_breadth_exceeds_max_raises(self):
+        with pytest.raises(ValueError, match="min_breadth"):
+            generate_node_hierarchy(min_breadth=5, max_breadth=2)
+
+    def test_max_depth_zero_raises(self):
+        with pytest.raises(ValueError, match="max_depth"):
+            generate_node_hierarchy(max_depth=0)
+
+    def test_max_depth_too_large_raises(self):
+        with pytest.raises(ValueError, match="max_depth"):
+            generate_node_hierarchy(max_depth=len(LEVELS) + 1)
+
+    def test_valid_params_do_not_raise(self):
+        root = generate_node_hierarchy(seed=1, max_depth=3, min_breadth=2, max_breadth=2)
+        assert root is not None
+
+    def test_equal_min_max_breadth_is_valid(self):
+        root = generate_node_hierarchy(seed=1, max_depth=3, min_breadth=2, max_breadth=2)
+        assert len(root.children) == 2
