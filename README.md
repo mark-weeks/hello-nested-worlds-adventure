@@ -80,17 +80,33 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 | System | Status |
 |--------|--------|
 | World model (`multiverse/`) | Functional — named locations, variable branching, rich per-level properties |
-| Agent traversal (`agents/`) | Functional — FSM traversal, danger avoidance, interaction logging |
+| Agent traversal (`agents/`) | Functional — FSM traversal, danger avoidance, interaction logging, causal event emission |
 | Puzzle engine (`puzzles/`) | Functional — four puzzle kinds, hints, attempt tracking |
-| CLI (`main.py`) | Functional — `world`, `agent`, `puzzles` subcommands |
-| Tests | 33 passing |
-| Node consciousness (`consciousness/`) | Scaffolded |
-| Causality engine (`causality/`) | Scaffolded |
-| Persistence (`persistence/`) | Scaffolded |
-| Server (`server/`) | Scaffolded |
+| Causality engine (`causality/`) | Functional — event propagation with configurable dampening |
+| Persistence (`persistence/`) | Functional — SQLite world state, agent runs, puzzle results |
+| REST server (`server/`) | Functional — `/health` `/worlds` `/world` `/agent` endpoints |
+| CLI (`main.py`) | Functional — `world`, `agent`, `puzzles`, `serve`, `speak`, `history` |
+| Node consciousness (`consciousness/`) | Functional — Claude-powered node voices (requires `ANTHROPIC_API_KEY`) |
+| Tests | 55+ tests across generator, agents, puzzles, persistence, causality |
 | Interface (`interface/`) | Scaffolded |
 
 ---
+
+## Setup
+
+```bash
+# Install runtime dependencies
+pip install anthropic
+
+# Install with dev dependencies (for tests)
+pip install -e ".[dev]"
+
+# Set your Anthropic API key (only required for the `speak` command)
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Override the Claude model (optional, defaults to claude-opus-4-7)
+export NESTED_WORLDS_MODEL=claude-sonnet-4-6
+```
 
 ## Running Locally
 
@@ -104,12 +120,23 @@ python main.py agent --name Scout --danger-threshold 4
 # Find and play puzzles
 python main.py puzzles
 
+# Start the REST API server (http://127.0.0.1:8080)
+python main.py serve
+
+# Speak to a node using Claude
+python main.py speak --node "Vault-3" --message "What secrets do you hold?"
+
+# View saved worlds and agent run history
+python main.py history
+
 # All commands accept --seed INT for reproducible runs
 python main.py --seed 7 world --depth 6
 ```
 
+## Running Tests
+
 ```bash
-pip install pytest
+pip install -e ".[dev]"
 pytest tests/ -v
 ```
 

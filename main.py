@@ -79,6 +79,11 @@ def cmd_history(args):
             print(f"          agent '{r['agent_name']}' — {r['nodes_visited']} nodes  ({r['started_at']})")
 
 
+def cmd_serve(args):
+    import server
+    server.run(host=args.host, port=args.port)
+
+
 def cmd_speak(args):
     try:
         import consciousness
@@ -127,6 +132,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_history = sub.add_parser("history", help="Show saved worlds and agent runs")
     p_history.set_defaults(func=cmd_history)
+
+    p_serve = sub.add_parser("serve", help="Start the REST API server")
+    p_serve.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    p_serve.add_argument("--port", type=int, default=8080, help="Bind port (default: 8080)")
+    p_serve.set_defaults(func=cmd_serve)
 
     p_speak = sub.add_parser("speak", help="Speak to a node using Claude consciousness")
     p_speak.add_argument("--node", type=str, default=None,

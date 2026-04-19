@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ def _connect() -> sqlite3.Connection:
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(_DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    _DB_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0o600 — owner read/write only
     return conn
 
 

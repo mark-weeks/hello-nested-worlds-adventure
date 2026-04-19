@@ -113,6 +113,10 @@ def _generate_name(level: str, index: int, rng: random.Random) -> str:
 
 
 def generate_node_hierarchy(seed: int = 42, max_depth: int = 10, min_breadth: int = 1, max_breadth: int = 3) -> SpatialNode:
+    if min_breadth > max_breadth:
+        raise ValueError(f"min_breadth ({min_breadth}) must not exceed max_breadth ({max_breadth})")
+    if not 1 <= max_depth <= len(LEVELS):
+        raise ValueError(f"max_depth must be between 1 and {len(LEVELS)}, got {max_depth}")
     rng = random.Random(seed)
     counter = [0]
 
