@@ -60,7 +60,78 @@ _SEQUENCE_PUZZLES = [
     ),
 ]
 
-_ALL_PUZZLES = _RIDDLES + _CIPHER_PUZZLES + _LOCK_PUZZLES + _SEQUENCE_PUZZLES
+_PATTERN_PUZZLES = [
+    Puzzle(
+        name="The Ascending Squares",
+        kind=PuzzleKind.PATTERN,
+        prompt="What comes next in the sequence: 1, 4, 9, 16, 25, ?",
+        answer="36",
+        hints=["Each number is a perfect square.", "6 × 6 = ?"],
+    ),
+    Puzzle(
+        name="The Skipping Alphabet",
+        kind=PuzzleKind.PATTERN,
+        prompt="What letter comes next: A, C, E, G, ?",
+        answer="I",
+        hints=["Every other letter of the alphabet.", "The pattern skips one letter each time."],
+    ),
+]
+
+_LOGIC_PUZZLES = [
+    Puzzle(
+        name="The Shepherd's Count",
+        kind=PuzzleKind.LOGIC,
+        prompt="A shepherd has 17 sheep. All but 9 wander off into the void. How many remain?",
+        answer="9",
+        hints=["Read carefully — 'all but 9'.", "'All but 9' means exactly 9 are still here."],
+    ),
+    Puzzle(
+        name="The Three Travelers",
+        kind=PuzzleKind.LOGIC,
+        prompt="Two fathers and two sons sat down to eat. Three rations were served — each person received exactly one. How many people were there?",
+        answer="3",
+        hints=["One of the fathers is also a son.", "Think: grandfather, father, child."],
+    ),
+]
+
+_ANAGRAM_PUZZLES = [
+    Puzzle(
+        name="The Scrambled Gate",
+        kind=PuzzleKind.ANAGRAM,
+        prompt="Unscramble these letters to find what connects worlds: LATPRO",
+        answer="portal",
+        hints=["It is a doorway between places.", "Six letters. Starts with P."],
+    ),
+    Puzzle(
+        name="The Hidden Force",
+        kind=PuzzleKind.ANAGRAM,
+        prompt="Unscramble to reveal a fundamental force: YTGVIAR",
+        answer="gravity",
+        hints=["It pulls things together across every scale.", "Seven letters. Shapes every planet."],
+    ),
+]
+
+_NAVIGATION_PUZZLES = [
+    Puzzle(
+        name="The Directional Trial",
+        kind=PuzzleKind.NAVIGATION,
+        prompt="You enter a corridor facing north. You turn right, walk forward, then turn left, walk forward. What direction are you now facing?",
+        answer="north",
+        hints=["Right from north is east. Left from east is north.", "Each turn changes your facing direction only — not your position."],
+    ),
+    Puzzle(
+        name="The Return Path",
+        kind=PuzzleKind.NAVIGATION,
+        prompt="From the entrance: go north, then east, then south. What single direction returns you to the start?",
+        answer="west",
+        hints=["Track your position step by step.", "You ended up one step east of where you started."],
+    ),
+]
+
+_ALL_PUZZLES = (
+    _RIDDLES + _CIPHER_PUZZLES + _LOCK_PUZZLES + _SEQUENCE_PUZZLES
+    + _PATTERN_PUZZLES + _LOGIC_PUZZLES + _ANAGRAM_PUZZLES + _NAVIGATION_PUZZLES
+)
 
 
 class PuzzleEngine:

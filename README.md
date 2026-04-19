@@ -1,4 +1,4 @@
-# nested-worlds
+# Nested Worlds Adventure
 
 **A shared persistent multiverse inhabited simultaneously by human players and AI agents.**
 
@@ -6,7 +6,7 @@
 
 ## Concept
 
-Nested Worlds is an environment where the boundary between player, agent, and world is deliberately blurred.
+Nested Worlds Adventure is an environment where the boundary between player, agent, and world is deliberately blurred.
 
 The multiverse is always running. You enter and find it already in motion — other humans and AI agents traversing different scales, each leaving traces the world carries forward. You may never encounter another player directly, but you will feel the consequences of their presence through cross-scale causality: a destabilized atom cascading into a volatile region, a solved puzzle stabilizing a galaxy, an agent's curiosity reshaping a planet's danger over time.
 
@@ -23,7 +23,7 @@ Interaction is multi-modal: natural language for depth, visual navigation for mo
 Ten nested scales, each with its own aesthetic register and causal weight:
 
 ```
-Multiverse → Universe → Galaxy → Planet → Region → Room → Object → Molecule → Atom → SubatomicParticle
+Multiverse → Universe → Galaxy → Planetary System → Planet → Region → Room → Object → Molecule → Atom → SubatomicParticle
 ```
 
 ### Core Systems
@@ -80,7 +80,7 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 | System | Status |
 |--------|--------|
 | World model (`multiverse/`) | Functional — named locations, variable branching, rich per-level properties |
-| Agent traversal (`agents/`) | Functional — FSM traversal, danger avoidance, interaction logging, causal event emission |
+| Agent traversal (`agents/`) | Functional — FSM traversal, self-preservation, interaction logging, causal event emission |
 | Puzzle engine (`puzzles/`) | Functional — four puzzle kinds, hints, attempt tracking |
 | Causality engine (`causality/`) | Functional — event propagation with configurable dampening |
 | Persistence (`persistence/`) | Functional — SQLite world state, agent runs, puzzle results |

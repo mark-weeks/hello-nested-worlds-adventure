@@ -2,7 +2,7 @@ import pytest
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from agents.agent import Agent
-from agents.behaviors import State, transition, should_avoid, should_interact
+from agents.behaviors import State, transition, should_preserve, should_interact
 
 
 def make_node(level="Room", **props):
@@ -10,13 +10,13 @@ def make_node(level="Room", **props):
 
 
 class TestBehaviors:
-    def test_should_avoid_high_danger(self):
+    def test_should_preserve_from_high_danger(self):
         node = make_node(danger_level=8)
-        assert should_avoid(node, danger_threshold=6)
+        assert should_preserve(node, danger_threshold=6)
 
-    def test_should_not_avoid_low_danger(self):
+    def test_should_not_preserve_from_low_danger(self):
         node = make_node(danger_level=3)
-        assert not should_avoid(node, danger_threshold=6)
+        assert not should_preserve(node, danger_threshold=6)
 
     def test_should_interact_with_puzzle(self):
         node = make_node(has_puzzle=True)
@@ -61,7 +61,7 @@ class TestAgent:
         agent.traverse(root, max_nodes=10)
         assert len(agent.visited) <= 10
 
-    def test_agent_avoids_dangerous_nodes(self):
+    def test_agent_withdraws_from_dangerous_nodes(self):
         dangerous = SpatialNode(name="Danger-Zone", level="Region", properties={"danger_level": 9})
         safe = SpatialNode(name="Safe-Zone", level="Region", properties={"danger_level": 2})
         root = SpatialNode(name="Root", level="Planet", properties={"gravity": 1.0})
@@ -71,8 +71,8 @@ class TestAgent:
         agent = Agent(name="Cautious", danger_threshold=6)
         agent.traverse(root, max_nodes=20)
 
-        avoided = [e for e in agent.log if "avoided" in e.action]
-        assert len(avoided) >= 1
+        withdrew = [e for e in agent.log if "withdrew" in e.action]
+        assert len(withdrew) >= 1
 
     def test_agent_report_contains_name(self):
         root = generate_node_hierarchy(seed=5, max_depth=3, min_breadth=1, max_breadth=1)
