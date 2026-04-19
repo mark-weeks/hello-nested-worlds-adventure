@@ -102,7 +102,7 @@ class _Handler(BaseHTTPRequestHandler):
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     """Start the HTTP server (blocking)."""
     server = HTTPServer((host, port), _Handler)
-    print(f"Nested Worlds server running at http://{host}:{port}")
+    print(f"Nested Worlds Adventure server running at http://{host}:{port}")
     print("Endpoints: /health  /worlds  /world?seed=N  /agent?seed=N")
     print("Press Ctrl+C to stop.")
     try:

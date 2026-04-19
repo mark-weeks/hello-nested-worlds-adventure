@@ -7,6 +7,7 @@ LEVELS = [
     "Multiverse",
     "Universe",
     "Galaxy",
+    "Planetary System",
     "Planet",
     "Region",
     "Room",
@@ -19,6 +20,7 @@ LEVELS = [
 _MULTIVERSE_NAMES = ["Aethon", "Vorrex", "Nullspace", "Cascade", "Ouroboros"]
 _UNIVERSE_NAMES = ["Aldric", "Solvane", "Mireth", "Cerulean", "Thornvast"]
 _GALAXY_NAMES = ["Vela", "Cygnus", "Andromeda", "Sable Arm", "Ember Drift"]
+_PLANETARY_SYSTEM_NAMES = ["Ardent Prime", "Vethara", "Keleth", "Auric", "Thorngate", "Solweave", "Kaelos"]
 _PLANET_NAMES = ["Kethara", "Droven", "Islune", "Pyreth", "Solmara", "Ashveil", "Quelris"]
 _REGION_NAMES = ["Ashfields", "The Mire", "Crystalpeak", "Undergate", "Verdant Hollow"]
 _ROOM_NAMES = ["Antechamber", "Vault", "Observatory", "Engine Room", "Sanctum", "The Pit", "Archive"]
@@ -47,6 +49,12 @@ def generate_properties(level: str, rng: random.Random) -> dict:
             "star_density": rng.randint(50, 500),
             "shape": _pick(["spiral", "elliptical", "irregular", "ring"], rng),
             "black_hole_mass_solar": rng.randint(100_000, 10_000_000),
+        },
+        "Planetary System": {
+            "star_type": _pick(["yellow dwarf", "red dwarf", "white dwarf", "binary", "neutron star"], rng),
+            "planet_count": rng.randint(1, 12),
+            "habitable_zone": rng.choice([True, False]),
+            "asteroid_belt": rng.choice([True, False]),
         },
         "Planet": {
             "gravity": round(rng.uniform(0.1, 3.5), 2),
@@ -97,6 +105,7 @@ _NAME_POOLS = {
     "Multiverse": _MULTIVERSE_NAMES,
     "Universe": _UNIVERSE_NAMES,
     "Galaxy": _GALAXY_NAMES,
+    "Planetary System": _PLANETARY_SYSTEM_NAMES,
     "Planet": _PLANET_NAMES,
     "Region": _REGION_NAMES,
     "Room": _ROOM_NAMES,
@@ -112,7 +121,7 @@ def _generate_name(level: str, index: int, rng: random.Random) -> str:
     return f"{level}-{_pick(suffixes, rng)}-{index}"
 
 
-def generate_node_hierarchy(seed: int = 42, max_depth: int = 10, min_breadth: int = 1, max_breadth: int = 3) -> SpatialNode:
+def generate_node_hierarchy(seed: int = 42, max_depth: int = 11, min_breadth: int = 1, max_breadth: int = 3) -> SpatialNode:
     if min_breadth > max_breadth:
         raise ValueError(f"min_breadth ({min_breadth}) must not exceed max_breadth ({max_breadth})")
     if not 1 <= max_depth <= len(LEVELS):

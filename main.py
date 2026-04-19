@@ -108,7 +108,7 @@ def cmd_speak(args):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="main.py",
-        description="hello-nested-worlds-adventure: multiverse simulation engine",
+        description="Nested Worlds Adventure: shared persistent multiverse simulation",
     )
     parser.add_argument("--seed", type=int, default=42, help="RNG seed (default: 42)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -122,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_agent = sub.add_parser("agent", help="Run an agent traversal of the world")
     p_agent.add_argument("--name", type=str, default="Scout", help="Agent name (default: Scout)")
     p_agent.add_argument("--danger-threshold", type=int, default=6, dest="danger_threshold",
-                         help="Avoid regions with danger_level above this (default: 6)")
+                         help="Self-preservation threshold: withdraw from nodes with danger_level above this (default: 6)")
     p_agent.add_argument("--max-nodes", type=int, default=50, dest="max_nodes",
                          help="Max nodes to visit (default: 50)")
     p_agent.set_defaults(func=cmd_agent)

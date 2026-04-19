@@ -57,7 +57,7 @@ Propagation system for cross-scale effects. Actions register as events; conseque
 - `registry.py` — event log and state tracking
 
 ### `agents/` — AI Agent System
-- **`agent.py`** — `Agent` dataclass with FSM traversal, danger avoidance, interaction logging
+- **`agent.py`** — `Agent` dataclass with FSM traversal, self-preservation logic, interaction logging
 - **`behaviors.py`** — `State` enum, `transition()` function, behavioral predicates
 - Planned: `persona.py` for Claude-powered agent personalities with goals and memory
 

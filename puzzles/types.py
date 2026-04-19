@@ -10,6 +10,10 @@ class PuzzleKind(Enum):
     SEQUENCE = auto()     # Enter items in the right order
     CIPHER = auto()       # Decode an encoded message
     LOCK = auto()         # Supply the correct key/code
+    PATTERN = auto()      # Identify or complete a numeric/symbolic pattern
+    LOGIC = auto()        # Deductive or lateral thinking puzzle
+    ANAGRAM = auto()      # Unscramble letters to form a word or phrase
+    NAVIGATION = auto()   # Follow spatial instructions and determine a result
 
 
 class PuzzleResult(Enum):

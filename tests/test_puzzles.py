@@ -64,7 +64,7 @@ class TestPuzzleTypes:
 
 class TestPuzzleEngine:
     def test_attach_and_collect(self):
-        # max_depth=7 ensures Room nodes (level index 5) are generated, which carry has_puzzle
+        # max_depth=7 ensures Room nodes (level index 6) are generated, which carry has_puzzle
         root = generate_node_hierarchy(seed=42, max_depth=7, min_breadth=2, max_breadth=2)
         engine = PuzzleEngine(seed=42)
         engine.attach_puzzles(root)

@@ -10,7 +10,7 @@ class State(Enum):
     EXIT = auto()
 
 
-def should_avoid(node, danger_threshold: int = 6) -> bool:
+def should_preserve(node, danger_threshold: int = 6) -> bool:
     return node.properties.get("danger_level", 0) > danger_threshold
 
 
@@ -27,7 +27,7 @@ def transition(state: State, node) -> State:
         return State.EXPLORE
 
     if state == State.EXPLORE:
-        if should_avoid(node):
+        if should_preserve(node):
             return State.EXIT
         if should_interact(node):
             return State.INTERACT

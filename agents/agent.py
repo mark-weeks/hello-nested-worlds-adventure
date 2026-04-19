@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List
 from multiverse.node import SpatialNode
-from agents.behaviors import State, transition, should_avoid
+from agents.behaviors import State, transition, should_preserve
 import causality
 from causality import EventKind
 
@@ -32,8 +32,8 @@ class Agent:
 
     def _act(self, node: SpatialNode) -> bool:
         if self.state == State.EXPLORE:
-            if should_avoid(node, self.danger_threshold):
-                self._record(node, f"avoided (danger_level={node.properties.get('danger_level')})")
+            if should_preserve(node, self.danger_threshold):
+                self._record(node, f"withdrew (danger_level={node.properties.get('danger_level')})")
                 causality.emit(node, EventKind.DANGER_ALERT, {"agent": self.name})
                 return False
             self._record(node, "explored")
@@ -47,8 +47,8 @@ class Agent:
             causality.propagate(node, kind, {"agent": self.name})
 
         elif self.state == State.EXIT:
-            if should_avoid(node, self.danger_threshold):
-                self._record(node, f"avoided (danger_level={node.properties.get('danger_level')})")
+            if should_preserve(node, self.danger_threshold):
+                self._record(node, f"withdrew (danger_level={node.properties.get('danger_level')})")
             else:
                 self._record(node, "exited")
             return False

@@ -4,19 +4,19 @@ from multiverse.node import SpatialNode
 
 
 def test_deterministic():
-    a = generate_node_hierarchy(seed=1)
-    b = generate_node_hierarchy(seed=1)
+    a = generate_node_hierarchy(seed=1, max_depth=4)
+    b = generate_node_hierarchy(seed=1, max_depth=4)
     assert repr(a) == repr(b)
 
 
 def test_different_seeds_differ():
-    a = generate_node_hierarchy(seed=1)
-    b = generate_node_hierarchy(seed=99)
+    a = generate_node_hierarchy(seed=1, max_depth=4)
+    b = generate_node_hierarchy(seed=99, max_depth=4)
     assert repr(a) != repr(b)
 
 
 def test_root_is_multiverse():
-    root = generate_node_hierarchy()
+    root = generate_node_hierarchy(max_depth=3)
     assert root.level == "Multiverse"
 
 
@@ -55,8 +55,22 @@ def test_node_levels_follow_hierarchy():
             node = node.children[0]
 
 
+def test_planetary_system_in_hierarchy():
+    root = generate_node_hierarchy(seed=1, max_depth=4, min_breadth=1, max_breadth=1)
+    # With max_depth=4: Multiverse → Universe → Galaxy → Planetary System
+    node = root
+    for _ in range(3):
+        assert node.children, f"{node.level} should have a child"
+        node = node.children[0]
+    assert node.level == "Planetary System"
+    assert "star_type" in node.properties
+    assert "planet_count" in node.properties
+    assert "habitable_zone" in node.properties
+
+
 def test_planet_properties():
-    root = generate_node_hierarchy(seed=42, max_depth=5, min_breadth=2, max_breadth=2)
+    # max_depth=6 reaches Planet (index 4) with Planetary System (index 3) now in between
+    root = generate_node_hierarchy(seed=42, max_depth=6, min_breadth=2, max_breadth=2)
 
     def find_planets(node):
         results = []
