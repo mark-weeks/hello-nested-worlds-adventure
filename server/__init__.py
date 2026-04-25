@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from agents.agent import Agent
 import persistence
+
+_STATIC_DIR = Path(__file__).parent.parent / "static"
 
 
 def _node_to_dict(node: SpatialNode) -> dict:
@@ -39,6 +42,16 @@ class _Handler(BaseHTTPRequestHandler):
     def _send_error(self, message: str, status: int = 400) -> None:
         self._send_json({"error": message}, status)
 
+    def _send_file(self, path: Path, content_type: str = "text/html; charset=utf-8") -> None:
+        if not path.exists():
+            return self._send_error("not found", 404)
+        body = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
@@ -49,7 +62,10 @@ class _Handler(BaseHTTPRequestHandler):
 
         path = parsed.path.rstrip("/")
 
-        if path == "/health":
+        if path in ("", "/"):
+            self._send_file(_STATIC_DIR / "index.html")
+
+        elif path == "/health":
             self._send_json({"status": "ok"})
 
         elif path == "/worlds":
@@ -98,12 +114,40 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self._send_error("not found", 404)
 
+    def do_POST(self):
+        path = urlparse(self.path).path.rstrip("/")
+
+        if path == "/speak":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                body = json.loads(self.rfile.read(length))
+            except json.JSONDecodeError:
+                return self._send_error("invalid JSON")
+
+            node = SpatialNode(
+                name=body.get("node_name", "Unknown"),
+                level=body.get("node_level", "Room"),
+                properties=body.get("node_properties", {}),
+            )
+            message = body.get("message", "Describe yourself to a traveler who has just arrived.")
+
+            try:
+                import consciousness
+                response = consciousness.speak(node, message)
+                self._send_json({"response": response})
+            except ImportError:
+                self._send_error("consciousness module requires: pip install anthropic")
+            except Exception as exc:
+                self._send_error(str(exc))
+
+        else:
+            self._send_error("not found", 404)
+
 
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     """Start the HTTP server (blocking)."""
     server = HTTPServer((host, port), _Handler)
-    print(f"Nested Worlds Adventure server running at http://{host}:{port}")
-    print("Endpoints: /health  /worlds  /world?seed=N  /agent?seed=N")
+    print(f"Nested Worlds Adventure  →  http://{host}:{port}")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()

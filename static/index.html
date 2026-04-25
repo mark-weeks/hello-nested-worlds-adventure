@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Nested Worlds Adventure</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #07080f;
+      color: #b0bcd0;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding: 10px 20px;
+      background: #0b0d1a;
+      border-bottom: 1px solid #1a2038;
+    }
+    header h1 {
+      font-size: 13px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #3a8eff;
+      white-space: nowrap;
+    }
+    .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .ctrl-group { display: flex; align-items: center; gap: 6px; }
+    .ctrl-group label { font-size: 10px; color: #4a6080; letter-spacing: 1px; text-transform: uppercase; }
+    input[type=number] {
+      background: #10131f;
+      border: 1px solid #222840;
+      color: #b0bcd0;
+      padding: 4px 6px;
+      width: 56px;
+      font-family: inherit;
+      font-size: 11px;
+    }
+    input[type=number]:focus { outline: 1px solid #3a8eff; }
+    .sep { color: #2a3050; }
+    button {
+      background: #0e1828;
+      border: 1px solid #2a4060;
+      color: #3a8eff;
+      padding: 5px 16px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      transition: background 0.15s;
+    }
+    button:hover { background: #162038; }
+    button:active { background: #1e2848; }
+    button.primary { border-color: #3a8eff; }
+    button:disabled { opacity: 0.4; cursor: default; }
+
+    /* ── Body ── */
+    .body { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Graph ── */
+    #graph { flex: 1; overflow: hidden; position: relative; }
+    svg { width: 100%; height: 100%; }
+
+    .link {
+      fill: none;
+      stroke: #1a2440;
+      stroke-width: 1.5;
+    }
+    .node circle {
+      cursor: pointer;
+      transition: r 0.15s;
+    }
+    .node circle:hover { opacity: 1 !important; }
+    .node text {
+      font-size: 9px;
+      fill: #3a4860;
+      pointer-events: none;
+      user-select: none;
+    }
+    .node.selected circle {
+      stroke: #fff !important;
+      stroke-width: 2.5 !important;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      flex: 0 0 300px;
+      border-left: 1px solid #1a2038;
+      background: #0b0d1a;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel {
+      padding: 16px;
+      border-bottom: 1px solid #141828;
+    }
+    .panel-title {
+      font-size: 9px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #304060;
+      margin-bottom: 10px;
+    }
+
+    #node-level { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+    #node-name  { font-size: 20px; font-weight: bold; margin-bottom: 12px; line-height: 1.2; }
+
+    .prop-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 10px;
+      padding: 3px 0;
+      border-bottom: 1px solid #111828;
+    }
+    .prop-key { color: #304060; flex-shrink: 0; }
+    .prop-val { color: #8aaccc; text-align: right; word-break: break-word; }
+
+    .speak-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 8px;
+      overflow: hidden;
+    }
+    textarea {
+      background: #10131f;
+      border: 1px solid #222840;
+      color: #b0bcd0;
+      padding: 8px;
+      font-family: inherit;
+      font-size: 11px;
+      resize: none;
+      height: 60px;
+      line-height: 1.5;
+    }
+    textarea:focus { outline: 1px solid #3a8eff; }
+
+    .response-box {
+      flex: 1;
+      overflow-y: auto;
+      font-size: 12px;
+      line-height: 1.7;
+      color: #7a9ab8;
+      font-style: italic;
+      white-space: pre-wrap;
+      padding: 4px 0;
+    }
+    .response-box.loading { color: #2a4060; }
+    .response-box.error   { color: #883333; font-style: normal; }
+
+    /* ── Status bar ── */
+    .statusbar {
+      flex: 0 0 auto;
+      font-size: 10px;
+      color: #2a4060;
+      padding: 5px 16px;
+      border-top: 1px solid #141828;
+      background: #0b0d1a;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Nested Worlds</h1>
+  <div class="controls">
+    <div class="ctrl-group">
+      <label>Seed</label>
+      <input type="number" id="seed" value="42" min="0">
+    </div>
+    <div class="ctrl-group">
+      <label>Depth</label>
+      <input type="number" id="depth" value="6" min="2" max="11">
+    </div>
+    <div class="ctrl-group">
+      <label>Breadth</label>
+      <input type="number" id="min_b" value="1" min="1" max="5">
+      <span class="sep">–</span>
+      <input type="number" id="max_b" value="3" min="1" max="5">
+    </div>
+    <button class="primary" id="gen-btn" onclick="loadWorld()">Generate</button>
+  </div>
+</header>
+
+<div class="body">
+  <div id="graph"></div>
+
+  <div class="sidebar">
+    <div class="panel" id="info-panel">
+      <div class="panel-title">Location</div>
+      <div id="node-level" style="color:#3a8eff">—</div>
+      <div id="node-name"  style="color:#3a8eff">Select a node</div>
+      <div id="node-props"></div>
+    </div>
+
+    <div class="speak-panel">
+      <div class="panel-title">Speak</div>
+      <textarea id="message" placeholder="What do you want to say?">Describe yourself to a traveler who has just arrived.</textarea>
+      <button onclick="speak()">Speak to Node</button>
+      <div class="response-box" id="response"></div>
+    </div>
+
+    <div class="statusbar" id="status">Ready</div>
+  </div>
+</div>
+
+<script>
+const LEVEL_COLORS = {
+  Multiverse:        '#dde8ff',
+  Universe:          '#00ccff',
+  Galaxy:            '#4488ff',
+  'Planetary System':'#cc55ff',
+  Planet:            '#33ee88',
+  Region:            '#ffcc33',
+  Room:              '#ff4455',
+  Object:            '#909090',
+  Molecule:          '#33cccc',
+  Atom:              '#4466ff',
+  SubatomicParticle: '#cc33ff',
+};
+
+const LEVEL_R = {
+  Multiverse: 18, Universe: 14, Galaxy: 12,
+  'Planetary System': 11, Planet: 10, Region: 9,
+  Room: 8, Object: 7, Molecule: 6, Atom: 5, SubatomicParticle: 4,
+};
+
+let selected = null;
+
+// ── SVG setup ──────────────────────────────────────────
+const container = document.getElementById('graph');
+const svg = d3.select(container).append('svg');
+const root_g = svg.append('g');
+const zoom = d3.zoom().scaleExtent([0.05, 6]).on('zoom', e => root_g.attr('transform', e.transform));
+svg.call(zoom);
+
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+// ── Load world ─────────────────────────────────────────
+async function loadWorld() {
+  const seed  = +document.getElementById('seed').value;
+  const depth = +document.getElementById('depth').value;
+  const min_b = +document.getElementById('min_b').value;
+  const max_b = +document.getElementById('max_b').value;
+
+  document.getElementById('gen-btn').disabled = true;
+  setStatus('Generating world…');
+
+  try {
+    const res  = await fetch(`/world?seed=${seed}&depth=${depth}&min_breadth=${min_b}&max_breadth=${max_b}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    setStatus(`${data.node_count} nodes · seed ${seed} · depth ${depth}`);
+    renderTree(data.world);
+  } catch (e) {
+    setStatus('Error: ' + e.message);
+  } finally {
+    document.getElementById('gen-btn').disabled = false;
+  }
+}
+
+// ── Render tree ────────────────────────────────────────
+function renderTree(worldRoot) {
+  root_g.selectAll('*').remove();
+
+  const hier = d3.hierarchy(worldRoot, d => d.children && d.children.length ? d.children : null);
+  const leaves = hier.leaves().length;
+  const ROW_H  = Math.max(22, Math.min(40, (container.clientHeight - 60) / leaves));
+  const COL_W  = 200;
+
+  const treeLayout = d3.tree().nodeSize([ROW_H, COL_W]);
+  treeLayout(hier);
+
+  // Links
+  root_g.append('g').selectAll('path')
+    .data(hier.links())
+    .join('path')
+    .attr('class', 'link')
+    .attr('d', d3.linkHorizontal().x(d => d.y).y(d => d.x));
+
+  // Nodes
+  const nodeG = root_g.append('g').selectAll('g')
+    .data(hier.descendants())
+    .join('g')
+    .attr('class', 'node')
+    .attr('transform', d => `translate(${d.y},${d.x})`)
+    .on('click', (_, d) => selectNode(d.data));
+
+  nodeG.append('circle')
+    .attr('r', d => LEVEL_R[d.data.level] || 7)
+    .attr('fill', d => LEVEL_COLORS[d.data.level] || '#666')
+    .attr('fill-opacity', 0.8)
+    .attr('stroke', d => LEVEL_COLORS[d.data.level] || '#666')
+    .attr('stroke-opacity', 0.5);
+
+  nodeG.append('text')
+    .attr('dy', d => d.children ? '-14px' : '0')
+    .attr('dx', d => d.children ? '0' : '14px')
+    .attr('text-anchor', d => d.children ? 'middle' : 'start')
+    .attr('dominant-baseline', d => d.children ? 'auto' : 'middle')
+    .text(d => d.data.name);
+
+  fitView();
+  selectNode(worldRoot);
+}
+
+function fitView() {
+  const b = root_g.node().getBBox();
+  if (!b.width || !b.height) return;
+  const W = container.clientWidth, H = container.clientHeight;
+  const pad = 60;
+  const scale = Math.min((W - pad) / b.width, (H - pad) / b.height, 1);
+  const tx = (W - b.width * scale) / 2 - b.x * scale;
+  const ty = (H - b.height * scale) / 2 - b.y * scale;
+  svg.call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+}
+
+// ── Select node ────────────────────────────────────────
+function selectNode(data) {
+  selected = data;
+  const color = LEVEL_COLORS[data.level] || '#3a8eff';
+
+  root_g.selectAll('.node')
+    .classed('selected', d => d.data.id === data.id);
+  root_g.selectAll('.node circle')
+    .attr('fill-opacity', d => d.data.id === data.id ? 1.0 : 0.8)
+    .attr('stroke-opacity', d => d.data.id === data.id ? 1.0 : 0.5);
+
+  document.getElementById('node-level').textContent = data.level;
+  document.getElementById('node-level').style.color  = color;
+  document.getElementById('node-name').textContent   = data.name;
+  document.getElementById('node-name').style.color   = color;
+
+  const props = data.properties || {};
+  document.getElementById('node-props').innerHTML = Object.entries(props).map(([k, v]) =>
+    `<div class="prop-row">
+       <span class="prop-key">${k}</span>
+       <span class="prop-val">${v}</span>
+     </div>`
+  ).join('');
+
+  document.getElementById('response').textContent = '';
+  document.getElementById('response').className = 'response-box';
+}
+
+// ── Speak ──────────────────────────────────────────────
+async function speak() {
+  if (!selected) { setStatus('Select a node first.'); return; }
+  const message = document.getElementById('message').value.trim();
+  if (!message) return;
+
+  const box = document.getElementById('response');
+  box.textContent = '…';
+  box.className = 'response-box loading';
+  setStatus('Awaiting response…');
+
+  try {
+    const res = await fetch('/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        node_name:       selected.name,
+        node_level:      selected.level,
+        node_properties: selected.properties || {},
+        message,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      box.textContent = data.error;
+      box.className = 'response-box error';
+    } else {
+      box.textContent = data.response;
+      box.className = 'response-box';
+    }
+    setStatus('Ready');
+  } catch (e) {
+    box.textContent = 'Network error: ' + e.message;
+    box.className = 'response-box error';
+    setStatus('Error');
+  }
+}
+
+// ── Enter key in textarea ──────────────────────────────
+document.getElementById('message').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); speak(); }
+});
+
+// ── Boot ───────────────────────────────────────────────
+loadWorld();
+</script>
+</body>
+</html>
