@@ -27,39 +27,14 @@
       background: #0b0d1a;
       border-bottom: 1px solid #1a2038;
     }
-    header h1 {
-      font-size: 13px;
-      letter-spacing: 3px;
-      text-transform: uppercase;
-      color: #3a8eff;
-      white-space: nowrap;
-    }
+    header h1 { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; color: #3a8eff; white-space: nowrap; }
     .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .ctrl-group { display: flex; align-items: center; gap: 6px; }
     .ctrl-group label { font-size: 10px; color: #4a6080; letter-spacing: 1px; text-transform: uppercase; }
-    input[type=number] {
-      background: #10131f;
-      border: 1px solid #222840;
-      color: #b0bcd0;
-      padding: 4px 6px;
-      width: 56px;
-      font-family: inherit;
-      font-size: 11px;
-    }
+    input[type=number] { background: #10131f; border: 1px solid #222840; color: #b0bcd0; padding: 4px 6px; width: 56px; font-family: inherit; font-size: 11px; }
     input[type=number]:focus { outline: 1px solid #3a8eff; }
     .sep { color: #2a3050; }
-    button {
-      background: #0e1828;
-      border: 1px solid #2a4060;
-      color: #3a8eff;
-      padding: 5px 16px;
-      cursor: pointer;
-      font-family: inherit;
-      font-size: 11px;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      transition: background 0.15s;
-    }
+    button { background: #0e1828; border: 1px solid #2a4060; color: #3a8eff; padding: 5px 16px; cursor: pointer; font-family: inherit; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; transition: background 0.15s; }
     button:hover { background: #162038; }
     button:active { background: #1e2848; }
     button.primary { border-color: #3a8eff; }
@@ -69,111 +44,74 @@
     .body { display: flex; flex: 1; overflow: hidden; }
 
     /* ── Graph ── */
-    #graph { flex: 1; overflow: hidden; position: relative; }
+    #graph { flex: 1; overflow: hidden; }
     svg { width: 100%; height: 100%; }
-
-    .link {
-      fill: none;
-      stroke: #1a2440;
-      stroke-width: 1.5;
-    }
-    .node circle {
-      cursor: pointer;
-      transition: r 0.15s;
-    }
-    .node circle:hover { opacity: 1 !important; }
-    .node text {
-      font-size: 9px;
-      fill: #3a4860;
-      pointer-events: none;
-      user-select: none;
-    }
-    .node.selected circle {
-      stroke: #fff !important;
-      stroke-width: 2.5 !important;
-    }
+    .link { fill: none; stroke: #1a2440; stroke-width: 1.5; }
+    .node circle { cursor: pointer; }
+    .node text { font-size: 9px; fill: #3a4860; pointer-events: none; user-select: none; }
+    .node.selected circle { stroke: #fff !important; stroke-width: 2.5 !important; }
 
     /* ── Sidebar ── */
-    .sidebar {
-      flex: 0 0 300px;
-      border-left: 1px solid #1a2038;
-      background: #0b0d1a;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
+    .sidebar { flex: 0 0 300px; border-left: 1px solid #1a2038; background: #0b0d1a; display: flex; flex-direction: column; overflow: hidden; }
 
-    .panel {
-      padding: 16px;
-      border-bottom: 1px solid #141828;
-    }
-    .panel-title {
-      font-size: 9px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: #304060;
-      margin-bottom: 10px;
-    }
+    .panel { padding: 14px 16px; border-bottom: 1px solid #141828; }
+    .panel-title { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #304060; margin-bottom: 10px; }
 
     #node-level { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
     #node-name  { font-size: 20px; font-weight: bold; margin-bottom: 12px; line-height: 1.2; }
 
-    .prop-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 8px;
-      font-size: 10px;
-      padding: 3px 0;
-      border-bottom: 1px solid #111828;
-    }
+    .prop-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 10px; padding: 3px 0; border-bottom: 1px solid #111828; }
     .prop-key { color: #304060; flex-shrink: 0; }
     .prop-val { color: #8aaccc; text-align: right; word-break: break-word; }
 
-    .speak-panel {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      padding: 16px;
-      gap: 8px;
-      overflow: hidden;
-    }
-    textarea {
-      background: #10131f;
-      border: 1px solid #222840;
-      color: #b0bcd0;
-      padding: 8px;
-      font-family: inherit;
-      font-size: 11px;
-      resize: none;
-      height: 60px;
-      line-height: 1.5;
-    }
+    /* ── Mode buttons ── */
+    .mode-bar { display: flex; gap: 0; border-bottom: 1px solid #141828; }
+    .mode-bar button { flex: 1; border: none; border-right: 1px solid #141828; border-radius: 0; padding: 8px 4px; font-size: 10px; color: #3a5070; background: #0b0d1a; }
+    .mode-bar button:last-child { border-right: none; }
+    .mode-bar button.active { color: #3a8eff; background: #10131f; border-bottom: 2px solid #3a8eff; }
+    .mode-bar button:hover:not(.active) { background: #0e1020; color: #5a7090; }
+
+    /* ── Content panels ── */
+    .content-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .mode-panel { display: none; flex: 1; flex-direction: column; padding: 14px 16px; gap: 8px; overflow: hidden; }
+    .mode-panel.active { display: flex; }
+
+    textarea { background: #10131f; border: 1px solid #222840; color: #b0bcd0; padding: 8px; font-family: inherit; font-size: 11px; resize: none; height: 60px; line-height: 1.5; }
     textarea:focus { outline: 1px solid #3a8eff; }
 
-    .response-box {
-      flex: 1;
-      overflow-y: auto;
-      font-size: 12px;
-      line-height: 1.7;
-      color: #7a9ab8;
-      font-style: italic;
-      white-space: pre-wrap;
-      padding: 4px 0;
-    }
-    .response-box.loading { color: #2a4060; }
-    .response-box.error   { color: #883333; font-style: normal; }
+    .response-box { flex: 1; overflow-y: auto; font-size: 12px; line-height: 1.7; color: #7a9ab8; font-style: italic; white-space: pre-wrap; }
+    .response-box.error { color: #883333; font-style: normal; }
+    .response-box.dim   { color: #2a4060; }
+
+    /* ── Observe log ── */
+    .observe-log { flex: 1; overflow-y: auto; }
+    .observe-header { display: flex; gap: 6px; font-size: 9px; color: #2a4060; padding-bottom: 6px; border-bottom: 1px solid #141828; margin-bottom: 6px; }
+    .obs-node  { flex: 0 0 130px; }
+    .obs-kind  { flex: 0 0 80px; }
+    .obs-bar   { flex: 1; }
+    .obs-str   { flex: 0 0 36px; text-align: right; }
+    .obs-row   { display: flex; align-items: center; gap: 6px; font-size: 10px; padding: 2px 0; }
+    .obs-name  { flex: 0 0 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .obs-event { flex: 0 0 80px; color: #4a6080; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-track { flex: 1; background: #111828; height: 4px; border-radius: 2px; }
+    .bar-fill  { height: 4px; border-radius: 2px; transition: width 0.2s; }
+    .obs-strength { flex: 0 0 36px; font-size: 9px; color: #3a5070; text-align: right; }
+
+    /* ── Puzzle panel ── */
+    .puzzle-kind  { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #4a6080; margin-bottom: 6px; }
+    .puzzle-name  { font-size: 14px; font-weight: bold; color: #c0d0e8; margin-bottom: 10px; }
+    .puzzle-prompt { font-size: 12px; color: #8aaccc; line-height: 1.6; margin-bottom: 12px; }
+    .attempt-info  { font-size: 10px; color: #3a5070; margin-bottom: 8px; }
+    .puzzle-input  { background: #10131f; border: 1px solid #222840; color: #b0bcd0; padding: 8px; font-family: inherit; font-size: 12px; width: 100%; }
+    .puzzle-input:focus { outline: 1px solid #3a8eff; }
+    .puzzle-result { margin-top: 8px; font-size: 12px; line-height: 1.6; }
+    .puzzle-result.correct  { color: #44cc88; }
+    .puzzle-result.wrong    { color: #cc8844; }
+    .puzzle-result.failed   { color: #cc4444; }
+    .puzzle-hint   { font-size: 11px; color: #4a8080; font-style: italic; margin-top: 6px; }
 
     /* ── Status bar ── */
-    .statusbar {
-      flex: 0 0 auto;
-      font-size: 10px;
-      color: #2a4060;
-      padding: 5px 16px;
-      border-top: 1px solid #141828;
-      background: #0b0d1a;
-      letter-spacing: 1px;
-    }
+    .statusbar { flex: 0 0 auto; font-size: 10px; color: #2a4060; padding: 5px 16px; border-top: 1px solid #141828; background: #0b0d1a; letter-spacing: 1px; }
   </style>
 </head>
 <body>
@@ -181,14 +119,8 @@
 <header>
   <h1>Nested Worlds</h1>
   <div class="controls">
-    <div class="ctrl-group">
-      <label>Seed</label>
-      <input type="number" id="seed" value="42" min="0">
-    </div>
-    <div class="ctrl-group">
-      <label>Depth</label>
-      <input type="number" id="depth" value="6" min="2" max="11">
-    </div>
+    <div class="ctrl-group"><label>Seed</label><input type="number" id="seed" value="42" min="0"></div>
+    <div class="ctrl-group"><label>Depth</label><input type="number" id="depth" value="6" min="2" max="11"></div>
     <div class="ctrl-group">
       <label>Breadth</label>
       <input type="number" id="min_b" value="1" min="1" max="5">
@@ -203,18 +135,48 @@
   <div id="graph"></div>
 
   <div class="sidebar">
-    <div class="panel" id="info-panel">
+    <div class="panel">
       <div class="panel-title">Location</div>
       <div id="node-level" style="color:#3a8eff">—</div>
       <div id="node-name"  style="color:#3a8eff">Select a node</div>
       <div id="node-props"></div>
     </div>
 
-    <div class="speak-panel">
-      <div class="panel-title">Speak</div>
-      <textarea id="message" placeholder="What do you want to say?">Describe yourself to a traveler who has just arrived.</textarea>
-      <button onclick="speak()">Speak to Node</button>
-      <div class="response-box" id="response"></div>
+    <div class="mode-bar">
+      <button class="active" onclick="setMode('speak')"  id="btn-speak">Speak</button>
+      <button              onclick="setMode('observe')" id="btn-observe">Observe</button>
+      <button              onclick="setMode('puzzle')"  id="btn-puzzle">Puzzle</button>
+    </div>
+
+    <div class="content-area">
+
+      <!-- Speak -->
+      <div class="mode-panel active" id="panel-speak">
+        <textarea id="message" placeholder="What do you want to say?">Describe yourself to a traveler who has just arrived.</textarea>
+        <button onclick="speak()">Speak to Node</button>
+        <div class="response-box" id="speak-response"></div>
+      </div>
+
+      <!-- Observe -->
+      <div class="mode-panel" id="panel-observe">
+        <button onclick="observe()">Watch Agent Traverse</button>
+        <div class="observe-log" id="observe-log">
+          <div class="observe-header">
+            <span class="obs-node">Node</span>
+            <span class="obs-kind">Event</span>
+            <span class="obs-bar"></span>
+            <span class="obs-str">Str</span>
+          </div>
+          <div id="observe-rows"></div>
+        </div>
+      </div>
+
+      <!-- Puzzle -->
+      <div class="mode-panel" id="panel-puzzle">
+        <button onclick="fetchPuzzle()">Find Puzzle</button>
+        <div id="puzzle-content"></div>
+      </div>
+
     </div>
 
     <div class="statusbar" id="status">Ready</div>
@@ -223,47 +185,52 @@
 
 <script>
 const LEVEL_COLORS = {
-  Multiverse:        '#dde8ff',
-  Universe:          '#00ccff',
-  Galaxy:            '#4488ff',
-  'Planetary System':'#cc55ff',
-  Planet:            '#33ee88',
-  Region:            '#ffcc33',
-  Room:              '#ff4455',
-  Object:            '#909090',
-  Molecule:          '#33cccc',
-  Atom:              '#4466ff',
-  SubatomicParticle: '#cc33ff',
+  Multiverse: '#dde8ff', Universe: '#00ccff', Galaxy: '#4488ff',
+  'Planetary System': '#cc55ff', Planet: '#33ee88', Region: '#ffcc33',
+  Room: '#ff4455', Object: '#909090', Molecule: '#33cccc',
+  Atom: '#4466ff', SubatomicParticle: '#cc33ff',
 };
-
 const LEVEL_R = {
-  Multiverse: 18, Universe: 14, Galaxy: 12,
-  'Planetary System': 11, Planet: 10, Region: 9,
-  Room: 8, Object: 7, Molecule: 6, Atom: 5, SubatomicParticle: 4,
+  Multiverse: 18, Universe: 14, Galaxy: 12, 'Planetary System': 11,
+  Planet: 10, Region: 9, Room: 8, Object: 7, Molecule: 6,
+  Atom: 5, SubatomicParticle: 4,
 };
 
-let selected = null;
+let selected    = null;
+let worldParams = { seed: 42, depth: 6, min_b: 1, max_b: 3 };
+let puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
+let observeES   = null;
 
-// ── SVG setup ──────────────────────────────────────────
+// ── SVG setup ──────────────────────────────────────────────────────────────
 const container = document.getElementById('graph');
-const svg = d3.select(container).append('svg');
-const root_g = svg.append('g');
-const zoom = d3.zoom().scaleExtent([0.05, 6]).on('zoom', e => root_g.attr('transform', e.transform));
+const svg       = d3.select(container).append('svg');
+const root_g    = svg.append('g');
+const zoom      = d3.zoom().scaleExtent([0.05, 6]).on('zoom', e => root_g.attr('transform', e.transform));
 svg.call(zoom);
 
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
-// ── Load world ─────────────────────────────────────────
-async function loadWorld() {
-  const seed  = +document.getElementById('seed').value;
-  const depth = +document.getElementById('depth').value;
-  const min_b = +document.getElementById('min_b').value;
-  const max_b = +document.getElementById('max_b').value;
+// ── Mode switching ─────────────────────────────────────────────────────────
+function setMode(mode) {
+  ['speak', 'observe', 'puzzle'].forEach(m => {
+    document.getElementById('panel-' + m).classList.toggle('active', m === mode);
+    document.getElementById('btn-'   + m).classList.toggle('active', m === mode);
+  });
+  if (mode === 'observe' && observeES) { observeES.close(); observeES = null; }
+}
 
+// ── Load world ─────────────────────────────────────────────────────────────
+async function loadWorld() {
+  worldParams = {
+    seed:  +document.getElementById('seed').value,
+    depth: +document.getElementById('depth').value,
+    min_b: +document.getElementById('min_b').value,
+    max_b: +document.getElementById('max_b').value,
+  };
   document.getElementById('gen-btn').disabled = true;
   setStatus('Generating world…');
-
   try {
+    const { seed, depth, min_b, max_b } = worldParams;
     const res  = await fetch(`/world?seed=${seed}&depth=${depth}&min_breadth=${min_b}&max_breadth=${max_b}`);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
@@ -276,45 +243,37 @@ async function loadWorld() {
   }
 }
 
-// ── Render tree ────────────────────────────────────────
+// ── Render tree ────────────────────────────────────────────────────────────
 function renderTree(worldRoot) {
   root_g.selectAll('*').remove();
-
-  const hier = d3.hierarchy(worldRoot, d => d.children && d.children.length ? d.children : null);
+  const hier   = d3.hierarchy(worldRoot, d => d.children?.length ? d.children : null);
   const leaves = hier.leaves().length;
-  const ROW_H  = Math.max(22, Math.min(40, (container.clientHeight - 60) / leaves));
-  const COL_W  = 200;
+  const rowH   = Math.max(20, Math.min(40, (container.clientHeight - 60) / leaves));
+  d3.tree().nodeSize([rowH, 200])(hier);
 
-  const treeLayout = d3.tree().nodeSize([ROW_H, COL_W]);
-  treeLayout(hier);
-
-  // Links
   root_g.append('g').selectAll('path')
-    .data(hier.links())
-    .join('path')
+    .data(hier.links()).join('path')
     .attr('class', 'link')
     .attr('d', d3.linkHorizontal().x(d => d.y).y(d => d.x));
 
-  // Nodes
   const nodeG = root_g.append('g').selectAll('g')
-    .data(hier.descendants())
-    .join('g')
+    .data(hier.descendants()).join('g')
     .attr('class', 'node')
     .attr('transform', d => `translate(${d.y},${d.x})`)
     .on('click', (_, d) => selectNode(d.data));
 
   nodeG.append('circle')
-    .attr('r', d => LEVEL_R[d.data.level] || 7)
-    .attr('fill', d => LEVEL_COLORS[d.data.level] || '#666')
+    .attr('r',            d => LEVEL_R[d.data.level] || 7)
+    .attr('fill',         d => LEVEL_COLORS[d.data.level] || '#666')
     .attr('fill-opacity', 0.8)
-    .attr('stroke', d => LEVEL_COLORS[d.data.level] || '#666')
+    .attr('stroke',       d => LEVEL_COLORS[d.data.level] || '#666')
     .attr('stroke-opacity', 0.5);
 
   nodeG.append('text')
-    .attr('dy', d => d.children ? '-14px' : '0')
-    .attr('dx', d => d.children ? '0' : '14px')
-    .attr('text-anchor', d => d.children ? 'middle' : 'start')
-    .attr('dominant-baseline', d => d.children ? 'auto' : 'middle')
+    .attr('dy',               d => d.children ? '-14px' : '0')
+    .attr('dx',               d => d.children ? '0' : '14px')
+    .attr('text-anchor',      d => d.children ? 'middle' : 'start')
+    .attr('dominant-baseline',d => d.children ? 'auto' : 'middle')
     .text(d => d.data.name);
 
   fitView();
@@ -324,86 +283,203 @@ function renderTree(worldRoot) {
 function fitView() {
   const b = root_g.node().getBBox();
   if (!b.width || !b.height) return;
-  const W = container.clientWidth, H = container.clientHeight;
-  const pad = 60;
+  const W = container.clientWidth, H = container.clientHeight, pad = 60;
   const scale = Math.min((W - pad) / b.width, (H - pad) / b.height, 1);
-  const tx = (W - b.width * scale) / 2 - b.x * scale;
-  const ty = (H - b.height * scale) / 2 - b.y * scale;
-  svg.call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+  svg.call(zoom.transform, d3.zoomIdentity
+    .translate((W - b.width * scale) / 2 - b.x * scale,
+               (H - b.height * scale) / 2 - b.y * scale)
+    .scale(scale));
 }
 
-// ── Select node ────────────────────────────────────────
+// ── Select node ────────────────────────────────────────────────────────────
 function selectNode(data) {
   selected = data;
   const color = LEVEL_COLORS[data.level] || '#3a8eff';
 
-  root_g.selectAll('.node')
-    .classed('selected', d => d.data.id === data.id);
+  root_g.selectAll('.node').classed('selected', d => d.data.id === data.id);
   root_g.selectAll('.node circle')
-    .attr('fill-opacity', d => d.data.id === data.id ? 1.0 : 0.8)
+    .attr('fill-opacity',   d => d.data.id === data.id ? 1.0 : 0.8)
     .attr('stroke-opacity', d => d.data.id === data.id ? 1.0 : 0.5);
 
   document.getElementById('node-level').textContent = data.level;
-  document.getElementById('node-level').style.color  = color;
-  document.getElementById('node-name').textContent   = data.name;
-  document.getElementById('node-name').style.color   = color;
-
-  const props = data.properties || {};
-  document.getElementById('node-props').innerHTML = Object.entries(props).map(([k, v]) =>
-    `<div class="prop-row">
-       <span class="prop-key">${k}</span>
-       <span class="prop-val">${v}</span>
-     </div>`
+  document.getElementById('node-level').style.color = color;
+  document.getElementById('node-name').textContent  = data.name;
+  document.getElementById('node-name').style.color  = color;
+  document.getElementById('node-props').innerHTML = Object.entries(data.properties || {}).map(
+    ([k, v]) => `<div class="prop-row"><span class="prop-key">${k}</span><span class="prop-val">${v}</span></div>`
   ).join('');
 
-  document.getElementById('response').textContent = '';
-  document.getElementById('response').className = 'response-box';
+  // Reset panels
+  document.getElementById('speak-response').textContent = '';
+  document.getElementById('speak-response').className = 'response-box';
+  document.getElementById('observe-rows').innerHTML = '';
+  document.getElementById('puzzle-content').innerHTML = '';
+  puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
+  if (observeES) { observeES.close(); observeES = null; }
 }
 
-// ── Speak ──────────────────────────────────────────────
+// ── Speak ──────────────────────────────────────────────────────────────────
 async function speak() {
   if (!selected) { setStatus('Select a node first.'); return; }
   const message = document.getElementById('message').value.trim();
   if (!message) return;
-
-  const box = document.getElementById('response');
+  const box = document.getElementById('speak-response');
   box.textContent = '…';
-  box.className = 'response-box loading';
+  box.className = 'response-box dim';
   setStatus('Awaiting response…');
-
   try {
-    const res = await fetch('/speak', {
+    const res  = await fetch('/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        node_name:       selected.name,
-        node_level:      selected.level,
-        node_properties: selected.properties || {},
-        message,
-      }),
+      body: JSON.stringify({ node_name: selected.name, node_level: selected.level,
+                             node_properties: selected.properties || {}, message }),
     });
     const data = await res.json();
-    if (data.error) {
-      box.textContent = data.error;
-      box.className = 'response-box error';
-    } else {
-      box.textContent = data.response;
-      box.className = 'response-box';
-    }
+    box.textContent = data.error || data.response;
+    box.className   = data.error ? 'response-box error' : 'response-box';
     setStatus('Ready');
   } catch (e) {
     box.textContent = 'Network error: ' + e.message;
-    box.className = 'response-box error';
+    box.className   = 'response-box error';
     setStatus('Error');
   }
 }
 
-// ── Enter key in textarea ──────────────────────────────
 document.getElementById('message').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); speak(); }
 });
 
-// ── Boot ───────────────────────────────────────────────
+// ── Observe ────────────────────────────────────────────────────────────────
+function observe() {
+  if (!selected) { setStatus('Select a node first.'); return; }
+  if (observeES) { observeES.close(); observeES = null; }
+
+  document.getElementById('observe-rows').innerHTML = '';
+  const { seed, depth, min_b, max_b } = worldParams;
+  const url = `/observe?seed=${seed}&depth=${depth}&min_breadth=${min_b}&max_breadth=${max_b}&node_name=${encodeURIComponent(selected.name)}`;
+
+  setStatus('Agent traversing…');
+  observeES = new EventSource(url);
+
+  observeES.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.done) {
+      setStatus(`Observer visited ${d.nodes_visited} node(s).`);
+      observeES.close();
+      observeES = null;
+      return;
+    }
+    appendObserveRow(d);
+  };
+  observeES.onerror = () => {
+    setStatus('Observe stream ended.');
+    observeES.close();
+    observeES = null;
+  };
+}
+
+function appendObserveRow({ node, level, kind, strength }) {
+  const color   = LEVEL_COLORS[level] || '#666';
+  const pct     = Math.round(strength * 100);
+  const kindFmt = kind.replace(/_/g, ' ').toLowerCase();
+  const row     = document.createElement('div');
+  row.className = 'obs-row';
+  row.innerHTML = `
+    <span class="obs-name"  style="color:${color}">${node}</span>
+    <span class="obs-event">${kindFmt}</span>
+    <span class="bar-track"><span class="bar-fill" style="width:${pct}%;background:${color}"></span></span>
+    <span class="obs-strength">${strength.toFixed(2)}</span>`;
+  const log = document.getElementById('observe-rows');
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ── Puzzle ─────────────────────────────────────────────────────────────────
+async function fetchPuzzle() {
+  if (!selected) { setStatus('Select a node first.'); return; }
+  const { seed, depth, min_b, max_b } = worldParams;
+  const url = `/puzzle?seed=${seed}&depth=${depth}&min_breadth=${min_b}&max_breadth=${max_b}&node_name=${encodeURIComponent(selected.name)}`;
+  setStatus('Searching for puzzle…');
+  try {
+    const res  = await fetch(url);
+    const data = await res.json();
+    if (!data.found) {
+      document.getElementById('puzzle-content').innerHTML =
+        '<div style="color:#2a4060;font-size:11px;margin-top:8px">No puzzle found in this subtree.</div>';
+      setStatus('Ready');
+      return;
+    }
+    puzzleState = { attempt: 0, maxAttempts: data.max_attempts, solved: false,
+                    name: data.name, kind: data.kind };
+    renderPuzzle(data);
+    setStatus('Ready');
+  } catch (e) {
+    setStatus('Error: ' + e.message);
+  }
+}
+
+function renderPuzzle(data) {
+  document.getElementById('puzzle-content').innerHTML = `
+    <div class="puzzle-kind">${data.kind.replace(/_/g, ' ')}</div>
+    <div class="puzzle-name">${data.name}</div>
+    <div class="puzzle-prompt">${data.prompt}</div>
+    <div class="attempt-info" id="attempt-info">
+      ${data.max_attempts} attempt${data.max_attempts !== 1 ? 's' : ''} allowed
+    </div>
+    <input class="puzzle-input" id="puzzle-answer" type="text" placeholder="Your answer…" autocomplete="off">
+    <button onclick="submitAnswer()">Submit</button>
+    <div class="puzzle-result" id="puzzle-result"></div>
+    <div class="puzzle-hint"   id="puzzle-hint"></div>`;
+  document.getElementById('puzzle-answer').addEventListener('keydown', e => {
+    if (e.key === 'Enter') submitAnswer();
+  });
+  document.getElementById('puzzle-answer').focus();
+}
+
+async function submitAnswer() {
+  if (puzzleState.solved) return;
+  const answer = (document.getElementById('puzzle-answer')?.value || '').trim();
+  if (!answer) return;
+
+  puzzleState.attempt++;
+  const { seed, depth, min_b, max_b } = worldParams;
+  try {
+    const res  = await fetch('/puzzle/attempt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seed, depth, min_breadth: min_b, max_breadth: max_b,
+                             node_name: selected.name, answer,
+                             attempt: puzzleState.attempt }),
+    });
+    const data = await res.json();
+    const resultEl = document.getElementById('puzzle-result');
+    const hintEl   = document.getElementById('puzzle-hint');
+    const infoEl   = document.getElementById('attempt-info');
+
+    if (data.correct) {
+      puzzleState.solved = true;
+      resultEl.textContent = 'Correct.';
+      resultEl.className   = 'puzzle-result correct';
+      hintEl.textContent   = '';
+      document.getElementById('puzzle-answer').disabled = true;
+    } else if (data.result === 'FAILED') {
+      resultEl.textContent = `Failed. The answer was: ${data.correct_answer}`;
+      resultEl.className   = 'puzzle-result failed';
+      hintEl.textContent   = '';
+      document.getElementById('puzzle-answer').disabled = true;
+    } else {
+      const remaining = puzzleState.maxAttempts - puzzleState.attempt;
+      resultEl.textContent = 'Wrong.';
+      resultEl.className   = 'puzzle-result wrong';
+      hintEl.textContent   = data.hint ? `Hint: ${data.hint}` : '';
+      infoEl.textContent   = `${remaining} attempt${remaining !== 1 ? 's' : ''} remaining`;
+    }
+  } catch (e) {
+    setStatus('Error: ' + e.message);
+  }
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
 loadWorld();
 </script>
 </body>
