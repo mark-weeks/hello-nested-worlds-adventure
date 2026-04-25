@@ -14,7 +14,9 @@ from interface import (
     _print_breadcrumb,
     _descend,
     _ambient_mode,
+    _build_depth_map,
     _play_puzzle,
+    _AMBIENT_DAMPENING,
 )
 
 
@@ -115,11 +117,35 @@ class TestNavigation:
         assert len(stack) == 1
 
 
+class TestDepthMap:
+    def test_root_is_depth_zero(self):
+        root = make_tree()
+        dm = _build_depth_map(root)
+        assert dm[root.id] == 0
+
+    def test_child_is_depth_one(self):
+        root = make_tree()
+        dm = _build_depth_map(root)
+        assert dm[root.children[0].id] == 1
+
+    def test_grandchild_is_depth_two(self):
+        root = make_tree()
+        grandchild = root.children[0].children[0]
+        dm = _build_depth_map(root)
+        assert dm[grandchild.id] == 2
+
+    def test_all_nodes_present(self):
+        root = make_tree()
+        dm = _build_depth_map(root)
+        assert len(dm) == 3  # root + galaxy + planet
+
+
 class TestAmbientMode:
     def test_ambient_registers_and_clears_handler(self):
         root = make_tree()
         with patch("builtins.input", return_value=""):
-            _ambient_mode(root)
+            with patch("time.sleep"):
+                _ambient_mode(root)
         assert causality._handlers == []
 
     def test_ambient_fires_causal_events(self):
@@ -146,6 +172,16 @@ class TestAmbientMode:
             with patch("time.sleep"):
                 _ambient_mode(root)
         assert causality.get_log() == []
+
+    def test_ambient_strength_dampens_with_depth(self, capsys):
+        root = make_tree()
+        with patch("builtins.input", return_value=""):
+            with patch("time.sleep"):
+                _ambient_mode(root)
+        out = capsys.readouterr().out
+        # Root should show 1.00, deeper nodes less
+        assert "1.00" in out
+        assert f"{_AMBIENT_DAMPENING:.2f}" in out
 
 
 class TestPuzzleMode:
