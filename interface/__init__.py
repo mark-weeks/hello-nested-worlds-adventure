@@ -74,17 +74,33 @@ def _print_map(node: SpatialNode, prefix: str = "", is_last: bool = True,
         print(f"{child_prefix}└─ {_DIM}… ({count} child{'ren' if count != 1 else ''}){_RESET}")
 
 
+def _build_depth_map(node: SpatialNode, depth: int = 0, result: dict | None = None) -> dict[str, int]:
+    if result is None:
+        result = {}
+    result[node.id] = depth
+    for child in node.children:
+        _build_depth_map(child, depth + 1, result)
+    return result
+
+
+_AMBIENT_DAMPENING = 0.6
+
+
 def _ambient_mode(node: SpatialNode) -> None:
     print(f"\n{_DIM}Entering ambient observation. An agent moves through the world…{_RESET}\n")
     print(f"  {'Node':<30}  {'Event':<22}  {'Strength'}")
     print(f"  {_DIM}{'─'*30}  {'─'*22}  {'─'*20}{_RESET}")
 
+    depth_map = _build_depth_map(node)
+
     def _handler(n: SpatialNode, event: causality.CausalEvent) -> None:
         style = _LEVEL_STYLES.get(n.level, "")
         kind = event.kind.name.replace("_", " ").lower()
-        filled = max(1, round(event.strength * 20))
+        depth = depth_map.get(n.id, 0)
+        strength = _AMBIENT_DAMPENING ** depth
+        filled = max(1, round(strength * 20))
         bar = "█" * filled + _DIM + "░" * (20 - filled) + _RESET
-        print(f"  {style}{n.name:<30}{_RESET}  {kind:<22}  {bar}  {event.strength:.2f}")
+        print(f"  {style}{n.name:<30}{_RESET}  {kind:<22}  {bar}  {strength:.2f}")
         time.sleep(0.04)
 
     causality.register_handler(_handler)
