@@ -87,8 +87,8 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 | REST server (`server/`) | Functional — `/health` `/worlds` `/world` `/agent` endpoints |
 | CLI (`main.py`) | Functional — `world`, `agent`, `puzzles`, `serve`, `speak`, `history` |
 | Node consciousness (`consciousness/`) | Functional — Claude-powered node voices (requires `ANTHROPIC_API_KEY`) |
-| Tests | 55+ tests across generator, agents, puzzles, persistence, causality |
-| Interface (`interface/`) | Scaffolded |
+| Tests | 78 tests across generator, agents, puzzles, persistence, causality, interface |
+| Interface (`interface/`) | Functional — interactive terminal session (spatial, conversational, ambient) |
 
 ---
 
@@ -119,6 +119,9 @@ python main.py agent --name Scout --danger-threshold 4
 
 # Find and play puzzles
 python main.py puzzles
+
+# Start an interactive session (spatial navigation + conversation + ambient)
+python main.py play
 
 # Start the REST API server (http://127.0.0.1:8080)
 python main.py serve

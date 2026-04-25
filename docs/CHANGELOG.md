@@ -6,6 +6,16 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Interactive interface** (`interface/`): `run_session()` brings the world to life as a playable terminal session. Three interaction modes in a single REPL:
+  - *Spatial* — navigate the hierarchy with `go <N>` / `up`; each scale level rendered in a distinct ANSI colour
+  - *Conversational* — `speak [message]` routes to the consciousness module (Claude); unrecognised input is forwarded as a speak message
+  - *Ambient* — `observe` runs an agent traversal from the current node with live causal-event output (node name, event kind, dampened strength bar)
+  - `map` prints an ASCII subtree (3 levels deep); `puzzle` drops into the puzzle engine at the current location
+- **`play` CLI subcommand** (`main.py`): `python main.py play [--depth N] [--min-breadth N] [--max-breadth N]`
+- **16 interface tests** (`tests/test_interface.py`): formatting, navigation, ambient mode, puzzle integration
+
+
 ### Changed
 - **Project renamed** to *Nested Worlds Adventure* (`pyproject.toml`, CLI, server banner, README)
 - **Planetary System** added between Galaxy and Planet in the 11-level hierarchy (`multiverse/generator.py`); includes star_type, planet_count, habitable_zone, and asteroid_belt properties
