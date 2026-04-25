@@ -79,6 +79,16 @@ def cmd_history(args):
             print(f"          agent '{r['agent_name']}' — {r['nodes_visited']} nodes  ({r['started_at']})")
 
 
+def cmd_play(args):
+    import interface
+    interface.run_session(
+        seed=args.seed,
+        depth=args.depth,
+        min_breadth=args.min_breadth,
+        max_breadth=args.max_breadth,
+    )
+
+
 def cmd_serve(args):
     import server
     server.run(host=args.host, port=args.port)
@@ -132,6 +142,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_history = sub.add_parser("history", help="Show saved worlds and agent runs")
     p_history.set_defaults(func=cmd_history)
+
+    p_play = sub.add_parser("play", help="Start an interactive session in the world")
+    p_play.add_argument("--depth", type=int, default=6, help="Max hierarchy depth (default: 6)")
+    p_play.add_argument("--min-breadth", type=int, default=1, dest="min_breadth")
+    p_play.add_argument("--max-breadth", type=int, default=3, dest="max_breadth")
+    p_play.set_defaults(func=cmd_play)
 
     p_serve = sub.add_parser("serve", help="Start the REST API server")
     p_serve.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
