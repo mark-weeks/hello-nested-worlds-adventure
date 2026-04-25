@@ -52,7 +52,10 @@ def speak(node: SpatialNode, message: str) -> str:
         ],
         messages=[{"role": "user", "content": message}],
     )
-    return response.content[0].text
+    for block in response.content:
+        if block.type == "text":
+            return block.text
+    raise ValueError(f"No text in response (stop_reason={response.stop_reason})")
 
 
 def describe(node: SpatialNode) -> str:
