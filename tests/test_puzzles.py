@@ -64,12 +64,37 @@ class TestPuzzleTypes:
 
 class TestPuzzleEngine:
     def test_attach_and_collect(self):
-        # max_depth=7 ensures Room nodes (level index 6) are generated, which carry has_puzzle
-        root = generate_node_hierarchy(seed=42, max_depth=7, min_breadth=2, max_breadth=2)
+        # Puzzles are assigned at every level, so any depth works
+        root = generate_node_hierarchy(seed=42, max_depth=3, min_breadth=2, max_breadth=2)
         engine = PuzzleEngine(seed=42)
         engine.attach_puzzles(root)
         puzzles = engine.collect_puzzles(root)
         assert len(puzzles) > 0
+
+    def test_puzzles_at_all_levels(self):
+        # One node per level; every node must receive a puzzle
+        root = generate_node_hierarchy(seed=42, max_depth=11, min_breadth=1, max_breadth=1)
+        engine = PuzzleEngine(seed=42)
+        count = engine.attach_puzzles(root)
+        puzzles = engine.collect_puzzles(root)
+        assert count == 11
+        assert len(puzzles) == 11
+
+    def test_region_lock_uses_danger_level(self):
+        root = generate_node_hierarchy(seed=42, max_depth=6, min_breadth=1, max_breadth=1)
+        engine = PuzzleEngine(seed=42)
+        engine.attach_puzzles(root)
+
+        # Walk down to the Region node (index 5 in the chain)
+        node = root
+        for _ in range(5):
+            node = node.children[0]
+        assert node.level == "Region"
+
+        puzzle = node.properties["puzzle"]
+        danger = node.properties["danger_level"]
+        assert puzzle.kind == PuzzleKind.LOCK
+        assert puzzle.answer == str(danger * 2)
 
     def test_attached_puzzles_are_puzzle_instances(self):
         root = generate_node_hierarchy(seed=42, max_depth=7, min_breadth=2, max_breadth=2)
