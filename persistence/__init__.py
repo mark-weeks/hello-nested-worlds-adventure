@@ -46,6 +46,16 @@ def init_db() -> None:
                 attempts    INTEGER NOT NULL,
                 recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS world_mutations (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                world_seed    INTEGER NOT NULL,
+                node_name     TEXT NOT NULL,
+                mutation_type TEXT NOT NULL,
+                player_name   TEXT,
+                data          TEXT,
+                recorded_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         """)
 
 
@@ -87,6 +97,31 @@ def list_worlds() -> list[dict[str, Any]]:
             "SELECT seed, created_at, node_count, max_depth FROM worlds ORDER BY created_at DESC"
         ).fetchall()
         return [{"seed": r[0], "created_at": r[1], "node_count": r[2], "max_depth": r[3]} for r in rows]
+
+
+def record_mutation(world_seed: int, node_name: str, mutation_type: str,
+                    player_name: str | None, data: dict) -> None:
+    init_db()
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO world_mutations (world_seed, node_name, mutation_type, player_name, data)
+               VALUES (?, ?, ?, ?, ?)""",
+            (world_seed, node_name, mutation_type, player_name, json.dumps(data)),
+        )
+
+
+def get_mutations(world_seed: int, limit: int = 50) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT node_name, mutation_type, player_name, data, recorded_at
+               FROM world_mutations WHERE world_seed = ?
+               ORDER BY recorded_at DESC LIMIT ?""",
+            (world_seed, limit),
+        ).fetchall()
+        return [{"node": r[0], "type": r[1], "player": r[2],
+                 "data": json.loads(r[3]) if r[3] else {}, "at": r[4]}
+                for r in rows]
 
 
 def get_agent_runs(world_seed: int) -> list[dict[str, Any]]:

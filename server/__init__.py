@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import struct
 import threading
+import uuid
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
@@ -17,6 +22,113 @@ import persistence
 _STATIC_DIR = Path(__file__).parent.parent / "static"
 _OBSERVE_LOCK = threading.Lock()
 _DAMPENING = 0.6
+_WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+
+# ── WebSocket protocol ─────────────────────────────────────────────────────
+
+def _ws_recvall(sock, n: int) -> bytes:
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            raise ConnectionResetError("WebSocket connection closed")
+        buf.extend(chunk)
+    return bytes(buf)
+
+
+def _ws_recv(sock) -> bytes | None:
+    """Return next data-frame payload, b'' for control frames, None on close."""
+    header = _ws_recvall(sock, 2)
+    b0, b1 = header[0], header[1]
+    opcode = b0 & 0x0F
+    masked = bool(b1 & 0x80)
+    length = b1 & 0x7F
+    if length == 126:
+        length = struct.unpack(">H", _ws_recvall(sock, 2))[0]
+    elif length == 127:
+        length = struct.unpack(">Q", _ws_recvall(sock, 8))[0]
+    mask_key = _ws_recvall(sock, 4) if masked else b""
+    payload = bytearray(_ws_recvall(sock, length))
+    if masked:
+        for i in range(len(payload)):
+            payload[i] ^= mask_key[i % 4]
+    if opcode == 0x8:  # close frame
+        return None
+    if opcode in (0x9, 0xA):  # ping / pong — discard payload
+        return b""
+    return bytes(payload)
+
+
+def _ws_send(sock, data: str | bytes) -> None:
+    if isinstance(data, str):
+        data = data.encode()
+    n = len(data)
+    if n <= 125:
+        frame = bytes([0x81, n]) + data
+    elif n <= 65535:
+        frame = struct.pack(">BBH", 0x81, 126, n) + data
+    else:
+        frame = struct.pack(">BBQ", 0x81, 127, n) + data
+    sock.sendall(frame)
+
+
+# ── Multiplayer rooms ──────────────────────────────────────────────────────
+
+@dataclass
+class _Player:
+    name: str
+    seed: int
+    current_node: str
+    session_id: str
+    sock: object
+    _lock: threading.Lock = field(default_factory=threading.Lock, compare=False, repr=False)
+
+    def send(self, msg: dict) -> bool:
+        try:
+            with self._lock:
+                _ws_send(self.sock, json.dumps(msg))
+            return True
+        except OSError:
+            return False
+
+
+@dataclass
+class _Room:
+    players: dict = field(default_factory=dict)   # session_id → _Player
+    lock: threading.Lock = field(default_factory=threading.Lock, compare=False, repr=False)
+
+
+_rooms: dict[int, _Room] = {}
+_rooms_lock = threading.Lock()
+
+
+def _get_room(seed: int) -> _Room:
+    with _rooms_lock:
+        if seed not in _rooms:
+            _rooms[seed] = _Room()
+        return _rooms[seed]
+
+
+def _broadcast(room: _Room, msg: dict, exclude: str | None = None) -> None:
+    with room.lock:
+        targets = list(room.players.items())
+    failed = []
+    for sid, player in targets:
+        if sid == exclude:
+            continue
+        if not player.send(msg):
+            failed.append(sid)
+    if failed:
+        with room.lock:
+            for sid in failed:
+                room.players.pop(sid, None)
+
+
+def _room_snapshot(room: _Room) -> list[dict]:
+    with room.lock:
+        return [{"name": p.name, "node": p.current_node, "session_id": p.session_id}
+                for p in room.players.values()]
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -120,6 +232,21 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/worlds":
             self._send_json(persistence.list_worlds())
 
+        elif path == "/players":
+            try:
+                seed = int(param("seed", "42"))
+            except ValueError:
+                return self._send_error("invalid seed")
+            room = _get_room(seed)
+            self._send_json({"players": _room_snapshot(room)})
+
+        elif path == "/history":
+            try:
+                seed = int(param("seed", "42"))
+            except ValueError:
+                return self._send_error("invalid seed")
+            self._send_json({"mutations": persistence.get_mutations(seed)})
+
         elif path == "/world":
             try:
                 seed  = int(param("seed",        "42"))
@@ -162,6 +289,9 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/puzzle":
             self._do_puzzle(qs)
 
+        elif path == "/ws":
+            self._do_ws(qs)
+
         else:
             self._send_error("not found", 404)
 
@@ -197,11 +327,76 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             self._send_error("not found", 404)
 
+    # ── WebSocket ──
+
+    def _do_ws(self, qs: dict) -> None:
+        key = self.headers.get("Sec-WebSocket-Key", "")
+        if not key:
+            return self._send_error("WebSocket upgrade required", 400)
+
+        try:
+            seed = int(qs.get("seed", ["42"])[0])
+            name = (qs.get("name", ["Anonymous"])[0] or "Anonymous")[:32]
+        except (ValueError, IndexError):
+            return self._send_error("invalid params", 400)
+
+        accept = base64.b64encode(
+            hashlib.sha1((key + _WS_GUID).encode()).digest()
+        ).decode()
+        self.send_response(101, "Switching Protocols")
+        self.send_header("Upgrade", "websocket")
+        self.send_header("Connection", "Upgrade")
+        self.send_header("Sec-WebSocket-Accept", accept)
+        self.end_headers()
+        self.wfile.flush()
+
+        sock = self.connection
+        session_id = uuid.uuid4().hex[:8]
+        player = _Player(name=name, seed=seed, current_node="", session_id=session_id, sock=sock)
+
+        room = _get_room(seed)
+        with room.lock:
+            room.players[session_id] = player
+
+        player.send({"type": "welcome", "session_id": session_id,
+                     "players": _room_snapshot(room)})
+        _broadcast(room, {"type": "player_join", "name": name, "session_id": session_id},
+                   exclude=session_id)
+
+        try:
+            while True:
+                payload = _ws_recv(sock)
+                if payload is None:
+                    break
+                if not payload:
+                    continue  # control frame
+                try:
+                    msg = json.loads(payload)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+                msg_type = msg.get("type")
+                if msg_type == "move":
+                    node_name = str(msg.get("node", ""))[:64]
+                    with room.lock:
+                        player.current_node = node_name
+                    _broadcast(room, {"type": "player_move", "name": name,
+                                      "node": node_name, "session_id": session_id},
+                               exclude=session_id)
+                elif msg_type == "ping":
+                    player.send({"type": "pong"})
+        except (OSError, ConnectionResetError, BrokenPipeError):
+            pass
+        finally:
+            with room.lock:
+                room.players.pop(session_id, None)
+            _broadcast(room, {"type": "player_leave", "name": name,
+                               "session_id": session_id})
+
     # ── Observe (SSE) ──
 
     def _do_observe(self, qs: dict) -> None:
         try:
-            root, *_ = _rebuild(qs)
+            root, seed, *_ = _rebuild(qs)
         except (ValueError, KeyError) as exc:
             return self._send_error(str(exc))
 
@@ -237,8 +432,11 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 agent = Agent(name="Observer", danger_threshold=7)
                 agent.traverse(target, max_nodes=40)
-                self._sse_event({"done": True,
-                                 "nodes_visited": len(agent.visited)})
+                nodes_visited = len(agent.visited)
+                self._sse_event({"done": True, "nodes_visited": nodes_visited})
+                room = _get_room(seed)
+                _broadcast(room, {"type": "agent_done", "node": target.name,
+                                   "nodes_visited": nodes_visited})
             except (BrokenPipeError, ConnectionResetError):
                 pass
             finally:
@@ -304,6 +502,14 @@ class _Handler(BaseHTTPRequestHandler):
                    if not correct and not failed and attempt <= len(p.hints)
                    else None)
 
+        if correct:
+            effective_node = node_name or target.name
+            persistence.record_mutation(seed, effective_node, "PUZZLE_SOLVED",
+                                        None, {"puzzle": p.name})
+            room = _get_room(seed)
+            _broadcast(room, {"type": "puzzle_solved", "node": effective_node,
+                               "puzzle": p.name})
+
         self._send_json({
             "correct":        correct,
             "result":         "SOLVED" if correct else ("FAILED" if failed else "UNSOLVED"),
@@ -322,7 +528,13 @@ class _ThreadedServer(ThreadingMixIn, HTTPServer):
 
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     server = _ThreadedServer((host, port), _Handler)
-    print(f"Nested Worlds Adventure  →  http://{host}:{port}")
+    display = f"http://localhost:{port}" if host in ("0.0.0.0", "") else f"http://{host}:{port}"
+    print(f"Nested Worlds Adventure  →  {display}")
+    print(f"Multiplayer WebSocket   →  ws://localhost:{port}/ws")
+    if host == "127.0.0.1":
+        print(f"For network access: restart with --host 0.0.0.0")
+    else:
+        print(f"Share this URL with beta testers: {display}")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
