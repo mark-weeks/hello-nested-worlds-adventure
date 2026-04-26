@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any
 
 from multiverse.node import SpatialNode
@@ -9,6 +10,7 @@ _MODEL = os.environ.get("NESTED_WORLDS_MODEL", "claude-opus-4-7")
 
 # Lazy-initialised so the module loads without requiring anthropic to be installed.
 _client: Any = None
+_client_lock = threading.Lock()
 
 _SYSTEM_PREAMBLE = (
     "You are a sentient entity within a nested multiverse simulation. "
@@ -21,8 +23,10 @@ _SYSTEM_PREAMBLE = (
 def _get_client() -> Any:
     global _client
     if _client is None:
-        from anthropic import Anthropic
-        _client = Anthropic()
+        with _client_lock:
+            if _client is None:
+                from anthropic import Anthropic
+                _client = Anthropic()
     return _client
 
 
