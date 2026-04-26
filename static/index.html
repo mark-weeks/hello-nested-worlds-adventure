@@ -64,6 +64,16 @@
     .prop-key { color: #304060; flex-shrink: 0; }
     .prop-val { color: #8aaccc; text-align: right; word-break: break-word; }
 
+    /* ── Players panel ── */
+    #players-panel { flex-shrink: 0; max-height: 140px; overflow-y: auto; }
+    .player-row  { display: flex; align-items: center; gap: 7px; font-size: 10px; padding: 3px 0; }
+    .player-dot  { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
+    .player-name { flex: 0 0 80px; color: #8aaccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .player-node { flex: 1; color: #4a6080; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #event-feed  { margin-top: 8px; border-top: 1px solid #111828; padding-top: 6px; }
+    .feed-item   { font-size: 9px; color: #3a5070; padding: 1px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .feed-time   { color: #2a4050; margin-right: 4px; }
+
     /* ── Mode buttons ── */
     .mode-bar { display: flex; gap: 0; border-bottom: 1px solid #141828; }
     .mode-bar button { flex: 1; border: none; border-right: 1px solid #141828; border-radius: 0; padding: 8px 4px; font-size: 10px; color: #3a5070; background: #0b0d1a; }
@@ -112,9 +122,29 @@
 
     /* ── Status bar ── */
     .statusbar { flex: 0 0 auto; font-size: 10px; color: #2a4060; padding: 5px 16px; border-top: 1px solid #141828; background: #0b0d1a; letter-spacing: 1px; }
+
+    /* ── Join modal ── */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(7,8,15,0.88); z-index: 100; align-items: center; justify-content: center; }
+    .modal-overlay.visible { display: flex; }
+    .modal-box { background: #0b0d1a; border: 1px solid #2a4060; padding: 32px 36px; min-width: 280px; display: flex; flex-direction: column; gap: 14px; }
+    .modal-title { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; color: #3a8eff; }
+    .modal-desc  { font-size: 10px; color: #4a6080; letter-spacing: 1px; }
+    .modal-box input[type=text] { background: #10131f; border: 1px solid #222840; color: #b0bcd0; padding: 8px 10px; font-family: inherit; font-size: 13px; outline: none; }
+    .modal-box input[type=text]:focus { border-color: #3a8eff; }
+    .modal-box button { align-self: flex-start; }
   </style>
 </head>
 <body>
+
+<!-- Join modal -->
+<div id="join-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">Nested Worlds</div>
+    <div class="modal-desc">Choose a name for your explorer</div>
+    <input type="text" id="player-name-input" placeholder="Your name" maxlength="32" autocomplete="off">
+    <button onclick="joinModal()">Enter</button>
+  </div>
+</div>
 
 <header>
   <h1>Nested Worlds</h1>
@@ -140,6 +170,12 @@
       <div id="node-level" style="color:#3a8eff">—</div>
       <div id="node-name"  style="color:#3a8eff">Select a node</div>
       <div id="node-props"></div>
+    </div>
+
+    <div class="panel" id="players-panel">
+      <div class="panel-title">Explorers</div>
+      <div id="players-list"><div style="color:#2a4060;font-size:10px">Not connected</div></div>
+      <div id="event-feed"></div>
     </div>
 
     <div class="mode-bar">
@@ -200,6 +236,7 @@ let selected    = null;
 let worldParams = { seed: 42, depth: 6, min_b: 1, max_b: 3 };
 let puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
 let observeES   = null;
+let nodeG       = null;  // D3 node <g> selection, kept alive for presence ring updates
 
 // ── SVG setup ──────────────────────────────────────────────────────────────
 const container = document.getElementById('graph');
@@ -236,6 +273,7 @@ async function loadWorld() {
     if (data.error) throw new Error(data.error);
     setStatus(`${data.node_count} nodes · seed ${seed} · depth ${depth}`);
     renderTree(data.world);
+    if (playerName) wsConnect(seed);
   } catch (e) {
     setStatus('Error: ' + e.message);
   } finally {
@@ -246,6 +284,10 @@ async function loadWorld() {
 // ── Render tree ────────────────────────────────────────────────────────────
 function renderTree(worldRoot) {
   root_g.selectAll('*').remove();
+  nodeG   = null;
+  players = {};
+  renderPlayers();
+
   const hier   = d3.hierarchy(worldRoot, d => d.children?.length ? d.children : null);
   const leaves = hier.leaves().length;
   const rowH   = Math.max(20, Math.min(40, (container.clientHeight - 60) / leaves));
@@ -256,7 +298,7 @@ function renderTree(worldRoot) {
     .attr('class', 'link')
     .attr('d', d3.linkHorizontal().x(d => d.y).y(d => d.x));
 
-  const nodeG = root_g.append('g').selectAll('g')
+  nodeG = root_g.append('g').selectAll('g')
     .data(hier.descendants()).join('g')
     .attr('class', 'node')
     .attr('transform', d => `translate(${d.y},${d.x})`)
@@ -316,6 +358,8 @@ function selectNode(data) {
   document.getElementById('puzzle-content').innerHTML = '';
   puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
   if (observeES) { observeES.close(); observeES = null; }
+
+  wsSend({ type: 'move', node: data.name });
 }
 
 // ── Speak ──────────────────────────────────────────────────────────────────
@@ -479,8 +523,164 @@ async function submitAnswer() {
   }
 }
 
+// ── Multiplayer ────────────────────────────────────────────────────────────
+let playerName  = localStorage.getItem('nw_player_name') || null;
+let ws          = null;
+let mySessionId = null;
+let players     = {};
+let colorIdx    = 0;
+
+const PLAYER_COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#ff9ff3','#ff9f43','#54a0ff','#a29bfe'];
+const eventFeed = [];
+
+function showJoinModal() {
+  document.getElementById('join-modal').classList.add('visible');
+  setTimeout(() => document.getElementById('player-name-input').focus(), 50);
+}
+
+function hideJoinModal() {
+  document.getElementById('join-modal').classList.remove('visible');
+}
+
+function joinModal() {
+  const input = document.getElementById('player-name-input').value.trim();
+  if (!input) return;
+  playerName = input;
+  localStorage.setItem('nw_player_name', playerName);
+  hideJoinModal();
+  loadWorld();
+}
+
+document.getElementById('player-name-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') joinModal();
+});
+
+function wsConnect(seed) {
+  if (ws) { ws.close(); ws = null; }
+  players  = {};
+  colorIdx = 0;
+  renderPlayers();
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url   = `${proto}//${window.location.host}/ws?seed=${seed}&name=${encodeURIComponent(playerName)}`;
+  try { ws = new WebSocket(url); } catch (_) { return; }
+  ws.onmessage = e => { try { handleWsMsg(JSON.parse(e.data)); } catch (_) {} };
+  ws.onclose   = () => { ws = null; };
+  ws.onerror   = () => {};
+}
+
+function wsSend(msg) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+function assignColor() {
+  return PLAYER_COLORS[(colorIdx++) % PLAYER_COLORS.length];
+}
+
+function handleWsMsg(msg) {
+  switch (msg.type) {
+    case 'welcome':
+      mySessionId = msg.session_id;
+      players = {};
+      colorIdx = 0;
+      for (const p of (msg.players || [])) {
+        if (p.session_id !== mySessionId)
+          players[p.session_id] = { name: p.name, node: p.node, color: assignColor() };
+      }
+      renderPlayers();
+      updatePresenceRings();
+      break;
+    case 'player_join':
+      if (msg.session_id !== mySessionId) {
+        players[msg.session_id] = { name: msg.name, node: '', color: assignColor() };
+        pushFeed(`${msg.name} joined`);
+        renderPlayers();
+        updatePresenceRings();
+      }
+      break;
+    case 'player_leave':
+      if (players[msg.session_id]) {
+        pushFeed(`${players[msg.session_id].name} left`);
+        delete players[msg.session_id];
+        renderPlayers();
+        updatePresenceRings();
+      }
+      break;
+    case 'player_move':
+      if (players[msg.session_id]) {
+        players[msg.session_id].node = msg.node;
+        renderPlayers();
+        updatePresenceRings();
+      }
+      break;
+    case 'puzzle_solved':
+      pushFeed(`Puzzle solved: ${msg.puzzle} @ ${msg.node}`);
+      break;
+    case 'agent_done':
+      pushFeed(`Agent: ${msg.nodes_visited} nodes from ${msg.node}`);
+      break;
+  }
+}
+
+function renderPlayers() {
+  const el   = document.getElementById('players-list');
+  const list = Object.values(players);
+  if (!list.length) {
+    el.innerHTML = '<div style="color:#2a4060;font-size:10px">No other explorers online</div>';
+  } else {
+    el.innerHTML = list.map(p =>
+      `<div class="player-row">` +
+      `<span class="player-dot" style="background:${p.color}"></span>` +
+      `<span class="player-name">${escHtml(p.name)}</span>` +
+      `<span class="player-node">${escHtml(p.node || '—')}</span>` +
+      `</div>`
+    ).join('');
+  }
+}
+
+function pushFeed(text) {
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  eventFeed.unshift({ text, time });
+  if (eventFeed.length > 5) eventFeed.pop();
+  document.getElementById('event-feed').innerHTML = eventFeed.map(e =>
+    `<div class="feed-item"><span class="feed-time">${e.time}</span>${escHtml(e.text)}</div>`
+  ).join('');
+}
+
+function updatePresenceRings() {
+  if (!nodeG) return;
+  nodeG.selectAll('.presence-ring').remove();
+  const nodeColors = {};
+  for (const p of Object.values(players)) {
+    if (!p.node) continue;
+    if (!nodeColors[p.node]) nodeColors[p.node] = [];
+    nodeColors[p.node].push(p.color);
+  }
+  for (const [nodeName, colors] of Object.entries(nodeColors)) {
+    const group = nodeG.filter(d => d.data.name === nodeName);
+    colors.forEach((color, i) => {
+      group.insert('circle', ':first-child')
+        .attr('class',          'presence-ring')
+        .attr('r',              d => (LEVEL_R[d.data.level] || 7) + 6 + i * 5)
+        .attr('fill',           'none')
+        .attr('stroke',         color)
+        .attr('stroke-width',   1.5)
+        .attr('stroke-dasharray', '4,3')
+        .attr('opacity',        0.8)
+        .attr('pointer-events', 'none');
+    });
+  }
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // ── Boot ───────────────────────────────────────────────────────────────────
-loadWorld();
+if (playerName) {
+  loadWorld();
+} else {
+  showJoinModal();
+}
 </script>
 </body>
 </html>
