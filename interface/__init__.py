@@ -118,9 +118,6 @@ def _play_puzzle(node: SpatialNode, seed: int) -> None:
     engine = PuzzleEngine(seed=seed)
     engine.attach_puzzles(node)
     puzzles = engine.collect_puzzles(node)
-    if not puzzles:
-        print(f"\n  {_DIM}No puzzles found in this part of the world.{_RESET}")
-        return
     engine.run_puzzle(puzzles[0])
 
 

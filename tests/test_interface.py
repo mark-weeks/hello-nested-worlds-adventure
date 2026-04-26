@@ -185,11 +185,13 @@ class TestAmbientMode:
 
 
 class TestPuzzleMode:
-    def test_play_puzzle_no_puzzles_message(self, capsys):
+    def test_play_puzzle_at_any_level(self, capsys):
+        # Every node now gets a level-appropriate puzzle
         leaf = SpatialNode("Barren", "SubatomicParticle")
-        _play_puzzle(leaf, seed=999)
+        with patch("builtins.input", return_value="wrong"):
+            _play_puzzle(leaf, seed=999)
         out = capsys.readouterr().out
-        assert "No puzzles" in out
+        assert "===" in out  # puzzle header always appears
 
     def test_play_puzzle_with_puzzle_node(self, capsys):
         node = SpatialNode("Vault", "Room", properties={"has_puzzle": True})
