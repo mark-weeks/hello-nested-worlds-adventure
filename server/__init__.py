@@ -480,9 +480,9 @@ class _Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError) as exc:
             return self._send_error(str(exc))
 
-        node_name = body.get("node_name", "")
-        answer    = body.get("answer", "").strip()
-        attempt   = int(body.get("attempt", 1))
+        node_name   = body.get("node_name", "")
+        answer      = body.get("answer", "").strip()
+        attempt_raw = body.get("attempt", 1)
 
         root   = generate_node_hierarchy(seed=seed, max_depth=depth,
                                          min_breadth=min_b, max_breadth=max_b)
@@ -495,7 +495,17 @@ class _Handler(BaseHTTPRequestHandler):
         if not puzzles:
             return self._send_error("no puzzle found")
 
-        p       = puzzles[0]
+        p = puzzles[0]
+        # Clamp attempt to [1, max_attempts+1] so a client cannot fabricate a
+        # false "failed" state (e.g. attempt=99999) to extract correct_answer.
+        # Values above max_attempts are still ≥ max_attempts so failed stays
+        # computable, but the correct_answer guard below only releases the
+        # answer when attempt is within the legitimate range (≤ max_attempts).
+        try:
+            attempt = max(1, min(int(attempt_raw), p.max_attempts + 1))
+        except (ValueError, TypeError):
+            attempt = 1
+
         correct = answer.lower() == p.answer.lower()
         failed  = not correct and attempt >= p.max_attempts
         hint    = (p.hints[attempt - 1]
@@ -516,7 +526,10 @@ class _Handler(BaseHTTPRequestHandler):
             "hint":           hint,
             "attempt":        attempt,
             "max_attempts":   p.max_attempts,
-            "correct_answer": p.answer if failed else None,
+            # Only reveal the answer when the server confirms failure at the
+            # legitimate last attempt (attempt ≤ max_attempts).  An out-of-
+            # bounds attempt (clamped to max_attempts+1) is excluded here.
+            "correct_answer": p.answer if (failed and attempt <= p.max_attempts) else None,
         })
 
 
