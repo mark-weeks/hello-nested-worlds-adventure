@@ -48,6 +48,8 @@ def _ws_recv(sock) -> bytes | None:
         length = struct.unpack(">H", _ws_recvall(sock, 2))[0]
     elif length == 127:
         length = struct.unpack(">Q", _ws_recvall(sock, 8))[0]
+    if length > 64 * 1024:
+        raise ValueError("WebSocket frame too large")
     mask_key = _ws_recvall(sock, 4) if masked else b""
     payload = bytearray(_ws_recvall(sock, length))
     if masked:
@@ -299,7 +301,13 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path.rstrip("/")
-        length = int(self.headers.get("Content-Length", 0))
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            length = 0
+        MAX_BODY = 64 * 1024  # 64 KB
+        if length > MAX_BODY:
+            return self._send_error("payload too large", 413)
         try:
             body = json.loads(self.rfile.read(length)) if length else {}
         except json.JSONDecodeError:
@@ -351,6 +359,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
         sock = self.connection
+        sock.settimeout(60)  # 60-second idle timeout
         session_id = uuid.uuid4().hex[:8]
         player = _Player(name=name, seed=seed, current_node="", session_id=session_id, sock=sock)
 
