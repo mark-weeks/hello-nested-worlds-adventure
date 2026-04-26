@@ -28,7 +28,7 @@ class TestInitDb:
         conn = sqlite3.connect(persistence._DB_PATH)
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         conn.close()
-        assert {"worlds", "agent_runs", "puzzle_results"}.issubset(tables)
+        assert {"worlds", "agent_runs", "puzzle_results", "world_mutations"}.issubset(tables)
 
     def test_db_permissions_owner_only(self):
         persistence.init_db()
@@ -77,6 +77,31 @@ class TestSaveAgentRun:
 
     def test_get_runs_unknown_seed(self):
         assert persistence.get_agent_runs(9999) == []
+
+
+class TestWorldMutations:
+    def test_record_and_get_mutation(self):
+        persistence.record_mutation(7, "Aethon", "PUZZLE_SOLVED", "Alice", {"puzzle": "The Lock"})
+        mutations = persistence.get_mutations(7)
+        assert len(mutations) == 1
+        m = mutations[0]
+        assert m["node"]   == "Aethon"
+        assert m["type"]   == "PUZZLE_SOLVED"
+        assert m["player"] == "Alice"
+        assert m["data"]   == {"puzzle": "The Lock"}
+
+    def test_get_mutations_unknown_seed(self):
+        assert persistence.get_mutations(9999) == []
+
+    def test_get_mutations_limit(self):
+        for i in range(10):
+            persistence.record_mutation(5, f"Node{i}", "PUZZLE_SOLVED", None, {})
+        assert len(persistence.get_mutations(5, limit=3)) == 3
+
+    def test_record_mutation_null_player(self):
+        persistence.record_mutation(3, "Vorrex", "PUZZLE_SOLVED", None, {"puzzle": "Riddle"})
+        mutations = persistence.get_mutations(3)
+        assert mutations[0]["player"] is None
 
 
 class TestSavePuzzleResult:
