@@ -4,21 +4,8 @@ import persistence
 from agents.agent import Agent
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
+from multiverse.utils import _count_nodes, _find_node
 from puzzles.engine import PuzzleEngine
-
-
-def _count_nodes(node: SpatialNode) -> int:
-    return 1 + sum(_count_nodes(c) for c in node.children)
-
-
-def _find_node(root: SpatialNode, name: str) -> SpatialNode | None:
-    if root.name == name:
-        return root
-    for child in root.children:
-        found = _find_node(child, name)
-        if found:
-            return found
-    return None
 
 
 def cmd_world(args):

@@ -5,6 +5,7 @@ import time
 import causality
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
+from multiverse.utils import _build_depth_map
 from puzzles.engine import PuzzleEngine
 from agents.agent import Agent
 
@@ -72,15 +73,6 @@ def _print_map(node: SpatialNode, prefix: str = "", is_last: bool = True,
     else:
         count = len(node.children)
         print(f"{child_prefix}└─ {_DIM}… ({count} child{'ren' if count != 1 else ''}){_RESET}")
-
-
-def _build_depth_map(node: SpatialNode, depth: int = 0, result: dict | None = None) -> dict[str, int]:
-    if result is None:
-        result = {}
-    result[node.id] = depth
-    for child in node.children:
-        _build_depth_map(child, depth + 1, result)
-    return result
 
 
 _AMBIENT_DAMPENING = 0.6
