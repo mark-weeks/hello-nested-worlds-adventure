@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <title>Nested Worlds Adventure</title>
-  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"
+          integrity="sha384-rRoXxn2yHlrZYB587Ki9RO1tONhLdM6XfORg7Rw4uwH4/Fh/5nP7IUX91bkaKUgs"
+          crossorigin="anonymous"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -348,7 +350,7 @@ function selectNode(data) {
   document.getElementById('node-name').textContent  = data.name;
   document.getElementById('node-name').style.color  = color;
   document.getElementById('node-props').innerHTML = Object.entries(data.properties || {}).map(
-    ([k, v]) => `<div class="prop-row"><span class="prop-key">${k}</span><span class="prop-val">${v}</span></div>`
+    ([k, v]) => `<div class="prop-row"><span class="prop-key">${escHtml(String(k))}</span><span class="prop-val">${escHtml(String(v))}</span></div>`
   ).join('');
 
   // Reset panels
@@ -429,8 +431,8 @@ function appendObserveRow({ node, level, kind, strength }) {
   const row     = document.createElement('div');
   row.className = 'obs-row';
   row.innerHTML = `
-    <span class="obs-name"  style="color:${color}">${node}</span>
-    <span class="obs-event">${kindFmt}</span>
+    <span class="obs-name"  style="color:${color}">${escHtml(node)}</span>
+    <span class="obs-event">${escHtml(kindFmt)}</span>
     <span class="bar-track"><span class="bar-fill" style="width:${pct}%;background:${color}"></span></span>
     <span class="obs-strength">${strength.toFixed(2)}</span>`;
   const log = document.getElementById('observe-rows');
@@ -464,9 +466,9 @@ async function fetchPuzzle() {
 
 function renderPuzzle(data) {
   document.getElementById('puzzle-content').innerHTML = `
-    <div class="puzzle-kind">${data.kind.replace(/_/g, ' ')}</div>
-    <div class="puzzle-name">${data.name}</div>
-    <div class="puzzle-prompt">${data.prompt}</div>
+    <div class="puzzle-kind">${escHtml(data.kind.replace(/_/g, ' '))}</div>
+    <div class="puzzle-name">${escHtml(data.name)}</div>
+    <div class="puzzle-prompt">${escHtml(data.prompt)}</div>
     <div class="attempt-info" id="attempt-info">
       ${data.max_attempts} attempt${data.max_attempts !== 1 ? 's' : ''} allowed
     </div>

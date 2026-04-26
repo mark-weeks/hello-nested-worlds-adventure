@@ -189,11 +189,17 @@ class _Handler(BaseHTTPRequestHandler):
 
     # ── response helpers ──
 
+    def _send_security_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+
     def _send_json(self, data: object, status: int = 200) -> None:
         body = json.dumps(data, indent=2).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        self._send_security_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -202,12 +208,25 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _send_file(self, path: Path,
                    content_type: str = "text/html; charset=utf-8") -> None:
+        try:
+            path.resolve().relative_to(_STATIC_DIR.resolve())
+        except ValueError:
+            return self._send_error("forbidden", 403)
         if not path.exists():
             return self._send_error("not found", 404)
         body = path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        self._send_security_headers()
+        if "text/html" in content_type:
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; "
+                "script-src 'self' https://d3js.org; "
+                "connect-src 'self' ws: wss:; "
+                "style-src 'self' 'unsafe-inline';",
+            )
         self.end_headers()
         self.wfile.write(body)
 
@@ -426,6 +445,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self._send_security_headers()
         self.end_headers()
 
         depth_map = _build_depth_map(target)
