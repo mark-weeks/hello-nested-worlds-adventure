@@ -150,7 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_play.set_defaults(func=cmd_play)
 
     p_serve = sub.add_parser("serve", help="Start the REST API server")
-    p_serve.add_argument("--host", type=str, default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
+    p_serve.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     p_serve.add_argument("--port", type=int, default=8080, help="Bind port (default: 8080)")
     p_serve.set_defaults(func=cmd_serve)
 
