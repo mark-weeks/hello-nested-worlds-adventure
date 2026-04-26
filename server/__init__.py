@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import struct
 import threading
 import uuid
@@ -21,6 +22,7 @@ import persistence
 
 _STATIC_DIR = Path(__file__).parent.parent / "static"
 _OBSERVE_LOCK = threading.Lock()
+_log = logging.getLogger("nested_worlds")
 _DAMPENING = 0.6
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
@@ -314,20 +316,28 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send_error("invalid JSON")
 
         if path == "/speak":
+            node_name       = str(body.get("node_name", "Unknown"))[:128]
+            node_level      = str(body.get("node_level", "Room"))[:64]
+            node_properties = body.get("node_properties", {})
+            if not isinstance(node_properties, dict):
+                node_properties = {}
+            message = str(body.get(
+                "message",
+                "Describe yourself to a traveler who has just arrived.",
+            ))[:1024]
             node = SpatialNode(
-                name=body.get("node_name", "Unknown"),
-                level=body.get("node_level", "Room"),
-                properties=body.get("node_properties", {}),
+                name=node_name,
+                level=node_level,
+                properties=node_properties,
             )
-            message = body.get("message",
-                                "Describe yourself to a traveler who has just arrived.")
             try:
                 import consciousness
                 self._send_json({"response": consciousness.speak(node, message)})
             except ImportError:
                 self._send_error("consciousness module requires: pip install anthropic")
             except Exception as exc:
-                self._send_error(str(exc))
+                _log.warning("speak error: %s", exc)
+                self._send_error("Service unavailable", 503)
 
         elif path == "/puzzle/attempt":
             self._do_puzzle_attempt(body)
@@ -549,6 +559,8 @@ class _ThreadedServer(ThreadingMixIn, HTTPServer):
 
 
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:
+    logging.basicConfig(level=logging.WARNING,
+                        format="%(asctime)s %(levelname)s %(message)s")
     server = _ThreadedServer((host, port), _Handler)
     display = f"http://localhost:{port}" if host in ("0.0.0.0", "") else f"http://{host}:{port}"
     print(f"Nested Worlds Adventure  →  {display}")
