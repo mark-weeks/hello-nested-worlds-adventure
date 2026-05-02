@@ -78,28 +78,22 @@ class PuzzleEngine:
         self._rng = random.Random(seed)
 
     def attach_puzzles(self, root: SpatialNode) -> int:
-        count_ref = [0]
-        self._attach(root, count_ref)
-        return count_ref[0]
-
-    def _attach(self, node: SpatialNode, count_ref: list):
-        if "puzzle" not in node.properties:
-            node.properties["puzzle"] = _make_puzzle_for_node(node, self._rng)
-            count_ref[0] += 1
-        for child in node.children:
-            self._attach(child, count_ref)
+        count = 0
+        if "puzzle" not in root.properties:
+            root.properties["puzzle"] = _make_puzzle_for_node(root, self._rng)
+            count += 1
+        for child in root.children:
+            count += self.attach_puzzles(child)
+        return count
 
     def collect_puzzles(self, root: SpatialNode) -> List[Puzzle]:
-        results = []
-        self._collect(root, results)
-        return results
-
-    def _collect(self, node: SpatialNode, results: list):
-        p = node.properties.get("puzzle")
+        results: List[Puzzle] = []
+        p = root.properties.get("puzzle")
         if p:
             results.append(p)
-        for child in node.children:
-            self._collect(child, results)
+        for child in root.children:
+            results.extend(self.collect_puzzles(child))
+        return results
 
     def run_puzzle(self, puzzle: Puzzle) -> PuzzleResult:
         print(f"\n=== {puzzle.name} ({puzzle.kind.name}) ===")

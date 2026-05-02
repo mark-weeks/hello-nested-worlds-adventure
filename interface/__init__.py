@@ -5,7 +5,7 @@ import time
 import causality
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
-from multiverse.utils import _build_depth_map
+from multiverse.utils import build_depth_map
 from puzzles.engine import PuzzleEngine
 from agents.agent import Agent
 
@@ -75,7 +75,7 @@ def _print_map(node: SpatialNode, prefix: str = "", is_last: bool = True,
         print(f"{child_prefix}└─ {_DIM}… ({count} child{'ren' if count != 1 else ''}){_RESET}")
 
 
-_AMBIENT_DAMPENING = 0.6
+_AMBIENT_DAMPENING = causality.DAMPENING
 
 
 def _ambient_mode(node: SpatialNode) -> None:
@@ -83,7 +83,7 @@ def _ambient_mode(node: SpatialNode) -> None:
     print(f"  {'Node':<30}  {'Event':<22}  {'Strength'}")
     print(f"  {_DIM}{'─'*30}  {'─'*22}  {'─'*20}{_RESET}")
 
-    depth_map = _build_depth_map(node)
+    depth_map = build_depth_map(node)
 
     def _handler(n: SpatialNode, event: causality.CausalEvent) -> None:
         style = _LEVEL_STYLES.get(n.level, "")
@@ -95,15 +95,12 @@ def _ambient_mode(node: SpatialNode) -> None:
         print(f"  {style}{n.name:<30}{_RESET}  {kind:<22}  {bar}  {strength:.2f}")
         time.sleep(0.04)
 
-    causality.register_handler(_handler)
-    try:
-        agent = Agent(name="Observer", danger_threshold=7)
-        agent.traverse(node, max_nodes=40)
-        print(f"\n{_DIM}Observer visited {len(agent.visited)} node(s). Press Enter to continue.{_RESET}")
-        input()
-    finally:
-        causality.clear_handlers()
-        causality.clear_log()
+    bus = causality.CausalityBus()
+    bus.register_handler(_handler)
+    agent = Agent(name="Observer", danger_threshold=7, bus=bus)
+    agent.traverse(node, max_nodes=40)
+    print(f"\n{_DIM}Observer visited {len(agent.visited)} node(s). Press Enter to continue.{_RESET}")
+    input()
 
 
 def _play_puzzle(node: SpatialNode, seed: int) -> None:

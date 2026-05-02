@@ -4,7 +4,7 @@ import persistence
 from agents.agent import Agent
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
-from multiverse.utils import _count_nodes, _find_node
+from multiverse.utils import count_nodes, find_node
 from puzzles.engine import PuzzleEngine
 
 
@@ -16,7 +16,7 @@ def cmd_world(args):
         max_breadth=args.max_breadth,
     )
     print(root)
-    node_count = _count_nodes(root)
+    node_count = count_nodes(root)
     persistence.save_world(args.seed, node_count, args.depth, args.min_breadth, args.max_breadth)
     print(f"[Saved: seed={args.seed}, {node_count} nodes]")
 
@@ -89,7 +89,7 @@ def cmd_speak(args):
         return
 
     root = generate_node_hierarchy(seed=args.seed)
-    target = _find_node(root, args.node) if args.node else root
+    target = find_node(root, args.node) if args.node else root
     if target is None:
         print(f"Node '{args.node}' not found in seed={args.seed}. Run 'world' to see available nodes.")
         return
