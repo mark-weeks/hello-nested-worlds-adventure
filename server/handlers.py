@@ -5,7 +5,6 @@ import base64
 import hashlib
 import json
 import logging
-import threading
 import uuid
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -14,19 +13,18 @@ from urllib.parse import parse_qs, urlparse
 
 import causality
 import persistence
+from causality import CausalityBus, DAMPENING
 from agents.agent import Agent
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
-from multiverse.utils import _build_depth_map, _count_nodes, _find_node
+from multiverse.utils import build_depth_map, count_nodes, find_node
 from puzzles.engine import PuzzleEngine
 from server.protocol import ws_recv
 from server.rooms import Player, broadcast, get_room, snapshot
 
 
 _STATIC_DIR = Path(__file__).parent.parent / "static"
-_OBSERVE_LOCK = threading.Lock()
 _log = logging.getLogger("nested_worlds")
-_DAMPENING = 0.6
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 _MAX_BODY = 64 * 1024  # 64 KB
 
@@ -155,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
                 root, seed, depth, min_b, max_b = _build_world(_flatten_qs(qs))
             except ValueError as exc:
                 return self._send_error(str(exc))
-            node_count = _count_nodes(root)
+            node_count = count_nodes(root)
             persistence.save_world(seed, node_count, depth, min_b, max_b)
             self._send_json({"seed": seed, "node_count": node_count,
                              "world": _node_to_dict(root)})
@@ -310,7 +308,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error(str(exc))
 
         node_name = qs.get("node_name", [""])[0]
-        target    = (_find_node(root, node_name) if node_name else None) or root
+        target    = (find_node(root, node_name) if node_name else None) or root
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -319,11 +317,11 @@ class Handler(BaseHTTPRequestHandler):
         self._send_security_headers()
         self.end_headers()
 
-        depth_map = _build_depth_map(target)
+        depth_map = build_depth_map(target)
 
         def handler(node: SpatialNode, event: causality.CausalEvent) -> None:
             d        = depth_map.get(node.id, 0)
-            strength = round(_DAMPENING ** d, 4)
+            strength = round(DAMPENING ** d, 4)
             try:
                 self._sse_event({
                     "node":     node.name,
@@ -335,22 +333,19 @@ class Handler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
-        with _OBSERVE_LOCK:
-            causality.clear_handlers()
-            causality.clear_log()
-            causality.register_handler(handler)
-            try:
-                agent = Agent(name="Observer", danger_threshold=7)
-                agent.traverse(target, max_nodes=40)
-                nodes_visited = len(agent.visited)
-                self._sse_event({"done": True, "nodes_visited": nodes_visited})
-                broadcast(get_room(seed), {"type": "agent_done", "node": target.name,
-                                           "nodes_visited": nodes_visited})
-            except (BrokenPipeError, ConnectionResetError):
-                pass
-            finally:
-                causality.clear_handlers()
-                causality.clear_log()
+        # Per-request bus keeps observation isolated from the global event
+        # stream — concurrent /observe calls no longer need to serialise.
+        bus = CausalityBus()
+        bus.register_handler(handler)
+        try:
+            agent = Agent(name="Observer", danger_threshold=7, bus=bus)
+            agent.traverse(target, max_nodes=40)
+            nodes_visited = len(agent.visited)
+            self._sse_event({"done": True, "nodes_visited": nodes_visited})
+            broadcast(get_room(seed), {"type": "agent_done", "node": target.name,
+                                       "nodes_visited": nodes_visited})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     # ── Puzzle ──
 
@@ -361,7 +356,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error(str(exc))
 
         node_name = qs.get("node_name", [""])[0]
-        target    = (_find_node(root, node_name) if node_name else None) or root
+        target    = (find_node(root, node_name) if node_name else None) or root
 
         engine  = PuzzleEngine(seed=seed)
         engine.attach_puzzles(target)
@@ -390,7 +385,7 @@ class Handler(BaseHTTPRequestHandler):
         answer      = body.get("answer", "").strip()
         attempt_raw = body.get("attempt", 1)
 
-        target = (_find_node(root, node_name) if node_name else None) or root
+        target = (find_node(root, node_name) if node_name else None) or root
 
         engine  = PuzzleEngine(seed=seed)
         engine.attach_puzzles(target)

@@ -46,8 +46,10 @@ class Puzzle:
         return self.result
 
     def hint(self) -> Optional[str]:
-        used = min(self.attempts, len(self.hints))
-        return self.hints[used - 1] if used > 0 and self.hints else None
+        if not self.hints or self.attempts < 1:
+            return None
+        idx = min(self.attempts, len(self.hints)) - 1
+        return self.hints[idx]
 
     @property
     def solved(self) -> bool:

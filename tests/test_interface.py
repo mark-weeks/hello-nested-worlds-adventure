@@ -14,7 +14,7 @@ from interface import (
     _print_breadcrumb,
     _descend,
     _ambient_mode,
-    _build_depth_map,
+    build_depth_map,
     _play_puzzle,
     _AMBIENT_DAMPENING,
 )
@@ -120,51 +120,46 @@ class TestNavigation:
 class TestDepthMap:
     def test_root_is_depth_zero(self):
         root = make_tree()
-        dm = _build_depth_map(root)
+        dm = build_depth_map(root)
         assert dm[root.id] == 0
 
     def test_child_is_depth_one(self):
         root = make_tree()
-        dm = _build_depth_map(root)
+        dm = build_depth_map(root)
         assert dm[root.children[0].id] == 1
 
     def test_grandchild_is_depth_two(self):
         root = make_tree()
         grandchild = root.children[0].children[0]
-        dm = _build_depth_map(root)
+        dm = build_depth_map(root)
         assert dm[grandchild.id] == 2
 
     def test_all_nodes_present(self):
         root = make_tree()
-        dm = _build_depth_map(root)
+        dm = build_depth_map(root)
         assert len(dm) == 3  # root + galaxy + planet
 
 
 class TestAmbientMode:
-    def test_ambient_registers_and_clears_handler(self):
+    def test_ambient_does_not_pollute_global(self):
+        """Ambient mode runs in an isolated CausalityBus; global is untouched."""
         root = make_tree()
         with patch("builtins.input", return_value=""):
             with patch("time.sleep"):
                 _ambient_mode(root)
-        assert causality._handlers == []
+        assert causality._default._handlers == []
+        assert causality.get_log() == []
 
-    def test_ambient_fires_causal_events(self):
+    def test_ambient_fires_causal_events(self, capsys):
         root = make_tree()
-        fired: list[str] = []
-        original_register = causality.register_handler
-
-        def capturing_register(fn):
-            def wrapped(n, ev):
-                fired.append(n.name)
-                fn(n, ev)
-            original_register(wrapped)
-
-        with patch.object(causality, "register_handler", capturing_register):
-            with patch("builtins.input", return_value=""):
-                with patch("time.sleep"):
-                    _ambient_mode(root)
-
-        assert len(fired) > 0
+        with patch("builtins.input", return_value=""):
+            with patch("time.sleep"):
+                _ambient_mode(root)
+        out = capsys.readouterr().out
+        # Every tree node should appear as the agent visits it
+        assert "Aethon-1" in out
+        assert "Vela-2" in out
+        assert "Kethara-3" in out
 
     def test_ambient_clears_log_on_exit(self):
         root = make_tree()
