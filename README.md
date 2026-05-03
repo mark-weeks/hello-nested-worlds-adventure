@@ -115,9 +115,7 @@ Environment variables (see `.env.example`):
 |----------|--------------|---------|
 | `ANTHROPIC_API_KEY` | Node consciousness (`speak`, browser chat with nodes) | — |
 | `NESTED_WORLDS_MODEL` | Override the Claude model | `claude-opus-4-7` |
-| `FAL_KEY` | AI-generated scene backgrounds (Flux Schnell) | optional |
-| `REDIS_URL` | Scene cache + session state | optional |
-| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_URL` | Generated image storage | optional |
+| `FAL_KEY` | AI-generated scene backgrounds (`fal-ai/fast-sdxl`) | optional |
 
 The browser frontend (`frontend/`) is a separate Vite project:
 
