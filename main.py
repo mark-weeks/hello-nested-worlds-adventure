@@ -24,14 +24,22 @@ def cmd_world(args):
 def cmd_agent(args):
     root = generate_node_hierarchy(seed=args.seed)
     agent = Agent(name=args.name, danger_threshold=args.danger_threshold)
+
+    saved = persistence.load_agent_memory(args.name, args.seed)
+    if saved:
+        agent.memory = saved["visited_ids"]
+        print(f"[Memory restored: {len(agent.memory)} nodes previously known]")
+
     agent.traverse(root, max_nodes=args.max_nodes)
     print(agent.report())
+
     events = [
         {"node": e.node_name, "level": e.level, "state": e.state.name, "action": e.action}
         for e in agent.log
     ]
-    persistence.save_agent_run(args.name, args.seed, len(agent.visited), events)
-    print(f"[Run saved: {len(agent.visited)} nodes visited]")
+    persistence.save_agent_run(args.name, args.seed, agent.fresh_count, events)
+    persistence.save_agent_memory(args.name, args.seed, agent.memory, events[-100:])
+    print(f"[Memory saved: {len(agent.memory)} total nodes known]")
 
 
 def cmd_puzzles(args):
@@ -64,6 +72,14 @@ def cmd_history(args):
         )
         for r in persistence.get_agent_runs(w["seed"]):
             print(f"          agent '{r['agent_name']}' — {r['nodes_visited']} nodes  ({r['started_at']})")
+
+    memories = persistence.list_agent_memories()
+    if memories:
+        print("\nAgent memory:")
+        print(f"  {'Agent':>16}  {'Seed':>8}  {'Known nodes':>12}  {'Last seen':>20}")
+        print("  " + "-" * 62)
+        for m in memories:
+            print(f"  {m['agent_name']:>16}  {m['world_seed']:>8}  {m['node_count']:>12}  {m['updated_at']:>20}")
 
 
 def cmd_play(args):

@@ -86,3 +86,61 @@ class TestAgent:
         agent = Agent(name="UniqueVisitor")
         agent.traverse(root, max_nodes=30)
         assert len(agent.visited) == len(set(agent.visited))
+
+
+class TestAgentMemory:
+    def test_memory_accumulates_across_runs(self):
+        root = generate_node_hierarchy(seed=7, max_depth=4, min_breadth=1, max_breadth=2)
+        agent = Agent(name="Chronicler")
+        agent.traverse(root, max_nodes=5)
+        first_memory = list(agent.memory)
+        assert len(first_memory) > 0
+
+        agent.traverse(root, max_nodes=5)
+        assert len(agent.memory) >= len(first_memory)
+
+    def test_fresh_count_is_zero_when_world_fully_known(self):
+        root = generate_node_hierarchy(seed=2, max_depth=3, min_breadth=1, max_breadth=1)
+        agent = Agent(name="Explorer")
+        agent.traverse(root)
+        total = len(agent.memory)
+        assert agent.fresh_count == total
+
+        agent.traverse(root)
+        assert agent.fresh_count == 0
+
+    def test_known_nodes_skipped_in_second_run(self):
+        root = generate_node_hierarchy(seed=9, max_depth=4, min_breadth=1, max_breadth=2)
+        agent = Agent(name="Rover")
+        agent.traverse(root, max_nodes=10)
+        after_first = len(agent.memory)
+
+        agent.traverse(root, max_nodes=10)
+        # fresh_count ≤ what was left unexplored
+        assert agent.fresh_count <= after_first
+
+    def test_memory_can_be_restored_externally(self):
+        root = generate_node_hierarchy(seed=5, max_depth=4, min_breadth=1, max_breadth=2)
+        a1 = Agent(name="Pioneer")
+        a1.traverse(root, max_nodes=8)
+        saved_ids = list(a1.memory)
+
+        a2 = Agent(name="Pioneer")
+        a2.memory = saved_ids
+        a2.traverse(root, max_nodes=8)
+        assert a2.fresh_count <= len(root.children) + 1  # far fewer new visits
+
+    def test_memory_has_no_duplicates(self):
+        root = generate_node_hierarchy(seed=4, max_depth=4, min_breadth=1, max_breadth=2)
+        agent = Agent(name="Careful")
+        agent.traverse(root, max_nodes=10)
+        agent.traverse(root, max_nodes=10)
+        assert len(agent.memory) == len(set(agent.memory))
+
+    def test_report_mentions_new_and_prior(self):
+        root = generate_node_hierarchy(seed=6, max_depth=3, min_breadth=1, max_breadth=2)
+        agent = Agent(name="Scribe")
+        agent.traverse(root, max_nodes=5)
+        agent.traverse(root, max_nodes=5)
+        report = agent.report()
+        assert "previously known" in report
