@@ -620,7 +620,34 @@ function handleWsMsg(msg) {
     case 'agent_done':
       pushFeed(`Agent: ${msg.nodes_visited} nodes from ${msg.node}`);
       break;
+    case 'causal_event': {
+      const kindFmt = msg.kind.replace(/_/g, ' ').toLowerCase();
+      pushFeed(`↯ ${kindFmt} · ${msg.node} ×${msg.strength.toFixed(2)}`);
+      flashNode(msg.node, msg.strength);
+      break;
+    }
   }
+}
+
+function flashNode(nodeName, strength) {
+  if (!nodeG) return;
+  const target = nodeG.filter(d => d.data.name === nodeName);
+  if (target.empty()) return;
+  const datum   = target.datum();
+  const baseR   = LEVEL_R[datum.data.level] || 7;
+  const color   = LEVEL_COLORS[datum.data.level] || '#3a8eff';
+  const peakR   = baseR + Math.round(strength * 28);
+  target.append('circle')
+    .attr('r',              baseR)
+    .attr('fill',           'none')
+    .attr('stroke',         color)
+    .attr('stroke-opacity', Math.min(strength + 0.2, 1))
+    .attr('stroke-width',   2)
+    .attr('pointer-events', 'none')
+    .transition().duration(1400).ease(d3.easeCubicOut)
+    .attr('r',              peakR)
+    .attr('stroke-opacity', 0)
+    .remove();
 }
 
 function renderPlayers() {

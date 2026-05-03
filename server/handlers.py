@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlparse
 
 import causality
 import persistence
-from causality import CausalityBus, DAMPENING
+from causality import CausalityBus, DAMPENING, EventKind
 from agents.agent import Agent
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
@@ -324,19 +324,24 @@ class Handler(BaseHTTPRequestHandler):
 
         depth_map = build_depth_map(target)
 
+        room = get_room(seed)
+
         def handler(node: SpatialNode, event: causality.CausalEvent) -> None:
             d        = depth_map.get(node.id, 0)
             strength = round(DAMPENING ** d, 4)
+            payload  = {
+                "node":     node.name,
+                "level":    node.level,
+                "kind":     event.kind.name,
+                "strength": strength,
+                "depth":    d,
+                "origin":   target.name,
+            }
             try:
-                self._sse_event({
-                    "node":     node.name,
-                    "level":    node.level,
-                    "kind":     event.kind.name,
-                    "strength": strength,
-                    "depth":    d,
-                })
+                self._sse_event(payload)
             except (BrokenPipeError, ConnectionResetError):
                 pass
+            broadcast(room, {"type": "causal_event", **payload})
 
         # Per-request bus keeps observation isolated from the global event
         # stream — concurrent /observe calls no longer need to serialise.
@@ -420,8 +425,31 @@ class Handler(BaseHTTPRequestHandler):
             effective_node = node_name or target.name
             persistence.record_mutation(seed, effective_node, "PUZZLE_SOLVED",
                                         None, {"puzzle": p.name})
-            broadcast(get_room(seed), {"type": "puzzle_solved", "node": effective_node,
-                                       "puzzle": p.name})
+            room = get_room(seed)
+            broadcast(room, {"type": "puzzle_solved", "node": effective_node,
+                             "puzzle": p.name})
+
+            # Propagate causal ripple downward from the solved node and fan
+            # each event out to all connected WebSocket clients in this world.
+            causal_depth_map = build_depth_map(target)
+            solve_bus = CausalityBus()
+
+            def _causal_handler(n: SpatialNode, ev: causality.CausalEvent,
+                                 _room=room, _dm=causal_depth_map,
+                                 _origin=effective_node) -> None:
+                d = _dm.get(n.id, 0)
+                broadcast(_room, {
+                    "type":     "causal_event",
+                    "node":     n.name,
+                    "level":    n.level,
+                    "kind":     ev.kind.name,
+                    "strength": round(DAMPENING ** d, 4),
+                    "depth":    d,
+                    "origin":   _origin,
+                })
+
+            solve_bus.register_handler(_causal_handler)
+            solve_bus.propagate(target, EventKind.PUZZLE_SOLVED, {"puzzle": p.name})
 
         self._send_json({
             "correct":        correct,
