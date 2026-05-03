@@ -9,12 +9,15 @@ A shared persistent multiverse inhabited simultaneously by human players and AI 
 ## System Map
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                     interface/                       │
-│         visual layer · conversation · ambient        │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
+┌──────────────────────────┐  ┌──────────────────────────┐
+│        interface/        │  │        frontend/         │
+│  terminal REPL · spatial │  │  React + PixiJS browser  │
+│  conversation · ambient  │  │  scenes · presence       │
+└────────────┬─────────────┘  └────────────┬─────────────┘
+             │                             │
+             └──────────────┬──────────────┘
+                            │
+┌──────────────────────────▼──────────────────────────┐
 │                      server/                         │
 │          WebSocket · REST API · event stream         │
 └────┬──────────────┬──────────────┬───────────────────┘

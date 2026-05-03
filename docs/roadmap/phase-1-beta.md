@@ -20,7 +20,7 @@ Status reflects what shipped to `main`. See the [CHANGELOG](../CHANGELOG.md) for
 
 - ~~**Cache invalidation by interaction richness.**~~ Shipped. `AGENT_VISIT`, `DANGER_ALERT`, `PUZZLE_FAILED`, `PLAYER_SPEAK`, and `PLAYER_CHAT` now route through `persistence.record_mutation`, so the `len(get_node_history) // 5` bucket actually advances across the world rather than only on puzzle solves.
 - ~~**Structured prompt assembly per level**~~ Shipped. `server/imageprompt.py` covers all 11 levels with `HIERARCHY_STYLES` baselines plus property/history-driven mood modifiers. Cache key includes a style signature so a modifier flip regenerates the image.
-- **React client name prompt** — the React app at `/app/` currently hardcodes the player name `"Traveller"`; the D3 explorer at `/` prompts via a join modal. They should match.
+- ~~**React client name prompt**~~ Shipped. `frontend/src/App.jsx` renders a `NameEntry` form on first load and persists the chosen name to `localStorage`, matching the D3 explorer's join modal.
 
 ---
 
