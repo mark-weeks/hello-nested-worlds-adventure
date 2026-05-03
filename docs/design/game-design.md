@@ -1,4 +1,4 @@
-# Game Design Document — Nested World Adventure
+# Game Design Document — Nested Worlds Adventure
 
 ---
 
@@ -33,6 +33,8 @@ Node visual style is programmatically determined by a property matrix. Style dri
 | Corrupted / destructive | Glitch art, dark expressionist |
 | Puzzle node | Escher-like, geometric, op art |
 | High ripple weight | Psychedelic, saturated, unstable |
+
+> **Implementation status.** This matrix is aspirational. Today the prompt assembly in `server/handlers.py::_do_image` is a flat dump of the first six node properties — none of these style signals are wired in. The cache key buckets `len(get_node_history) // 5` so visuals do refresh as a node accumulates state, but the *style* of refresh is not yet differentiated. Closing this gap is tracked in ADR-002 as "Unmet Phase 1 commitments §2 — Structured prompt assembly".
 
 ---
 

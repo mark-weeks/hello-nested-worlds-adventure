@@ -41,8 +41,9 @@ A shared persistent multiverse inhabited simultaneously by human players and AI 
 ## Components
 
 ### `multiverse/` — World Model
-- **`node.py`** — `SpatialNode`: recursive data structure with name, level, children, properties, and interaction history
+- **`node.py`** — `SpatialNode`: recursive data structure with id, name, level, children, properties; per-node interaction history is stored in `persistence/` (`world_mutations` table) and accessed via `persistence.get_node_history`
 - **`generator.py`** — deterministic PCG with named locations, variable branching, and level-specific property templates
+- **`utils.py`** — tree helpers: `count_nodes`, `find_node`, `build_depth_map`
 
 ### `consciousness/` — Node Voice Layer
 Claude-powered persona system. Each node's voice is seeded by its properties and accumulated interaction history. Nodes respond in character, reference past visitors, and hold perspective.
