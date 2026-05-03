@@ -34,6 +34,7 @@ class Player:
 class Room:
     players: dict = field(default_factory=dict)   # session_id → Player
     active_agents: dict = field(default_factory=dict)  # agent_name → current_node
+    agent_personas: dict = field(default_factory=dict)  # agent_name → persona name
     lock: threading.Lock = field(default_factory=threading.Lock, compare=False, repr=False)
 
 
@@ -63,9 +64,11 @@ def broadcast(room: Room, msg: dict, exclude: str | None = None) -> None:
                 room.players.pop(sid, None)
 
 
-def agent_enter(room: Room, name: str) -> None:
+def agent_enter(room: Room, name: str, persona: str | None = None) -> None:
     with room.lock:
         room.active_agents[name] = ""
+        if persona is not None:
+            room.agent_personas[name] = persona
 
 
 def agent_move(room: Room, name: str, node: str) -> list[str]:
@@ -78,6 +81,13 @@ def agent_move(room: Room, name: str, node: str) -> list[str]:
 def agent_leave(room: Room, name: str) -> None:
     with room.lock:
         room.active_agents.pop(name, None)
+        room.agent_personas.pop(name, None)
+
+
+def agent_persona(room: Room, name: str) -> str | None:
+    """Look up the recorded persona for an active agent, if any."""
+    with room.lock:
+        return room.agent_personas.get(name)
 
 
 def snapshot(room: Room) -> list[dict]:

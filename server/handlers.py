@@ -16,12 +16,16 @@ import causality
 import persistence
 from causality import CausalityBus, DAMPENING, EventKind
 from agents.agent import Agent
+from agents.personas import by_name as persona_by_name, for_name as persona_for_name
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from multiverse.utils import build_depth_map, count_nodes, find_node
 from puzzles.engine import PuzzleEngine
 from server.protocol import ws_recv
-from server.rooms import Player, agent_enter, agent_leave, agent_move, broadcast, get_room, snapshot
+from server.rooms import (
+    Player, agent_enter, agent_leave, agent_move, agent_persona,
+    broadcast, get_room, snapshot,
+)
 
 
 _STATIC_DIR   = Path(__file__).parent.parent / "static"
@@ -226,22 +230,27 @@ class Handler(BaseHTTPRequestHandler):
                 max_nodes = int(param("max_nodes",  "50"))
             except ValueError as exc:
                 return self._send_error(str(exc))
+            persona_arg = param("persona", "")
+            persona = persona_by_name(persona_arg) or persona_for_name(name)
             root  = generate_node_hierarchy(seed=seed)
             # Per-request bus carrying a recorder so traversal events land in
             # world_mutations alongside puzzle solves.
             agent_bus = CausalityBus()
             agent_bus.register_handler(_record_mutation_handler(seed))
-            agent = Agent(name=name, danger_threshold=threshold, bus=agent_bus)
+            agent = Agent(name=name, danger_threshold=threshold, bus=agent_bus,
+                          persona=persona)
             saved = persistence.load_agent_memory(name, seed)
             if saved:
                 agent.memory = saved["visited_ids"]
             agent.traverse(root, max_nodes=max_nodes)
             events = [{"node": e.node_name, "level": e.level,
-                       "state": e.state.name, "action": e.action}
+                       "state": e.state.name, "action": e.action,
+                       "persona": e.persona}
                       for e in agent.log]
             run_id = persistence.save_agent_run(name, seed, agent.fresh_count, events)
             persistence.save_agent_memory(name, seed, agent.memory, events[-100:])
             self._send_json({"run_id": run_id, "agent": name, "seed": seed,
+                             "persona": persona.name,
                              "nodes_visited": agent.fresh_count,
                              "total_known": len(agent.memory),
                              "events": events})
@@ -322,6 +331,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/image":
             self._do_image(body)
+
+        elif path == "/agent/voice":
+            self._do_agent_voice(body)
 
         else:
             self._send_error("not found", 404)
@@ -479,6 +491,32 @@ class Handler(BaseHTTPRequestHandler):
             persistence.cache_image(node_key, url)
         self._send_json({"url": url})
 
+    def _do_agent_voice(self, body: dict) -> None:
+        """POST /agent/voice — let an agent speak in its persona's voice."""
+        agent_name = str(body.get("agent_name", "Scout"))[:32]
+        node_name  = str(body.get("node_name",  "Unknown"))[:128]
+        node_level = str(body.get("node_level", "Room"))[:64]
+        message    = str(body.get(
+            "message", "Where are you, and what do you see?",
+        ))[:1024]
+        persona_arg = str(body.get("persona", ""))[:32]
+        persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
+        node = SpatialNode(name=node_name, level=node_level, properties={})
+        try:
+            import consciousness
+            response = consciousness.voice_agent(persona, agent_name, node, message)
+            self._send_json({
+                "agent":    agent_name,
+                "persona":  persona.name,
+                "node":     node_name,
+                "response": response,
+            })
+        except ImportError:
+            self._send_error("consciousness module requires: pip install anthropic")
+        except Exception as exc:
+            _log.warning("agent voice error: %s", exc)
+            self._send_error("Service unavailable", 503)
+
     def _do_observe(self, qs: dict) -> None:
         try:
             root, seed, *_ = _build_world(_flatten_qs(qs))
@@ -487,6 +525,8 @@ class Handler(BaseHTTPRequestHandler):
 
         node_name  = qs.get("node_name", [""])[0]
         agent_name = (qs.get("name", ["Observer"])[0] or "Observer")[:32]
+        persona_arg = qs.get("persona", [""])[0]
+        persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
         target     = (find_node(root, node_name) if node_name else None) or root
 
         self.send_response(200)
@@ -499,7 +539,7 @@ class Handler(BaseHTTPRequestHandler):
         depth_map = build_depth_map(target)
         room      = get_room(seed)
 
-        agent_enter(room, agent_name)
+        agent_enter(room, agent_name, persona=persona.name)
 
         def handler(node: SpatialNode, event: causality.CausalEvent) -> None:
             d        = depth_map.get(node.id, 0)
@@ -511,6 +551,8 @@ class Handler(BaseHTTPRequestHandler):
                 "strength": strength,
                 "depth":    d,
                 "origin":   target.name,
+                "agent":    agent_name,
+                "persona":  persona.name,
             }
             try:
                 self._sse_event(payload)
@@ -522,11 +564,13 @@ class Handler(BaseHTTPRequestHandler):
             others = agent_move(room, agent_name, node.name)
             for other_name in others:
                 encounter = {
-                    "type":   "agent_encounter",
-                    "agent1": agent_name,
-                    "agent2": other_name,
-                    "node":   node.name,
-                    "level":  node.level,
+                    "type":           "agent_encounter",
+                    "agent1":         agent_name,
+                    "agent1_persona": persona.name,
+                    "agent2":         other_name,
+                    "agent2_persona": agent_persona(room, other_name),
+                    "node":           node.name,
+                    "level":          node.level,
                 }
                 broadcast(room, encounter)
 
@@ -536,7 +580,8 @@ class Handler(BaseHTTPRequestHandler):
         bus.register_handler(handler)
         bus.register_handler(_record_mutation_handler(seed))
         try:
-            agent = Agent(name=agent_name, danger_threshold=7, bus=bus)
+            agent = Agent(name=agent_name, danger_threshold=7, bus=bus,
+                          persona=persona)
             agent.traverse(target, max_nodes=40)
             nodes_visited = len(agent.visited)
             self._sse_event({"done": True, "nodes_visited": nodes_visited})
