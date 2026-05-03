@@ -9,6 +9,7 @@ import urllib.request
 
 import pytest
 
+import persistence
 from server import _Handler, _ThreadedServer
 
 
@@ -100,3 +101,38 @@ class TestServerHTTP:
         with urllib.request.urlopen(f"{base}/") as resp:
             assert resp.status == 200
             assert "text/html" in resp.headers.get("Content-Type", "")
+
+
+class TestMutationRecording:
+    """Each interaction surface should leave a row in world_mutations so
+    consciousness prompts and the image cache see a richer signal than
+    'puzzle solved.'"""
+
+    def test_failed_puzzle_attempt_records_mutation(self, srv):
+        base, _ = srv
+        seed = 12345
+        # Final attempt with a wrong answer — server confirms failure and
+        # records PUZZLE_FAILED.
+        _post(
+            f"{base}/puzzle/attempt",
+            {
+                "seed": seed, "depth": 6, "min_breadth": 1, "max_breadth": 3,
+                "node_name": "", "answer": "wrong-answer", "attempt": 3,
+            },
+        )
+        kinds = {m["type"] for m in persistence.get_mutations(seed)}
+        assert "PUZZLE_FAILED" in kinds
+
+    def test_agent_traversal_records_visit_mutations(self, srv):
+        base, _ = srv
+        seed = 23456
+        _get(f"{base}/agent?seed={seed}&name=Recorder&max_nodes=10")
+        muts = persistence.get_mutations(seed, limit=50)
+        kinds = {m["type"] for m in muts}
+        assert "AGENT_VISIT" in kinds, (
+            f"agent run should record AGENT_VISIT mutations; got {kinds}"
+        )
+        # Agent attribution lives in the data payload (player_name slot is
+        # reserved for humans).
+        agent_muts = [m for m in muts if m["type"] == "AGENT_VISIT"]
+        assert any(m["data"].get("agent") == "Recorder" for m in agent_muts)

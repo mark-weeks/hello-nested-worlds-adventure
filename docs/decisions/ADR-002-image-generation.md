@@ -57,6 +57,8 @@ The model swap to `fast-sdxl` is incidental — comparable cost and quality; rev
 
 The original ADR keyed invalidation off `ripple_score`, a field on `SpatialNode`. That field exists but nothing in the causality engine currently mutates it, so keying on it would never invalidate. Until causality→ripple_score is wired, the cache key includes a coarse bucket of accumulated interaction history (`world_mutations` rows for the node, divided by 5). This delivers the user-visible behaviour the ADR promised — visuals refresh as a node accumulates state — using infrastructure that already exists, and the cache contract stays stable when a richer signal swaps in later.
 
+As of the latest change, every interaction surface (agent traversals, failed puzzles, player speak, player chat) routes through `persistence.record_mutation`, so the bucket actually advances across the world rather than only on `PUZZLE_SOLVED`. The signal is still coarse — and still independent of `ripple_score` — but it now reflects the breadth of activity the ADR assumed.
+
 ---
 
 ## Why this diverges from the original decision

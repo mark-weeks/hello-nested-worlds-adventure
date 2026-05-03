@@ -62,6 +62,20 @@ def _node_to_dict(node: SpatialNode) -> dict:
     }
 
 
+def _record_mutation_handler(seed: int):
+    """Bus handler that persists each fired causal event into world_mutations.
+
+    Agent-emitted events carry the agent name in `event.payload["agent"]`;
+    `record_mutation`'s player_name slot is reserved for human players, so we
+    keep player_name=None here and rely on the payload for attribution.
+    """
+    def handler(node: SpatialNode, event: causality.CausalEvent) -> None:
+        persistence.record_mutation(
+            seed, node.name, event.kind.name, None, dict(event.payload)
+        )
+    return handler
+
+
 # ── Handler ────────────────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
@@ -213,7 +227,11 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self._send_error(str(exc))
             root  = generate_node_hierarchy(seed=seed)
-            agent = Agent(name=name, danger_threshold=threshold)
+            # Per-request bus carrying a recorder so traversal events land in
+            # world_mutations alongside puzzle solves.
+            agent_bus = CausalityBus()
+            agent_bus.register_handler(_record_mutation_handler(seed))
+            agent = Agent(name=name, danger_threshold=threshold, bus=agent_bus)
             saved = persistence.load_agent_memory(name, seed)
             if saved:
                 agent.memory = saved["visited_ids"]
@@ -276,6 +294,8 @@ class Handler(BaseHTTPRequestHandler):
                 seed = int(body.get("seed", 0))
             except (ValueError, TypeError):
                 seed = 0
+            raw_player = body.get("player_name")
+            player_name = (str(raw_player)[:32].strip() or None) if raw_player else None
             node = SpatialNode(
                 name=node_name,
                 level=node_level,
@@ -284,7 +304,13 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 import consciousness
                 history = persistence.get_node_history(seed, node_name) if seed else []
-                self._send_json({"response": consciousness.speak(node, message, history=history)})
+                response = consciousness.speak(node, message, history=history)
+                if seed:
+                    persistence.record_mutation(
+                        seed, node_name, "PLAYER_SPEAK", player_name,
+                        {"message": message[:128]},
+                    )
+                self._send_json({"response": response})
             except ImportError:
                 self._send_error("consciousness module requires: pip install anthropic")
             except Exception as exc:
@@ -361,6 +387,14 @@ class Handler(BaseHTTPRequestHandler):
                     if text:
                         broadcast(room, {"type": "chat", "name": name,
                                          "text": text, "session_id": session_id})
+                        # Attribute the chat to the speaker's current node so
+                        # downstream consumers (consciousness history, image
+                        # invalidation) see it as a node interaction.
+                        if player.current_node:
+                            persistence.record_mutation(
+                                seed, player.current_node, "PLAYER_CHAT",
+                                name, {"text": text[:128]},
+                            )
                 elif msg_type == "ping":
                     player.send({"type": "pong"})
         except (OSError, ConnectionResetError, BrokenPipeError):
@@ -500,6 +534,7 @@ class Handler(BaseHTTPRequestHandler):
         # stream — concurrent /observe calls no longer need to serialise.
         bus = CausalityBus()
         bus.register_handler(handler)
+        bus.register_handler(_record_mutation_handler(seed))
         try:
             agent = Agent(name=agent_name, danger_threshold=7, bus=bus)
             agent.traverse(target, max_nodes=40)
@@ -604,7 +639,15 @@ class Handler(BaseHTTPRequestHandler):
                 })
 
             solve_bus.register_handler(_causal_handler)
+            solve_bus.register_handler(_record_mutation_handler(seed))
             solve_bus.propagate(target, EventKind.PUZZLE_SOLVED, {"puzzle": p.name})
+
+        if failed:
+            effective_node = node_name or target.name
+            persistence.record_mutation(
+                seed, effective_node, "PUZZLE_FAILED", None,
+                {"puzzle": p.name, "answer_given": answer[:64]},
+            )
 
         self._send_json({
             "correct":        correct,
