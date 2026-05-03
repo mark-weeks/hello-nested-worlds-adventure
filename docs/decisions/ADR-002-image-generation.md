@@ -12,21 +12,13 @@ No IP-Adapter or LoRA conditioning at beta. Consistency is achieved through stru
 
 ## Prompt Assembly (as built)
 
-Currently in `server/handlers.py::_do_image`:
+Lives in `server/imageprompt.py`, called from `server/handlers.py::_do_image`. Three pieces:
 
-```python
-prop_summary = ", ".join(f"{k}: {v}" for k, v in list(node_props.items())[:6])
-prompt = (
-    f"A {node_level.lower()} in a nested multiverse sci-fi world. "
-    f"{prop_summary}. "
-    "Cinematic lighting, intricate detail, deep space aesthetic, "
-    "dark palette with bioluminescent accents."
-)
-```
+1. **`HIERARCHY_STYLES`** — per-level aesthetic baseline string, covering all 11 scales (Multiverse → SubatomicParticle).
+2. **`derive_modifiers(properties, history)`** — implements the property→signal matrix from `docs/design/game-design.md`. Six of seven rows are live (agent activity, conflict, cooperation, pristine, corrupted, puzzle). The seventh — *high ripple weight* — still waits on causality→`ripple_score` being mutated.
+3. **`assemble_prompt(level, name, properties, history)`** — combines baseline + modifiers + property summary into the final fal.ai prompt.
 
-This is a thinner version of what the original ADR prescribed. It produces serviceable images but does not yet incorporate per-level style baselines (`HIERARCHY_STYLES`), structured property modifiers, `ripple_score` weighting, or `interaction_summary` history marks. The node fields exist (`multiverse/node.py:21-22`) and are wired into the world model — just not into prompt assembly.
-
-Acceptable for Phase 1 beta; richer assembly is a near-term enhancement, not a blocker.
+Inputs are the same `world_mutations` rows the cache key already consumes; no extra DB calls vs. the previous flat-dump prompt.
 
 ---
 
@@ -48,9 +40,9 @@ The model swap to `fast-sdxl` is incidental — comparable cost and quality; rev
 
 | Step | As built | Original prescription | Status |
 |------|----------|-----------------------|--------|
-| Generate | Once per `(seed, node_id, history_bucket)` | Once on node discovery | ✓ matches intent |
-| Cache | SQLite (`persistence.cache_image`), keyed to `f"{seed}:{node_id}:{history_bucket}"` | Redis hash, keyed to `node_id` | Backend swap — see "Why" |
-| Invalidate | Cache key includes `len(get_node_history(seed, node_name)) // 5`; image regenerates after every 5 recorded interactions | When `ripple_score` shift > 0.3 | ✓ same intent, different signal — see "Invalidation signal" |
+| Generate | Once per `(seed, node_id, history_bucket, style_signature)` | Once on node discovery | ✓ matches intent |
+| Cache | SQLite (`persistence.cache_image`), keyed to `f"{seed}:{node_id}:{history_bucket}:{sig}"` | Redis hash, keyed to `node_id` | Backend swap — see "Why" |
+| Invalidate | Cache key folds in `len(history) // 5` (count bucket) **and** `imageprompt.style_signature(...)` (modifier flip) | When `ripple_score` shift > 0.3 | ✓ same intent, different signal — see "Invalidation signal" |
 | Store | fal.ai-hosted URL (string in SQLite) | Cloudflare R2 as `.webp` | Backend swap — see "Why" |
 
 ### Invalidation signal
@@ -79,11 +71,11 @@ These are not deferrals — they are gaps that should be closed before Phase 1 b
 
 **Resolved.** Cached images now refresh as a node accumulates interactions; see the "Invalidation signal" subsection above. The original `ripple_score` field remains unused — when causality→ripple_score is wired up, the signal can swap in without changing the cache contract.
 
-### 2. Structured prompt assembly
+### 2. ~~Structured prompt assembly~~ — closed via `server/imageprompt.py`
 
-**Why it matters:** the current prompt is a flat property dump. Per-level baselines (`HIERARCHY_STYLES`) and ripple/history weighting would make the visual register actually distinct across the eleven scales — which is a stated design goal in the README ("each with its own aesthetic register").
+**Resolved.** Per-level baselines (`HIERARCHY_STYLES`) cover all 11 scales, and six of the seven property→signal matrix rows from `docs/design/game-design.md` are live. The seventh (*high ripple weight*) waits on causality→`ripple_score` mutation to land.
 
-**Lower priority than (1)** — visuals are serviceable now, and this is iterative.
+The cache key now includes a style signature so a modifier flip (e.g. crossing the AGENT_VISIT≥5 threshold, or DANGER_ALERT appearing for the first time) regenerates the image even if the count bucket hasn't advanced.
 
 ---
 
