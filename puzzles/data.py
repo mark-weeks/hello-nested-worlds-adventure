@@ -362,3 +362,21 @@ BIOME_CLUES = {
     "temperate":  ("I have four seasons and moderate rainfall, neither too hot nor too cold. What biome am I?", "temperate"),
     "irradiated": ("Intense radiation from a nearby pulsar has scorched my surface bare. What biome am I?", "irradiated"),
 }
+
+
+GALAXY_SHAPE_CLUES = {
+    "spiral":     ("I sweep my arms in winding curves; my form recalls a pinwheel turning slowly through aeons. Speak my shape.", "spiral"),
+    "elliptical": ("I am stretched and oval, lacking the dramatic arms of my cousins. Speak my shape.", "elliptical"),
+    "irregular":  ("I obey no clean geometry; I am asymmetric and hard to classify. Speak my shape.", "irregular"),
+    "ring":       ("I am a luminous loop with a hollow heart, formed long ago by collision. Speak my shape.", "ring"),
+}
+
+
+PARTICLE_TYPE_CLUES = {
+    "proton":   ("I bear a positive charge and dwell at the heart of every atom. What am I?", "proton"),
+    "neutron":  ("I am chargeless yet massive, sharing the nucleus with my charged sibling. What am I?", "neutron"),
+    "electron": ("I orbit the nucleus in clouds of probability, carrying negative charge. What am I?", "electron"),
+    "quark":    ("I am the smaller piece of nucleons — three of me bind to form a heavier particle. What am I?", "quark"),
+    "neutrino": ("I am ghostly and barely interact with anything; I pass through worlds unhindered. What am I?", "neutrino"),
+    "photon":   ("I have no mass and travel at the universal speed limit; I am the carrier of light. What am I?", "photon"),
+}

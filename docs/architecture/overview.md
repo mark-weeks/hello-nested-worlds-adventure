@@ -91,8 +91,9 @@ React + PixiJS + Vite app that talks to the WebSocket server. Renders fal.ai-gen
 
 ### `puzzles/` — Embedded Challenges
 - **`types.py`** — `Puzzle` dataclass (kind, attempts, hints, result)
-- **`engine.py`** — `PuzzleEngine`: attach, collect, run puzzles interactively
-- Level-specific puzzle pools across all 11 hierarchy levels; server validates attempts so the answer never leaves the server
+- **`engine.py`** — `PuzzleEngine` (attach, collect, run) plus an `_LEVEL_DYNAMIC` dispatch with property-driven generators for all 11 levels: Multiverse anagram, Universe dark-matter logic, Galaxy shape riddle, Planetary System halved-orbit logic, Planet biome riddle, Region danger lock, Room navigation, Object weight logic, Molecule bond logic, Atom proton logic, SubatomicParticle riddle
+- **`data.py`** — static fallback pools, plus poetic clue maps (`BIOME_CLUES`, `GALAXY_SHAPE_CLUES`, `PARTICLE_TYPE_CLUES`) used by the riddle generators
+- Server validates attempts so the answer never leaves the server
 
 ---
 
