@@ -30,15 +30,34 @@ def _get_client() -> Any:
     return _client
 
 
-def speak(node: SpatialNode, message: str) -> str:
+def _history_block(history: list[dict]) -> str:
+    if not history:
+        return ""
+    lines = []
+    for h in history:
+        who = h.get("player") or h.get("data", {}).get("agent") or "an unknown presence"
+        event = h["type"].replace("_", " ").lower()
+        date = h["at"][:10] if h.get("at") else "unknown time"
+        lines.append(f"  {date}: {event}, by {who}")
+    return "\nMemory of those who have passed through:\n" + "\n".join(lines)
+
+
+def speak(node: SpatialNode, message: str,
+          history: list[dict] | None = None) -> str:
     """Send `message` to `node` and return its in-character response.
 
     The shared behavioural preamble is marked for prompt caching so repeated
     calls across different nodes reuse the cached prefix and avoid redundant
     token processing.
+
+    Pass `history` (from persistence.get_node_history) to give the node
+    memory of past visitors and events.
     """
     props = "; ".join(f"{k}={v}" for k, v in node.properties.items())
-    node_context = f"You are {node.name}, a {node.level}. Your nature: {props}."
+    node_context = (
+        f"You are {node.name}, a {node.level}. Your nature: {props}."
+        + _history_block(history or [])
+    )
 
     response = _get_client().messages.create(
         model=_MODEL,
@@ -62,6 +81,6 @@ def speak(node: SpatialNode, message: str) -> str:
     raise ValueError(f"No text in response (stop_reason={response.stop_reason})")
 
 
-def describe(node: SpatialNode) -> str:
+def describe(node: SpatialNode, history: list[dict] | None = None) -> str:
     """Ask the node to introduce itself to a newly arrived traveller."""
-    return speak(node, "Describe yourself to a traveler who has just arrived here.")
+    return speak(node, "Describe yourself to a traveler who has just arrived here.", history=history)

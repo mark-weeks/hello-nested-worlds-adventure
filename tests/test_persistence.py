@@ -104,6 +104,41 @@ class TestWorldMutations:
         assert mutations[0]["player"] is None
 
 
+class TestGetNodeHistory:
+    def test_returns_events_for_node(self):
+        persistence.record_mutation(42, "Vault-3", "PUZZLE_SOLVED", "Alice", {"puzzle": "The Lock"})
+        persistence.record_mutation(42, "Vault-3", "AGENT_VISIT", None, {"agent": "Scout"})
+        persistence.record_mutation(42, "OtherNode", "PUZZLE_SOLVED", "Bob", {})
+        history = persistence.get_node_history(42, "Vault-3")
+        assert len(history) == 2
+        assert all(h["type"] in ("PUZZLE_SOLVED", "AGENT_VISIT") for h in history)
+
+    def test_excludes_other_nodes(self):
+        persistence.record_mutation(42, "Vault-3", "PUZZLE_SOLVED", "Alice", {})
+        persistence.record_mutation(42, "OtherNode", "PUZZLE_SOLVED", "Bob", {})
+        history = persistence.get_node_history(42, "OtherNode")
+        assert len(history) == 1
+        assert history[0]["type"] == "PUZZLE_SOLVED"
+
+    def test_excludes_other_seeds(self):
+        persistence.record_mutation(1, "Vault-3", "PUZZLE_SOLVED", "Alice", {})
+        assert persistence.get_node_history(2, "Vault-3") == []
+
+    def test_respects_limit(self):
+        for i in range(10):
+            persistence.record_mutation(5, "Node-X", "AGENT_VISIT", None, {"i": i})
+        assert len(persistence.get_node_history(5, "Node-X", limit=4)) == 4
+
+    def test_empty_when_no_history(self):
+        assert persistence.get_node_history(99, "Ghost") == []
+
+    def test_agent_in_data_field(self):
+        persistence.record_mutation(7, "Nexus", "AGENT_VISIT", None, {"agent": "Wanderer"})
+        h = persistence.get_node_history(7, "Nexus")
+        assert h[0]["data"]["agent"] == "Wanderer"
+        assert h[0]["player"] is None
+
+
 class TestSavePuzzleResult:
     def test_save_puzzle_result(self):
         persistence.save_puzzle_result(world_seed=5, puzzle_name="The Lock", result="SOLVED", attempts=2)

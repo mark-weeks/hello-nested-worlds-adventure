@@ -116,6 +116,21 @@ def list_worlds() -> list[dict[str, Any]]:
 
 
 @_with_db
+def get_node_history(world_seed: int, node_name: str, limit: int = 8) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT mutation_type, player_name, data, recorded_at
+               FROM world_mutations WHERE world_seed = ? AND node_name = ?
+               ORDER BY recorded_at DESC LIMIT ?""",
+            (world_seed, node_name, limit),
+        ).fetchall()
+        return [
+            {"type": r[0], "player": r[1], "data": json.loads(r[2]) if r[2] else {}, "at": r[3]}
+            for r in rows
+        ]
+
+
+@_with_db
 def record_mutation(world_seed: int, node_name: str, mutation_type: str,
                     player_name: str | None, data: dict) -> None:
     with _connect() as conn:
