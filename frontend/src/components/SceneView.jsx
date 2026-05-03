@@ -231,26 +231,93 @@ function _addColorBg(app, node, width, height) {
   if (app.stage) app.stage.addChildAt(bg, 0);
 }
 
+// Hotspot affordance — closes design.md item #4. The visual treatment is
+// shared across every hotspot regardless of child level so players learn it
+// once: a recessed plate with a soft cast shadow, a single-pixel top-edge
+// highlight (light from above), and a border that brightens on hover. The
+// shadow lifts a hair when hovered so the plate reads as just-pressed.
+const _HOTSPOT = Object.freeze({
+  width:    120,
+  height:   40,
+  radius:   6,
+  // Surface colors — kept dark enough to sit calmly against any generated bg.
+  plateRest:  0x141826,
+  plateHover: 0x1c2342,
+  // Highlight + border tones; alpha is applied in the stroke calls so a
+  // single colour can serve both rest and hover with different intensity.
+  edgeRest:   0x3a4670,
+  edgeHover:  0x6a80c8,
+  borderRest: 0x4a5580,
+  borderHover: 0x7a90d8,
+  labelRest:  0x99aacc,
+  labelHover: 0xc8d8ff,
+  shadowYRest:  4,
+  shadowYHover: 3,
+});
+
 function makeHotspot(app, node, x, y, onNavigate) {
-  const g = new Graphics();
-  g.roundRect(-60, -20, 120, 40, 6).fill(0x1a1d2e).stroke({ width: 1, color: 0x4a5580 });
-  g.x = x;
-  g.y = y;
-  g.eventMode = "static";
-  g.cursor = "pointer";
+  const W = _HOTSPOT.width, H = _HOTSPOT.height, R = _HOTSPOT.radius;
+
+  const group = new Container();
+  group.x = x;
+  group.y = y;
+  group.eventMode = "static";
+  group.cursor = "pointer";
+
+  // Cast shadow — sits below the plate to suggest the surface lifts off
+  // the background. Drawn first so everything else stacks above it.
+  const shadow = new Graphics();
+  shadow.roundRect(-W / 2 + 2, -H / 2 + 2, W - 4, H - 2, R).fill({ color: 0x000000, alpha: 0.5 });
+  shadow.y = _HOTSPOT.shadowYRest;
+  group.addChild(shadow);
+
+  // Plate — the apparent material surface.
+  const plate = new Graphics();
+  group.addChild(plate);
+
+  // Top-edge highlight — single-pixel bright line just inside the top edge
+  // suggests light falling from above on a slightly raised surface.
+  const topEdge = new Graphics();
+  group.addChild(topEdge);
+
+  // Border — an outline that keeps the plate legible against bright
+  // background images. Brightens on hover.
+  const border = new Graphics();
+  group.addChild(border);
 
   const label = new Text({
     text: node.name,
-    style: new TextStyle({ fill: 0x8898bb, fontSize: 12, fontFamily: "Courier New" }),
+    style: new TextStyle({ fill: _HOTSPOT.labelRest, fontSize: 12, fontFamily: "Courier New" }),
   });
   label.anchor.set(0.5);
-  g.addChild(label);
+  group.addChild(label);
 
-  g.on("pointerover", () => g.clear().roundRect(-60, -20, 120, 40, 6).fill(0x252a40).stroke({ width: 1, color: 0x6a80cc }));
-  g.on("pointerout",  () => g.clear().roundRect(-60, -20, 120, 40, 6).fill(0x1a1d2e).stroke({ width: 1, color: 0x4a5580 }));
-  g.on("pointertap",  () => onNavigate(node));
+  const paint = (hovered) => {
+    const plateColor  = hovered ? _HOTSPOT.plateHover  : _HOTSPOT.plateRest;
+    const edgeColor   = hovered ? _HOTSPOT.edgeHover   : _HOTSPOT.edgeRest;
+    const borderColor = hovered ? _HOTSPOT.borderHover : _HOTSPOT.borderRest;
+    const edgeAlpha   = hovered ? 0.9 : 0.7;
+    const borderAlpha = hovered ? 0.9 : 0.7;
 
-  return g;
+    plate.clear().roundRect(-W / 2, -H / 2, W, H, R).fill({ color: plateColor });
+    topEdge.clear()
+      .moveTo(-W / 2 + 4, -H / 2 + 1)
+      .lineTo( W / 2 - 4, -H / 2 + 1)
+      .stroke({ width: 1, color: edgeColor, alpha: edgeAlpha });
+    border.clear()
+      .roundRect(-W / 2, -H / 2, W, H, R)
+      .stroke({ width: 1, color: borderColor, alpha: borderAlpha });
+    label.style.fill = hovered ? _HOTSPOT.labelHover : _HOTSPOT.labelRest;
+    shadow.y = hovered ? _HOTSPOT.shadowYHover : _HOTSPOT.shadowYRest;
+  };
+
+  paint(false);
+
+  group.on("pointerover", () => paint(true));
+  group.on("pointerout",  () => paint(false));
+  group.on("pointertap",  () => onNavigate(node));
+
+  return group;
 }
 
 function levelColor(level) {
