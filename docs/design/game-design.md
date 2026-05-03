@@ -34,7 +34,7 @@ Node visual style is programmatically determined by a property matrix. Style dri
 | Puzzle node | Escher-like, geometric, op art |
 | High ripple weight | Psychedelic, saturated, unstable |
 
-> **Implementation status.** Wired in `server/imageprompt.py`. Six of the seven matrix rows are live (heavy AI agent activity, conflict history, cooperation, pristine, corrupted, puzzle). The seventh — *high ripple weight* — still depends on `ripple_score` being mutated by the causality engine (see ADR-002 "Revisit when…" and the README causality section); it ships when up-propagation lands. Per-level baselines (`HIERARCHY_STYLES`) cover all 11 scales, and the cache key now folds in a style signature so visuals refresh whenever the modifier set flips — not only when raw history count crosses a 5-event bucket.
+> **Implementation status.** Wired in `server/imageprompt.py`. All seven matrix rows are live (heavy AI agent activity, conflict history, cooperation, pristine, corrupted, puzzle, high ripple weight). The high-ripple row currently uses total `world_mutations` count as a proxy for the in-memory `ripple_score`, since ripple_score isn't persisted across requests yet; the matrix delivers the same visual behaviour either way. Per-level baselines (`HIERARCHY_STYLES`) cover all 11 scales, and the cache key folds in a style signature so visuals refresh whenever the modifier set flips — not only when raw history count crosses a 5-event bucket.
 
 ---
 

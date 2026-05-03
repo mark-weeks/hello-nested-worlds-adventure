@@ -9,6 +9,32 @@ def test_deterministic():
     assert repr(a) == repr(b)
 
 
+def test_root_has_no_parent():
+    root = generate_node_hierarchy(seed=1, max_depth=3)
+    assert root.parent is None
+
+
+def test_children_link_back_to_parent():
+    root = generate_node_hierarchy(seed=1, max_depth=4, min_breadth=2, max_breadth=2)
+
+    def check(node):
+        for child in node.children:
+            assert child.parent is node, (
+                f"{child.name} should point back at {node.name}"
+            )
+            check(child)
+
+    check(root)
+
+
+def test_constructor_children_get_parent_set():
+    # Children passed to SpatialNode.__init__ should have their parent set,
+    # not just children added later via add_child.
+    leaf = SpatialNode(name="Leaf", level="Atom", properties={})
+    parent = SpatialNode(name="P", level="Molecule", properties={}, children=[leaf])
+    assert leaf.parent is parent
+
+
 def test_different_seeds_differ():
     a = generate_node_hierarchy(seed=1, max_depth=4)
     b = generate_node_hierarchy(seed=99, max_depth=4)

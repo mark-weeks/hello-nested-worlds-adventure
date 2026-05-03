@@ -82,8 +82,20 @@ class CausalityBus:
 
     def propagate(self, origin: SpatialNode, kind: EventKind,
                   payload: dict[str, Any] | None = None,
-                  dampening: float = 0.5) -> CausalEvent:
-        """Emit at *origin* and cascade downward; halts when strength < MIN_STRENGTH."""
+                  dampening: float = 0.5,
+                  direction: str = "both") -> CausalEvent:
+        """Emit at *origin* and cascade across the hierarchy.
+
+        `direction` is one of "down", "up", or "both" (default). Strength
+        attenuates by `dampening` at each hop and the cascade halts when
+        strength drops below `MIN_STRENGTH`.
+
+        Origin fires exactly once even when direction is "both" — the
+        downward and upward cascades only walk away from origin.
+        """
+        if direction not in ("down", "up", "both"):
+            raise ValueError(f"direction must be down|up|both, got {direction!r}")
+
         event = CausalEvent(
             kind=kind,
             origin_id=origin.id,
@@ -91,21 +103,46 @@ class CausalityBus:
             strength=1.0,
             payload=payload or {},
         )
-        self._cascade(origin, event, dampening)
+        self._fire(origin, event)
+
+        if direction in ("down", "both"):
+            child_event = event.dampen(dampening)
+            for child in origin.children:
+                self._cascade_down(child, child_event, dampening)
+
+        if direction in ("up", "both") and origin.parent is not None:
+            parent_event = event.dampen(dampening)
+            self._cascade_up(origin.parent, parent_event, dampening)
+
         return event
 
     def _fire(self, node: SpatialNode, event: CausalEvent) -> None:
         self._event_log.append((node.name, event))
+        # `ripple_score` is the README's "cumulative causal pressure" field.
+        # We accumulate proportional to the event's (already-dampened) strength
+        # so deeper-reach events leave a fainter mark, then clamp to 1.0 so a
+        # busy node never overflows the [0, 1] contract documented on the field.
+        node.ripple_score = min(1.0, node.ripple_score + event.strength * 0.1)
         for handler in self._handlers:
             handler(node, event)
 
-    def _cascade(self, node: SpatialNode, event: CausalEvent, dampening: float) -> None:
+    def _cascade_down(self, node: SpatialNode, event: CausalEvent,
+                      dampening: float) -> None:
         if event.strength < MIN_STRENGTH:
             return
         self._fire(node, event)
         child_event = event.dampen(dampening)
         for child in node.children:
-            self._cascade(child, child_event, dampening)
+            self._cascade_down(child, child_event, dampening)
+
+    def _cascade_up(self, node: SpatialNode, event: CausalEvent,
+                    dampening: float) -> None:
+        if event.strength < MIN_STRENGTH:
+            return
+        self._fire(node, event)
+        if node.parent is not None:
+            parent_event = event.dampen(dampening)
+            self._cascade_up(node.parent, parent_event, dampening)
 
 
 # Default module-level bus.  Most code uses the convenience wrappers below;
@@ -137,8 +174,9 @@ def emit(node: SpatialNode, kind: EventKind,
 
 def propagate(origin: SpatialNode, kind: EventKind,
               payload: dict[str, Any] | None = None,
-              dampening: float = 0.5) -> CausalEvent:
-    return _default.propagate(origin, kind, payload, dampening)
+              dampening: float = 0.5,
+              direction: str = "both") -> CausalEvent:
+    return _default.propagate(origin, kind, payload, dampening, direction)
 
 
 # Backward-compat alias for the threshold constant.

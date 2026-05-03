@@ -74,6 +74,17 @@ class TestDeriveModifiers:
         mods = derive_modifiers({"condition": "corrupted"}, history)
         assert any("glitch" in m for m in mods)
 
+    def test_high_overall_churn_triggers_psychedelic(self):
+        # 15 mixed events exceed the high-ripple threshold.
+        history = [{"type": "AGENT_VISIT"}] * 10 + [{"type": "PLAYER_CHAT"}] * 5
+        mods = derive_modifiers({}, history)
+        assert any("psychedelic" in m for m in mods)
+
+    def test_below_high_churn_threshold_does_not_trigger_psychedelic(self):
+        history = [{"type": "AGENT_VISIT"}] * 14
+        mods = derive_modifiers({}, history)
+        assert not any("psychedelic" in m for m in mods)
+
     def test_modifiers_are_stable_across_calls(self):
         history = [{"type": "AGENT_VISIT"}] * 5 + [{"type": "DANGER_ALERT"}]
         a = derive_modifiers({"has_puzzle": True}, history)

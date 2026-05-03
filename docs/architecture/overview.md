@@ -52,10 +52,12 @@ Claude-powered persona system. Each node's voice is seeded by its properties and
 - Thread-safe lazy `Anthropic` client init; sanitises inbound message text
 
 ### `causality/` — Causal Engine
-Propagation system for cross-scale effects. Actions register as events; consequences travel up and down the hierarchy with dampening and delay.
+Propagation system for cross-scale effects. Actions register as events; consequences travel up and down the hierarchy with depth-based dampening.
 - `EventKind`, `CausalEvent` — event taxonomy and data model
 - `CausalityBus` — handler registry and event log
-- `emit(...)`, `propagate(...)` — local emission and hierarchy traversal with depth-based dampening
+- `emit(...)` — fire at one node, no cascade
+- `propagate(origin, kind, dampening, direction="both")` — origin fires once, then cascades up the parent chain and/or down the child subtree depending on `direction`. Strength attenuates by `dampening` per hop and the cascade halts at `MIN_STRENGTH`
+- Each fire bumps `node.ripple_score` proportional to the event's (already-dampened) strength, clamped to 1.0
 - Wired into the WebSocket server: emitted events fan out to all connected clients
 
 ### `agents/` — AI Agent System

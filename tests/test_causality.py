@@ -79,6 +79,99 @@ class TestPropagate:
         assert event.kind == EventKind.PUZZLE_FAILED
 
 
+class TestUpPropagation:
+    """README claims effects propagate 'up and down the hierarchy with
+    dampening.' These tests cover the upward path."""
+
+    def test_propagate_from_leaf_reaches_ancestors(self):
+        root = make_tree()
+        grandchild = root.children[0].children[0]
+        propagate(grandchild, EventKind.PUZZLE_SOLVED, dampening=0.5)
+        visited = {name for name, _ in get_log()}
+        # Grandchild fires; cascades both up the parent chain (Child1, Root)
+        # and down its own children (none here).
+        assert {"Grandchild", "Child1", "Root"}.issubset(visited)
+
+    def test_up_only_does_not_fire_siblings_or_descendants(self):
+        root = make_tree()
+        grandchild = root.children[0].children[0]
+        propagate(grandchild, EventKind.AGENT_VISIT,
+                  dampening=0.5, direction="up")
+        visited = {name for name, _ in get_log()}
+        # Up-only from Grandchild: Grandchild → Child1 → Root.
+        # Child2 is a sibling of Child1, not an ancestor — must not fire.
+        assert "Child2" not in visited
+        assert visited == {"Grandchild", "Child1", "Root"}
+
+    def test_down_only_preserves_legacy_behavior(self):
+        # Existing callers that pass direction="down" get the original
+        # downward-only cascade, so puzzle-solve callers can opt out of
+        # up-propagation if they ever need to.
+        root = make_tree()
+        propagate(root, EventKind.STRUCTURAL_CHANGE, direction="down")
+        visited = {name for name, _ in get_log()}
+        assert visited == {"Root", "Child1", "Child2", "Grandchild"}
+
+    def test_up_strength_decreases_with_each_ancestor(self):
+        root = make_tree()
+        grandchild = root.children[0].children[0]
+        propagate(grandchild, EventKind.AGENT_VISIT, dampening=0.5)
+        strengths = {name: ev.strength for name, ev in get_log()}
+        assert strengths["Grandchild"] == pytest.approx(1.0)
+        assert strengths["Child1"]     == pytest.approx(0.5)
+        assert strengths["Root"]       == pytest.approx(0.25)
+
+    def test_origin_fires_exactly_once_with_both(self):
+        # Origin at a non-root non-leaf node — both directions active —
+        # the origin must still fire exactly once, never twice.
+        root = make_tree()
+        child1 = root.children[0]
+        propagate(child1, EventKind.AGENT_VISIT, dampening=0.5)
+        log = get_log()
+        names = [name for name, _ in log]
+        assert names.count("Child1") == 1
+
+    def test_invalid_direction_raises(self):
+        root = make_tree()
+        with pytest.raises(ValueError, match="direction"):
+            propagate(root, EventKind.AGENT_VISIT, direction="sideways")
+
+
+class TestRippleScore:
+    """`SpatialNode.ripple_score` is documented as cumulative causal pressure.
+    Until now it was never mutated; firing on the bus now bumps it."""
+
+    def test_emit_increments_ripple_score(self):
+        root = make_tree()
+        assert root.ripple_score == 0.0
+        emit(root, EventKind.AGENT_VISIT)
+        assert root.ripple_score > 0.0
+
+    def test_propagate_marks_each_visited_node(self):
+        root = make_tree()
+        grandchild = root.children[0].children[0]
+        propagate(grandchild, EventKind.PUZZLE_SOLVED, dampening=0.5)
+        # Origin and both ancestors should all carry some ripple now.
+        assert grandchild.ripple_score > 0.0
+        assert root.children[0].ripple_score > 0.0
+        assert root.ripple_score > 0.0
+
+    def test_ripple_clamped_to_one(self):
+        # Many emits should not push ripple_score above 1.0.
+        root = make_tree()
+        for _ in range(50):
+            emit(root, EventKind.AGENT_VISIT)
+        assert root.ripple_score <= 1.0
+
+    def test_dampened_events_leave_smaller_marks(self):
+        root = make_tree()
+        grandchild = root.children[0].children[0]
+        propagate(grandchild, EventKind.AGENT_VISIT, dampening=0.5)
+        # Origin gets full strength → biggest mark; root gets the most-
+        # dampened strength → smallest mark.
+        assert grandchild.ripple_score > root.ripple_score
+
+
 class TestHandlers:
     def test_handler_called_on_emit(self):
         received = []
