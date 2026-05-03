@@ -143,7 +143,7 @@ class Handler(BaseHTTPRequestHandler):
                 "script-src 'self'; "
                 "connect-src 'self' ws: wss:; "
                 "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' blob: data:;",
+                "img-src 'self' blob: data: https://fal.media https://*.fal.media;",
             )
         self.end_headers()
         self.wfile.write(body)
@@ -166,6 +166,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("", "/"):
             self._send_file(_STATIC_DIR / "index.html")
+
+        elif path == "/explorer.js":
+            self._send_file(_STATIC_DIR / "explorer.js",
+                            content_type="application/javascript; charset=utf-8")
 
         elif path == "/app" or path.startswith("/app/"):
             self._serve_frontend(path)
