@@ -81,7 +81,7 @@ Threaded `http.server` with REST + WebSocket support, security headers (CSP, X-F
 - **REST**: `/health`, `/worlds`, `/world`, `/players`, `/history`, `/agent`, `/observe`, `/puzzle`, `/image`, plus `POST /speak`, `POST /puzzle/attempt`, and `POST /agent/voice`
 - **WebSocket** (`/ws`): presence, player-to-player chat, broadcast of causal events, ping/keepalive
 - **Static**: bundled D3 browser UI mounted at `/app`; easter-egg routes under `/easter-egg/`
-- Module split: `handlers.py` (HTTP/WebSocket dispatch), `protocol.py` (frame parsing), `rooms.py` (presence), `imageprompt.py` (per-level prompt assembly + style-signature cache key)
+- Module split: `handlers.py` (HTTP/WebSocket dispatch), `protocol.py` (frame parsing), `rooms.py` (presence + co-op `PuzzleSession` state), `imageprompt.py` (per-level prompt assembly + style-signature cache key)
 
 ### `interface/` — Terminal Interaction Layer
 Interactive terminal session (`run_session`) with three modes — spatial (`go`/`up`/`map`), conversational (`speak`), and ambient (`observe`) — plus inline puzzles. Each scale level renders in a distinct ANSI colour.

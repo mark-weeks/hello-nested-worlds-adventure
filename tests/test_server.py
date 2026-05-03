@@ -111,15 +111,17 @@ class TestMutationRecording:
     def test_failed_puzzle_attempt_records_mutation(self, srv):
         base, _ = srv
         seed = 12345
-        # Final attempt with a wrong answer — server confirms failure and
-        # records PUZZLE_FAILED.
-        _post(
-            f"{base}/puzzle/attempt",
-            {
-                "seed": seed, "depth": 6, "min_breadth": 1, "max_breadth": 3,
-                "node_name": "", "answer": "wrong-answer", "attempt": 3,
-            },
-        )
+        # Server now tracks attempts in the shared puzzle session, so
+        # exhausting the attempt pool requires repeated calls — mirroring
+        # how a real co-op room would burn through its quota.
+        for _ in range(5):
+            _post(
+                f"{base}/puzzle/attempt",
+                {
+                    "seed": seed, "depth": 6, "min_breadth": 1, "max_breadth": 3,
+                    "node_name": "", "answer": "wrong-answer",
+                },
+            )
         kinds = {m["type"] for m in persistence.get_mutations(seed)}
         assert "PUZZLE_FAILED" in kinds
 
@@ -139,6 +141,79 @@ class TestMutationRecording:
         # Persona is part of the same payload so consciousness prompts and
         # the event feed can read it without a side lookup.
         assert all("persona" in m["data"] for m in agent_muts)
+
+
+class TestCoopPuzzles:
+    """Co-op puzzle session over HTTP — multiple POSTs to /puzzle/attempt
+    against the same (seed, node) share state via server.rooms."""
+
+    SEED = 31415
+
+    def _attempt(self, base, *, answer, player=None, node=""):
+        body = {
+            "seed": self.SEED, "depth": 6, "min_breadth": 1, "max_breadth": 3,
+            "node_name": node, "answer": answer,
+        }
+        if player is not None:
+            body["player_name"] = player
+        data, _ = _post(f"{base}/puzzle/attempt", body)
+        return data
+
+    def test_attempts_pool_across_callers(self, srv):
+        base, _ = srv
+        a = self._attempt(base, answer="wrong-1", player="Alice")
+        b = self._attempt(base, answer="wrong-2", player="Bob")
+        # Two distinct callers, server-tracked count.
+        assert a["attempt"] == 1
+        assert b["attempt"] == 2
+        assert set(b["contributors"]) == {"Alice", "Bob"}
+
+    def test_post_solve_attempt_returns_solved_for_everyone(self, srv):
+        # Hand-construct the same flow against a Region puzzle whose answer
+        # is computable from the world — the LOCK is danger_level × 2.
+        base, _ = srv
+        # Pull a Region node from the generated tree to know its danger_level.
+        world, _, _ = _get(
+            f"{base}/world?seed={self.SEED}&depth=6&min_breadth=1&max_breadth=3"
+        )
+
+        def _find_region(n):
+            if n["level"] == "Region":
+                return n
+            for c in n["children"]:
+                hit = _find_region(c)
+                if hit:
+                    return hit
+            return None
+
+        region = _find_region(world["world"])
+        assert region, "expected a Region node in the generated tree"
+        answer = str(region["properties"]["danger_level"] * 2)
+
+        # Alice burns one wrong attempt.
+        self._attempt(base, answer="0", player="Alice", node=region["name"])
+        # Bob solves it.
+        b = self._attempt(base, answer=answer, player="Bob", node=region["name"])
+        assert b["correct"] is True
+        assert b["result"] == "SOLVED"
+        assert b["solver"] == "Bob"
+        assert "Alice" in b["contributors"]
+        assert "Bob"   in b["contributors"]
+
+        # Carol arrives later — the puzzle is already solved for the room.
+        c = self._attempt(base, answer="0", player="Carol", node=region["name"])
+        assert c["result"] == "SOLVED"
+        assert c["solver"] == "Bob"  # Bob still has the credit
+        assert "Carol" in c["contributors"]
+
+    def test_failed_attempt_releases_answer(self, srv):
+        base, _ = srv
+        # The Region LOCK puzzle has max_attempts=5; exhaust them.
+        last = None
+        for _ in range(5):
+            last = self._attempt(base, answer="not-it")
+        assert last["result"] == "FAILED"
+        assert last["correct_answer"] is not None
 
 
 class TestAgentPersonas:

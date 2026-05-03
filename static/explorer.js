@@ -260,7 +260,7 @@ async function submitAnswer() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ seed, depth, min_breadth: min_b, max_breadth: max_b,
                              node_name: selected.name, answer,
-                             attempt: puzzleState.attempt }),
+                             player_name: playerName }),
     });
     const data = await res.json();
     const resultEl = document.getElementById('puzzle-result');
@@ -374,9 +374,13 @@ function handleWsMsg(msg) {
         updatePresenceRings();
       }
       break;
-    case 'puzzle_solved':
-      pushFeed(`Puzzle solved: ${msg.puzzle} @ ${msg.node}`);
+    case 'puzzle_solved': {
+      const others = (msg.contributors || []).filter(c => c !== msg.solver);
+      const credit = others.length ? ` (with ${others.join(', ')})` : '';
+      const by = msg.solver ? ` by ${msg.solver}${credit}` : '';
+      pushFeed(`Puzzle solved: ${msg.puzzle} @ ${msg.node}${by}`);
       break;
+    }
     case 'agent_done':
       pushFeed(`Agent: ${msg.nodes_visited} nodes from ${msg.node}`);
       break;

@@ -44,7 +44,13 @@ export default function App() {
     onPlayerMove:   (msg) => setPlayers(p => p.map(x => x.session_id === msg.session_id ? { ...x, node: msg.node } : x)),
     onChat:         (msg) => pushEvent({ type: "chat",   name: msg.name, text: msg.text }),
     onCausalEvent:  (msg) => pushEvent({ type: "causal", kind: msg.kind, node: msg.node, strength: msg.strength }),
-    onPuzzleSolved: (msg) => pushEvent({ type: "puzzle", text: `Puzzle solved: ${msg.puzzle} @ ${msg.node}` }),
+    onPuzzleSolved: (msg) => {
+      const credit = msg.contributors?.length > 1
+        ? ` (with ${msg.contributors.filter(c => c !== msg.solver).join(", ")})`
+        : "";
+      const by = msg.solver ? ` by ${msg.solver}${credit}` : "";
+      pushEvent({ type: "puzzle", text: `Puzzle solved: ${msg.puzzle} @ ${msg.node}${by}` });
+    },
     onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${msg.node}` }),
     onAgentEncounter: (msg) => pushEvent({ type: "system", text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${msg.node}` }),
   });

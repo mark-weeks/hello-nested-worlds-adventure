@@ -25,7 +25,7 @@ from server import imageprompt
 from server.protocol import ws_recv
 from server.rooms import (
     Player, agent_enter, agent_leave, agent_move, agent_persona,
-    broadcast, get_room, snapshot,
+    broadcast, get_room, record_attempt, snapshot,
 )
 
 
@@ -625,7 +625,8 @@ class Handler(BaseHTTPRequestHandler):
 
         node_name   = body.get("node_name", "")
         answer      = body.get("answer", "").strip()
-        attempt_raw = body.get("attempt", 1)
+        raw_player  = body.get("player_name")
+        player_name = (str(raw_player)[:32].strip() or None) if raw_player else None
 
         target = (find_node(root, node_name) if node_name else None) or root
 
@@ -636,33 +637,53 @@ class Handler(BaseHTTPRequestHandler):
         if not puzzles:
             return self._send_error("no puzzle found")
 
-        p = puzzles[0]
-        # Clamp attempt to [1, max_attempts+1] so a client cannot fabricate a
-        # false "failed" state (e.g. attempt=99999) to extract correct_answer.
-        # Values above max_attempts are still ≥ max_attempts so failed stays
-        # computable, but the correct_answer guard below only releases the
-        # answer when attempt is within the legitimate range (≤ max_attempts).
-        try:
-            attempt = max(1, min(int(attempt_raw), p.max_attempts + 1))
-        except (ValueError, TypeError):
-            attempt = 1
+        p              = puzzles[0]
+        effective_node = node_name or target.name
+        room           = get_room(seed)
+        correct        = answer.lower() == p.answer.lower()
 
-        correct = answer.lower() == p.answer.lower()
-        failed  = not correct and attempt >= p.max_attempts
-        hint    = (p.hints[attempt - 1]
-                   if not correct and not failed and attempt <= len(p.hints)
-                   else None)
+        # Co-op: attempts pool across all players in the room. record_attempt
+        # holds the room lock while incrementing, so concurrent solvers can't
+        # both flip `solver` from None.
+        session, just_solved = record_attempt(
+            room, effective_node, p.name, player_name, correct,
+        )
 
-        if correct:
-            effective_node = node_name or target.name
-            persistence.record_mutation(seed, effective_node, "PUZZLE_SOLVED",
-                                        None, {"puzzle": p.name})
-            room = get_room(seed)
+        # If the puzzle was already solved by an earlier player, return that
+        # state without re-firing broadcasts or mutations.
+        if session.solver is not None and not just_solved:
+            return self._send_json({
+                "correct":        True,
+                "result":         "SOLVED",
+                "hint":           None,
+                "attempt":        session.attempts,
+                "max_attempts":   p.max_attempts,
+                "solver":         session.solver,
+                "contributors":   sorted(session.contributors),
+                "correct_answer": None,
+            })
+
+        failed = not correct and session.attempts >= p.max_attempts
+        hint   = (p.hints[session.attempts - 1]
+                  if not correct and not failed
+                  and session.attempts <= len(p.hints)
+                  else None)
+
+        contributors = sorted(session.contributors)
+
+        if just_solved:
+            persistence.record_mutation(
+                seed, effective_node, "PUZZLE_SOLVED",
+                session.solver if session.solver != "anonymous" else None,
+                {"puzzle": p.name, "contributors": contributors},
+            )
             broadcast(room, {"type": "puzzle_solved", "node": effective_node,
-                             "puzzle": p.name})
+                             "puzzle": p.name, "solver": session.solver,
+                             "contributors": contributors})
 
-            # Propagate causal ripple downward from the solved node and fan
-            # each event out to all connected WebSocket clients in this world.
+            # Propagate causal ripple from the solved node — bidirectional
+            # since causality.propagate() defaults to direction="both".
+            # Each fired event fans out to all connected WebSocket clients.
             causal_depth_map = build_depth_map(target)
             solve_bus = CausalityBus()
 
@@ -682,23 +703,25 @@ class Handler(BaseHTTPRequestHandler):
 
             solve_bus.register_handler(_causal_handler)
             solve_bus.register_handler(_record_mutation_handler(seed))
-            solve_bus.propagate(target, EventKind.PUZZLE_SOLVED, {"puzzle": p.name})
+            solve_bus.propagate(target, EventKind.PUZZLE_SOLVED,
+                                {"puzzle": p.name, "contributors": contributors})
 
         if failed:
-            effective_node = node_name or target.name
             persistence.record_mutation(
                 seed, effective_node, "PUZZLE_FAILED", None,
-                {"puzzle": p.name, "answer_given": answer[:64]},
+                {"puzzle": p.name, "answer_given": answer[:64],
+                 "contributors": contributors},
             )
 
         self._send_json({
             "correct":        correct,
             "result":         "SOLVED" if correct else ("FAILED" if failed else "UNSOLVED"),
             "hint":           hint,
-            "attempt":        attempt,
+            "attempt":        session.attempts,
             "max_attempts":   p.max_attempts,
-            # Only reveal the answer when the server confirms failure at the
-            # legitimate last attempt (attempt ≤ max_attempts).  An out-of-
-            # bounds attempt (clamped to max_attempts+1) is excluded here.
-            "correct_answer": p.answer if (failed and attempt <= p.max_attempts) else None,
+            "solver":         session.solver,
+            "contributors":   contributors,
+            # Server-tracked attempt count means `failed` only flips at the
+            # real last attempt; safe to release the answer there.
+            "correct_answer": p.answer if failed else None,
         })
