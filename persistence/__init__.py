@@ -46,6 +46,15 @@ _SCHEMA = """
         data          TEXT,
         recorded_at   TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS agent_memory (
+        agent_name  TEXT    NOT NULL,
+        world_seed  INTEGER NOT NULL,
+        visited_ids TEXT    NOT NULL DEFAULT '[]',
+        log_entries TEXT    NOT NULL DEFAULT '[]',
+        updated_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (agent_name, world_seed)
+    );
 """
 
 _initialized: set[Path] = set()
@@ -165,3 +174,49 @@ def get_agent_runs(world_seed: int) -> list[dict[str, Any]]:
             (world_seed,),
         ).fetchall()
         return [{"agent_name": r[0], "started_at": r[1], "nodes_visited": r[2]} for r in rows]
+
+
+@_with_db
+def save_agent_memory(agent_name: str, world_seed: int,
+                      visited_ids: list[str], log_entries: list[dict[str, Any]]) -> None:
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO agent_memory (agent_name, world_seed, visited_ids, log_entries, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(agent_name, world_seed) DO UPDATE SET
+                 visited_ids = excluded.visited_ids,
+                 log_entries = excluded.log_entries,
+                 updated_at  = excluded.updated_at""",
+            (agent_name, world_seed, json.dumps(visited_ids), json.dumps(log_entries)),
+        )
+
+
+@_with_db
+def load_agent_memory(agent_name: str, world_seed: int) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT visited_ids, log_entries, updated_at
+               FROM agent_memory WHERE agent_name = ? AND world_seed = ?""",
+            (agent_name, world_seed),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "visited_ids": json.loads(row[0]),
+            "log_entries": json.loads(row[1]),
+            "updated_at":  row[2],
+        }
+
+
+@_with_db
+def list_agent_memories() -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT agent_name, world_seed, updated_at,
+                      json_array_length(visited_ids) AS node_count
+               FROM agent_memory ORDER BY updated_at DESC"""
+        ).fetchall()
+        return [
+            {"agent_name": r[0], "world_seed": r[1], "updated_at": r[2], "node_count": r[3]}
+            for r in rows
+        ]

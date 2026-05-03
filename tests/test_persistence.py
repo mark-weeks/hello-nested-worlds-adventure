@@ -139,6 +139,43 @@ class TestGetNodeHistory:
         assert h[0]["player"] is None
 
 
+class TestAgentMemoryPersistence:
+    def test_save_and_load_memory(self):
+        persistence.save_agent_memory("Scout", 42, ["id-1", "id-2"], [{"node": "A", "action": "explored"}])
+        m = persistence.load_agent_memory("Scout", 42)
+        assert m is not None
+        assert m["visited_ids"] == ["id-1", "id-2"]
+        assert m["log_entries"][0]["node"] == "A"
+
+    def test_load_missing_returns_none(self):
+        assert persistence.load_agent_memory("Ghost", 99) is None
+
+    def test_save_overwrites_existing(self):
+        persistence.save_agent_memory("Scout", 1, ["a"], [])
+        persistence.save_agent_memory("Scout", 1, ["a", "b", "c"], [])
+        m = persistence.load_agent_memory("Scout", 1)
+        assert m["visited_ids"] == ["a", "b", "c"]
+
+    def test_different_seeds_are_independent(self):
+        persistence.save_agent_memory("Scout", 1, ["x"], [])
+        persistence.save_agent_memory("Scout", 2, ["y", "z"], [])
+        assert persistence.load_agent_memory("Scout", 1)["visited_ids"] == ["x"]
+        assert persistence.load_agent_memory("Scout", 2)["visited_ids"] == ["y", "z"]
+
+    def test_list_agent_memories(self):
+        persistence.save_agent_memory("Alpha", 10, ["a", "b"], [])
+        persistence.save_agent_memory("Beta",  20, ["c"], [])
+        memories = persistence.list_agent_memories()
+        names = {m["agent_name"] for m in memories}
+        assert "Alpha" in names and "Beta" in names
+
+    def test_list_agent_memories_node_count(self):
+        persistence.save_agent_memory("Counter", 5, ["p", "q", "r", "s"], [])
+        memories = persistence.list_agent_memories()
+        entry = next(m for m in memories if m["agent_name"] == "Counter")
+        assert entry["node_count"] == 4
+
+
 class TestSavePuzzleResult:
     def test_save_puzzle_result(self):
         persistence.save_puzzle_result(world_seed=5, puzzle_name="The Lock", result="SOLVED", attempts=2)

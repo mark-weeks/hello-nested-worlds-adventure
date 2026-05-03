@@ -168,13 +168,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_error(str(exc))
             root  = generate_node_hierarchy(seed=seed)
             agent = Agent(name=name, danger_threshold=threshold)
+            saved = persistence.load_agent_memory(name, seed)
+            if saved:
+                agent.memory = saved["visited_ids"]
             agent.traverse(root, max_nodes=max_nodes)
             events = [{"node": e.node_name, "level": e.level,
                        "state": e.state.name, "action": e.action}
                       for e in agent.log]
-            run_id = persistence.save_agent_run(name, seed, len(agent.visited), events)
+            run_id = persistence.save_agent_run(name, seed, agent.fresh_count, events)
+            persistence.save_agent_memory(name, seed, agent.memory, events[-100:])
             self._send_json({"run_id": run_id, "agent": name, "seed": seed,
-                             "nodes_visited": len(agent.visited), "events": events})
+                             "nodes_visited": agent.fresh_count,
+                             "total_known": len(agent.memory),
+                             "events": events})
 
         elif path == "/observe":
             self._do_observe(qs)

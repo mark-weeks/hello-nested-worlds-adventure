@@ -21,6 +21,7 @@ class Agent:
     state: State = State.IDLE
     log: List[AgentLog] = field(default_factory=list)
     visited: List[str] = field(default_factory=list)
+    memory: List[str] = field(default_factory=list)
     bus: Optional[CausalityBus] = None
 
     @property
@@ -60,12 +61,27 @@ class Agent:
 
         return True
 
+    @property
+    def fresh_count(self) -> int:
+        """Nodes added to memory during the most recent traverse() call."""
+        return len(self.memory) - getattr(self, "_memory_before", 0)
+
     def traverse(self, node: SpatialNode, max_nodes: int = 50) -> None:
-        """Reset agent state and traverse the hierarchy rooted at `node`."""
+        """Traverse the hierarchy rooted at `node`.
+
+        visited is seeded from accumulated memory so already-known nodes are
+        naturally skipped.  New visits are merged back into memory afterward.
+        """
         self.state = State.IDLE
         self.log = []
-        self.visited = []
+        self._memory_before = len(self.memory)
+        self.visited = list(self.memory)
         self._traverse(node, max_nodes)
+        memory_set = set(self.memory)
+        for nid in self.visited:
+            if nid not in memory_set:
+                self.memory.append(nid)
+                memory_set.add(nid)
 
     def _traverse(self, node: SpatialNode, max_nodes: int) -> None:
         if len(self.visited) >= max_nodes:
@@ -84,7 +100,10 @@ class Agent:
                 self._traverse(child, max_nodes)
 
     def report(self) -> str:
-        lines = [f"Agent '{self.name}' traversal report ({len(self.log)} events):"]
+        fresh = self.fresh_count
+        prior = len(self.memory) - fresh
+        mem_note = f"{fresh} new" + (f" · {prior} previously known" if prior else "")
+        lines = [f"Agent '{self.name}' traversal report ({len(self.log)} events · {mem_note}):"]
         for entry in self.log:
             lines.append(f"  [{entry.state.name:9}] {entry.level:20} {entry.node_name:30} → {entry.action}")
         return "\n".join(lines)
