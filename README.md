@@ -20,7 +20,7 @@ Interaction is multi-modal: natural language for depth, visual navigation for mo
 
 ### The Hierarchy
 
-Ten nested scales, each with its own aesthetic register and causal weight:
+Eleven nested scales, each with its own aesthetic register and causal weight:
 
 ```
 Multiverse → Universe → Galaxy → Planetary System → Planet → Region → Room → Object → Molecule → Atom → SubatomicParticle
@@ -44,10 +44,13 @@ Claude-powered entities with distinct personalities, goals, and relationships to
 World state lives in a database. The multiverse exists between sessions. Interaction history, causal state, and agent memory persist. Multiple participants can be present simultaneously.
 
 **Server** (`server/`)
-Real-time API layer. WebSocket-based synchronization for multi-participant presence. Event stream for causal propagation. REST endpoints for world state queries.
+Real-time API layer. WebSocket-based synchronization for multi-participant presence and player chat, broadcasting causal events to all connected clients. REST endpoints for world state, observation, puzzles, and node speech. Serves the bundled browser UI from `/app`.
 
 **Interface** (`interface/`)
-The visual and interaction layer. Generative art that reflects world state at each scale. Multi-modal interaction: conversational, spatial, ambient. Each scale has a distinct aesthetic vocabulary.
+The terminal interaction layer. Spatial navigation, conversational `speak`, ambient observation, and embedded puzzles in a single REPL.
+
+**Frontend** (`frontend/`, `static/app/`)
+Browser clients. `frontend/` is a React + PixiJS + Vite app for scene rendering, hotspot interaction, and live multiplayer presence. `static/app/` is a vanilla D3 tree explorer served directly by the Python server. AI-generated scene backgrounds are produced via fal.ai (Flux Schnell) and cached in persistence.
 
 **Puzzles** (`puzzles/`)
 Embedded challenges that interact with the causal system. Solving a puzzle isn't just a local event — its resolution propagates. Puzzles are voiced by their containing nodes.
@@ -79,16 +82,17 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 
 | System | Status |
 |--------|--------|
-| World model (`multiverse/`) | Functional — named locations, variable branching, rich per-level properties |
-| Agent traversal (`agents/`) | Functional — FSM traversal, self-preservation, interaction logging, causal event emission |
-| Puzzle engine (`puzzles/`) | Functional — four puzzle kinds, hints, attempt tracking |
-| Causality engine (`causality/`) | Functional — event propagation with configurable dampening |
-| Persistence (`persistence/`) | Functional — SQLite world state, agent runs, puzzle results |
-| REST server (`server/`) | Functional — `/health` `/worlds` `/world` `/agent` endpoints |
-| CLI (`main.py`) | Functional — `world`, `agent`, `puzzles`, `serve`, `speak`, `history` |
-| Node consciousness (`consciousness/`) | Functional — Claude-powered node voices (requires `ANTHROPIC_API_KEY`) |
-| Tests | 78 tests across generator, agents, puzzles, persistence, causality, interface |
+| World model (`multiverse/`) | Functional — named locations, variable branching, rich per-level properties across 11 scales |
+| Agent traversal (`agents/`) | Functional — FSM traversal, self-preservation, interaction logging, causal event emission, persistent memory across runs, agent-to-agent encounters |
+| Puzzle engine (`puzzles/`) | Functional — level-specific puzzle pools across all 11 levels; server-validated attempts (no client-side leak) |
+| Causality engine (`causality/`) | Functional — event propagation with configurable dampening; events broadcast to all WebSocket clients |
+| Persistence (`persistence/`) | Functional — SQLite store for world state, agent runs, puzzle results, agent memory, node interaction history, world mutations, and scene-image cache |
+| Server (`server/`) | Functional — REST (`/health` `/worlds` `/world` `/agent` `/observe` `/puzzle` `/players` `/history` `/image` `/speak` `/puzzle/attempt`), WebSocket multiplayer at `/ws` (chat + presence + causal events), bundled browser UI at `/app`, security headers + CSP, body/frame size caps |
+| CLI (`main.py`) | Functional — `world`, `agent`, `puzzles`, `play`, `serve`, `speak`, `history` |
+| Node consciousness (`consciousness/`) | Functional — Claude-powered node voices, fed by per-node interaction history (requires `ANTHROPIC_API_KEY`) |
 | Interface (`interface/`) | Functional — interactive terminal session (spatial, conversational, ambient) |
+| Frontend (`frontend/`) | Functional — React + PixiJS + Vite client wired to the WebSocket server; fal.ai-generated scene backgrounds |
+| Tests | 116 tests across generator, agents, puzzles, persistence, causality, interface, consciousness, and HTTP/WebSocket server |
 
 ---
 
@@ -101,11 +105,27 @@ pip install anthropic
 # Install with dev dependencies (for tests)
 pip install -e ".[dev]"
 
-# Set your Anthropic API key (only required for the `speak` command)
-export ANTHROPIC_API_KEY=sk-ant-...
+# Copy the environment template and fill in keys you need
+cp .env.example .env
+```
 
-# Override the Claude model (optional, defaults to claude-opus-4-7)
-export NESTED_WORLDS_MODEL=claude-sonnet-4-6
+Environment variables (see `.env.example`):
+
+| Variable | Required for | Default |
+|----------|--------------|---------|
+| `ANTHROPIC_API_KEY` | Node consciousness (`speak`, browser chat with nodes) | — |
+| `NESTED_WORLDS_MODEL` | Override the Claude model | `claude-opus-4-7` |
+| `FAL_KEY` | AI-generated scene backgrounds (Flux Schnell) | optional |
+| `REDIS_URL` | Scene cache + session state | optional |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_URL` | Generated image storage | optional |
+
+The browser frontend (`frontend/`) is a separate Vite project:
+
+```bash
+cd frontend
+npm install
+npm run dev    # dev server with hot reload
+npm run build  # production bundle
 ```
 
 ## Running Locally

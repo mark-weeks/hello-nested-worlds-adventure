@@ -7,13 +7,36 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Browser frontend** (`frontend/`): React + PixiJS + Vite client wired to the WebSocket server. AI-generated scene backgrounds via fal.ai (Flux Schnell), cached in persistence
+- **WebSocket multiplayer** (`server/`): `/ws` endpoint with presence, player-to-player chat, ping/keepalive, and broadcast of causal events to all connected clients
+- **Persistent agent memory** (`agents/`, `persistence/`): agents remember visited nodes across runs; `save_agent_memory` / `load_agent_memory` / `list_agent_memories`
+- **Agent-to-agent encounters** (`agents/`): when traversing agents meet, encounter events are emitted into the causal bus
+- **Interaction-history-aware consciousness** (`consciousness/`): per-node history from `persistence.get_node_history` is injected into the prompt so nodes reference past visitors
+- **Browser UI** (`static/app/`): vanilla D3 tree explorer mounted at `/app`; supports Observe and Puzzle actions
+- **Easter eggs**: hidden routes under `/easter-egg/` (Konami code, illusion page)
+- **Server module split** (`server/handlers.py`, `protocol.py`, `rooms.py`) and HTTP server integration tests
 - **Interactive interface** (`interface/`): `run_session()` brings the world to life as a playable terminal session. Three interaction modes in a single REPL:
   - *Spatial* — navigate the hierarchy with `go <N>` / `up`; each scale level rendered in a distinct ANSI colour
   - *Conversational* — `speak [message]` routes to the consciousness module (Claude); unrecognised input is forwarded as a speak message
   - *Ambient* — `observe` runs an agent traversal from the current node with live causal-event output (node name, event kind, dampened strength bar)
   - `map` prints an ASCII subtree (3 levels deep); `puzzle` drops into the puzzle engine at the current location
 - **`play` CLI subcommand** (`main.py`): `python main.py play [--depth N] [--min-breadth N] [--max-breadth N]`
-- **16 interface tests** (`tests/test_interface.py`): formatting, navigation, ambient mode, puzzle integration
+- **Architecture decision records** (`docs/decisions/`): ADR-001 (frontend stack), ADR-002 (image generation); Phase 1 beta scope (`docs/roadmap/`); game design doc (`docs/design/`); infrastructure stack (`docs/infrastructure/`)
+- **`multiverse/utils.py`**: `count_nodes`, `find_node`, `build_depth_map` extracted from scattered call sites
+- Test suite expanded to **116 tests** (HTTP server integration, WebSocket frame parsing, consciousness thread-safety, persistence, interface, etc.)
+
+### Changed
+- **Puzzle system**: reworked into level-specific pools across all 11 hierarchy levels; attempts validated on the server (no client-controlled answer leak)
+- **REST endpoints** added: `/observe`, `/puzzle`, `/players`, `/history`, `/image`, `POST /speak`, `POST /puzzle/attempt`
+- Default server bind host changed to `127.0.0.1` (was `0.0.0.0`)
+- `persistence/` no longer exposes a noisy boilerplate decorator; surface API simplified
+
+### Security
+- CSP and security headers (`X-Frame-Options`, `Referrer-Policy`, etc.) on all responses
+- `escHtml` applied to every `innerHTML` insertion in the browser UI
+- POST body size cap and WebSocket frame size limit
+- Sanitised `/speak` inputs and thread-safe Anthropic client initialisation
+- Puzzle attempt counter moved server-side
 
 
 ### Changed
