@@ -46,8 +46,9 @@ A shared persistent multiverse inhabited simultaneously by human players and AI 
 - **`utils.py`** — tree helpers: `count_nodes`, `find_node`, `build_depth_map`
 
 ### `consciousness/` — Node Voice Layer
-Claude-powered persona system. Each node's voice is seeded by its properties and accumulated interaction history. Nodes respond in character, reference past visitors, and hold perspective.
-- `speak(node, message, history)` — conversational handler; injects per-node history into the system prompt
+Claude-powered persona system. Each node's voice is seeded by its level, properties, and accumulated interaction history. Nodes respond in character, reference past visitors, and hold perspective on their place in the hierarchy.
+- `LEVEL_VOICES` — per-scale character notes covering all 11 levels (Multiverse → SubatomicParticle); pronouns, time-sense, and sensory vocabulary all shift by scale
+- `speak(node, message, history)` — three system blocks (universal preamble + per-level voice + per-node context) with two prompt-cache breakpoints, so calls within the same level share the longer cached prefix
 - `voice_agent(persona, agent_name, node, message)` — speaks AS an agent visiting a node, framed by the persona's voice preamble (distinct system prompt from `speak()`)
 - Thread-safe lazy `Anthropic` client init; sanitises inbound message text
 

@@ -89,7 +89,7 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 | Persistence (`persistence/`) | Functional — SQLite store for world state, agent runs, puzzle results, agent memory, node interaction history, world mutations, and scene-image cache |
 | Server (`server/`) | Functional — REST (`/health` `/worlds` `/world` `/agent` `/observe` `/puzzle` `/players` `/history` `/image` `/speak` `/puzzle/attempt`), WebSocket multiplayer at `/ws` (chat + presence + causal events), bundled browser UI at `/app`, security headers + CSP, body/frame size caps |
 | CLI (`main.py`) | Functional — `world`, `agent`, `puzzles`, `play`, `serve`, `speak`, `history` |
-| Node consciousness (`consciousness/`) | Functional — Claude-powered node voices, fed by per-node interaction history (requires `ANTHROPIC_API_KEY`) |
+| Node consciousness (`consciousness/`) | Functional — Claude-powered node voices, per-scale character registers (`LEVEL_VOICES`) for all 11 levels, fed by per-node interaction history; agent voicing via `voice_agent()` (requires `ANTHROPIC_API_KEY`) |
 | Interface (`interface/`) | Functional — interactive terminal session (spatial, conversational, ambient) |
 | Frontend (`frontend/`) | Functional — React + PixiJS + Vite client wired to the WebSocket server; fal.ai-generated scene backgrounds |
 | Tests | 116 tests across generator, agents, puzzles, persistence, causality, interface, consciousness, and HTTP/WebSocket server |
