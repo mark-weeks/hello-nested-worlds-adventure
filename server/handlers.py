@@ -294,6 +294,11 @@ class Handler(BaseHTTPRequestHandler):
                     broadcast(room, {"type": "player_move", "name": name,
                                      "node": node_name, "session_id": session_id},
                               exclude=session_id)
+                elif msg_type == "chat":
+                    text = str(msg.get("text", "")).strip()[:256]
+                    if text:
+                        broadcast(room, {"type": "chat", "name": name,
+                                         "text": text, "session_id": session_id})
                 elif msg_type == "ping":
                     player.send({"type": "pong"})
         except (OSError, ConnectionResetError, BrokenPipeError):

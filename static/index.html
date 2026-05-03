@@ -72,9 +72,17 @@
     .player-dot  { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
     .player-name { flex: 0 0 80px; color: #8aaccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .player-node { flex: 1; color: #4a6080; font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #event-feed  { margin-top: 8px; border-top: 1px solid #111828; padding-top: 6px; }
+    #event-feed  { margin-top: 8px; border-top: 1px solid #111828; padding-top: 6px; max-height: 90px; overflow-y: auto; }
     .feed-item   { font-size: 9px; color: #3a5070; padding: 1px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .feed-time   { color: #2a4050; margin-right: 4px; }
+    .chat-msg    { color: #8aaccc !important; white-space: normal !important; line-height: 1.4; }
+    .chat-name   { color: #3a8eff; }
+    #chat-row    { display: flex; gap: 4px; padding: 6px 16px 8px; border-bottom: 1px solid #141828; flex-shrink: 0; }
+    #chat-input  { flex: 1; background: #10131f; border: 1px solid #222840; color: #b0bcd0; padding: 4px 6px; font-family: inherit; font-size: 10px; min-width: 0; }
+    #chat-input:focus { outline: 1px solid #3a8eff; }
+    #chat-input::placeholder { color: #2a4060; }
+    #chat-btn    { background: #0e1828; border: 1px solid #2a4060; color: #3a8eff; padding: 4px 8px; cursor: pointer; font-family: inherit; font-size: 11px; flex-shrink: 0; }
+    #chat-btn:hover { background: #162038; }
 
     /* ── Mode buttons ── */
     .mode-bar { display: flex; gap: 0; border-bottom: 1px solid #141828; }
@@ -178,6 +186,12 @@
       <div class="panel-title">Explorers</div>
       <div id="players-list"><div style="color:#2a4060;font-size:10px">Not connected</div></div>
       <div id="event-feed"></div>
+    </div>
+
+    <div id="chat-row">
+      <input id="chat-input" type="text" maxlength="256" placeholder="Say something…"
+             autocomplete="off" onkeydown="if(event.key==='Enter')sendChat()">
+      <button id="chat-btn" onclick="sendChat()">↵</button>
     </div>
 
     <div class="mode-bar">
@@ -620,6 +634,11 @@ function handleWsMsg(msg) {
     case 'agent_done':
       pushFeed(`Agent: ${msg.nodes_visited} nodes from ${msg.node}`);
       break;
+    case 'chat': {
+      const nameHtml = `<span class="chat-name">${escHtml(msg.name)}</span>`;
+      pushFeed(`${nameHtml} ${escHtml(msg.text)}`, { cls: 'chat-msg', html: true });
+      break;
+    }
     case 'causal_event': {
       const kindFmt = msg.kind.replace(/_/g, ' ').toLowerCase();
       pushFeed(`↯ ${kindFmt} · ${msg.node} ×${msg.strength.toFixed(2)}`);
@@ -666,13 +685,28 @@ function renderPlayers() {
   }
 }
 
-function pushFeed(text) {
+function pushFeed(text, { cls = '', html = false } = {}) {
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  eventFeed.unshift({ text, time });
-  if (eventFeed.length > 5) eventFeed.pop();
-  document.getElementById('event-feed').innerHTML = eventFeed.map(e =>
-    `<div class="feed-item"><span class="feed-time">${e.time}</span>${escHtml(e.text)}</div>`
+  const content = html ? text : escHtml(text);
+  eventFeed.unshift({ content, time, cls });
+  if (eventFeed.length > 20) eventFeed.pop();
+  const el = document.getElementById('event-feed');
+  el.innerHTML = eventFeed.map(e =>
+    `<div class="feed-item ${escHtml(e.cls || '')}"><span class="feed-time">${e.time}</span>${e.content}</div>`
   ).join('');
+}
+
+function sendChat() {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    pushFeed('Not connected — generate a world first.');
+    return;
+  }
+  wsSend({ type: 'chat', text });
+  input.value = '';
 }
 
 function updatePresenceRings() {
