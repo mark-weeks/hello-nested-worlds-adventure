@@ -1,7 +1,9 @@
 import pytest
 import causality
-from causality import CausalEvent, EventKind, emit, propagate, get_log, clear_log
+import persistence
+from causality import CausalEvent, CausalityBus, EventKind, emit, propagate, get_log, clear_log
 from multiverse.node import SpatialNode
+from multiverse.utils import apply_ripple_scores
 
 
 def make_tree() -> SpatialNode:
@@ -194,6 +196,51 @@ class TestHandlers:
         root = make_tree()
         emit(root, EventKind.AGENT_VISIT)
         assert calls == []
+
+
+class TestRippleScorePersistence:
+    """End-to-end hydration loop: bus fires → recorder persists → fresh tree
+    rebuilt → apply_ripple_scores restores the score from disk."""
+
+    @staticmethod
+    def _ripple_recorder(seed: int):
+        def handler(node: SpatialNode, _ev: CausalEvent) -> None:
+            persistence.upsert_ripple_score(seed, node.name, node.ripple_score)
+        return handler
+
+    def test_recorder_persists_score_after_emit(self):
+        bus = CausalityBus()
+        bus.register_handler(self._ripple_recorder(seed=42))
+        root = make_tree()
+        bus.emit(root, EventKind.AGENT_VISIT)
+        assert persistence.get_ripple_score(42, "Root") == pytest.approx(root.ripple_score)
+        assert persistence.get_ripple_score(42, "Root") > 0.0
+
+    def test_score_survives_world_rebuild(self):
+        # Simulate: server fires events on tree A, then a later request
+        # builds tree B from scratch and hydrates from disk.
+        bus = CausalityBus()
+        bus.register_handler(self._ripple_recorder(seed=42))
+        tree_a = make_tree()
+        for _ in range(3):
+            bus.emit(tree_a, EventKind.AGENT_VISIT)
+        before = tree_a.ripple_score
+        assert before > 0.0
+
+        tree_b = make_tree()  # fresh objects → fresh ripple_score = 0.0
+        assert tree_b.ripple_score == 0.0
+        apply_ripple_scores(tree_b, persistence.load_ripple_scores(42))
+        assert tree_b.ripple_score == pytest.approx(before)
+
+    def test_propagate_records_each_visited_node(self):
+        bus = CausalityBus()
+        bus.register_handler(self._ripple_recorder(seed=99))
+        root = make_tree()
+        bus.propagate(root, EventKind.PUZZLE_SOLVED, dampening=0.5)
+        scores = persistence.load_ripple_scores(99)
+        # Origin + both children + grandchild all get a stored score.
+        assert {"Root", "Child1", "Child2", "Grandchild"}.issubset(scores)
+        assert all(v > 0.0 for v in scores.values())
 
 
 class TestDampen:

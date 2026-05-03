@@ -19,7 +19,7 @@ from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
-from multiverse.utils import build_depth_map, count_nodes, find_node
+from multiverse.utils import apply_ripple_scores, build_depth_map, count_nodes, find_node
 from puzzles.engine import PuzzleEngine
 from server import imageprompt
 from server.protocol import ws_recv
@@ -54,6 +54,9 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int, int,
     max_b = int(params.get("max_breadth",  3))
     root = generate_node_hierarchy(seed=seed, max_depth=depth,
                                    min_breadth=min_b, max_breadth=max_b)
+    # Hydrate persisted causal pressure so ripple_score isn't reset to 0
+    # every endpoint call (closes the residual ADR-002 §1 callout).
+    apply_ripple_scores(root, persistence.load_ripple_scores(seed))
     return root, seed, depth, min_b, max_b
 
 
@@ -78,6 +81,18 @@ def _record_mutation_handler(seed: int):
         persistence.record_mutation(
             seed, node.name, event.kind.name, None, dict(event.payload)
         )
+    return handler
+
+
+def _record_ripple_handler(seed: int):
+    """Bus handler that writes the post-fire ripple_score into node_runtime_state.
+
+    `CausalityBus._fire` updates `node.ripple_score` before invoking
+    handlers, so by the time we run the value is already the new
+    cumulative pressure for this node.
+    """
+    def handler(node: SpatialNode, _event: causality.CausalEvent) -> None:
+        persistence.upsert_ripple_score(seed, node.name, node.ripple_score)
     return handler
 
 
@@ -234,10 +249,12 @@ class Handler(BaseHTTPRequestHandler):
             persona_arg = param("persona", "")
             persona = persona_by_name(persona_arg) or persona_for_name(name)
             root  = generate_node_hierarchy(seed=seed)
+            apply_ripple_scores(root, persistence.load_ripple_scores(seed))
             # Per-request bus carrying a recorder so traversal events land in
             # world_mutations alongside puzzle solves.
             agent_bus = CausalityBus()
             agent_bus.register_handler(_record_mutation_handler(seed))
+            agent_bus.register_handler(_record_ripple_handler(seed))
             agent = Agent(name=name, danger_threshold=threshold, bus=agent_bus,
                           persona=persona)
             saved = persistence.load_agent_memory(name, seed)
@@ -437,16 +454,20 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             seed_int = 0
         history: list[dict] = []
+        ripple_score = 0.0
         if seed_int and node_name:
             history = persistence.get_node_history(seed_int, node_name, limit=1000)
+            ripple_score = persistence.get_ripple_score(seed_int, node_name)
 
         # Cache key folds in:
         #   - history bucket (every 5 interactions → fresh image even if
         #     style modifiers don't shift), and
-        #   - style signature (modifier flips → fresh image even if the
-        #     bucket hasn't advanced).
+        #   - style signature (modifier flips, including ripple_score crossing
+        #     its threshold → fresh image even if the bucket hasn't advanced).
         history_bucket = len(history) // 5
-        sig            = imageprompt.style_signature(node_level, node_props, history)
+        sig            = imageprompt.style_signature(
+            node_level, node_props, history, ripple_score=ripple_score,
+        )
         node_key       = f"{seed}:{node_id}:{history_bucket}:{sig}"
         cached         = persistence.get_cached_image(node_key)
         if cached:
@@ -458,6 +479,7 @@ class Handler(BaseHTTPRequestHandler):
 
         prompt = imageprompt.assemble_prompt(
             node_level, node_name, node_props, history,
+            ripple_score=ripple_score,
         )
 
         try:
@@ -576,6 +598,7 @@ class Handler(BaseHTTPRequestHandler):
         bus = CausalityBus()
         bus.register_handler(handler)
         bus.register_handler(_record_mutation_handler(seed))
+        bus.register_handler(_record_ripple_handler(seed))
         try:
             agent = Agent(name=agent_name, danger_threshold=7, bus=bus,
                           persona=persona)
@@ -703,6 +726,7 @@ class Handler(BaseHTTPRequestHandler):
 
             solve_bus.register_handler(_causal_handler)
             solve_bus.register_handler(_record_mutation_handler(seed))
+            solve_bus.register_handler(_record_ripple_handler(seed))
             solve_bus.propagate(target, EventKind.PUZZLE_SOLVED,
                                 {"puzzle": p.name, "contributors": contributors})
 
