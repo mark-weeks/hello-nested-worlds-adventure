@@ -61,6 +61,14 @@ _SCHEMA = """
         image_url  TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS node_runtime_state (
+        world_seed   INTEGER NOT NULL,
+        node_name    TEXT    NOT NULL,
+        ripple_score REAL    NOT NULL DEFAULT 0.0,
+        updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (world_seed, node_name)
+    );
 """
 
 _initialized: set[Path] = set()
@@ -231,6 +239,46 @@ def cache_image(node_key: str, image_url: str) -> None:
                VALUES (?, ?)""",
             (node_key, image_url),
         )
+
+
+@_with_db
+def upsert_ripple_score(world_seed: int, node_name: str, ripple_score: float) -> None:
+    """Write through the in-memory ripple_score for one node.
+
+    Called from the causality bus on every fired event so the cumulative
+    causal pressure survives the per-request world rebuild — without this,
+    `generate_node_hierarchy` returns fresh nodes each call and the score
+    resets to 0 between endpoint hits.
+    """
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, updated_at)
+               VALUES (?, ?, ?, datetime('now'))
+               ON CONFLICT(world_seed, node_name) DO UPDATE SET
+                 ripple_score = excluded.ripple_score,
+                 updated_at   = excluded.updated_at""",
+            (world_seed, node_name, float(ripple_score)),
+        )
+
+
+@_with_db
+def get_ripple_score(world_seed: int, node_name: str) -> float:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT ripple_score FROM node_runtime_state WHERE world_seed = ? AND node_name = ?",
+            (world_seed, node_name),
+        ).fetchone()
+        return float(row[0]) if row else 0.0
+
+
+@_with_db
+def load_ripple_scores(world_seed: int) -> dict[str, float]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT node_name, ripple_score FROM node_runtime_state WHERE world_seed = ?",
+            (world_seed,),
+        ).fetchall()
+        return {name: float(score) for name, score in rows}
 
 
 @_with_db

@@ -177,6 +177,36 @@ class TestAgentMemoryPersistence:
         assert entry["node_count"] == 4
 
 
+class TestNodeRuntimeState:
+    def test_unknown_node_returns_zero(self):
+        assert persistence.get_ripple_score(42, "Ghost") == 0.0
+
+    def test_upsert_then_get(self):
+        persistence.upsert_ripple_score(42, "Vault-3", 0.37)
+        assert persistence.get_ripple_score(42, "Vault-3") == pytest.approx(0.37)
+
+    def test_upsert_overwrites(self):
+        persistence.upsert_ripple_score(42, "Vault-3", 0.2)
+        persistence.upsert_ripple_score(42, "Vault-3", 0.8)
+        assert persistence.get_ripple_score(42, "Vault-3") == pytest.approx(0.8)
+
+    def test_seeds_isolated(self):
+        persistence.upsert_ripple_score(1, "Vault-3", 0.5)
+        persistence.upsert_ripple_score(2, "Vault-3", 0.9)
+        assert persistence.get_ripple_score(1, "Vault-3") == pytest.approx(0.5)
+        assert persistence.get_ripple_score(2, "Vault-3") == pytest.approx(0.9)
+
+    def test_load_ripple_scores_returns_dict(self):
+        persistence.upsert_ripple_score(7, "Aethon-1", 0.4)
+        persistence.upsert_ripple_score(7, "Vault-3",  0.7)
+        scores = persistence.load_ripple_scores(7)
+        assert scores == {"Aethon-1": pytest.approx(0.4),
+                          "Vault-3":  pytest.approx(0.7)}
+
+    def test_load_ripple_scores_unknown_seed_empty(self):
+        assert persistence.load_ripple_scores(9999) == {}
+
+
 class TestSavePuzzleResult:
     def test_save_puzzle_result(self):
         persistence.save_puzzle_result(world_seed=5, puzzle_name="The Lock", result="SOLVED", attempts=2)

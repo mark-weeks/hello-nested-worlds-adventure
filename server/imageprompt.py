@@ -44,16 +44,30 @@ def _count_kinds(history: Iterable[dict]) -> dict[str, int]:
     return counts
 
 
-def derive_modifiers(properties: dict, history: list[dict]) -> list[str]:
+# ripple_score sits on [0, 1] (clamped in CausalityBus._fire). 0.5 is reached
+# after roughly five full-strength events on the node; that's our threshold for
+# the "high ripple weight" register the design doc calls out.
+RIPPLE_UNSTABLE_THRESHOLD: float = 0.5
+
+
+def derive_modifiers(properties: dict, history: list[dict],
+                     ripple_score: float = 0.0) -> list[str]:
     """Return style modifier tags from the node's properties + mutation history.
 
     Mirrors the property→signal matrix in `docs/design/game-design.md`.
     Order is stable so callers can hash the result for cache keying.
+
+    `ripple_score` is the persisted cumulative causal pressure for this node
+    (loaded from `node_runtime_state`); when it crosses the unstable threshold
+    the visual register tips into psychedelic territory. This replaces the
+    earlier total-mutation-count proxy now that the real signal survives the
+    per-request world rebuild.
     """
     counts = _count_kinds(history)
 
-    # Pristine: no recorded interactions yet → ethereal, nothing else applies.
-    if not counts:
+    # Pristine: no recorded interactions and no accumulated ripple yet →
+    # ethereal, nothing else applies.
+    if not counts and ripple_score <= 0.0:
         return ["ethereal, minimal, untouched"]
 
     mods: list[str] = []
@@ -86,11 +100,8 @@ def derive_modifiers(properties: dict, history: list[dict]) -> list[str]:
     if properties.get("condition") == "corrupted":
         mods.append("glitch art, dark expressionist")
 
-    # High overall churn — what the design doc calls "high ripple weight."
-    # The persisted analogue of the in-memory `ripple_score` is the total
-    # number of recorded mutations on this node; once that's high enough the
-    # visual register goes unstable.
-    if sum(counts.values()) >= 15:
+    # High accumulated ripple — the design doc's "high ripple weight."
+    if ripple_score >= RIPPLE_UNSTABLE_THRESHOLD:
         mods.append("psychedelic, saturated, unstable")
 
     return mods
@@ -102,10 +113,10 @@ def _prop_pairs(properties: dict, limit: int = 6) -> list[tuple[str, object]]:
 
 
 def assemble_prompt(level: str, name: str, properties: dict,
-                    history: list[dict]) -> str:
+                    history: list[dict], ripple_score: float = 0.0) -> str:
     """Build the full text prompt sent to fal.ai for one scene image."""
     baseline  = HIERARCHY_STYLES.get(level, _DEFAULT_STYLE)
-    modifiers = derive_modifiers(properties, history)
+    modifiers = derive_modifiers(properties, history, ripple_score)
     pairs     = _prop_pairs(properties)
     prop_summary = ", ".join(f"{k}: {v}" for k, v in pairs) if pairs else ""
 
@@ -123,7 +134,7 @@ def assemble_prompt(level: str, name: str, properties: dict,
 
 
 def style_signature(level: str, properties: dict,
-                    history: list[dict]) -> str:
+                    history: list[dict], ripple_score: float = 0.0) -> str:
     """8-char hash of the style-determining inputs.
 
     Two inputs that produce the same prompt produce the same signature; two
@@ -133,7 +144,7 @@ def style_signature(level: str, properties: dict,
     fixed bucket boundary.
     """
     baseline  = HIERARCHY_STYLES.get(level, _DEFAULT_STYLE)
-    modifiers = derive_modifiers(properties, history)
+    modifiers = derive_modifiers(properties, history, ripple_score)
     pairs     = _prop_pairs(properties)
     seed_str  = f"{baseline}|{'|'.join(modifiers)}|{pairs}"
     return hashlib.sha1(seed_str.encode("utf-8")).hexdigest()[:8]

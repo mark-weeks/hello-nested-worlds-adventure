@@ -74,16 +74,24 @@ class TestDeriveModifiers:
         mods = derive_modifiers({"condition": "corrupted"}, history)
         assert any("glitch" in m for m in mods)
 
-    def test_high_overall_churn_triggers_psychedelic(self):
-        # 15 mixed events exceed the high-ripple threshold.
-        history = [{"type": "AGENT_VISIT"}] * 10 + [{"type": "PLAYER_CHAT"}] * 5
-        mods = derive_modifiers({}, history)
+    def test_high_ripple_score_triggers_psychedelic(self):
+        # ripple_score at/above the unstable threshold flips the register,
+        # regardless of how many discrete events are recorded.
+        history = [{"type": "AGENT_VISIT"}]
+        mods = derive_modifiers({}, history, ripple_score=0.5)
         assert any("psychedelic" in m for m in mods)
 
-    def test_below_high_churn_threshold_does_not_trigger_psychedelic(self):
-        history = [{"type": "AGENT_VISIT"}] * 14
-        mods = derive_modifiers({}, history)
+    def test_below_ripple_threshold_does_not_trigger_psychedelic(self):
+        history = [{"type": "AGENT_VISIT"}] * 20  # raw churn no longer matters
+        mods = derive_modifiers({}, history, ripple_score=0.4)
         assert not any("psychedelic" in m for m in mods)
+
+    def test_high_ripple_alone_breaks_pristine(self):
+        # Even with no recorded mutations, accumulated causal pressure should
+        # tip the node out of the ethereal/untouched register.
+        mods = derive_modifiers({}, [], ripple_score=0.6)
+        assert not any("untouched" in m for m in mods)
+        assert any("psychedelic" in m for m in mods)
 
     def test_modifiers_are_stable_across_calls(self):
         history = [{"type": "AGENT_VISIT"}] * 5 + [{"type": "DANGER_ALERT"}]
@@ -170,3 +178,11 @@ class TestStyleSignature:
         assert len(sig) == 8
         # hex chars only
         int(sig, 16)
+
+    def test_signature_changes_when_ripple_threshold_crosses(self):
+        # Crossing the ripple_score threshold should refresh the cache key
+        # without any change to history or properties.
+        history = [{"type": "AGENT_VISIT"}]
+        before = style_signature("Region", {}, history, ripple_score=0.4)
+        after  = style_signature("Region", {}, history, ripple_score=0.6)
+        assert before != after
