@@ -79,8 +79,3 @@ def speak(node: SpatialNode, message: str,
         if block.type == "text":
             return block.text
     raise ValueError(f"No text in response (stop_reason={response.stop_reason})")
-
-
-def describe(node: SpatialNode, history: list[dict] | None = None) -> str:
-    """Ask the node to introduce itself to a newly arrived traveller."""
-    return speak(node, "Describe yourself to a traveler who has just arrived here.", history=history)
