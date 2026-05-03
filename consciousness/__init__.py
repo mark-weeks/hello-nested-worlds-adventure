@@ -19,6 +19,12 @@ _SYSTEM_PREAMBLE = (
     "Respond in 1–3 sentences only."
 )
 
+_AGENT_PREAMBLE = (
+    "You are an autonomous agent traversing a nested multiverse. "
+    "You speak as yourself — a presence visiting nodes, not the node itself. "
+    "Stay in character, in-world, and brief. Respond in 1–2 sentences."
+)
+
 
 def _get_client() -> Any:
     global _client
@@ -71,6 +77,44 @@ def speak(node: SpatialNode, message: str,
             {
                 "type": "text",
                 "text": node_context,
+            },
+        ],
+        messages=[{"role": "user", "content": message}],
+    )
+    for block in response.content:
+        if block.type == "text":
+            return block.text
+    raise ValueError(f"No text in response (stop_reason={response.stop_reason})")
+
+
+def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
+                message: str) -> str:
+    """Speak AS an agent visiting `node`, in `persona`'s voice.
+
+    `persona` is duck-typed to expose `.name` and `.voice_preamble` (matching
+    `agents.personas.Persona`); kept loose here to avoid a hard import cycle
+    between consciousness and agents.
+
+    The shared agent preamble is marked for prompt caching so per-agent calls
+    only differ in the persona/agent block.
+    """
+    agent_context = (
+        f"You are {agent_name}, a {persona.name}. "
+        f"{persona.voice_preamble} "
+        f"You are presently at {node.name}, a {node.level}."
+    )
+    response = _get_client().messages.create(
+        model=_MODEL,
+        max_tokens=200,
+        system=[
+            {
+                "type": "text",
+                "text": _AGENT_PREAMBLE,
+                "cache_control": {"type": "ephemeral"},
+            },
+            {
+                "type": "text",
+                "text": agent_context,
             },
         ],
         messages=[{"role": "user", "content": message}],

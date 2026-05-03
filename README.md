@@ -83,7 +83,7 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 | System | Status |
 |--------|--------|
 | World model (`multiverse/`) | Functional — named locations, variable branching, rich per-level properties across 11 scales |
-| Agent traversal (`agents/`) | Functional — FSM traversal, self-preservation, interaction logging, causal event emission, persistent memory across runs, agent-to-agent encounters |
+| Agent traversal (`agents/`) | Functional — FSM traversal, self-preservation, interaction logging, causal event emission, persistent memory across runs, agent-to-agent encounters, four persona archetypes (*tender · destabilizer · scholar · wanderer*) auto-picked by name and surfaced in events / encounters / voicing |
 | Puzzle engine (`puzzles/`) | Functional — level-specific puzzle pools across all 11 levels; server-validated attempts (no client-side leak) |
 | Causality engine (`causality/`) | Functional — event propagation with configurable dampening; events broadcast to all WebSocket clients |
 | Persistence (`persistence/`) | Functional — SQLite store for world state, agent runs, puzzle results, agent memory, node interaction history, world mutations, and scene-image cache |

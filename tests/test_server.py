@@ -136,3 +136,32 @@ class TestMutationRecording:
         # reserved for humans).
         agent_muts = [m for m in muts if m["type"] == "AGENT_VISIT"]
         assert any(m["data"].get("agent") == "Recorder" for m in agent_muts)
+        # Persona is part of the same payload so consciousness prompts and
+        # the event feed can read it without a side lookup.
+        assert all("persona" in m["data"] for m in agent_muts)
+
+
+class TestAgentPersonas:
+    """The /agent endpoint should surface the chosen persona, and an
+    explicit persona param should override the auto-pick."""
+
+    def test_agent_endpoint_returns_default_persona(self, srv):
+        base, _ = srv
+        data, _, _ = _get(f"{base}/agent?seed=5&name=Argus&max_nodes=5")
+        assert data["persona"] in {"tender", "destabilizer", "scholar", "wanderer"}
+
+    def test_agent_endpoint_honours_explicit_persona(self, srv):
+        base, _ = srv
+        data, _, _ = _get(
+            f"{base}/agent?seed=5&name=Argus&max_nodes=5&persona=destabilizer"
+        )
+        assert data["persona"] == "destabilizer"
+
+    def test_unknown_persona_falls_back_to_default(self, srv):
+        base, _ = srv
+        data, _, _ = _get(
+            f"{base}/agent?seed=5&name=Argus&max_nodes=5&persona=warlord"
+        )
+        # Falls back to for_name("Argus"), whatever that resolves to.
+        assert data["persona"] in {"tender", "destabilizer", "scholar", "wanderer"}
+        assert data["persona"] != "warlord"

@@ -48,6 +48,7 @@ A shared persistent multiverse inhabited simultaneously by human players and AI 
 ### `consciousness/` — Node Voice Layer
 Claude-powered persona system. Each node's voice is seeded by its properties and accumulated interaction history. Nodes respond in character, reference past visitors, and hold perspective.
 - `speak(node, message, history)` — conversational handler; injects per-node history into the system prompt
+- `voice_agent(persona, agent_name, node, message)` — speaks AS an agent visiting a node, framed by the persona's voice preamble (distinct system prompt from `speak()`)
 - Thread-safe lazy `Anthropic` client init; sanitises inbound message text
 
 ### `causality/` — Causal Engine
@@ -60,6 +61,7 @@ Propagation system for cross-scale effects. Actions register as events; conseque
 ### `agents/` — AI Agent System
 - **`agent.py`** — `Agent` dataclass with FSM traversal, self-preservation logic, interaction logging, persistent memory across runs, and agent-to-agent encounter handling
 - **`behaviors.py`** — `State` enum, `transition()` function, behavioral predicates
+- **`personas.py`** — four archetypes (*tender, destabilizer, scholar, wanderer*) plus `for_name()` (deterministic sha1-keyed pick) and `by_name()` (explicit lookup). Each carries a voice preamble used by `consciousness.voice_agent`. Personas are surfaced in log entries, causal-event payloads, encounter broadcasts, and `world_mutations`
 
 ### `persistence/` — World State
 SQLite-backed store. Enables the world to exist between sessions and across multiple simultaneous participants.
@@ -73,7 +75,7 @@ SQLite-backed store. Enables the world to exist between sessions and across mult
 
 ### `server/` — API Layer
 Threaded `http.server` with REST + WebSocket support, security headers (CSP, X-Frame-Options, etc.), and POST/frame size caps.
-- **REST**: `/health`, `/worlds`, `/world`, `/players`, `/history`, `/agent`, `/observe`, `/puzzle`, `/image`, plus `POST /speak` and `POST /puzzle/attempt`
+- **REST**: `/health`, `/worlds`, `/world`, `/players`, `/history`, `/agent`, `/observe`, `/puzzle`, `/image`, plus `POST /speak`, `POST /puzzle/attempt`, and `POST /agent/voice`
 - **WebSocket** (`/ws`): presence, player-to-player chat, broadcast of causal events, ping/keepalive
 - **Static**: bundled D3 browser UI mounted at `/app`; easter-egg routes under `/easter-egg/`
 - Module split: `handlers.py` (HTTP/WebSocket dispatch), `protocol.py` (frame parsing), `rooms.py` (presence)
