@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import stat
 import tempfile
 from pathlib import Path
@@ -205,6 +206,112 @@ class TestNodeRuntimeState:
 
     def test_load_ripple_scores_unknown_seed_empty(self):
         assert persistence.load_ripple_scores(9999) == {}
+
+
+class TestMigrations:
+    def test_init_records_all_known_migrations(self):
+        persistence.init_db()
+        applied = persistence.schema_versions()
+        # At minimum, 0001_initial and 0002_indexes both present after init.
+        assert 1 in applied
+        assert 2 in applied
+        assert applied == sorted(applied)
+
+    def test_schema_version_table_exists(self):
+        persistence.init_db()
+        conn = sqlite3.connect(persistence._DB_PATH)
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
+        ).fetchall()
+        conn.close()
+        assert rows == [("schema_version",)]
+
+    def test_indexes_present_after_init(self):
+        persistence.init_db()
+        conn = sqlite3.connect(persistence._DB_PATH)
+        names = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        )}
+        conn.close()
+        # The three hot-path indexes from 0002_indexes.sql.
+        assert "idx_world_mutations_seed_node" in names
+        assert "idx_world_mutations_seed_time" in names
+        assert "idx_agent_runs_seed"           in names
+
+    def test_idempotent_on_existing_database(self):
+        # Running init twice must not duplicate version rows or fail.
+        persistence.init_db()
+        first = persistence.schema_versions()
+        persistence._initialized.discard(persistence._DB_PATH)
+        persistence.init_db()
+        second = persistence.schema_versions()
+        assert first == second
+
+    def test_runner_skips_unknown_filenames(self, tmp_path, monkeypatch):
+        # A stray file that doesn't match the NNNN_name.sql pattern must be
+        # ignored — otherwise the runner could try to executescript a README
+        # or notes file dropped into the migrations directory.
+        bogus_dir = tmp_path / "migrations"
+        bogus_dir.mkdir()
+        (bogus_dir / "README.md").write_text("# notes")
+        (bogus_dir / "0001_real.sql").write_text(
+            "CREATE TABLE IF NOT EXISTS m_test (id INTEGER PRIMARY KEY);"
+        )
+        monkeypatch.setattr(persistence, "_MIGRATIONS_DIR", bogus_dir)
+        # Re-initialize so the new migrations dir is consulted.
+        persistence._initialized.discard(persistence._DB_PATH)
+        persistence.init_db()
+        assert persistence.schema_versions() == [1]
+
+
+class TestPruneMutations:
+    def test_prune_zero_is_noop(self):
+        persistence.record_mutation(1, "N", "AGENT_VISIT", None, {})
+        assert persistence.prune_mutations(0) == 0
+        assert len(persistence.get_mutations(1)) == 1
+
+    def test_prune_negative_is_noop(self):
+        persistence.record_mutation(1, "N", "AGENT_VISIT", None, {})
+        assert persistence.prune_mutations(-5) == 0
+        assert len(persistence.get_mutations(1)) == 1
+
+    def test_prune_removes_old_rows_only(self):
+        # Insert one fresh + one ancient row by manually backdating it.
+        persistence.record_mutation(1, "Fresh", "AGENT_VISIT", None, {})
+        persistence.record_mutation(1, "Stale", "AGENT_VISIT", None, {})
+        conn = sqlite3.connect(persistence._DB_PATH)
+        conn.execute(
+            "UPDATE world_mutations SET recorded_at = datetime('now', '-90 days') "
+            "WHERE node_name = 'Stale'"
+        )
+        conn.commit()
+        conn.close()
+        removed = persistence.prune_mutations(30)
+        assert removed == 1
+        nodes = {m["node"] for m in persistence.get_mutations(1)}
+        assert nodes == {"Fresh"}
+
+    def test_env_flag_triggers_prune_on_init(self, monkeypatch):
+        # Seed an ancient mutation, then re-init with the TTL env var set.
+        persistence.record_mutation(1, "Stale", "AGENT_VISIT", None, {})
+        conn = sqlite3.connect(persistence._DB_PATH)
+        conn.execute(
+            "UPDATE world_mutations SET recorded_at = datetime('now', '-90 days')"
+        )
+        conn.commit()
+        conn.close()
+        monkeypatch.setenv("NESTED_WORLDS_MUTATION_TTL_DAYS", "30")
+        persistence._initialized.discard(persistence._DB_PATH)
+        persistence.init_db()
+        assert persistence.get_mutations(1) == []
+
+    def test_invalid_env_var_is_ignored(self, monkeypatch):
+        persistence.record_mutation(1, "Fresh", "AGENT_VISIT", None, {})
+        monkeypatch.setenv("NESTED_WORLDS_MUTATION_TTL_DAYS", "not-a-number")
+        persistence._initialized.discard(persistence._DB_PATH)
+        persistence.init_db()
+        # No prune attempted, fresh row still present.
+        assert len(persistence.get_mutations(1)) == 1
 
 
 class TestSavePuzzleResult:

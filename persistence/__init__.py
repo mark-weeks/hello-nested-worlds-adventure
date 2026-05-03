@@ -2,76 +2,26 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
+import os
 import sqlite3
 import stat
 from pathlib import Path
 from typing import Any, Callable
 
 _DB_PATH = Path.home() / ".nested-worlds" / "worlds.db"
+_MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+_TTL_ENV_VAR = "NESTED_WORLDS_MUTATION_TTL_DAYS"
 
-_SCHEMA = """
-    CREATE TABLE IF NOT EXISTS worlds (
-        seed        INTEGER PRIMARY KEY,
-        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-        node_count  INTEGER,
-        max_depth   INTEGER,
-        min_breadth INTEGER,
-        max_breadth INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS agent_runs (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        agent_name    TEXT NOT NULL,
-        world_seed    INTEGER NOT NULL,
-        started_at    TEXT NOT NULL DEFAULT (datetime('now')),
-        nodes_visited INTEGER,
-        events        TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS puzzle_results (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        world_seed  INTEGER NOT NULL,
-        puzzle_name TEXT NOT NULL,
-        result      TEXT NOT NULL,
-        attempts    INTEGER NOT NULL,
-        recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS world_mutations (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        world_seed    INTEGER NOT NULL,
-        node_name     TEXT NOT NULL,
-        mutation_type TEXT NOT NULL,
-        player_name   TEXT,
-        data          TEXT,
-        recorded_at   TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS agent_memory (
-        agent_name  TEXT    NOT NULL,
-        world_seed  INTEGER NOT NULL,
-        visited_ids TEXT    NOT NULL DEFAULT '[]',
-        log_entries TEXT    NOT NULL DEFAULT '[]',
-        updated_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-        PRIMARY KEY (agent_name, world_seed)
-    );
-
-    CREATE TABLE IF NOT EXISTS node_images (
-        node_key   TEXT PRIMARY KEY,
-        image_url  TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS node_runtime_state (
-        world_seed   INTEGER NOT NULL,
-        node_name    TEXT    NOT NULL,
-        ripple_score REAL    NOT NULL DEFAULT 0.0,
-        updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-        PRIMARY KEY (world_seed, node_name)
+_SCHEMA_VERSION_DDL = """
+    CREATE TABLE IF NOT EXISTS schema_version (
+        version    INTEGER PRIMARY KEY,
+        applied_at TEXT    NOT NULL DEFAULT (datetime('now'))
     );
 """
 
 _initialized: set[Path] = set()
+_log = logging.getLogger("nested_worlds.persistence")
 
 
 def _connect() -> sqlite3.Connection:
@@ -80,13 +30,81 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _list_migrations() -> list[tuple[int, Path]]:
+    """Return [(version, path)] for every well-named migration, sorted.
+
+    Filenames must start with a zero-padded integer followed by an
+    underscore (e.g. `0001_initial.sql`); anything else is skipped so a
+    stray README in the directory doesn't get executed.
+    """
+    out: list[tuple[int, Path]] = []
+    for path in sorted(_MIGRATIONS_DIR.glob("*.sql")):
+        head, _, _ = path.name.partition("_")
+        try:
+            version = int(head)
+        except ValueError:
+            continue
+        out.append((version, path))
+    return out
+
+
+def _run_migrations(conn: sqlite3.Connection) -> list[int]:
+    """Apply any migrations not yet recorded in `schema_version`.
+
+    Returns the versions applied in this call (empty if up-to-date).
+    Each migration runs in its own transaction so a failure leaves the
+    DB at the last successfully-applied version.
+    """
+    conn.executescript(_SCHEMA_VERSION_DDL)
+    applied = {r[0] for r in conn.execute("SELECT version FROM schema_version")}
+    just_applied: list[int] = []
+    for version, path in _list_migrations():
+        if version in applied:
+            continue
+        sql = path.read_text()
+        try:
+            conn.executescript(sql)
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (version,)
+            )
+            conn.commit()
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        just_applied.append(version)
+    return just_applied
+
+
 def init_db() -> None:
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _connect() as conn:
-        conn.executescript(_SCHEMA)
+        _run_migrations(conn)
     # 0o600 — owner read/write only.  Set once on init, not per-connect.
     _DB_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
     _initialized.add(_DB_PATH)
+    _maybe_prune_from_env()
+
+
+def _maybe_prune_from_env() -> None:
+    """Honor the NESTED_WORLDS_MUTATION_TTL_DAYS env var on init.
+
+    Default is unset → no pruning. Operators set a positive integer to
+    cap mutation-log retention at that many days. Invalid values are
+    silently ignored so a typo doesn't break startup.
+    """
+    raw = os.environ.get(_TTL_ENV_VAR, "").strip()
+    if not raw:
+        return
+    try:
+        days = int(raw)
+    except ValueError:
+        _log.warning("ignoring invalid %s=%r", _TTL_ENV_VAR, raw)
+        return
+    if days <= 0:
+        return
+    removed = prune_mutations(days)
+    if removed:
+        _log.info("pruned %d mutations older than %d days", removed, days)
 
 
 def _with_db(fn: Callable) -> Callable:
@@ -293,3 +311,31 @@ def list_agent_memories() -> list[dict[str, Any]]:
             {"agent_name": r[0], "world_seed": r[1], "updated_at": r[2], "node_count": r[3]}
             for r in rows
         ]
+
+
+@_with_db
+def prune_mutations(days: int) -> int:
+    """Delete `world_mutations` rows older than *days*. Returns rows removed.
+
+    Off by default — `init_db` only invokes this when
+    `NESTED_WORLDS_MUTATION_TTL_DAYS` is set to a positive integer. Operators
+    can also call directly from a maintenance script. `days <= 0` is a no-op
+    so callers don't need to guard the threshold themselves.
+    """
+    if days <= 0:
+        return 0
+    with _connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM world_mutations WHERE recorded_at < datetime('now', ?)",
+            (f"-{int(days)} days",),
+        )
+        return cur.rowcount
+
+
+@_with_db
+def schema_versions() -> list[int]:
+    """Return all migration versions recorded as applied, sorted ascending."""
+    with _connect() as conn:
+        return [r[0] for r in conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        )]
