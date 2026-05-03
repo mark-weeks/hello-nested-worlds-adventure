@@ -158,7 +158,7 @@
 
 <header>
   <h1>Nested Worlds</h1>
-  <div class="controls">
+  <div class="controls" style="flex:1">
     <div class="ctrl-group"><label>Seed</label><input type="number" id="seed" value="42" min="0"></div>
     <div class="ctrl-group"><label>Depth</label><input type="number" id="depth" value="6" min="2" max="11"></div>
     <div class="ctrl-group">
@@ -169,6 +169,7 @@
     </div>
     <button class="primary" id="gen-btn" onclick="loadWorld()">Generate</button>
   </div>
+  <a href="/app" style="font-size:10px;color:#2a4060;text-decoration:none;letter-spacing:1px;white-space:nowrap" title="Open the PixiJS immersive view">Visual ↗</a>
 </header>
 
 <div class="body">
@@ -392,7 +393,8 @@ async function speak() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ node_name: selected.name, node_level: selected.level,
-                             node_properties: selected.properties || {}, message }),
+                             node_properties: selected.properties || {}, message,
+                             seed: worldParams.seed }),
     });
     const data = await res.json();
     box.textContent = data.error || data.response;

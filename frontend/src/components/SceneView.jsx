@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Application, Graphics, Text, TextStyle } from "pixi.js";
 
-export default function SceneView({ node, players, onNavigate }) {
+export default function SceneView({ node, players, onNavigate, onNavigateUp, canGoUp }) {
   const containerRef = useRef(null);
   const appRef = useRef(null);
 
@@ -27,7 +27,6 @@ export default function SceneView({ node, players, onNavigate }) {
     };
   }, []);
 
-  // Re-render scene when node or players change
   useEffect(() => {
     const app = appRef.current;
     if (!app || !app.stage) return;
@@ -35,7 +34,15 @@ export default function SceneView({ node, players, onNavigate }) {
     renderScene(app, node, players, onNavigate);
   }, [node, players, onNavigate]);
 
-  return <div ref={containerRef} style={styles.container} />;
+  return (
+    <div style={styles.wrapper}>
+      <div ref={containerRef} style={styles.canvas} />
+      {canGoUp && (
+        <button style={styles.upBtn} onClick={onNavigateUp}>← back</button>
+      )}
+      <a href="/" style={styles.switchLink} title="Switch to D3 explorer">D3 ↗</a>
+    </div>
+  );
 }
 
 function renderScene(app, node, players, onNavigate) {
@@ -105,5 +112,8 @@ function levelColor(level) {
 }
 
 const styles = {
-  container: { flex: "0 0 65%", position: "relative", overflow: "hidden" },
+  wrapper:    { flex: "0 0 65%", position: "relative", overflow: "hidden" },
+  canvas:     { width: "100%", height: "100%" },
+  upBtn:      { position: "absolute", top: 16, left: 16, background: "rgba(10,14,28,0.85)", border: "1px solid #2a4060", color: "#3a8eff", padding: "6px 14px", cursor: "pointer", fontFamily: "Courier New, monospace", fontSize: "12px", zIndex: 10, letterSpacing: "0.05em" },
+  switchLink: { position: "absolute", bottom: 12, left: 16, fontSize: "10px", color: "#2a3555", textDecoration: "none", letterSpacing: "0.08em" },
 };
