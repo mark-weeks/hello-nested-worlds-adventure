@@ -21,7 +21,7 @@ export default function App() {
     setLoading(true);
     setPlayers([]);
     setEvents([]);
-    fetch(`/api/world?seed=${s}&depth=6`)
+    fetch(`/world?seed=${s}&depth=6`)
       .then(r => r.json())
       .then(data => { setNodeStack([data.world]); setLoading(false); })
       .catch(() => setLoading(false));
