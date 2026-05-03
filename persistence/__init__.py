@@ -55,6 +55,12 @@ _SCHEMA = """
         updated_at  TEXT    NOT NULL DEFAULT (datetime('now')),
         PRIMARY KEY (agent_name, world_seed)
     );
+
+    CREATE TABLE IF NOT EXISTS node_images (
+        node_key   TEXT PRIMARY KEY,
+        image_url  TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
 """
 
 _initialized: set[Path] = set()
@@ -206,6 +212,25 @@ def load_agent_memory(agent_name: str, world_seed: int) -> dict[str, Any] | None
             "log_entries": json.loads(row[1]),
             "updated_at":  row[2],
         }
+
+
+@_with_db
+def get_cached_image(node_key: str) -> str | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT image_url FROM node_images WHERE node_key = ?", (node_key,)
+        ).fetchone()
+        return row[0] if row else None
+
+
+@_with_db
+def cache_image(node_key: str, image_url: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO node_images (node_key, image_url)
+               VALUES (?, ?)""",
+            (node_key, image_url),
+        )
 
 
 @_with_db

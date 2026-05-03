@@ -33,6 +33,7 @@ class Player:
 @dataclass
 class Room:
     players: dict = field(default_factory=dict)   # session_id → Player
+    active_agents: dict = field(default_factory=dict)  # agent_name → current_node
     lock: threading.Lock = field(default_factory=threading.Lock, compare=False, repr=False)
 
 
@@ -60,6 +61,23 @@ def broadcast(room: Room, msg: dict, exclude: str | None = None) -> None:
         with room.lock:
             for sid in failed:
                 room.players.pop(sid, None)
+
+
+def agent_enter(room: Room, name: str) -> None:
+    with room.lock:
+        room.active_agents[name] = ""
+
+
+def agent_move(room: Room, name: str, node: str) -> list[str]:
+    """Update agent position; return names of agents already at the same node."""
+    with room.lock:
+        room.active_agents[name] = node
+        return [n for n, pos in room.active_agents.items() if pos == node and n != name]
+
+
+def agent_leave(room: Room, name: str) -> None:
+    with room.lock:
+        room.active_agents.pop(name, None)
 
 
 def snapshot(room: Room) -> list[dict]:
