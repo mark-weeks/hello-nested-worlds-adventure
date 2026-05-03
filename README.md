@@ -91,7 +91,7 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 | CLI (`main.py`) | Functional — `world`, `agent`, `puzzles`, `play`, `serve`, `speak`, `history` |
 | Node consciousness (`consciousness/`) | Functional — Claude-powered node voices, per-scale character registers (`LEVEL_VOICES`) for all 11 levels, fed by per-node interaction history; agent voicing via `voice_agent()` (requires `ANTHROPIC_API_KEY`) |
 | Interface (`interface/`) | Functional — interactive terminal session (spatial, conversational, ambient) |
-| Frontend (`frontend/`) | Functional — React + PixiJS + Vite client wired to the WebSocket server; fal.ai-generated scene backgrounds |
+| Frontend (`frontend/`) | Functional — React + PixiJS + Vite client wired to the WebSocket server; fal.ai-generated scene backgrounds; named player markers (color hashed by name); animated causal ripples / encounter glyphs / puzzle-solve sparkles overlaid on the current scene |
 | Tests | 116 tests across generator, agents, puzzles, persistence, causality, interface, consciousness, and HTTP/WebSocket server |
 
 ---

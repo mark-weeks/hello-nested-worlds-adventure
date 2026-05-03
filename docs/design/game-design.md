@@ -61,7 +61,7 @@ Node visual style is programmatically determined by a property matrix. Style dri
 
 The original Myst suffered from unclear navigation and opaque objectives. Four design responses:
 
-1. **Presence trails** — recent player and agent paths are subtly visible in scenes
-2. **Agent visibility** — AI agents appear as visible presences in scenes, signaling activity worth investigating
-3. **Node memory** — fragments of prior player interactions surface in the text panel and create narrative pull
-4. **Hotspot affordance** — interactive elements have a consistent subtle visual treatment (parallax depth, material quality) that players learn to read over time
+1. **Presence trails** — recent player and agent paths are subtly visible in scenes. *Implemented (in-scene v1)*: each player at the current node renders as a colored marker with a name tag (palette is hashed from the name so the same person looks the same across sessions). Agent activity surfaces as causal ripples in the scene the moment an event fires there.
+2. **Agent visibility** — AI agents appear as visible presences in scenes, signaling activity worth investigating. *Implemented (in-scene v1)*: when two agents meet at the current node, the scene briefly shows a converging-glyph encounter mark. Persistent in-scene agent figures (between events) remain Phase 2.
+3. **Node memory** — fragments of prior player interactions surface in the text panel and create narrative pull. *Implemented* — the broader `record_mutation` coverage feeds `consciousness.speak()` via `get_node_history`.
+4. **Hotspot affordance** — interactive elements have a consistent subtle visual treatment (parallax depth, material quality) that players learn to read over time. *Phase 2.*

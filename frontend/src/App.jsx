@@ -3,20 +3,38 @@ import SceneView from "./components/SceneView.jsx";
 import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
 
-const DEFAULT_SEED = 42;
-const MAX_EVENTS   = 40;
-const NAME_KEY     = "nw_player_name";
+const DEFAULT_SEED  = 42;
+const MAX_EVENTS    = 40;
+const MAX_TRANSIENTS = 12;
+const NAME_KEY      = "nw_player_name";
 
 export default function App() {
   const [seed, setSeed]           = useState(DEFAULT_SEED);
   const [nodeStack, setNodeStack] = useState([]);
   const [players, setPlayers]     = useState([]);
   const [events, setEvents]       = useState([]);
+  const [transients, setTransients] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || "");
 
   const pushEvent = useCallback((evt) => {
     setEvents(ev => [evt, ...ev].slice(0, MAX_EVENTS));
+  }, []);
+
+  // Transients are short-lived visual overlays in SceneView (ripples,
+  // encounter glyphs, solve sparkles). Only the ones whose node matches
+  // the currently-rendered scene are pushed; when the player navigates,
+  // a separate effect drops them all so a stray ripple from the previous
+  // node never bleeds into the new one.
+  const pushTransient = useCallback((t) => {
+    const id = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random()}`;
+    const entry = { ...t, id, startedAt: performance.now() };
+    setTransients(prev => [...prev, entry].slice(-MAX_TRANSIENTS));
+    setTimeout(() => {
+      setTransients(prev => prev.filter(x => x.id !== id));
+    }, t.duration ?? 1500);
   }, []);
 
   const loadWorld = useCallback((s) => {
@@ -28,6 +46,8 @@ export default function App() {
       .then(data => { setNodeStack([data.world]); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
+
+  const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
 
   const { connected, sendMessage } = useWorldSocket(seed, playerName, {
     onPlayerJoin: (msg) => {
@@ -43,19 +63,39 @@ export default function App() {
     },
     onPlayerMove:   (msg) => setPlayers(p => p.map(x => x.session_id === msg.session_id ? { ...x, node: msg.node } : x)),
     onChat:         (msg) => pushEvent({ type: "chat",   name: msg.name, text: msg.text }),
-    onCausalEvent:  (msg) => pushEvent({ type: "causal", kind: msg.kind, node: msg.node, strength: msg.strength }),
+    onCausalEvent:  (msg) => {
+      pushEvent({ type: "causal", kind: msg.kind, node: msg.node, strength: msg.strength });
+      if (msg.node === currentNodeName) {
+        pushTransient({ kind: "ripple", strength: msg.strength ?? 1.0,
+                        eventKind: msg.kind, duration: 1500 });
+      }
+    },
     onPuzzleSolved: (msg) => {
       const credit = msg.contributors?.length > 1
         ? ` (with ${msg.contributors.filter(c => c !== msg.solver).join(", ")})`
         : "";
       const by = msg.solver ? ` by ${msg.solver}${credit}` : "";
       pushEvent({ type: "puzzle", text: `Puzzle solved: ${msg.puzzle} @ ${msg.node}${by}` });
+      if (msg.node === currentNodeName) {
+        pushTransient({ kind: "solve", duration: 2000 });
+      }
     },
     onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${msg.node}` }),
-    onAgentEncounter: (msg) => pushEvent({ type: "system", text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${msg.node}` }),
+    onAgentEncounter: (msg) => {
+      pushEvent({ type: "system", text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${msg.node}` });
+      if (msg.node === currentNodeName) {
+        pushTransient({ kind: "encounter",
+                        agent1: msg.agent1, agent2: msg.agent2,
+                        duration: 1800 });
+      }
+    },
   });
 
   useEffect(() => { loadWorld(DEFAULT_SEED); }, [loadWorld]);
+
+  // Drop all transients when the player navigates — a leftover ripple from
+  // the previous node is meaningless in the new scene.
+  useEffect(() => { setTransients([]); }, [currentNodeName]);
 
   const handleLoadWorld = useCallback((s) => {
     setSeed(s);
@@ -95,6 +135,7 @@ export default function App() {
       <SceneView
         node={currentNode}
         players={players}
+        transients={transients}
         onNavigate={navigateTo}
         onNavigateUp={navigateUp}
         canGoUp={nodeStack.length > 1}
