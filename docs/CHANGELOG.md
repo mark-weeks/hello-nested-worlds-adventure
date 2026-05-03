@@ -7,6 +7,8 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Broader mutation recording** (`server/`, `interface/`): every interaction surface now lands in `world_mutations`, not just puzzle solves. Agent traversals (`AGENT_VISIT`, `DANGER_ALERT`) record via a per-request causality bus handler in `/agent` and `/observe`; failed puzzles record `PUZZLE_FAILED`; player chat records `PLAYER_CHAT` against the speaker's current node; `/speak` and the CLI `_speak_to` record `PLAYER_SPEAK`. Closes Phase 1 carry-over §1 — consciousness prompts and image-cache invalidation now see a richer history signal.
+- **Test isolation** (`tests/conftest.py`): autouse fixture redirects `persistence._DB_PATH` per test, so server tests no longer touch `~/.nested-worlds/worlds.db`.
 - **Browser frontend** (`frontend/`): React + PixiJS + Vite client wired to the WebSocket server. AI-generated scene backgrounds via fal.ai (Flux Schnell), cached in persistence
 - **WebSocket multiplayer** (`server/`): `/ws` endpoint with presence, player-to-player chat, ping/keepalive, and broadcast of causal events to all connected clients
 - **Persistent agent memory** (`agents/`, `persistence/`): agents remember visited nodes across runs; `save_agent_memory` / `load_agent_memory` / `list_agent_memories`

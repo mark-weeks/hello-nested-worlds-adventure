@@ -148,7 +148,7 @@ async function speak() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ node_name: selected.name, node_level: selected.level,
                              node_properties: selected.properties || {}, message,
-                             seed: worldParams.seed }),
+                             seed: worldParams.seed, player_name: playerName }),
     });
     const data = await res.json();
     box.textContent = data.error || data.response;

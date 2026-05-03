@@ -122,7 +122,13 @@ def _speak_to(node: SpatialNode, message: str, seed: int = 0) -> None:
         if seed:
             import persistence
             history = persistence.get_node_history(seed, node.name)
-        print(f"  {consciousness.speak(node, message, history=history)}\n")
+        response = consciousness.speak(node, message, history=history)
+        print(f"  {response}\n")
+        if seed:
+            import persistence
+            persistence.record_mutation(
+                seed, node.name, "PLAYER_SPEAK", None, {"message": message[:128]},
+            )
     except Exception as exc:
         print(f"  Error: {exc}\n  Ensure ANTHROPIC_API_KEY is set.\n")
 

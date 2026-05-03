@@ -18,7 +18,7 @@ Status reflects what shipped to `main`. See the [CHANGELOG](../CHANGELOG.md) for
 
 ## Not yet shipped (carry-over to Phase 1 close-out)
 
-- **Cache invalidation by interaction richness.** Currently the cache key buckets `len(get_node_history) // 5`, which only changes for nodes that get `record_mutation`-recorded events. Today only `PUZZLE_SOLVED` calls that. Wiring `AGENT_VISIT`, `PLAYER_SPEAK`, etc. into `record_mutation` would make the visual evolution premise actually function across the world.
+- ~~**Cache invalidation by interaction richness.**~~ Shipped. `AGENT_VISIT`, `DANGER_ALERT`, `PUZZLE_FAILED`, `PLAYER_SPEAK`, and `PLAYER_CHAT` now route through `persistence.record_mutation`, so the `len(get_node_history) // 5` bucket actually advances across the world rather than only on puzzle solves.
 - **Structured prompt assembly per level** — current prompt is a flat property dump (see ADR-002 "Unmet Phase 1 commitments §2"). Per-level `HIERARCHY_STYLES` baselines would make the eleven scales visually distinct.
 - **React client name prompt** — the React app at `/app/` currently hardcodes the player name `"Traveller"`; the D3 explorer at `/` prompts via a join modal. They should match.
 
