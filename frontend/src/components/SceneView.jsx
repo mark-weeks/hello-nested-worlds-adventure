@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Application, Assets, Graphics, Sprite, Text, TextStyle } from "pixi.js";
+import { Application, Assets, Container, Graphics, Sprite, Text, TextStyle } from "pixi.js";
 
-export default function SceneView({ node, players, onNavigate, onNavigateUp, canGoUp, seed }) {
+export default function SceneView({
+  node, players, transients = [],
+  onNavigate, onNavigateUp, canGoUp, seed,
+}) {
   const containerRef = useRef(null);
   const appRef = useRef(null);
+  // The transient layer survives node changes; we only clear its children
+  // when the prop list changes, not on every other re-render.
+  const transientLayerRef = useRef(null);
+  const transientsRef = useRef(transients);
   const [bgUrl, setBgUrl] = useState(null);
 
   // Fetch fal.ai background image URL whenever the node changes
@@ -25,6 +32,9 @@ export default function SceneView({ node, players, onNavigate, onNavigateUp, can
       .catch(() => {});
   }, [node.id ?? node.name]);
 
+  // Keep the ref in sync so the ticker callback always sees the latest list.
+  useEffect(() => { transientsRef.current = transients; }, [transients]);
+
   useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
@@ -32,26 +42,53 @@ export default function SceneView({ node, players, onNavigate, onNavigateUp, can
     const app = new Application();
     appRef.current = app;
 
+    let tickCallback = null;
+
     app.init({
       resizeTo: container,
       background: 0x07080f,
       antialias: true,
     }).then(() => {
       container.appendChild(app.canvas);
+
+      // Static layer (rebuilds when node/players change) + transient overlay
+      // that the ticker draws into every frame from the latest prop list.
+      const transientLayer = new Container();
+      transientLayer.eventMode = "none";
+      transientLayerRef.current = transientLayer;
+
       renderScene(app, node, players, onNavigate, bgUrl);
+      app.stage.addChild(transientLayer);
+
+      tickCallback = () => paintTransients(
+        transientLayer, transientsRef.current, app.screen,
+      );
+      app.ticker.add(tickCallback);
     });
 
     return () => {
+      if (tickCallback && app.ticker) app.ticker.remove(tickCallback);
       app.destroy(true, { children: true });
       appRef.current = null;
+      transientLayerRef.current = null;
     };
   }, []);
 
   useEffect(() => {
     const app = appRef.current;
+    const transientLayer = transientLayerRef.current;
     if (!app || !app.stage) return;
+    // Rebuild static content; preserve the transient layer by detaching and
+    // re-attaching it on top of the rebuilt scene.
+    if (transientLayer && transientLayer.parent === app.stage) {
+      app.stage.removeChild(transientLayer);
+    }
     app.stage.removeChildren();
     renderScene(app, node, players, onNavigate, bgUrl);
+    if (transientLayer) {
+      transientLayer.removeChildren();  // clear stale transient graphics
+      app.stage.addChild(transientLayer);
+    }
   }, [node, players, onNavigate, bgUrl]);
 
   return (
@@ -64,6 +101,8 @@ export default function SceneView({ node, players, onNavigate, onNavigateUp, can
     </div>
   );
 }
+
+// ── Static scene rendering ────────────────────────────────────────────────
 
 function renderScene(app, node, players, onNavigate, bgUrl) {
   const { width, height } = app.screen;
@@ -88,13 +127,26 @@ function renderScene(app, node, players, onNavigate, bgUrl) {
     app.stage.addChild(hotspot);
   });
 
-  // Player presence markers
+  // Player presence markers — each carries a name label so co-presence is
+  // legible at a glance, not just "a green dot is there."
   players.filter((p) => p.node === node.name).forEach((p, i) => {
+    const group = new Container();
+    group.x = 28 + i * 70;
+    group.y = height - 36;
+
     const marker = new Graphics();
-    marker.circle(0, 0, 8).fill(0x4af0c8);
-    marker.x = 24 + i * 22;
-    marker.y = height - 32;
-    app.stage.addChild(marker);
+    marker.circle(0, 0, 6).fill(playerColor(p.name)).stroke({ width: 1, color: 0x07080f });
+    group.addChild(marker);
+
+    const tag = new Text({
+      text: p.name,
+      style: new TextStyle({ fill: 0xa0c0e0, fontSize: 11, fontFamily: "Courier New" }),
+    });
+    tag.x = 12;
+    tag.y = -6;
+    group.addChild(tag);
+
+    app.stage.addChild(group);
   });
 
   // Async: swap out the color bg with the fal.ai generated image
@@ -109,6 +161,69 @@ function renderScene(app, node, players, onNavigate, bgUrl) {
     }).catch(() => {});
   }
 }
+
+// ── Transient overlay: ripples, encounters, solve sparkles ────────────────
+
+function paintTransients(layer, list, screen) {
+  if (!layer || layer.destroyed) return;
+  layer.removeChildren();
+  if (!list.length) return;
+
+  const cx  = screen.width  / 2;
+  const cy  = screen.height / 2;
+  const now = performance.now();
+
+  for (const t of list) {
+    const age      = (now - t.startedAt) / 1000;
+    const duration = (t.duration ?? 1500) / 1000;
+    if (age < 0 || age > duration) continue;
+    const progress = age / duration;
+
+    if (t.kind === "ripple") {
+      // Expanding concentric circle, color keyed off the EventKind so
+      // PUZZLE_SOLVED ripples read different from DANGER_ALERT etc.
+      const r = 30 + 220 * progress;
+      const alpha = (1 - progress) * (0.25 + 0.55 * (t.strength ?? 1));
+      const color = rippleColor(t.eventKind);
+      const g = new Graphics();
+      g.circle(0, 0, r).stroke({ width: 2, color, alpha });
+      g.x = cx;
+      g.y = cy;
+      layer.addChild(g);
+
+    } else if (t.kind === "encounter") {
+      // Two crossed glyphs converging at center, then fading. Reads as
+      // "two presences just met here."
+      const g = new Graphics();
+      const offset = 60 * (1 - progress);
+      const alpha  = 1 - progress;
+      g.circle(-offset, 0, 9).fill({ color: 0xff8a4a, alpha });
+      g.circle( offset, 0, 9).fill({ color: 0x4af0c8, alpha });
+      g.moveTo(-offset, 0).lineTo(offset, 0).stroke({ width: 1, color: 0xffffff, alpha: alpha * 0.5 });
+      g.x = cx;
+      g.y = cy - 40;
+      layer.addChild(g);
+
+    } else if (t.kind === "solve") {
+      // Four-pointed sparkle expanding outward in gold.
+      const r = 24 + 100 * progress;
+      const alpha = (1 - progress) ** 2;
+      const g = new Graphics();
+      for (let i = 0; i < 4; i++) {
+        const angle = (i * Math.PI) / 2 + Math.PI / 4;
+        const x = Math.cos(angle) * r;
+        const y = Math.sin(angle) * r;
+        g.moveTo(0, 0).lineTo(x, y).stroke({ width: 2, color: 0xf0c878, alpha });
+      }
+      g.circle(0, 0, 6).fill({ color: 0xf0c878, alpha });
+      g.x = cx;
+      g.y = cy;
+      layer.addChild(g);
+    }
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
 
 function _addColorBg(app, node, width, height) {
   const bg = new Graphics();
@@ -145,6 +260,29 @@ function levelColor(level) {
     Room: 0x141010, Object: 0x1a1008,
   };
   return palette[level] ?? 0x07080f;
+}
+
+const _PLAYER_PALETTE = [
+  0x4af0c8, 0xff8a4a, 0xa078ff, 0xf0c878, 0x4a8eff, 0xf04a8e, 0x88f04a, 0xc04ff0,
+];
+
+function playerColor(name) {
+  // Cheap deterministic hash → palette index, so the same name always gets
+  // the same color across sessions.
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return _PLAYER_PALETTE[Math.abs(h) % _PLAYER_PALETTE.length];
+}
+
+function rippleColor(kind) {
+  switch (kind) {
+    case "PUZZLE_SOLVED":     return 0xf0c878;
+    case "PUZZLE_FAILED":     return 0xff5050;
+    case "DANGER_ALERT":      return 0xff8a4a;
+    case "STRUCTURAL_CHANGE": return 0xa078ff;
+    case "AGENT_VISIT":
+    default:                  return 0x4af0c8;
+  }
 }
 
 const styles = {
