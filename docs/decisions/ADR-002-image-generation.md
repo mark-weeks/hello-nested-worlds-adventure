@@ -48,10 +48,14 @@ The model swap to `fast-sdxl` is incidental — comparable cost and quality; rev
 
 | Step | As built | Original prescription | Status |
 |------|----------|-----------------------|--------|
-| Generate | Once per `(seed, node_id)` | Once on node discovery | ✓ matches intent |
-| Cache | SQLite (`persistence.cache_image`), keyed to `f"{seed}:{node_id}"` | Redis hash, keyed to `node_id` | Backend swap — see "Why" |
-| Invalidate | Never | When `ripple_score` shift > 0.3 | **Not implemented — see "Unmet Phase 1 commitments"** |
+| Generate | Once per `(seed, node_id, history_bucket)` | Once on node discovery | ✓ matches intent |
+| Cache | SQLite (`persistence.cache_image`), keyed to `f"{seed}:{node_id}:{history_bucket}"` | Redis hash, keyed to `node_id` | Backend swap — see "Why" |
+| Invalidate | Cache key includes `len(get_node_history(seed, node_name)) // 5`; image regenerates after every 5 recorded interactions | When `ripple_score` shift > 0.3 | ✓ same intent, different signal — see "Invalidation signal" |
 | Store | fal.ai-hosted URL (string in SQLite) | Cloudflare R2 as `.webp` | Backend swap — see "Why" |
+
+### Invalidation signal
+
+The original ADR keyed invalidation off `ripple_score`, a field on `SpatialNode`. That field exists but nothing in the causality engine currently mutates it, so keying on it would never invalidate. Until causality→ripple_score is wired, the cache key includes a coarse bucket of accumulated interaction history (`world_mutations` rows for the node, divided by 5). This delivers the user-visible behaviour the ADR promised — visuals refresh as a node accumulates state — using infrastructure that already exists, and the cache contract stays stable when a richer signal swaps in later.
 
 ---
 
@@ -69,14 +73,9 @@ Net effect: simpler stack, same observable behavior for Phase 1 — *with one co
 
 These are not deferrals — they are gaps that should be closed before Phase 1 beta is considered complete, because they tie directly to the world-evolution premise.
 
-### 1. Ripple-score-based cache invalidation
+### 1. ~~Ripple-score-based cache invalidation~~ — closed via interaction-history signal
 
-**Why it matters:** the design premise is a causally evolving multiverse where node visuals reflect accumulated state. With static `(seed, node_id)` cache keys, a node's image is fixed at first discovery and never reflects subsequent causal pressure or interaction history. The `ripple_score` and `interaction_summary` fields already exist on `SpatialNode` but are not consumed by image generation.
-
-**Smallest viable implementation:**
-- Include a coarse bucket of `ripple_score` (e.g., rounded to 0.3) and an `interaction_summary` token in the cache key
-- Or: keep the simple key, but check `ripple_score` delta against the cached row's stored score and regenerate when delta > 0.3
-- Either approach is single-digit lines of change
+**Resolved.** Cached images now refresh as a node accumulates interactions; see the "Invalidation signal" subsection above. The original `ripple_score` field remains unused — when causality→ripple_score is wired up, the signal can swap in without changing the cache contract.
 
 ### 2. Structured prompt assembly
 

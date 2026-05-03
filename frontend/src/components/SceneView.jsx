@@ -14,6 +14,7 @@ export default function SceneView({ node, players, onNavigate, onNavigateUp, can
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         node_id: node.id ?? node.name,
+        node_name: node.name,
         node_level: node.level,
         node_properties: node.properties ?? {},
         seed: seed ?? 0,
