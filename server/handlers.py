@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import logging
+import mimetypes
 import uuid
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -23,7 +24,8 @@ from server.protocol import ws_recv
 from server.rooms import Player, broadcast, get_room, snapshot
 
 
-_STATIC_DIR = Path(__file__).parent.parent / "static"
+_STATIC_DIR   = Path(__file__).parent.parent / "static"
+_FRONTEND_DIR = _STATIC_DIR / "app"
 _log = logging.getLogger("nested_worlds")
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 _MAX_BODY = 64 * 1024  # 64 KB
@@ -109,6 +111,43 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _serve_frontend(self, path: str) -> None:
+        """Serve the built React+PixiJS app from static/app/."""
+        rel = path[len("/app"):].lstrip("/")
+        file_path = _FRONTEND_DIR / rel if rel else _FRONTEND_DIR / "index.html"
+        try:
+            file_path.resolve().relative_to(_FRONTEND_DIR.resolve())
+        except ValueError:
+            return self._send_error("forbidden", 403)
+        # SPA fallback: unknown paths get index.html so client-side routing works
+        if not file_path.exists() or file_path.is_dir():
+            file_path = _FRONTEND_DIR / "index.html"
+        if not file_path.exists():
+            return self._send_error("not built — run: cd frontend && npm install && npm run build", 404)
+        body = file_path.read_bytes()
+        mime, _ = mimetypes.guess_type(str(file_path))
+        # mimetypes may miss .js on some systems
+        if file_path.suffix == ".js":
+            mime = "application/javascript"
+        elif file_path.suffix == ".css":
+            mime = "text/css"
+        content_type = mime or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self._send_security_headers()
+        if "text/html" in content_type:
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; "
+                "script-src 'self'; "
+                "connect-src 'self' ws: wss:; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' blob: data:;",
+            )
+        self.end_headers()
+        self.wfile.write(body)
+
     def _sse_event(self, data: dict) -> None:
         payload = f"data: {json.dumps(data)}\n\n".encode()
         self.wfile.write(payload)
@@ -127,6 +166,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("", "/"):
             self._send_file(_STATIC_DIR / "index.html")
+
+        elif path == "/app" or path.startswith("/app/"):
+            self._serve_frontend(path)
 
         elif path == "/health":
             self._send_json({"status": "ok"})
