@@ -85,7 +85,7 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 | World model (`multiverse/`) | Functional — named locations, variable branching, rich per-level properties across 11 scales |
 | Agent traversal (`agents/`) | Functional — FSM traversal, self-preservation, interaction logging, causal event emission, persistent memory across runs, agent-to-agent encounters, four persona archetypes (*tender · destabilizer · scholar · wanderer*) auto-picked by name and surfaced in events / encounters / voicing |
 | Puzzle engine (`puzzles/`) | Functional — level-specific puzzle pools across all 11 levels; server-validated attempts (no client-side leak) |
-| Causality engine (`causality/`) | Functional — event propagation with configurable dampening; events broadcast to all WebSocket clients |
+| Causality engine (`causality/`) | Functional — bidirectional event propagation (up + down) from any origin with configurable per-hop dampening; events broadcast to all WebSocket clients; in-memory `ripple_score` accumulates as nodes fire |
 | Persistence (`persistence/`) | Functional — SQLite store for world state, agent runs, puzzle results, agent memory, node interaction history, world mutations, and scene-image cache |
 | Server (`server/`) | Functional — REST (`/health` `/worlds` `/world` `/agent` `/observe` `/puzzle` `/players` `/history` `/image` `/speak` `/puzzle/attempt`), WebSocket multiplayer at `/ws` (chat + presence + causal events), bundled browser UI at `/app`, security headers + CSP, body/frame size caps |
 | CLI (`main.py`) | Functional — `world`, `agent`, `puzzles`, `play`, `serve`, `speak`, `history` |

@@ -47,9 +47,9 @@ The model swap to `fast-sdxl` is incidental — comparable cost and quality; rev
 
 ### Invalidation signal
 
-The original ADR keyed invalidation off `ripple_score`, a field on `SpatialNode`. That field exists but nothing in the causality engine currently mutates it, so keying on it would never invalidate. Until causality→ripple_score is wired, the cache key includes a coarse bucket of accumulated interaction history (`world_mutations` rows for the node, divided by 5). This delivers the user-visible behaviour the ADR promised — visuals refresh as a node accumulates state — using infrastructure that already exists, and the cache contract stays stable when a richer signal swaps in later.
+The original ADR keyed invalidation off `ripple_score`, a field on `SpatialNode`. That field is now mutated on every causality-bus fire (`causality/__init__.py::CausalityBus._fire`), but it lives in memory on the in-process tree — not in persistence — so the server cache layer still doesn't have a cross-request handle on it. The cache key instead folds in (a) a coarse bucket of accumulated interaction history (`world_mutations` rows for the node, divided by 5) and (b) a style-modifier signature (`server.imageprompt.style_signature`). Together these deliver the user-visible behaviour the ADR promised — visuals refresh as a node accumulates state, *and* refresh whenever the modifier mix would change.
 
-As of the latest change, every interaction surface (agent traversals, failed puzzles, player speak, player chat) routes through `persistence.record_mutation`, so the bucket actually advances across the world rather than only on `PUZZLE_SOLVED`. The signal is still coarse — and still independent of `ripple_score` — but it now reflects the breadth of activity the ADR assumed.
+Persisted `ripple_score` (so the cache layer can read it across requests) remains a future enhancement; until then the high-ripple matrix row uses total mutation count as a serviceable proxy.
 
 ---
 

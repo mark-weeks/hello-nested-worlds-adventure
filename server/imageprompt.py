@@ -86,6 +86,13 @@ def derive_modifiers(properties: dict, history: list[dict]) -> list[str]:
     if properties.get("condition") == "corrupted":
         mods.append("glitch art, dark expressionist")
 
+    # High overall churn — what the design doc calls "high ripple weight."
+    # The persisted analogue of the in-memory `ripple_score` is the total
+    # number of recorded mutations on this node; once that's high enough the
+    # visual register goes unstable.
+    if sum(counts.values()) >= 15:
+        mods.append("psychedelic, saturated, unstable")
+
     return mods
 
 

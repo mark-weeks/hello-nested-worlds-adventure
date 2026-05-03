@@ -14,14 +14,25 @@ class SpatialNode:
         self.id: str = str(uuid.uuid4())
         self.name = name
         self.level = level
-        self.children: list[SpatialNode] = children or []
+        self.children: list[SpatialNode] = []
         self.properties: dict[str, Any] = properties or {}
+        # Upward link, set by `add_child` on the parent. None at the root.
+        # Held as a weak-ish reference (plain attribute) — we never recurse
+        # into it from `__repr__` or `_node_to_dict`, so no cycles in
+        # serialization paths.
+        self.parent: SpatialNode | None = None
         # Runtime state — mutated as the world evolves; not included in repr
         # so that deterministic generation tests are unaffected.
         self.ripple_score: float = 0.0        # 0.0–1.0 cumulative causal pressure
         self.interaction_summary: str = ""    # "conflict", "cooperation", etc.
 
+        # Children passed at construction need their parent set; do this via
+        # `add_child` so the linkage is consistent with later additions.
+        for child in (children or []):
+            self.add_child(child)
+
     def add_child(self, node: SpatialNode) -> None:
+        node.parent = self
         self.children.append(node)
 
     def __repr__(self, depth: int = 0) -> str:
