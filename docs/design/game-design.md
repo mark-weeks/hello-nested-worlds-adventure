@@ -41,7 +41,7 @@ Node visual style is programmatically determined by a property matrix. Style dri
 ## Multiplayer Model
 
 - Players explore independently — the experience does not depend on other players being online
-- Optional cooperation when players share goals (puzzle solving, node exploration)
+- **Cooperative puzzle solving** is wired in via shared puzzle sessions (`server/rooms.py::PuzzleSession`): every `/puzzle/attempt` against the same `(seed, node)` pools attempts and contributors across all players in the room. The attempt counter advances for the room (not per-player); once any one player guesses correctly, the puzzle is marked solved for everyone present and the broadcast carries the solver plus the full contributor list. Visual presence trails and goal-sharing UI remain Phase 2.
 - All four interaction patterns are supported: human:human, human:AI, AI:human, AI:AI
 - Player and agent presence is visually represented in scenes (markers, figures, trails)
 - Actions by any player or agent ripple through the multiverse with a dampening effect stored in node history

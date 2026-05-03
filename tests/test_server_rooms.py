@@ -4,9 +4,10 @@ import json
 import pytest
 
 from server.rooms import (
-    Player, Room, _rooms, _rooms_lock,
+    Player, PuzzleSession, Room, _rooms, _rooms_lock,
     agent_enter, agent_leave, agent_move,
-    broadcast, get_room, snapshot,
+    broadcast, get_puzzle_session, get_room,
+    record_attempt, reset_puzzle_session, snapshot,
 )
 
 
@@ -154,3 +155,75 @@ class TestPlayerSend:
         sock = FakeSock(fail=True)
         p = Player(name="X", seed=1, current_node="root", session_id="x", sock=sock)
         assert p.send({"type": "ping"}) is False
+
+
+class TestPuzzleSession:
+    """Shared puzzle state for co-op solving inside one room."""
+
+    def test_get_creates_session_on_first_access(self):
+        room = get_room(1)
+        session = get_puzzle_session(room, "Vault-3", "The Lock")
+        assert isinstance(session, PuzzleSession)
+        assert session.attempts == 0
+        assert session.solver is None
+
+    def test_get_returns_same_instance_for_same_node(self):
+        room = get_room(1)
+        a = get_puzzle_session(room, "Vault-3", "The Lock")
+        b = get_puzzle_session(room, "Vault-3", "The Lock")
+        assert a is b
+
+    def test_get_replaces_session_when_puzzle_name_changes(self):
+        # World regenerated → different puzzle on the same node name.
+        # The cached session must not leak its solver/attempts.
+        room = get_room(1)
+        a = get_puzzle_session(room, "Vault-3", "Old Puzzle")
+        a.attempts = 2
+        b = get_puzzle_session(room, "Vault-3", "New Puzzle")
+        assert b is not a
+        assert b.attempts == 0
+
+    def test_record_attempt_increments_shared_counter(self):
+        room = get_room(1)
+        record_attempt(room, "Vault-3", "The Lock", "Alice", correct=False)
+        record_attempt(room, "Vault-3", "The Lock", "Bob",   correct=False)
+        session = get_puzzle_session(room, "Vault-3", "The Lock")
+        assert session.attempts == 2
+        assert session.contributors == {"Alice", "Bob"}
+
+    def test_record_attempt_marks_solver_on_first_correct(self):
+        room = get_room(1)
+        _, just_solved_a = record_attempt(room, "V", "P", "Alice", correct=False)
+        assert just_solved_a is False
+        sess_b, just_solved_b = record_attempt(room, "V", "P", "Bob", correct=True)
+        assert just_solved_b is True
+        assert sess_b.solver == "Bob"
+        assert sess_b.contributors == {"Alice", "Bob"}
+
+    def test_record_attempt_no_op_after_solved(self):
+        # A second correct attempt by a third player must not flip solver
+        # or increment attempts — the puzzle is already won.
+        room = get_room(1)
+        record_attempt(room, "V", "P", "Alice", correct=True)
+        sess, just_solved = record_attempt(room, "V", "P", "Bob", correct=True)
+        assert just_solved is False
+        assert sess.solver == "Alice"
+        # Bob's name is still credited as a contributor.
+        assert sess.contributors == {"Alice", "Bob"}
+        assert sess.attempts == 1  # Bob's call did not bump the counter
+
+    def test_record_attempt_handles_anonymous_solver(self):
+        # When player_name is None, the solver string is "anonymous" so the
+        # /puzzle/attempt response always has a stable, non-null solver.
+        room = get_room(1)
+        sess, _ = record_attempt(room, "V", "P", None, correct=True)
+        assert sess.solver == "anonymous"
+
+    def test_reset_drops_the_session(self):
+        room = get_room(1)
+        record_attempt(room, "V", "P", "Alice", correct=False)
+        reset_puzzle_session(room, "V")
+        # The next get_ creates a fresh one.
+        sess = get_puzzle_session(room, "V", "P")
+        assert sess.attempts == 0
+        assert sess.contributors == set()

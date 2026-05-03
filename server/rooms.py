@@ -31,10 +31,27 @@ class Player:
 
 
 @dataclass
+class PuzzleSession:
+    """Shared per-(seed, node) puzzle state across all players in a room.
+
+    Attempts pool — every player guessing at the same puzzle increments the
+    same counter, every contributor's name is recorded, and once any one
+    player guesses correctly the puzzle is marked solved for everyone in
+    the room. This is the in-product mechanism behind the game-design.md
+    "Optional cooperation when players share goals" line.
+    """
+    puzzle_name: str
+    attempts: int = 0
+    contributors: set = field(default_factory=set)  # player names who attempted
+    solver: str | None = None  # first correct attempter; None until solved
+
+
+@dataclass
 class Room:
     players: dict = field(default_factory=dict)   # session_id → Player
     active_agents: dict = field(default_factory=dict)  # agent_name → current_node
     agent_personas: dict = field(default_factory=dict)  # agent_name → persona name
+    puzzle_sessions: dict = field(default_factory=dict)  # node_name → PuzzleSession
     lock: threading.Lock = field(default_factory=threading.Lock, compare=False, repr=False)
 
 
@@ -94,3 +111,68 @@ def snapshot(room: Room) -> list[dict]:
     with room.lock:
         return [{"name": p.name, "node": p.current_node, "session_id": p.session_id}
                 for p in room.players.values()]
+
+
+# ── Puzzle sessions (co-op state) ───────────────────────────────────────────
+
+
+def get_puzzle_session(room: Room, node_name: str, puzzle_name: str) -> PuzzleSession:
+    """Fetch (or create) the shared puzzle session for `node_name` in `room`.
+
+    The session carries across attempts by different players; all callers
+    must hold `room.lock` themselves while mutating session fields, since
+    the room lock is the single guard for room state.
+    """
+    with room.lock:
+        existing = room.puzzle_sessions.get(node_name)
+        if existing is not None and existing.puzzle_name == puzzle_name:
+            return existing
+        # New node, or the puzzle name changed (e.g. world regenerated with
+        # a different seed and the cached session no longer applies).
+        session = PuzzleSession(puzzle_name=puzzle_name)
+        room.puzzle_sessions[node_name] = session
+        return session
+
+
+def record_attempt(room: Room, node_name: str, puzzle_name: str,
+                    player_name: str | None, correct: bool,
+                    ) -> tuple[PuzzleSession, bool]:
+    """Atomically increment the attempt counter and (if correct) claim solver.
+
+    Returns (session, just_solved) — `just_solved` is True only on the call
+    that flipped solver from None, so the caller can broadcast exactly once.
+    No-ops once the puzzle is already solved.
+    """
+    with room.lock:
+        session = room.puzzle_sessions.get(node_name)
+        if session is None or session.puzzle_name != puzzle_name:
+            session = PuzzleSession(puzzle_name=puzzle_name)
+            room.puzzle_sessions[node_name] = session
+
+        if session.solver is not None:
+            # Already solved by someone — record the contributor anyway, but
+            # don't increment attempts or re-claim solver.
+            if player_name:
+                session.contributors.add(player_name)
+            return session, False
+
+        session.attempts += 1
+        if player_name:
+            session.contributors.add(player_name)
+        just_solved = False
+        if correct:
+            session.solver = player_name or "anonymous"
+            just_solved = True
+        return session, just_solved
+
+
+def reset_puzzle_session(room: Room, node_name: str) -> None:
+    """Drop the cached session for `node_name`, if any."""
+    with room.lock:
+        room.puzzle_sessions.pop(node_name, None)
+
+
+def clear_rooms() -> None:
+    """Clear the global room registry. Test-only helper."""
+    with _rooms_lock:
+        _rooms.clear()
