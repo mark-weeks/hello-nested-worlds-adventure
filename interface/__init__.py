@@ -110,7 +110,7 @@ def _play_puzzle(node: SpatialNode, seed: int) -> None:
     engine.run_puzzle(puzzles[0])
 
 
-def _speak_to(node: SpatialNode, message: str) -> None:
+def _speak_to(node: SpatialNode, message: str, seed: int = 0) -> None:
     try:
         import consciousness
     except ImportError:
@@ -118,7 +118,11 @@ def _speak_to(node: SpatialNode, message: str) -> None:
         return
     print(f"\n{_fmt(node)} responds…\n")
     try:
-        print(f"  {consciousness.speak(node, message)}\n")
+        history = []
+        if seed:
+            import persistence
+            history = persistence.get_node_history(seed, node.name)
+        print(f"  {consciousness.speak(node, message, history=history)}\n")
     except Exception as exc:
         print(f"  Error: {exc}\n  Ensure ANTHROPIC_API_KEY is set.\n")
 
@@ -194,7 +198,7 @@ def run_session(seed: int = 42, depth: int = 6,
 
         elif cmd in ("speak", "s"):
             msg = rest or "Describe yourself to a traveler who has just arrived."
-            _speak_to(stack[-1], msg)
+            _speak_to(stack[-1], msg, seed=seed)
 
         elif cmd in ("observe", "o"):
             _ambient_mode(stack[-1])
@@ -212,7 +216,7 @@ def run_session(seed: int = 42, depth: int = 6,
             _descend(stack, int(cmd))
 
         else:
-            _speak_to(stack[-1], raw)
+            _speak_to(stack[-1], raw, seed=seed)
 
 
 def _descend(stack: list[SpatialNode], n: int) -> None:

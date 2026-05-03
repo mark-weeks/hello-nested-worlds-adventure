@@ -96,7 +96,8 @@ def cmd_speak(args):
 
     print(f"\n[{target.level}: {target.name}]")
     try:
-        print(consciousness.speak(target, args.message))
+        history = persistence.get_node_history(args.seed, target.name)
+        print(consciousness.speak(target, args.message, history=history))
     except Exception as e:
         print(f"Error: {e}")
         print("Ensure ANTHROPIC_API_KEY is set in your environment.")

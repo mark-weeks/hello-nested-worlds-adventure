@@ -213,6 +213,10 @@ class Handler(BaseHTTPRequestHandler):
                 "message",
                 "Describe yourself to a traveler who has just arrived.",
             ))[:1024]
+            try:
+                seed = int(body.get("seed", 0))
+            except (ValueError, TypeError):
+                seed = 0
             node = SpatialNode(
                 name=node_name,
                 level=node_level,
@@ -220,7 +224,8 @@ class Handler(BaseHTTPRequestHandler):
             )
             try:
                 import consciousness
-                self._send_json({"response": consciousness.speak(node, message)})
+                history = persistence.get_node_history(seed, node_name) if seed else []
+                self._send_json({"response": consciousness.speak(node, message, history=history)})
             except ImportError:
                 self._send_error("consciousness module requires: pip install anthropic")
             except Exception as exc:
