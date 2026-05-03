@@ -43,7 +43,8 @@ export default function App() {
     onChat:         (msg) => pushEvent({ type: "chat",   name: msg.name, text: msg.text }),
     onCausalEvent:  (msg) => pushEvent({ type: "causal", kind: msg.kind, node: msg.node, strength: msg.strength }),
     onPuzzleSolved: (msg) => pushEvent({ type: "puzzle", text: `Puzzle solved: ${msg.puzzle} @ ${msg.node}` }),
-    onAgentDone:    (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${msg.node}` }),
+    onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${msg.node}` }),
+    onAgentEncounter: (msg) => pushEvent({ type: "system", text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${msg.node}` }),
   });
 
   useEffect(() => { loadWorld(DEFAULT_SEED); }, [loadWorld]);
@@ -85,6 +86,7 @@ export default function App() {
         onNavigate={navigateTo}
         onNavigateUp={navigateUp}
         canGoUp={nodeStack.length > 1}
+        seed={seed}
       />
       <TextPanel
         node={currentNode}

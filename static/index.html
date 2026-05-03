@@ -142,9 +142,33 @@
     .modal-box input[type=text] { background: #10131f; border: 1px solid #222840; color: #b0bcd0; padding: 8px 10px; font-family: inherit; font-size: 13px; outline: none; }
     .modal-box input[type=text]:focus { border-color: #3a8eff; }
     .modal-box button { align-self: flex-start; }
+
+    /* ── Easter egg overlay ── */
+    #egg { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(7,8,15,0.94); align-items: center; justify-content: center; }
+    .egg-card { background: #0d1020; border: 1px solid #3a8eff; padding: 36px 44px; max-width: 460px; text-align: center; position: relative; }
+    .egg-title { font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: #3a8eff; margin-bottom: 14px; }
+    .egg-body  { font-size: 13px; color: #b0bcd0; line-height: 1.75; }
+    .egg-code  { display: inline-block; margin-top: 10px; color: #3a8eff; letter-spacing: 2px; font-size: 11px; }
+    .egg-link  { display: block; margin-top: 18px; color: #4a8eff; font-size: 11px; text-decoration: none; letter-spacing: 1px; }
+    .egg-link:hover { text-decoration: underline; }
+    #close { position: absolute; top: 10px; right: 14px; background: none; border: none; color: #3a8eff; font-size: 20px; cursor: pointer; line-height: 1; }
   </style>
 </head>
 <body>
+
+<!-- Easter egg overlay -->
+<div id="egg">
+  <div class="egg-card">
+    <button id="close">×</button>
+    <div class="egg-title">Secret Unlocked</div>
+    <div class="egg-body">
+      You found the Konami portal.<br>
+      The multiverse bends to those who remember the sequence.
+      <span class="egg-code">↑↑↓↓←→←→BA</span>
+    </div>
+    <a class="egg-link" href="/easter-egg/illusion" target="_blank" rel="noopener">Open the Portal →</a>
+  </div>
+</div>
 
 <!-- Join modal -->
 <div id="join-modal" class="modal-overlay">
@@ -647,6 +671,10 @@ function handleWsMsg(msg) {
       flashNode(msg.node, msg.strength);
       break;
     }
+    case 'agent_encounter':
+      pushFeed(`⚡ ${escHtml(msg.agent1)} meets ${escHtml(msg.agent2)} @ ${escHtml(msg.node)}`);
+      flashNode(msg.node, 0.9);
+      break;
   }
 }
 
@@ -746,6 +774,23 @@ if (playerName) {
 } else {
   showJoinModal();
 }
+
+// ── Konami code easter egg ─────────────────────────────────────────────────
+(() => {
+  const seq = [38,38,40,40,37,39,37,39,66,65];
+  const buf = [];
+  const egg   = document.getElementById('egg');
+  const close = document.getElementById('close');
+  const open  = () => { if (egg) egg.style.display = 'flex'; };
+  const hide  = () => { if (egg) egg.style.display = 'none'; };
+  window.addEventListener('keydown', e => {
+    buf.push(e.keyCode);
+    if (buf.length > seq.length) buf.shift();
+    if (seq.every((v,i) => buf[i] === v)) open();
+  });
+  if (egg)   egg.addEventListener('click',   e => { if (e.target === egg) hide(); });
+  if (close) close.addEventListener('click', hide);
+})();
 </script>
 </body>
 </html>

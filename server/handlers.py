@@ -21,7 +21,7 @@ from multiverse.node import SpatialNode
 from multiverse.utils import build_depth_map, count_nodes, find_node
 from puzzles.engine import PuzzleEngine
 from server.protocol import ws_recv
-from server.rooms import Player, broadcast, get_room, snapshot
+from server.rooms import Player, agent_enter, agent_leave, agent_move, broadcast, get_room, snapshot
 
 
 _STATIC_DIR   = Path(__file__).parent.parent / "static"
@@ -233,6 +233,13 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/ws":
             self._do_ws(qs)
 
+        elif path == "/easter-egg/illusion":
+            self._send_file(_STATIC_DIR / "easter-egg" / "illusion.html")
+
+        elif path == "/easter-egg/konami.js":
+            self._send_file(_STATIC_DIR / "easter-egg" / "konami.js",
+                            content_type="application/javascript")
+
         else:
             self._send_error("not found", 404)
 
@@ -282,6 +289,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/puzzle/attempt":
             self._do_puzzle_attempt(body)
+
+        elif path == "/image":
+            self._do_image(body)
 
         else:
             self._send_error("not found", 404)
@@ -359,14 +369,73 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── Observe (SSE) ──
 
+    def _do_image(self, body: dict) -> None:
+        import os
+        import urllib.request as _urlreq
+
+        node_id    = str(body.get("node_id",    "unknown"))[:128]
+        node_level = str(body.get("node_level", "Room"))[:64]
+        node_props = body.get("node_properties", {})
+        if not isinstance(node_props, dict):
+            node_props = {}
+        seed       = str(body.get("seed", "0"))[:16]
+
+        node_key = f"{seed}:{node_id}"
+        cached = persistence.get_cached_image(node_key)
+        if cached:
+            return self._send_json({"url": cached})
+
+        fal_key = os.environ.get("FAL_KEY", "")
+        if not fal_key:
+            return self._send_json({"url": None, "error": "FAL_KEY not set"})
+
+        prop_summary = ", ".join(
+            f"{k}: {v}" for k, v in list(node_props.items())[:6]
+        )
+        prompt = (
+            f"A {node_level.lower()} in a nested multiverse sci-fi world. "
+            f"{prop_summary}. "
+            "Cinematic lighting, intricate detail, deep space aesthetic, "
+            "dark palette with bioluminescent accents."
+        )
+
+        try:
+            req_body = json.dumps({
+                "prompt": prompt,
+                "image_size": "landscape_4_3",
+                "num_inference_steps": 4,
+                "num_images": 1,
+            }).encode()
+            req = _urlreq.Request(
+                "https://fal.run/fal-ai/fast-sdxl",
+                data=req_body,
+                headers={
+                    "Authorization": f"Key {fal_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with _urlreq.urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read())
+            images = result.get("images", [])
+            url = images[0]["url"] if images else None
+        except Exception as exc:
+            _log.warning("fal.ai image error: %s", exc)
+            return self._send_json({"url": None, "error": str(exc)})
+
+        if url:
+            persistence.cache_image(node_key, url)
+        self._send_json({"url": url})
+
     def _do_observe(self, qs: dict) -> None:
         try:
             root, seed, *_ = _build_world(_flatten_qs(qs))
         except (ValueError, KeyError) as exc:
             return self._send_error(str(exc))
 
-        node_name = qs.get("node_name", [""])[0]
-        target    = (find_node(root, node_name) if node_name else None) or root
+        node_name  = qs.get("node_name", [""])[0]
+        agent_name = (qs.get("name", ["Observer"])[0] or "Observer")[:32]
+        target     = (find_node(root, node_name) if node_name else None) or root
 
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -376,8 +445,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
         depth_map = build_depth_map(target)
+        room      = get_room(seed)
 
-        room = get_room(seed)
+        agent_enter(room, agent_name)
 
         def handler(node: SpatialNode, event: causality.CausalEvent) -> None:
             d        = depth_map.get(node.id, 0)
@@ -396,12 +466,24 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             broadcast(room, {"type": "causal_event", **payload})
 
+            # Check for agent-to-agent encounters at this node
+            others = agent_move(room, agent_name, node.name)
+            for other_name in others:
+                encounter = {
+                    "type":   "agent_encounter",
+                    "agent1": agent_name,
+                    "agent2": other_name,
+                    "node":   node.name,
+                    "level":  node.level,
+                }
+                broadcast(room, encounter)
+
         # Per-request bus keeps observation isolated from the global event
         # stream — concurrent /observe calls no longer need to serialise.
         bus = CausalityBus()
         bus.register_handler(handler)
         try:
-            agent = Agent(name="Observer", danger_threshold=7, bus=bus)
+            agent = Agent(name=agent_name, danger_threshold=7, bus=bus)
             agent.traverse(target, max_nodes=40)
             nodes_visited = len(agent.visited)
             self._sse_event({"done": True, "nodes_visited": nodes_visited})
@@ -409,6 +491,8 @@ class Handler(BaseHTTPRequestHandler):
                                        "nodes_visited": nodes_visited})
         except (BrokenPipeError, ConnectionResetError):
             pass
+        finally:
+            agent_leave(room, agent_name)
 
     # ── Puzzle ──
 

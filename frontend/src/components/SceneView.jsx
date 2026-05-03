@@ -1,9 +1,28 @@
-import { useEffect, useRef } from "react";
-import { Application, Graphics, Text, TextStyle } from "pixi.js";
+import { useEffect, useRef, useState } from "react";
+import { Application, Assets, Graphics, Sprite, Text, TextStyle } from "pixi.js";
 
-export default function SceneView({ node, players, onNavigate, onNavigateUp, canGoUp }) {
+export default function SceneView({ node, players, onNavigate, onNavigateUp, canGoUp, seed }) {
   const containerRef = useRef(null);
   const appRef = useRef(null);
+  const [bgUrl, setBgUrl] = useState(null);
+
+  // Fetch fal.ai background image URL whenever the node changes
+  useEffect(() => {
+    setBgUrl(null);
+    fetch("/image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        node_id: node.id ?? node.name,
+        node_level: node.level,
+        node_properties: node.properties ?? {},
+        seed: seed ?? 0,
+      }),
+    })
+      .then((r) => r.json())
+      .then((d) => { if (d.url) setBgUrl(d.url); })
+      .catch(() => {});
+  }, [node.id ?? node.name]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -18,7 +37,7 @@ export default function SceneView({ node, players, onNavigate, onNavigateUp, can
       antialias: true,
     }).then(() => {
       container.appendChild(app.canvas);
-      renderScene(app, node, players, onNavigate);
+      renderScene(app, node, players, onNavigate, bgUrl);
     });
 
     return () => {
@@ -31,8 +50,8 @@ export default function SceneView({ node, players, onNavigate, onNavigateUp, can
     const app = appRef.current;
     if (!app || !app.stage) return;
     app.stage.removeChildren();
-    renderScene(app, node, players, onNavigate);
-  }, [node, players, onNavigate]);
+    renderScene(app, node, players, onNavigate, bgUrl);
+  }, [node, players, onNavigate, bgUrl]);
 
   return (
     <div style={styles.wrapper}>
@@ -45,13 +64,11 @@ export default function SceneView({ node, players, onNavigate, onNavigateUp, can
   );
 }
 
-function renderScene(app, node, players, onNavigate) {
+function renderScene(app, node, players, onNavigate, bgUrl) {
   const { width, height } = app.screen;
 
-  // Scene background placeholder (replaced by fal.ai image in Phase 1)
-  const bg = new Graphics();
-  bg.rect(0, 0, width, height).fill(levelColor(node.level));
-  app.stage.addChild(bg);
+  // Placeholder color background (index 0 — replaced by Sprite once loaded)
+  _addColorBg(app, node, width, height);
 
   // Node name
   const label = new Text({
@@ -78,6 +95,24 @@ function renderScene(app, node, players, onNavigate) {
     marker.y = height - 32;
     app.stage.addChild(marker);
   });
+
+  // Async: swap out the color bg with the fal.ai generated image
+  if (bgUrl) {
+    Assets.load(bgUrl).then((texture) => {
+      if (!app.stage || app.stage.destroyed) return;
+      const sprite  = new Sprite(texture);
+      sprite.width  = width;
+      sprite.height = height;
+      app.stage.removeChildAt(0);
+      app.stage.addChildAt(sprite, 0);
+    }).catch(() => {});
+  }
+}
+
+function _addColorBg(app, node, width, height) {
+  const bg = new Graphics();
+  bg.rect(0, 0, width, height).fill(levelColor(node.level));
+  if (app.stage) app.stage.addChildAt(bg, 0);
 }
 
 function makeHotspot(app, node, x, y, onNavigate) {
