@@ -16,6 +16,10 @@ class SpatialNode:
         self.level = level
         self.children: list[SpatialNode] = children or []
         self.properties: dict[str, Any] = properties or {}
+        # Runtime state — mutated as the world evolves; not included in repr
+        # so that deterministic generation tests are unaffected.
+        self.ripple_score: float = 0.0        # 0.0–1.0 cumulative causal pressure
+        self.interaction_summary: str = ""    # "conflict", "cooperation", etc.
 
     def add_child(self, node: SpatialNode) -> None:
         self.children.append(node)
