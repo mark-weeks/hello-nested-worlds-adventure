@@ -9,6 +9,10 @@ export default function useWorldSocket(seed, playerName, handlers) {
   handlersRef.current = handlers;
 
   useEffect(() => {
+    if (!playerName) {
+      setConnected(false);
+      return;
+    }
     let active = true;
     let timeout;
 

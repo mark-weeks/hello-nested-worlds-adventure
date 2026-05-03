@@ -48,7 +48,6 @@ A shared persistent multiverse inhabited simultaneously by human players and AI 
 ### `consciousness/` — Node Voice Layer
 Claude-powered persona system. Each node's voice is seeded by its properties and accumulated interaction history. Nodes respond in character, reference past visitors, and hold perspective.
 - `speak(node, message, history)` — conversational handler; injects per-node history into the system prompt
-- `describe(node, history)` — short in-character self-description for ambient/look output
 - Thread-safe lazy `Anthropic` client init; sanitises inbound message text
 
 ### `causality/` — Causal Engine

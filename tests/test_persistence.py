@@ -28,7 +28,8 @@ class TestInitDb:
         conn = sqlite3.connect(persistence._DB_PATH)
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         conn.close()
-        assert {"worlds", "agent_runs", "puzzle_results", "world_mutations"}.issubset(tables)
+        assert {"worlds", "agent_runs", "puzzle_results", "world_mutations",
+                "agent_memory", "node_images"}.issubset(tables)
 
     def test_db_permissions_owner_only(self):
         persistence.init_db()
