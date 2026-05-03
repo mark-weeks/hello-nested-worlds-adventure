@@ -128,7 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_world = sub.add_parser("world", help="Generate and print the world hierarchy")
-    p_world.add_argument("--depth", type=int, default=10, help="Max hierarchy depth (default: 10)")
+    p_world.add_argument("--depth", type=int, default=11, help="Max hierarchy depth (default: 11)")
     p_world.add_argument("--min-breadth", type=int, default=1, dest="min_breadth")
     p_world.add_argument("--max-breadth", type=int, default=3, dest="max_breadth")
     p_world.set_defaults(func=cmd_world)
