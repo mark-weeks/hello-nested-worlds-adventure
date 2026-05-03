@@ -374,13 +374,27 @@ class Handler(BaseHTTPRequestHandler):
         import urllib.request as _urlreq
 
         node_id    = str(body.get("node_id",    "unknown"))[:128]
+        node_name  = str(body.get("node_name",  ""))[:128]
         node_level = str(body.get("node_level", "Room"))[:64]
         node_props = body.get("node_properties", {})
         if not isinstance(node_props, dict):
             node_props = {}
         seed       = str(body.get("seed", "0"))[:16]
 
-        node_key = f"{seed}:{node_id}"
+        # Cache key includes a coarse bucket of accumulated interaction
+        # history so cached images regenerate as the node's causal state
+        # evolves. Using history count as the signal until causality→
+        # ripple_score is wired up (see ADR-002).
+        try:
+            seed_int = int(seed)
+        except ValueError:
+            seed_int = 0
+        history_bucket = 0
+        if seed_int and node_name:
+            history = persistence.get_node_history(seed_int, node_name, limit=1000)
+            history_bucket = len(history) // 5
+
+        node_key = f"{seed}:{node_id}:{history_bucket}"
         cached = persistence.get_cached_image(node_key)
         if cached:
             return self._send_json({"url": cached})
