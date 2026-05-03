@@ -34,7 +34,7 @@ Node visual style is programmatically determined by a property matrix. Style dri
 | Puzzle node | Escher-like, geometric, op art |
 | High ripple weight | Psychedelic, saturated, unstable |
 
-> **Implementation status.** This matrix is aspirational. Today the prompt assembly in `server/handlers.py::_do_image` is a flat dump of the first six node properties — none of these style signals are wired in. The cache key buckets `len(get_node_history) // 5` so visuals do refresh as a node accumulates state, but the *style* of refresh is not yet differentiated. Closing this gap is tracked in ADR-002 as "Unmet Phase 1 commitments §2 — Structured prompt assembly".
+> **Implementation status.** Wired in `server/imageprompt.py`. Six of the seven matrix rows are live (heavy AI agent activity, conflict history, cooperation, pristine, corrupted, puzzle). The seventh — *high ripple weight* — still depends on `ripple_score` being mutated by the causality engine (see ADR-002 "Revisit when…" and the README causality section); it ships when up-propagation lands. Per-level baselines (`HIERARCHY_STYLES`) cover all 11 scales, and the cache key now folds in a style signature so visuals refresh whenever the modifier set flips — not only when raw history count crosses a 5-event bucket.
 
 ---
 

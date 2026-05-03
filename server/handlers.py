@@ -21,6 +21,7 @@ from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from multiverse.utils import build_depth_map, count_nodes, find_node
 from puzzles.engine import PuzzleEngine
+from server import imageprompt
 from server.protocol import ws_recv
 from server.rooms import (
     Player, agent_enter, agent_leave, agent_move, agent_persona,
@@ -431,21 +432,23 @@ class Handler(BaseHTTPRequestHandler):
             node_props = {}
         seed       = str(body.get("seed", "0"))[:16]
 
-        # Cache key includes a coarse bucket of accumulated interaction
-        # history so cached images regenerate as the node's causal state
-        # evolves. Using history count as the signal until causality→
-        # ripple_score is wired up (see ADR-002).
         try:
             seed_int = int(seed)
         except ValueError:
             seed_int = 0
-        history_bucket = 0
+        history: list[dict] = []
         if seed_int and node_name:
             history = persistence.get_node_history(seed_int, node_name, limit=1000)
-            history_bucket = len(history) // 5
 
-        node_key = f"{seed}:{node_id}:{history_bucket}"
-        cached = persistence.get_cached_image(node_key)
+        # Cache key folds in:
+        #   - history bucket (every 5 interactions → fresh image even if
+        #     style modifiers don't shift), and
+        #   - style signature (modifier flips → fresh image even if the
+        #     bucket hasn't advanced).
+        history_bucket = len(history) // 5
+        sig            = imageprompt.style_signature(node_level, node_props, history)
+        node_key       = f"{seed}:{node_id}:{history_bucket}:{sig}"
+        cached         = persistence.get_cached_image(node_key)
         if cached:
             return self._send_json({"url": cached})
 
@@ -453,14 +456,8 @@ class Handler(BaseHTTPRequestHandler):
         if not fal_key:
             return self._send_json({"url": None, "error": "FAL_KEY not set"})
 
-        prop_summary = ", ".join(
-            f"{k}: {v}" for k, v in list(node_props.items())[:6]
-        )
-        prompt = (
-            f"A {node_level.lower()} in a nested multiverse sci-fi world. "
-            f"{prop_summary}. "
-            "Cinematic lighting, intricate detail, deep space aesthetic, "
-            "dark palette with bioluminescent accents."
+        prompt = imageprompt.assemble_prompt(
+            node_level, node_name, node_props, history,
         )
 
         try:
