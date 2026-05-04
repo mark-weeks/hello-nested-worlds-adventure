@@ -15,6 +15,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+sentry = [
+    "sentry-sdk>=2.0",
+]
 
 [tool.setuptools]
 packages = [

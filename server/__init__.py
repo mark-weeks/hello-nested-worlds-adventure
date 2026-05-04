@@ -11,6 +11,7 @@ import logging
 from http.server import HTTPServer
 from socketserver import ThreadingMixIn
 
+from server import observability
 from server.handlers import Handler as _Handler
 
 
@@ -19,8 +20,9 @@ class _ThreadedServer(ThreadingMixIn, HTTPServer):
 
 
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:
-    logging.basicConfig(level=logging.WARNING,
+    logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
+    observability.setup()
     server = _ThreadedServer((host, port), _Handler)
     display = f"http://localhost:{port}" if host in ("0.0.0.0", "") else f"http://{host}:{port}"
     print(f"Nested Worlds Adventure  →  {display}")

@@ -21,7 +21,7 @@ from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from multiverse.utils import apply_ripple_scores, build_depth_map, count_nodes, find_node
 from puzzles.engine import PuzzleEngine
-from server import guard, imageprompt
+from server import guard, imageprompt, observability
 from server.protocol import ws_recv
 from server.rooms import (
     Player, agent_enter, agent_leave, agent_move, agent_persona,
@@ -107,7 +107,35 @@ _RATE_LIMITED_PATHS = frozenset({
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
+        # The access-log line is emitted from `_emit_access_log` instead so it
+        # carries the structured fields ops actually look at (latency, IP hash,
+        # response size). Suppressing the default keeps double-logging out.
         pass
+
+    # ── access logging ──
+    #
+    # We capture three pieces of state per request — the start time, the
+    # most recent send_response status code, and the body length — then
+    # emit a single structured line in the do_*() finally block. send_response
+    # is overridden because nearly every code path in this handler ultimately
+    # calls it, including SSE and the WebSocket upgrade.
+
+    def send_response(self, code, message=None):  # type: ignore[override]
+        self._status = code
+        super().send_response(code, message)
+
+    def _emit_access_log(self) -> None:
+        if not getattr(self, "_started", None):
+            return
+        path   = urlparse(self.path).path or "/"
+        ip     = guard.client_ip(self.client_address, self.headers)
+        observability.access_log(
+            self.command or "?", path,
+            getattr(self, "_status", 0),
+            started=self._started,
+            ip=ip,
+            length=getattr(self, "_resp_len", 0),
+        )
 
     # ── guards ──
 
@@ -150,6 +178,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send_security_headers()
         self.end_headers()
         self.wfile.write(body)
+        self._resp_len = len(body)
 
     def _send_error(self, message: str, status: int = 400) -> None:
         self._send_json({"error": message}, status)
@@ -177,6 +206,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         self.end_headers()
         self.wfile.write(body)
+        self._resp_len = len(body)
 
     def _serve_frontend(self, path: str) -> None:
         """Serve the built React+PixiJS app from static/app/."""
@@ -214,6 +244,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         self.end_headers()
         self.wfile.write(body)
+        self._resp_len = len(body)
 
     def _sse_event(self, data: dict) -> None:
         payload = f"data: {json.dumps(data)}\n\n".encode()
@@ -223,6 +254,20 @@ class Handler(BaseHTTPRequestHandler):
     # ── GET ──
 
     def do_GET(self):
+        import time
+        self._started = time.monotonic()
+        try:
+            self._dispatch_get()
+        except Exception as exc:
+            observability.capture_exception(exc)
+            try:
+                self._send_error("internal server error", 500)
+            except Exception:
+                pass
+        finally:
+            self._emit_access_log()
+
+    def _dispatch_get(self):
         parsed = urlparse(self.path)
         qs     = parse_qs(parsed.query)
         path   = parsed.path.rstrip("/")
@@ -331,6 +376,20 @@ class Handler(BaseHTTPRequestHandler):
     # ── POST ──
 
     def do_POST(self):
+        import time
+        self._started = time.monotonic()
+        try:
+            self._dispatch_post()
+        except Exception as exc:
+            observability.capture_exception(exc)
+            try:
+                self._send_error("internal server error", 500)
+            except Exception:
+                pass
+        finally:
+            self._emit_access_log()
+
+    def _dispatch_post(self):
         parsed = urlparse(self.path)
         path   = parsed.path.rstrip("/")
         qs     = parse_qs(parsed.query)
