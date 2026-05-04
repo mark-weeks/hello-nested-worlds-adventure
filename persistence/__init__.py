@@ -366,3 +366,23 @@ def schema_versions() -> list[int]:
         return [r[0] for r in conn.execute(
             "SELECT version FROM schema_version ORDER BY version"
         )]
+
+
+@_with_db
+def backup_to(target: Path) -> None:
+    """Write a consistent online snapshot of the live DB to `target`.
+
+    Uses sqlite's `Connection.backup()` so concurrent readers/writers are
+    safe — this is the supported way to copy a WAL-mode database while it's
+    in use. Operators wire this to a host cron / Fly cron / Render cron job
+    so the volume that holds `worlds.db` isn't a single point of failure.
+    """
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with _connect() as src:
+        dst = sqlite3.connect(target)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    target.chmod(stat.S_IRUSR | stat.S_IWUSR)

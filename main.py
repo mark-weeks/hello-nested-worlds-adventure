@@ -1,4 +1,5 @@
 import argparse
+from pathlib import Path
 
 import persistence
 from agents.agent import Agent
@@ -97,6 +98,13 @@ def cmd_serve(args):
     server.run(host=args.host, port=args.port)
 
 
+def cmd_backup(args):
+    target = Path(args.to).expanduser()
+    persistence.backup_to(target)
+    size_kb = target.stat().st_size // 1024
+    print(f"Backup written: {target} ({size_kb} KB)")
+
+
 def cmd_speak(args):
     try:
         import consciousness
@@ -157,6 +165,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     p_serve.add_argument("--port", type=int, default=8080, help="Bind port (default: 8080)")
     p_serve.set_defaults(func=cmd_serve)
+
+    p_backup = sub.add_parser("backup",
+        help="Write an online snapshot of the SQLite store to a target path")
+    p_backup.add_argument("--to", type=str, required=True,
+                          help="Target file path (parent dirs are created)")
+    p_backup.set_defaults(func=cmd_backup)
 
     p_speak = sub.add_parser("speak", help="Speak to a node using Claude consciousness")
     p_speak.add_argument("--node", type=str, default=None,
