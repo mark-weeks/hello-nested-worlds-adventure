@@ -116,6 +116,13 @@ Environment variables (see `.env.example`):
 | `ANTHROPIC_API_KEY` | Node consciousness (`speak`, browser chat with nodes) | — |
 | `NESTED_WORLDS_MODEL` | Override the Claude model | `claude-opus-4-7` |
 | `FAL_KEY` | AI-generated scene backgrounds (`fal-ai/fast-sdxl`) | optional |
+| `NESTED_WORLDS_BETA_KEY` | Hosted beta: invite gate. When set, every HTTP and WebSocket request needs `?key=...` or `X-Beta-Key`. Leave unset for local dev. | unset |
+| `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` | Hosted beta: cap Anthropic calls per UTC day; once exceeded, `/speak` and `/agent/voice` return a fallback string instead of calling the API. | `500` |
+| `NESTED_WORLDS_FAL_DAILY_CALLS` | Hosted beta: cap fal.ai image calls per UTC day. | `200` |
+| `NESTED_WORLDS_RATE_LIMIT_PER_MIN` | Hosted beta: per-IP requests/minute on `/speak`, `/agent/voice`, `/image`, `/puzzle/attempt`. | `20` |
+| `NESTED_WORLDS_DISABLE_AI` | Set to `1` to disable `/speak` and `/agent/voice` without a redeploy. | unset |
+| `NESTED_WORLDS_DISABLE_IMAGES` | Set to `1` to disable `/image` without a redeploy. | unset |
+| `NESTED_WORLDS_TRUST_PROXY` | Set to `1` only when running behind a trusted reverse proxy so the rate limiter can read `X-Forwarded-For`. | unset |
 
 The browser frontend (`frontend/`) is a separate Vite project:
 

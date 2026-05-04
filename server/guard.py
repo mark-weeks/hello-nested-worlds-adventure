@@ -1,0 +1,234 @@
+"""Operational guardrails for the public beta.
+
+Six pieces wired into `server/handlers.py`:
+
+  1. `check_invite_key`   — shared-secret gate read from env, applied to every
+                            request including the WebSocket upgrade.
+  2. `RateLimiter`        — per-IP fixed-window limiter for the AI / image /
+                            puzzle-attempt endpoints.
+  3. `consume_anthropic`  — daily call cap on Anthropic, persisted in SQLite.
+  4. `consume_fal`        — daily call cap on fal.ai, persisted in SQLite.
+  5. `ai_disabled`        — env kill switch for `/speak` and `/agent/voice`.
+  6. `images_disabled`    — env kill switch for `/image`.
+
+Plus `validate_world_params`, which clamps the four generator inputs the
+server accepts from request bodies / query strings so a bad client can't
+ask for a 100k-deep tree.
+
+Everything here is read at request time (no caching), so toggling an env
+var on the host is immediate. Counters are stored UTC-day-keyed in
+`persistence.cost_budget` and reset naturally at the day boundary.
+"""
+from __future__ import annotations
+
+import datetime
+import os
+import threading
+from typing import Any, Mapping
+
+import persistence
+
+
+# ── Env vars ────────────────────────────────────────────────────────────────
+
+BETA_KEY_ENV         = "NESTED_WORLDS_BETA_KEY"
+BETA_KEY_HEADER      = "X-Beta-Key"
+BETA_KEY_QUERY       = "key"
+ANTHROPIC_CAP_ENV    = "NESTED_WORLDS_ANTHROPIC_DAILY_CALLS"
+FAL_CAP_ENV          = "NESTED_WORLDS_FAL_DAILY_CALLS"
+RATE_LIMIT_ENV       = "NESTED_WORLDS_RATE_LIMIT_PER_MIN"
+DISABLE_AI_ENV       = "NESTED_WORLDS_DISABLE_AI"
+DISABLE_IMAGES_ENV   = "NESTED_WORLDS_DISABLE_IMAGES"
+TRUST_PROXY_ENV      = "NESTED_WORLDS_TRUST_PROXY"
+
+_DEFAULT_ANTHROPIC_DAILY = 500
+_DEFAULT_FAL_DAILY       = 200
+_DEFAULT_RATE_PER_MIN    = 20
+
+ANTHROPIC_BUCKET = "anthropic"
+FAL_BUCKET       = "fal_ai"
+
+
+# ── World-gen parameter bounds ──────────────────────────────────────────────
+
+# 11 is the depth of the full hierarchy; nobody needs more. max_breadth=5 keeps
+# worst-case node count at 5**11 ≈ 48M which is already absurd, so the realistic
+# bounds bite well before that on smaller depths.
+MAX_DEPTH        = 11
+MAX_BREADTH      = 5
+MIN_DEPTH        = 1
+MIN_BREADTH_LO   = 1
+
+
+def validate_world_params(params: Mapping[str, Any]) -> None:
+    """Raise ValueError if any of the four generator inputs is out of range.
+
+    Called from `_build_world` so every endpoint that rebuilds the world tree
+    inherits the same clamp without each handler repeating the check.
+    """
+    def _bounded(key: str, default: int, lo: int, hi: int) -> int:
+        raw = params.get(key, default)
+        try:
+            v = int(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"invalid {key}: {raw!r}")
+        if v < lo or v > hi:
+            raise ValueError(f"{key} must be between {lo} and {hi} (got {v})")
+        return v
+
+    depth = _bounded("depth",       6, MIN_DEPTH,      MAX_DEPTH)
+    min_b = _bounded("min_breadth", 1, MIN_BREADTH_LO, MAX_BREADTH)
+    max_b = _bounded("max_breadth", 3, MIN_BREADTH_LO, MAX_BREADTH)
+    if min_b > max_b:
+        raise ValueError(f"min_breadth ({min_b}) > max_breadth ({max_b})")
+
+
+# ── Invite key ──────────────────────────────────────────────────────────────
+
+def _expected_key() -> str:
+    return os.environ.get(BETA_KEY_ENV, "").strip()
+
+
+def invite_gate_active() -> bool:
+    """True when an invite key is configured. Tests and dev mode leave it off."""
+    return bool(_expected_key())
+
+
+def check_invite_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) -> bool:
+    """Return True iff this request carries the beta key (or no key is required).
+
+    Accepts either the `X-Beta-Key` header (preferred) or a `?key=` query
+    param so the WebSocket connector — which can't easily set headers in the
+    browser — can still authenticate.
+    """
+    expected = _expected_key()
+    if not expected:
+        return True
+    supplied = headers.get(BETA_KEY_HEADER) or headers.get(BETA_KEY_HEADER.lower())
+    if not supplied:
+        vals = qs.get(BETA_KEY_QUERY)
+        supplied = vals[0] if vals else ""
+    return bool(supplied) and supplied == expected
+
+
+# ── Client IP (for rate limiting) ───────────────────────────────────────────
+
+def client_ip(client_address: tuple, headers: Mapping[str, str]) -> str:
+    """Best-effort per-request IP for rate-limiting bookkeeping.
+
+    By default we use the socket peer (`client_address[0]`). When the server
+    is fronted by a reverse proxy (Fly, Render, Cloudflare, etc.) the peer
+    will be the proxy's loopback address and every user collapses into one
+    bucket, so set `NESTED_WORLDS_TRUST_PROXY=1` to read the leftmost
+    `X-Forwarded-For` instead. We don't read XFF unless explicitly trusted —
+    otherwise any client could spoof the header to evade the limiter.
+    """
+    if os.environ.get(TRUST_PROXY_ENV, "").strip() == "1":
+        xff = headers.get("X-Forwarded-For") or headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip() or client_address[0]
+    return client_address[0] if client_address else "unknown"
+
+
+# ── Per-IP rate limiter ─────────────────────────────────────────────────────
+
+class RateLimiter:
+    """Fixed-window per-IP limiter.
+
+    Trades the smoothness of a token bucket for two-line semantics: each IP
+    gets `_limit_per_min()` calls per rolling 60-second window. Window state
+    lives in process memory so it's per-instance, which is fine for the
+    single-VPS beta the README describes.
+    """
+
+    def __init__(self) -> None:
+        self._counts: dict[str, tuple[float, int]] = {}
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _limit_per_min() -> int:
+        raw = os.environ.get(RATE_LIMIT_ENV, "").strip()
+        if not raw:
+            return _DEFAULT_RATE_PER_MIN
+        try:
+            v = int(raw)
+        except ValueError:
+            return _DEFAULT_RATE_PER_MIN
+        return max(1, v)
+
+    def allow(self, key: str, *, now: float | None = None) -> bool:
+        """Return True if `key` is allowed this call; record it on success."""
+        import time
+        now = now if now is not None else time.monotonic()
+        limit = self._limit_per_min()
+        with self._lock:
+            window_start, count = self._counts.get(key, (now, 0))
+            if now - window_start >= 60.0:
+                window_start, count = now, 0
+            count += 1
+            self._counts[key] = (window_start, count)
+            return count <= limit
+
+    def reset(self) -> None:
+        with self._lock:
+            self._counts.clear()
+
+
+# Module-level singleton — handlers import and call `.allow()` per request.
+RATE_LIMITER = RateLimiter()
+
+
+# ── Daily cost caps ─────────────────────────────────────────────────────────
+
+def _utc_day() -> str:
+    return datetime.datetime.utcnow().strftime("%Y-%m-%d")
+
+
+def _cap_for(env_var: str, default: int) -> int:
+    raw = os.environ.get(env_var, "").strip()
+    if not raw:
+        return default
+    try:
+        v = int(raw)
+    except ValueError:
+        return default
+    return max(0, v)
+
+
+def _consume(bucket: str, env_var: str, default: int) -> bool:
+    """Increment today's counter for `bucket`; return True iff still under cap.
+
+    Increment-then-check (rather than peek-then-increment) makes the check
+    atomic at the DB level via INSERT ON CONFLICT DO UPDATE. Means a couple
+    of concurrent requests can briefly observe the same pre-increment state
+    and both tip the counter just past the cap; that's fine for a beta cap
+    whose purpose is bounding worst-case spend, not exact accounting.
+    """
+    cap = _cap_for(env_var, default)
+    if cap <= 0:
+        return False
+    new_count = persistence.increment_cost_calls(bucket, _utc_day())
+    return new_count <= cap
+
+
+def consume_anthropic() -> bool:
+    return _consume(ANTHROPIC_BUCKET, ANTHROPIC_CAP_ENV, _DEFAULT_ANTHROPIC_DAILY)
+
+
+def consume_fal() -> bool:
+    return _consume(FAL_BUCKET, FAL_CAP_ENV, _DEFAULT_FAL_DAILY)
+
+
+# ── Kill switches ───────────────────────────────────────────────────────────
+
+def ai_disabled() -> bool:
+    return os.environ.get(DISABLE_AI_ENV, "").strip() == "1"
+
+
+def images_disabled() -> bool:
+    return os.environ.get(DISABLE_IMAGES_ENV, "").strip() == "1"
+
+
+# ── Friendly fallback strings ───────────────────────────────────────────────
+
+QUIET_RESPONSE = "The worlds are quiet today. Try again tomorrow."
