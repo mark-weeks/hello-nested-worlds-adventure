@@ -21,7 +21,7 @@ from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from multiverse.utils import apply_ripple_scores, build_depth_map, count_nodes, find_node
 from puzzles.engine import PuzzleEngine
-from server import imageprompt
+from server import guard, imageprompt
 from server.protocol import ws_recv
 from server.rooms import (
     Player, agent_enter, agent_leave, agent_move, agent_persona,
@@ -46,8 +46,10 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int, int,
     """Generate a world tree from params dict (scalar values).
 
     Caller is responsible for catching ValueError on bad ints / generator
-    arguments.
+    arguments. `guard.validate_world_params` clamps depth/breadth so a
+    request can't ask for a runaway tree.
     """
+    guard.validate_world_params(params)
     seed  = int(params.get("seed",        42))
     depth = int(params.get("depth",        6))
     min_b = int(params.get("min_breadth",  1))
@@ -98,9 +100,40 @@ def _record_ripple_handler(seed: int):
 
 # ── Handler ────────────────────────────────────────────────────────────────
 
+_RATE_LIMITED_PATHS = frozenset({
+    "/speak", "/agent/voice", "/image", "/puzzle/attempt",
+})
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
+
+    # ── guards ──
+
+    def _authorized(self, qs: Mapping[str, list[str]]) -> bool:
+        """Reject the request with 403 if the beta key is required and missing.
+
+        Health check is exempt so platform load balancers can probe without
+        knowing the key. Static and `/app` assets remain gated — the gate is
+        only useful if the URL itself isn't browseable.
+        """
+        if urlparse(self.path).path.rstrip("/") == "/health":
+            return True
+        if guard.check_invite_key(self.headers, qs):
+            return True
+        self._send_error("forbidden", 403)
+        return False
+
+    def _rate_ok(self, path: str) -> bool:
+        """Apply per-IP rate limit on the expensive endpoints; 429 on deny."""
+        if path not in _RATE_LIMITED_PATHS:
+            return True
+        ip = guard.client_ip(self.client_address, self.headers)
+        if guard.RATE_LIMITER.allow(ip):
+            return True
+        self._send_error("rate limited — slow down", 429)
+        return False
 
     # ── response helpers ──
 
@@ -193,6 +226,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         qs     = parse_qs(parsed.query)
         path   = parsed.path.rstrip("/")
+
+        if not self._authorized(qs):
+            return
 
         def param(key: str, default: str = "") -> str:
             vals = qs.get(key)
@@ -295,7 +331,15 @@ class Handler(BaseHTTPRequestHandler):
     # ── POST ──
 
     def do_POST(self):
-        path = urlparse(self.path).path.rstrip("/")
+        parsed = urlparse(self.path)
+        path   = parsed.path.rstrip("/")
+        qs     = parse_qs(parsed.query)
+
+        if not self._authorized(qs):
+            return
+        if not self._rate_ok(path):
+            return
+
         try:
             length = int(self.headers.get("Content-Length", 0))
         except ValueError:
@@ -308,6 +352,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error("invalid JSON")
 
         if path == "/speak":
+            if guard.ai_disabled():
+                return self._send_json({"response": guard.QUIET_RESPONSE})
+            if not guard.consume_anthropic():
+                return self._send_json({"response": guard.QUIET_RESPONSE})
             node_name       = str(body.get("node_name", "Unknown"))[:128]
             node_level      = str(body.get("node_level", "Room"))[:64]
             node_properties = body.get("node_properties", {})
@@ -441,6 +489,9 @@ class Handler(BaseHTTPRequestHandler):
         import os
         import urllib.request as _urlreq
 
+        if guard.images_disabled():
+            return self._send_json({"url": None, "error": "image generation disabled"})
+
         node_id    = str(body.get("node_id",    "unknown"))[:128]
         node_name  = str(body.get("node_name",  ""))[:128]
         node_level = str(body.get("node_level", "Room"))[:64]
@@ -477,6 +528,9 @@ class Handler(BaseHTTPRequestHandler):
         if not fal_key:
             return self._send_json({"url": None, "error": "FAL_KEY not set"})
 
+        if not guard.consume_fal():
+            return self._send_json({"url": None, "error": "daily image budget exhausted"})
+
         prompt = imageprompt.assemble_prompt(
             node_level, node_name, node_props, history,
             ripple_score=ripple_score,
@@ -512,6 +566,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _do_agent_voice(self, body: dict) -> None:
         """POST /agent/voice — let an agent speak in its persona's voice."""
+        if guard.ai_disabled():
+            return self._send_json({"response": guard.QUIET_RESPONSE,
+                                    "agent": "", "persona": "", "node": ""})
+        if not guard.consume_anthropic():
+            return self._send_json({"response": guard.QUIET_RESPONSE,
+                                    "agent": "", "persona": "", "node": ""})
         agent_name = str(body.get("agent_name", "Scout"))[:32]
         node_name  = str(body.get("node_name",  "Unknown"))[:128]
         node_level = str(body.get("node_level", "Room"))[:64]

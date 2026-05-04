@@ -333,6 +333,33 @@ def prune_mutations(days: int) -> int:
 
 
 @_with_db
+def get_cost_calls(bucket: str, day: str) -> int:
+    """Read today's call count for `bucket` (returns 0 if no row yet)."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT calls FROM cost_budget WHERE bucket = ? AND day = ?",
+            (bucket, day),
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+
+@_with_db
+def increment_cost_calls(bucket: str, day: str) -> int:
+    """Atomically bump the (bucket, day) counter and return the new value."""
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO cost_budget (bucket, day, calls) VALUES (?, ?, 1)
+               ON CONFLICT(bucket, day) DO UPDATE SET calls = calls + 1""",
+            (bucket, day),
+        )
+        row = conn.execute(
+            "SELECT calls FROM cost_budget WHERE bucket = ? AND day = ?",
+            (bucket, day),
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+
+@_with_db
 def schema_versions() -> list[int]:
     """Return all migration versions recorded as applied, sorted ascending."""
     with _connect() as conn:
