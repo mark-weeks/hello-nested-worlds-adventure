@@ -122,47 +122,53 @@ def captured_speak_call():
         consciousness._client = original
 
 
-class TestSpeakUsesLevelVoice:
-    def test_system_includes_level_voice_block(self, captured_speak_call):
+class TestSpeakSystemBlocks:
+    def test_two_blocks_world_bible_then_dynamic(self, captured_speak_call):
         node = SpatialNode(name="The Mire", level="Region",
                            properties={"danger_level": 7})
         consciousness.speak(node, "Who passed through last?")
         system = captured_speak_call["system"]
-        # Three blocks: preamble, level voice, node context.
-        assert len(system) == 3
-        assert system[1]["text"] == LEVEL_VOICES["Region"]
+        # Two blocks: cached world bible + dynamic per-call context.
+        assert len(system) == 2
+        assert system[0]["text"] == consciousness._WORLD_BIBLE
 
-    def test_level_voice_block_is_cached(self, captured_speak_call):
+    def test_world_bible_embeds_every_level_voice(self):
+        # The cached prefix must contain every level register so the model
+        # has the full catalog in cache regardless of which level a given
+        # call targets.
+        for level, voice in LEVEL_VOICES.items():
+            assert voice in consciousness._WORLD_BIBLE, (
+                f"{level} voice missing from WORLD_BIBLE"
+            )
+
+    def test_world_bible_block_is_cached_with_hour_ttl(self, captured_speak_call):
         node = SpatialNode(name="Vault", level="Room", properties={})
         consciousness.speak(node, "Hi.")
         system = captured_speak_call["system"]
-        # Both preamble (block 0) and level voice (block 1) carry cache marks
-        # so same-level calls hit the longer cached prefix.
-        assert "cache_control" in system[0]
-        assert "cache_control" in system[1]
-        # Node context (block 2) is dynamic, not cached.
-        assert "cache_control" not in system[2]
+        # Cached prefix carries 1-hour TTL; dynamic block is not cached.
+        assert system[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        assert "cache_control" not in system[1]
 
-    def test_unknown_level_omits_voice_block(self, captured_speak_call):
+    def test_world_bible_exceeds_cache_minimum(self):
+        # Opus 4.7 requires ≥1024 tokens for a cacheable prefix. At a
+        # conservative 3.7 chars/token for English markdown, that's 3790
+        # chars. Anything below that and `cache_control` is a no-op.
+        assert len(consciousness._WORLD_BIBLE) >= 3790, (
+            f"WORLD_BIBLE is {len(consciousness._WORLD_BIBLE)} chars — "
+            "below the size needed to actually cache on Opus 4.7"
+        )
+
+    def test_unknown_level_still_sends_world_bible(self, captured_speak_call):
         node = SpatialNode(name="Drift", level="Hyperspace", properties={})
         consciousness.speak(node, "Where am I?")
         system = captured_speak_call["system"]
-        # No level voice → only preamble + node context.
+        # Unknown level no longer affects block count — the bible is always
+        # sent; only the dynamic block references the level by name.
         assert len(system) == 2
-        assert system[0]["text"] == consciousness._SYSTEM_PREAMBLE
+        assert system[0]["text"] == consciousness._WORLD_BIBLE
+        assert "Hyperspace" in system[1]["text"]
 
-    def test_distinct_levels_get_distinct_voices(self, captured_speak_call):
-        atom = SpatialNode(name="Hydrogen-A", level="Atom", properties={})
-        consciousness.speak(atom, "What are you?")
-        atom_voice = captured_speak_call["system"][1]["text"]
-
-        galaxy = SpatialNode(name="Vela-G", level="Galaxy", properties={})
-        consciousness.speak(galaxy, "What are you?")
-        galaxy_voice = captured_speak_call["system"][1]["text"]
-
-        assert atom_voice != galaxy_voice
-
-    def test_node_context_still_carries_node_name_and_history(
+    def test_dynamic_block_carries_node_name_level_and_history(
         self, captured_speak_call,
     ):
         node = SpatialNode(name="Sanctum-7", level="Room",
@@ -170,7 +176,21 @@ class TestSpeakUsesLevelVoice:
         history = [{"type": "AGENT_VISIT", "player": None,
                     "data": {"agent": "Tessera"}, "at": "2026-05-03T12:00"}]
         consciousness.speak(node, "Greet me.", history=history)
-        node_block = captured_speak_call["system"][2]["text"]
-        # Block still embeds node name and history line as before.
-        assert "Sanctum-7" in node_block
-        assert "Tessera" in node_block
+        dyn = captured_speak_call["system"][1]["text"]
+        assert "Sanctum-7" in dyn
+        assert "Room" in dyn
+        assert "Tessera" in dyn
+
+
+class TestAgentBibleStructure:
+    def test_agent_bible_embeds_every_archetype(self):
+        for archetype in ("tender", "destabilizer", "scholar", "wanderer"):
+            assert archetype.capitalize() in consciousness._AGENT_BIBLE, (
+                f"{archetype} archetype missing from AGENT_BIBLE"
+            )
+
+    def test_agent_bible_exceeds_cache_minimum(self):
+        assert len(consciousness._AGENT_BIBLE) >= 3790, (
+            f"AGENT_BIBLE is {len(consciousness._AGENT_BIBLE)} chars — "
+            "below the size needed to actually cache on Opus 4.7"
+        )
