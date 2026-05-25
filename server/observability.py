@@ -44,7 +44,7 @@ def setup() -> None:
     except ImportError:
         _log.warning(
             "SENTRY_DSN is set but sentry_sdk is not installed. "
-            "Run: pip install 'nested-worlds-adventure[sentry]'"
+            "Reinstall with: pip install -e ."
         )
         return
     sentry_sdk.init(
