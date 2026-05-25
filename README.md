@@ -92,8 +92,8 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 | Node consciousness (`consciousness/`) | Functional — Claude-powered node voices, per-scale character registers (`LEVEL_VOICES`) for all 11 levels, fed by per-node interaction history; agent voicing via `voice_agent()` (requires `ANTHROPIC_API_KEY`) |
 | Interface (`interface/`) | Functional — interactive terminal session (spatial, conversational, ambient) |
 | Frontend (`frontend/`) | Functional — React + PixiJS + Vite client wired to the WebSocket server; fal.ai-generated scene backgrounds; named player markers (color hashed by name); animated causal ripples / encounter glyphs / puzzle-solve sparkles overlaid on the current scene |
-| Beta hardening (`server/guard.py`, `server/observability.py`) | Functional — invite-key gate, per-IP rate limiter, daily Anthropic + fal.ai cost caps (persisted), kill switches for AI / images, world-gen parameter bounds, optional Sentry, JSON access log, online SQLite backup CLI |
-| Tests | 297 tests across generator, agents, puzzles, persistence, causality, interface, consciousness, HTTP/WebSocket server, beta guards, and observability |
+| Beta hardening (`server/guard.py`, `server/observability.py`) | Functional — shared invite key OR per-user invite keys (`invite_keys` table; mint/list/revoke via `python main.py invite ...`), per-IP rate limiter, Anthropic concurrency semaphore (env-tunable), daily Anthropic + fal.ai cost caps (persisted), kill switches for AI / images, world-gen parameter bounds, optional Sentry, JSON access log, online SQLite backup CLI |
+| Tests | 316 tests across generator, agents, puzzles, persistence (incl. invite keys), causality, interface, consciousness, HTTP/WebSocket server, beta guards (incl. per-user keys), and observability |
 
 ---
 
@@ -117,8 +117,9 @@ Environment variables (see `.env.example`):
 | `ANTHROPIC_API_KEY` | Node consciousness (`speak`, browser chat with nodes) | — |
 | `NESTED_WORLDS_MODEL` | Override the Claude model | `claude-opus-4-7` |
 | `FAL_KEY` | AI-generated scene backgrounds (`fal-ai/fast-sdxl`) | optional |
-| `NESTED_WORLDS_BETA_KEY` | Hosted beta: invite gate. When set, every HTTP and WebSocket request needs `?key=...` or `X-Beta-Key`. Leave unset for local dev. | unset |
+| `NESTED_WORLDS_BETA_KEY` | Hosted beta: shared invite gate. When set, every HTTP and WebSocket request needs `?key=...` or `X-Beta-Key`. Coexists with the per-user `invite_keys` table — either credential authorizes. Leave unset (and mint no per-user keys) for local dev. | unset |
 | `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` | Hosted beta: cap Anthropic calls per UTC day; once exceeded, `/speak` and `/agent/voice` return a fallback string instead of calling the API. | `500` |
+| `NESTED_WORLDS_ANTHROPIC_CONCURRENCY` | Hosted beta: max in-flight Anthropic calls per process. Bounds instantaneous concurrency so a synchronized burst can't trip the org-level RPM. | `8` |
 | `NESTED_WORLDS_FAL_DAILY_CALLS` | Hosted beta: cap fal.ai image calls per UTC day. | `200` |
 | `NESTED_WORLDS_RATE_LIMIT_PER_MIN` | Hosted beta: per-IP requests/minute on `/speak`, `/agent/voice`, `/image`, `/puzzle/attempt`. | `20` |
 | `NESTED_WORLDS_DISABLE_AI` | Set to `1` to disable `/speak` and `/agent/voice` without a redeploy. | unset |
@@ -162,6 +163,11 @@ python main.py history
 
 # Snapshot the SQLite store (safe while the server is running)
 python main.py backup --to /backups/worlds-$(date +%Y%m%d).db
+
+# Manage per-user beta invite keys
+python main.py invite mint --name Alice --note "design partner"
+python main.py invite list
+python main.py invite revoke nw_...
 
 # All commands accept --seed INT for reproducible runs
 python main.py --seed 7 world --depth 6

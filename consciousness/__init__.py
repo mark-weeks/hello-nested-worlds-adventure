@@ -32,6 +32,33 @@ _client_lock = threading.Lock()
 _log = logging.getLogger("nested_worlds.consciousness")
 
 
+# ── Outbound concurrency cap ─────────────────────────────────────────────────
+# Hard limit on how many Anthropic calls can be in flight simultaneously per
+# process. Without this, a synchronized burst (e.g. ten players speaking at
+# once) fires every call in parallel and trips Anthropic's org-level RPM,
+# which 429s all of them and cohort-wide /speak goes flaky for the rest of
+# the minute. The daily cost cap in server/guard.py bounds total spend; this
+# semaphore bounds instantaneous concurrency so the org RPM stays under its
+# tier ceiling. Defaults to 8 (comfortable on tier 2+); override via env.
+
+_CONCURRENCY_ENV = "NESTED_WORLDS_ANTHROPIC_CONCURRENCY"
+_DEFAULT_CONCURRENCY = 8
+
+
+def _concurrency_limit() -> int:
+    raw = os.environ.get(_CONCURRENCY_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_CONCURRENCY
+    try:
+        v = int(raw)
+    except ValueError:
+        return _DEFAULT_CONCURRENCY
+    return max(1, v)
+
+
+_call_semaphore = threading.BoundedSemaphore(_concurrency_limit())
+
+
 # ── Public per-level voice catalog ─────────────────────────────────────────
 # Kept as a public dict so callers (and tests) can introspect the register
 # for a specific level. The full catalog is also embedded in `_WORLD_BIBLE`
@@ -330,12 +357,13 @@ def speak(node: SpatialNode, message: str,
         },
     ]
 
-    response = _get_client().messages.create(
-        model=_MODEL,
-        max_tokens=256,
-        system=system_blocks,
-        messages=[{"role": "user", "content": message}],
-    )
+    with _call_semaphore:
+        response = _get_client().messages.create(
+            model=_MODEL,
+            max_tokens=256,
+            system=system_blocks,
+            messages=[{"role": "user", "content": message}],
+        )
     _log_cache_usage("speak", response)
     for block in response.content:
         if block.type == "text":
@@ -362,22 +390,23 @@ def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
         f"You are presently at {node.name}, a {node.level}."
     )
 
-    response = _get_client().messages.create(
-        model=_MODEL,
-        max_tokens=200,
-        system=[
-            {
-                "type": "text",
-                "text": _AGENT_BIBLE,
-                "cache_control": {"type": "ephemeral", "ttl": "1h"},
-            },
-            {
-                "type": "text",
-                "text": agent_context,
-            },
-        ],
-        messages=[{"role": "user", "content": message}],
-    )
+    with _call_semaphore:
+        response = _get_client().messages.create(
+            model=_MODEL,
+            max_tokens=200,
+            system=[
+                {
+                    "type": "text",
+                    "text": _AGENT_BIBLE,
+                    "cache_control": {"type": "ephemeral", "ttl": "1h"},
+                },
+                {
+                    "type": "text",
+                    "text": agent_context,
+                },
+            ],
+            messages=[{"role": "user", "content": message}],
+        )
     _log_cache_usage("voice_agent", response)
     for block in response.content:
         if block.type == "text":
