@@ -24,6 +24,7 @@ from __future__ import annotations
 import datetime
 import os
 import threading
+import time
 from typing import Any, Mapping
 
 import persistence
@@ -89,26 +90,92 @@ def _expected_key() -> str:
     return os.environ.get(BETA_KEY_ENV, "").strip()
 
 
+# Cap how often we touch the DB to update last_used_at — without this, every
+# /speak call would fire an UPDATE just to advance the timestamp by a second.
+# 5 minutes is short enough to feel live in the admin CLI and long enough to
+# stay off the hot path.
+_TOUCH_INTERVAL_SEC = 300.0
+_touch_cache: dict[str, float] = {}
+_touch_lock = threading.Lock()
+
+
+def _maybe_touch(key: str) -> None:
+    """Update last_used_at on a per-key, time-throttled basis.
+
+    Race-tolerant: if two threads pass the check simultaneously, both fire
+    one UPDATE and the cache converges on the same timestamp — no harm done.
+    """
+    now = time.time()
+    with _touch_lock:
+        last = _touch_cache.get(key, 0.0)
+        if now - last < _TOUCH_INTERVAL_SEC:
+            return
+        _touch_cache[key] = now
+    persistence.touch_invite_key(key)
+
+
+def _per_user_key_match(supplied: str) -> bool:
+    """Return True iff `supplied` matches an active per-user invite row.
+
+    Updates last_used_at opportunistically (throttled). Always returns
+    False for empty strings so callers don't accidentally authorize on a
+    missing key.
+    """
+    if not supplied:
+        return False
+    row = persistence.lookup_invite_key(supplied)
+    if row is None:
+        return False
+    _maybe_touch(supplied)
+    return True
+
+
 def invite_gate_active() -> bool:
-    """True when an invite key is configured. Tests and dev mode leave it off."""
-    return bool(_expected_key())
+    """True when any invite mechanism is configured.
+
+    Shared env key OR at least one active per-user key counts as "gated."
+    Tests and pure dev mode (no env key, no DB rows) leave the gate off
+    and the server stays open.
+    """
+    if _expected_key():
+        return True
+    try:
+        return bool(persistence.list_invite_keys())
+    except Exception:
+        # DB not initialized yet (e.g. fresh checkout, no migrations run);
+        # behave as if no per-user keys exist.
+        return False
 
 
 def check_invite_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) -> bool:
-    """Return True iff this request carries the beta key (or no key is required).
+    """Return True iff this request carries a valid beta credential.
 
-    Accepts either the `X-Beta-Key` header (preferred) or a `?key=` query
-    param so the WebSocket connector — which can't easily set headers in the
-    browser — can still authenticate.
+    Two mechanisms are consulted in order:
+      1. The shared `NESTED_WORLDS_BETA_KEY` env var (legacy, single value).
+      2. The per-user `invite_keys` table (operator-minted, individually
+         revocable). If any active row matches, the request is authorized
+         and the row's `last_used_at` is bumped (throttled).
+
+    The gate is open if both mechanisms are unconfigured (env unset AND no
+    active per-user rows). Accepts either the `X-Beta-Key` header
+    (preferred) or a `?key=` query param so the WebSocket connector — which
+    can't easily set headers in the browser — can still authenticate.
     """
-    expected = _expected_key()
-    if not expected:
-        return True
     supplied = headers.get(BETA_KEY_HEADER) or headers.get(BETA_KEY_HEADER.lower())
     if not supplied:
         vals = qs.get(BETA_KEY_QUERY)
         supplied = vals[0] if vals else ""
-    return bool(supplied) and supplied == expected
+    supplied = (supplied or "").strip()
+
+    expected = _expected_key()
+    if expected and supplied and supplied == expected:
+        return True
+
+    if _per_user_key_match(supplied):
+        return True
+
+    # Gate only blocks when at least one mechanism is configured.
+    return not invite_gate_active()
 
 
 # ── Client IP (for rate limiting) ───────────────────────────────────────────

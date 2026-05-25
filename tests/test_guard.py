@@ -14,6 +14,7 @@ import urllib.request
 
 import pytest
 
+import persistence
 from server import _Handler, _ThreadedServer
 from server import guard
 
@@ -87,6 +88,84 @@ class TestInviteGate:
         status = _get_status(f"{base}/worlds",
                               headers={guard.BETA_KEY_HEADER: "letmein"})
         assert status == 200
+
+
+# ── Per-user invite keys ────────────────────────────────────────────────────
+
+class TestPerUserInviteKeys:
+    """Per-user keys must work alongside the shared env key without
+    disabling either mechanism. These tests cover the four states the
+    auth function actually sees: no creds, valid shared key, valid
+    per-user key, revoked per-user key."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_touch_cache(self):
+        # The 5-minute touch throttle persists across tests in the same
+        # process — reset it so each case sees a clean cache.
+        guard._touch_cache.clear()
+
+    def test_active_per_user_key_accepted(self, srv, monkeypatch):
+        # No shared env key — only the per-user table is configured.
+        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+        persistence.mint_invite_key("k_alice", "Alice")
+        base, _ = srv
+        assert _get_status(f"{base}/worlds?key=k_alice") == 200
+
+    def test_revoked_per_user_key_rejected(self, srv, monkeypatch):
+        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+        persistence.mint_invite_key("k_alice", "Alice")
+        persistence.revoke_invite_key("k_alice")
+        base, _ = srv
+        # After revocation only inactive rows exist — gate is no longer
+        # "active" and the server reverts to open. To keep the gate up
+        # we add another active row.
+        persistence.mint_invite_key("k_bob", "Bob")
+        assert _get_status(f"{base}/worlds?key=k_alice") == 403
+
+    def test_unknown_key_rejected_when_per_user_gate_active(self, srv, monkeypatch):
+        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+        persistence.mint_invite_key("k_alice", "Alice")
+        base, _ = srv
+        assert _get_status(f"{base}/worlds?key=k_nope") == 403
+
+    def test_per_user_key_via_header_accepted(self, srv, monkeypatch):
+        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+        persistence.mint_invite_key("k_alice", "Alice")
+        base, _ = srv
+        status = _get_status(f"{base}/worlds",
+                              headers={guard.BETA_KEY_HEADER: "k_alice"})
+        assert status == 200
+
+    def test_shared_and_per_user_keys_both_valid(self, srv, monkeypatch):
+        # Mixed mode: env key is set AND per-user keys exist. Either
+        # should authorize independently — operators may run the cohort
+        # on per-user keys while keeping a shared key for ops scripts.
+        monkeypatch.setenv(guard.BETA_KEY_ENV, "shared-secret")
+        persistence.mint_invite_key("k_alice", "Alice")
+        base, _ = srv
+        assert _get_status(f"{base}/worlds?key=shared-secret") == 200
+        assert _get_status(f"{base}/worlds?key=k_alice") == 200
+        assert _get_status(f"{base}/worlds?key=neither") == 403
+
+    def test_unit_check_invite_key_touches_last_used(self, monkeypatch):
+        # Verifies the touch path actually updates the row — guards
+        # against a future refactor that breaks the admin CLI's
+        # "is Alice still active" signal.
+        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+        persistence.mint_invite_key("k_alice", "Alice")
+        assert guard.check_invite_key(
+            {guard.BETA_KEY_HEADER: "k_alice"}, {}
+        ) is True
+        row = persistence.lookup_invite_key("k_alice")
+        assert row is not None and row["last_used_at"] is not None
+
+    def test_unit_invite_gate_active_reflects_db(self, monkeypatch):
+        # With no env key and no per-user rows the gate is open.
+        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+        assert guard.invite_gate_active() is False
+        # Mint a row — gate flips active.
+        persistence.mint_invite_key("k_alice", "Alice")
+        assert guard.invite_gate_active() is True
 
 
 # ── World-parameter bounds ──────────────────────────────────────────────────

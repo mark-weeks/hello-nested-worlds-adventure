@@ -324,3 +324,60 @@ class TestSavePuzzleResult:
         conn.close()
         assert len(rows) == 1
         assert rows[0] == ("The Lock", "SOLVED", 2)
+
+
+class TestInviteKeys:
+    def test_mint_and_lookup(self):
+        persistence.mint_invite_key("k_alice", "Alice", note="alpha cohort")
+        row = persistence.lookup_invite_key("k_alice")
+        assert row is not None
+        assert row["name"] == "Alice"
+        assert row["note"] == "alpha cohort"
+        assert row["revoked_at"] is None
+        assert row["last_used_at"] is None
+
+    def test_lookup_unknown_returns_none(self):
+        assert persistence.lookup_invite_key("does-not-exist") is None
+
+    def test_touch_updates_last_used(self):
+        persistence.mint_invite_key("k_bob", "Bob")
+        persistence.touch_invite_key("k_bob")
+        row = persistence.lookup_invite_key("k_bob")
+        assert row is not None
+        assert row["last_used_at"] is not None
+
+    def test_touch_unknown_is_noop(self):
+        # Should not raise — the UPDATE just matches zero rows.
+        persistence.touch_invite_key("does-not-exist")
+
+    def test_revoke_blocks_lookup(self):
+        persistence.mint_invite_key("k_carol", "Carol")
+        assert persistence.revoke_invite_key("k_carol") is True
+        # Revoked keys read as None to keep the auth path simple.
+        assert persistence.lookup_invite_key("k_carol") is None
+
+    def test_revoke_idempotent(self):
+        persistence.mint_invite_key("k_dave", "Dave")
+        assert persistence.revoke_invite_key("k_dave") is True
+        # Second revoke finds no active row and returns False so the CLI
+        # can give an honest "no active key matched" message.
+        assert persistence.revoke_invite_key("k_dave") is False
+
+    def test_list_default_hides_revoked(self):
+        persistence.mint_invite_key("k_active", "Active")
+        persistence.mint_invite_key("k_dead", "Dead")
+        persistence.revoke_invite_key("k_dead")
+        names = {r["name"] for r in persistence.list_invite_keys()}
+        assert names == {"Active"}
+
+    def test_list_all_includes_revoked(self):
+        persistence.mint_invite_key("k_active", "Active")
+        persistence.mint_invite_key("k_dead", "Dead")
+        persistence.revoke_invite_key("k_dead")
+        names = {r["name"] for r in persistence.list_invite_keys(include_revoked=True)}
+        assert names == {"Active", "Dead"}
+
+    def test_duplicate_key_raises(self):
+        persistence.mint_invite_key("k_dup", "First")
+        with pytest.raises(sqlite3.IntegrityError):
+            persistence.mint_invite_key("k_dup", "Second")

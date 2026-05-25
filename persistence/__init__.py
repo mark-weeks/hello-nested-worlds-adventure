@@ -410,6 +410,83 @@ def schema_versions() -> list[int]:
 
 
 @_with_db
+def mint_invite_key(key: str, name: str, note: str | None = None) -> None:
+    """Insert a new invite key. Caller generates the random key string.
+
+    Raises sqlite3.IntegrityError on collision so the caller can retry
+    with a new random key — at 32 hex chars (128 bits) collisions are
+    astronomically unlikely in practice.
+    """
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO invite_keys (key, name, note) VALUES (?, ?, ?)",
+            (key, name, note),
+        )
+
+
+@_with_db
+def lookup_invite_key(key: str) -> dict[str, Any] | None:
+    """Return the row for `key` iff it exists AND is not revoked.
+
+    Returns None for unknown keys and revoked keys alike — the caller
+    treats both as "not authorized" without leaking which condition
+    matched.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT key, name, note, created_at, revoked_at, last_used_at
+               FROM invite_keys WHERE key = ? AND revoked_at IS NULL""",
+            (key,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "key": row[0], "name": row[1], "note": row[2],
+            "created_at": row[3], "revoked_at": row[4],
+            "last_used_at": row[5],
+        }
+
+
+@_with_db
+def touch_invite_key(key: str) -> None:
+    """Update last_used_at for `key` to now. No-op for unknown keys."""
+    with _connect() as conn:
+        conn.execute(
+            f"UPDATE invite_keys SET last_used_at = {_NOW} WHERE key = ?",
+            (key,),
+        )
+
+
+@_with_db
+def revoke_invite_key(key: str) -> bool:
+    """Mark `key` revoked. Returns True iff a row was actually updated."""
+    with _connect() as conn:
+        cur = conn.execute(
+            f"""UPDATE invite_keys SET revoked_at = {_NOW}
+                WHERE key = ? AND revoked_at IS NULL""",
+            (key,),
+        )
+        return cur.rowcount > 0
+
+
+@_with_db
+def list_invite_keys(include_revoked: bool = False) -> list[dict[str, Any]]:
+    """Return all invite keys, newest first. Active-only unless include_revoked."""
+    where = "" if include_revoked else "WHERE revoked_at IS NULL"
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT key, name, note, created_at, revoked_at, last_used_at
+                FROM invite_keys {where}
+                ORDER BY created_at DESC"""
+        ).fetchall()
+        return [
+            {"key": r[0], "name": r[1], "note": r[2],
+             "created_at": r[3], "revoked_at": r[4], "last_used_at": r[5]}
+            for r in rows
+        ]
+
+
+@_with_db
 def backup_to(target: Path) -> None:
     """Write a consistent online snapshot of the live DB to `target`.
 
