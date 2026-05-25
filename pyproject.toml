@@ -9,14 +9,12 @@ description = "Nested Worlds Adventure: a shared persistent multiverse inhabited
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.40.0",
+    "sentry-sdk>=2.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-]
-sentry = [
-    "sentry-sdk>=2.0",
 ]
 
 [tool.setuptools]

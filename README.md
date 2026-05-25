@@ -125,7 +125,7 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_DISABLE_AI` | Set to `1` to disable `/speak` and `/agent/voice` without a redeploy. | unset |
 | `NESTED_WORLDS_DISABLE_IMAGES` | Set to `1` to disable `/image` without a redeploy. | unset |
 | `NESTED_WORLDS_TRUST_PROXY` | Set to `1` only when running behind a trusted reverse proxy so the rate limiter can read `X-Forwarded-For`. | unset |
-| `SENTRY_DSN` | Optional. Set the DSN and `pip install '.[sentry]'` to forward unhandled handler exceptions to Sentry. | unset |
+| `SENTRY_DSN` | Optional. `sentry-sdk` ships as a default dependency; set the DSN to forward unhandled handler exceptions to Sentry. | unset |
 | `SENTRY_ENVIRONMENT` | Tag for the Sentry environment field. | `production` |
 
 The browser frontend (`frontend/`) is a separate Vite project:
