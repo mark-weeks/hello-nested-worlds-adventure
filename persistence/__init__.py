@@ -1,3 +1,14 @@
+"""Durable state for the multiverse.
+
+Single SQLite database, single connection factory (`_connect`), schema
+managed by the migration runner over `persistence/migrations/*.sql`.
+Caller code outside this module does not touch `sqlite3` directly.
+
+The dialect-specific bits — the few places we depend on SQLite syntax
+that won't port to Postgres — are concentrated in the `--- SQL dialect
+seam ---` block below. See `docs/decisions/ADR-003-persistence-backend.md`
+for the switchover plan and the full translation table.
+"""
 from __future__ import annotations
 
 import functools
@@ -12,6 +23,40 @@ from typing import Any, Callable
 _DB_PATH = Path.home() / ".nested-worlds" / "worlds.db"
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 _TTL_ENV_VAR = "NESTED_WORLDS_MUTATION_TTL_DAYS"
+
+# --- SQL dialect seam ---
+# Concentrate SQLite-isms here so the Postgres port is mechanical.
+# See docs/decisions/ADR-003-persistence-backend.md.
+#
+# Abstracted:
+#   _NOW                — current-timestamp expression
+#   _delete_older_than  — relative-interval DELETE used by prune_mutations
+#
+# Not yet abstracted (deliberate — kept as-is to avoid churn before the
+# switchover triggers; translation is mechanical at port time):
+#   * `INSERT OR REPLACE INTO worlds ...`       — save_world
+#   * `INSERT OR REPLACE INTO node_images ...`  — cache_image
+#   * `_SCHEMA_VERSION_DDL` `DEFAULT (datetime('now'))` — per-backend DDL
+#   * `migrations/*.sql` — schema files are per-backend; a Postgres port
+#     ships as `migrations/postgres/*.sql` selected by the runner.
+
+_NOW = "datetime('now')"  # PG: CURRENT_TIMESTAMP
+
+
+def _delete_older_than(conn: sqlite3.Connection, table: str,
+                       column: str, days: int) -> int:
+    """Delete rows from `table` where `column` is older than `days` days.
+
+    SQLite-specific because the relative-interval syntax differs. On
+    Postgres this becomes:
+        DELETE FROM {table} WHERE {column} < NOW() - %s * INTERVAL '1 day'
+    """
+    cur = conn.execute(
+        f"DELETE FROM {table} WHERE {column} < datetime('now', ?)",
+        (f"-{int(days)} days",),
+    )
+    return cur.rowcount
+
 
 _SCHEMA_VERSION_DDL = """
     CREATE TABLE IF NOT EXISTS schema_version (
@@ -213,8 +258,8 @@ def save_agent_memory(agent_name: str, world_seed: int,
                       visited_ids: list[str], log_entries: list[dict[str, Any]]) -> None:
     with _connect() as conn:
         conn.execute(
-            """INSERT INTO agent_memory (agent_name, world_seed, visited_ids, log_entries, updated_at)
-               VALUES (?, ?, ?, ?, datetime('now'))
+            f"""INSERT INTO agent_memory (agent_name, world_seed, visited_ids, log_entries, updated_at)
+               VALUES (?, ?, ?, ?, {_NOW})
                ON CONFLICT(agent_name, world_seed) DO UPDATE SET
                  visited_ids = excluded.visited_ids,
                  log_entries = excluded.log_entries,
@@ -270,8 +315,8 @@ def upsert_ripple_score(world_seed: int, node_name: str, ripple_score: float) ->
     """
     with _connect() as conn:
         conn.execute(
-            """INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, updated_at)
-               VALUES (?, ?, ?, datetime('now'))
+            f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, updated_at)
+               VALUES (?, ?, ?, {_NOW})
                ON CONFLICT(world_seed, node_name) DO UPDATE SET
                  ripple_score = excluded.ripple_score,
                  updated_at   = excluded.updated_at""",
@@ -325,11 +370,7 @@ def prune_mutations(days: int) -> int:
     if days <= 0:
         return 0
     with _connect() as conn:
-        cur = conn.execute(
-            "DELETE FROM world_mutations WHERE recorded_at < datetime('now', ?)",
-            (f"-{int(days)} days",),
-        )
-        return cur.rowcount
+        return _delete_older_than(conn, "world_mutations", "recorded_at", days)
 
 
 @_with_db
