@@ -96,8 +96,15 @@ tests
 ### `fly.toml`
 
 Pin to a single region, a single machine, and mount a volume at
-`/data`. `NESTED_WORLDS_TRUST_PROXY=1` tells the rate limiter to read
-`X-Forwarded-For` from Fly's edge proxy.
+`/data`. `NESTED_WORLDS_TRUST_PROXY=1` tells the rate limiter to trust
+Fly's edge proxy and read the real client IP from the `Fly-Client-IP`
+header (Fly overwrites it, so it can't be spoofed). Do **not** rely on
+the left-most `X-Forwarded-For` value — Fly *appends* the real client IP,
+so the left-most entry is attacker-controlled and would let a client mint
+a fresh rate-limit bucket per request. The `[http_service.concurrency]`
+block bounds connections at the Fly-proxy layer; the app additionally caps
+concurrent WebSockets via `NESTED_WORLDS_MAX_WS_CONNECTIONS` /
+`NESTED_WORLDS_MAX_WS_PER_IP`.
 
 ```toml
 app = "nested-worlds-beta"          # change to your unique app name
@@ -117,6 +124,11 @@ primary_region = "iad"              # pick the region closest to your testers
   auto_stop_machines = false        # keep the in-memory rate limiter / rooms alive
   min_machines_running = 1
   processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"            # WS sessions are long-lived connections
+    soft_limit = 180
+    hard_limit = 200
 
   [http_service.checks.health]
     type = "http"
@@ -246,9 +258,13 @@ schedule that runs the two commands above.
 | Kill switch AI without redeploy | `fly secrets set NESTED_WORLDS_DISABLE_AI=1` |
 
 A `fly secrets set` triggers an automatic rolling redeploy. The single
-machine means there is roughly 10-30 seconds of downtime per change —
-acceptable for a beta. The `cost_budget` and `invite_keys` tables live
-on the volume, so they survive restarts and redeploys.
+machine means there is roughly 10-30 seconds of downtime per change, and
+**every deploy drops live WebSocket sessions** (browsers auto-reconnect) —
+acceptable for a beta. On SIGTERM the server drains, stops accepting new
+connections, and checkpoints the SQLite WAL back into the main file, so a
+redeploy never leaves a large `-wal` sidecar to replay on next boot. The
+`cost_budget` and `invite_keys` tables live on the volume, so they survive
+restarts and redeploys.
 
 ---
 

@@ -8,9 +8,12 @@ Entry points:
 from __future__ import annotations
 
 import logging
+import signal
+import threading
 from http.server import HTTPServer
 from socketserver import ThreadingMixIn
 
+import persistence
 from server import observability
 from server.handlers import Handler as _Handler
 
@@ -24,6 +27,18 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
                         format="%(asctime)s %(levelname)s %(message)s")
     observability.setup()
     server = _ThreadedServer((host, port), _Handler)
+
+    # Graceful shutdown on SIGTERM (Fly/Render send it on every deploy/stop).
+    # serve_forever() blocks the main thread and shutdown() must be called
+    # from another thread, so the handler spins one up. The finally block then
+    # closes the listener and checkpoints the WAL so a redeploy doesn't leave a
+    # large sidecar to replay on next boot.
+    def _graceful(_signum, _frame):
+        logging.info("received shutdown signal — draining")
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _graceful)
+
     display = f"http://localhost:{port}" if host in ("0.0.0.0", "") else f"http://{host}:{port}"
     print(f"Nested Worlds Adventure  →  {display}")
     print(f"Multiplayer WebSocket   →  ws://localhost:{port}/ws")
@@ -38,6 +53,10 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
         pass
     finally:
         server.server_close()
+        try:
+            persistence.checkpoint()
+        except Exception:  # pragma: no cover — shutdown best-effort
+            logging.warning("WAL checkpoint on shutdown failed", exc_info=True)
 
 
 __all__ = ["run", "_Handler", "_ThreadedServer"]

@@ -487,6 +487,18 @@ def list_invite_keys(include_revoked: bool = False) -> list[dict[str, Any]]:
 
 
 @_with_db
+def checkpoint() -> None:
+    """Flush the WAL back into the main DB file.
+
+    Called on graceful shutdown so a redeploy doesn't leave a large `-wal`
+    sidecar to be replayed on next open. Best-effort; a busy checkpoint that
+    can't fully truncate is harmless (WAL is still durable).
+    """
+    with _connect() as conn:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+
+@_with_db
 def backup_to(target: Path) -> None:
     """Write a consistent online snapshot of the live DB to `target`.
 

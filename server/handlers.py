@@ -142,15 +142,39 @@ class Handler(BaseHTTPRequestHandler):
     def _authorized(self, qs: Mapping[str, list[str]]) -> bool:
         """Reject the request with 403 if the beta key is required and missing.
 
-        Health check is exempt so platform load balancers can probe without
-        knowing the key. Static and `/app` assets remain gated — the gate is
-        only useful if the URL itself isn't browseable.
+        The invite key is an *API credential*, not a page-visibility secret:
+        the static UI shell and its JS/CSS assets are served ungated so the
+        browser can load the single-page app, which then reads `?key=` from
+        its own URL and forwards it on every data / WebSocket / paid call.
+        Gating the shell itself is self-defeating — the bundle's own
+        `<script>` request carries no key, so the page would render blank and
+        never get far enough to send the key anywhere. Health check is exempt
+        so platform load balancers can probe without the key. Every
+        data-bearing or paid endpoint (`/world`, `/ws`, `/agent`, `/observe`,
+        `/puzzle*`, `/speak`, `/image`, `/agent/voice`, `/players`,
+        `/history`, `/worlds`) stays gated.
         """
-        if urlparse(self.path).path.rstrip("/") == "/health":
+        if self._is_public_asset(urlparse(self.path).path):
             return True
         if guard.check_invite_key(self.headers, qs):
             return True
         self._send_error("forbidden", 403)
+        return False
+
+    @staticmethod
+    def _is_public_asset(path: str) -> bool:
+        """True for the ungated static UI shell + assets (never data endpoints).
+
+        Data / paid endpoints do not live under these prefixes, so exempting
+        the shell can't accidentally open one up.
+        """
+        stripped = path.rstrip("/")
+        if stripped in ("", "/health", "/explorer.js"):
+            return True
+        if stripped == "/app" or path.startswith("/app/"):
+            return True
+        if path.startswith("/easter-egg"):
+            return True
         return False
 
     def _rate_ok(self, path: str) -> bool:
@@ -417,9 +441,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"response": guard.QUIET_RESPONSE})
             node_name       = str(body.get("node_name", "Unknown"))[:128]
             node_level      = str(body.get("node_level", "Room"))[:64]
-            node_properties = body.get("node_properties", {})
-            if not isinstance(node_properties, dict):
-                node_properties = {}
+            # Clamp size — node_properties renders into the uncached system
+            # block, so an oversized dict is a full-price token amplifier.
+            node_properties = guard.cap_properties(body.get("node_properties", {}))
             message = str(body.get(
                 "message",
                 "Describe yourself to a traveler who has just arrived.",
@@ -476,71 +500,83 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, IndexError):
             return self._send_error("invalid params", 400)
 
-        accept = base64.b64encode(
-            hashlib.sha1((key + _WS_GUID).encode()).digest()
-        ).decode()
-        self.send_response(101, "Switching Protocols")
-        self.send_header("Upgrade", "websocket")
-        self.send_header("Connection", "Upgrade")
-        self.send_header("Sec-WebSocket-Accept", accept)
-        self.end_headers()
-        self.wfile.flush()
+        # Cap concurrent connections (global + per-IP) before upgrading, so a
+        # reconnect flood can't exhaust threads/memory. Reject cheaply with 503.
+        ip = guard.client_ip(self.client_address, self.headers)
+        if not guard.WS_LIMITER.acquire(ip):
+            return self._send_error("too many connections", 503)
 
-        sock = self.connection
-        sock.settimeout(60)  # 60-second idle timeout
-        session_id = uuid.uuid4().hex[:8]
-        player = Player(name=name, seed=seed, current_node="", session_id=session_id, sock=sock)
-
-        room = get_room(seed)
-        with room.lock:
-            room.players[session_id] = player
-
-        player.send({"type": "welcome", "session_id": session_id,
-                     "players": snapshot(room)})
-        broadcast(room, {"type": "player_join", "name": name, "session_id": session_id},
-                  exclude=session_id)
-
+        # Everything past acquire() is wrapped so the connection slot is
+        # released no matter how the socket dies (handshake failure, loop
+        # exit, unexpected error).
         try:
-            while True:
-                payload = ws_recv(sock)
-                if payload is None:
-                    break
-                if not payload:
-                    continue  # control frame
-                try:
-                    msg = json.loads(payload)
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    continue
-                msg_type = msg.get("type")
-                if msg_type == "move":
-                    node_name = str(msg.get("node", ""))[:64]
-                    with room.lock:
-                        player.current_node = node_name
-                    broadcast(room, {"type": "player_move", "name": name,
-                                     "node": node_name, "session_id": session_id},
-                              exclude=session_id)
-                elif msg_type == "chat":
-                    text = str(msg.get("text", "")).strip()[:256]
-                    if text:
-                        broadcast(room, {"type": "chat", "name": name,
-                                         "text": text, "session_id": session_id})
-                        # Attribute the chat to the speaker's current node so
-                        # downstream consumers (consciousness history, image
-                        # invalidation) see it as a node interaction.
-                        if player.current_node:
-                            persistence.record_mutation(
-                                seed, player.current_node, "PLAYER_CHAT",
-                                name, {"text": text[:128]},
-                            )
-                elif msg_type == "ping":
-                    player.send({"type": "pong"})
-        except (OSError, ConnectionResetError, BrokenPipeError):
-            pass
-        finally:
+            accept = base64.b64encode(
+                hashlib.sha1((key + _WS_GUID).encode()).digest()
+            ).decode()
+            self.send_response(101, "Switching Protocols")
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept)
+            self.end_headers()
+            self.wfile.flush()
+
+            sock = self.connection
+            sock.settimeout(60)  # 60-second idle timeout
+            session_id = uuid.uuid4().hex[:8]
+            player = Player(name=name, seed=seed, current_node="", session_id=session_id, sock=sock)
+
+            room = get_room(seed)
             with room.lock:
-                room.players.pop(session_id, None)
-            broadcast(room, {"type": "player_leave", "name": name,
-                             "session_id": session_id})
+                room.players[session_id] = player
+
+            player.send({"type": "welcome", "session_id": session_id,
+                         "players": snapshot(room)})
+            broadcast(room, {"type": "player_join", "name": name, "session_id": session_id},
+                      exclude=session_id)
+
+            try:
+                while True:
+                    payload = ws_recv(sock)
+                    if payload is None:
+                        break
+                    if not payload:
+                        continue  # control frame
+                    try:
+                        msg = json.loads(payload)
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
+                    msg_type = msg.get("type")
+                    if msg_type == "move":
+                        node_name = str(msg.get("node", ""))[:64]
+                        with room.lock:
+                            player.current_node = node_name
+                        broadcast(room, {"type": "player_move", "name": name,
+                                         "node": node_name, "session_id": session_id},
+                                  exclude=session_id)
+                    elif msg_type == "chat":
+                        text = str(msg.get("text", "")).strip()[:256]
+                        if text:
+                            broadcast(room, {"type": "chat", "name": name,
+                                             "text": text, "session_id": session_id})
+                            # Attribute the chat to the speaker's current node so
+                            # downstream consumers (consciousness history, image
+                            # invalidation) see it as a node interaction.
+                            if player.current_node:
+                                persistence.record_mutation(
+                                    seed, player.current_node, "PLAYER_CHAT",
+                                    name, {"text": text[:128]},
+                                )
+                    elif msg_type == "ping":
+                        player.send({"type": "pong"})
+            except (OSError, ConnectionResetError, BrokenPipeError):
+                pass
+            finally:
+                with room.lock:
+                    room.players.pop(session_id, None)
+                broadcast(room, {"type": "player_leave", "name": name,
+                                 "session_id": session_id})
+        finally:
+            guard.WS_LIMITER.release(ip)
 
     # ── Observe (SSE) ──
 

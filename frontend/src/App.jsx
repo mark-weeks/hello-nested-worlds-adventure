@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import SceneView from "./components/SceneView.jsx";
 import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
+import { withKey, urlName } from "./auth.js";
 
 const DEFAULT_SEED  = 42;
 const MAX_EVENTS    = 40;
@@ -15,7 +16,7 @@ export default function App() {
   const [events, setEvents]       = useState([]);
   const [transients, setTransients] = useState([]);
   const [loading, setLoading]     = useState(true);
-  const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || "");
+  const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || urlName() || "");
 
   const pushEvent = useCallback((evt) => {
     setEvents(ev => [evt, ...ev].slice(0, MAX_EVENTS));
@@ -41,7 +42,7 @@ export default function App() {
     setLoading(true);
     setPlayers([]);
     setEvents([]);
-    fetch(`/world?seed=${s}&depth=6`)
+    fetch(withKey(`/world?seed=${s}&depth=6`))
       .then(r => r.json())
       .then(data => { setNodeStack([data.world]); setLoading(false); })
       .catch(() => setLoading(false));

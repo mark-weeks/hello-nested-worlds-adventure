@@ -6,8 +6,11 @@ env-var-driven behaviour can be set per test without leaking across cases.
 """
 from __future__ import annotations
 
+import base64
 import http.client
 import json
+import os
+import socket
 import threading
 import urllib.error
 import urllib.request
@@ -27,9 +30,10 @@ def srv():
     port = server.server_address[1]
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
-    # Reset the in-memory rate limiter between tests so a noisy run can't
-    # spill into the next case's window.
+    # Reset the in-memory rate limiter and WS connection cap between tests so
+    # a noisy run can't spill into the next case's window.
     guard.RATE_LIMITER.reset()
+    guard.WS_LIMITER.reset()
     yield f"http://127.0.0.1:{port}", port
     server.shutdown()
 
@@ -303,7 +307,7 @@ class TestRateLimit:
         assert rl.allow("1.2.3.4", now=61.0) is True  # past the window — fresh
 
 
-# ── Client IP extraction ────────────────────────────────────────────────────
+# ── Client IP extraction (spoof resistance) ─────────────────────────────────
 
 class TestClientIP:
     def test_default_uses_socket_peer(self, monkeypatch):
@@ -312,8 +316,193 @@ class TestClientIP:
                               {"X-Forwarded-For": "1.1.1.1"})
         assert ip == "9.9.9.9"
 
-    def test_xff_honoured_only_when_trust_proxy(self, monkeypatch):
+    def test_fly_client_ip_preferred_when_trust_proxy(self, monkeypatch):
+        # The dedicated, proxy-set header is trusted first — it can't be
+        # spoofed because Fly overwrites it with the true client IP.
         monkeypatch.setenv(guard.TRUST_PROXY_ENV, "1")
-        ip = guard.client_ip(("9.9.9.9", 12345),
-                              {"X-Forwarded-For": "1.1.1.1, 2.2.2.2"})
-        assert ip == "1.1.1.1"
+        ip = guard.client_ip(("127.0.0.1", 12345),
+                              {"Fly-Client-IP": "203.0.113.7",
+                               "X-Forwarded-For": "1.1.1.1, 203.0.113.7"})
+        assert ip == "203.0.113.7"
+
+    def test_rightmost_xff_used_not_leftmost(self, monkeypatch):
+        # REGRESSION (P0): the edge proxy APPENDS the real client IP, so the
+        # right-most entry is the one it added. Reading the left-most entry
+        # (the old behaviour) let a client spoof a fresh rate-limit bucket
+        # per request. With no Fly-Client-IP we must fall back to the
+        # right-most XFF, never the left-most.
+        monkeypatch.setenv(guard.TRUST_PROXY_ENV, "1")
+        ip = guard.client_ip(("127.0.0.1", 12345),
+                              {"X-Forwarded-For": "9.9.9.9, 203.0.113.7"})
+        assert ip == "203.0.113.7"        # appended by the proxy
+        assert ip != "9.9.9.9"            # attacker-supplied left-most, ignored
+
+    def test_rotating_spoofed_leftmost_maps_to_same_bucket(self, monkeypatch):
+        # Two requests from the same real client that rotate the spoofed
+        # left-most XFF must resolve to the SAME rate-limit key.
+        monkeypatch.setenv(guard.TRUST_PROXY_ENV, "1")
+        a = guard.client_ip(("127.0.0.1", 1),
+                            {"X-Forwarded-For": "10.0.0.1, 203.0.113.7"})
+        b = guard.client_ip(("127.0.0.1", 2),
+                            {"X-Forwarded-For": "10.0.0.2, 203.0.113.7"})
+        assert a == b == "203.0.113.7"
+
+    def test_custom_client_ip_header_env(self, monkeypatch):
+        monkeypatch.setenv(guard.TRUST_PROXY_ENV, "1")
+        monkeypatch.setenv(guard.CLIENT_IP_HEADER_ENV, "CF-Connecting-IP")
+        ip = guard.client_ip(("127.0.0.1", 12345),
+                              {"CF-Connecting-IP": "198.51.100.5",
+                               "X-Forwarded-For": "1.1.1.1"})
+        assert ip == "198.51.100.5"
+
+
+# ── Node-properties clamp (token-cost guard) ────────────────────────────────
+
+class TestNodePropertiesCap:
+    def test_non_dict_becomes_empty(self):
+        assert guard.cap_properties("not a dict") == {}
+        assert guard.cap_properties(None) == {}
+        assert guard.cap_properties([1, 2, 3]) == {}
+
+    def test_small_dict_passes_through_as_strings(self):
+        out = guard.cap_properties({"danger": 5, "biome": "forest"})
+        assert out == {"danger": "5", "biome": "forest"}
+
+    def test_oversized_dict_is_bounded(self):
+        # REGRESSION (P0): a giant node_properties blob renders into the
+        # uncached system block and inflates token cost ~8x. The clamp must
+        # bound both key count and total serialized size regardless of input.
+        huge = {f"k{i}": "V" * 5000 for i in range(500)}
+        out = guard.cap_properties(huge)
+        assert len(out) <= guard._MAX_PROP_KEYS
+        serialized = "; ".join(f"{k}={v}" for k, v in out.items())
+        assert len(serialized) <= guard._MAX_PROPS_TOTAL + 200  # generous slack
+        # A single monster value is also truncated.
+        one = guard.cap_properties({"x": "Z" * 100000})
+        assert len(next(iter(one.values()))) <= guard._MAX_PROP_VAL_LEN
+
+
+# ── WebSocket connection cap ─────────────────────────────────────────────────
+
+class TestConnectionLimiter:
+    def test_per_ip_cap(self, monkeypatch):
+        monkeypatch.setenv(guard.MAX_WS_PER_IP_ENV, "2")
+        monkeypatch.setenv(guard.MAX_WS_TOTAL_ENV, "100")
+        cl = guard.ConnectionLimiter()
+        assert cl.acquire("1.2.3.4") is True
+        assert cl.acquire("1.2.3.4") is True
+        assert cl.acquire("1.2.3.4") is False   # 3rd from same IP denied
+        assert cl.acquire("5.6.7.8") is True     # a different IP still fits
+
+    def test_global_cap(self, monkeypatch):
+        monkeypatch.setenv(guard.MAX_WS_TOTAL_ENV, "2")
+        monkeypatch.setenv(guard.MAX_WS_PER_IP_ENV, "100")
+        cl = guard.ConnectionLimiter()
+        assert cl.acquire("a") is True
+        assert cl.acquire("b") is True
+        assert cl.acquire("c") is False          # global cap hit
+        cl.release("a")
+        assert cl.acquire("c") is True           # slot freed
+
+    def test_release_below_zero_is_safe(self):
+        cl = guard.ConnectionLimiter()
+        cl.release("nobody")                      # no crash / negative counts
+        assert cl.stats()["total"] == 0
+
+
+# ── Static UI shell is ungated; data endpoints stay gated (P0) ──────────────
+
+def _ws_upgrade(port: int, path: str, hold: bool = False):
+    """Perform a raw WebSocket upgrade; return (status_code, socket_or_None).
+
+    When `hold` is True and the upgrade succeeds (101), the open socket is
+    returned so the caller can keep the connection (and its limiter slot)
+    alive; otherwise the socket is closed before returning.
+    """
+    s = socket.create_connection(("127.0.0.1", port), timeout=5)
+    wskey = base64.b64encode(os.urandom(16)).decode()
+    req = (
+        f"GET {path} HTTP/1.1\r\n"
+        f"Host: 127.0.0.1:{port}\r\n"
+        f"Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        f"Sec-WebSocket-Key: {wskey}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+    )
+    s.sendall(req.encode())
+    s.settimeout(5)
+    line = s.recv(256).decode("latin-1", "replace")
+    # Status line looks like "HTTP/1.0 101 Switching Protocols"
+    try:
+        code = int(line.split(" ", 2)[1])
+    except (IndexError, ValueError):
+        code = 0
+    if code == 101 and hold:
+        return code, s
+    s.close()
+    return code, None
+
+
+class TestStaticAssetGate:
+    """REGRESSION (P0-1): the static UI shell + assets must load WITHOUT the
+    invite key so the browser can boot the SPA, which then forwards the key
+    on data calls. Data endpoints must stay gated."""
+
+    def test_app_shell_ungated_but_world_gated(self, srv, monkeypatch):
+        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+        base, _ = srv
+        # Shell loads with no key (browser can't send one on the <script> tag).
+        assert _get_status(f"{base}/app") == 200
+        # But the data endpoint the SPA fetches is still gated.
+        assert _get_status(f"{base}/world?seed=1&depth=3") == 403
+        # ...and works once the key is forwarded (as the fixed SPA does).
+        assert _get_status(f"{base}/world?seed=1&depth=3&key=letmein") == 200
+
+    def test_is_public_asset_unit(self):
+        from server.handlers import Handler
+        assert Handler._is_public_asset("/app")
+        assert Handler._is_public_asset("/app/assets/index-abc.js")
+        assert Handler._is_public_asset("/health")
+        assert Handler._is_public_asset("/explorer.js")
+        # Data / paid endpoints are never public.
+        for p in ("/world", "/ws", "/agent", "/observe", "/puzzle",
+                  "/puzzle/attempt", "/speak", "/image", "/agent/voice",
+                  "/players", "/history", "/worlds"):
+            assert not Handler._is_public_asset(p), p
+
+
+class TestWebSocketGate:
+    def test_ws_gated_without_key(self, srv, monkeypatch):
+        # REGRESSION: the WebSocket upgrade must be invite-gated like REST.
+        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+        _, port = srv
+        code, _ = _ws_upgrade(port, "/ws?seed=42&name=A")
+        assert code == 403
+
+    def test_ws_accepts_forwarded_key(self, srv, monkeypatch):
+        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+        _, port = srv
+        code, sock = _ws_upgrade(port, "/ws?seed=42&name=A&key=letmein", hold=True)
+        assert code == 101
+        if sock:
+            sock.close()
+
+    def test_ws_connection_cap_rejects_overflow(self, srv, monkeypatch):
+        # REGRESSION (P1-2): concurrent WS connections are capped; the
+        # (cap+1)th upgrade is rejected with 503 instead of spawning an
+        # unbounded thread.
+        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+        monkeypatch.setenv(guard.MAX_WS_TOTAL_ENV, "1")
+        monkeypatch.setenv(guard.MAX_WS_PER_IP_ENV, "50")
+        guard.WS_LIMITER.reset()
+        _, port = srv
+        held = []
+        try:
+            code1, s1 = _ws_upgrade(port, "/ws?seed=42&name=A", hold=True)
+            assert code1 == 101
+            held.append(s1)
+            # Second connection while the first is held → over the cap.
+            code2, _ = _ws_upgrade(port, "/ws?seed=42&name=B")
+            assert code2 == 503
+        finally:
+            for s in held:
+                if s:
+                    s.close()
