@@ -41,6 +41,11 @@ RATE_LIMIT_ENV       = "NESTED_WORLDS_RATE_LIMIT_PER_MIN"
 DISABLE_AI_ENV       = "NESTED_WORLDS_DISABLE_AI"
 DISABLE_IMAGES_ENV   = "NESTED_WORLDS_DISABLE_IMAGES"
 TRUST_PROXY_ENV      = "NESTED_WORLDS_TRUST_PROXY"
+CLIENT_IP_HEADER_ENV = "NESTED_WORLDS_CLIENT_IP_HEADER"
+# Fly (and most edge proxies) set a dedicated, non-spoofable header with the
+# real connecting IP. On Fly that's `Fly-Client-IP`. Prefer it over
+# X-Forwarded-For, whose leftmost value is client-controlled.
+_DEFAULT_CLIENT_IP_HEADER = "Fly-Client-IP"
 
 _DEFAULT_ANTHROPIC_DAILY = 500
 _DEFAULT_FAL_DAILY       = 200
@@ -59,6 +64,42 @@ MAX_DEPTH        = 11
 MAX_BREADTH      = 5
 MIN_DEPTH        = 1
 MIN_BREADTH_LO   = 1
+
+
+# ── Node-properties clamp (token-cost guard) ────────────────────────────────
+# `/speak` renders node_properties into the *uncached* dynamic system block
+# ("k=v; k=v; ..."), billed at full input price on every call. The `message`
+# is already capped at 1024 chars, but a request could smuggle an arbitrarily
+# large `node_properties` dict (bounded only by the 64 KB body cap) and inflate
+# one call's input ~8x. Clamp key/value count and lengths so the rendered
+# properties block can't balloon the prompt.
+
+_MAX_PROP_KEYS     = 24
+_MAX_PROP_KEY_LEN  = 48
+_MAX_PROP_VAL_LEN  = 128
+_MAX_PROPS_TOTAL   = 1200   # chars across all rendered "k=v" pairs
+
+
+def cap_properties(props: Any) -> dict:
+    """Return a size-bounded copy of `props` safe to render into a prompt.
+
+    Non-dicts become `{}`. Keys/values are coerced to strings and truncated;
+    the whole thing is capped in both key count and total serialized length.
+    """
+    if not isinstance(props, dict):
+        return {}
+    out: dict[str, str] = {}
+    total = 0
+    for k, v in props.items():
+        if len(out) >= _MAX_PROP_KEYS:
+            break
+        ks = str(k)[:_MAX_PROP_KEY_LEN]
+        vs = str(v)[:_MAX_PROP_VAL_LEN]
+        total += len(ks) + len(vs) + 2  # "k=v; "
+        if total > _MAX_PROPS_TOTAL:
+            break
+        out[ks] = vs
+    return out
 
 
 def validate_world_params(params: Mapping[str, Any]) -> None:
@@ -180,20 +221,43 @@ def check_invite_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) ->
 
 # ── Client IP (for rate limiting) ───────────────────────────────────────────
 
+def _header_ci(headers: Mapping[str, str], name: str) -> str | None:
+    """Case-insensitive header lookup (http.client.HTTPMessage is already CI,
+    but plain dicts in tests are not)."""
+    return headers.get(name) or headers.get(name.lower()) or headers.get(name.upper())
+
+
 def client_ip(client_address: tuple, headers: Mapping[str, str]) -> str:
     """Best-effort per-request IP for rate-limiting bookkeeping.
 
     By default we use the socket peer (`client_address[0]`). When the server
-    is fronted by a reverse proxy (Fly, Render, Cloudflare, etc.) the peer
-    will be the proxy's loopback address and every user collapses into one
-    bucket, so set `NESTED_WORLDS_TRUST_PROXY=1` to read the leftmost
-    `X-Forwarded-For` instead. We don't read XFF unless explicitly trusted —
-    otherwise any client could spoof the header to evade the limiter.
+    is fronted by a reverse proxy (Fly, Render, Cloudflare, etc.) the peer is
+    the proxy's loopback address and every user collapses into one bucket, so
+    set `NESTED_WORLDS_TRUST_PROXY=1` to read a proxy-supplied client IP.
+
+    We must NOT read the *leftmost* `X-Forwarded-For` value: the edge proxy
+    *appends* the real client IP to whatever the client already sent, so the
+    leftmost entry is fully client-controlled and lets an attacker mint a
+    fresh rate-limit bucket per request (spoof bypass). Instead:
+
+      1. Prefer a dedicated, proxy-set header (`Fly-Client-IP` by default,
+         overridable via `NESTED_WORLDS_CLIENT_IP_HEADER`). Fly overwrites
+         this with the true connecting IP; a client-supplied value is
+         discarded, so it can't be spoofed.
+      2. Fall back to the *right-most* `X-Forwarded-For` entry — the hop the
+         trusted proxy directly in front of us appended — never the leftmost.
+      3. Fall back to the socket peer.
     """
     if os.environ.get(TRUST_PROXY_ENV, "").strip() == "1":
-        xff = headers.get("X-Forwarded-For") or headers.get("x-forwarded-for")
+        header_name = os.environ.get(CLIENT_IP_HEADER_ENV, "").strip() or _DEFAULT_CLIENT_IP_HEADER
+        trusted = _header_ci(headers, header_name)
+        if trusted and trusted.strip():
+            return trusted.strip()
+        xff = _header_ci(headers, "X-Forwarded-For")
         if xff:
-            return xff.split(",")[0].strip() or client_address[0]
+            parts = [p.strip() for p in xff.split(",") if p.strip()]
+            if parts:
+                return parts[-1]  # right-most = appended by the trusted proxy
     return client_address[0] if client_address else "unknown"
 
 
@@ -243,6 +307,74 @@ class RateLimiter:
 
 # Module-level singleton — handlers import and call `.allow()` per request.
 RATE_LIMITER = RateLimiter()
+
+
+# ── WebSocket connection cap ─────────────────────────────────────────────────
+
+MAX_WS_TOTAL_ENV   = "NESTED_WORLDS_MAX_WS_CONNECTIONS"
+MAX_WS_PER_IP_ENV  = "NESTED_WORLDS_MAX_WS_PER_IP"
+_DEFAULT_MAX_WS_TOTAL  = 128
+_DEFAULT_MAX_WS_PER_IP = 8
+
+
+class ConnectionLimiter:
+    """Bound concurrent WebSocket connections, globally and per-IP.
+
+    Without this, `/ws` (a long-lived thread per connection with a 60s idle
+    timeout) is unbounded — a reconnect-loop attacker opens thousands of
+    sockets and exhausts threads/memory on a small VM. Counters are in-memory
+    per-process, which matches the single-machine beta.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._total = 0
+        self._per_ip: dict[str, int] = {}
+
+    @staticmethod
+    def _cap(env_var: str, default: int) -> int:
+        raw = os.environ.get(env_var, "").strip()
+        if not raw:
+            return default
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            return default
+
+    def acquire(self, ip: str) -> bool:
+        """Reserve a slot for `ip`; return False if a cap is already hit."""
+        total_cap = self._cap(MAX_WS_TOTAL_ENV, _DEFAULT_MAX_WS_TOTAL)
+        per_ip_cap = self._cap(MAX_WS_PER_IP_ENV, _DEFAULT_MAX_WS_PER_IP)
+        with self._lock:
+            if self._total >= total_cap:
+                return False
+            if self._per_ip.get(ip, 0) >= per_ip_cap:
+                return False
+            self._total += 1
+            self._per_ip[ip] = self._per_ip.get(ip, 0) + 1
+            return True
+
+    def release(self, ip: str) -> None:
+        with self._lock:
+            if self._total > 0:
+                self._total -= 1
+            remaining = self._per_ip.get(ip, 0) - 1
+            if remaining <= 0:
+                self._per_ip.pop(ip, None)
+            else:
+                self._per_ip[ip] = remaining
+
+    def stats(self) -> dict:
+        with self._lock:
+            return {"total": self._total, "unique_ips": len(self._per_ip)}
+
+    def reset(self) -> None:
+        with self._lock:
+            self._total = 0
+            self._per_ip.clear()
+
+
+WS_LIMITER = ConnectionLimiter()
 
 
 # ── Daily cost caps ─────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { withKey } from "./auth.js";
 
 const RECONNECT_DELAY = 3000;
 
@@ -19,7 +20,7 @@ export default function useWorldSocket(seed, playerName, handlers) {
     function connect() {
       if (!active) return;
       const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(`${protocol}//${location.host}/ws?seed=${seed}&name=${encodeURIComponent(playerName)}`);
+      const ws = new WebSocket(withKey(`${protocol}//${location.host}/ws?seed=${seed}&name=${encodeURIComponent(playerName)}`));
       wsRef.current = ws;
 
       ws.onopen  = () => setConnected(true);

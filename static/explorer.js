@@ -1,3 +1,16 @@
+// ── Beta invite-key plumbing ───────────────────────────────────────────────
+// The static shell loads ungated; every data / WS call is gated behind the
+// invite key. Read `?key=` from the URL, stash it, and forward it on every
+// request. No-op when the gate is off (no key present).
+const _betaParams = new URLSearchParams(location.search);
+if (_betaParams.get('key')) localStorage.setItem('nw_beta_key', _betaParams.get('key'));
+function betaKey() { return localStorage.getItem('nw_beta_key') || _betaParams.get('key') || ''; }
+function withKey(url) {
+  const k = betaKey();
+  if (!k) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(k);
+}
+
 const LEVEL_COLORS = {
   Multiverse: '#dde8ff', Universe: '#00ccff', Galaxy: '#4488ff',
   'Planetary System': '#cc55ff', Planet: '#33ee88', Region: '#ffcc33',
@@ -43,7 +56,7 @@ async function loadWorld() {
   setStatus('Generating world…');
   try {
     const { seed, depth, min_b, max_b } = worldParams;
-    const res  = await fetch(`/world?seed=${seed}&depth=${depth}&min_breadth=${min_b}&max_breadth=${max_b}`);
+    const res  = await fetch(withKey(`/world?seed=${seed}&depth=${depth}&min_breadth=${min_b}&max_breadth=${max_b}`));
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     setStatus(`${data.node_count} nodes · seed ${seed} · depth ${depth}`);
@@ -143,7 +156,7 @@ async function speak() {
   box.className = 'response-box dim';
   setStatus('Awaiting response…');
   try {
-    const res  = await fetch('/speak', {
+    const res  = await fetch(withKey('/speak'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ node_name: selected.name, node_level: selected.level,
@@ -170,7 +183,7 @@ function observe() {
   const url = `/observe?seed=${seed}&depth=${depth}&min_breadth=${min_b}&max_breadth=${max_b}&node_name=${encodeURIComponent(selected.name)}`;
 
   setStatus('Agent traversing…');
-  observeES = new EventSource(url);
+  observeES = new EventSource(withKey(url));
 
   observeES.onmessage = e => {
     const d = JSON.parse(e.data);
@@ -211,7 +224,7 @@ async function fetchPuzzle() {
   const url = `/puzzle?seed=${seed}&depth=${depth}&min_breadth=${min_b}&max_breadth=${max_b}&node_name=${encodeURIComponent(selected.name)}`;
   setStatus('Searching for puzzle…');
   try {
-    const res  = await fetch(url);
+    const res  = await fetch(withKey(url));
     const data = await res.json();
     if (!data.found) {
       document.getElementById('puzzle-content').innerHTML =
@@ -255,7 +268,7 @@ async function submitAnswer() {
   puzzleState.attempt++;
   const { seed, depth, min_b, max_b } = worldParams;
   try {
-    const res  = await fetch('/puzzle/attempt', {
+    const res  = await fetch(withKey('/puzzle/attempt'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ seed, depth, min_breadth: min_b, max_breadth: max_b,
@@ -290,7 +303,7 @@ async function submitAnswer() {
   }
 }
 
-let playerName  = localStorage.getItem('nw_player_name') || null;
+let playerName  = localStorage.getItem('nw_player_name') || _betaParams.get('name') || null;
 let ws          = null;
 let mySessionId = null;
 let players     = {};
@@ -323,7 +336,7 @@ function wsConnect(seed) {
   colorIdx = 0;
   renderPlayers();
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url   = `${proto}//${window.location.host}/ws?seed=${seed}&name=${encodeURIComponent(playerName)}`;
+  const url   = withKey(`${proto}//${window.location.host}/ws?seed=${seed}&name=${encodeURIComponent(playerName)}`);
   try { ws = new WebSocket(url); } catch (_) { return; }
   ws.onmessage = e => { try { handleWsMsg(JSON.parse(e.data)); } catch (_) {} };
   ws.onclose   = () => { ws = null; };
