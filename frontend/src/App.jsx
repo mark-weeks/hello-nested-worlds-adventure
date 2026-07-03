@@ -5,6 +5,7 @@ import useWorldSocket from "./ws.js";
 import { withKey, urlName } from "./auth.js";
 
 const DEFAULT_SEED  = 42;
+const WORLD_DEPTH   = 6;   // must match the depth used for /puzzle lookups
 const MAX_EVENTS    = 40;
 const MAX_TRANSIENTS = 12;
 const NAME_KEY      = "nw_player_name";
@@ -42,7 +43,7 @@ export default function App() {
     setLoading(true);
     setPlayers([]);
     setEvents([]);
-    fetch(withKey(`/world?seed=${s}&depth=6`))
+    fetch(withKey(`/world?seed=${s}&depth=${WORLD_DEPTH}`))
       .then(r => r.json())
       .then(data => { setNodeStack([data.world]); setLoading(false); })
       .catch(() => setLoading(false));
@@ -148,6 +149,8 @@ export default function App() {
         connected={connected}
         events={events}
         seed={seed}
+        depth={WORLD_DEPTH}
+        playerName={playerName}
         onLoadWorld={handleLoadWorld}
         onChat={sendChat}
       />
