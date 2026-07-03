@@ -10,10 +10,19 @@ Both calls send a single large cached system block plus a small dynamic
 context block. The cached block (world / agent "bible") consolidates the
 universal preamble, the world premise, all 11 level voices (or all 4
 persona archetypes for the agent path), behavioural rules, and style
-guidance. It is sized to comfortably exceed the Opus 4.7 cache minimum
-(1024 tokens) and marked with 1-hour TTL because the content is
-deploy-stable. Per-call cache hit/miss tokens are logged on
-`nested_worlds.consciousness`.
+guidance, and is marked with 1-hour TTL because the content is deploy-stable.
+
+CACHING CAVEAT (see `_warn_if_cache_ineffective`): prompt caching only
+engages when the cached prefix meets the model's minimum cacheable length.
+On the Opus-class default (`claude-opus-4-7`) that minimum is **4096 tokens**
+— NOT 1024. The current bible is well under that (~1.3K tokens), so the
+`cache_control` marker is a silent no-op on Opus: it costs nothing extra
+(the block is billed as ordinary input), but it saves nothing either. To
+actually capture the ~10x cache-read discount the block must be enlarged
+past the model's minimum. Until then, a one-time WARNING is emitted when
+this module is first loaded (i.e. the first `/speak` or `/agent/voice`
+call) so the miss is visible rather than silent, and per-call cache
+hit/miss tokens are logged on `nested_worlds.consciousness`.
 """
 from __future__ import annotations
 
@@ -275,6 +284,51 @@ def _build_agent_bible() -> str:
 
 _WORLD_BIBLE = _build_world_bible()
 _AGENT_BIBLE = _build_agent_bible()
+
+
+# ── Cache-effectiveness guard ────────────────────────────────────────────────
+# `cache_control` on a system block below the model's minimum cacheable length
+# is silently ignored: the block is billed as ordinary input and no cache
+# read/write ever happens. On the Opus-class default the minimum is 4096
+# tokens. The bibles are well under that today, so we surface the miss once at
+# startup rather than letting the "caching that fires" claim quietly be false.
+
+_OPUS_CACHE_MIN_TOKENS = 4096
+_CHARS_PER_TOKEN_EST = 4.0   # rough English-prose ratio; advisory only
+_cache_warned = False
+
+
+def _estimate_tokens(text: str) -> int:
+    return int(len(text) / _CHARS_PER_TOKEN_EST)
+
+
+def cached_prefix_meets_minimum(min_tokens: int = _OPUS_CACHE_MIN_TOKENS) -> bool:
+    """True iff BOTH cached bibles are estimated to exceed `min_tokens`, i.e.
+    prompt caching can actually engage on an Opus-class model."""
+    return (_estimate_tokens(_WORLD_BIBLE) >= min_tokens
+            and _estimate_tokens(_AGENT_BIBLE) >= min_tokens)
+
+
+def _warn_if_cache_ineffective() -> None:
+    """Emit a one-time WARNING when the cached prefix is below the model's
+    minimum cacheable length, so an ineffective cache_control marker is visible
+    to operators instead of quietly forfeiting the ~10x cache-read discount."""
+    global _cache_warned
+    if _cache_warned:
+        return
+    _cache_warned = True
+    if not cached_prefix_meets_minimum():
+        est = min(_estimate_tokens(_WORLD_BIBLE), _estimate_tokens(_AGENT_BIBLE))
+        _log.warning(
+            "prompt cache likely INACTIVE: cached prefix ~%d tokens < %d min "
+            "for model %r. The 1h cache_control marker is a no-op until the "
+            "world/agent bible is enlarged past the model minimum; every "
+            "/speak and /agent/voice call is then billed at full input price.",
+            est, _OPUS_CACHE_MIN_TOKENS, _MODEL,
+        )
+
+
+_warn_if_cache_ineffective()
 
 
 def _level_voice(level: str) -> str:

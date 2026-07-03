@@ -14,6 +14,31 @@ from multiverse.generator import LEVELS
 from multiverse.node import SpatialNode
 
 
+import contextlib
+import logging
+
+
+@contextlib.contextmanager
+def _capture_consciousness_warnings():
+    """Collect WARNING-level records emitted on the consciousness logger."""
+    records: list[str] = []
+
+    class _Sink(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    logger = logging.getLogger("nested_worlds.consciousness")
+    sink = _Sink(level=logging.WARNING)
+    logger.addHandler(sink)
+    prev = logger.level
+    logger.setLevel(logging.WARNING)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(sink)
+        logger.setLevel(prev)
+
+
 def test_get_client_thread_safety():
     """Anthropic() must be called exactly once even with concurrent initialisation."""
     mock_instance = MagicMock()
@@ -149,14 +174,35 @@ class TestSpeakSystemBlocks:
         assert system[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
         assert "cache_control" not in system[1]
 
-    def test_world_bible_exceeds_cache_minimum(self):
-        # Opus 4.7 requires ≥1024 tokens for a cacheable prefix. At a
-        # conservative 3.7 chars/token for English markdown, that's 3790
-        # chars. Anything below that and `cache_control` is a no-op.
-        assert len(consciousness._WORLD_BIBLE) >= 3790, (
-            f"WORLD_BIBLE is {len(consciousness._WORLD_BIBLE)} chars — "
-            "below the size needed to actually cache on Opus 4.7"
+    def test_cached_prefix_marker_matches_effectiveness(self, captured_speak_call):
+        # REGRESSION (P1): the previous version of this test used the WRONG
+        # Opus cache minimum (1024 tokens / 3790 chars). The real minimum for
+        # the Opus-class default is 4096 tokens, so the bible (~1.3K tokens)
+        # is actually BELOW it and `cache_control` is a silent no-op. The
+        # invariant we now guard: whenever a system block is marked with
+        # cache_control, either the cached prefix genuinely exceeds the model
+        # minimum, OR the ineffectiveness warning is wired to fire — never a
+        # silently-ineffective marker.
+        node = SpatialNode(name="Vault", level="Room", properties={})
+        consciousness.speak(node, "Hi.")
+        system = captured_speak_call["system"]
+        assert system[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        consciousness._cache_warned = False
+        with _capture_consciousness_warnings() as warnings:
+            consciousness._warn_if_cache_ineffective()
+        meets = consciousness.cached_prefix_meets_minimum()
+        warned = any("cache likely INACTIVE" in w for w in warnings)
+        assert meets or warned, (
+            "cache_control marker present but prefix is below the model "
+            "minimum AND no ineffectiveness warning fired — the silent no-op "
+            "this test exists to catch"
         )
+
+    def test_cache_minimum_uses_real_opus_figure(self):
+        # The old code documented 1024; the real Opus 4.5+/Haiku 4.5 minimum
+        # is 4096. Guard the constant so the honest figure can't silently
+        # regress back to a value that would re-hide the miss.
+        assert consciousness._OPUS_CACHE_MIN_TOKENS == 4096
 
     def test_unknown_level_still_sends_world_bible(self, captured_speak_call):
         node = SpatialNode(name="Drift", level="Hyperspace", properties={})
@@ -189,8 +235,10 @@ class TestAgentBibleStructure:
                 f"{archetype} archetype missing from AGENT_BIBLE"
             )
 
-    def test_agent_bible_exceeds_cache_minimum(self):
-        assert len(consciousness._AGENT_BIBLE) >= 3790, (
-            f"AGENT_BIBLE is {len(consciousness._AGENT_BIBLE)} chars — "
-            "below the size needed to actually cache on Opus 4.7"
-        )
+    def test_agent_bible_carries_every_scale(self):
+        # The agent bible embeds all 11 scales so an agent voiced at any level
+        # has the full register catalog in its (would-be-cached) prefix.
+        for level in LEVEL_VOICES:
+            assert level in consciousness._AGENT_BIBLE, (
+                f"{level} missing from AGENT_BIBLE"
+            )
