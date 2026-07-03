@@ -22,6 +22,7 @@ var on the host is immediate. Counters are stored UTC-day-keyed in
 from __future__ import annotations
 
 import datetime
+import hashlib
 import os
 import threading
 import time
@@ -37,6 +38,13 @@ BETA_KEY_HEADER      = "X-Beta-Key"
 BETA_KEY_QUERY       = "key"
 ANTHROPIC_CAP_ENV    = "NESTED_WORLDS_ANTHROPIC_DAILY_CALLS"
 FAL_CAP_ENV          = "NESTED_WORLDS_FAL_DAILY_CALLS"
+# Per-user (per-credential) daily sub-caps. The global caps above bound total
+# spend; these bound how much of that budget any single tester can consume, so
+# one heavy or careless account can't drain the shared budget and degrade the
+# whole cohort to the quiet-fallback string. Enforced only when a credential is
+# supplied (i.e. the invite gate is active); local dev with no key is unaffected.
+ANTHROPIC_PER_USER_CAP_ENV = "NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER"
+FAL_PER_USER_CAP_ENV       = "NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER"
 RATE_LIMIT_ENV       = "NESTED_WORLDS_RATE_LIMIT_PER_MIN"
 DISABLE_AI_ENV       = "NESTED_WORLDS_DISABLE_AI"
 DISABLE_IMAGES_ENV   = "NESTED_WORLDS_DISABLE_IMAGES"
@@ -49,6 +57,10 @@ _DEFAULT_CLIENT_IP_HEADER = "Fly-Client-IP"
 
 _DEFAULT_ANTHROPIC_DAILY = 500
 _DEFAULT_FAL_DAILY       = 200
+# Default per-user sub-caps sit at ~30% of the global default, so any single
+# account tops out well before it can exhaust the cohort's daily budget.
+_DEFAULT_ANTHROPIC_PER_USER = 150
+_DEFAULT_FAL_PER_USER       = 60
 _DEFAULT_RATE_PER_MIN    = 20
 
 ANTHROPIC_BUCKET = "anthropic"
@@ -186,6 +198,16 @@ def invite_gate_active() -> bool:
         # DB not initialized yet (e.g. fresh checkout, no migrations run);
         # behave as if no per-user keys exist.
         return False
+
+
+def supplied_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) -> str:
+    """Return the raw beta credential this request presented (header or query),
+    stripped; "" if none. Used to key the per-user spend sub-cap."""
+    supplied = headers.get(BETA_KEY_HEADER) or headers.get(BETA_KEY_HEADER.lower())
+    if not supplied:
+        vals = qs.get(BETA_KEY_QUERY)
+        supplied = vals[0] if vals else ""
+    return (supplied or "").strip()
 
 
 def check_invite_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) -> bool:
@@ -410,12 +432,49 @@ def _consume(bucket: str, env_var: str, default: int) -> bool:
     return new_count <= cap
 
 
-def consume_anthropic() -> bool:
-    return _consume(ANTHROPIC_BUCKET, ANTHROPIC_CAP_ENV, _DEFAULT_ANTHROPIC_DAILY)
+def _user_bucket(base_bucket: str, user_key: str) -> str:
+    """Namespaced per-user counter bucket, keyed by a hash of the credential.
+
+    Hashing keeps the raw invite key out of the `cost_budget` table while still
+    giving each credential its own stable daily counter.
+    """
+    digest = hashlib.sha256(user_key.encode("utf-8")).hexdigest()[:16]
+    return f"{base_bucket}:u:{digest}"
 
 
-def consume_fal() -> bool:
-    return _consume(FAL_BUCKET, FAL_CAP_ENV, _DEFAULT_FAL_DAILY)
+def _consume_per_user(base_bucket: str, env_var: str, default: int,
+                      user_key: str | None) -> bool:
+    """Increment + check the per-user counter. Open when no credential/cap.
+
+    Returns True (allowed) when no credential was supplied — the global cap is
+    then the only bound, preserving local-dev and existing-test behaviour where
+    no key flows through. Otherwise increments the per-user bucket and returns
+    whether it is still within the per-user cap.
+    """
+    if not user_key:
+        return True
+    cap = _cap_for(env_var, default)
+    if cap <= 0:
+        return False
+    new_count = persistence.increment_cost_calls(_user_bucket(base_bucket, user_key), _utc_day())
+    return new_count <= cap
+
+
+def consume_anthropic(user_key: str | None = None) -> bool:
+    """Reserve one Anthropic call against the global cap and, if a credential
+    is supplied, the caller's per-user cap. Both must be under budget."""
+    if not _consume(ANTHROPIC_BUCKET, ANTHROPIC_CAP_ENV, _DEFAULT_ANTHROPIC_DAILY):
+        return False
+    return _consume_per_user(ANTHROPIC_BUCKET, ANTHROPIC_PER_USER_CAP_ENV,
+                             _DEFAULT_ANTHROPIC_PER_USER, user_key)
+
+
+def consume_fal(user_key: str | None = None) -> bool:
+    """Reserve one fal.ai call against the global and per-user caps."""
+    if not _consume(FAL_BUCKET, FAL_CAP_ENV, _DEFAULT_FAL_DAILY):
+        return False
+    return _consume_per_user(FAL_BUCKET, FAL_PER_USER_CAP_ENV,
+                             _DEFAULT_FAL_PER_USER, user_key)
 
 
 # ── Kill switches ───────────────────────────────────────────────────────────

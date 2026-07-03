@@ -268,6 +268,50 @@ class TestCostCap:
         assert "budget" in data["error"]
 
 
+# ── Per-user spend sub-cap (fairness) ───────────────────────────────────────
+
+class TestPerUserCostCap:
+    """REGRESSION (P1): the daily cost cap used to be global-only, so a single
+    account could drain the whole cohort's budget (~500 Anthropic calls in
+    ~25 min) and degrade everyone to the quiet fallback. A per-credential
+    sub-cap must bound how much any one user can consume, independent of others,
+    while the no-credential (local dev / legacy) path stays global-only."""
+
+    def test_per_user_cap_bounds_single_account(self, monkeypatch):
+        # Global budget is generous; the per-user cap is what bites.
+        monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "1000")
+        monkeypatch.setenv(guard.ANTHROPIC_PER_USER_CAP_ENV, "3")
+        alice = "nw_alice"
+        results = [guard.consume_anthropic(user_key=alice) for _ in range(5)]
+        assert results == [True, True, True, False, False]
+
+    def test_per_user_caps_are_independent(self, monkeypatch):
+        monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "1000")
+        monkeypatch.setenv(guard.ANTHROPIC_PER_USER_CAP_ENV, "2")
+        assert [guard.consume_anthropic(user_key="nw_alice") for _ in range(3)] == [True, True, False]
+        # Bob has a fresh per-user counter even though Alice exhausted hers.
+        assert [guard.consume_anthropic(user_key="nw_bob") for _ in range(3)] == [True, True, False]
+
+    def test_no_credential_path_is_global_only(self, monkeypatch):
+        # Local dev / existing callers pass no key: only the global cap applies,
+        # so a tiny per-user cap must NOT block them.
+        monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "1000")
+        monkeypatch.setenv(guard.ANTHROPIC_PER_USER_CAP_ENV, "1")
+        assert all(guard.consume_anthropic() for _ in range(5))
+
+    def test_global_cap_still_wins_when_lower(self, monkeypatch):
+        # If the global cap is the tighter bound, it still stops the user even
+        # though their per-user budget isn't exhausted.
+        monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "2")
+        monkeypatch.setenv(guard.ANTHROPIC_PER_USER_CAP_ENV, "100")
+        assert [guard.consume_anthropic(user_key="nw_alice") for _ in range(3)] == [True, True, False]
+
+    def test_per_user_fal_cap_bounds_single_account(self, monkeypatch):
+        monkeypatch.setenv(guard.FAL_CAP_ENV, "1000")
+        monkeypatch.setenv(guard.FAL_PER_USER_CAP_ENV, "2")
+        assert [guard.consume_fal(user_key="nw_alice") for _ in range(3)] == [True, True, False]
+
+
 # ── Per-IP rate limiter ─────────────────────────────────────────────────────
 
 class TestRateLimit:
