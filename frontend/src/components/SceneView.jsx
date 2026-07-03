@@ -11,6 +11,13 @@ export default function SceneView({
   // when the prop list changes, not on every other re-render.
   const transientLayerRef = useRef(null);
   const transientsRef = useRef(transients);
+  // `Application.init()` is async: in PixiJS v8 `app.screen`/`app.renderer`
+  // don't exist until it resolves, but the [node, players, bgUrl] effect below
+  // runs synchronously on the same mount commit — before init completes. Any
+  // read of `app.screen` before then throws, and with no error boundary that
+  // white-screens the whole app (observed in headless Chromium and on slow /
+  // mobile devices). This flag gates every draw on init having finished.
+  const readyRef = useRef(false);
   const [bgUrl, setBgUrl] = useState(null);
 
   // Fetch fal.ai background image URL whenever the node changes
@@ -49,6 +56,9 @@ export default function SceneView({
       background: 0x07080f,
       antialias: true,
     }).then(() => {
+      // The effect may have been torn down (or the app destroyed) while init
+      // was in flight — bail rather than touch a dead renderer.
+      if (appRef.current !== app || !app.renderer) return;
       container.appendChild(app.canvas);
 
       // Static layer (rebuilds when node/players change) + transient overlay
@@ -57,16 +67,23 @@ export default function SceneView({
       transientLayer.eventMode = "none";
       transientLayerRef.current = transientLayer;
 
+      readyRef.current = true;
       renderScene(app, node, players, onNavigate, bgUrl);
       app.stage.addChild(transientLayer);
 
-      tickCallback = () => paintTransients(
-        transientLayer, transientsRef.current, app.screen,
-      );
+      tickCallback = () => {
+        if (!app.renderer) return;
+        paintTransients(transientLayer, transientsRef.current, app.screen);
+      };
       app.ticker.add(tickCallback);
+    }).catch(() => {
+      // WebGL/WebGPU unavailable (headless without GPU, locked-down mobile).
+      // Leave the scene blank; the rest of the app (text panel, speak, puzzle)
+      // stays fully usable instead of white-screening.
     });
 
     return () => {
+      readyRef.current = false;
       if (tickCallback && app.ticker) app.ticker.remove(tickCallback);
       app.destroy(true, { children: true });
       appRef.current = null;
@@ -77,7 +94,8 @@ export default function SceneView({
   useEffect(() => {
     const app = appRef.current;
     const transientLayer = transientLayerRef.current;
-    if (!app || !app.stage) return;
+    // Skip until init has finished — otherwise app.screen throws (see readyRef).
+    if (!app || !app.stage || !app.renderer || !readyRef.current) return;
     // Rebuild static content; preserve the transient layer by detaching and
     // re-attaching it on top of the rebuilt scene.
     if (transientLayer && transientLayer.parent === app.stage) {
@@ -105,6 +123,10 @@ export default function SceneView({
 // ── Static scene rendering ────────────────────────────────────────────────
 
 function renderScene(app, node, players, onNavigate, bgUrl) {
+  // Guard against a not-yet-initialised or torn-down renderer — `app.screen`
+  // throws until init resolves, and an unguarded throw here has no error
+  // boundary above it and would blank the entire app.
+  if (!app || !app.renderer) return;
   const { width, height } = app.screen;
 
   // Placeholder color background (index 0 — replaced by Sprite once loaded)

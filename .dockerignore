@@ -1,0 +1,19 @@
+# Keep the build context small and never leak local state into the image.
+.git
+.github
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.env
+.env.*
+.venv
+frontend/node_modules
+docs
+tests
+# Never bake a local SQLite store (or its WAL sidecars) into the image.
+*.db
+*.db-wal
+*.db-shm
+.nested-worlds

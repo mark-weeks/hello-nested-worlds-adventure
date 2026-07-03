@@ -1,6 +1,7 @@
 import { useState } from "react";
+import Interact from "./Interact.jsx";
 
-export default function TextPanel({ node, players, connected, events, seed, onLoadWorld, onChat }) {
+export default function TextPanel({ node, players, connected, events, seed, depth, playerName, onLoadWorld, onChat }) {
   const [seedInput, setSeedInput] = useState(String(seed));
   const [chatInput, setChatInput] = useState("");
 
@@ -51,6 +52,8 @@ export default function TextPanel({ node, players, connected, events, seed, onLo
           ))}
         </div>
       )}
+
+      <Interact node={node} seed={seed} depth={depth} playerName={playerName} />
 
       {node.children.length > 0 && (
         <div style={s.section}>

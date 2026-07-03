@@ -423,6 +423,10 @@ class Handler(BaseHTTPRequestHandler):
         if not self._rate_ok(path):
             return
 
+        # The credential this request presented — used to charge paid calls
+        # against the caller's per-user daily sub-cap (empty in open dev mode).
+        user_key = guard.supplied_key(self.headers, qs)
+
         try:
             length = int(self.headers.get("Content-Length", 0))
         except ValueError:
@@ -437,7 +441,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/speak":
             if guard.ai_disabled():
                 return self._send_json({"response": guard.QUIET_RESPONSE})
-            if not guard.consume_anthropic():
+            if not guard.consume_anthropic(user_key=user_key):
                 return self._send_json({"response": guard.QUIET_RESPONSE})
             node_name       = str(body.get("node_name", "Unknown"))[:128]
             node_level      = str(body.get("node_level", "Room"))[:64]
@@ -479,10 +483,10 @@ class Handler(BaseHTTPRequestHandler):
             self._do_puzzle_attempt(body)
 
         elif path == "/image":
-            self._do_image(body)
+            self._do_image(body, user_key=user_key)
 
         elif path == "/agent/voice":
-            self._do_agent_voice(body)
+            self._do_agent_voice(body, user_key=user_key)
 
         else:
             self._send_error("not found", 404)
@@ -580,7 +584,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── Observe (SSE) ──
 
-    def _do_image(self, body: dict) -> None:
+    def _do_image(self, body: dict, user_key: str = "") -> None:
         import os
         import urllib.request as _urlreq
 
@@ -623,7 +627,7 @@ class Handler(BaseHTTPRequestHandler):
         if not fal_key:
             return self._send_json({"url": None, "error": "FAL_KEY not set"})
 
-        if not guard.consume_fal():
+        if not guard.consume_fal(user_key=user_key):
             return self._send_json({"url": None, "error": "daily image budget exhausted"})
 
         prompt = imageprompt.assemble_prompt(
@@ -659,12 +663,12 @@ class Handler(BaseHTTPRequestHandler):
             persistence.cache_image(node_key, url)
         self._send_json({"url": url})
 
-    def _do_agent_voice(self, body: dict) -> None:
+    def _do_agent_voice(self, body: dict, user_key: str = "") -> None:
         """POST /agent/voice — let an agent speak in its persona's voice."""
         if guard.ai_disabled():
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": ""})
-        if not guard.consume_anthropic():
+        if not guard.consume_anthropic(user_key=user_key):
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": ""})
         agent_name = str(body.get("agent_name", "Scout"))[:32]
