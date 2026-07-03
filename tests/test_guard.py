@@ -200,6 +200,35 @@ class TestWorldBounds:
         # callers without explicit params would 400.
         guard.validate_world_params({})
 
+    def test_deep_and_wide_combo_rejected(self, srv):
+        # REGRESSION (P0-1): depth=11 and max_breadth=5 each pass their own
+        # field bound, but multiply into ~12M nodes. That combination used to
+        # be ACCEPTED and would OOM-kill the single beta VM (and, short of
+        # that, return a tens-of-MB JSON on every /world call). It must 400.
+        base, _ = srv
+        assert _get_status(f"{base}/world?depth=11&min_breadth=5&max_breadth=5") == 400
+        assert _get_status(f"{base}/world?depth=9&min_breadth=4&max_breadth=4") == 400
+
+    def test_full_depth_low_breadth_still_accepted(self, srv):
+        # The clamp must not break the documented full-hierarchy experience:
+        # depth=11 at breadth 1-2 is only ~2k nodes and stays allowed.
+        base, _ = srv
+        assert _get_status(f"{base}/world?depth=11&min_breadth=1&max_breadth=2") == 200
+
+    def test_unit_validate_rejects_deep_and_wide(self):
+        # Every individual field is in range; only the product is too large.
+        with pytest.raises(ValueError):
+            guard.validate_world_params(
+                {"depth": 11, "min_breadth": 5, "max_breadth": 5}
+            )
+
+    def test_unit_worst_case_node_count(self):
+        # Sanity-check the estimator the clamp relies on.
+        assert guard._worst_case_node_count(1, 5) == 1
+        assert guard._worst_case_node_count(11, 1) == 11        # breadth 1 → a path
+        assert guard._worst_case_node_count(6, 3) == 364        # server default
+        assert guard._worst_case_node_count(11, 5) > guard.MAX_TOTAL_NODES
+
 
 # ── AI kill switch ──────────────────────────────────────────────────────────
 
@@ -310,6 +339,31 @@ class TestPerUserCostCap:
         monkeypatch.setenv(guard.FAL_CAP_ENV, "1000")
         monkeypatch.setenv(guard.FAL_PER_USER_CAP_ENV, "2")
         assert [guard.consume_fal(user_key="nw_alice") for _ in range(3)] == [True, True, False]
+
+    def test_over_quota_account_does_not_drain_shared_budget(self, monkeypatch):
+        # REGRESSION (P0-2): the previous code incremented the GLOBAL counter
+        # before checking the per-user cap, so an account past its sub-cap kept
+        # burning the shared budget on every rejected attempt — draining the
+        # cohort's budget and denying fresh users, which is precisely what the
+        # sub-cap is supposed to prevent. Here Alice (per-user cap 2) makes 5
+        # attempts against a global cap of 5; her 3 rejected attempts must NOT
+        # consume the global budget, so Bob still gets served.
+        monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "5")
+        monkeypatch.setenv(guard.ANTHROPIC_PER_USER_CAP_ENV, "2")
+        alice = [guard.consume_anthropic(user_key="nw_alice") for _ in range(5)]
+        assert alice == [True, True, False, False, False]
+        # Only Alice's 2 allowed calls should have touched the global counter.
+        assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, guard._utc_day()) == 2
+        # A fresh account is unaffected by Alice's rejected attempts.
+        assert [guard.consume_anthropic(user_key="nw_bob") for _ in range(2)] == [True, True]
+
+    def test_over_quota_account_does_not_drain_shared_fal_budget(self, monkeypatch):
+        # Same cross-user protection for the fal.ai image budget.
+        monkeypatch.setenv(guard.FAL_CAP_ENV, "5")
+        monkeypatch.setenv(guard.FAL_PER_USER_CAP_ENV, "2")
+        assert [guard.consume_fal(user_key="nw_alice") for _ in range(5)] == [True, True, False, False, False]
+        assert persistence.get_cost_calls(guard.FAL_BUCKET, guard._utc_day()) == 2
+        assert [guard.consume_fal(user_key="nw_bob") for _ in range(2)] == [True, True]
 
 
 # ── Per-IP rate limiter ─────────────────────────────────────────────────────
@@ -506,11 +560,33 @@ class TestStaticAssetGate:
         assert Handler._is_public_asset("/app/assets/index-abc.js")
         assert Handler._is_public_asset("/health")
         assert Handler._is_public_asset("/explorer.js")
+        assert Handler._is_public_asset("/d3.v7.min.js")
+        assert Handler._is_public_asset("/favicon.ico")
         # Data / paid endpoints are never public.
         for p in ("/world", "/ws", "/agent", "/observe", "/puzzle",
                   "/puzzle/attempt", "/speak", "/image", "/agent/voice",
                   "/players", "/history", "/worlds"):
             assert not Handler._is_public_asset(p), p
+
+    def test_vendored_d3_served_ungated(self, srv, monkeypatch):
+        # REGRESSION (P1-2): D3 must be served same-origin and ungated so the
+        # invite default page never depends on the d3js.org CDN (a blocked /
+        # offline CDN or an SRI mismatch used to brick the whole page).
+        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+        base, _ = srv
+        req = urllib.request.Request(f"{base}/d3.v7.min.js")
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+            body = resp.read(80).decode("latin-1", "replace")
+        # It is really D3 v7 (the UMD banner), not an error page.
+        assert "d3js.org v7" in body
+
+    def test_favicon_returns_204_ungated(self, srv, monkeypatch):
+        # The browser auto-requests /favicon.ico with no key; it must not fall
+        # through to a gated 403 in every tester's console.
+        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+        base, _ = srv
+        assert _get_status(f"{base}/favicon.ico") == 204
 
 
 class TestWebSocketGate:

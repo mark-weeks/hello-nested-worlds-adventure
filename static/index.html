@@ -2,10 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Nested Worlds Adventure</title>
-  <script src="https://d3js.org/d3.v7.min.js"
-          integrity="sha384-rRoXxn2yHlrZYB587Ki9RO1tONhLdM6XfORg7Rw4uwH4/Fh/5nP7IUX91bkaKUgs"
-          crossorigin="anonymous"></script>
+  <!-- D3 is vendored and served same-origin (see static/d3.v7.min.js). It used
+       to load from d3js.org; a blocked/offline CDN or an SRI mismatch left the
+       invite default page bricked (d3 undefined → explorer.js throws at module
+       top before any wiring runs). Serving it ourselves removes that single
+       point of failure and lets the CSP drop the external script host. -->
+  <script src="/d3.v7.min.js" defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -152,6 +156,33 @@
     .egg-link  { display: block; margin-top: 18px; color: #4a8eff; font-size: 11px; text-decoration: none; letter-spacing: 1px; }
     .egg-link:hover { text-decoration: underline; }
     #close { position: absolute; top: 10px; right: 14px; background: none; border: none; color: #3a8eff; font-size: 20px; cursor: pointer; line-height: 1; }
+
+    /* ── Onboarding intro (join modal) ── */
+    .intro-goal { font-size: 11px; color: #7a9ab8; line-height: 1.6; }
+    .intro-steps { list-style: none; margin: 4px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+    .intro-steps li { font-size: 10px; color: #5a7090; line-height: 1.5; padding-left: 16px; position: relative; }
+    .intro-steps li::before { content: "→"; position: absolute; left: 0; color: #3a8eff; }
+    .intro-steps b { color: #8aaccc; font-weight: bold; }
+
+    /* ── Mobile / narrow-viewport layout ──
+       Invite URLs land testers on this page, and they open the link on phones.
+       Without this the desktop shell (fixed 300px sidebar, height:100vh,
+       overflow:hidden) renders at ~980px and shrinks to an unusable crush.
+       Below 720px we stack the graph above the sidebar and let the page scroll. */
+    @media (max-width: 720px) {
+      body { height: auto; min-height: 100vh; overflow-y: auto; }
+      header { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
+      header h1 { flex: 1 1 100%; }
+      .controls { flex: 1 1 100%; }
+      .body { flex-direction: column; overflow: visible; }
+      #graph { flex: none; height: 48vh; min-height: 300px; width: 100%; border-bottom: 1px solid #1a2038; }
+      .sidebar { flex: none; width: 100%; border-left: none; overflow: visible; }
+      #players-panel { max-height: none; }
+      .content-area { overflow: visible; }
+      .mode-panel { overflow: visible; }
+      .response-box, .observe-log { max-height: 40vh; }
+      .modal-box { min-width: 0; width: calc(100vw - 32px); max-width: 360px; padding: 24px; }
+    }
   </style>
 </head>
 <body>
@@ -167,6 +198,26 @@
       <span class="egg-code">↑↑↓↓←→←→BA</span>
     </div>
     <a class="egg-link" href="/easter-egg/illusion" target="_blank" rel="noopener">Open the Portal →</a>
+  </div>
+</div>
+
+<!-- First-run intro. Shown once to EVERY first-time visitor (tracked in
+     localStorage), before the join modal or auto-join — invited testers arrive
+     with ?name= in the URL and skip the join modal, so onboarding can't live
+     there. -->
+<div id="intro-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">Nested Worlds</div>
+    <div class="intro-goal">
+      A living multiverse of eleven nested scales — from the whole cosmos down to a
+      single particle. Descend through it, and it responds to you.
+    </div>
+    <ul class="intro-steps">
+      <li><b>Explore</b> — click a node in the map, then dive deeper into the worlds inside it.</li>
+      <li><b>Speak</b> — talk to any place and it answers in character.</li>
+      <li><b>Solve</b> — crack a node's puzzle; the ripple carries across scales.</li>
+    </ul>
+    <button id="btn-begin" class="primary">Begin exploring</button>
   </div>
 </div>
 

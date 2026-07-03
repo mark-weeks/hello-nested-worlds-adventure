@@ -169,7 +169,7 @@ class Handler(BaseHTTPRequestHandler):
         the shell can't accidentally open one up.
         """
         stripped = path.rstrip("/")
-        if stripped in ("", "/health", "/explorer.js"):
+        if stripped in ("", "/health", "/explorer.js", "/d3.v7.min.js", "/favicon.ico"):
             return True
         if stripped == "/app" or path.startswith("/app/"):
             return True
@@ -224,7 +224,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'self'; "
-                "script-src 'self' https://d3js.org; "
+                "script-src 'self'; "
                 "connect-src 'self' ws: wss:; "
                 "style-src 'self' 'unsafe-inline';",
             )
@@ -310,11 +310,26 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file(_STATIC_DIR / "explorer.js",
                             content_type="application/javascript; charset=utf-8")
 
+        elif path == "/d3.v7.min.js":
+            # Vendored D3, served same-origin so the explorer never depends on a
+            # third-party CDN (see static/index.html).
+            self._send_file(_STATIC_DIR / "d3.v7.min.js",
+                            content_type="application/javascript; charset=utf-8")
+
         elif path == "/app" or path.startswith("/app/"):
             self._serve_frontend(path)
 
         elif path == "/health":
             self._send_json({"status": "ok"})
+
+        elif path == "/favicon.ico":
+            # Browsers request this automatically; there's no icon, so answer
+            # 204 (ungated) instead of letting it fall through to a gated 403
+            # that clutters every tester's devtools console and the access log.
+            self.send_response(204)
+            self._send_security_headers()
+            self.end_headers()
+            self._resp_len = 0
 
         elif path == "/worlds":
             self._send_json(persistence.list_worlds())
