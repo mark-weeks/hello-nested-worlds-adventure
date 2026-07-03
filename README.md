@@ -91,9 +91,10 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 | CLI (`main.py`) | Functional — `world`, `agent`, `puzzles`, `play`, `serve`, `speak`, `history` |
 | Node consciousness (`consciousness/`) | Functional — Claude-powered node voices, per-scale character registers (`LEVEL_VOICES`) for all 11 levels, fed by per-node interaction history; agent voicing via `voice_agent()` (requires `ANTHROPIC_API_KEY`) |
 | Interface (`interface/`) | Functional — interactive terminal session (spatial, conversational, ambient) |
-| Frontend (`frontend/`) | Functional — React + PixiJS + Vite client wired to the WebSocket server; fal.ai-generated scene backgrounds; named player markers (color hashed by name); animated causal ripples / encounter glyphs / puzzle-solve sparkles overlaid on the current scene |
-| Beta hardening (`server/guard.py`, `server/observability.py`) | Functional — shared invite key OR per-user invite keys (`invite_keys` table; mint/list/revoke via `python main.py invite ...`), per-IP rate limiter, Anthropic concurrency semaphore (env-tunable), daily Anthropic + fal.ai cost caps (persisted), kill switches for AI / images, world-gen parameter bounds, optional Sentry, JSON access log, online SQLite backup CLI |
-| Tests | 316 tests across generator, agents, puzzles, persistence (incl. invite keys), causality, interface, consciousness, HTTP/WebSocket server, beta guards (incl. per-user keys), and observability |
+| Frontend (`frontend/`) | Functional — React + PixiJS + Vite client wired to the WebSocket server; node conversation (`/speak`) and puzzle play (`/puzzle`) panels; fal.ai-generated scene backgrounds; named player markers (color hashed by name); animated causal ripples / encounter glyphs / puzzle-solve sparkles overlaid on the current scene. Scene init degrades gracefully (no white-screen) when WebGL is unavailable |
+| Beta hardening (`server/guard.py`, `server/observability.py`) | Functional — shared invite key OR per-user invite keys (`invite_keys` table; mint/list/revoke via `python main.py invite ...`), per-IP rate limiter, Anthropic concurrency semaphore (env-tunable), daily Anthropic + fal.ai cost caps — both a global cap and a per-user (per-credential) sub-cap so one account can't drain the shared budget (all persisted), kill switches for AI / images, world-gen parameter bounds, optional Sentry, JSON access log, online SQLite backup CLI |
+| Frontends: which is which | Two browser clients. `/` (vanilla-D3 explorer) and `/app` (React+PixiJS) are **both** feature-complete for the core loop — navigate, speak to nodes, solve puzzles, observe, live multiplayer. Invite URLs land testers on `/` by default because it has no WebGL dependency and works on any device first-click; `/app` is the richer immersive view. |
+| Tests | 349 tests across generator, agents, puzzles, persistence (incl. invite keys), causality, interface, consciousness, HTTP/WebSocket server, beta guards (incl. per-user keys + per-user cost caps), Fly deploy config, frontend↔endpoint contract, and observability |
 
 ---
 
@@ -118,7 +119,9 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_MODEL` | Override the Claude model | `claude-opus-4-7` |
 | `FAL_KEY` | AI-generated scene backgrounds (`fal-ai/fast-sdxl`) | optional |
 | `NESTED_WORLDS_BETA_KEY` | Hosted beta: shared invite gate. When set, every HTTP and WebSocket request needs `?key=...` or `X-Beta-Key`. Coexists with the per-user `invite_keys` table — either credential authorizes. Leave unset (and mint no per-user keys) for local dev. | unset |
-| `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` | Hosted beta: cap Anthropic calls per UTC day; once exceeded, `/speak` and `/agent/voice` return a fallback string instead of calling the API. | `500` |
+| `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` | Hosted beta: global cap on Anthropic calls per UTC day; once exceeded, `/speak` and `/agent/voice` return a fallback string instead of calling the API. | `500` |
+| `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` | Hosted beta: per-credential daily Anthropic cap, so no single tester can consume the whole global budget and degrade the cohort. Enforced only when a request carries an invite credential. | `150` |
+| `NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER` | Hosted beta: per-credential daily fal.ai image cap. | `60` |
 | `NESTED_WORLDS_ANTHROPIC_CONCURRENCY` | Hosted beta: max in-flight Anthropic calls per process. Bounds instantaneous concurrency so a synchronized burst can't trip the org-level RPM. | `8` |
 | `NESTED_WORLDS_FAL_DAILY_CALLS` | Hosted beta: cap fal.ai image calls per UTC day. | `200` |
 | `NESTED_WORLDS_RATE_LIMIT_PER_MIN` | Hosted beta: per-IP requests/minute on `/speak`, `/agent/voice`, `/image`, `/puzzle/attempt`. | `20` |

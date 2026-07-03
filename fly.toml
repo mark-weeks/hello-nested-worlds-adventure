@@ -1,0 +1,50 @@
+# Fly.io deployment for the Nested Worlds Adventure closed beta.
+# Single machine, single region, SQLite on one persistent volume.
+# See docs/infrastructure/fly-deployment.md for the runbook.
+#
+# SECURITY NOTE — NESTED_WORLDS_TRUST_PROXY=1 makes the per-IP rate limiter
+# read the client IP from the Fly-Client-IP header. This is safe ONLY because
+# Fly's edge overwrites that header with the true client IP, so it cannot be
+# spoofed. Do NOT set TRUST_PROXY=1 on any deployment where the app is
+# reachable without passing through a proxy that overwrites Fly-Client-IP —
+# a client could otherwise mint a fresh rate-limit bucket per request.
+
+app = "nested-worlds-beta"          # change to your unique app name
+primary_region = "iad"              # pick the region closest to your testers
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  HOME = "/data"
+  NESTED_WORLDS_TRUST_PROXY = "1"          # safe only behind Fly's edge (see note above)
+  NESTED_WORLDS_MAX_WS_CONNECTIONS = "96"  # under the proxy hard_limit; headroom on 1GB
+  SENTRY_ENVIRONMENT = "beta"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false        # keep in-memory rooms / rate limiter alive
+  min_machines_running = 1          # never suspend: persistent WS + in-memory state
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"            # WS sessions are long-lived connections
+    soft_limit = 120
+    hard_limit = 150                # leave margin above the app's WS cap (96)
+
+  [http_service.checks.health]
+    type = "http"
+    method = "GET"
+    path = "/health"                # cheap, gate-exempt, never calls the LLM
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[mounts]
+  source = "nested_worlds_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1024mb"                 # headroom for thread-per-connection + in-flight LLM
