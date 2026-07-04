@@ -104,6 +104,11 @@
     textarea { background: #10131f; border: 1px solid #222840; color: #b0bcd0; padding: 8px; font-family: inherit; font-size: 11px; resize: none; height: 60px; line-height: 1.5; }
     textarea:focus { outline: 1px solid #3a8eff; }
 
+    #speak-presences { display: flex; gap: 4px; flex-wrap: wrap; }
+    #speak-presences:empty { display: none; }
+    .presence-btn { background: #0b0f1a; border: 1px solid #1e2235; color: #5a6a90; padding: 2px 8px; cursor: pointer; font-family: inherit; font-size: 10px; text-transform: none; letter-spacing: 0; }
+    .presence-btn.active { border-color: #4af0c8; color: #4af0c8; background: #10131f; }
+
     .response-box { flex: 1; overflow-y: auto; font-size: 12px; line-height: 1.7; color: #7a9ab8; font-style: italic; white-space: pre-wrap; }
     .response-box.error { color: #883333; font-style: normal; }
     .response-box.dim   { color: #2a4060; }
@@ -282,6 +287,7 @@
 
       <!-- Speak -->
       <div class="mode-panel active" id="panel-speak">
+        <div id="speak-presences"></div>
         <textarea id="message" placeholder="What do you want to say?">Describe yourself to a traveler who has just arrived.</textarea>
         <button id="btn-do-speak">Speak to Node</button>
         <div class="response-box" id="speak-response"></div>

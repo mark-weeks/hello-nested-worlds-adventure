@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Interact from "./Interact.jsx";
+import { passageBadges } from "../badges.js";
 
 export default function TextPanel({ node, players, connected, events, seed, depth, playerName, onLoadWorld, onChat }) {
   const [seedInput, setSeedInput] = useState(String(seed));
@@ -69,6 +70,9 @@ export default function TextPanel({ node, players, connected, events, seed, dept
           {node.children.map(c => (
             <div key={c.id} style={s.passage}>
               → {c.name} <span style={s.passageLevel}>({c.level})</span>
+              {passageBadges(c).map(b => (
+                <span key={b.key} style={{ ...s.badge, color: b.css, borderColor: b.css + "55" }}>{b.label}</span>
+              ))}
             </div>
           ))}
         </div>
@@ -138,6 +142,7 @@ const s = {
   propVal:     { color: "#9aaac8", textAlign: "right", wordBreak: "break-all" },
   passage:     { fontSize: "12px", color: "#7888b0" },
   passageLevel:{ color: "#4a5580" },
+  badge:       { fontSize: "9px", border: "1px solid", borderRadius: "3px", padding: "0 4px", marginLeft: "5px", letterSpacing: "0.06em", whiteSpace: "nowrap" },
   player:      { fontSize: "12px", color: "#4af0c8" },
   row:         { display: "flex", gap: "6px", flexShrink: 0 },
   seedInput:   { flex: 1, background: "#10131f", border: "1px solid #2a3050", color: "#b0bcd0", padding: "4px 6px", fontFamily: "inherit", fontSize: "12px", minWidth: 0 },

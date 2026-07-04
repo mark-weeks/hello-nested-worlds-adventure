@@ -155,6 +155,19 @@ async function loadWorld() {
   }
 }
 
+// The single most salient trait of a node, as a marker color — or null for
+// unremarkable places. Priority order and colors mirror the React client's
+// passageBadges (frontend/src/badges.js).
+function nodeMark(data) {
+  const p = data.properties || {};
+  if (typeof p.danger_level === 'number' && p.danger_level >= 7) return '#f05a5a';
+  if (p.condition === 'corrupted') return '#c88af0';
+  if (p.disturbed) return '#ff8a4a';
+  if (p.stabilized) return '#4af0c8';
+  if ((data.ripple_score || 0) >= 0.3) return '#a078ff';
+  return null;
+}
+
 function renderTree(worldRoot) {
   root_g.selectAll('*').remove();
   nodeG   = null;
@@ -184,6 +197,20 @@ function renderTree(worldRoot) {
     .attr('fill-opacity', 0.8)
     .attr('stroke',       d => LEVEL_COLORS[d.data.level] || '#666')
     .attr('stroke-opacity', 0.5);
+
+  // Affordance rings: places worth a detour — danger, corruption, unrest,
+  // stabilization, accumulated causal pressure — carry a persistent colored
+  // ring, so the map itself shows where the world has been lived in.
+  // (Mirrors frontend/src/badges.js; parity is covered by the JS tests.)
+  nodeG.filter(d => nodeMark(d.data) !== null)
+    .append('circle')
+    .attr('class',        'affordance-ring')
+    .attr('r',            d => (LEVEL_R[d.data.level] || 7) + 4)
+    .attr('fill',         'none')
+    .attr('stroke',       d => nodeMark(d.data))
+    .attr('stroke-width', 1.2)
+    .attr('stroke-opacity', 0.85)
+    .attr('pointer-events', 'none');
 
   nodeG.append('text')
     .attr('dy',               d => d.children ? '-14px' : '0')
@@ -284,6 +311,7 @@ function selectNode(data) {
   document.getElementById('speak-response').className = 'response-box';
   document.getElementById('observe-rows').innerHTML = '';
   document.getElementById('puzzle-content').innerHTML = '';
+  loadPresences(data.name);
   puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
   if (observeES) { observeES.close(); observeES = null; }
 
@@ -292,6 +320,55 @@ function selectNode(data) {
   localStorage.setItem(LAST_NODE_KEY, data.name);
   savePositionToServer(data.name);
   wsSend({ type: 'move', node: data.name });
+}
+
+// ── Addressable presences ───────────────────────────────────────────────────
+// Agents whose traces sit in the selected node's history can be spoken to —
+// "the Tessera who passed through here" — via /agent/voice, which grounds
+// the reply in that agent's own persisted memory of this world.
+
+let speakTarget = null;  // null = the node itself; otherwise an agent name
+
+function _setSpeakTarget(name) {
+  speakTarget = name;
+  document.querySelectorAll('#speak-presences .presence-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.target === (name || ''));
+  });
+  document.getElementById('btn-do-speak').textContent =
+    name ? `Speak to ${name}` : 'Speak to Node';
+}
+
+async function loadPresences(nodeName) {
+  const el = document.getElementById('speak-presences');
+  el.innerHTML = '';
+  speakTarget = null;
+  document.getElementById('btn-do-speak').textContent = 'Speak to Node';
+  try {
+    const res = await fetch(withKey(
+      `/history?seed=${worldParams.seed}&node_name=${encodeURIComponent(nodeName)}`));
+    if (!res.ok) return;
+    const { mutations } = await res.json();
+    const seen = new Map();
+    for (const m of mutations || []) {
+      const a = m.data && m.data.agent;
+      if (a && !seen.has(a)) seen.set(a, (m.data && m.data.persona) || '');
+    }
+    if (!seen.size) return;
+    const mk = (label, target) => {
+      const btn = document.createElement('button');
+      btn.className = 'presence-btn' + (target ? '' : ' active');
+      btn.dataset.target = target || '';
+      btn.textContent = label;
+      btn.addEventListener('click', () => _setSpeakTarget(target));
+      el.appendChild(btn);
+    };
+    mk('the place', null);
+    let shown = 0;
+    for (const [name, persona] of seen) {
+      if (shown++ >= 4) break;
+      mk(persona ? `${name} · ${persona}` : name, name);
+    }
+  } catch (_) { /* presences are a garnish */ }
 }
 
 async function speak() {
@@ -303,12 +380,15 @@ async function speak() {
   box.className = 'response-box dim';
   setStatus('Awaiting response…');
   try {
-    const res  = await fetch(withKey('/speak'), {
+    const addressingAgent = !!speakTarget;
+    const res  = await fetch(withKey(addressingAgent ? '/agent/voice' : '/speak'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ node_name: selected.name, node_level: selected.level,
-                             node_properties: selected.properties || {}, message,
-                             seed: worldParams.seed, player_name: playerName }),
+      body: JSON.stringify(addressingAgent
+        ? { agent_name: speakTarget, node_name: selected.name, message,
+            seed: worldParams.seed }
+        : { node_name: selected.name, message,
+            seed: worldParams.seed, player_name: playerName }),
     });
     const data = await res.json();
     box.textContent = data.error || data.response;

@@ -6,7 +6,7 @@ import pytest
 from server.rooms import (
     Player, PuzzleSession, Room, _rooms, _rooms_lock,
     agent_enter, agent_leave, agent_move,
-    broadcast, get_puzzle_session, get_room,
+    broadcast, clear_rooms, get_puzzle_session, get_room,
     record_attempt, reset_puzzle_session, snapshot,
 )
 
@@ -227,3 +227,61 @@ class TestPuzzleSession:
         sess = get_puzzle_session(room, "V", "P")
         assert sess.attempts == 0
         assert sess.contributors == set()
+
+
+class TestSolvedStateSurvivesRestart:
+    """Co-op session state is per-process RAM, but a solve is a durable fact:
+    a fresh room (deploy/restart) must rehydrate solver + contributors from
+    the persisted PUZZLE_SOLVED mutation instead of resetting the puzzle."""
+
+    def test_session_rehydrates_from_persisted_solve(self):
+        import persistence
+        persistence.record_mutation(
+            42, "Vault-11", "PUZZLE_SOLVED", "Ada",
+            {"puzzle": "The Lock", "contributors": ["Ada", "Bob"]})
+
+        clear_rooms()  # simulate a process restart
+        room = get_room(42)
+        session, just_solved = record_attempt(
+            room, "Vault-11", "The Lock", "Mallory", correct=True)
+        assert just_solved is False, "puzzle was already solved before restart"
+        assert session.solver == "Ada"
+        assert {"Ada", "Bob"} <= session.contributors
+
+    def test_agent_solves_do_not_lock_players_out(self):
+        import persistence
+        persistence.record_mutation(
+            42, "Vault-11", "PUZZLE_SOLVED", None,
+            {"puzzle": "The Lock", "agent": "Tessera", "persona": "scholar"})
+
+        clear_rooms()
+        room = get_room(42)
+        session, just_solved = record_attempt(
+            room, "Vault-11", "The Lock", "Ada", correct=True)
+        assert just_solved is True, "an ambient agent's solve must not claim the co-op session"
+        assert session.solver == "Ada"
+
+    def test_anonymous_human_solve_rehydrates(self):
+        import persistence
+        persistence.record_mutation(
+            42, "Vault-11", "PUZZLE_SOLVED", None,
+            {"puzzle": "The Lock", "contributors": []})
+
+        clear_rooms()
+        room = get_room(42)
+        session, just_solved = record_attempt(
+            room, "Vault-11", "The Lock", "Ada", correct=True)
+        assert just_solved is False
+        assert session.solver == "anonymous"
+
+    def test_different_puzzle_name_is_not_rehydrated(self):
+        import persistence
+        persistence.record_mutation(
+            42, "Vault-11", "PUZZLE_SOLVED", "Ada", {"puzzle": "Old Puzzle"})
+
+        clear_rooms()
+        room = get_room(42)
+        session, just_solved = record_attempt(
+            room, "Vault-11", "New Puzzle", "Bob", correct=True)
+        assert just_solved is True
+        assert session.solver == "Bob"

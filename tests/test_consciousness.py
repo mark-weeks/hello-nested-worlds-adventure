@@ -242,3 +242,33 @@ class TestAgentBibleStructure:
             assert level in consciousness._AGENT_BIBLE, (
                 f"{level} missing from AGENT_BIBLE"
             )
+
+
+class TestBibleCacheEffectiveness:
+    def test_cached_prefixes_exceed_the_opus_minimum(self):
+        # The bibles were enriched (per-level lore, craft sections, style
+        # rules) specifically to clear the real 4096-token Opus minimum, so
+        # the long-standing cache_control no-op finally fires. Guard it:
+        # shrinking either bible back below the minimum silently forfeits
+        # the ~10x cache-read discount on every call.
+        assert consciousness.cached_prefix_meets_minimum(), (
+            "a cached bible fell below the model's minimum cacheable "
+            "length — prompt caching is silently OFF again"
+        )
+
+    def test_world_bible_carries_lore_for_every_level(self):
+        for level in consciousness.LEVEL_LORE:
+            assert consciousness.LEVEL_LORE[level] in consciousness._WORLD_BIBLE
+            assert consciousness.LEVEL_LORE[level] in consciousness._AGENT_BIBLE
+
+    def test_bibles_teach_the_effect_properties(self):
+        for marker in ("stabilized", "disturbed", "corrupted", "fractured"):
+            assert marker in consciousness._WORLD_BIBLE
+
+    def test_bibles_know_the_wanderer_cast(self):
+        for name in consciousness.WANDERER_CAST:
+            assert name in consciousness._WORLD_BIBLE
+            assert name in consciousness._AGENT_BIBLE
+
+    def test_puzzle_answers_are_protected_by_instruction(self):
+        assert "NEVER reveal" in consciousness._WORLD_BIBLE

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import pytest
@@ -162,12 +163,28 @@ class TestNodeMemoryContent:
     def test_player_exchanges_round_trip(self):
         persistence.record_mutation(
             5, "Vault-11", "PLAYER_SPEAK", "Ada",
-            {"message": "hello", "reply": "hush"})
+            {"message": "hello", "reply": "hush", "identity": "Ada"})
         persistence.record_mutation(
             5, "Vault-11", "PLAYER_SPEAK", "Bob",
-            {"message": "other player"})
+            {"message": "other player", "identity": "Bob"})
         exchanges = persistence.get_player_exchanges(5, "Vault-11", "Ada")
         assert exchanges == [{"user": "hello", "assistant": "hush"}]
+
+    def test_transcripts_key_on_credential_not_display_name(self):
+        # Two players who both call themselves "Ada" must not share a
+        # memory: the conversation identity is the hashed invite key when
+        # one was presented, so same-name strangers stay strangers and a
+        # rename doesn't orphan a transcript.
+        persistence.record_mutation(
+            5, "Vault-11", "PLAYER_SPEAK", "Ada",
+            {"message": "first ada", "identity": "cred-aaaa"})
+        persistence.record_mutation(
+            5, "Vault-11", "PLAYER_SPEAK", "Ada",
+            {"message": "second ada", "identity": "cred-bbbb"})
+        a = persistence.get_player_exchanges(5, "Vault-11", "cred-aaaa")
+        b = persistence.get_player_exchanges(5, "Vault-11", "cred-bbbb")
+        assert [e["user"] for e in a] == ["first ada"]
+        assert [e["user"] for e in b] == ["second ada"]
 
     def test_transcript_becomes_multi_turn_messages(self):
         captured = {}
@@ -227,3 +244,84 @@ class TestNodeMemoryContent:
         dynamic = captured["system"][1]["text"]
         assert "0.72" in dynamic
         assert "pressure" in dynamic.lower()
+
+
+class TestAgentAddressability:
+    """Addressing 'the agent whose traces are here' must reach an agent that
+    remembers being here — its persisted memory grounds the voice prompt."""
+
+    def test_history_endpoint_supports_node_scope(self, srv):
+        real = generate_node_hierarchy(seed=42, max_depth=1)
+        persistence.record_mutation(
+            42, real.name, "AGENT_VISIT", None,
+            {"agent": "Tessera", "persona": "scholar"})
+        persistence.record_mutation(
+            42, "Elsewhere-12", "AGENT_VISIT", None, {"agent": "Vex"})
+        with urllib.request.urlopen(
+                f"{srv}/history?seed=42&node_name={urllib.parse.quote(real.name)}") as resp:
+            data = json.loads(resp.read())
+        agents = {m["data"].get("agent") for m in data["mutations"]}
+        assert "Tessera" in agents
+        assert "Vex" not in agents, "node-scoped history leaked other nodes"
+        assert all(m["node"] == real.name for m in data["mutations"])
+
+    def test_agent_voice_carries_the_agents_own_memory(self, srv, monkeypatch):
+        real = generate_node_hierarchy(seed=42, max_depth=1)
+        persistence.save_agent_memory(
+            "Tessera", 42, [real.name, "Vault-11"],
+            [{"node": real.name, "action": "explored"}])
+
+        captured = {}
+
+        def fake_voice_agent(persona, agent_name, node, message,
+                             history=None, agent_memory=None):
+            captured.update(agent=agent_name, memory=agent_memory,
+                            history=history)
+            return "…"
+
+        monkeypatch.setattr(consciousness, "voice_agent", fake_voice_agent)
+        _post(f"{srv}/agent/voice",
+              {"agent_name": "Tessera", "node_name": real.name,
+               "seed": 42, "message": "you were here?"})
+        assert captured["agent"] == "Tessera"
+        assert captured["memory"] is not None
+        assert real.name in captured["memory"]["visited_ids"]
+
+    def test_memory_block_marks_returning_presence(self):
+        from multiverse.node import SpatialNode
+        node = SpatialNode("Vault-11", "Room", properties={})
+        block = consciousness._agent_memory_block(
+            {"visited_ids": ["Vault-11", "Other-12"],
+             "log_entries": [{"node": "Other-12", "action": "explored"}]},
+            node)
+        assert "stood at Vault-11 before" in block
+        assert "Other-12 — explored" in block
+        assert "2 place(s)" in block
+
+    def test_memory_block_for_stranger(self):
+        from multiverse.node import SpatialNode
+        node = SpatialNode("Vault-11", "Room", properties={})
+        assert "no memories" in consciousness._agent_memory_block(None, node)
+
+
+class TestTranscriptIdentityOverHTTP:
+    def test_same_credential_shares_transcript_across_renames(self, srv, monkeypatch):
+        import server.guard as guard_mod
+        monkeypatch.setenv(guard_mod.BETA_KEY_ENV, "sharedkey")
+        real = generate_node_hierarchy(seed=42, max_depth=1)
+        seen = {}
+
+        def fake_speak(node, message, history=None, transcript=None,
+                       ripple_score=0.0):
+            seen["transcript"] = list(transcript or [])
+            return "reply"
+
+        monkeypatch.setattr(consciousness, "speak", fake_speak)
+        _post(f"{srv}/speak?key=sharedkey",
+              {"node_name": real.name, "seed": 42,
+               "message": "as ada", "player_name": "Ada"})
+        # Same credential, different display name → same conversation.
+        _post(f"{srv}/speak?key=sharedkey",
+              {"node_name": real.name, "seed": 42,
+               "message": "as bob now", "player_name": "Bob"})
+        assert [t["user"] for t in seen["transcript"]] == ["as ada"]

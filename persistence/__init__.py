@@ -34,8 +34,9 @@ _TTL_ENV_VAR = "NESTED_WORLDS_MUTATION_TTL_DAYS"
 #
 # Not yet abstracted (deliberate — kept as-is to avoid churn before the
 # switchover triggers; translation is mechanical at port time):
-#   * `INSERT OR REPLACE INTO worlds ...`       — save_world
 #   * `INSERT OR REPLACE INTO node_images ...`  — cache_image
+#   * `json_patch(...)`   — upsert_node_properties (PG: `properties || ?`)
+#   * `json_extract(...)` — get_player_exchanges (PG: `data->>'identity'`)
 #   * `_SCHEMA_VERSION_DDL` `DEFAULT (datetime('now'))` — per-backend DDL
 #   * `migrations/*.sql` — schema files are per-backend; a Postgres port
 #     ships as `migrations/postgres/*.sql` selected by the runner.
@@ -201,6 +202,38 @@ def save_puzzle_result(world_seed: int, puzzle_name: str, result: str, attempts:
 
 
 @_with_db
+def get_puzzle_solve(world_seed: int, node_name: str,
+                     puzzle_name: str) -> dict[str, Any] | None:
+    """The most recent HUMAN solve of `puzzle_name` at `node_name`, or None.
+
+    Used to rehydrate a room's in-memory co-op PuzzleSession after a process
+    restart, so a solved puzzle stays solved instead of resetting against a
+    history that says otherwise. Agent solves (payload carries "agent") are
+    excluded — ambient wanderers must not lock puzzles away from players.
+    Returns {"solver": name-or-"anonymous", "contributors": [...]}.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT player_name, data FROM world_mutations
+               WHERE world_seed = ? AND node_name = ?
+                 AND mutation_type = 'PUZZLE_SOLVED'
+               ORDER BY recorded_at DESC, id DESC LIMIT 20""",
+            (world_seed, node_name),
+        ).fetchall()
+    for player_name, blob in rows:
+        data = json.loads(blob) if blob else {}
+        if data.get("agent"):
+            continue  # ambient agent solve — not co-op session state
+        if data.get("puzzle") != puzzle_name:
+            continue
+        return {
+            "solver": player_name or "anonymous",
+            "contributors": data.get("contributors") or [],
+        }
+    return None
+
+
+@_with_db
 def get_puzzle_results(world_seed: int, limit: int = 20) -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
@@ -238,24 +271,31 @@ def get_node_history(world_seed: int, node_name: str, limit: int = 10) -> list[d
 
 
 @_with_db
-def get_player_exchanges(world_seed: int, node_name: str, player_name: str,
+def get_player_exchanges(world_seed: int, node_name: str, identity: str,
                          limit: int = 3) -> list[dict[str, Any]]:
-    """The most recent PLAYER_SPEAK exchanges between `player_name` and this
-    node, oldest first — the per-(node, player) conversation transcript that
+    """The most recent PLAYER_SPEAK exchanges between one speaker and this
+    node, oldest first — the per-(node, speaker) conversation transcript that
     lets the second conversation know the first one happened.
+
+    `identity` is the speaker's durable conversation key: a hash of their
+    per-user invite credential when one was presented, else their display
+    name. Keying on the credential means two players who both call
+    themselves "Ada" do not share a memory, and renaming yourself does not
+    orphan yours. (SQLite-ism: json_extract — see the dialect seam note.)
 
     Each entry is {"user": <what they said>, "assistant": <what the node
     answered, if recorded>}.
     """
-    if not player_name:
+    if not identity:
         return []
     with _connect() as conn:
         rows = conn.execute(
             """SELECT data FROM world_mutations
-               WHERE world_seed = ? AND node_name = ? AND player_name = ?
+               WHERE world_seed = ? AND node_name = ?
                  AND mutation_type = 'PLAYER_SPEAK'
+                 AND json_extract(data, '$.identity') = ?
                ORDER BY recorded_at DESC, id DESC LIMIT ?""",
-            (world_seed, node_name, player_name, limit),
+            (world_seed, node_name, identity, limit),
         ).fetchall()
     out: list[dict[str, Any]] = []
     for (blob,) in reversed(rows):

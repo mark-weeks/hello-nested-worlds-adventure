@@ -233,3 +233,30 @@ class TestPuzzleMode:
         mutations = persistence.get_mutations(31)
         assert any(m["type"] == "PUZZLE_SOLVED" for m in mutations)
         assert persistence.get_ripple_score(31, "Vault-1") > 0
+
+
+class TestPassageTags:
+    def test_meaningful_traits_are_tagged(self, capsys):
+        from interface import _passage_tags
+        danger = SpatialNode("D", "Region", properties={"danger_level": 8})
+        calm = SpatialNode("C", "Region",
+                           properties={"danger_level": 2, "stabilized": True})
+        hot = SpatialNode("H", "Room", properties={})
+        hot.ripple_score = 0.5
+        assert "danger 8" in _passage_tags(danger)
+        assert "stabilized" in _passage_tags(calm)
+        assert "≈ pressure" in _passage_tags(hot)
+
+    def test_ubiquitous_traits_are_not_tagged(self):
+        from interface import _passage_tags
+        node = SpatialNode("N", "Room",
+                           properties={"has_puzzle": True, "exits": 2})
+        assert _passage_tags(node) == []
+
+    def test_look_renders_tags_on_children(self, capsys):
+        root = SpatialNode("Root", "Planet", properties={"biome": "ocean"})
+        root.add_child(SpatialNode("Hot", "Region",
+                                   properties={"danger_level": 9}))
+        _print_look(root)
+        out = capsys.readouterr().out
+        assert "danger 9" in out
