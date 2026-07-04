@@ -1,12 +1,16 @@
-# Nested Worlds Adventure
+# Enfolded: Nested World Adventure
 
 **A shared persistent multiverse inhabited simultaneously by human players and AI agents.**
+
+*The title "Enfolded" derives from David Bohm's [implicate order](https://en.wikipedia.org/wiki/Implicate_and_explicate_order) — the idea that every part of the universe enfolds the whole, and what we perceive as separate objects are unfolded projections of a deeper connected reality. This game is a playable version of that idea.*
+
+[enfolded.world](https://enfolded.world)
 
 ---
 
 ## Concept
 
-Nested Worlds Adventure is an environment where the boundary between player, agent, and world is deliberately blurred.
+Enfolded is an environment where the boundary between player, agent, and world is deliberately blurred.
 
 The multiverse is always running. You enter and find it already in motion — other humans and AI agents traversing different scales, each leaving traces the world carries forward. You may never encounter another player directly, but you will feel the consequences of their presence through cross-scale causality: a destabilized atom cascading into a volatile region, a solved puzzle stabilizing a galaxy, an agent's curiosity reshaping a planet's danger over time.
 
@@ -195,4 +199,4 @@ MIT
 
 ## Author
 
-**Mark Weeks** — [markweeks.dev](https://markweeks.dev) · [multilogue.io](https://multilogue.io)
+**Mark Weeks** — [markweeks.dev](https://markweeks.dev) · [multilogue.io](https://multilogue.io) · [enfolded.world](https://enfolded.world)

@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nested-worlds-adventure"
+name = "enfolded"
 version = "0.1.0"
-description = "Nested Worlds Adventure: a shared persistent multiverse inhabited by human players and AI agents"
+description = "Enfolded: Nested World Adventure — a shared persistent multiverse inhabited by human players and AI agents"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.40.0",
