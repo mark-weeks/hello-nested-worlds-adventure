@@ -487,6 +487,52 @@ def list_invite_keys(include_revoked: bool = False) -> list[dict[str, Any]]:
 
 
 @_with_db
+def save_player_position(key: str, node_name: str, seed: int, depth: int,
+                         min_breadth: int, max_breadth: int) -> bool:
+    """Record where an invite-key holder left off, for cross-device resume.
+
+    Keyed on the per-user invite key, so this only persists for a real per-user
+    credential — the UPDATE affects zero rows (returns False) for the shared env
+    key, an unknown key, or a revoked one, and the client keeps using its local
+    cache. Best-effort: callers fire-and-forget on navigation.
+    """
+    if not key:
+        return False
+    with _connect() as conn:
+        cur = conn.execute(
+            f"""UPDATE invite_keys
+                SET last_node = ?, last_seed = ?, last_depth = ?,
+                    last_min_breadth = ?, last_max_breadth = ?, last_node_at = {_NOW}
+                WHERE key = ? AND revoked_at IS NULL""",
+            (node_name, seed, depth, min_breadth, max_breadth, key),
+        )
+        return cur.rowcount > 0
+
+
+@_with_db
+def get_player_position(key: str) -> dict[str, Any] | None:
+    """Return the invite-key holder's saved position, or None if none is stored
+    (or the key isn't an active per-user key)."""
+    if not key:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT last_node, last_seed, last_depth, last_min_breadth, last_max_breadth
+               FROM invite_keys WHERE key = ? AND revoked_at IS NULL""",
+            (key,),
+        ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    return {
+        "node":        row[0],
+        "seed":        row[1],
+        "depth":       row[2],
+        "min_breadth": row[3],
+        "max_breadth": row[4],
+    }
+
+
+@_with_db
 def checkpoint() -> None:
     """Flush the WAL back into the main DB file.
 

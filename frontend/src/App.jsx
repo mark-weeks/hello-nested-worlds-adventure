@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import SceneView from "./components/SceneView.jsx";
 import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
-import { withKey, urlName } from "./auth.js";
+import { withKey, urlName, betaKey } from "./auth.js";
 import { entryPath } from "./entry.js";
 
 const DEFAULT_SEED  = 42;
@@ -12,6 +12,39 @@ const MAX_TRANSIENTS = 12;
 const NAME_KEY      = "nw_player_name";
 const LAST_NODE_KEY = "nw_last_node";   // resume: the node the player last stood on
 const LAST_SEED_KEY = "nw_last_seed";   // resume: the world it belonged to
+
+// ── Cross-device resume ─────────────────────────────────────────────────────
+// localStorage remembers the last node per browser; the server remembers it per
+// invite key, so the position follows the player across devices. On mount we
+// pull the server copy (if this browser carries a per-user key) into
+// localStorage before the first load; on every move we mirror it back. No key /
+// no server row → the local cache stands.
+async function hydratePositionFromServer() {
+  if (!betaKey()) return null;
+  try {
+    const res = await fetch(withKey("/position"));
+    if (!res.ok) return null;
+    const { position } = await res.json();
+    if (!position || !position.node) return null;
+    localStorage.setItem(LAST_NODE_KEY, position.node);
+    const s = Number.isFinite(position.seed) ? position.seed : null;
+    if (s != null) localStorage.setItem(LAST_SEED_KEY, String(s));
+    return s;                       // seed to load, so the saved node exists in it
+  } catch (_) {
+    return null;                    // offline / gate off — keep the local cache
+  }
+}
+
+function savePositionToServer(node, seed) {
+  if (!betaKey() || !node) return;
+  try {
+    fetch(withKey("/position"), {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ node, seed, depth: WORLD_DEPTH }),
+    }).catch(() => {});             // fire-and-forget; localStorage is the backstop
+  } catch (_) {}
+}
 
 export default function App() {
   const [seed, setSeed]           = useState(() => {
@@ -108,8 +141,19 @@ export default function App() {
     },
   });
 
-  // Mount once with the restored seed (or default for a first-time player).
-  useEffect(() => { loadWorld(seed); }, [loadWorld]);  // eslint-disable-line react-hooks/exhaustive-deps
+  // Mount once. First pull any server-side (cross-device) resume into
+  // localStorage, then load — so the position follows the player across devices,
+  // falling back to this browser's cache when there's no server row.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const s = await hydratePositionFromServer();
+      if (cancelled) return;
+      if (s != null && s !== seed) setSeed(s);
+      loadWorld(s != null ? s : seed);
+    })();
+    return () => { cancelled = true; };
+  }, [loadWorld]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Broadcast our position whenever it changes or we (re)connect, so other
   // players see us where we actually are — including the initial drop-in /
@@ -118,10 +162,15 @@ export default function App() {
     if (connected && currentNodeName) sendMessage({ type: "move", node: currentNodeName });
   }, [connected, currentNodeName, sendMessage]);
 
-  // Persist the current node so a returning player resumes here next session.
+  // Persist the current node so a returning player resumes here next session —
+  // locally for this browser, and on the server so it follows them to other
+  // devices.
   useEffect(() => {
-    if (currentNodeName) localStorage.setItem(LAST_NODE_KEY, currentNodeName);
-  }, [currentNodeName]);
+    if (currentNodeName) {
+      localStorage.setItem(LAST_NODE_KEY, currentNodeName);
+      savePositionToServer(currentNodeName, seed);
+    }
+  }, [currentNodeName, seed]);
 
   // Drop all transients when the player navigates — a leftover ripple from
   // the previous node is meaningless in the new scene.

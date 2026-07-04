@@ -76,6 +76,41 @@ function resolveEntryNode(root) {
   return dropInNode(root, playerName); // first-time drop-in (or saved world gone)
 }
 
+// ── Cross-device resume ─────────────────────────────────────────────────────
+// localStorage remembers the last node per browser; the server remembers it per
+// invite key, so the position follows the player across devices. On boot we pull
+// the server copy (if this browser carries a per-user key) into localStorage so
+// the existing resume path uses it; on every move we mirror the new position
+// back. Shared-key / no-key sessions have no server row — the fetch returns null
+// and we silently keep the local cache.
+async function hydrateFromServer() {
+  if (!betaKey()) return;
+  try {
+    const res = await fetch(withKey('/position'));
+    if (!res.ok) return;
+    const { position } = await res.json();
+    if (!position || !position.node) return;
+    localStorage.setItem(LAST_NODE_KEY, position.node);
+    localStorage.setItem(LAST_WORLD_KEY, JSON.stringify({
+      seed:  position.seed,        depth: position.depth,
+      min_b: position.min_breadth, max_b: position.max_breadth,
+    }));
+  } catch (_) { /* offline or gate off — keep whatever this browser cached */ }
+}
+
+function savePositionToServer(name) {
+  if (!betaKey()) return;
+  const { seed, depth, min_b, max_b } = worldParams;
+  try {
+    fetch(withKey('/position'), {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ node: name, seed, depth,
+                                min_breadth: min_b, max_breadth: max_b }),
+    }).catch(() => {});           // fire-and-forget; localStorage is the backstop
+  } catch (_) {}
+}
+
 const container = document.getElementById('graph');
 const svg       = d3.select(container).append('svg');
 const root_g    = svg.append('g');
@@ -212,8 +247,10 @@ function selectNode(data) {
   puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
   if (observeES) { observeES.close(); observeES = null; }
 
-  // Remember where the player is so they resume here next session.
+  // Remember where the player is so they resume here next session — locally for
+  // this browser, and on the server so it follows them to other devices.
   localStorage.setItem(LAST_NODE_KEY, data.name);
+  savePositionToServer(data.name);
   wsSend({ type: 'move', node: data.name });
 }
 
@@ -626,7 +663,8 @@ function restoreWorldInputs() {
   set('min_b', saved.min_b); set('max_b', saved.max_b);
 }
 
-function boot() {
+async function boot() {
+  await hydrateFromServer();   // cross-device resume takes precedence over the local cache
   restoreWorldInputs();
   if (playerName) {
     loadWorld();
