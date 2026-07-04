@@ -112,6 +112,34 @@ class TestGatedFetchesCarryInviteKey:
         )
 
 
+class TestNonLinearEntry:
+    """First-time players drop in at a non-root node; returning players resume
+    where they left off. Both frontends must implement it and persist the
+    current node across sessions."""
+
+    _EXPLORER = _ROOT / "static" / "explorer.js"
+
+    def test_react_uses_entry_resolution(self):
+        entry = (_FRONTEND_SRC / "entry.js").read_text()
+        assert "export function entryPath" in entry and "dropInNode" in entry
+        app = (_FRONTEND_SRC / "App.jsx").read_text()
+        assert "entryPath" in app
+        # Resume + world are persisted for the next session.
+        assert "nw_last_node" in app and "nw_last_seed" in app
+
+    def test_d3_explorer_drops_in_and_resumes(self):
+        js = self._EXPLORER.read_text()
+        assert "resolveEntryNode" in js and "dropInNode" in js
+        assert "nw_last_node" in js and "nw_last_world" in js
+        # No longer hard-pins entry to the root.
+        assert "selectNode(resolveEntryNode" in js or "resolveEntryNode(worldRoot)" in js
+
+    @pytest.mark.skipif(not _BUILT_APP.exists(),
+                        reason="static/app not built; run: cd frontend && npm run build")
+    def test_built_bundle_has_resume(self):
+        assert "nw_last_node" in _all_text(_BUILT_APP, ".js")
+
+
 class TestExplorerShellResilience:
     """REGRESSION (P1-1/P1-2/P1-3): the invite default landing page (`/`, the D3
     explorer) must (a) load D3 same-origin, not from the d3js.org CDN, (b) carry

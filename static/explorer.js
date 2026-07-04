@@ -28,6 +28,53 @@ let worldParams = { seed: 42, depth: 6, min_b: 1, max_b: 3 };
 let puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
 let observeES   = null;
 let nodeG       = null;
+let hierLayout  = null;   // the laid-out d3 hierarchy, for centring on a node
+
+// ── Non-linear entry (drop-in + resume) ────────────────────────────────────
+// There is no "start at the root": a first-time player is dropped in at a node
+// in the middle of the world (one with places to go up AND down), seeded from
+// their name so it's stable; a returning player resumes their last node. Both
+// persist across sessions via localStorage.
+const LAST_NODE_KEY  = 'nw_last_node';
+const LAST_WORLD_KEY = 'nw_last_world';
+
+function _entryHash(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+function findNodeByName(node, name) {
+  if (!node) return null;
+  if (node.name === name) return node;
+  for (const c of node.children || []) {
+    const hit = findNodeByName(c, name);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function dropInNode(root, key) {
+  const mids = [], nonRoot = [];
+  (function walk(n, depth) {
+    if (depth > 0) {
+      nonRoot.push(n);
+      if (n.children && n.children.length) mids.push(n);
+    }
+    for (const c of n.children || []) walk(c, depth + 1);
+  })(root, 0);
+  const pool = mids.length ? mids : (nonRoot.length ? nonRoot : [root]);
+  return pool[_entryHash(key || 'anon') % pool.length];
+}
+
+function resolveEntryNode(root) {
+  const saved = localStorage.getItem(LAST_NODE_KEY);
+  if (saved) {
+    const hit = findNodeByName(root, saved);
+    if (hit) return hit;              // resume where the player left off
+  }
+  return dropInNode(root, playerName); // first-time drop-in (or saved world gone)
+}
 
 const container = document.getElementById('graph');
 const svg       = d3.select(container).append('svg');
@@ -52,6 +99,9 @@ async function loadWorld() {
     min_b: +document.getElementById('min_b').value,
     max_b: +document.getElementById('max_b').value,
   };
+  // Remember the world so a returning player resumes in the same one (their
+  // saved node only exists here).
+  try { localStorage.setItem(LAST_WORLD_KEY, JSON.stringify(worldParams)); } catch (_) {}
   document.getElementById('gen-btn').disabled = true;
   setStatus('Generating world…');
   try {
@@ -79,6 +129,7 @@ function renderTree(worldRoot) {
   const leaves = hier.leaves().length;
   const rowH   = Math.max(20, Math.min(40, (container.clientHeight - 60) / leaves));
   d3.tree().nodeSize([rowH, 200])(hier);
+  hierLayout = hier;
 
   root_g.append('g').selectAll('path')
     .data(hier.links()).join('path')
@@ -106,7 +157,24 @@ function renderTree(worldRoot) {
     .text(d => d.data.name);
 
   fitView();
-  selectNode(worldRoot);
+  // Non-linear entry: resume the player's last node, or drop a first-timer into
+  // the middle of the world — not always the root. Centre the view on it.
+  const entry = resolveEntryNode(worldRoot);
+  selectNode(entry);
+  if (entry.id !== worldRoot.id) centerOnNode(entry);
+}
+
+function centerOnNode(nodeData) {
+  if (!hierLayout) return;
+  const d = hierLayout.descendants().find(n => n.data.id === nodeData.id
+                                           || n.data.name === nodeData.name);
+  if (!d) return;
+  const W = container.clientWidth, H = container.clientHeight, scale = 0.8;
+  // The tree is laid out horizontally: a node sits at screen point (d.y, d.x).
+  svg.transition().duration(600).call(
+    zoom.transform,
+    d3.zoomIdentity.translate(W / 2 - d.y * scale, H / 2 - d.x * scale).scale(scale),
+  );
 }
 
 function fitView() {
@@ -144,6 +212,8 @@ function selectNode(data) {
   puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
   if (observeES) { observeES.close(); observeES = null; }
 
+  // Remember where the player is so they resume here next session.
+  localStorage.setItem(LAST_NODE_KEY, data.name);
   wsSend({ type: 'move', node: data.name });
 }
 
@@ -348,6 +418,9 @@ function wsConnect(seed) {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const url   = withKey(`${proto}//${window.location.host}/ws?seed=${seed}&name=${encodeURIComponent(playerName)}`);
   try { ws = new WebSocket(url); } catch (_) { return; }
+  // Announce our current position on (re)connect so others see us where we
+  // actually are — including the initial drop-in / resume node.
+  ws.onopen    = () => { if (selected) wsSend({ type: 'move', node: selected.name }); };
   ws.onmessage = e => { try { handleWsMsg(JSON.parse(e.data)); } catch (_) {} };
   ws.onclose   = () => { ws = null; };
   ws.onerror   = () => {};
@@ -541,7 +614,20 @@ document.getElementById('message').addEventListener('keydown', e => {
 // either boot path (auto-join for named users, join modal for anonymous ones).
 const INTRO_SEEN = 'nw_seen_intro';
 
+function restoreWorldInputs() {
+  // A returning player resumes in the world they left off in, so pre-fill the
+  // generator inputs from the last one before the first load. First-timers keep
+  // the defaults.
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(LAST_WORLD_KEY)); } catch (_) { saved = null; }
+  if (!saved) return;
+  const set = (id, v) => { const el = document.getElementById(id); if (el && Number.isFinite(+v)) el.value = v; };
+  set('seed', saved.seed); set('depth', saved.depth);
+  set('min_b', saved.min_b); set('max_b', saved.max_b);
+}
+
 function boot() {
+  restoreWorldInputs();
   if (playerName) {
     loadWorld();
   } else {

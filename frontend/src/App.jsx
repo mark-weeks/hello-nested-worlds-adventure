@@ -3,15 +3,21 @@ import SceneView from "./components/SceneView.jsx";
 import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
 import { withKey, urlName } from "./auth.js";
+import { entryPath } from "./entry.js";
 
 const DEFAULT_SEED  = 42;
 const WORLD_DEPTH   = 6;   // must match the depth used for /puzzle lookups
 const MAX_EVENTS    = 40;
 const MAX_TRANSIENTS = 12;
 const NAME_KEY      = "nw_player_name";
+const LAST_NODE_KEY = "nw_last_node";   // resume: the node the player last stood on
+const LAST_SEED_KEY = "nw_last_seed";   // resume: the world it belonged to
 
 export default function App() {
-  const [seed, setSeed]           = useState(DEFAULT_SEED);
+  const [seed, setSeed]           = useState(() => {
+    const saved = parseInt(localStorage.getItem(LAST_SEED_KEY), 10);
+    return Number.isFinite(saved) ? saved : DEFAULT_SEED;
+  });
   const [nodeStack, setNodeStack] = useState([]);
   const [players, setPlayers]     = useState([]);
   const [events, setEvents]       = useState([]);
@@ -43,9 +49,18 @@ export default function App() {
     setLoading(true);
     setPlayers([]);
     setEvents([]);
+    localStorage.setItem(LAST_SEED_KEY, String(s));
     fetch(withKey(`/world?seed=${s}&depth=${WORLD_DEPTH}`))
       .then(r => r.json())
-      .then(data => { setNodeStack([data.world]); setLoading(false); })
+      .then(data => {
+        // Non-linear entry: resume the last node if it's in this world, else
+        // drop a first-time player in at a mid-world node. The returned path is
+        // the nav stack, so "back" walks the real ancestry.
+        const savedNode = localStorage.getItem(LAST_NODE_KEY);
+        const name = localStorage.getItem(NAME_KEY) || urlName() || "";
+        setNodeStack(entryPath(data.world, savedNode, name));
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   }, []);
 
@@ -93,7 +108,20 @@ export default function App() {
     },
   });
 
-  useEffect(() => { loadWorld(DEFAULT_SEED); }, [loadWorld]);
+  // Mount once with the restored seed (or default for a first-time player).
+  useEffect(() => { loadWorld(seed); }, [loadWorld]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Broadcast our position whenever it changes or we (re)connect, so other
+  // players see us where we actually are — including the initial drop-in /
+  // resume node, which isn't reached through navigateTo().
+  useEffect(() => {
+    if (connected && currentNodeName) sendMessage({ type: "move", node: currentNodeName });
+  }, [connected, currentNodeName, sendMessage]);
+
+  // Persist the current node so a returning player resumes here next session.
+  useEffect(() => {
+    if (currentNodeName) localStorage.setItem(LAST_NODE_KEY, currentNodeName);
+  }, [currentNodeName]);
 
   // Drop all transients when the player navigates — a leftover ripple from
   // the previous node is meaningless in the new scene.
@@ -104,19 +132,15 @@ export default function App() {
     loadWorld(s);
   }, [loadWorld]);
 
+  // Position is broadcast by the effect above (keyed on currentNodeName), so
+  // navigation only has to update the stack — no direct send here.
   const navigateTo = useCallback((node) => {
     setNodeStack(s => [...s, node]);
-    sendMessage({ type: "move", node: node.name });
-  }, [sendMessage]);
+  }, []);
 
   const navigateUp = useCallback(() => {
-    setNodeStack(s => {
-      if (s.length <= 1) return s;
-      const next = s.slice(0, -1);
-      sendMessage({ type: "move", node: next[next.length - 1].name });
-      return next;
-    });
-  }, [sendMessage]);
+    setNodeStack(s => (s.length <= 1 ? s : s.slice(0, -1)));
+  }, []);
 
   const sendChat = useCallback((text) => {
     sendMessage({ type: "chat", text });
