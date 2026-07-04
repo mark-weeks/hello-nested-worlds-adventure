@@ -58,6 +58,16 @@ class TestServerHTTP:
             _get(f"{base}/world?seed=abc")
         assert exc_info.value.code == 400
 
+    def test_puzzle_get_exposes_difficulty_not_answer(self, srv):
+        # The puzzle listing carries a per-node difficulty (1..4) so the UI can
+        # show a rating and let players pick their challenge — but never the
+        # answer.
+        base, _ = srv
+        data, *_ = _get(f"{base}/puzzle?seed=42&depth=6&min_breadth=1&max_breadth=3")
+        assert data["found"] is True
+        assert 1 <= data["difficulty"] <= 4
+        assert "answer" not in data
+
     def test_puzzle_attempt_no_leak(self, srv):
         """C-1 regression: attempt=99999 must not reveal correct_answer."""
         base, _ = srv
@@ -169,10 +179,14 @@ class TestCoopPuzzles:
         assert set(b["contributors"]) == {"Alice", "Bob"}
 
     def test_post_solve_attempt_returns_solved_for_everyone(self, srv):
-        # Hand-construct the same flow against a Region puzzle whose answer
-        # is computable from the world — the LOCK is danger_level × 2.
+        # Puzzle answers are generated (and deliberately never sent to the
+        # client), so we reconstruct the Region node's answer via the same
+        # deterministic generator the server uses — build_puzzle is a pure
+        # function of node identity, so this matches what the server attaches.
+        from multiverse.node import SpatialNode
+        from puzzles.generators import build_puzzle
+
         base, _ = srv
-        # Pull a Region node from the generated tree to know its danger_level.
         world, _, _ = _get(
             f"{base}/world?seed={self.SEED}&depth=6&min_breadth=1&max_breadth=3"
         )
@@ -188,7 +202,9 @@ class TestCoopPuzzles:
 
         region = _find_region(world["world"])
         assert region, "expected a Region node in the generated tree"
-        answer = str(region["properties"]["danger_level"] * 2)
+        region_node = SpatialNode(name=region["name"], level="Region",
+                                  properties=dict(region["properties"]))
+        answer = build_puzzle(region_node).answer
 
         # Alice burns one wrong attempt.
         self._attempt(base, answer="0", player="Alice", node=region["name"])
@@ -208,9 +224,11 @@ class TestCoopPuzzles:
 
     def test_failed_attempt_releases_answer(self, srv):
         base, _ = srv
-        # The Region LOCK puzzle has max_attempts=5; exhaust them.
+        # Generated puzzles grant 3–5 attempts by scale; exhaust them with a
+        # word no puzzle answer will ever be, then confirm the answer is only
+        # released once the room truly fails.
         last = None
-        for _ in range(5):
+        for _ in range(6):
             last = self._attempt(base, answer="not-it")
         assert last["result"] == "FAILED"
         assert last["correct_answer"] is not None

@@ -54,6 +54,24 @@ class TestBuiltBundleWiresCoreLoop:
             )
 
 
+class TestBothFrontendsShowDifficulty:
+    """Difficulty is a per-node property surfaced on /puzzle so players can pick
+    their challenge while exploring; both clients must render it."""
+
+    def test_d3_explorer_renders_difficulty(self):
+        js = (_ROOT / "static" / "explorer.js").read_text()
+        assert "difficulty" in js and "puzzle-diff" in js
+
+    def test_react_source_renders_difficulty(self):
+        src = _all_text(_FRONTEND_SRC, ".jsx")
+        assert "puzzle.difficulty" in src
+
+    @pytest.mark.skipif(not _BUILT_APP.exists(),
+                        reason="static/app not built; run: cd frontend && npm run build")
+    def test_built_bundle_renders_difficulty(self):
+        assert "difficulty" in _all_text(_BUILT_APP, ".js")
+
+
 class TestGatedFetchesCarryInviteKey:
     """REGRESSION (P1-4): every data / paid fetch in the React client must go
     through withKey(), or it 403s under the beta gate. The `/image` scene-
@@ -92,6 +110,34 @@ class TestGatedFetchesCarryInviteKey:
             "built /app bundle has no key= query assembly — rebuild the frontend "
             "so the withKey() fix ships"
         )
+
+
+class TestNonLinearEntry:
+    """First-time players drop in at a non-root node; returning players resume
+    where they left off. Both frontends must implement it and persist the
+    current node across sessions."""
+
+    _EXPLORER = _ROOT / "static" / "explorer.js"
+
+    def test_react_uses_entry_resolution(self):
+        entry = (_FRONTEND_SRC / "entry.js").read_text()
+        assert "export function entryPath" in entry and "dropInNode" in entry
+        app = (_FRONTEND_SRC / "App.jsx").read_text()
+        assert "entryPath" in app
+        # Resume + world are persisted for the next session.
+        assert "nw_last_node" in app and "nw_last_seed" in app
+
+    def test_d3_explorer_drops_in_and_resumes(self):
+        js = self._EXPLORER.read_text()
+        assert "resolveEntryNode" in js and "dropInNode" in js
+        assert "nw_last_node" in js and "nw_last_world" in js
+        # No longer hard-pins entry to the root.
+        assert "selectNode(resolveEntryNode" in js or "resolveEntryNode(worldRoot)" in js
+
+    @pytest.mark.skipif(not _BUILT_APP.exists(),
+                        reason="static/app not built; run: cd frontend && npm run build")
+    def test_built_bundle_has_resume(self):
+        assert "nw_last_node" in _all_text(_BUILT_APP, ".js")
 
 
 class TestExplorerShellResilience:

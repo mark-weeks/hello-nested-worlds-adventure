@@ -812,6 +812,9 @@ class Handler(BaseHTTPRequestHandler):
             "prompt":       p.prompt,
             "hints_count":  len(p.hints),
             "max_attempts": p.max_attempts,
+            # Difficulty is a per-node property (1 gentle … 4 hard), surfaced so
+            # a player can pick their own challenge while exploring.
+            "difficulty":   p.difficulty,
         })
 
     def _do_puzzle_attempt(self, body: dict) -> None:
