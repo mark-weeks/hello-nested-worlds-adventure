@@ -11,6 +11,7 @@ import pytest
 
 import persistence
 from server import _Handler, _ThreadedServer
+from server import guard
 
 
 @pytest.fixture(scope="module")
@@ -258,3 +259,55 @@ class TestAgentPersonas:
         # Falls back to for_name("Argus"), whatever that resolves to.
         assert data["persona"] in {"tender", "destabilizer", "scholar", "wanderer"}
         assert data["persona"] != "warlord"
+
+
+class TestPositionResume:
+    """/position gives cross-device resume: the last node is stored per invite
+    key, so it follows a tester from one device (or browser) to another."""
+
+    def test_round_trip_keyed_by_invite_key(self, srv):
+        base, _ = srv
+        persistence.mint_invite_key("k_pos", "Pat")
+        saved, status = _post(
+            f"{base}/position?key=k_pos",
+            {"node": "Planet · Droven-13", "seed": 42, "depth": 6,
+             "min_breadth": 1, "max_breadth": 3},
+        )
+        assert status == 200 and saved["saved"] is True
+        # A "second device" carrying the same key reads the same position back.
+        data, _, _ = _get(f"{base}/position?key=k_pos")
+        assert data["position"] == {
+            "node": "Planet · Droven-13", "seed": 42,
+            "depth": 6, "min_breadth": 1, "max_breadth": 3,
+        }
+
+    def test_positions_isolated_between_keys(self, srv):
+        base, _ = srv
+        persistence.mint_invite_key("k_a", "A")
+        persistence.mint_invite_key("k_b", "B")
+        _post(f"{base}/position?key=k_a", {"node": "Room · Attic", "seed": 1})
+        _post(f"{base}/position?key=k_b", {"node": "Atom · Fe-2", "seed": 2})
+        da, _, _ = _get(f"{base}/position?key=k_a")
+        db, _, _ = _get(f"{base}/position?key=k_b")
+        assert da["position"]["node"] == "Room · Attic"
+        assert db["position"]["node"] == "Atom · Fe-2"
+
+    def test_no_key_session_is_noop(self, srv):
+        # Gate off (no keys minted): the endpoint answers but there's nothing to
+        # key on, so it no-ops and the client keeps its own localStorage cache.
+        base, _ = srv
+        saved, _ = _post(f"{base}/position", {"node": "X", "seed": 1})
+        assert saved["saved"] is False
+        data, _, _ = _get(f"{base}/position")
+        assert data["position"] is None
+
+    def test_shared_env_key_session_is_noop(self, srv, monkeypatch):
+        # A shared-secret session authenticates but has no per-user row, so
+        # server-side resume no-ops and the browser cache stands.
+        base, _ = srv
+        monkeypatch.setenv(guard.BETA_KEY_ENV, "shared-secret")
+        saved, _ = _post(
+            f"{base}/position?key=shared-secret", {"node": "X", "seed": 1})
+        assert saved["saved"] is False
+        data, _, _ = _get(f"{base}/position?key=shared-secret")
+        assert data["position"] is None

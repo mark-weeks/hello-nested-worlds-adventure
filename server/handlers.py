@@ -348,6 +348,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_error("invalid seed")
             self._send_json({"mutations": persistence.get_mutations(seed)})
 
+        elif path == "/position":
+            # Cross-device resume: the caller's last position, keyed on their
+            # per-user invite credential. Empty for shared-key / no-key sessions
+            # (those fall back to the client's own localStorage cache).
+            key = guard.supplied_key(self.headers, qs)
+            self._send_json({"position": persistence.get_player_position(key)})
+
         elif path == "/world":
             try:
                 root, seed, depth, min_b, max_b = _build_world(_flatten_qs(qs))
@@ -502,6 +509,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/agent/voice":
             self._do_agent_voice(body, user_key=user_key)
+
+        elif path == "/position":
+            self._do_save_position(body, user_key=user_key)
 
         else:
             self._send_error("not found", 404)
@@ -709,6 +719,29 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             _log.warning("agent voice error: %s", exc)
             self._send_error("Service unavailable", 503)
+
+    def _do_save_position(self, body: dict, user_key: str = "") -> None:
+        """POST /position — persist the caller's last position for cross-device
+        resume. No-ops (saved:false) unless the request carries a per-user
+        invite key with a live row."""
+        node_name = str(body.get("node", ""))[:128].strip()
+        if not node_name:
+            return self._send_error("missing node")
+
+        def _int(key: str, default: int) -> int:
+            try:
+                return int(body.get(key, default))
+            except (TypeError, ValueError):
+                return default
+
+        seed  = _int("seed", 0)
+        depth = _int("depth", 6)
+        min_b = _int("min_breadth", 1)
+        max_b = _int("max_breadth", 3)
+        saved = persistence.save_player_position(
+            user_key, node_name, seed, depth, min_b, max_b,
+        )
+        self._send_json({"saved": bool(saved)})
 
     def _do_observe(self, qs: dict) -> None:
         try:

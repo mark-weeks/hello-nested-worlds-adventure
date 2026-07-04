@@ -381,3 +381,56 @@ class TestInviteKeys:
         persistence.mint_invite_key("k_dup", "First")
         with pytest.raises(sqlite3.IntegrityError):
             persistence.mint_invite_key("k_dup", "Second")
+
+
+class TestPlayerPosition:
+    """Cross-device resume: the last node is stored per invite key, so it
+    follows the player across devices."""
+
+    def test_save_then_get_round_trips(self):
+        persistence.mint_invite_key("k_pos", "Pat")
+        assert persistence.save_player_position(
+            "k_pos", "Planet · Droven-13", 42, 6, 1, 3) is True
+        pos = persistence.get_player_position("k_pos")
+        assert pos == {
+            "node": "Planet · Droven-13", "seed": 42,
+            "depth": 6, "min_breadth": 1, "max_breadth": 3,
+        }
+
+    def test_save_overwrites_previous(self):
+        persistence.mint_invite_key("k_move", "Mo")
+        persistence.save_player_position("k_move", "Galaxy · Xel", 7, 5, 2, 4)
+        persistence.save_player_position("k_move", "Atom · Fe-2", 9, 8, 1, 2)
+        pos = persistence.get_player_position("k_move")
+        assert pos["node"] == "Atom · Fe-2"
+        assert pos["seed"] == 9
+
+    def test_get_before_any_save_is_none(self):
+        persistence.mint_invite_key("k_fresh", "Fran")
+        assert persistence.get_player_position("k_fresh") is None
+
+    def test_positions_are_independent_per_key(self):
+        persistence.mint_invite_key("k_a", "A")
+        persistence.mint_invite_key("k_b", "B")
+        persistence.save_player_position("k_a", "Room · Attic", 1, 4, 1, 2)
+        persistence.save_player_position("k_b", "Molecule · H2O", 2, 4, 1, 2)
+        assert persistence.get_player_position("k_a")["node"] == "Room · Attic"
+        assert persistence.get_player_position("k_b")["node"] == "Molecule · H2O"
+
+    def test_unknown_key_save_noops_and_get_none(self):
+        # No row to update — the write is a no-op (False) and there's nothing
+        # to read back, so the client keeps its own localStorage cache.
+        assert persistence.save_player_position("nope", "X", 1, 1, 1, 1) is False
+        assert persistence.get_player_position("nope") is None
+
+    def test_empty_key_is_noop(self):
+        # The shared env key / no-key session supplies "" here.
+        assert persistence.save_player_position("", "X", 1, 1, 1, 1) is False
+        assert persistence.get_player_position("") is None
+
+    def test_revoked_key_cannot_save_or_read(self):
+        persistence.mint_invite_key("k_rev", "Rev")
+        persistence.save_player_position("k_rev", "Universe · U-0", 3, 6, 1, 3)
+        persistence.revoke_invite_key("k_rev")
+        assert persistence.save_player_position("k_rev", "Y", 4, 6, 1, 3) is False
+        assert persistence.get_player_position("k_rev") is None

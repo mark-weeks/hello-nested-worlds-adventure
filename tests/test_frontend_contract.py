@@ -140,6 +140,31 @@ class TestNonLinearEntry:
         assert "nw_last_node" in _all_text(_BUILT_APP, ".js")
 
 
+class TestCrossDeviceResume:
+    """Resume follows the player across devices: both clients hydrate their
+    last position from the server (`GET /position`) on boot and mirror every
+    move back (`POST /position`), keyed on the invite credential."""
+
+    _EXPLORER = _ROOT / "static" / "explorer.js"
+
+    def test_d3_explorer_hydrates_and_mirrors(self):
+        js = self._EXPLORER.read_text()
+        assert "/position" in js
+        assert "hydrateFromServer" in js and "savePositionToServer" in js
+        # Boot pulls the server copy before the local resume path runs.
+        assert "await hydrateFromServer()" in js
+
+    def test_react_hydrates_and_mirrors(self):
+        app = (_FRONTEND_SRC / "App.jsx").read_text()
+        assert "/position" in app
+        assert "hydratePositionFromServer" in app and "savePositionToServer" in app
+
+    @pytest.mark.skipif(not _BUILT_APP.exists(),
+                        reason="static/app not built; run: cd frontend && npm run build")
+    def test_built_bundle_calls_position(self):
+        assert "/position" in _all_text(_BUILT_APP, ".js")
+
+
 class TestExplorerShellResilience:
     """REGRESSION (P1-1/P1-2/P1-3): the invite default landing page (`/`, the D3
     explorer) must (a) load D3 same-origin, not from the d3js.org CDN, (b) carry
