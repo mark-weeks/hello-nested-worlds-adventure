@@ -11,4 +11,4 @@ npm --version
 # Frontend dependencies (once package.json exists)
 [ -f frontend/package.json ] && cd frontend && npm install && cd ..
 
-echo "Nested Worlds Adventure environment ready ✓"
+echo "Enfolded: Nested World Adventure environment ready ✓"

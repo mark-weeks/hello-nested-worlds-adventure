@@ -1,4 +1,4 @@
-# Game Design Document — Nested Worlds Adventure
+# Game Design Document — Enfolded: Nested World Adventure
 
 ---
 

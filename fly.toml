@@ -1,4 +1,4 @@
-# Fly.io deployment for the Nested Worlds Adventure closed beta.
+# Fly.io deployment for the Enfolded closed beta.
 # Single machine, single region, SQLite on one persistent volume.
 # See docs/infrastructure/fly-deployment.md for the runbook.
 #

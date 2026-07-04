@@ -1,6 +1,6 @@
 # Deploying to Fly.io
 
-This guide walks through standing up Nested Worlds Adventure on Fly.io for
+This guide walks through standing up Enfolded on Fly.io for
 the initial beta. It assumes you have shell access to a clone of this
 repository and an Anthropic + fal.ai key in hand.
 

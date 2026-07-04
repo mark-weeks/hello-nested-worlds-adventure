@@ -240,7 +240,7 @@ function NameEntry({ onSubmit }) {
   return (
     <div style={s.nameWrap}>
       <div style={s.nameBox}>
-        <div style={s.nameTitle}>Nested Worlds</div>
+        <div style={s.nameTitle}>Enfolded</div>
         <div style={s.nameDesc}>Choose a name for your explorer</div>
         <input
           autoFocus
