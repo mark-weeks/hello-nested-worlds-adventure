@@ -53,6 +53,31 @@ def _print_breadcrumb(stack: list[SpatialNode]) -> None:
     print(_divider())
 
 
+def _passage_tags(node: SpatialNode) -> list[str]:
+    """What is worth knowing about a passage BEFORE stepping through it.
+
+    Only non-ubiquitous, mechanically meaningful traits are tagged (every
+    node has a puzzle, so that would say nothing). Mirrors the browser
+    clients' passage badges.
+    """
+    p = node.properties
+    tags: list[str] = []
+    danger = p.get("danger_level")
+    if isinstance(danger, int) and danger >= 7:
+        tags.append(f"danger {danger}")
+    if p.get("condition") == "corrupted":
+        tags.append("corrupted")
+    if p.get("disturbed"):
+        tags.append("disturbed")
+    if p.get("stabilized"):
+        tags.append("stabilized")
+    if node.ripple_score >= 0.3:
+        tags.append("≈ pressure")
+    if p.get("locked"):
+        tags.append("locked")
+    return tags
+
+
 def _print_look(node: SpatialNode) -> None:
     print(f"\n{_fmt(node)}")
     if node.properties:
@@ -61,7 +86,9 @@ def _print_look(node: SpatialNode) -> None:
     if node.children:
         print(f"\n  {len(node.children)} path(s) deeper:")
         for i, child in enumerate(node.children, 1):
-            print(f"  [{i}] {_fmt(child)}")
+            tags = _passage_tags(child)
+            suffix = f"  {_DIM}— {' · '.join(tags)}{_RESET}" if tags else ""
+            print(f"  [{i}] {_fmt(child)}{suffix}")
     else:
         print(f"\n  {_DIM}(leaf node — no deeper paths){_RESET}")
 
@@ -156,9 +183,13 @@ def _speak_to(node: SpatialNode, message: str, seed: int = 0,
             ripple_score=persistence.get_ripple_score(seed, node.name),
         )
         print(f"  {response}\n")
+        # Local sessions have no invite credential; the display name IS the
+        # conversation identity (see persistence.get_player_exchanges).
+        data = {"message": message[:128], "reply": response[:200]}
+        if player_name:
+            data["identity"] = player_name
         persistence.record_mutation(
-            seed, node.name, "PLAYER_SPEAK", player_name,
-            {"message": message[:128], "reply": response[:200]},
+            seed, node.name, "PLAYER_SPEAK", player_name, data,
         )
     except Exception:
         # The world goes quiet in character. Never an SDK error, never a

@@ -364,7 +364,16 @@ class Handler(BaseHTTPRequestHandler):
                 seed = int(param("seed", "42"))
             except ValueError:
                 return self._send_error("invalid seed")
-            self._send_json({"mutations": persistence.get_mutations(seed)})
+            node_name = param("node_name", "")[:128]
+            if node_name:
+                # Node-scoped history: what happened HERE — the client uses
+                # this to surface which presences left traces at the current
+                # node (and to let the player address them).
+                rows = [dict(h, node=node_name) for h in
+                        persistence.get_node_history(seed, node_name, limit=20)]
+                self._send_json({"mutations": rows, "node": node_name})
+            else:
+                self._send_json({"mutations": persistence.get_mutations(seed)})
 
         elif path == "/position":
             # Cross-device resume: the caller's last position, keyed on their
@@ -491,6 +500,15 @@ class Handler(BaseHTTPRequestHandler):
                 seed = 42
             raw_player = body.get("player_name")
             player_name = (str(raw_player)[:32].strip() or None) if raw_player else None
+            # The speaker's durable conversation identity: the per-user
+            # invite credential (hashed) when one was presented, else the
+            # display name. Credential-keyed transcripts mean two players
+            # who both call themselves "Ada" don't share a memory, and
+            # renaming yourself doesn't orphan yours.
+            if user_key:
+                identity = hashlib.sha256(user_key.encode("utf-8")).hexdigest()[:16]
+            else:
+                identity = player_name
 
             import consciousness
             if not guard.consume_anthropic(user_key=user_key):
@@ -505,7 +523,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 history = persistence.get_node_history(seed, node.name)
                 transcript = persistence.get_player_exchanges(
-                    seed, node.name, player_name)
+                    seed, node.name, identity)
                 response = consciousness.speak(
                     node, message,
                     history=history,
@@ -513,9 +531,11 @@ class Handler(BaseHTTPRequestHandler):
                     ripple_score=node.ripple_score,
                 )
                 # The exchange — both sides of it — becomes node memory.
+                data = {"message": message[:128], "reply": response[:200]}
+                if identity:
+                    data["identity"] = identity
                 persistence.record_mutation(
-                    seed, node.name, "PLAYER_SPEAK", player_name,
-                    {"message": message[:128], "reply": response[:200]},
+                    seed, node.name, "PLAYER_SPEAK", player_name, data,
                 )
                 self._send_json({"response": response, "ai": True})
             except Exception as exc:
@@ -745,8 +765,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             import consciousness
             history = persistence.get_node_history(seed, node.name)
+            agent_memory = persistence.load_agent_memory(agent_name, seed)
             response = consciousness.voice_agent(persona, agent_name, node,
-                                                 message, history=history)
+                                                 message, history=history,
+                                                 agent_memory=agent_memory)
             self._send_json({
                 "agent":    agent_name,
                 "persona":  persona.name,

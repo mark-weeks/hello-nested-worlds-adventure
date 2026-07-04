@@ -56,11 +56,10 @@ _DEFAULT_PACE = 1.2  # seconds between hops — motion a watcher can follow
 # A recurring cast: the same names return to the same worlds run after run,
 # accreting memory (visited ground persists per (name, seed)), so their
 # traces read as individuals rather than anonymous noise. Persona follows
-# deterministically from the name (agents.personas.for_name).
-WANDERER_ROSTER = [
-    "Tessera", "Halden", "Mirrorbird", "Sela", "Cartographer-9",
-    "Vex", "Aunt Entropy", "The Locksmith",
-]
+# deterministically from the name (agents.personas.for_name). The canonical
+# list lives in consciousness (a leaf module) because the cached bibles
+# teach every node voice to recognize these names as returning regulars.
+from consciousness import WANDERER_CAST as WANDERER_ROSTER
 
 
 def enabled() -> bool:

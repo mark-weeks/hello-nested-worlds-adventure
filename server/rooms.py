@@ -48,6 +48,7 @@ class PuzzleSession:
 
 @dataclass
 class Room:
+    seed: int = 0
     players: dict = field(default_factory=dict)   # session_id → Player
     active_agents: dict = field(default_factory=dict)  # agent_name → current_node
     agent_personas: dict = field(default_factory=dict)  # agent_name → persona name
@@ -62,8 +63,26 @@ _rooms_lock = threading.Lock()
 def get_room(seed: int) -> Room:
     with _rooms_lock:
         if seed not in _rooms:
-            _rooms[seed] = Room()
+            _rooms[seed] = Room(seed=seed)
         return _rooms[seed]
+
+
+def _new_session(room: Room, node_name: str, puzzle_name: str) -> PuzzleSession:
+    """Create a session, rehydrating solved-state from persistence.
+
+    Session state is per-process memory, but solves are durable facts in
+    `world_mutations` — without this, every deploy silently reset solved
+    puzzles against a history that says they're solved. Caller holds
+    `room.lock`.
+    """
+    import persistence
+    session = PuzzleSession(puzzle_name=puzzle_name)
+    solve = persistence.get_puzzle_solve(room.seed, node_name, puzzle_name)
+    if solve:
+        session.solver = solve["solver"]
+        session.contributors = set(solve["contributors"])
+    room.puzzle_sessions[node_name] = session
+    return session
 
 
 def broadcast(room: Room, msg: dict, exclude: str | None = None) -> None:
@@ -129,9 +148,7 @@ def get_puzzle_session(room: Room, node_name: str, puzzle_name: str) -> PuzzleSe
             return existing
         # New node, or the puzzle name changed (e.g. world regenerated with
         # a different seed and the cached session no longer applies).
-        session = PuzzleSession(puzzle_name=puzzle_name)
-        room.puzzle_sessions[node_name] = session
-        return session
+        return _new_session(room, node_name, puzzle_name)
 
 
 def record_attempt(room: Room, node_name: str, puzzle_name: str,
@@ -146,8 +163,7 @@ def record_attempt(room: Room, node_name: str, puzzle_name: str,
     with room.lock:
         session = room.puzzle_sessions.get(node_name)
         if session is None or session.puzzle_name != puzzle_name:
-            session = PuzzleSession(puzzle_name=puzzle_name)
-            room.puzzle_sessions[node_name] = session
+            session = _new_session(room, node_name, puzzle_name)
 
         if session.solver is not None:
             # Already solved by someone — record the contributor anyway, but

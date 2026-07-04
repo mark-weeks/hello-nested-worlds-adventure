@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Application, Assets, Container, Graphics, Sprite, Text, TextStyle } from "pixi.js";
 import { withKey } from "../auth.js";
+import { passageBadges } from "../badges.js";
 
 export default function SceneView({
   node, players, transients = [],
@@ -29,14 +30,12 @@ export default function SceneView({
     // leaving the scene without its fal.ai background (the /app headline
     // feature). All the other fetches already go through withKey(); this one
     // was the lone exception.
+    // Node identity is server-derived: (seed, name) is the whole request.
     fetch(withKey("/image"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        node_id: node.id ?? node.name,
         node_name: node.name,
-        node_level: node.level,
-        node_properties: node.properties ?? {},
         seed: seed ?? 0,
       }),
     })
@@ -319,6 +318,18 @@ function makeHotspot(app, node, x, y, onNavigate) {
   });
   label.anchor.set(0.5);
   group.addChild(label);
+
+  // Affordance markers: small colored studs on the plate's top edge signal
+  // what's notable through this passage (danger, corruption, pressure…)
+  // before the player commits to it. Learnable like the plate treatment
+  // itself — same colors as the text-panel badges.
+  passageBadges(node).slice(0, 3).forEach((b, bi) => {
+    const stud = new Graphics();
+    stud.circle(W / 2 - 10 - bi * 10, -H / 2 + 1, 3)
+        .fill({ color: b.color, alpha: 0.95 })
+        .stroke({ width: 1, color: 0x07080f, alpha: 0.8 });
+    group.addChild(stud);
+  });
 
   const paint = (hovered) => {
     const plateColor  = hovered ? _HOTSPOT.plateHover  : _HOTSPOT.plateRest;

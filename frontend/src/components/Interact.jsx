@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { withKey } from "../auth.js";
 
 // Node interaction panel: the two core-loop mechanics the /app client was
@@ -37,6 +37,26 @@ function Speak({ node, seed, playerName }) {
   const [message, setMessage] = useState("Describe yourself to a traveler who has just arrived.");
   const [response, setResponse] = useState("");
   const [state, setState] = useState("idle"); // idle | loading | ok | error
+  // Who can be addressed here: the place itself, plus any agents whose
+  // traces are in this node's history — the presences you found evidence of.
+  const [target, setTarget] = useState("node");
+  const [presences, setPresences] = useState([]);
+
+  useEffect(() => {
+    setTarget("node");
+    setPresences([]);
+    fetch(withKey(`/history?seed=${seed ?? 0}&node_name=${encodeURIComponent(node.name)}`))
+      .then(r => r.json())
+      .then(d => {
+        const seen = new Map();
+        for (const m of d.mutations || []) {
+          const a = m.data?.agent;
+          if (a && !seen.has(a)) seen.set(a, m.data?.persona || "");
+        }
+        setPresences([...seen].slice(0, 4).map(([name, persona]) => ({ name, persona })));
+      })
+      .catch(() => {});
+  }, [node?.name, seed]);
 
   const send = useCallback(async () => {
     const text = message.trim();
@@ -44,13 +64,17 @@ function Speak({ node, seed, playerName }) {
     setState("loading");
     setResponse("…");
     try {
-      const r = await fetch(withKey("/speak"), {
+      const addressingAgent = target !== "node";
+      const r = await fetch(withKey(addressingAgent ? "/agent/voice" : "/speak"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(addressingAgent ? {
+          agent_name: target,
           node_name: node.name,
-          node_level: node.level,
-          node_properties: node.properties ?? {},
+          message: text,
+          seed: seed ?? 0,
+        } : {
+          node_name: node.name,
           message: text,
           seed: seed ?? 0,
           player_name: playerName || undefined,
@@ -63,11 +87,27 @@ function Speak({ node, seed, playerName }) {
       setResponse("Network error: " + e.message);
       setState("error");
     }
-  }, [message, node, seed, playerName, state]);
+  }, [message, node, seed, playerName, state, target]);
 
   return (
     <div style={s.panel}>
       <div style={s.hint}>Speak to {node.level} · {node.name}</div>
+      {presences.length > 0 && (
+        <div style={s.targetRow}>
+          <button
+            style={target === "node" ? s.targetActive : s.target}
+            onClick={() => setTarget("node")}
+          >the place</button>
+          {presences.map(p => (
+            <button
+              key={p.name}
+              style={target === p.name ? s.targetActive : s.target}
+              title={p.persona ? `a ${p.persona} whose traces are here` : "traces found here"}
+              onClick={() => setTarget(p.name)}
+            >{p.name}{p.persona ? ` · ${p.persona}` : ""}</button>
+          ))}
+        </div>
+      )}
       <textarea
         style={s.textarea}
         maxLength={1024}
@@ -77,7 +117,7 @@ function Speak({ node, seed, playerName }) {
         placeholder="What do you want to say?"
       />
       <button style={s.btn} onClick={send} disabled={state === "loading"}>
-        {state === "loading" ? "…" : "Speak to node"}
+        {state === "loading" ? "…" : (target === "node" ? "Speak to node" : `Speak to ${target}`)}
       </button>
       {response && (
         <div style={state === "error" ? s.respError : s.resp}>{response}</div>
@@ -189,6 +229,9 @@ const s = {
   tabActive:{ flex: 1, background: "#10131f", border: "1px solid #3a8eff", color: "#3a8eff", padding: "4px 0", cursor: "pointer", fontFamily: "inherit", fontSize: "11px" },
   panel:    { display: "flex", flexDirection: "column", gap: "6px" },
   hint:     { fontSize: "10px", color: "#4a5580" },
+  targetRow:    { display: "flex", gap: "4px", flexWrap: "wrap" },
+  target:       { background: "#0b0f1a", border: "1px solid #1e2235", color: "#5a6a90", padding: "2px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "10px" },
+  targetActive: { background: "#10131f", border: "1px solid #4af0c8", color: "#4af0c8", padding: "2px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "10px" },
   textarea: { background: "#10131f", border: "1px solid #2a3050", color: "#b0bcd0", padding: "6px", fontFamily: "inherit", fontSize: "12px", resize: "none", height: "48px", lineHeight: 1.4 },
   input:    { background: "#10131f", border: "1px solid #2a3050", color: "#b0bcd0", padding: "5px 6px", fontFamily: "inherit", fontSize: "12px" },
   btn:      { background: "#0e1828", border: "1px solid #2a4060", color: "#3a8eff", padding: "5px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px" },
