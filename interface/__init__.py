@@ -3,10 +3,16 @@ from __future__ import annotations
 import time
 
 import causality
+import persistence
+from causality import CausalityBus, EventKind
+from causality.wiring import wire_world_handlers
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
-from multiverse.utils import build_depth_map
+from multiverse.utils import (
+    apply_property_overrides, apply_ripple_scores, build_distance_map,
+)
 from puzzles.engine import PuzzleEngine
+from puzzles.types import PuzzleResult
 from agents.agent import Agent
 
 _RESET = "\033[0m"
@@ -75,62 +81,95 @@ def _print_map(node: SpatialNode, prefix: str = "", is_last: bool = True,
         print(f"{child_prefix}└─ {_DIM}… ({count} child{'ren' if count != 1 else ''}){_RESET}")
 
 
-_AMBIENT_DAMPENING = causality.DAMPENING
-
-
-def _ambient_mode(node: SpatialNode) -> None:
+def _ambient_mode(node: SpatialNode, seed: int) -> None:
     print(f"\n{_DIM}Entering ambient observation. An agent moves through the world…{_RESET}\n")
     print(f"  {'Node':<30}  {'Event':<22}  {'Strength'}")
     print(f"  {_DIM}{'─'*30}  {'─'*22}  {'─'*20}{_RESET}")
 
-    depth_map = build_depth_map(node)
-
     def _handler(n: SpatialNode, event: causality.CausalEvent) -> None:
         style = _LEVEL_STYLES.get(n.level, "")
         kind = event.kind.name.replace("_", " ").lower()
-        depth = depth_map.get(n.id, 0)
-        strength = _AMBIENT_DAMPENING ** depth
+        # The bar shows the event's REAL propagated strength — what the
+        # engine computed, not a display-side function of tree depth.
+        strength = event.strength
         filled = max(1, round(strength * 20))
         bar = "█" * filled + _DIM + "░" * (20 - filled) + _RESET
         print(f"  {style}{n.name:<30}{_RESET}  {kind:<22}  {bar}  {strength:.2f}")
         time.sleep(0.04)
 
-    bus = causality.CausalityBus()
+    # Ambient observation is part of the shared world: the observer's
+    # events persist (history, ripple, effects) exactly as they do on the
+    # server, so what you watched happen genuinely happened.
+    bus = CausalityBus()
     bus.register_handler(_handler)
+    wire_world_handlers(bus, seed)
     agent = Agent(name="Observer", danger_threshold=7, bus=bus)
     agent.traverse(node, max_nodes=40)
     print(f"\n{_DIM}Observer visited {len(agent.visited)} node(s). Press Enter to continue.{_RESET}")
-    input()
+    try:
+        input()
+    except (EOFError, KeyboardInterrupt):
+        pass
 
 
 def _play_puzzle(node: SpatialNode, seed: int) -> None:
     engine = PuzzleEngine(seed=seed)
     engine.attach_puzzles(node)
-    puzzles = engine.collect_puzzles(node)
-    engine.run_puzzle(puzzles[0])
+    puzzle = engine.puzzle_for(node)
+    if puzzle is None:
+        print("  No puzzle here.")
+        return
+    result = engine.run_puzzle(puzzle)
+
+    # A CLI solve is a real solve: it persists and cascades exactly like a
+    # browser solve, so the consequence outlives the command.
+    if result == PuzzleResult.SOLVED:
+        persistence.save_puzzle_result(seed, puzzle.name, result.name, puzzle.attempts)
+        persistence.record_mutation(
+            seed, node.name, "PUZZLE_SOLVED", None, {"puzzle": puzzle.name})
+        bus = wire_world_handlers(CausalityBus(), seed)
+        event_count_before = len(bus.get_log())
+        bus.propagate(node, EventKind.PUZZLE_SOLVED, {"puzzle": puzzle.name})
+        fired = len(bus.get_log()) - event_count_before
+        print(f"  {_DIM}The solve ripples outward — {fired} node(s) felt it."
+              f"{_RESET}")
+    elif result == PuzzleResult.FAILED:
+        persistence.record_mutation(
+            seed, node.name, "PUZZLE_FAILED", None, {"puzzle": puzzle.name})
 
 
-def _speak_to(node: SpatialNode, message: str, seed: int = 0) -> None:
+def _speak_to(node: SpatialNode, message: str, seed: int = 0,
+              player_name: str | None = None) -> None:
+    print(f"\n{_fmt(node)} responds…\n")
     try:
         import consciousness
     except ImportError:
-        print(f"\n  {_DIM}Consciousness module requires: pip install anthropic{_RESET}\n")
+        print(f"  {_DIM}(The worlds are silent — install the 'anthropic' package to hear them.){_RESET}\n")
         return
-    print(f"\n{_fmt(node)} responds…\n")
+    history = persistence.get_node_history(seed, node.name)
+    transcript = persistence.get_player_exchanges(seed, node.name, player_name)
     try:
-        history = []
-        if seed:
-            import persistence
-            history = persistence.get_node_history(seed, node.name)
-        response = consciousness.speak(node, message, history=history)
+        response = consciousness.speak(
+            node, message,
+            history=history,
+            transcript=transcript,
+            ripple_score=persistence.get_ripple_score(seed, node.name),
+        )
         print(f"  {response}\n")
-        if seed:
-            import persistence
-            persistence.record_mutation(
-                seed, node.name, "PLAYER_SPEAK", None, {"message": message[:128]},
-            )
-    except Exception as exc:
-        print(f"  Error: {exc}\n  Ensure ANTHROPIC_API_KEY is set.\n")
+        persistence.record_mutation(
+            seed, node.name, "PLAYER_SPEAK", player_name,
+            {"message": message[:128], "reply": response[:200]},
+        )
+    except Exception:
+        # The world goes quiet in character. Never an SDK error, never a
+        # billing warning — an authored silence in the node's register.
+        print(f"  {consciousness.fallback_voice(node)}\n")
+        if not _speak_to._hinted:
+            print(f"  {_DIM}(The voices need ANTHROPIC_API_KEY to wake.){_RESET}\n")
+            _speak_to._hinted = True
+
+
+_speak_to._hinted = False
 
 
 _HELP = f"""
@@ -150,7 +189,8 @@ _HELP = f"""
 
 
 def run_session(seed: int = 42, depth: int = 6,
-                min_breadth: int = 1, max_breadth: int = 3) -> None:
+                min_breadth: int = 1, max_breadth: int = 3,
+                player_name: str | None = None) -> None:
     """Launch an interactive terminal session in the nested worlds."""
     print(f"\n{_BOLD}Enfolded: Nested World Adventure{_RESET}")
     print(f"{_DIM}seed={seed}  depth={depth}  breadth={min_breadth}–{max_breadth}{_RESET}")
@@ -159,6 +199,11 @@ def run_session(seed: int = 42, depth: int = 6,
         seed=seed, max_depth=depth,
         min_breadth=min_breadth, max_breadth=max_breadth,
     )
+    # Hydrate the world's persisted evolution: what other participants have
+    # done here — ripple pressure and property changes — is already true
+    # when a CLI player arrives.
+    apply_ripple_scores(root, persistence.load_ripple_scores(seed))
+    apply_property_overrides(root, persistence.load_node_property_overrides(seed))
     print("done.\n")
     print(f"Type {_BOLD}help{_RESET} to see available commands.\n")
 
@@ -204,10 +249,10 @@ def run_session(seed: int = 42, depth: int = 6,
 
         elif cmd in ("speak", "s"):
             msg = rest or "Describe yourself to a traveler who has just arrived."
-            _speak_to(stack[-1], msg, seed=seed)
+            _speak_to(stack[-1], msg, seed=seed, player_name=player_name)
 
         elif cmd in ("observe", "o"):
-            _ambient_mode(stack[-1])
+            _ambient_mode(stack[-1], seed)
 
         elif cmd in ("puzzle", "p"):
             _play_puzzle(stack[-1], seed)
@@ -222,7 +267,7 @@ def run_session(seed: int = 42, depth: int = 6,
             _descend(stack, int(cmd))
 
         else:
-            _speak_to(stack[-1], raw, seed=seed)
+            _speak_to(stack[-1], raw, seed=seed, player_name=player_name)
 
 
 def _descend(stack: list[SpatialNode], n: int) -> None:

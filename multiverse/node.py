@@ -24,7 +24,6 @@ class SpatialNode:
         # Runtime state — mutated as the world evolves; not included in repr
         # so that deterministic generation tests are unaffected.
         self.ripple_score: float = 0.0        # 0.0–1.0 cumulative causal pressure
-        self.interaction_summary: str = ""    # "conflict", "cooperation", etc.
 
         # Children passed at construction need their parent set; do this via
         # `add_child` so the linkage is consistent with later additions.

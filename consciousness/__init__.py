@@ -15,14 +15,15 @@ guidance, and is marked with 1-hour TTL because the content is deploy-stable.
 CACHING CAVEAT (see `_warn_if_cache_ineffective`): prompt caching only
 engages when the cached prefix meets the model's minimum cacheable length.
 On the Opus-class default (`claude-opus-4-7`) that minimum is **4096 tokens**
-— NOT 1024. The current bible is well under that (~1.3K tokens), so the
+— NOT 1024. The current bible is well under that (~1K tokens), so the
 `cache_control` marker is a silent no-op on Opus: it costs nothing extra
 (the block is billed as ordinary input), but it saves nothing either. To
 actually capture the ~10x cache-read discount the block must be enlarged
-past the model's minimum. Until then, a one-time WARNING is emitted when
-this module is first loaded (i.e. the first `/speak` or `/agent/voice`
-call) so the miss is visible rather than silent, and per-call cache
-hit/miss tokens are logged on `nested_worlds.consciousness`.
+past the model's minimum. Until then, a one-time WARNING is emitted at
+SERVER startup (`server.run` calls `warn_if_cache_ineffective`) so the
+miss is visible to operators rather than silent — never into a CLI
+player's session — and per-call cache hit/miss tokens are logged on
+`nested_worlds.consciousness`.
 """
 from __future__ import annotations
 
@@ -312,7 +313,12 @@ def cached_prefix_meets_minimum(min_tokens: int = _OPUS_CACHE_MIN_TOKENS) -> boo
 def _warn_if_cache_ineffective() -> None:
     """Emit a one-time WARNING when the cached prefix is below the model's
     minimum cacheable length, so an ineffective cache_control marker is visible
-    to operators instead of quietly forfeiting the ~10x cache-read discount."""
+    to operators instead of quietly forfeiting the ~10x cache-read discount.
+
+    Deliberately NOT invoked at import time: this is an operator signal, so
+    the server calls it at startup (`server.run`). A CLI player speaking to a
+    node must never see billing internals in their session.
+    """
     global _cache_warned
     if _cache_warned:
         return
@@ -328,7 +334,72 @@ def _warn_if_cache_ineffective() -> None:
         )
 
 
-_warn_if_cache_ineffective()
+# Public name for the server's startup hook.
+warn_if_cache_ineffective = _warn_if_cache_ineffective
+
+
+# ── The failure voice ────────────────────────────────────────────────────────
+# When the Claude API is unreachable (no key, network failure, SDK error) the
+# world must not break character: instead of an HTTP 503 or a stack trace,
+# every scale has an authored line of silence in its own register. This is
+# the game's diminished mode — quiet, not broken.
+
+LEVEL_FALLBACKS: dict[str, str] = {
+    "Multiverse": (
+        "The whole of everything holds its breath. No voice unfolds from "
+        "the fold — only the sense that all of this has spoken before, and "
+        "will again."
+    ),
+    "Universe": (
+        "The constants hold, but no voice carries across the vacuum. "
+        "Physics continues; conversation does not."
+    ),
+    "Galaxy": (
+        "The arms turn without comment. Whatever the stars have to say is "
+        "still centuries from arriving."
+    ),
+    "Planetary System": (
+        "The orbits continue their silent arithmetic. Nothing in the "
+        "resonance answers you."
+    ),
+    "Planet": (
+        "Wind crosses the surface, and the surface says nothing. The world "
+        "keeps its weather to itself."
+    ),
+    "Region": (
+        "The land lies quiet from horizon to horizon. Whatever watches "
+        "from the terrain does not speak."
+    ),
+    "Room": (
+        "Dust settles where a voice should be. The room remembers "
+        "footsteps, but it will not speak of them now."
+    ),
+    "Object": (
+        "It sits inert under your attention — material, mute. Whatever it "
+        "once had to say is sealed in its grain."
+    ),
+    "Molecule": (
+        "The bonds hold their geometry and their silence together. Nothing "
+        "here vibrates into words."
+    ),
+    "Atom": (
+        "The shells hum below the threshold of hearing. Charge, without "
+        "speech."
+    ),
+    "SubatomicParticle": (
+        "A flicker of tendency, then nothing. If it spoke, it spoke into "
+        "probability, and you were not there."
+    ),
+}
+
+_DEFAULT_FALLBACK = (
+    "The place is silent. Whatever voice lives here does not unfold today."
+)
+
+
+def fallback_voice(node: SpatialNode) -> str:
+    """The node's authored line of silence, in its scale's register."""
+    return LEVEL_FALLBACKS.get(node.level, _DEFAULT_FALLBACK)
 
 
 def _level_voice(level: str) -> str:
@@ -351,11 +422,37 @@ def _history_block(history: list[dict]) -> str:
         return ""
     lines = []
     for h in history:
-        who = h.get("player") or h.get("data", {}).get("agent") or "an unknown presence"
+        data = h.get("data", {}) or {}
+        who = h.get("player") or data.get("agent") or "an unknown presence"
         event = h["type"].replace("_", " ").lower()
         date = h["at"][:10] if h.get("at") else "unknown time"
-        lines.append(f"  {date}: {event}, by {who}")
+        line = f"  {date}: {event}, by {who}"
+        # Memory carries content, not just occurrence: what was said to you,
+        # and what you answered, are part of what you are now.
+        said = data.get("message") or data.get("text")
+        if said:
+            line += f' — they said: "{said}"'
+        reply = data.get("reply")
+        if reply:
+            line += f' — you answered: "{reply}"'
+        lines.append(line)
     return "\nMemory of those who have passed through:\n" + "\n".join(lines)
+
+
+def _ripple_line(ripple_score: float) -> str:
+    """Render accumulated causal pressure into the dynamic context."""
+    if ripple_score >= 0.5:
+        return (
+            f"\nCausal pressure runs high in you ({ripple_score:.2f} of 1) — "
+            "recent events still shake through your structure; let that "
+            "unsettledness color your speech."
+        )
+    if ripple_score > 0.05:
+        return (
+            f"\nFaint ripples of recent events still move through you "
+            f"(causal pressure {ripple_score:.2f} of 1)."
+        )
+    return ""
 
 
 def _log_cache_usage(endpoint: str, response: Any) -> None:
@@ -379,23 +476,29 @@ def _log_cache_usage(endpoint: str, response: Any) -> None:
 
 
 def speak(node: SpatialNode, message: str,
-          history: list[dict] | None = None) -> str:
+          history: list[dict] | None = None,
+          transcript: list[dict] | None = None,
+          ripple_score: float = 0.0) -> str:
     """Send `message` to `node` and return its in-character response.
 
     Two system blocks: a large cached "world bible" that consolidates the
     preamble, world premise, all 11 level voices, and behavioural rules
     (1-hour TTL since the content is deploy-stable); followed by a small
     dynamic per-call block carrying this node's name, level, properties,
-    and recent history.
+    accumulated causal pressure, and recent history.
 
     Pass `history` (from persistence.get_node_history) to give the node
-    memory of past visitors and events.
+    memory of past visitors and events; pass `transcript` — a list of
+    `{"user": ..., "assistant": ...}` exchanges (oldest first) — to give the
+    node a real multi-turn conversation with THIS visitor, so the second
+    exchange knows the first happened.
     """
     props = "; ".join(f"{k}={v}" for k, v in node.properties.items())
     node_context = (
         f"You are presently embodying {node.name}, a {node.level}. "
         f"Follow the {node.level} register defined above. "
         f"Your nature: {props or '(no specific properties)'}."
+        + _ripple_line(ripple_score)
         + _history_block(history or [])
     )
 
@@ -411,12 +514,22 @@ def speak(node: SpatialNode, message: str,
         },
     ]
 
+    messages: list[dict] = []
+    for turn in (transcript or []):
+        user_text = turn.get("user")
+        assistant_text = turn.get("assistant")
+        if user_text:
+            messages.append({"role": "user", "content": user_text})
+            if assistant_text:
+                messages.append({"role": "assistant", "content": assistant_text})
+    messages.append({"role": "user", "content": message})
+
     with _call_semaphore:
         response = _get_client().messages.create(
             model=_MODEL,
             max_tokens=256,
             system=system_blocks,
-            messages=[{"role": "user", "content": message}],
+            messages=messages,
         )
     _log_cache_usage("speak", response)
     for block in response.content:
@@ -426,22 +539,25 @@ def speak(node: SpatialNode, message: str,
 
 
 def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
-                message: str) -> str:
+                message: str, history: list[dict] | None = None) -> str:
     """Speak AS an agent visiting `node`, in `persona`'s voice.
 
-    `persona` is duck-typed to expose `.name` and `.voice_preamble` (matching
+    `persona` is duck-typed to expose `.name` (matching
     `agents.personas.Persona`); kept loose here to avoid a hard import cycle
     between consciousness and agents.
 
     Two system blocks: a large cached "agent bible" with the universal
     preamble, world premise, all four archetypes, the 11 scales, and
     behavioural rules (1-hour TTL); followed by a small dynamic block
-    naming the specific agent, its persona, and where it is.
+    naming the specific agent, its persona, where it is — and, when
+    `history` is passed, what has actually happened at that node, so the
+    agent can reference real traces (including its own).
     """
     agent_context = (
         f"You are {agent_name}, a {persona.name}. "
         f"Follow the {persona.name.capitalize()} archetype defined above. "
         f"You are presently at {node.name}, a {node.level}."
+        + _history_block(history or [])
     )
 
     with _call_semaphore:

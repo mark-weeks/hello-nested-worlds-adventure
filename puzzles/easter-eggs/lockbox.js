@@ -15,7 +15,7 @@ ok([
   '✅ Unlocked!',
   '',
   'Next step: visit the project site page at',
-  'docs/optical-illusion.html',
+  'puzzles/easter-eggs/optical-illusion.html (served live at /easter-egg/illusion)',
   '',
   'Psst: if it looks empty, try switching your system to **dark mode**.',
 ].join('\n'));

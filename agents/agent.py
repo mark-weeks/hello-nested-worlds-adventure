@@ -1,5 +1,9 @@
+import hashlib
+import random
+import time
 from dataclasses import dataclass, field
 from typing import List, Optional
+
 from multiverse.node import SpatialNode
 from agents.behaviors import DEFAULT_DANGER_THRESHOLD, State, transition, should_preserve
 from agents.personas import Persona, for_name as _persona_for_name
@@ -14,6 +18,12 @@ class AgentLog:
     state: State
     action: str
     persona: Optional[str] = None
+
+
+# Chance an agent's puzzle attempt succeeds, by puzzle difficulty (1–4).
+# Agents face the same puzzle the engine would hand a human at that node;
+# they don't get free solves — they roll against the difficulty.
+_PUZZLE_SUCCESS_BY_DIFFICULTY = {1: 0.75, 2: 0.55, 3: 0.35, 4: 0.2}
 
 
 @dataclass
@@ -52,21 +62,50 @@ class Agent:
         base.update(extra)
         return base
 
+    def _attempt_puzzle(self, node: SpatialNode):
+        """Attempt the node's actual puzzle under the same engine humans use.
+
+        The puzzle is derived from the node's identity (the same one a human
+        at this node is served), and success is a difficulty-weighted roll
+        seeded by (agent, node) so a given agent's outcome at a given node is
+        reproducible. Returns (solved, puzzle_name, difficulty).
+        """
+        from puzzles.generators import build_puzzle
+        puzzle = build_puzzle(node)
+        digest = hashlib.sha256(
+            f"attempt:{self.name}:{node.name}".encode("utf-8")
+        ).digest()
+        roll = random.Random(int.from_bytes(digest[:8], "big")).random()
+        chance = _PUZZLE_SUCCESS_BY_DIFFICULTY.get(puzzle.difficulty, 0.5)
+        return roll < chance, puzzle.name, puzzle.difficulty
+
     def _act(self, node: SpatialNode) -> bool:
         if self.state == State.EXPLORE:
             if should_preserve(node, self.danger_threshold):
                 self._record(node, f"withdrew (danger_level={node.properties.get('danger_level')})")
-                self._bus.emit(node, EventKind.DANGER_ALERT, self._payload())
+                # Danger travels: an alert cascades up the containing scales
+                # (dampened per hop) so a volatile region registers on its
+                # planet, system, and beyond.
+                self._bus.propagate(node, EventKind.DANGER_ALERT, self._payload(),
+                                    direction="up")
                 return False
             self._record(node, "explored")
             self._bus.emit(node, EventKind.AGENT_VISIT, self._payload())
 
         elif self.state == State.INTERACT:
-            has_puzzle = node.properties.get("has_puzzle")
-            detail = "interacted with puzzle" if has_puzzle else "interacted"
-            self._record(node, detail)
-            kind = EventKind.PUZZLE_SOLVED if has_puzzle else EventKind.AGENT_VISIT
-            self._bus.propagate(node, kind, self._payload())
+            if node.properties.get("has_puzzle"):
+                solved, puzzle_name, difficulty = self._attempt_puzzle(node)
+                if solved:
+                    self._record(node, f"solved the puzzle ({puzzle_name})")
+                    kind = EventKind.PUZZLE_SOLVED
+                else:
+                    self._record(node, f"failed the puzzle ({puzzle_name})")
+                    kind = EventKind.PUZZLE_FAILED
+                self._bus.propagate(node, kind, self._payload(
+                    puzzle=puzzle_name, difficulty=difficulty))
+            else:
+                self._record(node, "interacted")
+                self._bus.propagate(node, EventKind.AGENT_VISIT, self._payload())
 
         elif self.state == State.EXIT:
             if should_preserve(node, self.danger_threshold):
@@ -82,38 +121,60 @@ class Agent:
         """Nodes added to memory during the most recent traverse() call."""
         return len(self.memory) - getattr(self, "_memory_before", 0)
 
-    def traverse(self, node: SpatialNode, max_nodes: int = 50) -> None:
+    def traverse(self, node: SpatialNode, max_nodes: int = 50,
+                 pace: float = 0.0) -> None:
         """Traverse the hierarchy rooted at `node`.
 
-        visited is seeded from accumulated memory so already-known nodes are
-        naturally skipped.  New visits are merged back into memory afterward.
+        `visited` is keyed by node NAME (stable across world rebuilds —
+        node ids are per-process UUIDs) and seeded from accumulated memory
+        so already-known nodes are naturally skipped. `max_nodes` bounds the
+        number of FRESH visits this run, so a well-travelled agent keeps
+        exploring new ground instead of exhausting its budget on memories.
+        New visits are merged back into memory afterward. `pace` sleeps that
+        many seconds between visits — used by the world heartbeat so a
+        traversal unfolds over observable time instead of microseconds.
         """
         self.state = State.IDLE
         self.log = []
         self._memory_before = len(self.memory)
         self.visited = list(self.memory)
-        self._traverse(node, max_nodes)
+        self._fresh_budget = max_nodes
+        self._fresh_used = 0
+        self._pace = pace
+        self._traverse(node)
         memory_set = set(self.memory)
-        for nid in self.visited:
-            if nid not in memory_set:
-                self.memory.append(nid)
-                memory_set.add(nid)
+        for name in self.visited:
+            if name not in memory_set:
+                self.memory.append(name)
+                memory_set.add(name)
 
-    def _traverse(self, node: SpatialNode, max_nodes: int) -> None:
-        if len(self.visited) >= max_nodes:
+    def _traverse(self, node: SpatialNode) -> None:
+        if self._fresh_used >= self._fresh_budget:
             return
-        if node.id in self.visited:
+        if node.name in self.visited:
+            # Known ground: pass through without re-acting or spending fresh
+            # budget, but keep exploring beneath it — except where this agent
+            # would withdraw anyway.
+            if should_preserve(node, self.danger_threshold):
+                return
+            for child in node.children:
+                if self._fresh_used >= self._fresh_budget:
+                    break
+                self._traverse(child)
             return
 
-        self.visited.append(node.id)
+        self.visited.append(node.name)
+        self._fresh_used += 1
         self.state = transition(self.state, node, self.danger_threshold)
         should_descend = self._act(node)
+        if self._pace:
+            time.sleep(self._pace)
 
         if should_descend and self.state != State.EXIT:
             for child in node.children:
-                if len(self.visited) >= max_nodes:
+                if self._fresh_used >= self._fresh_budget:
                     break
-                self._traverse(child, max_nodes)
+                self._traverse(child)
 
     def report(self) -> str:
         fresh = self.fresh_count

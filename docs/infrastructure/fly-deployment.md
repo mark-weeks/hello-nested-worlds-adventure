@@ -95,6 +95,11 @@ tests
 
 ### `fly.toml`
 
+> **The committed `fly.toml` at the repo root is authoritative** — it is
+> guarded by `tests/test_deploy_config.py` and may drift ahead of the
+> illustrative copy below (sizing and limits in particular). When in doubt,
+> read the real file.
+
 Pin to a single region, a single machine, and mount a volume at
 `/data`. `NESTED_WORLDS_TRUST_PROXY=1` tells the rate limiter to trust
 Fly's edge proxy and read the real client IP from the `Fly-Client-IP`

@@ -8,7 +8,7 @@
 How to try a key:
 
 ```bash
-node puzzles/lockbox.js --key=<your-answer>
+node puzzles/easter-eggs/lockbox.js --key=<your-answer>
 ```
 
 (Answer is one lowercase word.)

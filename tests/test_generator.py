@@ -116,6 +116,70 @@ def test_planet_properties():
         assert 0.1 <= planet.properties["gravity"] <= 3.5
 
 
+def _collect(node, out=None):
+    if out is None:
+        out = {}
+    out[node.name] = node
+    for child in node.children:
+        _collect(child, out)
+    return out
+
+
+class TestCanonicalWorld:
+    """One seed = one world: any depth prefix is identical to the full tree."""
+
+    def test_depth_prefix_is_identical(self):
+        shallow = _collect(generate_node_hierarchy(seed=42, max_depth=6))
+        deep = _collect(generate_node_hierarchy(seed=42, max_depth=11))
+        assert set(shallow) <= set(deep), (
+            "every node in the depth-6 world must exist in the depth-11 world"
+        )
+        for name, node in shallow.items():
+            twin = deep[name]
+            assert node.level == twin.level
+            assert node.properties == twin.properties
+            # Same branching for non-leaf levels of the shallow tree.
+            if node.children:
+                assert [c.name for c in node.children] == [c.name for c in twin.children]
+
+    def test_names_unique_within_world(self):
+        root = generate_node_hierarchy(seed=7, max_depth=11)
+        names = []
+
+        def walk(n):
+            names.append(n.name)
+            for c in n.children:
+                walk(c)
+
+        walk(root)
+        assert len(names) == len(set(names))
+
+    def test_node_identity_independent_of_siblings(self):
+        # A node's name/properties depend only on (seed, path) — not on how
+        # deep the rest of the tree goes.
+        a = generate_node_hierarchy(seed=3, max_depth=4, min_breadth=2, max_breadth=2)
+        b = generate_node_hierarchy(seed=3, max_depth=8, min_breadth=2, max_breadth=2)
+        assert a.children[1].name == b.children[1].name
+        assert a.children[1].properties == b.children[1].properties
+
+    def test_atom_element_matches_atomic_number(self):
+        root = generate_node_hierarchy(seed=11, max_depth=11, min_breadth=1, max_breadth=2)
+        table = {"H": 1, "C": 6, "N": 7, "O": 8, "Si": 14,
+                 "Fe": 26, "Xe": 54, "Au": 79, "Pb": 82, "U": 92}
+
+        def walk(n):
+            if n.level == "Atom":
+                assert n.properties["atomic_number"] == table[n.properties["element"]]
+            for c in n.children:
+                walk(c)
+
+        walk(root)
+
+    def test_breadth_above_nine_rejected(self):
+        with pytest.raises(ValueError, match="max_breadth"):
+            generate_node_hierarchy(seed=1, max_depth=3, min_breadth=1, max_breadth=10)
+
+
 class TestGeneratorValidation:
     def test_min_breadth_exceeds_max_raises(self):
         with pytest.raises(ValueError, match="min_breadth"):

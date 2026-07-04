@@ -14,12 +14,16 @@ from urllib.parse import parse_qs, urlparse
 
 import causality
 import persistence
-from causality import CausalityBus, DAMPENING, EventKind
+from causality import CausalityBus, EventKind
+from causality.wiring import wire_world_handlers
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
-from multiverse.generator import generate_node_hierarchy
+from multiverse.generator import generate_node_hierarchy, resolve_node_by_name
 from multiverse.node import SpatialNode
-from multiverse.utils import apply_ripple_scores, build_depth_map, count_nodes, find_node
+from multiverse.utils import (
+    apply_property_overrides, apply_ripple_scores, build_distance_map,
+    count_nodes, find_node,
+)
 from puzzles.engine import PuzzleEngine
 from server import guard, imageprompt, observability
 from server.protocol import ws_recv
@@ -56,10 +60,35 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int, int,
     max_b = int(params.get("max_breadth",  3))
     root = generate_node_hierarchy(seed=seed, max_depth=depth,
                                    min_breadth=min_b, max_breadth=max_b)
-    # Hydrate persisted causal pressure so ripple_score isn't reset to 0
-    # every endpoint call (closes the residual ADR-002 §1 callout).
+    # Hydrate the world's durable evolution onto the deterministic tree:
+    # persisted causal pressure, then the property overlay written by
+    # causal-event effects (multiverse/effects.py) — so the world every
+    # participant sees carries what has happened in it.
     apply_ripple_scores(root, persistence.load_ripple_scores(seed))
+    apply_property_overrides(root, persistence.load_node_property_overrides(seed))
     return root, seed, depth, min_b, max_b
+
+
+def _resolve_node(seed: int, node_name: str) -> SpatialNode | None:
+    """Resolve a client-named node against the canonical world.
+
+    Node identity is server-derived: the client supplies only (seed, name),
+    never level or properties — a request can no longer forge a node's
+    nature or write history for places that don't exist. Names encode their
+    path, so resolution is O(depth) (`resolve_node_by_name`), and the node
+    is hydrated with its persisted evolution: ripple pressure and the
+    property overlay written by causal-event effects.
+    """
+    if not node_name:
+        return None
+    node = resolve_node_by_name(seed, node_name)
+    if node is None:
+        return None
+    node.ripple_score = persistence.get_ripple_score(seed, node.name)
+    overlay = persistence.load_node_property_overrides(seed).get(node.name)
+    if overlay:
+        node.properties.update(overlay)
+    return node
 
 
 def _node_to_dict(node: SpatialNode) -> dict:
@@ -68,34 +97,11 @@ def _node_to_dict(node: SpatialNode) -> dict:
         "name": node.name,
         "level": node.level,
         "properties": node.properties,
+        # Cumulative causal pressure — surfaced so clients can show how much
+        # has happened here, not just what the node was generated as.
+        "ripple_score": round(node.ripple_score, 3),
         "children": [_node_to_dict(c) for c in node.children],
     }
-
-
-def _record_mutation_handler(seed: int):
-    """Bus handler that persists each fired causal event into world_mutations.
-
-    Agent-emitted events carry the agent name in `event.payload["agent"]`;
-    `record_mutation`'s player_name slot is reserved for human players, so we
-    keep player_name=None here and rely on the payload for attribution.
-    """
-    def handler(node: SpatialNode, event: causality.CausalEvent) -> None:
-        persistence.record_mutation(
-            seed, node.name, event.kind.name, None, dict(event.payload)
-        )
-    return handler
-
-
-def _record_ripple_handler(seed: int):
-    """Bus handler that writes the post-fire ripple_score into node_runtime_state.
-
-    `CausalityBus._fire` updates `node.ripple_score` before invoking
-    handlers, so by the time we run the value is already the new
-    cumulative pressure for this node.
-    """
-    def handler(node: SpatialNode, _event: causality.CausalEvent) -> None:
-        persistence.upsert_ripple_score(seed, node.name, node.ripple_score)
-    return handler
 
 
 # ── Handler ────────────────────────────────────────────────────────────────
@@ -106,6 +112,13 @@ _RATE_LIMITED_PATHS = frozenset({
 
 
 class Handler(BaseHTTPRequestHandler):
+    # HTTP/1.1 on the status line: spec-strict WebSocket clients (e.g. the
+    # Python `websockets` library) reject an upgrade whose 101 arrives as
+    # HTTP/1.0. Ordinary responses still close per request — `Connection:
+    # close` is sent with the security headers below — so the thread-per-
+    # connection model keeps its one-request-per-thread behaviour.
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, format, *args):
         # The access-log line is emitted from `_emit_access_log` instead so it
         # carries the structured fields ops actually look at (latency, IP hash,
@@ -193,6 +206,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        # One request per connection (see protocol_version note above). The
+        # WebSocket upgrade path never calls this helper, so 101 responses
+        # keep their Connection: Upgrade header.
+        self.send_header("Connection", "close")
+        self.close_connection = True
 
     def _send_json(self, data: object, status: int = 200) -> None:
         body = json.dumps(data, indent=2).encode()
@@ -377,11 +395,9 @@ class Handler(BaseHTTPRequestHandler):
             persona = persona_by_name(persona_arg) or persona_for_name(name)
             root  = generate_node_hierarchy(seed=seed)
             apply_ripple_scores(root, persistence.load_ripple_scores(seed))
-            # Per-request bus carrying a recorder so traversal events land in
-            # world_mutations alongside puzzle solves.
-            agent_bus = CausalityBus()
-            agent_bus.register_handler(_record_mutation_handler(seed))
-            agent_bus.register_handler(_record_ripple_handler(seed))
+            # Per-request bus with the standard record/ripple/effects wiring
+            # so traversal events persist and change world substance.
+            agent_bus = wire_world_handlers(CausalityBus(), seed)
             agent = Agent(name=name, danger_threshold=threshold, bus=agent_bus,
                           persona=persona)
             saved = persistence.load_agent_memory(name, seed)
@@ -462,44 +478,55 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/speak":
             if guard.ai_disabled():
-                return self._send_json({"response": guard.QUIET_RESPONSE})
-            if not guard.consume_anthropic(user_key=user_key):
-                return self._send_json({"response": guard.QUIET_RESPONSE})
-            node_name       = str(body.get("node_name", "Unknown"))[:128]
-            node_level      = str(body.get("node_level", "Room"))[:64]
-            # Clamp size — node_properties renders into the uncached system
-            # block, so an oversized dict is a full-price token amplifier.
-            node_properties = guard.cap_properties(body.get("node_properties", {}))
+                return self._send_json({"response": guard.QUIET_RESPONSE,
+                                        "ai": False})
+            node_name = str(body.get("node_name", ""))[:128]
             message = str(body.get(
                 "message",
                 "Describe yourself to a traveler who has just arrived.",
             ))[:1024]
             try:
-                seed = int(body.get("seed", 0))
+                seed = int(body.get("seed", 42))
             except (ValueError, TypeError):
-                seed = 0
+                seed = 42
             raw_player = body.get("player_name")
             player_name = (str(raw_player)[:32].strip() or None) if raw_player else None
-            node = SpatialNode(
-                name=node_name,
-                level=node_level,
-                properties=node_properties,
-            )
+
+            import consciousness
+            if not guard.consume_anthropic(user_key=user_key):
+                return self._send_json({"response": guard.QUIET_RESPONSE,
+                                        "ai": False})
+
+            # Node identity is server-derived from the canonical world —
+            # never trusted from the request body.
+            node = _resolve_node(seed, node_name)
+            if node is None:
+                return self._send_error("no such place in this world", 404)
             try:
-                import consciousness
-                history = persistence.get_node_history(seed, node_name) if seed else []
-                response = consciousness.speak(node, message, history=history)
-                if seed:
-                    persistence.record_mutation(
-                        seed, node_name, "PLAYER_SPEAK", player_name,
-                        {"message": message[:128]},
-                    )
-                self._send_json({"response": response})
-            except ImportError:
-                self._send_error("consciousness module requires: pip install anthropic")
+                history = persistence.get_node_history(seed, node.name)
+                transcript = persistence.get_player_exchanges(
+                    seed, node.name, player_name)
+                response = consciousness.speak(
+                    node, message,
+                    history=history,
+                    transcript=transcript,
+                    ripple_score=node.ripple_score,
+                )
+                # The exchange — both sides of it — becomes node memory.
+                persistence.record_mutation(
+                    seed, node.name, "PLAYER_SPEAK", player_name,
+                    {"message": message[:128], "reply": response[:200]},
+                )
+                self._send_json({"response": response, "ai": True})
             except Exception as exc:
-                _log.warning("speak error: %s", exc)
-                self._send_error("Service unavailable", 503)
+                # The world goes quiet in character — no key, SDK failure,
+                # or network error must never break the fiction with an
+                # HTTP error or a stack trace.
+                _log.warning("speak fallback (%s): %s", node.name, exc)
+                self._send_json({
+                    "response": consciousness.fallback_voice(node),
+                    "ai": False,
+                })
 
         elif path == "/puzzle/attempt":
             self._do_puzzle_attempt(body)
@@ -616,23 +643,20 @@ class Handler(BaseHTTPRequestHandler):
         if guard.images_disabled():
             return self._send_json({"url": None, "error": "image generation disabled"})
 
-        node_id    = str(body.get("node_id",    "unknown"))[:128]
-        node_name  = str(body.get("node_name",  ""))[:128]
-        node_level = str(body.get("node_level", "Room"))[:64]
-        node_props = body.get("node_properties", {})
-        if not isinstance(node_props, dict):
-            node_props = {}
-        seed       = str(body.get("seed", "0"))[:16]
-
+        node_name = str(body.get("node_name", ""))[:128]
         try:
-            seed_int = int(seed)
-        except ValueError:
-            seed_int = 0
-        history: list[dict] = []
-        ripple_score = 0.0
-        if seed_int and node_name:
-            history = persistence.get_node_history(seed_int, node_name, limit=1000)
-            ripple_score = persistence.get_ripple_score(seed_int, node_name)
+            seed_int = int(body.get("seed", 42))
+        except (ValueError, TypeError):
+            seed_int = 42
+
+        # Node identity — level, properties, evolution — is server-derived;
+        # the client cannot style-inject via forged properties.
+        node = _resolve_node(seed_int, node_name)
+        if node is None:
+            return self._send_error("no such place in this world", 404)
+
+        history = persistence.get_node_history(seed_int, node.name, limit=1000)
+        ripple_score = node.ripple_score
 
         # Cache key folds in:
         #   - history bucket (every 5 interactions → fresh image even if
@@ -641,9 +665,9 @@ class Handler(BaseHTTPRequestHandler):
         #     its threshold → fresh image even if the bucket hasn't advanced).
         history_bucket = len(history) // 5
         sig            = imageprompt.style_signature(
-            node_level, node_props, history, ripple_score=ripple_score,
+            node.level, node.properties, history, ripple_score=ripple_score,
         )
-        node_key       = f"{seed}:{node_id}:{history_bucket}:{sig}"
+        node_key       = f"{seed_int}:{node.name}:{history_bucket}:{sig}"
         cached         = persistence.get_cached_image(node_key)
         if cached:
             return self._send_json({"url": cached})
@@ -656,7 +680,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"url": None, "error": "daily image budget exhausted"})
 
         prompt = imageprompt.assemble_prompt(
-            node_level, node_name, node_props, history,
+            node.level, node.name, node.properties, history,
             ripple_score=ripple_score,
         )
 
@@ -689,36 +713,59 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"url": url})
 
     def _do_agent_voice(self, body: dict, user_key: str = "") -> None:
-        """POST /agent/voice — let an agent speak in its persona's voice."""
+        """POST /agent/voice — let an agent speak in its persona's voice.
+
+        The node is resolved server-side and its history is passed in, so
+        the voiced agent stands somewhere real and can reference what has
+        actually happened there — including its own FSM traces.
+        """
         if guard.ai_disabled():
             return self._send_json({"response": guard.QUIET_RESPONSE,
-                                    "agent": "", "persona": "", "node": ""})
+                                    "agent": "", "persona": "", "node": "",
+                                    "ai": False})
         if not guard.consume_anthropic(user_key=user_key):
             return self._send_json({"response": guard.QUIET_RESPONSE,
-                                    "agent": "", "persona": "", "node": ""})
+                                    "agent": "", "persona": "", "node": "",
+                                    "ai": False})
         agent_name = str(body.get("agent_name", "Scout"))[:32]
-        node_name  = str(body.get("node_name",  "Unknown"))[:128]
-        node_level = str(body.get("node_level", "Room"))[:64]
+        node_name  = str(body.get("node_name",  ""))[:128]
         message    = str(body.get(
             "message", "Where are you, and what do you see?",
         ))[:1024]
+        try:
+            seed = int(body.get("seed", 42))
+        except (ValueError, TypeError):
+            seed = 42
         persona_arg = str(body.get("persona", ""))[:32]
         persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
-        node = SpatialNode(name=node_name, level=node_level, properties={})
+
+        node = _resolve_node(seed, node_name)
+        if node is None:
+            return self._send_error("no such place in this world", 404)
         try:
             import consciousness
-            response = consciousness.voice_agent(persona, agent_name, node, message)
+            history = persistence.get_node_history(seed, node.name)
+            response = consciousness.voice_agent(persona, agent_name, node,
+                                                 message, history=history)
             self._send_json({
                 "agent":    agent_name,
                 "persona":  persona.name,
-                "node":     node_name,
+                "node":     node.name,
                 "response": response,
+                "ai":       True,
             })
-        except ImportError:
-            self._send_error("consciousness module requires: pip install anthropic")
         except Exception as exc:
-            _log.warning("agent voice error: %s", exc)
-            self._send_error("Service unavailable", 503)
+            _log.warning("agent voice fallback (%s): %s", agent_name, exc)
+            self._send_json({
+                "agent":    agent_name,
+                "persona":  persona.name,
+                "node":     node.name,
+                "response": (
+                    f"{agent_name} does not answer. Only the traces of a "
+                    f"{persona.name} remain here, already cooling."
+                ),
+                "ai": False,
+            })
 
     def _do_save_position(self, body: dict, user_key: str = "") -> None:
         """POST /position — persist the caller's last position for cross-device
@@ -762,14 +809,17 @@ class Handler(BaseHTTPRequestHandler):
         self._send_security_headers()
         self.end_headers()
 
-        depth_map = build_depth_map(target)
-        room      = get_room(seed)
+        distance_map = build_distance_map(target)
+        room         = get_room(seed)
 
         agent_enter(room, agent_name, persona=persona.name)
 
         def handler(node: SpatialNode, event: causality.CausalEvent) -> None:
-            d        = depth_map.get(node.id, 0)
-            strength = round(DAMPENING ** d, 4)
+            # The strength shown is the event's REAL propagated strength —
+            # not a display-side function of tree depth. `depth` is the hop
+            # distance from the observed origin (ancestors included).
+            d        = distance_map.get(node.id, 0)
+            strength = round(event.strength, 4)
             payload  = {
                 "node":     node.name,
                 "level":    node.level,
@@ -804,8 +854,7 @@ class Handler(BaseHTTPRequestHandler):
         # stream — concurrent /observe calls no longer need to serialise.
         bus = CausalityBus()
         bus.register_handler(handler)
-        bus.register_handler(_record_mutation_handler(seed))
-        bus.register_handler(_record_ripple_handler(seed))
+        wire_world_handlers(bus, seed)
         try:
             agent = Agent(name=agent_name, danger_threshold=7, bus=bus,
                           persona=persona)
@@ -916,27 +965,27 @@ class Handler(BaseHTTPRequestHandler):
 
             # Propagate causal ripple from the solved node — bidirectional
             # since causality.propagate() defaults to direction="both".
-            # Each fired event fans out to all connected WebSocket clients.
-            causal_depth_map = build_depth_map(target)
+            # Each fired event fans out to all connected WebSocket clients
+            # carrying its REAL propagated strength; `depth` is the hop
+            # distance from the origin (ancestors get their true distance).
+            distance_map = build_distance_map(target)
             solve_bus = CausalityBus()
 
             def _causal_handler(n: SpatialNode, ev: causality.CausalEvent,
-                                 _room=room, _dm=causal_depth_map,
+                                 _room=room, _dm=distance_map,
                                  _origin=effective_node) -> None:
-                d = _dm.get(n.id, 0)
                 broadcast(_room, {
                     "type":     "causal_event",
                     "node":     n.name,
                     "level":    n.level,
                     "kind":     ev.kind.name,
-                    "strength": round(DAMPENING ** d, 4),
-                    "depth":    d,
+                    "strength": round(ev.strength, 4),
+                    "depth":    _dm.get(n.id, 0),
                     "origin":   _origin,
                 })
 
             solve_bus.register_handler(_causal_handler)
-            solve_bus.register_handler(_record_mutation_handler(seed))
-            solve_bus.register_handler(_record_ripple_handler(seed))
+            wire_world_handlers(solve_bus, seed)
             solve_bus.propagate(target, EventKind.PUZZLE_SOLVED,
                                 {"puzzle": p.name, "contributors": contributors})
 

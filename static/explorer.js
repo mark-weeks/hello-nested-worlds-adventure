@@ -147,6 +147,7 @@ async function loadWorld() {
     setStatus(`${data.node_count} nodes · seed ${seed} · depth ${depth}`);
     renderTree(data.world);
     if (playerName) wsConnect(seed);
+    loadHistoryFeed(seed);
   } catch (e) {
     setStatus('Error: ' + e.message);
   } finally {
@@ -199,6 +200,37 @@ function renderTree(worldRoot) {
   if (entry.id !== worldRoot.id) centerOnNode(entry);
 }
 
+// ── The world's past, visible on arrival ───────────────────────────────────
+// Backfill recent mutations into the event feed so a new arrival sees a
+// world already in motion — who solved what, which agents passed through,
+// where danger stirred — instead of an empty feed.
+
+function describeMutation(m) {
+  const when = (m.at || '').slice(0, 10);
+  const who = m.player || (m.data && m.data.agent) || 'someone';
+  switch (m.type) {
+    case 'PUZZLE_SOLVED': return `${when} · ${who} solved a puzzle at ${m.node}`;
+    case 'PUZZLE_FAILED': return `${when} · a puzzle resisted ${who} at ${m.node}`;
+    case 'PLAYER_SPEAK':  return `${when} · ${who} spoke with ${m.node}`;
+    case 'PLAYER_CHAT':   return `${when} · ${who} said something at ${m.node}`;
+    case 'AGENT_VISIT':   return `${when} · ${who} passed through ${m.node}`;
+    case 'DANGER_ALERT':  return `${when} · danger stirred at ${m.node}`;
+    default:              return `${when} · something happened at ${m.node}`;
+  }
+}
+
+async function loadHistoryFeed(seed) {
+  try {
+    const res = await fetch(withKey(`/history?seed=${seed}`));
+    if (!res.ok) return;
+    const { mutations } = await res.json();
+    // Oldest first, so the newest history line ends up nearest the live feed.
+    for (const m of (mutations || []).slice(0, 12).reverse()) {
+      pushFeed(`◦ ${describeMutation(m)}`, { cls: 'history-msg' });
+    }
+  } catch (_) { /* history is a garnish — never block the load on it */ }
+}
+
 function centerOnNode(nodeData) {
   if (!hierLayout) return;
   const d = hierLayout.descendants().find(n => n.data.id === nodeData.id
@@ -236,9 +268,17 @@ function selectNode(data) {
   document.getElementById('node-level').style.color = color;
   document.getElementById('node-name').textContent  = data.name;
   document.getElementById('node-name').style.color  = color;
-  document.getElementById('node-props').innerHTML = Object.entries(data.properties || {}).map(
+  let propsHtml = Object.entries(data.properties || {}).map(
     ([k, v]) => `<div class="prop-row"><span class="prop-key">${escHtml(String(k))}</span><span class="prop-val">${escHtml(String(v))}</span></div>`
   ).join('');
+  if (data.ripple_score > 0) {
+    const bars = '▮'.repeat(Math.max(1, Math.round(data.ripple_score * 8)));
+    const hot = data.ripple_score >= 0.5 ? ' style="color:#c88af0"' : '';
+    propsHtml += `<div class="prop-row" title="accumulated causal pressure">` +
+      `<span class="prop-key">causal pressure</span>` +
+      `<span class="prop-val"${hot}>${bars} ${data.ripple_score.toFixed(2)}</span></div>`;
+  }
+  document.getElementById('node-props').innerHTML = propsHtml;
 
   document.getElementById('speak-response').textContent = '';
   document.getElementById('speak-response').className = 'response-box';
@@ -382,7 +422,6 @@ async function submitAnswer() {
   const answer = (document.getElementById('puzzle-answer')?.value || '').trim();
   if (!answer) return;
 
-  puzzleState.attempt++;
   const { seed, depth, min_b, max_b } = worldParams;
   try {
     const res  = await fetch(withKey('/puzzle/attempt'), {
@@ -397,6 +436,11 @@ async function submitAnswer() {
     const hintEl   = document.getElementById('puzzle-hint');
     const infoEl   = document.getElementById('attempt-info');
 
+    // Attempts pool across the whole room (co-op), so the server's count is
+    // the truth — a local counter drifts the moment anyone else guesses.
+    puzzleState.attempt     = data.attempt ?? (puzzleState.attempt + 1);
+    puzzleState.maxAttempts = data.max_attempts ?? puzzleState.maxAttempts;
+
     if (data.correct) {
       puzzleState.solved = true;
       resultEl.textContent = 'Correct.';
@@ -409,7 +453,7 @@ async function submitAnswer() {
       hintEl.textContent   = '';
       document.getElementById('puzzle-answer').disabled = true;
     } else {
-      const remaining = puzzleState.maxAttempts - puzzleState.attempt;
+      const remaining = Math.max(0, puzzleState.maxAttempts - puzzleState.attempt);
       resultEl.textContent = 'Wrong.';
       resultEl.className   = 'puzzle-result wrong';
       hintEl.textContent   = data.hint ? `Hint: ${data.hint}` : '';

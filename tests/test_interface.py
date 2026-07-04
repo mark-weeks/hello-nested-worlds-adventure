@@ -6,7 +6,9 @@ from unittest.mock import patch
 import pytest
 
 import causality
+import persistence
 from multiverse.node import SpatialNode
+from multiverse.utils import build_depth_map
 from interface import (
     _fmt,
     _print_look,
@@ -14,9 +16,7 @@ from interface import (
     _print_breadcrumb,
     _descend,
     _ambient_mode,
-    build_depth_map,
     _play_puzzle,
-    _AMBIENT_DAMPENING,
 )
 
 
@@ -146,7 +146,7 @@ class TestAmbientMode:
         root = make_tree()
         with patch("builtins.input", return_value=""):
             with patch("time.sleep"):
-                _ambient_mode(root)
+                _ambient_mode(root, seed=777)
         assert causality._default._handlers == []
         assert causality.get_log() == []
 
@@ -154,7 +154,7 @@ class TestAmbientMode:
         root = make_tree()
         with patch("builtins.input", return_value=""):
             with patch("time.sleep"):
-                _ambient_mode(root)
+                _ambient_mode(root, seed=777)
         out = capsys.readouterr().out
         # Every tree node should appear as the agent visits it
         assert "Aethon-1" in out
@@ -165,18 +165,34 @@ class TestAmbientMode:
         root = make_tree()
         with patch("builtins.input", return_value=""):
             with patch("time.sleep"):
-                _ambient_mode(root)
+                _ambient_mode(root, seed=777)
         assert causality.get_log() == []
 
-    def test_ambient_strength_dampens_with_depth(self, capsys):
+    def test_ambient_shows_real_event_strengths(self, capsys):
+        # A puzzle node makes the agent INTERACT, which propagates with
+        # dampening — the displayed bar must show the engine's actual
+        # strengths (1.00 at origin, 0.50 one hop out), not a display-side
+        # depth curve.
+        root = make_tree()
+        planet = root.children[0].children[0]
+        planet.properties["has_puzzle"] = True
+        with patch("builtins.input", return_value=""):
+            with patch("time.sleep"):
+                _ambient_mode(root, seed=777)
+        out = capsys.readouterr().out
+        assert "1.00" in out
+        assert "0.50" in out
+
+    def test_ambient_leaves_persistent_traces(self):
+        # What you watched happen genuinely happened: the observer's events
+        # land in world_mutations like every other participant's.
         root = make_tree()
         with patch("builtins.input", return_value=""):
             with patch("time.sleep"):
-                _ambient_mode(root)
-        out = capsys.readouterr().out
-        # Root should show 1.00, deeper nodes less
-        assert "1.00" in out
-        assert f"{_AMBIENT_DAMPENING:.2f}" in out
+                _ambient_mode(root, seed=778)
+        mutations = persistence.get_mutations(778)
+        assert mutations, "ambient observation must leave durable traces"
+        assert any(m["data"].get("agent") == "Observer" for m in mutations)
 
 
 class TestPuzzleMode:
@@ -188,7 +204,32 @@ class TestPuzzleMode:
         out = capsys.readouterr().out
         assert "===" in out  # puzzle header always appears
 
-    def test_play_puzzle_with_puzzle_node(self, capsys):
-        node = SpatialNode("Vault", "Room", properties={"has_puzzle": True})
+    def test_play_puzzle_abandon_is_safe(self, capsys):
+        node = SpatialNode("Vault-1", "Room", properties={"has_puzzle": True})
         with patch("builtins.input", return_value="quit"):
             _play_puzzle(node, seed=42)
+        out = capsys.readouterr().out
+        assert "===" in out
+
+    def test_puzzle_never_leaks_into_node_properties(self):
+        # REGRESSION: the Puzzle object (repr includes answer + hints) used
+        # to be stored in node.properties, where `look` printed it and the
+        # consciousness prompt ingested it — the node could be asked for its
+        # own answer. Puzzles must never touch properties.
+        node = SpatialNode("Vault-1", "Room", properties={"has_puzzle": True})
+        with patch("builtins.input", return_value="quit"):
+            _play_puzzle(node, seed=42)
+        assert "puzzle" not in node.properties
+
+    def test_solved_puzzle_persists_and_cascades(self, capsys):
+        # A CLI solve is a real solve: mutation recorded, ripple accrued.
+        from puzzles.engine import PuzzleEngine
+        node = SpatialNode("Vault-1", "Room", properties={"has_puzzle": True})
+        engine = PuzzleEngine(seed=31)
+        engine.attach_puzzles(node)
+        answer = engine.puzzle_for(node).answer
+        with patch("builtins.input", return_value=answer):
+            _play_puzzle(node, seed=31)
+        mutations = persistence.get_mutations(31)
+        assert any(m["type"] == "PUZZLE_SOLVED" for m in mutations)
+        assert persistence.get_ripple_score(31, "Vault-1") > 0

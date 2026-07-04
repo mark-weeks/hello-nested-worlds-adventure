@@ -27,7 +27,7 @@ Status reflects what shipped to `main`. See the [CHANGELOG](../CHANGELOG.md) for
 ## Out of Scope for Phase 1 (deferred to Phase 2)
 
 - Animated ripple effects on the multiverse graph
-- Cooperative mechanics in-product
+- ~~Cooperative mechanics in-product~~ Shipped — co-op puzzle sessions (`server/rooms.py::PuzzleSession`) pool attempts/contributors per room; see CHANGELOG
 - Full multiverse map view (D3 / Cytoscape)
 - IP-Adapter scene conditioning
 - Style zone LoRAs

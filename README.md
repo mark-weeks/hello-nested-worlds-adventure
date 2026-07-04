@@ -86,20 +86,21 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 
 | System | Status |
 |--------|--------|
-| World model (`multiverse/`) | Functional — named locations, variable branching, rich per-level properties across 11 scales |
-| Agent traversal (`agents/`) | Functional — FSM traversal, self-preservation, interaction logging, causal event emission, persistent memory across runs, agent-to-agent encounters, four persona archetypes (*tender · destabilizer · scholar · wanderer*) auto-picked by name and surfaced in events / encounters / voicing |
+| World model (`multiverse/`) | Functional — named locations, variable branching, rich per-level properties across 11 scales. **Canonical worlds:** every node is a pure function of (seed, path), so a depth-6 view is exactly the top of the depth-11 world — all clients and endpoints agree on node identity, and names resolve to nodes in O(depth) (`resolve_node_by_name`). Causal events durably change node substance via `multiverse/effects.py` (solves stabilize/calm danger, alerts roughen, structural change degrades condition), persisted as a property overlay |
+| Agent traversal (`agents/`) | Functional — FSM traversal, self-preservation, interaction logging, causal event emission, persistent memory across runs (keyed by node NAME, so it survives world rebuilds; the visit budget counts fresh ground, so a well-travelled agent keeps exploring), agent-to-agent encounters, four persona archetypes (*tender · destabilizer · scholar · wanderer*) auto-picked by name. **Agents obey the puzzle rules**: they attempt the node's actual engine puzzle with difficulty-weighted odds and can fail — no free solves. Danger alerts propagate upward with dampening |
 | Puzzle engine (`puzzles/`) | Functional — node-voiced generators for all 11 levels (`puzzles/generators.py`): scale-themed anagrams, Caesar ciphers, inferred numeric sequences, plus de-leaked hand-written riddles/logic. Traversal is non-linear (drop in at any node, move up or down, explore continuously), so **difficulty is a per-node property spread across the full 1–4 range at every scale — not a depth curve**; scale sets a puzzle's flavour, never how hard it is. Difficulty is surfaced on `/puzzle` (a ★ rating in both frontends) so players can pick their challenge; every puzzle carries graduated hints, with more attempts for harder ones. Each node's puzzle is seeded from its own identity, so it's unique to the node yet reproducible (co-op sees the same puzzle) instead of repeating across neighbours. The answer never appears in the prompt, the hints, or the node's shipped `/world` properties, and is validated server-side (no client-side leak). Static pools remain a graceful fallback for unknown levels. |
-| Causality engine (`causality/`) | Functional — bidirectional event propagation (up + down) from any origin with configurable per-hop dampening; events broadcast to all WebSocket clients; in-memory `ripple_score` accumulates as nodes fire |
+| Causality engine (`causality/`) | Functional — bidirectional event propagation (up + down) from any origin with configurable per-hop dampening; events broadcast to all WebSocket clients carrying their REAL propagated strength (hop distance included, ancestors measured truthfully); persisted `ripple_score` accumulates atomically (concurrent participants compound, not overwrite); strong events change node properties via `multiverse/effects.py` and the change survives rebuilds (`causality/wiring.py` is the one standard wiring every surface uses) |
 | Persistence (`persistence/`) | Functional — SQLite store for world state, agent runs, puzzle results, agent memory, node interaction history, world mutations, and scene-image cache |
-| Server (`server/`) | Functional — REST (`/health` `/worlds` `/world` `/agent` `/observe` `/puzzle` `/players` `/history` `/image` `/speak` `/puzzle/attempt` `/agent/voice` `/position`), WebSocket multiplayer at `/ws` (chat + presence + causal events), co-op puzzle sessions (attempts pooled per room; solver + contributors broadcast on solve), bundled browser UI at `/app`, security headers + CSP, body/frame size caps |
-| CLI (`main.py`) | Functional — `world`, `agent`, `puzzles`, `play`, `serve`, `speak`, `history` |
-| Node consciousness (`consciousness/`) | Functional — Claude-powered node voices, per-scale character registers (`LEVEL_VOICES`) for all 11 levels, fed by per-node interaction history; agent voicing via `voice_agent()` (requires `ANTHROPIC_API_KEY`) |
+| Server (`server/`) | Functional — REST (`/health` `/worlds` `/world` `/agent` `/observe` `/puzzle` `/players` `/history` `/image` `/speak` `/puzzle/attempt` `/agent/voice` `/position`), WebSocket multiplayer at `/ws` (chat + presence + causal events; HTTP/1.1 handshake, so spec-strict clients connect), co-op puzzle sessions (attempts pooled per room; solver + contributors broadcast on solve), bundled browser UI at `/app`, security headers + CSP, body/frame size caps. **Node identity is server-derived**: `/speak`, `/image`, and `/agent/voice` resolve the named node against the canonical world (404 for forged names) — clients cannot invent a node's nature or write history for places that don't exist |
+| World heartbeat (`server/heartbeat.py`) | Functional — the multiverse runs unattended: a daemon loop (default every 180s, `NESTED_WORLDS_HEARTBEAT*` env) sends recurring persona agents (*Tessera, Halden, Mirrorbird…*) on paced traversals that persist history/ripple/effects and broadcast live to the seed-room. FSM-driven — zero API spend |
+| CLI (`main.py`) | Functional — `world`, `agent`, `puzzles` (`--limit`, skip/quit, EOF-safe), `play` (`--name` so nodes remember you), `serve`, `speak`, `history` (now includes puzzle results); `--seed` accepted before or after the subcommand. CLI play is part of the shared world: solves persist and cascade, ambient observation leaves real traces, and the session tree carries the world's persisted evolution |
+| Node consciousness (`consciousness/`) | Functional — Claude-powered node voices, per-scale character registers (`LEVEL_VOICES`) for all 11 levels. Memory has content: nodes hear what you said and remember what they answered (both persist in the exchange), a per-(node, player) transcript makes conversations multi-turn, and accumulated causal pressure (`ripple_score`) colors the voice. Without a key the world degrades in character: every scale has an authored fallback line (`LEVEL_FALLBACKS`) — never an HTTP 503 or SDK error. Agent voicing via `voice_agent()` fetches real node history |
 | Interface (`interface/`) | Functional — interactive terminal session (spatial, conversational, ambient) |
 | Frontend (`frontend/`) | Functional — React + PixiJS + Vite client wired to the WebSocket server; node conversation (`/speak`) and puzzle play (`/puzzle`) panels; fal.ai-generated scene backgrounds; named player markers (color hashed by name); animated causal ripples / encounter glyphs / puzzle-solve sparkles overlaid on the current scene. Scene init degrades gracefully (no white-screen) when WebGL is unavailable |
 | Beta hardening (`server/guard.py`, `server/observability.py`) | Functional — shared invite key OR per-user invite keys (`invite_keys` table; mint/list/revoke via `python main.py invite ...`), per-IP rate limiter, Anthropic concurrency semaphore (env-tunable), daily Anthropic + fal.ai cost caps — both a global cap and a per-user (per-credential) sub-cap so one account can't drain the shared budget (all persisted), kill switches for AI / images, world-gen parameter bounds, optional Sentry, JSON access log, online SQLite backup CLI |
 | Frontends: which is which | Two browser clients. `/` (vanilla-D3 explorer) and `/app` (React+PixiJS) are **both** feature-complete for the core loop — navigate, speak to nodes, solve puzzles, observe, live multiplayer. Invite URLs land testers on `/` by default because it has no WebGL dependency and works on any device first-click; `/app` is the richer immersive view. |
 | Non-linear entry (both clients) | Traversal is non-linear (move up or down from any node; no "reach the bottom" goal), so there is no fixed root start. A **first-time player drops in at a node in the middle of the world** — one with places to go both up and down — chosen deterministically from their name. A **returning player resumes exactly where they left off**, and that resume **follows them across devices**: the last node (and the world it belonged to) is stored server-side keyed on the invite key (`GET`/`POST /position`, columns on `invite_keys`), so a tester who opens the game on a new device or browser lands back where they were. `localStorage` stays a same-browser cache and the server is the cross-device source of truth; shared-key / no-key sessions have no server row and fall back to the local cache. Falls back to a fresh drop-in if the saved node is gone. Shared logic in `frontend/src/entry.js` (React) mirrored in `static/explorer.js` (D3). |
-| Tests | 434 tests across generator, agents, puzzles (quality invariants — no-leak, solvable, node-unique, per-node difficulty spread, transform integrity), persistence (incl. invite keys + cross-device position), causality, interface, consciousness, HTTP/WebSocket server, beta guards (incl. per-user keys + per-user cost caps + world-size bound), Fly deploy config, frontend↔endpoint contract (incl. difficulty rating + non-linear entry + cross-device resume), and observability |
+| Tests | 486 Python tests across generator (incl. canonical prefix-stability), agents (incl. memory-across-rebuilds and puzzle-rule parity), puzzles (quality invariants — no-leak, solvable, node-unique, per-node difficulty spread, transform integrity, never-in-properties), effects + causal wiring, persistence (incl. invite keys + cross-device position + property overlay), causality, interface, consciousness (incl. transcripts + fallback voices), heartbeat, HTTP/WebSocket server, node resolution, beta guards, Fly deploy config, frontend↔endpoint contract (incl. welcome-roster + history-backfill), and observability — plus 17 Vitest JS tests (entry resolution incl. cross-client parity, WS dispatch) run in CI |
 
 ---
 
@@ -129,6 +130,8 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER` | Hosted beta: per-credential daily fal.ai image cap. | `60` |
 | `NESTED_WORLDS_ANTHROPIC_CONCURRENCY` | Hosted beta: max in-flight Anthropic calls per process. Bounds instantaneous concurrency so a synchronized burst can't trip the org-level RPM. | `8` |
 | `NESTED_WORLDS_FAL_DAILY_CALLS` | Hosted beta: cap fal.ai image calls per UTC day. | `200` |
+| `NESTED_WORLDS_HEARTBEAT` | Set to `0` to disable the ambient world heartbeat (background agent life). | on |
+| `NESTED_WORLDS_HEARTBEAT_INTERVAL` | Seconds between heartbeat ticks. Heartbeat agents are FSM-driven — no API spend. | `180` |
 | `NESTED_WORLDS_RATE_LIMIT_PER_MIN` | Hosted beta: per-IP requests/minute on `/speak`, `/agent/voice`, `/image`, `/puzzle/attempt`. | `20` |
 | `NESTED_WORLDS_MAX_WS_CONNECTIONS` | Hosted beta: max concurrent WebSocket connections process-wide. Excess upgrades get `503`. | `128` |
 | `NESTED_WORLDS_MAX_WS_PER_IP` | Hosted beta: max concurrent WebSocket connections per client IP. | `8` |
@@ -157,11 +160,11 @@ python main.py world
 # Run an agent traversal
 python main.py agent --name Scout --danger-threshold 4
 
-# Find and play puzzles
-python main.py puzzles
+# Find and play puzzles (first 10 by default; 'skip' passes, Ctrl-D stops)
+python main.py puzzles --limit 5
 
 # Start an interactive session (spatial navigation + conversation + ambient)
-python main.py play
+python main.py play --name Ada    # give a name and the nodes remember you
 
 # Start the REST API server (http://127.0.0.1:8080)
 python main.py serve
@@ -180,8 +183,8 @@ python main.py invite mint --name Alice --note "design partner"
 python main.py invite list
 python main.py invite revoke nw_...
 
-# All commands accept --seed INT for reproducible runs
-python main.py --seed 7 world --depth 6
+# All commands accept --seed INT, before or after the subcommand
+python main.py world --seed 7 --depth 6
 ```
 
 ## Running Tests
