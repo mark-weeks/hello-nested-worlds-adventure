@@ -58,6 +58,16 @@ class TestServerHTTP:
             _get(f"{base}/world?seed=abc")
         assert exc_info.value.code == 400
 
+    def test_puzzle_get_exposes_difficulty_not_answer(self, srv):
+        # The puzzle listing carries a per-node difficulty (1..4) so the UI can
+        # show a rating and let players pick their challenge — but never the
+        # answer.
+        base, _ = srv
+        data, *_ = _get(f"{base}/puzzle?seed=42&depth=6&min_breadth=1&max_breadth=3")
+        assert data["found"] is True
+        assert 1 <= data["difficulty"] <= 4
+        assert "answer" not in data
+
     def test_puzzle_attempt_no_leak(self, srv):
         """C-1 regression: attempt=99999 must not reveal correct_answer."""
         base, _ = srv

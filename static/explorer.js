@@ -241,9 +241,19 @@ async function fetchPuzzle() {
   }
 }
 
+function _diffStars(n) {
+  // 1..4 filled stars; difficulty is a per-node property, not a scale ramp.
+  const d = Math.max(1, Math.min(4, n || 2));
+  return '★'.repeat(d) + '☆'.repeat(4 - d);
+}
+
 function renderPuzzle(data) {
+  const diffLabels = { 1: 'gentle', 2: 'moderate', 3: 'tricky', 4: 'hard' };
+  const diff = data.difficulty || 2;
   document.getElementById('puzzle-content').innerHTML = `
-    <div class="puzzle-kind">${escHtml(data.kind.replace(/_/g, ' '))}</div>
+    <div class="puzzle-kind">${escHtml(data.kind.replace(/_/g, ' '))}
+      <span class="puzzle-diff" title="difficulty: ${diffLabels[diff]}">${_diffStars(diff)}</span>
+    </div>
     <div class="puzzle-name">${escHtml(data.name)}</div>
     <div class="puzzle-prompt">${escHtml(data.prompt)}</div>
     <div class="attempt-info" id="attempt-info">

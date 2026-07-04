@@ -11,11 +11,13 @@
 #     player must infer.
 #   * Fair, never a wall. Every puzzle carries graduated hints (theme → shape →
 #     first letter), released one per wrong attempt, so a stuck player is always
-#     guided toward the answer without being handed it. Harder scales get MORE
+#     guided toward the answer without being handed it. Harder puzzles get MORE
 #     attempts and an extra hint, not fewer.
-#   * A difficulty curve. Players descend from the Multiverse to the subatomic,
-#     so difficulty rises with depth: short words / small shifts / gentle rules
-#     up top, longer words / larger shifts / trickier rules at the bottom.
+#   * Difficulty is per-node, not per-scale. Traversal is non-linear — players
+#     drop in at any node and move up or down, exploring continuously with no
+#     "reach the bottom" goal — so difficulty is drawn per node and spread across
+#     the full range at every scale, rather than rising with depth. Scale sets a
+#     puzzle's flavour (its themed vocabulary), never how hard it is.
 #   * Per-node unique. Selection is seeded from the node's own identity, so each
 #     node gets its own reproducible puzzle instead of every Room re-serving the
 #     same three. Reproducible = co-op safe: everyone standing on a node sees
@@ -37,26 +39,40 @@ from puzzles.data import LEVEL_POOLS
 from puzzles.types import Puzzle, PuzzleKind
 
 
-# ── Difficulty tiers ─────────────────────────────────────────────────────────
-# One integer per scale, rising with depth. Drives word length, the cipher
-# shift range, the numeric-sequence rules offered, attempts, and hint count.
+# ── Difficulty: a property of the puzzle, not the scale ──────────────────────
+# Traversal is non-linear — players drop in at any node and move up or down,
+# with no "reach the bottom" goal, so continuous exploration is the point.
+# Difficulty therefore is NOT a function of depth (a depth curve would wall a
+# player who drops into a deep scale, make challenge yo-yo as they wander up and
+# down, and smuggle in a false "reach the subatomic and you're done" goal).
+# Instead each node draws its own difficulty (1 gentle … 4 hard), seeded from
+# its identity and spread across the whole range at every scale. Scale still
+# shapes a puzzle's flavour — its themed vocabulary and register — but never
+# makes one scale harder than another. Difficulty drives the cipher shift range,
+# the numeric-sequence rules offered, the number of attempts, and the hint count.
 
-LEVEL_DIFFICULTY: dict[str, int] = {
-    "Multiverse":        1,
-    "Universe":          1,
-    "Galaxy":            1,
-    "Planetary System":  2,
-    "Planet":            2,
-    "Region":            2,
-    "Room":              3,
-    "Object":            3,
-    "Molecule":          3,
-    "Atom":              4,
-    "SubatomicParticle": 4,
-}
+CANONICAL_LEVELS: tuple[str, ...] = (
+    "Multiverse", "Universe", "Galaxy", "Planetary System", "Planet",
+    "Region", "Room", "Object", "Molecule", "Atom", "SubatomicParticle",
+)
+
+_MAX_DIFFICULTY = 4
 
 # Attempts scale with difficulty so a harder puzzle isn't also a stingier one.
 _ATTEMPTS_BY_DIFFICULTY = {1: 3, 2: 4, 3: 4, 4: 5}
+
+
+def node_difficulty(node: SpatialNode) -> int:
+    """This node's puzzle difficulty (1..4).
+
+    Seeded from the node's identity — so it is stable, co-op-safe, and
+    reproducible across world rebuilds — and deliberately independent of the
+    node's scale, so any given scale carries the full spread of difficulties.
+    """
+    digest = hashlib.sha256(
+        f"difficulty:{node.level}:{node.name}".encode("utf-8")
+    ).digest()
+    return 1 + digest[0] % _MAX_DIFFICULTY
 
 
 # ── Scale-themed word banks ──────────────────────────────────────────────────
@@ -216,6 +232,7 @@ def _make_anagram(node: SpatialNode, rng: random.Random, difficulty: int) -> Puz
         answer=word,
         hints=hints,
         max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
+        difficulty=difficulty,
     )
 
 
@@ -242,6 +259,7 @@ def _make_cipher(node: SpatialNode, rng: random.Random, difficulty: int) -> Puzz
         answer=word,
         hints=hints,
         max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
+        difficulty=difficulty,
     )
 
 
@@ -309,6 +327,7 @@ def _make_sequence(node: SpatialNode, rng: random.Random, difficulty: int) -> Pu
         answer=str(nxt),
         hints=hints,
         max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
+        difficulty=difficulty,
     )
 
 
@@ -340,6 +359,7 @@ def _make_riddle(node: SpatialNode, rng: random.Random, difficulty: int) -> Puzz
     chosen = copy.deepcopy(rng.choice(usable))
     # Give it the same fair attempt budget as generated puzzles at this tier.
     chosen.max_attempts = max(chosen.max_attempts, _ATTEMPTS_BY_DIFFICULTY[difficulty])
+    chosen.difficulty = difficulty
     return chosen
 
 
@@ -367,7 +387,7 @@ def build_puzzle(node: SpatialNode) -> Puzzle:
     """Generate this node's puzzle: fair, non-leaking, difficulty-tuned to the
     scale, and unique to the node. Deterministic in the node's identity."""
     rng = node_rng(node)
-    difficulty = LEVEL_DIFFICULTY.get(node.level, 2)
+    difficulty = node_difficulty(node)
     families = list(_FAMILY_WEIGHTS.get(difficulty, _FAMILY_WEIGHTS[2]))
 
     # Try families in a node-seeded weighted-random order; the first that yields

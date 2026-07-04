@@ -30,6 +30,11 @@ class Puzzle:
     answer: str                          # canonical correct answer (lowercased)
     hints: List[str] = field(default_factory=list)
     max_attempts: int = 3
+    # 1 (gentle) … 4 (hard). A property of the individual puzzle, not the scale
+    # it sits at — traversal is non-linear, so difficulty is distributed across
+    # every scale rather than rising with depth. Surfaced to the client so a
+    # player can choose their own challenge while exploring.
+    difficulty: int = 2
     attempts: int = 0
     result: PuzzleResult = PuzzleResult.UNSOLVED
 

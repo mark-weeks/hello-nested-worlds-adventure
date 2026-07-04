@@ -145,7 +145,13 @@ function Puzzle({ node, seed, depth, playerName }) {
   const remaining = puzzle.max_attempts - attempt;
   return (
     <div style={s.panel}>
-      <div style={s.pKind}>{puzzle.kind.replace(/_/g, " ")}</div>
+      <div style={s.pKind}>
+        {puzzle.kind.replace(/_/g, " ")}
+        <span style={s.pDiff} title={`difficulty ${puzzle.difficulty ?? 2}/4`}>
+          {" "}{"★".repeat(Math.min(4, Math.max(1, puzzle.difficulty ?? 2)))}
+          {"☆".repeat(4 - Math.min(4, Math.max(1, puzzle.difficulty ?? 2)))}
+        </span>
+      </div>
       <div style={s.pName}>{puzzle.name}</div>
       <div style={s.pPrompt}>{puzzle.prompt}</div>
       <input
@@ -189,6 +195,7 @@ const s = {
   resp:     { fontSize: "12px", color: "#7a9ab8", fontStyle: "italic", lineHeight: 1.6, whiteSpace: "pre-wrap", borderLeft: "2px solid #2a4060", paddingLeft: "8px" },
   respError:{ fontSize: "12px", color: "#a05555", lineHeight: 1.6, whiteSpace: "pre-wrap" },
   pKind:    { fontSize: "9px", letterSpacing: "0.12em", textTransform: "uppercase", color: "#4a6080" },
+  pDiff:    { color: "#c8a13a", letterSpacing: "1px" },
   pName:    { fontSize: "13px", fontWeight: "bold", color: "#c0d0e8" },
   pPrompt:  { fontSize: "12px", color: "#8aaccc", lineHeight: 1.5 },
   pHint:    { fontSize: "11px", color: "#4a8080", fontStyle: "italic", marginTop: "4px" },

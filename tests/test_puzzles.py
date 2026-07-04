@@ -7,7 +7,7 @@ from puzzles.engine import PuzzleEngine
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from puzzles.generators import (
-    LEVEL_DIFFICULTY, build_puzzle, node_rng,
+    CANONICAL_LEVELS, build_puzzle, node_difficulty, node_rng,
 )
 
 
@@ -34,7 +34,7 @@ def _walk(node, acc):
         _walk(c, acc)
 
 
-CANONICAL_LEVELS = list(LEVEL_DIFFICULTY)
+CANONICAL_LEVELS = list(CANONICAL_LEVELS)
 
 
 class TestPuzzleTypes:
@@ -251,27 +251,58 @@ class TestPerNodeUniqueness:
         assert max(sigs.values()) <= len(pz) * 0.1, "one puzzle dominates the tree"
 
 
-class TestDifficultyCurve:
-    def test_all_eleven_levels_have_a_difficulty(self):
-        assert set(LEVEL_DIFFICULTY) == {
+class TestDifficultyIsPerNode:
+    """Traversal is non-linear (drop in anywhere, move up or down, explore
+    continuously), so difficulty is a property of the individual node — spread
+    across the full range at every scale — NOT a function of depth."""
+
+    def test_eleven_canonical_levels(self):
+        assert set(CANONICAL_LEVELS) == {
             "Multiverse", "Universe", "Galaxy", "Planetary System", "Planet",
             "Region", "Room", "Object", "Molecule", "Atom", "SubatomicParticle",
         }
 
-    def test_difficulty_rises_with_depth(self):
-        order = ["Multiverse", "Universe", "Galaxy", "Planetary System",
-                 "Planet", "Region", "Room", "Object", "Molecule", "Atom",
-                 "SubatomicParticle"]
-        diffs = [LEVEL_DIFFICULTY[l] for l in order]
-        assert diffs == sorted(diffs), "difficulty must not decrease going deeper"
-        assert diffs[0] < diffs[-1], "the deepest scale must be harder than the top"
+    def test_difficulty_is_deterministic_per_node(self):
+        a = node_difficulty(_node("Room", name="Vault-7"))
+        b = node_difficulty(_node("Room", name="Vault-7"))
+        assert a == b
+        assert 1 <= a <= 4
 
-    def test_harder_levels_grant_more_attempts(self):
-        # Fairness scales with challenge: a subatomic puzzle gives at least as
-        # many tries as a multiverse one.
-        top = build_puzzle(_node("Multiverse"))
-        bottom = build_puzzle(_node("SubatomicParticle"))
-        assert bottom.max_attempts >= top.max_attempts
+    def test_difficulty_spread_at_every_scale(self):
+        # Both the top (Multiverse) and the bottom (SubatomicParticle) scales
+        # must carry the full range of difficulties — no scale is uniformly
+        # easy or uniformly hard. This is the crux of the non-linear model.
+        for level in ("Multiverse", "SubatomicParticle"):
+            seen = {node_difficulty(_node(level, name=f"{level}-{i}"))
+                    for i in range(60)}
+            assert seen == {1, 2, 3, 4}, (
+                f"{level} should carry every difficulty, saw {sorted(seen)}"
+            )
+
+    def test_difficulty_not_determined_by_scale(self):
+        # A Multiverse node can be the hardest tier; a subatomic node can be the
+        # easiest — the exact opposite of a depth curve.
+        mv = [node_difficulty(_node("Multiverse", name=f"M-{i}")) for i in range(60)]
+        sub = [node_difficulty(_node("SubatomicParticle", name=f"S-{i}")) for i in range(60)]
+        assert max(mv) == 4 and min(sub) == 1
+
+    def test_puzzle_carries_node_difficulty(self):
+        for level in CANONICAL_LEVELS:
+            n = _node(level, name=f"{level}-77")
+            p = build_puzzle(n)
+            assert p.difficulty == node_difficulty(n)
+            assert 1 <= p.difficulty <= 4
+
+    def test_attempts_track_puzzle_difficulty(self):
+        # Fairness travels with the puzzle: a harder puzzle grants at least as
+        # many attempts as an easier one, wherever it sits.
+        by_diff = {}
+        for i in range(400):
+            n = _node("Object", name=f"Object-{i}")
+            p = build_puzzle(n)
+            by_diff.setdefault(p.difficulty, p.max_attempts)
+        assert 1 in by_diff and 4 in by_diff
+        assert by_diff[4] >= by_diff[1]
 
 
 class TestCanonicalLevelsUseGenerator:

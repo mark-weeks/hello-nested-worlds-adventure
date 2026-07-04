@@ -6,7 +6,7 @@ from typing import Callable, List
 
 from multiverse.node import SpatialNode
 from puzzles.data import DEFAULT_POOL, LEVEL_POOLS
-from puzzles.generators import LEVEL_DIFFICULTY, build_puzzle, node_rng
+from puzzles.generators import CANONICAL_LEVELS, build_puzzle, node_rng
 from puzzles.types import Puzzle, PuzzleKind, PuzzleResult
 
 
@@ -28,7 +28,7 @@ def _make_puzzle_for_node(node: SpatialNode, rng: random.Random) -> Puzzle:
     falls back to the static `LEVEL_POOLS`, chosen deterministically from the
     node's own RNG rather than the caller's advancing one.
     """
-    if node.level in LEVEL_DIFFICULTY:
+    if node.level in CANONICAL_LEVELS:
         return build_puzzle(node)
 
     pool = LEVEL_POOLS.get(node.level, DEFAULT_POOL)

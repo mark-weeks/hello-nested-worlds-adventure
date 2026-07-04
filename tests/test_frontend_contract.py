@@ -54,6 +54,24 @@ class TestBuiltBundleWiresCoreLoop:
             )
 
 
+class TestBothFrontendsShowDifficulty:
+    """Difficulty is a per-node property surfaced on /puzzle so players can pick
+    their challenge while exploring; both clients must render it."""
+
+    def test_d3_explorer_renders_difficulty(self):
+        js = (_ROOT / "static" / "explorer.js").read_text()
+        assert "difficulty" in js and "puzzle-diff" in js
+
+    def test_react_source_renders_difficulty(self):
+        src = _all_text(_FRONTEND_SRC, ".jsx")
+        assert "puzzle.difficulty" in src
+
+    @pytest.mark.skipif(not _BUILT_APP.exists(),
+                        reason="static/app not built; run: cd frontend && npm run build")
+    def test_built_bundle_renders_difficulty(self):
+        assert "difficulty" in _all_text(_BUILT_APP, ".js")
+
+
 class TestGatedFetchesCarryInviteKey:
     """REGRESSION (P1-4): every data / paid fetch in the React client must go
     through withKey(), or it 403s under the beta gate. The `/image` scene-
