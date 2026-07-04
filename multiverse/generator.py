@@ -1,5 +1,24 @@
 # multiverse/generator.py
+#
+# Canonical world generation: every node is a pure function of
+# (world seed, path-from-root). Each node derives its own RNG from a
+# SHA-256 of (seed, path), and draws its name, properties, and child
+# count from that node-local RNG — never from a shared sequential
+# stream. Consequences:
+#
+#   * PREFIX STABILITY. A tree generated at max_depth=6 is exactly the
+#     top of the tree generated at max_depth=11 for the same seed and
+#     breadth bounds — same names, same properties, same branching.
+#     Every client and endpoint that regenerates "the world" therefore
+#     agrees on node identity, and persistence keyed on
+#     (seed, node_name) refers to the same place everywhere.
+#   * STABLE, UNIQUE NAMES. The name suffix encodes the node's path
+#     (root is "1", its second child "12", that child's first child
+#     "121"), so names are unique within a world and identical across
+#     rebuilds at any depth. Breadth is capped at 9 so path digits are
+#     unambiguous.
 
+import hashlib
 import random
 from typing import Callable
 
@@ -27,6 +46,9 @@ _PLANET_NAMES = ["Kethara", "Droven", "Islune", "Pyreth", "Solmara", "Ashveil", 
 _REGION_NAMES = ["Ashfields", "The Mire", "Crystalpeak", "Undergate", "Verdant Hollow"]
 _ROOM_NAMES = ["Antechamber", "Vault", "Observatory", "Engine Room", "Sanctum", "The Pit", "Archive"]
 _OBJECT_NAMES = ["Obelisk", "Terminal", "Chest", "Mirror", "Mechanism", "Rune Stone", "Conduit"]
+_MOLECULE_NAMES = ["Helix", "Lattice", "Chiral Bloom", "Catalyst Knot", "Isomer", "Polymer Strand", "Reagent"]
+_ATOM_NAMES = ["Ferrum Core", "Aurum Mote", "Xenon Whisper", "Carbon Seed", "Hydrogen Sigh", "Ion Veil"]
+_SUBATOMIC_NAMES = ["Quark Flicker", "Neutrino Ghost", "Photon Grain", "Spin Fragment", "Gluon Knot", "Muon Trace"]
 _BIOMES = ["tundra", "jungle", "desert", "ocean", "volcanic", "temperate", "irradiated"]
 _FACTIONS = ["The Conclave", "Iron Veil", "Drifters", "Null Cult", "Reclaimer Order"]
 
@@ -71,11 +93,14 @@ def _props_planetary_system(rng: random.Random) -> dict:
 
 
 def _props_planet(rng: random.Random) -> dict:
+    inhabited = rng.choice([True, False])
     return {
         "gravity": round(rng.uniform(0.1, 3.5), 2),
         "biome": _pick(_BIOMES, rng),
-        "inhabited": rng.choice([True, False]),
-        "population": rng.randint(0, 10_000_000_000) if rng.random() > 0.4 else 0,
+        "inhabited": inhabited,
+        # Population is coherent with habitation: uninhabited worlds are
+        # empty, inhabited ones carry at least a settlement's worth.
+        "population": rng.randint(10_000, 10_000_000_000) if inhabited else 0,
         "moons": rng.randint(0, 8),
     }
 
@@ -116,11 +141,20 @@ def _props_molecule(rng: random.Random) -> dict:
     }
 
 
+# Element symbol and atomic number are drawn together so an atom is
+# physically coherent (Au is 79, not a random 1–118 roll).
+_ELEMENTS = [
+    ("H", 1), ("C", 6), ("N", 7), ("O", 8), ("Si", 14),
+    ("Fe", 26), ("Xe", 54), ("Au", 79), ("Pb", 82), ("U", 92),
+]
+
+
 def _props_atom(rng: random.Random) -> dict:
+    symbol, number = rng.choice(_ELEMENTS)
     return {
-        "element": _pick(["H", "C", "O", "N", "Fe", "Au", "Si", "Xe", "Pb", "U"], rng),
+        "element": symbol,
         "ionized": rng.choice([True, False]),
-        "atomic_number": rng.randint(1, 118),
+        "atomic_number": number,
     }
 
 
@@ -161,15 +195,82 @@ _NAME_POOLS = {
     "Region": _REGION_NAMES,
     "Room": _ROOM_NAMES,
     "Object": _OBJECT_NAMES,
+    "Molecule": _MOLECULE_NAMES,
+    "Atom": _ATOM_NAMES,
+    "SubatomicParticle": _SUBATOMIC_NAMES,
 }
 
 
-def _generate_name(level: str, index: int, rng: random.Random) -> str:
+def _path_suffix(path: tuple[int, ...]) -> str:
+    """Digit-string form of the node's path. Unique within a world because
+    every component is a single digit (breadth ≤ 9 is enforced)."""
+    return "".join(str(i) for i in path)
+
+
+def _generate_name(level: str, path: tuple[int, ...], rng: random.Random) -> str:
     pool = _NAME_POOLS.get(level)
-    if pool:
-        return f"{_pick(pool, rng)}-{index}"
-    suffixes = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]
-    return f"{level}-{_pick(suffixes, rng)}-{index}"
+    base = _pick(pool, rng) if pool else level
+    return f"{base}-{_path_suffix(path)}"
+
+
+def _node_seed(seed: int, path: tuple[int, ...]) -> int:
+    digest = hashlib.sha256(
+        f"{seed}:{'.'.join(str(i) for i in path)}".encode("utf-8")
+    ).digest()
+    return int.from_bytes(digest[:8], "big")
+
+
+# Path digits must stay single-digit for name uniqueness (see _path_suffix).
+MAX_GENERATOR_BREADTH = 9
+
+
+def resolve_node_by_name(seed: int, name: str,
+                         min_breadth: int = 1, max_breadth: int = 3) -> SpatialNode | None:
+    """Resolve a node from its name alone, without generating the tree.
+
+    Names encode their path ("Vault-1231" sits at path 1→2→3→1), so the
+    node — and its ancestor chain, with parent links — can be regenerated
+    in O(depth). Returns None when the name doesn't correspond to a real
+    node in this world: bad suffix, out-of-range step, level mismatch, or a
+    base name that doesn't match what the path actually generates (so a
+    client cannot forge "Fake-11" into existence).
+
+    The returned node carries no children; it is for identity, properties,
+    and ancestry — use `generate_node_hierarchy` when structure is needed.
+    """
+    if not name or "-" not in name:
+        return None
+    _, _, suffix = name.rpartition("-")
+    if not suffix.isdigit() or not suffix.startswith("1"):
+        return None
+    path_digits = [int(c) for c in suffix]
+    if len(path_digits) > len(LEVELS):
+        return None
+
+    parent: SpatialNode | None = None
+    node: SpatialNode | None = None
+    path: tuple[int, ...] = ()
+    for depth_index, step in enumerate(path_digits):
+        if step < 1:
+            return None  # children are numbered from 1; path digit 0 is forged
+        path = path + (step,)
+        rng = random.Random(_node_seed(seed, path))
+        level = LEVELS[depth_index]
+        node_name = _generate_name(level, path, rng)
+        properties = generate_properties(level, rng)
+        breadth = rng.randint(min_breadth, max_breadth)
+        node = SpatialNode(name=node_name, level=level, properties=properties)
+        node._breadth = breadth  # how many children this node would generate
+        if parent is not None:
+            # The claimed step must be a child that actually exists.
+            if step > getattr(parent, "_breadth", 0):
+                return None
+            parent.add_child(node)
+        parent = node
+
+    if node is None or node.name != name:
+        return None
+    return node
 
 
 def generate_node_hierarchy(seed: int = 42, max_depth: int = 11, min_breadth: int = 1, max_breadth: int = 3) -> SpatialNode:
@@ -177,22 +278,24 @@ def generate_node_hierarchy(seed: int = 42, max_depth: int = 11, min_breadth: in
         raise ValueError(f"min_breadth ({min_breadth}) must not exceed max_breadth ({max_breadth})")
     if not 1 <= max_depth <= len(LEVELS):
         raise ValueError(f"max_depth must be between 1 and {len(LEVELS)}, got {max_depth}")
-    rng = random.Random(seed)
-    next_index = 0
+    if max_breadth > MAX_GENERATOR_BREADTH:
+        raise ValueError(f"max_breadth must be at most {MAX_GENERATOR_BREADTH}, got {max_breadth}")
 
-    def generate(level_index: int) -> SpatialNode:
-        nonlocal next_index
-        next_index += 1
+    def generate(level_index: int, path: tuple[int, ...]) -> SpatialNode:
+        # A node-local RNG: nothing about this node depends on siblings,
+        # ancestors' subtrees, or the requested max_depth — only on
+        # (seed, path). Draw order (name, properties, breadth) is fixed.
+        rng = random.Random(_node_seed(seed, path))
         level = LEVELS[level_index]
-        name = _generate_name(level, next_index, rng)
+        name = _generate_name(level, path, rng)
         properties = generate_properties(level, rng)
         node = SpatialNode(name=name, level=level, properties=properties)
 
+        breadth = rng.randint(min_breadth, max_breadth)
         if level_index + 1 < max_depth:
-            breadth = rng.randint(min_breadth, max_breadth)
-            for _ in range(breadth):
-                node.add_child(generate(level_index + 1))
+            for i in range(1, breadth + 1):
+                node.add_child(generate(level_index + 1, path + (i,)))
 
         return node
 
-    return generate(0)
+    return generate(0, (1,))

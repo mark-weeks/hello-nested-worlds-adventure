@@ -40,19 +40,29 @@ def _make_puzzle_for_node(node: SpatialNode, rng: random.Random) -> Puzzle:
 class PuzzleEngine:
     def __init__(self, seed: int = 0):
         self._rng = random.Random(seed)
+        # Puzzles live in the ENGINE, keyed by node name — never inside
+        # node.properties. A Puzzle stored on the node leaked its answer
+        # everywhere properties surface: the CLI `look` dump, the /world
+        # payload, and (worst) the consciousness system prompt, where the
+        # node's own persona could be asked to reveal the solution.
+        self._by_node: dict[str, Puzzle] = {}
 
     def attach_puzzles(self, root: SpatialNode) -> int:
         count = 0
-        if "puzzle" not in root.properties:
-            root.properties["puzzle"] = _make_puzzle_for_node(root, self._rng)
+        if root.name not in self._by_node:
+            self._by_node[root.name] = _make_puzzle_for_node(root, self._rng)
             count += 1
         for child in root.children:
             count += self.attach_puzzles(child)
         return count
 
+    def puzzle_for(self, node: SpatialNode) -> Puzzle | None:
+        """The puzzle attached to exactly this node, if any."""
+        return self._by_node.get(node.name)
+
     def collect_puzzles(self, root: SpatialNode) -> List[Puzzle]:
         results: List[Puzzle] = []
-        p = root.properties.get("puzzle")
+        p = self._by_node.get(root.name)
         if p:
             results.append(p)
         for child in root.children:
@@ -65,7 +75,19 @@ class PuzzleEngine:
 
         while puzzle.result == PuzzleResult.UNSOLVED:
             remaining = puzzle.max_attempts - puzzle.attempts
-            guess = input(f"Your answer ({remaining} attempt(s) left): ").strip()
+            try:
+                guess = input(
+                    f"Your answer ({remaining} attempt(s) left, or 'skip'): "
+                ).strip()
+            except (EOFError, KeyboardInterrupt):
+                # Walking away must never crash the session.
+                print("\n(You step away, the puzzle unsolved.)")
+                break
+            if not guess:
+                continue  # a stray Enter is not an attempt
+            if guess.lower() in ("skip", "quit"):
+                print("(You leave the puzzle for another traveler.)")
+                break
             result = puzzle.attempt(guess)
             hint = puzzle.hint()
 

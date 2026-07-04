@@ -88,6 +88,42 @@ class TestAgent:
         assert len(agent.visited) == len(set(agent.visited))
 
 
+class TestAgentPuzzleRules:
+    """Agents face the puzzle engine like humans do — no free solves."""
+
+    def _interact(self, agent_name, node_name):
+        from causality import CausalityBus
+        node = SpatialNode(node_name, "Room",
+                           properties={"has_puzzle": True, "danger_level": 1})
+        bus = CausalityBus()
+        agent = Agent(name=agent_name, bus=bus)
+        agent.state = State.INTERACT
+        agent._act(node)
+        return [ev.kind.name for _, ev in bus.get_log()], bus.get_log()
+
+    def test_outcome_is_a_roll_not_a_gift(self):
+        outcomes = set()
+        for i in range(40):
+            kinds, _ = self._interact(f"Agent{i}", f"Vault-{i}")
+            outcomes.update(k for k in kinds
+                            if k in ("PUZZLE_SOLVED", "PUZZLE_FAILED"))
+        assert outcomes == {"PUZZLE_SOLVED", "PUZZLE_FAILED"}, (
+            "agents must sometimes fail puzzles — a guaranteed solve would "
+            "mint for free the event humans have to earn"
+        )
+
+    def test_outcome_is_reproducible(self):
+        a, _ = self._interact("Tessera", "Vault-11")
+        b, _ = self._interact("Tessera", "Vault-11")
+        assert a == b
+
+    def test_event_payload_names_the_puzzle(self):
+        _, log = self._interact("Tessera", "Vault-11")
+        origin_events = [ev for name, ev in log if name == "Vault-11"]
+        assert origin_events
+        assert origin_events[0].payload.get("puzzle")
+
+
 class TestAgentMemory:
     def test_memory_accumulates_across_runs(self):
         root = generate_node_hierarchy(seed=7, max_depth=4, min_breadth=1, max_breadth=2)
@@ -123,12 +159,31 @@ class TestAgentMemory:
         root = generate_node_hierarchy(seed=5, max_depth=4, min_breadth=1, max_breadth=2)
         a1 = Agent(name="Pioneer")
         a1.traverse(root, max_nodes=8)
-        saved_ids = list(a1.memory)
+        saved_names = list(a1.memory)
 
         a2 = Agent(name="Pioneer")
-        a2.memory = saved_ids
+        a2.memory = saved_names
         a2.traverse(root, max_nodes=8)
-        assert a2.fresh_count <= len(root.children) + 1  # far fewer new visits
+        # Restored memory means known nodes are skipped: nothing already in
+        # memory is re-visited as fresh.
+        fresh = a2.memory[len(saved_names):]
+        assert not set(fresh) & set(saved_names)
+
+    def test_memory_survives_world_rebuild(self):
+        # Memory is keyed by node NAME, so it must carry across a fresh
+        # regeneration of the same world (new node UUIDs) — the second run
+        # continues into unexplored territory instead of going inert.
+        first = generate_node_hierarchy(seed=5, max_depth=5, min_breadth=2, max_breadth=2)
+        agent = Agent(name="Pioneer")
+        agent.traverse(first, max_nodes=6)
+        assert agent.fresh_count == 6
+
+        rebuilt = generate_node_hierarchy(seed=5, max_depth=5, min_breadth=2, max_breadth=2)
+        agent.traverse(rebuilt, max_nodes=6)
+        assert agent.fresh_count > 0, (
+            "restored memory must not consume the visit budget and brick the agent"
+        )
+        assert len(agent.memory) == len(set(agent.memory))
 
     def test_memory_has_no_duplicates(self):
         root = generate_node_hierarchy(seed=4, max_depth=4, min_breadth=1, max_breadth=2)

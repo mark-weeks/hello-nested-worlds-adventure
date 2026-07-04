@@ -50,6 +50,14 @@ export default function TextPanel({ node, players, connected, events, seed, dept
               <span style={s.propVal}>{String(v)}</span>
             </div>
           ))}
+          {node.ripple_score > 0 && (
+            <div style={s.prop} title="accumulated causal pressure from events here and nearby">
+              <span style={s.propKey}>causal pressure</span>
+              <span style={{ ...s.propVal, color: node.ripple_score >= 0.5 ? "#c88af0" : "#9aaac8" }}>
+                {"▮".repeat(Math.max(1, Math.round(node.ripple_score * 8)))} {node.ripple_score.toFixed(2)}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -114,6 +122,8 @@ function EventRow({ ev }) {
     return <div style={er.causal}>↯ {ev.kind.replace(/_/g, " ").toLowerCase()} · {ev.node} ×{ev.strength?.toFixed(2)}</div>;
   if (ev.type === "puzzle")
     return <div style={er.puzzle}>{ev.text}</div>;
+  if (ev.type === "history")
+    return <div style={er.history}>◦ {ev.text}</div>;
   return <div style={er.system}>{ev.text}</div>;
 }
 
@@ -139,9 +149,10 @@ const s = {
 };
 
 const er = {
-  chat:   { fontSize: "12px", color: "#9aaac8", lineHeight: 1.4 },
-  name:   { color: "#3a8eff" },
-  causal: { fontSize: "11px", color: "#3a5070" },
-  puzzle: { fontSize: "11px", color: "#4af0a0" },
-  system: { fontSize: "11px", color: "#3a5070" },
+  chat:    { fontSize: "12px", color: "#9aaac8", lineHeight: 1.4 },
+  name:    { color: "#3a8eff" },
+  causal:  { fontSize: "11px", color: "#3a5070" },
+  puzzle:  { fontSize: "11px", color: "#4af0a0" },
+  system:  { fontSize: "11px", color: "#3a5070" },
+  history: { fontSize: "11px", color: "#56628a", fontStyle: "italic" },
 };

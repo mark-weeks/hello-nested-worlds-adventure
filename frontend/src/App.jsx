@@ -9,9 +9,28 @@ const DEFAULT_SEED  = 42;
 const WORLD_DEPTH   = 6;   // must match the depth used for /puzzle lookups
 const MAX_EVENTS    = 40;
 const MAX_TRANSIENTS = 12;
+const MAX_HISTORY   = 12;  // how much of the world's past backfills the feed
 const NAME_KEY      = "nw_player_name";
 const LAST_NODE_KEY = "nw_last_node";   // resume: the node the player last stood on
 const LAST_SEED_KEY = "nw_last_seed";   // resume: the world it belonged to
+const INTRO_SEEN    = "nw_seen_intro";  // shared with the D3 explorer
+
+// The world's recent past, rendered into the event feed on load so a new
+// arrival sees a world already in motion — who solved what, which agents
+// passed through, where danger stirred — instead of "No events yet."
+function describeMutation(m) {
+  const when = (m.at || "").slice(0, 10);
+  const who = m.player || m.data?.agent || "someone";
+  switch (m.type) {
+    case "PUZZLE_SOLVED":  return `${when} · ${who} solved a puzzle at ${m.node}`;
+    case "PUZZLE_FAILED":  return `${when} · a puzzle resisted ${who} at ${m.node}`;
+    case "PLAYER_SPEAK":   return `${when} · ${who} spoke with ${m.node}`;
+    case "PLAYER_CHAT":    return `${when} · ${who} said something at ${m.node}`;
+    case "AGENT_VISIT":    return `${when} · ${who} passed through ${m.node}`;
+    case "DANGER_ALERT":   return `${when} · danger stirred at ${m.node}`;
+    default:               return `${when} · something happened at ${m.node}`;
+  }
+}
 
 // ── Cross-device resume ─────────────────────────────────────────────────────
 // localStorage remembers the last node per browser; the server remembers it per
@@ -57,6 +76,7 @@ export default function App() {
   const [transients, setTransients] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || urlName() || "");
+  const [introSeen, setIntroSeen] = useState(() => !!localStorage.getItem(INTRO_SEEN));
 
   const pushEvent = useCallback((evt) => {
     setEvents(ev => [evt, ...ev].slice(0, MAX_EVENTS));
@@ -95,11 +115,36 @@ export default function App() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+    // Backfill the world's recent past into the feed. The feed renders
+    // newest-first and /history returns newest-first; history lines sit
+    // below any live events that arrived while the fetch was in flight.
+    fetch(withKey(`/history?seed=${s}`))
+      .then(r => r.json())
+      .then(data => {
+        const past = (data.mutations || []).slice(0, MAX_HISTORY)
+          .map(m => ({ type: "history", text: describeMutation(m) }));
+        if (past.length) {
+          setEvents(ev => [...ev, ...past].slice(0, MAX_EVENTS));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
 
   const { connected, sendMessage } = useWorldSocket(seed, playerName, {
+    // The welcome roster: everyone already present when we connect. Without
+    // this, a joining player sees an empty world until someone acts.
+    onWelcome: (msg) => {
+      const others = (msg.players || [])
+        .filter(p => p.session_id !== msg.session_id)
+        .map(p => ({ name: p.name, session_id: p.session_id, node: p.node || "" }));
+      setPlayers(others);
+      if (others.length) {
+        pushEvent({ type: "system",
+                    text: `${others.length} explorer${others.length > 1 ? "s" : ""} already here` });
+      }
+    },
     onPlayerJoin: (msg) => {
       setPlayers(p => [...p, { name: msg.name, session_id: msg.session_id, node: "" }]);
       pushEvent({ type: "system", text: `${msg.name} joined` });
@@ -111,7 +156,12 @@ export default function App() {
         return p.filter(x => x.session_id !== msg.session_id);
       });
     },
-    onPlayerMove:   (msg) => setPlayers(p => p.map(x => x.session_id === msg.session_id ? { ...x, node: msg.node } : x)),
+    // Upsert on move: a mover we don't know yet (raced past the roster)
+    // must appear, not be silently dropped.
+    onPlayerMove: (msg) => setPlayers(p =>
+      p.some(x => x.session_id === msg.session_id)
+        ? p.map(x => x.session_id === msg.session_id ? { ...x, node: msg.node } : x)
+        : [...p, { name: msg.name, session_id: msg.session_id, node: msg.node }]),
     onChat:         (msg) => pushEvent({ type: "chat",   name: msg.name, text: msg.text }),
     onCausalEvent:  (msg) => {
       pushEvent({ type: "causal", kind: msg.kind, node: msg.node, strength: msg.strength });
@@ -197,6 +247,13 @@ export default function App() {
 
   const currentNode = nodeStack[nodeStack.length - 1] ?? null;
 
+  if (!introSeen) {
+    return <Intro onBegin={() => {
+      localStorage.setItem(INTRO_SEEN, "1");
+      setIntroSeen(true);
+    }} />;
+  }
+
   if (!playerName) {
     return <NameEntry onSubmit={(name) => { localStorage.setItem(NAME_KEY, name); setPlayerName(name); }} />;
   }
@@ -227,6 +284,27 @@ export default function App() {
         onLoadWorld={handleLoadWorld}
         onChat={sendChat}
       />
+    </div>
+  );
+}
+
+function Intro({ onBegin }) {
+  return (
+    <div style={s.nameWrap}>
+      <div style={{ ...s.nameBox, maxWidth: 420, textAlign: "left" }}>
+        <div style={s.nameTitle}>Enfolded</div>
+        <div style={s.introBody}>
+          A living multiverse of eleven nested scales — from the whole cosmos
+          down to a single particle. It was here before you arrived, and it
+          will keep moving after you leave.
+        </div>
+        <ul style={s.introList}>
+          <li style={s.introItem}><b style={s.introVerb}>Explore</b> — step through the passages; every place contains worlds.</li>
+          <li style={s.introItem}><b style={s.introVerb}>Speak</b> — talk to any place. It answers in character, and it remembers.</li>
+          <li style={s.introItem}><b style={s.introVerb}>Solve</b> — crack a node's puzzle; the ripple settles places far above and below.</li>
+        </ul>
+        <button onClick={onBegin} style={{ ...s.nameButton, alignSelf: "flex-start" }}>Begin</button>
+      </div>
     </div>
   );
 }
@@ -267,4 +345,8 @@ const s = {
   nameDesc: { fontSize: "0.85rem", color: "#6a7090", marginBottom: 18 },
   nameInput: { width: "100%", background: "#07080f", border: "1px solid #2a4060", color: "#b0bcd0", padding: "8px 10px", fontFamily: "inherit", fontSize: "0.9rem", marginBottom: 12, outline: "none" },
   nameButton: { background: "#1a3060", border: "1px solid #3a8eff", color: "#b0bcd0", padding: "8px 22px", fontFamily: "inherit", fontSize: "0.9rem", cursor: "pointer" },
+  introBody: { fontSize: "0.85rem", color: "#7a9ab8", lineHeight: 1.6, marginBottom: 14 },
+  introList: { listStyle: "none", margin: "0 0 18px", padding: 0, display: "flex", flexDirection: "column", gap: 8 },
+  introItem: { fontSize: "0.78rem", color: "#5a7090", lineHeight: 1.5 },
+  introVerb: { color: "#8aaccc" },
 };

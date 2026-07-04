@@ -1,4 +1,4 @@
-# puzzles/data.py — static puzzle pools and biome clue text.
+# puzzles/data.py — static puzzle pools.
 # Pure data; no behaviour.  Engine logic lives in puzzles/engine.py.
 
 from puzzles.types import Puzzle, PuzzleKind
@@ -351,32 +351,3 @@ LEVEL_POOLS = {
 }
 
 DEFAULT_POOL = _ROOM_PUZZLES
-
-
-BIOME_CLUES = {
-    "tundra":     ("I am a biome of frozen ground and sparse vegetation found near the poles. What am I?", "tundra"),
-    "jungle":     ("I am a dense, rainy biome bursting with life and towering canopy. What am I?", "jungle"),
-    "desert":     ("I receive almost no rain but sear with heat by day and freeze at night. What am I?", "desert"),
-    "ocean":      ("I cover an entire world with water, with no dry land anywhere. What biome am I?", "ocean"),
-    "volcanic":   ("Lava flows define my landscape; eruptions constantly reshape me. What am I?", "volcanic"),
-    "temperate":  ("I have four seasons and moderate rainfall, neither too hot nor too cold. What biome am I?", "temperate"),
-    "irradiated": ("Intense radiation from a nearby pulsar has scorched my surface bare. What biome am I?", "irradiated"),
-}
-
-
-GALAXY_SHAPE_CLUES = {
-    "spiral":     ("I sweep my arms in winding curves; my form recalls a pinwheel turning slowly through aeons. Speak my shape.", "spiral"),
-    "elliptical": ("I am stretched and oval, lacking the dramatic arms of my cousins. Speak my shape.", "elliptical"),
-    "irregular":  ("I obey no clean geometry; I am asymmetric and hard to classify. Speak my shape.", "irregular"),
-    "ring":       ("I am a luminous loop with a hollow heart, formed long ago by collision. Speak my shape.", "ring"),
-}
-
-
-PARTICLE_TYPE_CLUES = {
-    "proton":   ("I bear a positive charge and dwell at the heart of every atom. What am I?", "proton"),
-    "neutron":  ("I am chargeless yet massive, sharing the nucleus with my charged sibling. What am I?", "neutron"),
-    "electron": ("I orbit the nucleus in clouds of probability, carrying negative charge. What am I?", "electron"),
-    "quark":    ("I am the smaller piece of nucleons — three of me bind to form a heavier particle. What am I?", "quark"),
-    "neutrino": ("I am ghostly and barely interact with anything; I pass through worlds unhindered. What am I?", "neutrino"),
-    "photon":   ("I have no mass and travel at the universal speed limit; I am the carrier of light. What am I?", "photon"),
-}

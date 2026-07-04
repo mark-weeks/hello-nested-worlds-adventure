@@ -32,3 +32,15 @@ def _isolate_rooms():
     _rooms_module.clear_rooms()
     yield
     _rooms_module.clear_rooms()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_rate_limits():
+    """The per-IP rate limiter and WS connection limiter are module-level
+    singletons; one test file's requests must not 429 the next file's."""
+    from server import guard
+    guard.RATE_LIMITER.reset()
+    guard.WS_LIMITER.reset()
+    yield
+    guard.RATE_LIMITER.reset()
+    guard.WS_LIMITER.reset()

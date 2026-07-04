@@ -210,3 +210,40 @@ class TestExplorerShellResilience:
     def test_invite_url_encodes_name(self):
         url = main.invite_share_url("nw_x", "Ada Lovelace")
         assert "Ada%20Lovelace" in url or "Ada+Lovelace" in url
+
+
+class TestWorldAlreadyInMotion:
+    """The 'world already in motion' contract: a joining client must consume
+    the welcome roster (everyone already present) and backfill the world's
+    recent past into its feed — in the React source, the built bundle, and
+    the D3 explorer alike. The dropped-welcome bug made every pre-existing
+    player invisible until they next acted; nothing caught it because no
+    test asserted this contract."""
+
+    def test_react_source_consumes_welcome_and_history(self):
+        src = _all_text(_FRONTEND_SRC, ".jsx") + _all_text(_FRONTEND_SRC, ".js")
+        assert "onWelcome" in src, "welcome roster is not consumed"
+        assert '"welcome"' in src, "dispatch does not route the welcome type"
+        assert "/history?seed=" in src, "the world's past is never backfilled"
+
+    @pytest.mark.skipif(not _BUILT_APP.exists(),
+                        reason="static/app not built; run: cd frontend && npm run build")
+    def test_built_bundle_consumes_welcome_and_history(self):
+        bundle = _all_text(_BUILT_APP, ".js")
+        assert "welcome" in bundle
+        assert "/history?seed=" in bundle
+
+    def test_explorer_backfills_history(self):
+        explorer = (_ROOT / "static" / "explorer.js").read_text()
+        assert "loadHistoryFeed" in explorer
+        assert "/history?seed=" in explorer
+
+    def test_explorer_uses_server_attempt_counts(self):
+        # Attempts pool per room (co-op); the client must render the server's
+        # counter, not a local one that drifts when a co-op partner guesses.
+        explorer = (_ROOT / "static" / "explorer.js").read_text()
+        assert "data.attempt ??" in explorer
+
+    def test_app_has_first_run_intro(self):
+        src = _all_text(_FRONTEND_SRC, ".jsx")
+        assert "nw_seen_intro" in src, "/app has no first-run intro"

@@ -178,6 +178,3 @@ def propagate(origin: SpatialNode, kind: EventKind,
               direction: str = "both") -> CausalEvent:
     return _default.propagate(origin, kind, payload, dampening, direction)
 
-
-# Backward-compat alias for the threshold constant.
-_MIN_STRENGTH = MIN_STRENGTH

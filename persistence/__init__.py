@@ -163,10 +163,18 @@ def _with_db(fn: Callable) -> Callable:
 
 @_with_db
 def save_world(seed: int, node_count: int, max_depth: int, min_breadth: int, max_breadth: int) -> None:
+    # ON CONFLICT (not INSERT OR REPLACE): REPLACE deletes + reinserts the
+    # row, which re-fires the created_at default and erases the world's
+    # birth date on every visit. The world's age must be recoverable.
     with _connect() as conn:
         conn.execute(
-            """INSERT OR REPLACE INTO worlds (seed, node_count, max_depth, min_breadth, max_breadth)
-               VALUES (?, ?, ?, ?, ?)""",
+            """INSERT INTO worlds (seed, node_count, max_depth, min_breadth, max_breadth)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(seed) DO UPDATE SET
+                 node_count  = excluded.node_count,
+                 max_depth   = excluded.max_depth,
+                 min_breadth = excluded.min_breadth,
+                 max_breadth = excluded.max_breadth""",
             (seed, node_count, max_depth, min_breadth, max_breadth),
         )
 
@@ -193,6 +201,19 @@ def save_puzzle_result(world_seed: int, puzzle_name: str, result: str, attempts:
 
 
 @_with_db
+def get_puzzle_results(world_seed: int, limit: int = 20) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT puzzle_name, result, attempts, recorded_at
+               FROM puzzle_results WHERE world_seed = ?
+               ORDER BY recorded_at DESC, id DESC LIMIT ?""",
+            (world_seed, limit),
+        ).fetchall()
+        return [{"puzzle_name": r[0], "result": r[1], "attempts": r[2],
+                 "recorded_at": r[3]} for r in rows]
+
+
+@_with_db
 def list_worlds() -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
@@ -202,18 +223,46 @@ def list_worlds() -> list[dict[str, Any]]:
 
 
 @_with_db
-def get_node_history(world_seed: int, node_name: str, limit: int = 8) -> list[dict[str, Any]]:
+def get_node_history(world_seed: int, node_name: str, limit: int = 10) -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
             """SELECT mutation_type, player_name, data, recorded_at
                FROM world_mutations WHERE world_seed = ? AND node_name = ?
-               ORDER BY recorded_at DESC LIMIT ?""",
+               ORDER BY recorded_at DESC, id DESC LIMIT ?""",
             (world_seed, node_name, limit),
         ).fetchall()
         return [
             {"type": r[0], "player": r[1], "data": json.loads(r[2]) if r[2] else {}, "at": r[3]}
             for r in rows
         ]
+
+
+@_with_db
+def get_player_exchanges(world_seed: int, node_name: str, player_name: str,
+                         limit: int = 3) -> list[dict[str, Any]]:
+    """The most recent PLAYER_SPEAK exchanges between `player_name` and this
+    node, oldest first — the per-(node, player) conversation transcript that
+    lets the second conversation know the first one happened.
+
+    Each entry is {"user": <what they said>, "assistant": <what the node
+    answered, if recorded>}.
+    """
+    if not player_name:
+        return []
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT data FROM world_mutations
+               WHERE world_seed = ? AND node_name = ? AND player_name = ?
+                 AND mutation_type = 'PLAYER_SPEAK'
+               ORDER BY recorded_at DESC, id DESC LIMIT ?""",
+            (world_seed, node_name, player_name, limit),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for (blob,) in reversed(rows):
+        data = json.loads(blob) if blob else {}
+        if data.get("message"):
+            out.append({"user": data["message"], "assistant": data.get("reply")})
+    return out
 
 
 @_with_db
@@ -322,6 +371,55 @@ def upsert_ripple_score(world_seed: int, node_name: str, ripple_score: float) ->
                  updated_at   = excluded.updated_at""",
             (world_seed, node_name, float(ripple_score)),
         )
+
+
+@_with_db
+def increment_ripple_score(world_seed: int, node_name: str, delta: float) -> None:
+    """Atomically add `delta` to a node's persisted causal pressure (clamped
+    to 1.0). Additive at the DB level so two simultaneous players' cascades
+    compound instead of overwriting each other (the lost-update race that an
+    absolute upsert from each request's private tree would create)."""
+    with _connect() as conn:
+        conn.execute(
+            f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, updated_at)
+               VALUES (?, ?, ?, {_NOW})
+               ON CONFLICT(world_seed, node_name) DO UPDATE SET
+                 ripple_score = MIN(1.0, ripple_score + excluded.ripple_score),
+                 updated_at   = excluded.updated_at""",
+            (world_seed, node_name, min(1.0, float(delta))),
+        )
+
+
+@_with_db
+def upsert_node_properties(world_seed: int, node_name: str, changed: dict) -> None:
+    """Merge `changed` into the node's persisted property overlay.
+
+    The overlay is applied on top of deterministic generation at every world
+    rebuild (`load_node_property_overrides` + `apply_property_overrides`), so
+    a causal event's material consequence outlives the request that fired it.
+    `json_patch` merges atomically at the DB level.
+    """
+    with _connect() as conn:
+        conn.execute(
+            f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, properties, updated_at)
+               VALUES (?, ?, 0.0, ?, {_NOW})
+               ON CONFLICT(world_seed, node_name) DO UPDATE SET
+                 properties = json_patch(COALESCE(node_runtime_state.properties, '{{}}'), excluded.properties),
+                 updated_at = excluded.updated_at""",
+            (world_seed, node_name, json.dumps(changed)),
+        )
+
+
+@_with_db
+def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
+    """All persisted property overlays for a world, keyed by node name."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT node_name, properties FROM node_runtime_state
+               WHERE world_seed = ? AND properties IS NOT NULL""",
+            (world_seed,),
+        ).fetchall()
+        return {name: json.loads(blob) for name, blob in rows if blob}
 
 
 @_with_db

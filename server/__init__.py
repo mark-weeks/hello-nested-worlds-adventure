@@ -26,7 +26,21 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     observability.setup()
+    # Operator signal only — deliberately emitted here at server startup so
+    # a CLI player speaking to a node never sees billing internals.
+    try:
+        import consciousness
+        consciousness.warn_if_cache_ineffective()
+    except ImportError:
+        pass
     server = _ThreadedServer((host, port), _Handler)
+
+    # The world heartbeat: ambient agent life that runs whether or not
+    # anyone is connected. Disable with NESTED_WORLDS_HEARTBEAT=0.
+    from server import heartbeat
+    heartbeat_stop = None
+    if heartbeat.enabled():
+        heartbeat_stop = heartbeat.start()
 
     # Graceful shutdown on SIGTERM (Fly/Render send it on every deploy/stop).
     # serve_forever() blocks the main thread and shutdown() must be called
@@ -52,6 +66,8 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        if heartbeat_stop is not None:
+            heartbeat_stop.set()
         server.server_close()
         try:
             persistence.checkpoint()

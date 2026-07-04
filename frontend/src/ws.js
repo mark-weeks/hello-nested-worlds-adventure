@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { withKey } from "./auth.js";
+import { dispatchMessage } from "./dispatch.js";
 
 const RECONNECT_DELAY = 3000;
 
@@ -30,15 +31,7 @@ export default function useWorldSocket(seed, playerName, handlers) {
       ws.onmessage = (e) => {
         let msg;
         try { msg = JSON.parse(e.data); } catch { return; }
-        const h = handlersRef.current;
-        if (msg.type === "player_join"     && h.onPlayerJoin)     h.onPlayerJoin(msg);
-        if (msg.type === "player_leave"    && h.onPlayerLeave)    h.onPlayerLeave(msg);
-        if (msg.type === "player_move"     && h.onPlayerMove)     h.onPlayerMove(msg);
-        if (msg.type === "chat"            && h.onChat)           h.onChat(msg);
-        if (msg.type === "causal_event"    && h.onCausalEvent)    h.onCausalEvent(msg);
-        if (msg.type === "puzzle_solved"   && h.onPuzzleSolved)   h.onPuzzleSolved(msg);
-        if (msg.type === "agent_done"      && h.onAgentDone)      h.onAgentDone(msg);
-        if (msg.type === "agent_encounter" && h.onAgentEncounter) h.onAgentEncounter(msg);
+        dispatchMessage(msg, handlersRef.current);
       };
     }
 

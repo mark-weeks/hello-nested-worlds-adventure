@@ -290,8 +290,12 @@ class TestCostCap:
         monkeypatch.setenv(guard.FAL_CAP_ENV, "0")
         monkeypatch.setenv("FAL_KEY", "fake-key-so-we-reach-the-cap-check")
         base, _ = srv
+        # /image resolves node identity server-side now, so the request must
+        # name a place that actually exists in the seed-42 world.
+        from multiverse.generator import generate_node_hierarchy
+        real_node = generate_node_hierarchy(seed=42, max_depth=1).name
         data, status = _post(f"{base}/image",
-                              {"node_id": "x", "node_name": "X"})
+                              {"node_name": real_node, "seed": 42})
         assert status == 200
         assert data["url"] is None
         assert "budget" in data["error"]

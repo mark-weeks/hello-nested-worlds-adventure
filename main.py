@@ -45,6 +45,8 @@ def cmd_agent(args):
 
 
 def cmd_puzzles(args):
+    from puzzles.types import PuzzleResult
+
     root = generate_node_hierarchy(seed=args.seed)
     engine = PuzzleEngine(seed=args.seed)
     engine.attach_puzzles(root)
@@ -54,10 +56,17 @@ def cmd_puzzles(args):
         print("No puzzles found in this world. Try a different seed.")
         return
 
-    print(f"Found {len(puzzles)} puzzle(s) in this world.\n")
-    for puzzle in puzzles:
-        engine.run_puzzle(puzzle)
-        persistence.save_puzzle_result(args.seed, puzzle.name, puzzle.result.name, puzzle.attempts)
+    limit = max(1, args.limit)
+    print(f"Found {len(puzzles)} puzzle(s) in this world; "
+          f"playing the first {min(limit, len(puzzles))} "
+          f"(--limit to change, 'skip' to pass, Ctrl-D to stop).\n")
+    for puzzle in puzzles[:limit]:
+        result = engine.run_puzzle(puzzle)
+        persistence.save_puzzle_result(args.seed, puzzle.name, result.name, puzzle.attempts)
+        if result == PuzzleResult.UNSOLVED and puzzle.attempts == 0:
+            # The player walked away without a single guess (EOF/quit) —
+            # stop the tour instead of marching through every remaining node.
+            break
 
 
 def cmd_history(args):
@@ -65,7 +74,7 @@ def cmd_history(args):
     if not worlds:
         print("No worlds saved yet. Run the 'world' or 'agent' command to generate some.")
         return
-    print(f"{'Seed':>8}  {'Saved':>20}  {'Nodes':>8}  {'Depth':>6}")
+    print(f"{'Seed':>8}  {'Created':>20}  {'Nodes':>8}  {'Depth':>6}")
     print("-" * 50)
     for w in worlds:
         print(
@@ -74,6 +83,9 @@ def cmd_history(args):
         )
         for r in persistence.get_agent_runs(w["seed"]):
             print(f"          agent '{r['agent_name']}' — {r['nodes_visited']} nodes  ({r['started_at']})")
+        for p in persistence.get_puzzle_results(w["seed"], limit=5):
+            print(f"          puzzle '{p['puzzle_name']}' — {p['result'].lower()}"
+                  f" in {p['attempts']} attempt(s)  ({p['recorded_at']})")
 
     memories = persistence.list_agent_memories()
     if memories:
@@ -91,6 +103,7 @@ def cmd_play(args):
         depth=args.depth,
         min_breadth=args.min_breadth,
         max_breadth=args.max_breadth,
+        player_name=args.name,
     )
 
 
@@ -154,7 +167,7 @@ def cmd_speak(args):
     try:
         import consciousness
     except ImportError:
-        print("Consciousness module requires: pip install anthropic")
+        print("The worlds are silent — install the 'anthropic' package to hear them.")
         return
 
     root = generate_node_hierarchy(seed=args.seed)
@@ -164,12 +177,31 @@ def cmd_speak(args):
         return
 
     print(f"\n[{target.level}: {target.name}]")
+    history = persistence.get_node_history(args.seed, target.name)
     try:
-        history = persistence.get_node_history(args.seed, target.name)
-        print(consciousness.speak(target, args.message, history=history))
-    except Exception as e:
-        print(f"Error: {e}")
-        print("Ensure ANTHROPIC_API_KEY is set in your environment.")
+        response = consciousness.speak(
+            target, args.message, history=history,
+            ripple_score=persistence.get_ripple_score(args.seed, target.name),
+        )
+        print(response)
+        # Symmetry with every other surface: speaking leaves a trace, and
+        # both sides of the exchange become node memory.
+        persistence.record_mutation(
+            args.seed, target.name, "PLAYER_SPEAK", None,
+            {"message": args.message[:128], "reply": response[:200]},
+        )
+    except Exception:
+        # In-fiction silence — never an SDK error at the player.
+        print(consciousness.fallback_voice(target))
+        print("(The voices need ANTHROPIC_API_KEY to wake.)")
+
+
+def _accept_seed(subparser: argparse.ArgumentParser) -> None:
+    """Let --seed appear after the subcommand too (`main.py world --seed 7`),
+    not only before it. SUPPRESS keeps the subcommand flag from clobbering a
+    globally supplied value with its own default."""
+    subparser.add_argument("--seed", type=int, default=argparse.SUPPRESS,
+                           help="RNG seed (default: 42)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -181,12 +213,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_world = sub.add_parser("world", help="Generate and print the world hierarchy")
+    _accept_seed(p_world)
     p_world.add_argument("--depth", type=int, default=11, help="Max hierarchy depth (default: 11)")
     p_world.add_argument("--min-breadth", type=int, default=1, dest="min_breadth")
     p_world.add_argument("--max-breadth", type=int, default=3, dest="max_breadth")
     p_world.set_defaults(func=cmd_world)
 
     p_agent = sub.add_parser("agent", help="Run an agent traversal of the world")
+    _accept_seed(p_agent)
     p_agent.add_argument("--name", type=str, default="Scout", help="Agent name (default: Scout)")
     p_agent.add_argument("--danger-threshold", type=int, default=6, dest="danger_threshold",
                          help="Self-preservation threshold: withdraw from nodes with danger_level above this (default: 6)")
@@ -195,15 +229,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_agent.set_defaults(func=cmd_agent)
 
     p_puzzles = sub.add_parser("puzzles", help="Find and play puzzles in the world")
+    _accept_seed(p_puzzles)
+    p_puzzles.add_argument("--limit", type=int, default=10,
+                           help="How many puzzles to play this run (default: 10)")
     p_puzzles.set_defaults(func=cmd_puzzles)
 
-    p_history = sub.add_parser("history", help="Show saved worlds and agent runs")
+    p_history = sub.add_parser("history", help="Show saved worlds, agent runs, and puzzle results")
     p_history.set_defaults(func=cmd_history)
 
     p_play = sub.add_parser("play", help="Start an interactive session in the world")
+    _accept_seed(p_play)
     p_play.add_argument("--depth", type=int, default=6, help="Max hierarchy depth (default: 6)")
     p_play.add_argument("--min-breadth", type=int, default=1, dest="min_breadth")
     p_play.add_argument("--max-breadth", type=int, default=3, dest="max_breadth")
+    p_play.add_argument("--name", type=str, default=None,
+                        help="Your explorer name — nodes will remember you by it")
     p_play.set_defaults(func=cmd_play)
 
     p_serve = sub.add_parser("serve", help="Start the REST API server")
@@ -240,6 +280,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_invite_revoke.set_defaults(func=cmd_invite)
 
     p_speak = sub.add_parser("speak", help="Speak to a node using Claude consciousness")
+    _accept_seed(p_speak)
     p_speak.add_argument("--node", type=str, default=None,
                          help="Node name to address (default: root of world)")
     p_speak.add_argument(

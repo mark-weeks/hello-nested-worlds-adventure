@@ -150,16 +150,31 @@ class TestNoAnswerLeak:
         # Build against a real world so the generator sees real property values
         # (theme, biome, shape, element, particle_type, …) and must avoid them.
         root = generate_node_hierarchy(seed=3, max_depth=8, min_breadth=2, max_breadth=2)
-        PuzzleEngine(seed=3).attach_puzzles(root)
+        engine = PuzzleEngine(seed=3)
+        engine.attach_puzzles(root)
         nodes = []
         _walk(root, nodes)
         for n in nodes:
-            p = n.properties["puzzle"]
+            p = engine.puzzle_for(n)
             propvals = {str(v).lower() for v in n.properties.values()
                         if not isinstance(v, Puzzle)}
             assert p.answer.lower() not in propvals, (
                 f"{n.name}: answer {p.answer!r} is a shipped property value"
             )
+
+    def test_puzzles_never_stored_in_node_properties(self):
+        # The Puzzle object (whose repr includes the answer and every hint)
+        # must never ride on node.properties — that dict is dumped by the CLI
+        # `look`, serialized into /world payloads, and rendered into the
+        # consciousness system prompt.
+        root = generate_node_hierarchy(seed=3, max_depth=6)
+        engine = PuzzleEngine(seed=3)
+        engine.attach_puzzles(root)
+        nodes = []
+        _walk(root, nodes)
+        for n in nodes:
+            assert "puzzle" not in n.properties
+            assert not any(isinstance(v, Puzzle) for v in n.properties.values())
 
 
 class TestSolvableAndClued:
@@ -237,10 +252,11 @@ class TestPerNodeUniqueness:
         # be far below the pre-redesign 35%, and no single puzzle may dominate
         # the way "The Widdershins Door" once did (~150 identical copies).
         root = generate_node_hierarchy(seed=11, max_depth=8, min_breadth=2, max_breadth=3)
-        PuzzleEngine(seed=11).attach_puzzles(root)
+        engine = PuzzleEngine(seed=11)
+        engine.attach_puzzles(root)
         nodes = []
         _walk(root, nodes)
-        pz = [n.properties["puzzle"] for n in nodes if "puzzle" in n.properties]
+        pz = [engine.puzzle_for(n) for n in nodes if engine.puzzle_for(n)]
         sigs = {}
         for p in pz:
             sigs[(p.name, p.prompt, p.answer)] = sigs.get((p.name, p.prompt, p.answer), 0) + 1
