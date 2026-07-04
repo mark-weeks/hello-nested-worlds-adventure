@@ -69,13 +69,33 @@ FAL_BUCKET       = "fal_ai"
 
 # ── World-gen parameter bounds ──────────────────────────────────────────────
 
-# 11 is the depth of the full hierarchy; nobody needs more. max_breadth=5 keeps
-# worst-case node count at 5**11 ≈ 48M which is already absurd, so the realistic
-# bounds bite well before that on smaller depths.
+# 11 is the depth of the full hierarchy; nobody needs more.
 MAX_DEPTH        = 11
 MAX_BREADTH      = 5
 MIN_DEPTH        = 1
 MIN_BREADTH_LO   = 1
+
+# The per-field bounds above are NOT sufficient on their own: depth and breadth
+# multiply, so a request that is in-range on every individual field can still
+# ask for a runaway tree. depth=11, max_breadth=5 → ~5**11 ≈ 12M nodes, which
+# OOM-kills the single beta VM (measured: it exhausts a 6 GB cap) and, well
+# before that, returns a tens-of-MB JSON blob on every /world call. The
+# generator builds `randint(min_breadth, max_breadth)` children per internal
+# node, so the worst case is `max_breadth` at every node. We cap that worst-case
+# node count so no single request can exhaust memory or amplify one small
+# request into a huge response. 20k nodes (~12 MB worst-case JSON, a few MB RSS)
+# still admits the full 11-level hierarchy at breadth 1–2 and generous breadth
+# at moderate depth — only the pathological deep-and-wide combos are rejected.
+MAX_TOTAL_NODES  = 20_000
+
+
+def _worst_case_node_count(depth: int, max_breadth: int) -> int:
+    """Upper bound on nodes for a tree of `depth` levels with at most
+    `max_breadth` children per internal node (a full m-ary tree)."""
+    if max_breadth <= 1:
+        return depth
+    # Geometric series 1 + b + b**2 + ... + b**(depth-1).
+    return (max_breadth ** depth - 1) // (max_breadth - 1)
 
 
 # ── Node-properties clamp (token-cost guard) ────────────────────────────────
@@ -135,6 +155,15 @@ def validate_world_params(params: Mapping[str, Any]) -> None:
     max_b = _bounded("max_breadth", 3, MIN_BREADTH_LO, MAX_BREADTH)
     if min_b > max_b:
         raise ValueError(f"min_breadth ({min_b}) > max_breadth ({max_b})")
+    # Reject depth×breadth combinations that individually pass the field bounds
+    # but multiply into a memory-exhausting / response-amplifying tree.
+    worst = _worst_case_node_count(depth, max_b)
+    if worst > MAX_TOTAL_NODES:
+        raise ValueError(
+            f"world too large: depth={depth}, max_breadth={max_b} could "
+            f"generate up to {worst} nodes (limit {MAX_TOTAL_NODES}); "
+            f"reduce depth or max_breadth"
+        )
 
 
 # ── Invite key ──────────────────────────────────────────────────────────────
@@ -462,19 +491,34 @@ def _consume_per_user(base_bucket: str, env_var: str, default: int,
 
 def consume_anthropic(user_key: str | None = None) -> bool:
     """Reserve one Anthropic call against the global cap and, if a credential
-    is supplied, the caller's per-user cap. Both must be under budget."""
-    if not _consume(ANTHROPIC_BUCKET, ANTHROPIC_CAP_ENV, _DEFAULT_ANTHROPIC_DAILY):
+    is supplied, the caller's per-user cap. Both must be under budget.
+
+    Order matters: the per-user sub-cap is checked FIRST, and the shared
+    global counter is only incremented once that gate passes. If we charged
+    the global budget first (the old order), an account that has already
+    blown its per-user cap would keep bumping the shared counter on every
+    rejected attempt — draining the cohort's budget and degrading everyone to
+    the quiet fallback, which is exactly what the sub-cap exists to prevent.
+    A credential-less caller (local dev / legacy) passes the per-user gate
+    trivially and is bounded by the global cap alone, unchanged.
+    """
+    if not _consume_per_user(ANTHROPIC_BUCKET, ANTHROPIC_PER_USER_CAP_ENV,
+                             _DEFAULT_ANTHROPIC_PER_USER, user_key):
         return False
-    return _consume_per_user(ANTHROPIC_BUCKET, ANTHROPIC_PER_USER_CAP_ENV,
-                             _DEFAULT_ANTHROPIC_PER_USER, user_key)
+    return _consume(ANTHROPIC_BUCKET, ANTHROPIC_CAP_ENV, _DEFAULT_ANTHROPIC_DAILY)
 
 
 def consume_fal(user_key: str | None = None) -> bool:
-    """Reserve one fal.ai call against the global and per-user caps."""
-    if not _consume(FAL_BUCKET, FAL_CAP_ENV, _DEFAULT_FAL_DAILY):
+    """Reserve one fal.ai call against the per-user then global caps.
+
+    Same ordering rationale as `consume_anthropic`: the per-user gate is
+    evaluated before the shared global counter is touched, so a single
+    account's over-quota attempts can't exhaust the cohort's image budget.
+    """
+    if not _consume_per_user(FAL_BUCKET, FAL_PER_USER_CAP_ENV,
+                             _DEFAULT_FAL_PER_USER, user_key):
         return False
-    return _consume_per_user(FAL_BUCKET, FAL_PER_USER_CAP_ENV,
-                             _DEFAULT_FAL_PER_USER, user_key)
+    return _consume(FAL_BUCKET, FAL_CAP_ENV, _DEFAULT_FAL_DAILY)
 
 
 # ── Kill switches ───────────────────────────────────────────────────────────

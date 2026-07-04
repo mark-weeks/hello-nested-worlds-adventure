@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Application, Assets, Container, Graphics, Sprite, Text, TextStyle } from "pixi.js";
+import { withKey } from "../auth.js";
 
 export default function SceneView({
   node, players, transients = [],
@@ -23,7 +24,12 @@ export default function SceneView({
   // Fetch fal.ai background image URL whenever the node changes
   useEffect(() => {
     setBgUrl(null);
-    fetch("/image", {
+    // `/image` is a gated, rate-limited endpoint like every other data call —
+    // it must carry the invite key or it 403s under the beta gate, silently
+    // leaving the scene without its fal.ai background (the /app headline
+    // feature). All the other fetches already go through withKey(); this one
+    // was the lone exception.
+    fetch(withKey("/image"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

@@ -525,10 +525,32 @@ document.getElementById('message').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); speak(); }
 });
 
-if (playerName) {
-  loadWorld();
+// ── First-run intro ────────────────────────────────────────────────────────
+// Invited testers arrive with ?name= in the URL and skip the join modal, so
+// the onboarding can't live there — it runs here, once per browser, ahead of
+// either boot path (auto-join for named users, join modal for anonymous ones).
+const INTRO_SEEN = 'nw_seen_intro';
+
+function boot() {
+  if (playerName) {
+    loadWorld();
+  } else {
+    showJoinModal();
+  }
+}
+
+function beginFromIntro() {
+  localStorage.setItem(INTRO_SEEN, '1');
+  document.getElementById('intro-modal').classList.remove('visible');
+  boot();
+}
+
+document.getElementById('btn-begin').addEventListener('click', beginFromIntro);
+
+if (!localStorage.getItem(INTRO_SEEN)) {
+  document.getElementById('intro-modal').classList.add('visible');
 } else {
-  showJoinModal();
+  boot();
 }
 
 (() => {
