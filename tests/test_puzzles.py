@@ -1,7 +1,14 @@
+import re
+
 import pytest
+
 from puzzles.types import Puzzle, PuzzleKind, PuzzleResult
 from puzzles.engine import PuzzleEngine
 from multiverse.generator import generate_node_hierarchy
+from multiverse.node import SpatialNode
+from puzzles.generators import (
+    LEVEL_DIFFICULTY, build_puzzle, node_rng,
+)
 
 
 def make_puzzle(**kwargs):
@@ -15,6 +22,19 @@ def make_puzzle(**kwargs):
     )
     defaults.update(kwargs)
     return Puzzle(**defaults)
+
+
+def _tokens(s: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9.]+", s.lower()))
+
+
+def _walk(node, acc):
+    acc.append(node)
+    for c in node.children:
+        _walk(c, acc)
+
+
+CANONICAL_LEVELS = list(LEVEL_DIFFICULTY)
 
 
 class TestPuzzleTypes:
@@ -64,7 +84,6 @@ class TestPuzzleTypes:
 
 class TestPuzzleEngine:
     def test_attach_and_collect(self):
-        # Puzzles are assigned at every level, so any depth works
         root = generate_node_hierarchy(seed=42, max_depth=3, min_breadth=2, max_breadth=2)
         engine = PuzzleEngine(seed=42)
         engine.attach_puzzles(root)
@@ -72,29 +91,12 @@ class TestPuzzleEngine:
         assert len(puzzles) > 0
 
     def test_puzzles_at_all_levels(self):
-        # One node per level; every node must receive a puzzle
         root = generate_node_hierarchy(seed=42, max_depth=11, min_breadth=1, max_breadth=1)
         engine = PuzzleEngine(seed=42)
         count = engine.attach_puzzles(root)
         puzzles = engine.collect_puzzles(root)
         assert count == 11
         assert len(puzzles) == 11
-
-    def test_region_lock_uses_danger_level(self):
-        root = generate_node_hierarchy(seed=42, max_depth=6, min_breadth=1, max_breadth=1)
-        engine = PuzzleEngine(seed=42)
-        engine.attach_puzzles(root)
-
-        # Walk down to the Region node (index 5 in the chain)
-        node = root
-        for _ in range(5):
-            node = node.children[0]
-        assert node.level == "Region"
-
-        puzzle = node.properties["puzzle"]
-        danger = node.properties["danger_level"]
-        assert puzzle.kind == PuzzleKind.LOCK
-        assert puzzle.answer == str(danger * 2)
 
     def test_attached_puzzles_are_puzzle_instances(self):
         root = generate_node_hierarchy(seed=42, max_depth=7, min_breadth=2, max_breadth=2)
@@ -114,135 +116,172 @@ class TestPuzzleEngine:
         assert count1 == count2
 
 
-# ── Dynamic puzzle generators (one per level) ──────────────────────────────
+# ── Puzzle quality invariants ──────────────────────────────────────────────
+# These replace the old per-generator tests, which asserted the exact trivial
+# formula each level used (answer == atomic_number, weight/4, min(3, exits), …).
+# The redesign makes puzzles non-trivial, non-leaking, and node-unique, so we
+# now assert those PROPERTIES rather than a specific answer.
 
 
-from multiverse.node import SpatialNode  # noqa: E402  — keep test imports tidy
-from puzzles.engine import _make_puzzle_for_node  # noqa: E402
-import random as _random  # noqa: E402
+def _node(level: str, name: str | None = None, **props) -> SpatialNode:
+    return SpatialNode(name=name or f"{level}-Node", level=level, properties=props)
 
 
-def _gen(level: str, **props) -> Puzzle:
-    node = SpatialNode(name=f"Test-{level}", level=level, properties=props)
-    return _make_puzzle_for_node(node, _random.Random(0))
+class TestNoAnswerLeak:
+    """The answer must never be recoverable without solving: not a token in the
+    prompt, not in any hint, and not a value the node ships in /world."""
 
+    @pytest.mark.parametrize("level", CANONICAL_LEVELS)
+    def test_answer_not_in_prompt(self, level):
+        p = build_puzzle(_node(level))
+        assert p.answer.lower() not in _tokens(p.prompt), (
+            f"{level}: answer {p.answer!r} leaks into the prompt"
+        )
 
-class TestMultiverseAnagram:
-    def test_kind_and_answer(self):
-        p = _gen("Multiverse", theme="entropy")
-        assert p.kind == PuzzleKind.ANAGRAM
-        assert p.answer == "entropy"
-
-    def test_prompt_includes_scrambled_letters(self):
-        p = _gen("Multiverse", theme="paradox")
-        scrambled = "".join(sorted("paradox".upper()))
-        assert scrambled in p.prompt
-
-
-class TestGalaxyRiddle:
-    def test_kind_and_answer(self):
-        p = _gen("Galaxy", shape="spiral")
-        assert p.kind == PuzzleKind.RIDDLE
-        assert p.answer == "spiral"
-
-    def test_unknown_shape_falls_back(self):
-        # An unknown shape should still produce a usable puzzle whose answer
-        # is the shape itself.
-        p = _gen("Galaxy", shape="cruller")
-        assert p.answer == "cruller"
-
-
-class TestPlanetarySystemLogic:
-    def test_kind_and_halved_count(self):
-        p = _gen("Planetary System", planet_count=8)
-        assert p.kind == PuzzleKind.LOGIC
-        assert p.answer == "4"
-
-    def test_odd_count_floors(self):
-        p = _gen("Planetary System", planet_count=7)
-        assert p.answer == "3"
-
-
-class TestRoomNavigation:
-    def test_kind_and_clamp(self):
-        p = _gen("Room", exits=4)
-        assert p.kind == PuzzleKind.NAVIGATION
-        assert p.answer == "3"  # min(3, 4)
-
-    def test_two_exits_returns_two(self):
-        p = _gen("Room", exits=2)
-        assert p.answer == "2"
-
-    def test_one_exit_returns_one(self):
-        p = _gen("Room", exits=1)
-        assert p.answer == "1"
-
-
-class TestObjectLogic:
-    def test_kind_and_quartered(self):
-        p = _gen("Object", weight_kg=8.0)
-        assert p.kind == PuzzleKind.LOGIC
-        assert p.answer == "2.0"
-
-    def test_decimal_weight_rounds_to_two_places(self):
-        p = _gen("Object", weight_kg=10.0)
-        assert p.answer == "2.5"
-
-
-class TestMoleculeLogic:
-    def test_kind_and_electron_count(self):
-        p = _gen("Molecule", bond_count=4)
-        assert p.kind == PuzzleKind.LOGIC
-        assert p.answer == "8"
-
-
-class TestAtomLogic:
-    def test_kind_and_proton_count(self):
-        p = _gen("Atom", atomic_number=26)
-        assert p.kind == PuzzleKind.LOGIC
-        assert p.answer == "26"
-
-
-class TestSubatomicRiddle:
-    def test_kind_and_answer(self):
-        p = _gen("SubatomicParticle", particle_type="electron")
-        assert p.kind == PuzzleKind.RIDDLE
-        assert p.answer == "electron"
-
-    def test_unknown_particle_falls_back(self):
-        p = _gen("SubatomicParticle", particle_type="muon")
-        assert p.answer == "muon"
-
-
-class TestAllElevenLevelsDynamic:
-    """Every canonical level should resolve to a dynamic generator, not a
-    pool fallback. The generators all produce uniquely-named puzzles, so
-    the cleanest check is that the names appear in the dynamic-name set."""
-
-    DYNAMIC_NAMES = {
-        "The Theme Anagram",
-        "The Dark Matter Fraction",
-        # Galaxy + Planet + SubatomicParticle templates: name varies by
-        # property, so we match on prefix instead.
-    }
-    DYNAMIC_NAME_PREFIXES = ("The ", )  # all dynamic puzzles start with "The "
-
-    def test_one_node_per_level_uses_dynamic_generator(self):
-        from agents.agent import Agent  # noqa: F401  — generation triggers tree
-        root = generate_node_hierarchy(seed=42, max_depth=11,
-                                       min_breadth=1, max_breadth=1)
-        engine = PuzzleEngine(seed=42)
-        engine.attach_puzzles(root)
-        puzzles = engine.collect_puzzles(root)
-        assert len(puzzles) == 11
-        # Every dynamic generator names its puzzle starting with "The ".
-        # Static pool entries also begin with "The " in many cases, so we
-        # additionally require the name doesn't appear in any LEVEL_POOLS
-        # entry — meaning the puzzle came from a generator, not a pool.
-        from puzzles.data import LEVEL_POOLS
-        pool_names = {p.name for puzzles_list in LEVEL_POOLS.values()
-                      for p in puzzles_list}
-        for puzzle in puzzles:
-            assert puzzle.name not in pool_names, (
-                f"{puzzle.name!r} matches a static pool entry — expected dynamic"
+    @pytest.mark.parametrize("level", CANONICAL_LEVELS)
+    def test_answer_not_in_hints(self, level):
+        p = build_puzzle(_node(level))
+        for h in p.hints:
+            assert p.answer.lower() not in _tokens(h), (
+                f"{level}: answer {p.answer!r} leaks into hint {h!r}"
             )
+
+    def test_answer_never_equals_a_shipped_property(self):
+        # Build against a real world so the generator sees real property values
+        # (theme, biome, shape, element, particle_type, …) and must avoid them.
+        root = generate_node_hierarchy(seed=3, max_depth=8, min_breadth=2, max_breadth=2)
+        PuzzleEngine(seed=3).attach_puzzles(root)
+        nodes = []
+        _walk(root, nodes)
+        for n in nodes:
+            p = n.properties["puzzle"]
+            propvals = {str(v).lower() for v in n.properties.values()
+                        if not isinstance(v, Puzzle)}
+            assert p.answer.lower() not in propvals, (
+                f"{n.name}: answer {p.answer!r} is a shipped property value"
+            )
+
+
+class TestSolvableAndClued:
+    @pytest.mark.parametrize("level", CANONICAL_LEVELS)
+    def test_own_answer_solves(self, level):
+        p = build_puzzle(_node(level))
+        # Rebuild a fresh instance (build_puzzle may return a shared pool copy).
+        q = Puzzle(name=p.name, kind=p.kind, prompt=p.prompt, answer=p.answer,
+                   hints=list(p.hints), max_attempts=p.max_attempts)
+        assert q.attempt(p.answer) == PuzzleResult.SOLVED
+
+    @pytest.mark.parametrize("level", CANONICAL_LEVELS)
+    def test_has_graduated_hints(self, level):
+        p = build_puzzle(_node(level))
+        assert len(p.hints) >= 2, f"{level}: needs at least two graduated hints"
+        assert all(h.strip() for h in p.hints)
+
+    @pytest.mark.parametrize("level", CANONICAL_LEVELS)
+    def test_prompt_and_answer_nonempty(self, level):
+        p = build_puzzle(_node(level))
+        assert p.prompt.strip()
+        assert p.answer.strip()
+
+
+class TestTransformIntegrity:
+    """Anagram and cipher puzzles must actually be solvable by reversing their
+    transform — otherwise they'd be unfair, not just hard."""
+
+    def _one_of_kind(self, kind: PuzzleKind, level: str) -> Puzzle | None:
+        # Different node names select different families; scan a batch to find
+        # an instance of the kind we want to check.
+        for i in range(200):
+            p = build_puzzle(_node(level, name=f"{level}-{i}"))
+            if p.kind == kind:
+                return p
+        return None
+
+    def test_anagram_letters_are_a_permutation(self):
+        p = self._one_of_kind(PuzzleKind.ANAGRAM, "Atom")
+        assert p is not None
+        # The scrambled token in the prompt is the run of capitals.
+        scrambled = re.search(r"[A-Z]{3,}", p.prompt).group(0)
+        assert sorted(scrambled.lower()) == sorted(p.answer.lower())
+        assert scrambled.lower() != p.answer.lower()  # actually scrambled
+
+    def test_cipher_decodes_to_answer(self):
+        p = self._one_of_kind(PuzzleKind.CIPHER, "Atom")
+        assert p is not None
+        cipher = re.search(r"[A-Z]{3,}", p.prompt).group(0).lower()
+        shift = int(re.search(r"moved forward by (\d+)", " ".join(p.hints)).group(1))
+        decoded = "".join(
+            chr((ord(c) - ord("a") - shift) % 26 + ord("a")) for c in cipher
+        )
+        assert decoded == p.answer.lower()
+
+
+class TestPerNodeUniqueness:
+    def test_same_node_identity_is_deterministic(self):
+        # Co-op safety: everyone standing on a node must see the same puzzle,
+        # and a rebuilt world must regenerate it identically — regardless of the
+        # engine's own seed.
+        a = build_puzzle(_node("Room", name="Vault-7"))
+        b = build_puzzle(_node("Room", name="Vault-7"))
+        assert (a.name, a.prompt, a.answer) == (b.name, b.prompt, b.answer)
+
+    def test_different_nodes_mostly_differ(self):
+        # 30 sibling Room nodes should not all collapse to one puzzle the way
+        # the old property-keyed generator did (min(3, exits) → 3 answers ever).
+        answers = {build_puzzle(_node("Room", name=f"Room-{i}")).answer
+                   for i in range(30)}
+        assert len(answers) >= 10
+
+    def test_world_repetition_is_low(self):
+        # Across a realistic tree, the fraction of exact-duplicate puzzles must
+        # be far below the pre-redesign 35%, and no single puzzle may dominate
+        # the way "The Widdershins Door" once did (~150 identical copies).
+        root = generate_node_hierarchy(seed=11, max_depth=8, min_breadth=2, max_breadth=3)
+        PuzzleEngine(seed=11).attach_puzzles(root)
+        nodes = []
+        _walk(root, nodes)
+        pz = [n.properties["puzzle"] for n in nodes if "puzzle" in n.properties]
+        sigs = {}
+        for p in pz:
+            sigs[(p.name, p.prompt, p.answer)] = sigs.get((p.name, p.prompt, p.answer), 0) + 1
+        distinct = len(sigs)
+        assert distinct / len(pz) >= 0.75, (
+            f"only {distinct}/{len(pz)} distinct puzzles"
+        )
+        assert max(sigs.values()) <= len(pz) * 0.1, "one puzzle dominates the tree"
+
+
+class TestDifficultyCurve:
+    def test_all_eleven_levels_have_a_difficulty(self):
+        assert set(LEVEL_DIFFICULTY) == {
+            "Multiverse", "Universe", "Galaxy", "Planetary System", "Planet",
+            "Region", "Room", "Object", "Molecule", "Atom", "SubatomicParticle",
+        }
+
+    def test_difficulty_rises_with_depth(self):
+        order = ["Multiverse", "Universe", "Galaxy", "Planetary System",
+                 "Planet", "Region", "Room", "Object", "Molecule", "Atom",
+                 "SubatomicParticle"]
+        diffs = [LEVEL_DIFFICULTY[l] for l in order]
+        assert diffs == sorted(diffs), "difficulty must not decrease going deeper"
+        assert diffs[0] < diffs[-1], "the deepest scale must be harder than the top"
+
+    def test_harder_levels_grant_more_attempts(self):
+        # Fairness scales with challenge: a subatomic puzzle gives at least as
+        # many tries as a multiverse one.
+        top = build_puzzle(_node("Multiverse"))
+        bottom = build_puzzle(_node("SubatomicParticle"))
+        assert bottom.max_attempts >= top.max_attempts
+
+
+class TestCanonicalLevelsUseGenerator:
+    """Every canonical scale must resolve through the new generator (rich,
+    node-voiced kinds), never fall through to the generic default pool."""
+
+    def test_every_level_yields_a_rich_kind(self):
+        rich = {PuzzleKind.ANAGRAM, PuzzleKind.CIPHER, PuzzleKind.PATTERN,
+                PuzzleKind.RIDDLE, PuzzleKind.LOGIC, PuzzleKind.SEQUENCE,
+                PuzzleKind.LOCK, PuzzleKind.NAVIGATION}
+        for level in CANONICAL_LEVELS:
+            p = build_puzzle(_node(level))
+            assert p.kind in rich
