@@ -152,7 +152,7 @@ _HELP = f"""
 def run_session(seed: int = 42, depth: int = 6,
                 min_breadth: int = 1, max_breadth: int = 3) -> None:
     """Launch an interactive terminal session in the nested worlds."""
-    print(f"\n{_BOLD}Nested Worlds Adventure{_RESET}")
+    print(f"\n{_BOLD}Enfolded: Nested World Adventure{_RESET}")
     print(f"{_DIM}seed={seed}  depth={depth}  breadth={min_breadth}–{max_breadth}{_RESET}")
     print("Generating world…", end=" ", flush=True)
     root = generate_node_hierarchy(

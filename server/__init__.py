@@ -40,7 +40,7 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     signal.signal(signal.SIGTERM, _graceful)
 
     display = f"http://localhost:{port}" if host in ("0.0.0.0", "") else f"http://{host}:{port}"
-    print(f"Nested Worlds Adventure  →  {display}")
+    print(f"Enfolded  →  {display}")
     print(f"Multiplayer WebSocket   →  ws://localhost:{port}/ws")
     if host == "127.0.0.1":
         print(f"For network access: restart with --host 0.0.0.0")

@@ -175,7 +175,7 @@ def cmd_speak(args):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="main.py",
-        description="Nested Worlds Adventure: shared persistent multiverse simulation",
+        description="Enfolded: Nested World Adventure — shared persistent multiverse simulation",
     )
     parser.add_argument("--seed", type=int, default=42, help="RNG seed (default: 42)")
     sub = parser.add_subparsers(dest="command", required=True)

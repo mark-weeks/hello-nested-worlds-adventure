@@ -1,4 +1,4 @@
-# Nested Worlds Adventure — production image for the Fly.io beta.
+# Enfolded — production image for the Fly.io beta.
 # See docs/infrastructure/fly-deployment.md for the full deploy runbook.
 #
 # Two stages: a Node stage compiles the React + PixiJS frontend into

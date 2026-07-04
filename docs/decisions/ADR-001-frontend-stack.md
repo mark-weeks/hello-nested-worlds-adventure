@@ -6,7 +6,7 @@
 
 ## Context
 
-Nested Worlds Adventure requires a multiplayer-capable client and server for a multiverse node-traversal game. Two hard constraints shape every choice:
+Enfolded requires a multiplayer-capable client and server for a multiverse node-traversal game. Two hard constraints shape every choice:
 
 - **Solo dev** — fast path to beta, minimal operational surface
 - **Budget** — minimal infrastructure cost, preference for free tiers and pay-as-you-go
