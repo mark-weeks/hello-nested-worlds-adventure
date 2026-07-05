@@ -159,10 +159,21 @@ primary_region = "iad"              # pick the region closest to your testers
 
 ## 3. First deploy
 
+Before running anything: **edit the committed `fly.toml`** — set a
+unique `app` name and the `primary_region` closest to your testers, and
+commit the change. That file is the deployment contract
+(`tests/test_deploy_config.py` guards it); the commands below must match
+what it says.
+
+> **The first deploy starts the permanent world.** Under the continuity
+> policy the database is never wiped between cohorts — whatever your
+> first testers do becomes history the project carries forward, forever.
+> Deploy when you mean it.
+
 Run these from the repo root.
 
 ```bash
-# Create the app (no deploy yet). Skip if `fly.toml`'s app name is already taken.
+# Create the app (no deploy yet), matching the name you set in fly.toml.
 fly apps create nested-worlds-beta
 
 # Provision the persistent volume in the same region as the app.
@@ -175,7 +186,11 @@ fly secrets set \
   FAL_KEY=... \
   SENTRY_DSN=https://...ingest.sentry.io/...
 
-# Optional: shared ops invite key (per-user keys still work alongside it).
+# REQUIRED for any public deployment: close the invite gate. The gate
+# stays OPEN until either this shared key is set or the first per-user
+# key is minted (§6) — an ungated server is an open proxy to your
+# Anthropic budget (the daily caps bound the damage; they don't prevent
+# strangers spending it). Set this now so the app is born gated.
 fly secrets set NESTED_WORLDS_BETA_KEY=$(openssl rand -hex 16)
 
 # Deploy. (--first-deploy skips the pre-deploy backup — nothing to back
@@ -206,13 +221,58 @@ Look for:
 - `Sentry initialized` on startup (confirms the DSN was picked up).
 - One JSON access-log line per request, with `ip_h` (hashed IP) and no
   query string.
+- `world heartbeat started` and `causal pump started` (the background
+  threads that keep the world alive between requests).
 - No `pip install` or migration errors.
+- A `403` when you request `/world` **without** a key — proof the invite
+  gate is closed. (`/`, `/app`, `/guide`, and `/health` are deliberately
+  ungated; data endpoints are not.)
+
+In the first hours with real testers, also watch for
+`nested_worlds.client` lines — both browser clients forward their
+`window.onerror` crashes to the server log, so a broken deploy surfaces
+in `fly logs` instead of only in a tester's DM. (CI's "Browser E2E
+smoke" job loads both clients under the production CSP before anything
+merges, so this is a second net, not the first.)
+
+**Before inviting testers (recommended):** the WS capacity numbers
+(`NESTED_WORLDS_MAX_WS_CONNECTIONS=96` against 1 GB) are reasoned, not
+measured. A twenty-minute soak — a script opening ~100 concurrent
+WebSocket sessions against the deployment while you watch `fly status`
+memory — turns them into facts before your testers do it for you.
 
 ---
 
-## 5. Mint invite keys
+## 5. Custom domain (optional)
+
+The app answers at `<app-name>.fly.dev` out of the box. To serve it at
+your own domain (e.g. `enfolded.world`):
+
+```bash
+# Issue the certificate (Fly provisions and renews Let's Encrypt).
+fly certs add enfolded.world
+
+# Then create the DNS records it prints — typically:
+#   A    @  ->  <the app's IPv4 from `fly ips list`>
+#   AAAA @  ->  <the app's IPv6>
+# (or a CNAME to <app-name>.fly.dev for a subdomain).
+
+# Verify issuance:
+fly certs show enfolded.world
+```
+
+`force_https = true` in `fly.toml` already covers the redirect. Invite
+URLs you mint afterwards (§6) can be shared with either hostname.
+
+---
+
+## 6. Mint invite keys
 
 Per-user keys give you revocable, attributable access for each tester.
+Note the gate semantics: the invite gate closes as soon as **either**
+`NESTED_WORLDS_BETA_KEY` is set (§3) **or** the first per-user key below
+is minted — if you skipped the shared key, everything before this step
+is publicly reachable, so mint before you share the URL anywhere.
 `fly ssh console` opens a shell inside the running machine.
 
 ```bash
@@ -232,7 +292,7 @@ fly ssh console -C "python main.py invite revoke nw_<key>"
 
 ---
 
-## 6. Backups
+## 7. Backups
 
 The SQLite store sits on the volume at `/data/.nested-worlds/worlds.db`.
 The continuity policy (`docs/roadmap/phase-2-scale.md`) makes this file
@@ -270,13 +330,13 @@ schedule that runs the two commands above.
 
 ---
 
-## 7. Day-2 operations
+## 8. Day-2 operations
 
 | Task | Command |
 |---|---|
 | Tail logs | `fly logs` |
 | Open a shell in the running machine | `fly ssh console` |
-| Redeploy after a code change | `git push` (CI runs), then `scripts/deploy.sh` (backs up first, per §6) |
+| Redeploy after a code change | `git push` (CI runs), then `scripts/deploy.sh` (backs up first, per §7) |
 | See current machine status | `fly status` |
 | Restart the machine | `fly machine restart <id>` |
 | Inspect the volume | `fly volumes list` |
@@ -299,7 +359,7 @@ and redeploys.
 
 ---
 
-## 8. When to graduate
+## 9. When to graduate
 
 The phase-2 scale plan in `docs/roadmap/phase-2-scale.md` names the
 triggers for moving past this single-VM setup. The relevant ones for
