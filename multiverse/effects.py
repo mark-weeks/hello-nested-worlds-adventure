@@ -17,6 +17,13 @@ Effects are deliberately small, legible, and bounded:
   STRUCTURAL_CHANGE  — matter degrades: `condition` steps
                        pristine → worn → damaged → corrupted where present,
                        else `fractured: True`.
+  SCALE_ACT          — no material change HERE: a scale-native verb's
+                       property delta is applied exactly once, by the
+                       producer (`multiverse/verbs.apply_verb`), because the
+                       producer owns the flavor line. The cascade still
+                       carries the act outward as ripple and history — you
+                       mend the object you're holding; the molecule inside
+                       it only feels the tremor.
   PUZZLE_FAILED /    — no material change (they still accrete in history
   AGENT_VISIT          and ripple pressure).
 

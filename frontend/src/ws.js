@@ -2,7 +2,12 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { withKey } from "./auth.js";
 import { dispatchMessage } from "./dispatch.js";
 
-const RECONNECT_DELAY = 3000;
+// Reconnect with exponential backoff + jitter: a flapping network or a
+// deploying server gets a fast first retry, but repeated failures back off
+// to ~30s instead of hammering every 3s forever. A successful connection
+// resets the ladder.
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30_000;
 
 export default function useWorldSocket(seed, playerName, handlers) {
   const [connected, setConnected] = useState(false);
@@ -17,6 +22,7 @@ export default function useWorldSocket(seed, playerName, handlers) {
     }
     let active = true;
     let timeout;
+    let attempts = 0;
 
     function connect() {
       if (!active) return;
@@ -24,8 +30,16 @@ export default function useWorldSocket(seed, playerName, handlers) {
       const ws = new WebSocket(withKey(`${protocol}//${location.host}/ws?seed=${seed}&name=${encodeURIComponent(playerName)}`));
       wsRef.current = ws;
 
-      ws.onopen  = () => setConnected(true);
-      ws.onclose = () => { setConnected(false); if (active) timeout = setTimeout(connect, RECONNECT_DELAY); };
+      ws.onopen  = () => { attempts = 0; setConnected(true); };
+      ws.onclose = () => {
+        setConnected(false);
+        if (!active) return;
+        attempts += 1;
+        const backoff = Math.min(RECONNECT_MAX_MS,
+          RECONNECT_BASE_MS * 2 ** Math.min(attempts - 1, 5));
+        const jitter = backoff * (0.75 + Math.random() * 0.5);
+        timeout = setTimeout(connect, jitter);
+      };
       ws.onerror = () => ws.close();
 
       ws.onmessage = (e) => {

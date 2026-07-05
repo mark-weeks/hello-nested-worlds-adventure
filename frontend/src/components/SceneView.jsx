@@ -126,7 +126,12 @@ export default function SceneView({
 
   return (
     <div style={styles.wrapper}>
-      <div ref={containerRef} style={styles.canvas} />
+      <div
+        ref={containerRef}
+        style={styles.canvas}
+        role="img"
+        aria-label={`Scene of ${node?.name || "the world"}, a ${node?.level || "place"}. ${node?.properties?.aspect || ""}`}
+      />
       {canGoUp && (
         <button style={styles.upBtn} onClick={onNavigateUp}>← back</button>
       )}

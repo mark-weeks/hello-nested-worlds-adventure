@@ -79,10 +79,16 @@ def _passage_tags(node: SpatialNode) -> list[str]:
 
 
 def _print_look(node: SpatialNode) -> None:
+    from multiverse.verbs import verb_for_level
+
     print(f"\n{_fmt(node)}")
     if node.properties:
         for k, v in node.properties.items():
             print(f"  {_DIM}{k}{_RESET}  {v}")
+    verb = verb_for_level(node.level)
+    if verb is not None:
+        print(f"\n  {_DIM}Here you can{_RESET} {_BOLD}{verb.name}{_RESET}"
+              f" {_DIM}— {verb.tagline}{_RESET}")
     if node.children:
         print(f"\n  {len(node.children)} path(s) deeper:")
         for i, child in enumerate(node.children, 1):
@@ -168,6 +174,36 @@ def _play_puzzle(node: SpatialNode, seed: int) -> None:
             seed, node.name, "PUZZLE_FAILED", None, {"puzzle": puzzle.name})
 
 
+def _do_scale_verb(node: SpatialNode, seed: int,
+                   player_name: str | None = None) -> None:
+    """Perform this scale's native verb — the CLI mirror of POST /act."""
+    from causality.staging import stage_cascade
+    from multiverse.verbs import apply_verb, verb_for_level
+
+    verb = verb_for_level(node.level)
+    if verb is None:
+        print("  Nothing can be done at this scale.")
+        return
+    token = f"{player_name or 'traveler'}:{node.name}"
+    changed, flavor = apply_verb(node, verb, token)
+    print(f"\n  {_BOLD}{verb.name}{_RESET} — {flavor}\n")
+    if not changed:
+        return
+    persistence.upsert_node_properties(seed, node.name, changed)
+    persistence.record_mutation(
+        seed, node.name, "SCALE_ACT", player_name,
+        {"verb": verb.name, "changed": changed})
+    payload = {"verb": verb.name}
+    if player_name:
+        payload["actor"] = player_name
+    bus = wire_world_handlers(CausalityBus(), seed)
+    bus.emit(node, EventKind.SCALE_ACT, payload)
+    staged = stage_cascade(seed, node, EventKind.SCALE_ACT, payload)
+    if staged:
+        print(f"  {_DIM}The act echoes — {staged} consequence(s) are "
+              f"traveling outward.{_RESET}\n")
+
+
 def _speak_to(node: SpatialNode, message: str, seed: int = 0,
               player_name: str | None = None) -> None:
     print(f"\n{_fmt(node)} responds…\n")
@@ -216,6 +252,8 @@ _HELP = f"""
   speak [msg]  /  s     speak to this node via Claude
   observe  /  o         watch an agent traverse from here
   puzzle  /  p          find and play a puzzle here
+  act  /  a             perform this scale's native verb
+                        (or type the verb itself: mend, ward, kindle…)
   help  /  h            show this help
   quit  /  q            exit the session
   {_DIM}(unrecognised input is sent as a speak message){_RESET}
@@ -291,6 +329,9 @@ def run_session(seed: int = 42, depth: int = 6,
         elif cmd in ("puzzle", "p"):
             _play_puzzle(stack[-1], seed)
 
+        elif cmd in ("act", "a"):
+            _do_scale_verb(stack[-1], seed, player_name=player_name)
+
         elif cmd in ("go", "g"):
             if not rest.isdigit():
                 print("  Usage: go <N>")
@@ -301,7 +342,14 @@ def run_session(seed: int = 42, depth: int = 6,
             _descend(stack, int(cmd))
 
         else:
-            _speak_to(stack[-1], raw, seed=seed, player_name=player_name)
+            # Typing the scale's own verb ("mend" at an Object, "observe"
+            # at a particle…) performs it; anything else is speech.
+            from multiverse.verbs import verb_for_level
+            _verb = verb_for_level(stack[-1].level)
+            if _verb is not None and cmd == _verb.name and not rest:
+                _do_scale_verb(stack[-1], seed, player_name=player_name)
+            else:
+                _speak_to(stack[-1], raw, seed=seed, player_name=player_name)
 
 
 def _descend(stack: list[SpatialNode], n: int) -> None:

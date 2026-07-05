@@ -23,6 +23,7 @@ from typing import Any, Callable
 _DB_PATH = Path.home() / ".nested-worlds" / "worlds.db"
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 _TTL_ENV_VAR = "NESTED_WORLDS_MUTATION_TTL_DAYS"
+_PRUNE_OVERRIDE_ENV = "NESTED_WORLDS_ALLOW_HISTORY_PRUNE"
 
 # --- SQL dialect seam ---
 # Concentrate SQLite-isms here so the Postgres port is mechanical.
@@ -134,9 +135,13 @@ def init_db() -> None:
 def _maybe_prune_from_env() -> None:
     """Honor the NESTED_WORLDS_MUTATION_TTL_DAYS env var on init.
 
-    Default is unset → no pruning. Operators set a positive integer to
-    cap mutation-log retention at that many days. Invalid values are
-    silently ignored so a typo doesn't break startup.
+    Default is unset → no pruning. `world_mutations` is the world's
+    chronicle — the continuity policy (docs/roadmap/phase-2-scale.md)
+    declares it permanent, and the generative art reads its per-node
+    activity counts — so the TTL alone no longer prunes: the operator
+    must also set NESTED_WORLDS_ALLOW_HISTORY_PRUNE=1 to confirm they
+    mean to violate that policy. Invalid values are ignored so a typo
+    doesn't break startup.
     """
     raw = os.environ.get(_TTL_ENV_VAR, "").strip()
     if not raw:
@@ -147,6 +152,14 @@ def _maybe_prune_from_env() -> None:
         _log.warning("ignoring invalid %s=%r", _TTL_ENV_VAR, raw)
         return
     if days <= 0:
+        return
+    if os.environ.get(_PRUNE_OVERRIDE_ENV, "").strip() != "1":
+        _log.warning(
+            "%s is set but ignored: pruning world_mutations erases the "
+            "world's chronicle (and the art's activity history), which "
+            "the continuity policy forbids. Set %s=1 if you truly mean it.",
+            _TTL_ENV_VAR, _PRUNE_OVERRIDE_ENV,
+        )
         return
     removed = prune_mutations(days)
     if removed:
@@ -380,6 +393,55 @@ def get_mutations(world_seed: int, limit: int = 50) -> list[dict[str, Any]]:
         return [{"node": r[0], "type": r[1], "player": r[2],
                  "data": json.loads(r[3]) if r[3] else {}, "at": r[4]}
                 for r in rows]
+
+
+@_with_db
+def get_chronicle(world_seed: int, limit: int = 50,
+                  before_id: int | None = None) -> dict[str, Any]:
+    """A page of the world's full history, newest first, cursor-paginated.
+
+    `before_id` walks backward in time (fetch entries with id < before_id).
+    Returns {entries, next_before, total, began}: `next_before` is the
+    cursor for the next-older page (None when exhausted), `total` the
+    world's full event count, `began` the timestamp of its first recorded
+    event — the world's birth in lived history.
+    """
+    limit = max(1, min(int(limit), 200))
+    with _connect() as conn:
+        if before_id is not None:
+            rows = conn.execute(
+                """SELECT id, node_name, mutation_type, player_name, data,
+                          recorded_at
+                   FROM world_mutations WHERE world_seed = ? AND id < ?
+                   ORDER BY id DESC LIMIT ?""",
+                (world_seed, before_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT id, node_name, mutation_type, player_name, data,
+                          recorded_at
+                   FROM world_mutations WHERE world_seed = ?
+                   ORDER BY id DESC LIMIT ?""",
+                (world_seed, limit),
+            ).fetchall()
+        total = conn.execute(
+            "SELECT COUNT(*) FROM world_mutations WHERE world_seed = ?",
+            (world_seed,),
+        ).fetchone()[0]
+        began = conn.execute(
+            "SELECT MIN(recorded_at) FROM world_mutations WHERE world_seed = ?",
+            (world_seed,),
+        ).fetchone()[0]
+    entries = [{"id": r[0], "node": r[1], "type": r[2], "player": r[3],
+                "data": json.loads(r[4]) if r[4] else {}, "at": r[5]}
+               for r in rows]
+    exhausted = len(rows) < limit
+    return {
+        "entries": entries,
+        "next_before": None if exhausted else entries[-1]["id"],
+        "total": total,
+        "began": began,
+    }
 
 
 @_with_db

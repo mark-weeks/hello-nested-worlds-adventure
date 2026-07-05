@@ -3,5 +3,7 @@
 // explorer's *initial* node selection can run before this executes — the
 // ready event lets it redraw the sigil the moment the art is available.
 import * as NodeArt from "/nodeart.js";
+import * as NodeSound from "/nodesound.js";
 window.NodeArt = NodeArt;
+window.NodeSound = NodeSound;
 window.dispatchEvent(new Event("nodeart-ready"));

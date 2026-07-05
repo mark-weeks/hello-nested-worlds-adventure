@@ -3,6 +3,32 @@
 // invite key. Read `?key=` from the URL, stash it, and forward it on every
 // request. No-op when the gate is off (no key present).
 const _betaParams = new URLSearchParams(location.search);
+
+// Honor the OS-level motion preference: causal flashes and animated zooms
+// become instant state changes instead of movement.
+const REDUCED_MOTION = window.matchMedia
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Browser crashes were invisible to operators (Sentry is server-side only);
+// forward them so a broken deploy shows up in the server logs.
+window.addEventListener('error', e => {
+  try {
+    fetch(withKey('/client-error'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: String(e.message || '').slice(0, 512),
+                             source: `${e.filename || ''}:${e.lineno || 0}` }),
+    }).catch(() => {});
+  } catch (_) {}
+});
+window.addEventListener('unhandledrejection', e => {
+  try {
+    fetch(withKey('/client-error'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: `unhandled rejection: ${String(e.reason).slice(0, 480)}`,
+                             source: 'explorer' }),
+    }).catch(() => {});
+  } catch (_) {}
+});
 if (_betaParams.get('key')) localStorage.setItem('nw_beta_key', _betaParams.get('key'));
 function betaKey() { return localStorage.getItem('nw_beta_key') || _betaParams.get('key') || ''; }
 function withKey(url) {
@@ -120,7 +146,7 @@ svg.call(zoom);
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
 function setMode(mode) {
-  ['speak', 'observe', 'puzzle'].forEach(m => {
+  ['speak', 'observe', 'puzzle', 'act'].forEach(m => {
     document.getElementById('panel-' + m).classList.toggle('active', m === mode);
     document.getElementById('btn-'   + m).classList.toggle('active', m === mode);
   });
@@ -242,6 +268,8 @@ function describeMutation(m) {
     case 'PLAYER_CHAT':   return `${when} · ${who} said something at ${m.node}`;
     case 'AGENT_VISIT':   return `${when} · ${who} passed through ${m.node}`;
     case 'DANGER_ALERT':  return `${when} · danger stirred at ${m.node}`;
+    case 'SCALE_ACT':     return `${when} · ${who} chose to ${(m.data && m.data.verb) || 'act'} at ${m.node}`;
+    case 'AGENT_TALK':    return `${when} · ${(m.data && m.data.a) || 'someone'} and ${(m.data && m.data.b) || 'someone'} spoke at ${m.node}`;
     default:              return `${when} · something happened at ${m.node}`;
   }
 }
@@ -285,6 +313,11 @@ function fitView() {
 function drawSigil(data) {
   const sigil = document.getElementById('node-sigil');
   if (!sigil) return;
+  // The art is meaning, not decoration — give non-visual users its content.
+  sigil.setAttribute('role', 'img');
+  sigil.setAttribute('aria-label',
+    `Generative sigil of ${data.name}, a ${data.level}. ` +
+    ((data.properties && data.properties.aspect) || ''));
   if (window.NodeArt) {
     try { window.NodeArt.drawNodeArt(sigil, worldParams.seed, data); } catch (_) {}
   } else {
@@ -328,6 +361,7 @@ function selectNode(data) {
   document.getElementById('speak-response').className = 'response-box';
   document.getElementById('observe-rows').innerHTML = '';
   document.getElementById('puzzle-content').innerHTML = '';
+  refreshActPanel(data);
   loadPresences(data.name);
   puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
   if (observeES) { observeES.close(); observeES = null; }
@@ -337,6 +371,145 @@ function selectNode(data) {
   localStorage.setItem(LAST_NODE_KEY, data.name);
   savePositionToServer(data.name);
   wsSend({ type: 'move', node: data.name });
+
+  // If the ambience is on, the new place hums its own tone.
+  if (window._nwAmbience && window._nwAmbience.enabled) {
+    window._nwAmbience.setNode(worldParams.seed, data);
+  }
+}
+
+// ── Ambient sound ───────────────────────────────────────────────────────────
+// Deterministic per-node WebAudio hum (static/nodesound.js) — the audible
+// face of the node art. Off by default; the toggle is the activation gesture
+// browsers require anyway.
+
+function toggleSound() {
+  if (!window.NodeSound) return;
+  if (!window._nwAmbience) window._nwAmbience = new window.NodeSound.NodeAmbience();
+  const amb = window._nwAmbience;
+  const btn = document.getElementById('btn-sound');
+  if (amb.enabled) {
+    amb.disable();
+    btn.textContent = '♪ off';
+    btn.setAttribute('aria-pressed', 'false');
+  } else {
+    amb.enable(worldParams.seed, selected);
+    btn.textContent = '♪ on';
+    btn.setAttribute('aria-pressed', 'true');
+  }
+}
+
+// ── Scale-native verb (POST /act) ───────────────────────────────────────────
+// Each level has exactly one act that only works at that scale — mend an
+// object, ward a region, observe a particle. The server owns the effect;
+// the flavor line is the fiction of what happened.
+
+function refreshActPanel(data) {
+  const verb = data.verb;
+  const btn = document.getElementById('btn-do-act');
+  const tagline = document.getElementById('act-tagline');
+  const resp = document.getElementById('act-response');
+  if (!btn) return;
+  resp.textContent = '';
+  if (!verb) {
+    btn.disabled = true;
+    btn.textContent = 'Nothing can be done here';
+    tagline.textContent = '';
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = verb.name[0].toUpperCase() + verb.name.slice(1) +
+                    ' this ' + data.level;
+  tagline.textContent = verb.tagline;
+}
+
+async function doAct() {
+  if (!selected || !selected.verb) return;
+  const resp = document.getElementById('act-response');
+  resp.textContent = '…';
+  try {
+    const res = await fetch(withKey('/act'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        seed: worldParams.seed, depth: worldParams.depth,
+        min_breadth: worldParams.min_b, max_breadth: worldParams.max_b,
+        node_name: selected.name, verb: selected.verb.name,
+        player_name: playerName || undefined,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) { resp.textContent = data.error; return; }
+    if (data.changed) {
+      // The world changed under us: fold the delta into the selected node
+      // so the panel and the sigil show the act immediately. (selectNode
+      // clears the act panel, so write the flavor line after.)
+      Object.assign(selected.properties, data.changed);
+      selectNode(selected);
+      setStatus(`You ${data.verb} — the act is traveling outward.`);
+    }
+    document.getElementById('act-response').textContent =
+      data.flavor || '(nothing happened)';
+  } catch (e) {
+    resp.textContent = 'The act fizzles: ' + e.message;
+  }
+}
+
+// ── World chronicle ─────────────────────────────────────────────────────────
+// The permanent record: everything every player and agent has done in this
+// world, paginated backward in time and grouped into named eras. This is
+// how a new arrival perceives the history they're building on.
+
+let chronicleCursor = null;   // next_before id, null = start from newest
+let chronicleLastEra = null;  // last era header rendered, to group across pages
+
+function describeChronicleEntry(e) {
+  return describeMutation(e).replace(/^\S+ · /, ''); // strip the date prefix
+}
+
+async function loadChroniclePage(reset) {
+  const box = document.getElementById('chronicle-entries');
+  const meta = document.getElementById('chronicle-meta');
+  if (reset) { box.innerHTML = ''; chronicleCursor = null; chronicleLastEra = null; }
+  try {
+    const cursor = chronicleCursor ? `&before=${chronicleCursor}` : '';
+    const res = await fetch(withKey(
+      `/chronicle?seed=${worldParams.seed}&limit=40${cursor}`));
+    const data = await res.json();
+    meta.textContent = `seed ${data.seed} · ${data.total} recorded events` +
+      (data.began ? ` since ${data.began.slice(0, 10)}` : '') +
+      ` · now: ${data.era_now}`;
+    for (const e of data.entries || []) {
+      if (e.era && e.era !== chronicleLastEra) {
+        chronicleLastEra = e.era;
+        const h = document.createElement('div');
+        h.style.cssText = 'font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#3a8eff;margin:10px 0 4px;border-bottom:1px solid #141828;padding-bottom:3px';
+        h.textContent = e.era;
+        box.appendChild(h);
+      }
+      const row = document.createElement('div');
+      row.style.cssText = 'font-size:10px;color:#5a7090;line-height:1.5';
+      const when = (e.at || '').slice(5, 16).replace(' ', ' · ');
+      row.textContent = `${when}  ${describeChronicleEntry(e)}`;
+      box.appendChild(row);
+    }
+    chronicleCursor = data.next_before;
+    document.getElementById('chronicle-older').style.display =
+      chronicleCursor ? '' : 'none';
+    if (!data.entries || (!data.entries.length && reset)) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'font-size:10px;color:#2a4060';
+      empty.textContent = 'Nothing has happened here yet. You would be first.';
+      box.appendChild(empty);
+    }
+  } catch (e) {
+    meta.textContent = 'The chronicle is unreadable right now.';
+  }
+}
+
+function openChronicle() {
+  document.getElementById('chronicle-modal').classList.add('visible');
+  loadChroniclePage(true);
 }
 
 // ── Addressable presences ───────────────────────────────────────────────────
@@ -588,8 +761,12 @@ function joinModal() {
   loadWorld();
 }
 
+let wsAttempts = 0;
+let wsRetryTimer = null;
+
 function wsConnect(seed) {
-  if (ws) { ws.close(); ws = null; }
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }  // intentional close: no retry
+  clearTimeout(wsRetryTimer);
   players  = {};
   colorIdx = 0;
   renderPlayers();
@@ -598,9 +775,17 @@ function wsConnect(seed) {
   try { ws = new WebSocket(url); } catch (_) { return; }
   // Announce our current position on (re)connect so others see us where we
   // actually are — including the initial drop-in / resume node.
-  ws.onopen    = () => { if (selected) wsSend({ type: 'move', node: selected.name }); };
+  ws.onopen    = () => { wsAttempts = 0; if (selected) wsSend({ type: 'move', node: selected.name }); };
   ws.onmessage = e => { try { handleWsMsg(JSON.parse(e.data)); } catch (_) {} };
-  ws.onclose   = () => { ws = null; };
+  // Unintentional drop (server deploy, flaky network): reconnect with
+  // exponential backoff + jitter, resetting on success.
+  ws.onclose   = () => {
+    ws = null;
+    wsAttempts += 1;
+    const backoff = Math.min(30000, 1000 * 2 ** Math.min(wsAttempts - 1, 5));
+    wsRetryTimer = setTimeout(() => wsConnect(seed),
+                              backoff * (0.75 + Math.random() * 0.5));
+  };
   ws.onerror   = () => {};
 }
 
@@ -669,15 +854,36 @@ function handleWsMsg(msg) {
       flashNode(msg.node, msg.strength);
       break;
     }
+    case 'scale_act': {
+      pushFeed(`✦ ${escHtml(msg.actor)} ${escHtml(msg.verb)}s ${escHtml(msg.node)}`);
+      flashNode(msg.node, 0.8);
+      // Someone changed a place we may be looking at: fold in the delta.
+      if (selected && selected.name === msg.node && msg.changed) {
+        Object.assign(selected.properties, msg.changed);
+        selectNode(selected);
+      }
+      break;
+    }
     case 'agent_encounter':
       pushFeed(`⚡ ${escHtml(msg.agent1)} meets ${escHtml(msg.agent2)} @ ${escHtml(msg.node)}`);
       flashNode(msg.node, 0.9);
+      break;
+    case 'agent_talk':
+      // Two wanderers in conversation — the world telling its own story.
+      for (const l of msg.lines || []) {
+        if (l.speaker) {
+          pushFeed(`<span class="chat-name">${escHtml(l.speaker)}</span> ${escHtml(l.line)}`,
+                   { cls: 'chat-msg', html: true });
+        } else {
+          pushFeed(escHtml(l.line));
+        }
+      }
       break;
   }
 }
 
 function flashNode(nodeName, strength) {
-  if (!nodeG) return;
+  if (!nodeG || REDUCED_MOTION) return;
   const target = nodeG.filter(d => d.data.name === nodeName);
   if (target.empty()) return;
   const datum   = target.datum();
@@ -779,9 +985,20 @@ document.getElementById('chat-btn').addEventListener('click', sendChat);
 document.getElementById('btn-speak'  ).addEventListener('click', () => setMode('speak'));
 document.getElementById('btn-observe').addEventListener('click', () => setMode('observe'));
 document.getElementById('btn-puzzle' ).addEventListener('click', () => setMode('puzzle'));
+document.getElementById('btn-act'    ).addEventListener('click', () => setMode('act'));
 document.getElementById('btn-do-speak'  ).addEventListener('click', speak);
 document.getElementById('btn-do-observe').addEventListener('click', observe);
 document.getElementById('btn-do-puzzle' ).addEventListener('click', fetchPuzzle);
+document.getElementById('btn-do-act'    ).addEventListener('click', doAct);
+document.getElementById('btn-chronicle' ).addEventListener('click', openChronicle);
+document.getElementById('btn-sound'     ).addEventListener('click', toggleSound);
+document.getElementById('chronicle-older').addEventListener('click', () => loadChroniclePage(false));
+document.getElementById('chronicle-close').addEventListener('click',
+  () => document.getElementById('chronicle-modal').classList.remove('visible'));
+document.getElementById('chronicle-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('chronicle-modal'))
+    document.getElementById('chronicle-modal').classList.remove('visible');
+});
 document.getElementById('message').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); speak(); }
 });

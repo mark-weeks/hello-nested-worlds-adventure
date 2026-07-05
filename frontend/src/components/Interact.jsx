@@ -9,8 +9,9 @@ import { withKey } from "../auth.js";
 export default function Interact({ node, seed, depth, playerName }) {
   const [tab, setTab] = useState("speak");
 
-  // Reset both sub-panels whenever the player moves to a different node.
+  // Reset the sub-panels whenever the player moves to a different node.
   const nodeKey = node?.name;
+  const verb = node?.verb; // the scale-native act, from /world
 
   return (
     <div style={s.wrap}>
@@ -23,10 +24,70 @@ export default function Interact({ node, seed, depth, playerName }) {
           style={tab === "puzzle" ? s.tabActive : s.tab}
           onClick={() => setTab("puzzle")}
         >Puzzle</button>
+        {verb && (
+          <button
+            style={tab === "act" ? s.tabActive : s.tab}
+            onClick={() => setTab("act")}
+          >{verb.name[0].toUpperCase() + verb.name.slice(1)}</button>
+        )}
       </div>
-      {tab === "speak"
-        ? <Speak key={`sp-${nodeKey}`} node={node} seed={seed} playerName={playerName} />
-        : <Puzzle key={`pz-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} />}
+      {tab === "speak" &&
+        <Speak key={`sp-${nodeKey}`} node={node} seed={seed} playerName={playerName} />}
+      {tab === "puzzle" &&
+        <Puzzle key={`pz-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} />}
+      {tab === "act" && verb &&
+        <Act key={`act-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} />}
+    </div>
+  );
+}
+
+// ── Scale-native verb (POST /act) ───────────────────────────────────────────
+// Every level has exactly one act that only works at that scale — mend an
+// object, ward a region, observe a particle. The server owns the effect;
+// the response's flavor line is the fiction of what happened.
+
+function Act({ node, seed, depth, playerName }) {
+  const [busy, setBusy] = useState(false);
+  const [flavor, setFlavor] = useState("");
+  const [changed, setChanged] = useState(null);
+  const [error, setError] = useState("");
+  const verb = node.verb;
+
+  const act = useCallback(async () => {
+    if (busy) return;
+    setBusy(true); setError("");
+    try {
+      const r = await fetch(withKey("/act"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          seed, depth, node_name: node.name, verb: verb.name,
+          player_name: playerName || undefined,
+        }),
+      });
+      const data = await r.json();
+      if (data.error) { setError(data.error); }
+      else { setFlavor(data.flavor || ""); setChanged(data.changed); }
+    } catch (e) {
+      setError("Network error: " + e.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, seed, depth, node, verb, playerName]);
+
+  return (
+    <div style={s.panel}>
+      <div style={s.hint}>{verb.tagline}</div>
+      <button style={s.btn} onClick={act} disabled={busy}>
+        {busy ? "…" : `${verb.name[0].toUpperCase() + verb.name.slice(1)} this ${node.level}`}
+      </button>
+      {flavor && <div style={s.resp}>{flavor}</div>}
+      {changed && (
+        <div style={s.hint}>
+          {Object.entries(changed).map(([k, v]) => `${k} → ${v}`).join(" · ")}
+        </div>
+      )}
+      {error && <div style={s.respError}>{error}</div>}
     </div>
   );
 }

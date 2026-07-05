@@ -4,6 +4,10 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   base: "/app/",
+  test: {
+    // Playwright owns e2e/*.spec.js; vitest must not try to run them.
+    exclude: ["e2e/**", "node_modules/**"],
+  },
   build: {
     outDir: "../static/app",
     emptyOutDir: true,

@@ -293,6 +293,8 @@ class TestPruneMutations:
 
     def test_env_flag_triggers_prune_on_init(self, monkeypatch):
         # Seed an ancient mutation, then re-init with the TTL env var set.
+        # The chronicle is continuity-protected, so the TTL only acts when
+        # paired with the explicit override flag.
         persistence.record_mutation(1, "Stale", "AGENT_VISIT", None, {})
         conn = sqlite3.connect(persistence._DB_PATH)
         conn.execute(
@@ -301,9 +303,29 @@ class TestPruneMutations:
         conn.commit()
         conn.close()
         monkeypatch.setenv("NESTED_WORLDS_MUTATION_TTL_DAYS", "30")
+        monkeypatch.setenv("NESTED_WORLDS_ALLOW_HISTORY_PRUNE", "1")
         persistence._initialized.discard(persistence._DB_PATH)
         persistence.init_db()
         assert persistence.get_mutations(1) == []
+
+    def test_ttl_without_override_preserves_the_chronicle(self, monkeypatch, caplog):
+        # Continuity policy: world_mutations is permanent. A bare TTL is
+        # refused with a warning; only the explicit override prunes.
+        persistence.record_mutation(1, "Stale", "AGENT_VISIT", None, {})
+        conn = sqlite3.connect(persistence._DB_PATH)
+        conn.execute(
+            "UPDATE world_mutations SET recorded_at = datetime('now', '-90 days')"
+        )
+        conn.commit()
+        conn.close()
+        monkeypatch.setenv("NESTED_WORLDS_MUTATION_TTL_DAYS", "30")
+        monkeypatch.delenv("NESTED_WORLDS_ALLOW_HISTORY_PRUNE", raising=False)
+        persistence._initialized.discard(persistence._DB_PATH)
+        import logging
+        with caplog.at_level(logging.WARNING, logger="nested_worlds.persistence"):
+            persistence.init_db()
+        assert len(persistence.get_mutations(1)) == 1
+        assert any("continuity" in r.message for r in caplog.records)
 
     def test_invalid_env_var_is_ignored(self, monkeypatch):
         persistence.record_mutation(1, "Fresh", "AGENT_VISIT", None, {})

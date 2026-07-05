@@ -25,6 +25,8 @@ describe("dispatchMessage", () => {
     ["puzzle_solved", "onPuzzleSolved"],
     ["agent_done", "onAgentDone"],
     ["agent_encounter", "onAgentEncounter"],
+    ["scale_act", "onScaleAct"],
+    ["agent_talk", "onAgentTalk"],
   ])("routes %s to %s", (type, handlerName) => {
     const handler = vi.fn();
     dispatchMessage({ type }, { [handlerName]: handler });

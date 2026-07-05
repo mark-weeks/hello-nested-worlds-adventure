@@ -224,8 +224,10 @@
       <li><b>Explore</b> — click a node in the map, then dive deeper into the worlds inside it.</li>
       <li><b>Speak</b> — talk to any place and it answers in character.</li>
       <li><b>Solve</b> — crack a node's puzzle; the ripple carries across scales.</li>
+      <li><b>Act</b> — every scale has one verb only it supports: mend, ward, kindle…</li>
     </ul>
     <button id="btn-begin" class="primary">Begin exploring</button>
+    <a href="/guide" style="font-size:10px;color:#3a5070;letter-spacing:1px">read the full guide ↗</a>
   </div>
 </div>
 
@@ -252,6 +254,10 @@
     </div>
     <button class="primary" id="gen-btn">Generate</button>
   </div>
+  <button id="btn-sound" title="Ambient sound: every place hums its own deterministic tone"
+          aria-pressed="false"
+          style="font-size:10px;padding:3px 8px;letter-spacing:1px;white-space:nowrap">♪ off</button>
+  <a href="/guide" style="font-size:10px;color:#2a4060;text-decoration:none;letter-spacing:1px;white-space:nowrap" title="How to play">Guide ↗</a>
   <a href="/app" style="font-size:10px;color:#2a4060;text-decoration:none;letter-spacing:1px;white-space:nowrap" title="Open the PixiJS immersive view">Visual ↗</a>
 </header>
 
@@ -268,7 +274,10 @@
     </div>
 
     <div class="panel" id="players-panel">
-      <div class="panel-title">Explorers</div>
+      <div class="panel-title">Explorers
+        <button id="btn-chronicle" title="The world's full history — everything every player and agent has done here"
+                style="float:right;font-size:9px;padding:1px 8px;letter-spacing:1px">CHRONICLE</button>
+      </div>
       <div id="players-list"><div style="color:#2a4060;font-size:10px">Not connected</div></div>
       <div id="event-feed"></div>
     </div>
@@ -283,6 +292,7 @@
       <button class="active" id="btn-speak">Speak</button>
       <button id="btn-observe">Observe</button>
       <button id="btn-puzzle">Puzzle</button>
+      <button id="btn-act">Act</button>
     </div>
 
     <div class="content-area">
@@ -315,12 +325,32 @@
         <div id="puzzle-content"></div>
       </div>
 
+      <!-- Act: the scale-native verb — the one thing you can only do here -->
+      <div class="mode-panel" id="panel-act">
+        <div id="act-tagline" style="font-size:11px;color:#4a5580;line-height:1.5"></div>
+        <button id="btn-do-act">Act</button>
+        <div class="response-box" id="act-response"></div>
+      </div>
+
     </div>
 
     <div class="statusbar" id="status">Ready</div>
   </div>
 </div>
 
+
+<!-- World chronicle: the permanent record, era by era -->
+<div class="modal-overlay" id="chronicle-modal">
+  <div class="modal-box" style="max-width:520px;width:calc(100vw - 48px);max-height:80vh">
+    <div class="modal-title">World Chronicle</div>
+    <div class="modal-desc" id="chronicle-meta"></div>
+    <div id="chronicle-entries" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:2px;min-height:120px"></div>
+    <div style="display:flex;gap:10px">
+      <button id="chronicle-older">further back</button>
+      <button id="chronicle-close">close</button>
+    </div>
+  </div>
+</div>
 
 <script type="module" src="/nodeart-global.js"></script>
 <script src="/explorer.js" defer></script>

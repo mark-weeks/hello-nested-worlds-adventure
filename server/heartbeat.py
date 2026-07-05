@@ -103,6 +103,37 @@ def _drop_in(root: SpatialNode, rng: random.Random) -> SpatialNode:
     return node
 
 
+def _hold_conversation(seed: int, room, node: SpatialNode,
+                       agent_a: str, persona_a: str,
+                       agent_b: str, persona_b: str) -> None:
+    """Two co-located wanderers talk; the exchange persists and broadcasts.
+
+    The meeting ordinal (how many conversations this node has already
+    hosted) keys the deterministic exchange, so the same pair meeting at
+    the same place twice says something new the second time.
+    """
+    from agents.banter import compose_exchange
+
+    prior = [h for h in persistence.get_node_history(seed, node.name, limit=50)
+             if h["type"] == "AGENT_TALK"]
+    lines = compose_exchange(seed, node, agent_a, persona_a,
+                             agent_b, persona_b, ordinal=len(prior))
+    persistence.record_mutation(
+        seed, node.name, "AGENT_TALK", None,
+        {"a": agent_a, "a_persona": persona_a,
+         "b": agent_b, "b_persona": persona_b,
+         "lines": lines},
+    )
+    broadcast(room, {
+        "type":  "agent_talk",
+        "node":  node.name,
+        "level": node.level,
+        "a":     agent_a,
+        "b":     agent_b,
+        "lines": lines,
+    })
+
+
 def run_tick(seed: int | None = None, rng: random.Random | None = None,
              max_nodes: int = _DEFAULT_MAX_NODES,
              pace: float = _DEFAULT_PACE) -> dict:
@@ -124,6 +155,18 @@ def run_tick(seed: int | None = None, rng: random.Random | None = None,
     distance_map = build_distance_map(target)
     agent_enter(room, agent_name, persona=persona.name)
 
+    # Roughly a third of ticks are social: a second wanderer is already
+    # loitering where the walker drops in, so the two actually MEET — an
+    # encounter broadcast plus a persisted conversation — instead of the
+    # cast only ever walking the world alone.
+    companion = None
+    if rng.random() < 0.35:
+        others = [n for n in WANDERER_ROSTER if n != agent_name]
+        companion = rng.choice(others)
+        companion_persona = persona_for_name(companion)
+        agent_enter(room, companion, persona=companion_persona.name)
+        agent_move(room, companion, target.name)
+
     def live_handler(node, event):
         broadcast(room, {
             "type":     "causal_event",
@@ -137,15 +180,22 @@ def run_tick(seed: int | None = None, rng: random.Random | None = None,
             "persona":  persona.name,
         })
         for other_name in agent_move(room, agent_name, node.name):
+            other_persona = agent_persona(room, other_name)
             broadcast(room, {
                 "type":           "agent_encounter",
                 "agent1":         agent_name,
                 "agent1_persona": persona.name,
                 "agent2":         other_name,
-                "agent2_persona": agent_persona(room, other_name),
+                "agent2_persona": other_persona,
                 "node":           node.name,
                 "level":          node.level,
             })
+            # The meeting is a conversation, not just a proximity ping:
+            # a deterministic in-character exchange (zero API cost) that
+            # persists into node history — players who arrive later find
+            # the transcript, and the node's voice can allude to it.
+            _hold_conversation(seed, room, node, agent_name, persona.name,
+                               other_name, other_persona)
 
     bus = CausalityBus()
     bus.register_handler(live_handler)
@@ -160,6 +210,8 @@ def run_tick(seed: int | None = None, rng: random.Random | None = None,
         agent.traverse(target, max_nodes=max_nodes, pace=pace)
     finally:
         agent_leave(room, agent_name)
+        if companion is not None:
+            agent_leave(room, companion)
 
     events = [{"node": e.node_name, "level": e.level, "state": e.state.name,
                "action": e.action, "persona": e.persona} for e in agent.log]

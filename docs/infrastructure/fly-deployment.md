@@ -178,8 +178,9 @@ fly secrets set \
 # Optional: shared ops invite key (per-user keys still work alongside it).
 fly secrets set NESTED_WORLDS_BETA_KEY=$(openssl rand -hex 16)
 
-# Deploy.
-fly deploy
+# Deploy. (--first-deploy skips the pre-deploy backup — nothing to back
+# up yet. Every subsequent deploy goes through scripts/deploy.sh plain.)
+scripts/deploy.sh --first-deploy
 ```
 
 `fly deploy` builds the Docker image remotely, ships it to the region,
@@ -246,7 +247,9 @@ not the archive.
 
 **Before every deploy (required).** Per the continuity policy, an
 online backup is the first step of every deploy, so a bad migration is
-a restore, not a lost epoch:
+a restore, not a lost epoch. `scripts/deploy.sh` encodes this — it
+refuses to deploy if the backup fails, and prunes old machine-local
+backups. The manual equivalent:
 
 ```bash
 fly ssh console -C "python main.py backup --to /data/backups/worlds-$(date -u +%Y%m%d).db"
@@ -273,7 +276,7 @@ schedule that runs the two commands above.
 |---|---|
 | Tail logs | `fly logs` |
 | Open a shell in the running machine | `fly ssh console` |
-| Redeploy after a code change | backup first (§6), then `git push` (CI runs) and `fly deploy` |
+| Redeploy after a code change | `git push` (CI runs), then `scripts/deploy.sh` (backs up first, per §6) |
 | See current machine status | `fly status` |
 | Restart the machine | `fly machine restart <id>` |
 | Inspect the volume | `fly volumes list` |

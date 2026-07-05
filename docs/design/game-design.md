@@ -8,6 +8,30 @@ Point-and-click adventure. Players see an AI-generated scene of the current node
 
 ---
 
+## Scale-Native Verbs
+
+Each of the 11 levels has exactly one verb — an act that only works at that scale (`multiverse/verbs.py`, POST `/act`, CLI `act`):
+
+| Scale | Verb | What it does |
+|---|---|---|
+| Multiverse | **attune** | repairs stability: collapsing → fraying → stable |
+| Universe | **calibrate** | nudges `dark_matter_ratio` toward 0.5 |
+| Galaxy | **kindle** | raises `star_density` ~5% |
+| Planetary System | **align** | flattens the ecliptic tilt 10% |
+| Planet | **seed** | wakes life on a barren world; swells it where it holds |
+| Region | **ward** | lowers `danger_level` (floor 1) |
+| Room | **inscribe** | increments a permanent `inscriptions` counter |
+| Object | **mend** | repairs condition: corrupted → damaged → worn → pristine |
+| Molecule | **catalyze** | adds a bond (cap 12) |
+| Atom | **excite** | ionizes; shifts resonance blueward |
+| SubatomicParticle | **observe** | collapses a superposed spin (deterministic per observer+particle) |
+
+Design intent: every verb is the **restorative counterpart** to the decay events in `multiverse/effects.py` — STRUCTURAL_CHANGE corrodes, `mend` repairs; DANGER_ALERT roughens, `ward` calms. The world drifts toward entropy; players push back one scale at a time. The verb's material change applies exactly once at the origin (the producer owns the flavor line); the act then rides the standard causal rails — chronicle entry, ripple, staged cascade — so a mend is felt, faintly and later, by the room that holds the object and the molecules inside it.
+
+**Implementation status.** Live in all three clients: `/app` gets a per-scale Act tab, the explorer an Act mode panel, the CLI an `act` command (typing the verb itself also works). Acts broadcast to the seed-room (`scale_act`), fold into watching clients' property panels and node art, and land in `/history` backfill.
+
+---
+
 ## Node Hierarchy
 
 ```

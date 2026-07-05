@@ -819,6 +819,15 @@ def _history_block(history: list[dict]) -> str:
         who = h.get("player") or data.get("agent") or "an unknown presence"
         event = h["type"].replace("_", " ").lower()
         date = h["at"][:10] if h.get("at") else "unknown time"
+        if h["type"] == "AGENT_TALK":
+            # A conversation held INSIDE you: two wanderers spoke here and
+            # you overheard every word. Allude to it as something witnessed.
+            a, b = data.get("a", "someone"), data.get("b", "someone")
+            spoken = "; ".join(
+                f'{l["speaker"]}: "{l["line"]}"'
+                for l in (data.get("lines") or []) if l.get("speaker"))
+            lines.append(f"  {date}: you overheard {a} and {b} talking — {spoken}")
+            continue
         line = f"  {date}: {event}, by {who}"
         # Memory carries content, not just occurrence: what was said to you,
         # and what you answered, are part of what you are now.

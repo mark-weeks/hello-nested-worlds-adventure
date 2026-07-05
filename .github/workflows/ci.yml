@@ -49,3 +49,43 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  e2e:
+    name: Browser E2E smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install the package (real server, real world)
+        run: pip install -e .
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build the production bundle
+        run: npm run build
+        working-directory: frontend
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      # Loads both clients from the real Python server under the production
+      # CSP — the layer that would have caught the PixiJS blank-scene bug.
+      - name: Run browser smoke tests
+        run: npm run test:e2e
+        working-directory: frontend
