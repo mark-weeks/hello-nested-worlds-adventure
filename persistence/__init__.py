@@ -17,6 +17,7 @@ import logging
 import os
 import sqlite3
 import stat
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -68,6 +69,7 @@ _SCHEMA_VERSION_DDL = """
 """
 
 _initialized: set[Path] = set()
+_init_lock = threading.Lock()
 _log = logging.getLogger("nested_worlds.persistence")
 
 
@@ -123,12 +125,21 @@ def _run_migrations(conn: sqlite3.Connection) -> list[int]:
 
 
 def init_db() -> None:
-    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with _connect() as conn:
-        _run_migrations(conn)
-    # 0o600 — owner read/write only.  Set once on init, not per-connect.
-    _DB_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    _initialized.add(_DB_PATH)
+    # Lazy init happens on the first DB touch, which under a joining rush
+    # is N request threads at once — without the lock, two threads race
+    # _run_migrations and the loser re-applies a migration onto a schema
+    # that already has it ("duplicate column name", caught by the WS soak
+    # test). Double-checked so the post-init hot path stays lock-free in
+    # _with_db.
+    with _init_lock:
+        if _DB_PATH in _initialized:
+            return
+        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _connect() as conn:
+            _run_migrations(conn)
+        # 0o600 — owner read/write only.  Set once on init, not per-connect.
+        _DB_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        _initialized.add(_DB_PATH)
     _maybe_prune_from_env()
 
 
@@ -407,6 +418,27 @@ def get_mutations(world_seed: int, limit: int = 50) -> list[dict[str, Any]]:
 
 
 @_with_db
+def get_puzzle_attempt_state(world_seed: int, node_name: str,
+                             puzzle_name: str) -> dict[str, Any]:
+    """Rehydrate the pooled co-op attempt state from the attempt log.
+
+    Attempt counts previously lived only in in-memory PuzzleSession, so a
+    deploy silently refunded a room's spent attempts. Every guess is now a
+    PUZZLE_ATTEMPT chronicle row; this counts them back.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT player_name FROM world_mutations
+               WHERE world_seed = ? AND node_name = ?
+                 AND mutation_type = 'PUZZLE_ATTEMPT'
+                 AND json_extract(data, '$.puzzle') = ?""",
+            (world_seed, node_name, puzzle_name),
+        ).fetchall()
+    return {"attempts": len(rows),
+            "contributors": {r[0] for r in rows if r[0]}}
+
+
+@_with_db
 def get_chronicle(world_seed: int, limit: int = 50,
                   before_id: int | None = None) -> dict[str, Any]:
     """A page of the world's full history, newest first, cursor-paginated.
@@ -486,8 +518,8 @@ def save_agent_memory(agent_name: str, world_seed: int,
                       visited_ids: list[str], log_entries: list[dict[str, Any]]) -> None:
     with _connect() as conn:
         conn.execute(
-            f"""INSERT INTO agent_memory (agent_name, world_seed, visited_ids, log_entries, updated_at)
-               VALUES (?, ?, ?, ?, {_NOW})
+            f"""INSERT INTO agent_memory (agent_name, world_seed, visited_ids, log_entries, updated_at, created_at)
+               VALUES (?, ?, ?, ?, {_NOW}, {_NOW})
                ON CONFLICT(agent_name, world_seed) DO UPDATE SET
                  visited_ids = excluded.visited_ids,
                  log_entries = excluded.log_entries,
@@ -543,8 +575,8 @@ def upsert_ripple_score(world_seed: int, node_name: str, ripple_score: float) ->
     """
     with _connect() as conn:
         conn.execute(
-            f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, updated_at)
-               VALUES (?, ?, ?, {_NOW})
+            f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, updated_at, created_at)
+               VALUES (?, ?, ?, {_NOW}, {_NOW})
                ON CONFLICT(world_seed, node_name) DO UPDATE SET
                  ripple_score = excluded.ripple_score,
                  updated_at   = excluded.updated_at""",
@@ -560,8 +592,8 @@ def increment_ripple_score(world_seed: int, node_name: str, delta: float) -> Non
     absolute upsert from each request's private tree would create)."""
     with _connect() as conn:
         conn.execute(
-            f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, updated_at)
-               VALUES (?, ?, ?, {_NOW})
+            f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, updated_at, created_at)
+               VALUES (?, ?, ?, {_NOW}, {_NOW})
                ON CONFLICT(world_seed, node_name) DO UPDATE SET
                  ripple_score = MIN(1.0, ripple_score + excluded.ripple_score),
                  updated_at   = excluded.updated_at""",
@@ -580,8 +612,8 @@ def upsert_node_properties(world_seed: int, node_name: str, changed: dict) -> No
     """
     with _connect() as conn:
         conn.execute(
-            f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, properties, updated_at)
-               VALUES (?, ?, 0.0, ?, {_NOW})
+            f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, properties, updated_at, created_at)
+               VALUES (?, ?, 0.0, ?, {_NOW}, {_NOW})
                ON CONFLICT(world_seed, node_name) DO UPDATE SET
                  properties = json_patch(COALESCE(node_runtime_state.properties, '{{}}'), excluded.properties),
                  updated_at = excluded.updated_at""",
@@ -666,7 +698,8 @@ def increment_cost_calls(bucket: str, day: str) -> int:
     """Atomically bump the (bucket, day) counter and return the new value."""
     with _connect() as conn:
         conn.execute(
-            """INSERT INTO cost_budget (bucket, day, calls) VALUES (?, ?, 1)
+            f"""INSERT INTO cost_budget (bucket, day, calls, created_at)
+               VALUES (?, ?, 1, {_NOW})
                ON CONFLICT(bucket, day) DO UPDATE SET calls = calls + 1""",
             (bucket, day),
         )

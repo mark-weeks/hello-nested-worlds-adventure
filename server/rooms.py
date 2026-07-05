@@ -147,6 +147,14 @@ def _new_session(room: Room, node_name: str, puzzle_name: str) -> PuzzleSession:
     if solve:
         session.solver = solve["solver"]
         session.contributors = set(solve["contributors"])
+    else:
+        # Unsolved: the pooled attempt count and contributors are durable
+        # facts too (PUZZLE_ATTEMPT rows) — a deploy must not refund the
+        # room's spent attempts.
+        state = persistence.get_puzzle_attempt_state(
+            room.seed, node_name, puzzle_name)
+        session.attempts = state["attempts"]
+        session.contributors = state["contributors"]
     room.puzzle_sessions[node_name] = session
     return session
 

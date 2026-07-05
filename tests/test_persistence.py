@@ -496,3 +496,35 @@ class TestRestore:
         conn.commit(); conn.close()
         with _pytest.raises(ValueError, match="not a worlds backup"):
             persistence.restore_from(other)
+
+
+class TestConcurrentFirstTouch:
+    def test_joining_rush_does_not_race_the_migrations(self, tmp_path, monkeypatch):
+        # Regression for the WS-soak finding: N request threads hitting a
+        # fresh database simultaneously must not race _run_migrations
+        # ("duplicate column name" from a re-applied ALTER).
+        import threading as _threading
+        fresh = tmp_path / "fresh" / "worlds.db"
+        monkeypatch.setattr(persistence, "_DB_PATH", fresh)
+        persistence._initialized.discard(fresh)
+        errors = []
+
+        def touch(i):
+            try:
+                persistence.record_mutation(1, f"Rush-{i}", "AGENT_VISIT", None, {})
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [_threading.Thread(target=touch, args=(i,)) for i in range(12)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errors == []
+        # Every migration applied exactly once.
+        conn = sqlite3.connect(fresh)
+        versions = [r[0] for r in conn.execute(
+            "SELECT version FROM schema_version ORDER BY version")]
+        conn.close()
+        assert versions == sorted(set(versions))
+        assert len(persistence.get_mutations(1, limit=20)) == 12

@@ -134,6 +134,7 @@ function Speak({ node, seed, playerName }) {
           node_name: node.name,
           message: text,
           seed: seed ?? 0,
+          player_name: playerName || undefined,
         } : {
           node_name: node.name,
           message: text,

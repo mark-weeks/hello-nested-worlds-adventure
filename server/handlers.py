@@ -94,6 +94,26 @@ def _resolve_node(seed: int, node_name: str) -> SpatialNode | None:
     return node
 
 
+# The wandering cast's names are world canon: their chronicle rows must be
+# unimpersonatable, so no player may claim them.
+from consciousness import WANDERER_CAST as _WANDERER_CAST
+
+_RESERVED_PLAYER_NAMES = {n.lower() for n in _WANDERER_CAST}
+
+
+def _parse_player_name(body: dict) -> str | None:
+    """Extract the display name from a request body.
+
+    Reserved (wanderer-cast) names are stripped to None — the action still
+    happens, but it happens anonymously rather than in an agent's name.
+    """
+    raw = body.get("player_name")
+    name = (str(raw)[:32].strip() or None) if raw else None
+    if name and name.lower() in _RESERVED_PLAYER_NAMES:
+        return None
+    return name
+
+
 def _actor_identity(user_key: str, player_name: str | None) -> str | None:
     """The durable WHO for chronicle rows.
 
@@ -561,8 +581,7 @@ class Handler(BaseHTTPRequestHandler):
                 seed = int(body.get("seed", 42))
             except (ValueError, TypeError):
                 seed = 42
-            raw_player = body.get("player_name")
-            player_name = (str(raw_player)[:32].strip() or None) if raw_player else None
+            player_name = _parse_player_name(body)
             # The speaker's durable conversation identity: the per-user
             # invite credential (hashed) when one was presented, else the
             # display name. Credential-keyed transcripts mean two players
@@ -656,6 +675,12 @@ class Handler(BaseHTTPRequestHandler):
             name = (qs.get("name", ["Anonymous"])[0] or "Anonymous")[:32]
         except (ValueError, IndexError):
             return self._send_error("invalid params", 400)
+        if name.lower() in _RESERVED_PLAYER_NAMES:
+            # The wandering cast's names are world canon — a player joining
+            # as "Tessera" would impersonate an agent in the permanent
+            # chronicle. Reject loudly so the client can pick another name.
+            return self._send_error(
+                f"'{name}' belongs to the world — choose another name", 403)
 
         # Cap concurrent connections (global + per-IP) before upgrading, so a
         # reconnect flood can't exhaust threads/memory. Reject cheaply with 503.
@@ -698,6 +723,11 @@ class Handler(BaseHTTPRequestHandler):
                          "players": snapshot(room)})
             broadcast(room, {"type": "player_join", "name": name, "session_id": session_id},
                       exclude=session_id)
+            # Presence is chronicle material: that someone was HERE is the
+            # experience later players build on, and it cannot be backfilled.
+            persistence.record_mutation(
+                seed, root_name, "PLAYER_JOIN", name, {},
+                actor_identity=ws_identity)
 
             try:
                 while True:
@@ -720,6 +750,13 @@ class Handler(BaseHTTPRequestHandler):
                         broadcast(room, {"type": "player_move", "name": name,
                                          "node": node_name, "session_id": session_id},
                                   exclude=session_id)
+                        if node_name:
+                            # Movement trails persist: they feed the node's
+                            # activity count (the art's wear marks) and let
+                            # the chronicle answer "who traveled here".
+                            persistence.record_mutation(
+                                seed, node_name, "PLAYER_MOVE", name, {},
+                                actor_identity=ws_identity)
                     elif msg_type == "chat":
                         text = str(msg.get("text", "")).strip()[:256]
                         if text:
@@ -751,6 +788,13 @@ class Handler(BaseHTTPRequestHandler):
                     room.players.pop(session_id, None)
                 broadcast(room, {"type": "player_leave", "name": name,
                                  "session_id": session_id})
+                try:
+                    persistence.record_mutation(
+                        seed, player.current_node or root_name,
+                        "PLAYER_LEAVE", name, {},
+                        actor_identity=ws_identity)
+                except Exception:  # noqa: BLE001 — teardown must not raise
+                    _log.exception("failed to record PLAYER_LEAVE")
         finally:
             guard.WS_LIMITER.release(ip)
 
@@ -869,6 +913,16 @@ class Handler(BaseHTTPRequestHandler):
             response = consciousness.voice_agent(persona, agent_name, node,
                                                  message, history=history,
                                                  agent_memory=agent_memory)
+            # The exchange persists into node memory, like /speak: an agent
+            # you talked with should be part of what this place remembers
+            # (and future replies can reference it via node history).
+            player_name = _parse_player_name(body)
+            persistence.record_mutation(
+                seed, node.name, "AGENT_VOICE", player_name,
+                {"agent": agent_name, "persona": persona.name,
+                 "message": message[:128], "reply": response[:200]},
+                actor_identity=_actor_identity(user_key, player_name),
+            )
             self._send_json({
                 "agent":    agent_name,
                 "persona":  persona.name,
@@ -1037,8 +1091,7 @@ class Handler(BaseHTTPRequestHandler):
 
         node_name   = str(body.get("node_name", ""))[:128]
         verb_name   = str(body.get("verb", ""))[:32].strip().lower()
-        raw_player  = body.get("player_name")
-        player_name = (str(raw_player)[:32].strip() or None) if raw_player else None
+        player_name = _parse_player_name(body)
 
         # Full-tree resolution (not _resolve_node): staging the cascade
         # needs the node's real parent AND children arms.
@@ -1120,8 +1173,7 @@ class Handler(BaseHTTPRequestHandler):
 
         node_name   = body.get("node_name", "")
         answer      = body.get("answer", "").strip()
-        raw_player  = body.get("player_name")
-        player_name = (str(raw_player)[:32].strip() or None) if raw_player else None
+        player_name = _parse_player_name(body)
 
         target = (find_node(root, node_name) if node_name else None) or root
 
@@ -1143,6 +1195,17 @@ class Handler(BaseHTTPRequestHandler):
         session, just_solved = record_attempt(
             room, effective_node, p.name, player_name, correct,
         )
+
+        # Every counted guess is chronicle material: co-op contribution and
+        # difficulty tuning are reconstructable only if attempts persist
+        # (the pooled counter also rehydrates from these rows on restart).
+        if just_solved or session.solver is None:
+            persistence.record_mutation(
+                seed, effective_node, "PUZZLE_ATTEMPT", player_name,
+                {"puzzle": p.name, "correct": correct,
+                 "guess": answer[:32]},
+                actor_identity=_actor_identity(user_key, player_name),
+            )
 
         # If the puzzle was already solved by an earlier player, return that
         # state without re-firing broadcasts or mutations.

@@ -1,0 +1,62 @@
+name: Off-host backup
+
+# The volume holding worlds.db is the only live copy of the permanent
+# chronicle; Fly's automatic snapshots retain just 5 days. This schedule
+# pulls a weekly application-level backup off-host into a GitHub artifact.
+# Requires the FLY_API_TOKEN repo secret (fly tokens create deploy); until
+# it is set, runs no-op with a notice instead of failing.
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      FLY_APP: enfolded-beta
+    steps:
+      - name: Check for the Fly token
+        id: gate
+        run: |
+          if [ -n "$FLY_API_TOKEN" ]; then
+            echo "ready=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::FLY_API_TOKEN secret not set — skipping off-host backup."
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up flyctl
+        if: steps.gate.outputs.ready == 'yes'
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Take an online backup on the machine
+        if: steps.gate.outputs.ready == 'yes'
+        run: |
+          STAMP="$(date -u +%Y%m%d)"
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          flyctl ssh console -a "$FLY_APP" -C \
+            "python main.py backup --to /data/backups/offhost-$STAMP.db"
+
+      - name: Download the backup off-host
+        if: steps.gate.outputs.ready == 'yes'
+        run: |
+          flyctl ssh sftp get "/data/backups/offhost-$STAMP.db" -a "$FLY_APP"
+          ls -la "offhost-$STAMP.db"
+
+      - name: Store as a workflow artifact (90-day retention)
+        if: steps.gate.outputs.ready == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: worlds-backup-${{ env.STAMP }}
+          path: offhost-*.db
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Prune old machine-local off-host copies
+        if: steps.gate.outputs.ready == 'yes'
+        run: |
+          flyctl ssh console -a "$FLY_APP" -C \
+            "sh -c 'ls -t /data/backups/offhost-*.db 2>/dev/null | tail -n +4 | xargs -r rm'" \
+            || echo "prune skipped"

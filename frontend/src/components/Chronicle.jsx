@@ -17,6 +17,11 @@ function describeEntry(e) {
     case "DANGER_ALERT":  return `danger stirred at ${e.node}`;
     case "SCALE_ACT":     return `${who} chose to ${(e.data && e.data.verb) || "act"} at ${e.node}`;
     case "AGENT_TALK":    return `${(e.data && e.data.a) || "someone"} and ${(e.data && e.data.b) || "someone"} spoke at ${e.node}`;
+    case "AGENT_VOICE":   return `${who} spoke with ${(e.data && e.data.agent) || "a wanderer"} at ${e.node}`;
+    case "PLAYER_JOIN":   return `${who} arrived in the world`;
+    case "PLAYER_LEAVE":  return `${who} departed from ${e.node}`;
+    case "PLAYER_MOVE":   return `${who} passed into ${e.node}`;
+    case "PUZZLE_ATTEMPT": return `${who} worked at a puzzle in ${e.node}`;
     default:              return `something happened at ${e.node}`;
   }
 }

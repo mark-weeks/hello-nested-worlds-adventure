@@ -34,6 +34,11 @@ function describeMutation(m) {
     case "PLAYER_CHAT":    return `${when} · ${who} said something at ${m.node}`;
     case "AGENT_VISIT":    return `${when} · ${who} passed through ${m.node}`;
     case "DANGER_ALERT":   return `${when} · danger stirred at ${m.node}`;
+    case "AGENT_VOICE":    return `${when} · ${who} spoke with ${m.data?.agent || "a wanderer"} at ${m.node}`;
+    case "PLAYER_JOIN":    return `${when} · ${who} arrived in the world`;
+    case "PLAYER_LEAVE":   return `${when} · ${who} departed`;
+    case "PLAYER_MOVE":    return `${when} · ${who} passed into ${m.node}`;
+    case "PUZZLE_ATTEMPT": return `${when} · ${who} worked at a puzzle in ${m.node}`;
     default:               return `${when} · something happened at ${m.node}`;
   }
 }
