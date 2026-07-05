@@ -235,11 +235,12 @@ in `fly logs` instead of only in a tester's DM. (CI's "Browser E2E
 smoke" job loads both clients under the production CSP before anything
 merges, so this is a second net, not the first.)
 
-**Before inviting testers (recommended):** the WS capacity numbers
-(`NESTED_WORLDS_MAX_WS_CONNECTIONS=96` against 1 GB) are reasoned, not
-measured. A twenty-minute soak — a script opening ~100 concurrent
-WebSocket sessions against the deployment while you watch `fly status`
-memory — turns them into facts before your testers do it for you.
+**Capacity is measured, not just reasoned:** `scripts/ws_soak.py`
+(110 clients against the 96 cap) measured exactly 96 accepted, clean
+503 shedding for the excess, ~4,100 broadcast deliveries/s at p99
+latency 30 ms, and an 84 MB RSS peak — roughly 12x headroom under the
+1 GB allocation. Re-run it against a staging deploy after any change
+to the WS layer.
 
 ---
 

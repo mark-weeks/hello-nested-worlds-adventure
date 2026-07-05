@@ -17,6 +17,7 @@ import logging
 import os
 import sqlite3
 import stat
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -68,6 +69,7 @@ _SCHEMA_VERSION_DDL = """
 """
 
 _initialized: set[Path] = set()
+_init_lock = threading.Lock()
 _log = logging.getLogger("nested_worlds.persistence")
 
 
@@ -123,12 +125,21 @@ def _run_migrations(conn: sqlite3.Connection) -> list[int]:
 
 
 def init_db() -> None:
-    _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with _connect() as conn:
-        _run_migrations(conn)
-    # 0o600 — owner read/write only.  Set once on init, not per-connect.
-    _DB_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    _initialized.add(_DB_PATH)
+    # Lazy init happens on the first DB touch, which under a joining rush
+    # is N request threads at once — without the lock, two threads race
+    # _run_migrations and the loser re-applies a migration onto a schema
+    # that already has it ("duplicate column name", caught by the WS soak
+    # test). Double-checked so the post-init hot path stays lock-free in
+    # _with_db.
+    with _init_lock:
+        if _DB_PATH in _initialized:
+            return
+        _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _connect() as conn:
+            _run_migrations(conn)
+        # 0o600 — owner read/write only.  Set once on init, not per-connect.
+        _DB_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        _initialized.add(_DB_PATH)
     _maybe_prune_from_env()
 
 
