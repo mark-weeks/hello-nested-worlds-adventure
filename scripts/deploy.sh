@@ -11,7 +11,7 @@
 #   FLY_APP=my-app scripts/deploy.sh  # target a differently named app
 set -euo pipefail
 
-APP="${FLY_APP:-nested-worlds-beta}"
+APP="${FLY_APP:-enfolded-beta}"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 KEEP=5
 
