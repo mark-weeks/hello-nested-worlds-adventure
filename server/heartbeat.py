@@ -191,3 +191,48 @@ def start() -> threading.Event:
     threading.Thread(target=run_loop, args=(stop,), daemon=True,
                      name="world-heartbeat").start()
     return stop
+
+
+# ── The causal pump ─────────────────────────────────────────────────────────
+# Staged cascades (causality/staging.py) put each ring of a strong event on
+# the durable causal_queue; this pump fires due hops every few seconds and
+# broadcasts each arrival to the seed-room, so consequences visibly travel
+# outward instead of completing invisibly inside one request.
+
+PUMP_DISABLE_ENV = "NESTED_WORLDS_CAUSAL_PUMP"
+_PUMP_INTERVAL = 5.0
+
+
+def pump_enabled() -> bool:
+    return os.environ.get(PUMP_DISABLE_ENV, "").strip() != "0"
+
+
+def _pump_broadcaster(seed, node, event) -> None:
+    broadcast(get_room(seed), {
+        "type":     "causal_event",
+        "node":     node.name,
+        "level":    node.level,
+        "kind":     event.kind.name,
+        "strength": round(event.strength, 4),
+        "origin":   event.origin_id,
+        "staged":   True,
+    })
+
+
+def run_pump_loop(stop: threading.Event) -> None:
+    from causality import staging
+    _log.info("causal pump started (interval %.0fs, hop delay %.0fs)",
+              _PUMP_INTERVAL, staging.hop_delay_seconds())
+    while not stop.wait(_PUMP_INTERVAL):
+        try:
+            staging.drain_due_hops(broadcaster=_pump_broadcaster)
+        except Exception:  # noqa: BLE001 — cascades must keep traveling
+            _log.exception("causal pump tick failed; continuing")
+
+
+def start_pump() -> threading.Event:
+    """Start the causal pump thread. Returns the stop event."""
+    stop = threading.Event()
+    threading.Thread(target=run_pump_loop, args=(stop,), daemon=True,
+                     name="causal-pump").start()
+    return stop

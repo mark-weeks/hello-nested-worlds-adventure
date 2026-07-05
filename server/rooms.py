@@ -2,14 +2,28 @@
 
 A room is keyed by world seed; each connected WebSocket player is a `Player`.
 Broadcasting handles per-socket failures by evicting dead players.
+
+Sends are decoupled from socket writes: each connected player gets a
+dedicated writer thread draining a bounded outbox, so `broadcast` only
+enqueues. Without this, broadcast did a blocking `sendall` per player in
+sequence — one client with a full TCP window stalled every message to
+everyone else in the room. A player whose outbox overflows (they can't
+drain OUTBOX_LIMIT pending messages) is marked dead and evicted instead
+of ever blocking the room.
 """
 from __future__ import annotations
 
 import json
+import queue
 import threading
 from dataclasses import dataclass, field
 
 from server.protocol import ws_send
+
+# Pending messages a client may fall behind before being declared dead.
+OUTBOX_LIMIT = 64
+
+_STOP = object()  # outbox sentinel: writer thread exits
 
 
 @dataclass
@@ -19,14 +33,66 @@ class Player:
     current_node: str
     session_id: str
     sock: object
-    _lock: threading.Lock = field(default_factory=threading.Lock, compare=False, repr=False)
+    # Serializes all frame writes on this socket — the writer thread's data
+    # frames and the reader thread's pong/close echoes (see protocol.ws_recv).
+    send_lock: threading.Lock = field(
+        default_factory=threading.Lock, compare=False, repr=False)
+    outbox: queue.Queue = field(
+        default_factory=lambda: queue.Queue(maxsize=OUTBOX_LIMIT),
+        compare=False, repr=False)
+    _dead: threading.Event = field(
+        default_factory=threading.Event, compare=False, repr=False)
+    _writer: threading.Thread | None = field(
+        default=None, compare=False, repr=False)
+
+    def start_writer(self) -> None:
+        """Spawn the dedicated writer thread (called once per connection)."""
+        self._writer = threading.Thread(
+            target=self._drain, name=f"ws-writer-{self.session_id}", daemon=True)
+        self._writer.start()
+
+    def stop_writer(self) -> None:
+        """Ask the writer thread to exit; safe to call multiple times."""
+        self._dead.set()
+        try:
+            self.outbox.put_nowait(_STOP)
+        except queue.Full:
+            pass  # writer is draining; it checks _dead between items
+
+    def _drain(self) -> None:
+        while not self._dead.is_set():
+            item = self.outbox.get()
+            if item is _STOP:
+                return
+            try:
+                ws_send(self.sock, item, send_lock=self.send_lock)
+            except OSError:
+                self._dead.set()
+                return
 
     def send(self, msg: dict) -> bool:
+        """Hand `msg` to this player without blocking the caller.
+
+        With a writer thread running this only enqueues; a full outbox means
+        the client has stopped draining, so the player is marked dead and
+        False is returned (broadcast evicts on False). Without a writer
+        (tests, synchronous contexts) it writes inline as before.
+        """
+        if self._dead.is_set():
+            return False
+        data = json.dumps(msg)
+        if self._writer is None:
+            try:
+                ws_send(self.sock, data, send_lock=self.send_lock)
+                return True
+            except OSError:
+                self._dead.set()
+                return False
         try:
-            with self._lock:
-                ws_send(self.sock, json.dumps(msg))
+            self.outbox.put_nowait(data)
             return True
-        except OSError:
+        except queue.Full:
+            self._dead.set()
             return False
 
 

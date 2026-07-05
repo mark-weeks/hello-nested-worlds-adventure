@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import mimetypes
+import struct
 import uuid
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -15,6 +16,7 @@ from urllib.parse import parse_qs, urlparse
 import causality
 import persistence
 from causality import CausalityBus, EventKind
+from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
@@ -26,7 +28,7 @@ from multiverse.utils import (
 )
 from puzzles.engine import PuzzleEngine
 from server import guard, imageprompt, observability
-from server.protocol import ws_recv
+from server.protocol import ProtocolError, _send_frame, ws_recv
 from server.rooms import (
     Player, agent_enter, agent_leave, agent_move, agent_persona,
     broadcast, get_room, record_attempt, snapshot,
@@ -91,7 +93,7 @@ def _resolve_node(seed: int, node_name: str) -> SpatialNode | None:
     return node
 
 
-def _node_to_dict(node: SpatialNode) -> dict:
+def _node_to_dict(node: SpatialNode, activity: dict | None = None) -> dict:
     return {
         "id": node.id,
         "name": node.name,
@@ -100,7 +102,10 @@ def _node_to_dict(node: SpatialNode) -> dict:
         # Cumulative causal pressure — surfaced so clients can show how much
         # has happened here, not just what the node was generated as.
         "ripple_score": round(node.ripple_score, 3),
-        "children": [_node_to_dict(c) for c in node.children],
+        # How many recorded interactions this node has accumulated — the
+        # generative art etches them as trace marks.
+        "activity": (activity or {}).get(node.name, 0),
+        "children": [_node_to_dict(c, activity) for c in node.children],
     }
 
 
@@ -182,7 +187,8 @@ class Handler(BaseHTTPRequestHandler):
         the shell can't accidentally open one up.
         """
         stripped = path.rstrip("/")
-        if stripped in ("", "/health", "/explorer.js", "/d3.v7.min.js", "/favicon.ico"):
+        if stripped in ("", "/health", "/explorer.js", "/d3.v7.min.js",
+                        "/nodeart.js", "/nodeart-global.js", "/favicon.ico"):
             return True
         if stripped == "/app" or path.startswith("/app/"):
             return True
@@ -334,6 +340,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file(_STATIC_DIR / "d3.v7.min.js",
                             content_type="application/javascript; charset=utf-8")
 
+        elif path == "/nodeart.js":
+            # The shared per-node generative-art module (ES module), consumed
+            # by both browser clients.
+            self._send_file(_STATIC_DIR / "nodeart.js",
+                            content_type="application/javascript; charset=utf-8")
+
+        elif path == "/nodeart-global.js":
+            self._send_file(_STATIC_DIR / "nodeart-global.js",
+                            content_type="application/javascript; charset=utf-8")
+
         elif path == "/app" or path.startswith("/app/"):
             self._serve_frontend(path)
 
@@ -389,8 +405,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_error(str(exc))
             node_count = count_nodes(root)
             persistence.save_world(seed, node_count, depth, min_b, max_b)
+            activity = persistence.count_mutations_by_node(seed)
             self._send_json({"seed": seed, "node_count": node_count,
-                             "world": _node_to_dict(root)})
+                             "world": _node_to_dict(root, activity)})
 
         elif path == "/agent":
             try:
@@ -600,6 +617,7 @@ class Handler(BaseHTTPRequestHandler):
             sock.settimeout(60)  # 60-second idle timeout
             session_id = uuid.uuid4().hex[:8]
             player = Player(name=name, seed=seed, current_node="", session_id=session_id, sock=sock)
+            player.start_writer()
 
             room = get_room(seed)
             with room.lock:
@@ -612,7 +630,9 @@ class Handler(BaseHTTPRequestHandler):
 
             try:
                 while True:
-                    payload = ws_recv(sock)
+                    # send_lock keeps this thread's pong/close echoes from
+                    # interleaving with the writer thread's data frames.
+                    payload = ws_recv(sock, send_lock=player.send_lock)
                     if payload is None:
                         break
                     if not payload:
@@ -644,9 +664,18 @@ class Handler(BaseHTTPRequestHandler):
                                 )
                     elif msg_type == "ping":
                         player.send({"type": "pong"})
+            except ProtocolError:
+                # RFC 6455 violation (unmasked frame, bad fragmentation, …):
+                # attempt a 1002 close, then drop the connection.
+                try:
+                    _send_frame(sock, 0x8, struct.pack(">H", 1002),
+                                lock=player.send_lock)
+                except OSError:
+                    pass
             except (OSError, ConnectionResetError, BrokenPipeError):
                 pass
             finally:
+                player.stop_writer()
                 with room.lock:
                     room.players.pop(session_id, None)
                 broadcast(room, {"type": "player_leave", "name": name,
@@ -985,31 +1014,32 @@ class Handler(BaseHTTPRequestHandler):
                              "puzzle": p.name, "solver": session.solver,
                              "contributors": contributors})
 
-            # Propagate causal ripple from the solved node — bidirectional
-            # since causality.propagate() defaults to direction="both".
-            # Each fired event fans out to all connected WebSocket clients
-            # carrying its REAL propagated strength; `depth` is the hop
-            # distance from the origin (ancestors get their true distance).
-            distance_map = build_distance_map(target)
+            # Staged cascade: the origin fires immediately — instant
+            # feedback for everyone in the room — and every subsequent ring
+            # rides the causal queue, arriving hop by hop (the causal pump
+            # fires and broadcasts each one), so players watch the
+            # consequence travel across scales instead of it completing
+            # invisibly inside this request.
             solve_bus = CausalityBus()
 
             def _causal_handler(n: SpatialNode, ev: causality.CausalEvent,
-                                 _room=room, _dm=distance_map,
-                                 _origin=effective_node) -> None:
+                                 _room=room, _origin=effective_node) -> None:
                 broadcast(_room, {
                     "type":     "causal_event",
                     "node":     n.name,
                     "level":    n.level,
                     "kind":     ev.kind.name,
                     "strength": round(ev.strength, 4),
-                    "depth":    _dm.get(n.id, 0),
+                    "depth":    0,
                     "origin":   _origin,
                 })
 
             solve_bus.register_handler(_causal_handler)
             wire_world_handlers(solve_bus, seed)
-            solve_bus.propagate(target, EventKind.PUZZLE_SOLVED,
-                                {"puzzle": p.name, "contributors": contributors})
+            solve_bus.emit(target, EventKind.PUZZLE_SOLVED,
+                           {"puzzle": p.name, "contributors": contributors})
+            stage_cascade(seed, target, EventKind.PUZZLE_SOLVED,
+                          {"puzzle": p.name, "contributors": contributors})
 
         if failed:
             persistence.record_mutation(

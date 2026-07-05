@@ -202,6 +202,58 @@ def save_puzzle_result(world_seed: int, puzzle_name: str, result: str, attempts:
 
 
 @_with_db
+def enqueue_causal_hop(world_seed: int, node_name: str, kind: str,
+                       strength: float, direction: str, payload: dict,
+                       delay_seconds: float) -> None:
+    """Schedule one hop of a staged cascade to fire after `delay_seconds`.
+
+    (SQLite-ism: relative datetime modifier — PG: NOW() + make_interval().)
+    """
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO causal_queue
+               (world_seed, node_name, kind, strength, direction, payload, due_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now', ?))""",
+            (world_seed, node_name, kind, float(strength), direction,
+             json.dumps(payload), f"+{int(delay_seconds)} seconds"),
+        )
+
+
+@_with_db
+def claim_due_causal_hops(limit: int = 64) -> list[dict[str, Any]]:
+    """Atomically remove and return hops whose due time has arrived.
+
+    DELETE … RETURNING makes the claim atomic, so a hop fires exactly once
+    even if multiple pumps ever run.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """DELETE FROM causal_queue
+               WHERE id IN (SELECT id FROM causal_queue
+                            WHERE due_at <= datetime('now')
+                            ORDER BY due_at, id LIMIT ?)
+               RETURNING world_seed, node_name, kind, strength, direction, payload""",
+            (limit,),
+        ).fetchall()
+        return [{"world_seed": r[0], "node_name": r[1], "kind": r[2],
+                 "strength": r[3], "direction": r[4],
+                 "payload": json.loads(r[5]) if r[5] else {}} for r in rows]
+
+
+@_with_db
+def pending_causal_hops(world_seed: int | None = None) -> int:
+    """How many cascade hops are still in flight (ops / test signal)."""
+    with _connect() as conn:
+        if world_seed is None:
+            row = conn.execute("SELECT COUNT(*) FROM causal_queue").fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM causal_queue WHERE world_seed = ?",
+                (world_seed,)).fetchone()
+        return int(row[0])
+
+
+@_with_db
 def get_puzzle_solve(world_seed: int, node_name: str,
                      puzzle_name: str) -> dict[str, Any] | None:
     """The most recent HUMAN solve of `puzzle_name` at `node_name`, or None.
@@ -328,6 +380,19 @@ def get_mutations(world_seed: int, limit: int = 50) -> list[dict[str, Any]]:
         return [{"node": r[0], "type": r[1], "player": r[2],
                  "data": json.loads(r[3]) if r[3] else {}, "at": r[4]}
                 for r in rows]
+
+
+@_with_db
+def count_mutations_by_node(world_seed: int) -> dict[str, int]:
+    """Recorded interactions per node — the world's lived history, in counts.
+    Feeds the per-node generative art (trace etchings) via /world."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT node_name, COUNT(*) FROM world_mutations
+               WHERE world_seed = ? GROUP BY node_name""",
+            (world_seed,),
+        ).fetchall()
+        return {name: count for name, count in rows}
 
 
 @_with_db

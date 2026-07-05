@@ -4,7 +4,7 @@ import struct
 
 import pytest
 
-from server.protocol import _MAX_FRAME, ws_recv, ws_send
+from server.protocol import _MAX_FRAME, ProtocolError, ws_recv, ws_send
 
 
 class FakeSock:
@@ -21,18 +21,23 @@ class FakeSock:
         self.sent.extend(data)
 
 
-def _client_frame(payload: bytes, opcode: int = 0x1) -> bytes:
-    """Build a masked client→server frame (browsers always mask)."""
+def _client_frame(payload: bytes, opcode: int = 0x1, *,
+                  fin: bool = True, masked: bool = True) -> bytes:
+    """Build a client→server frame (browsers always mask; fin=False fragments)."""
     n = len(payload)
+    b0 = (0x80 if fin else 0x00) | opcode
+    mask_bit = 0x80 if masked else 0x00
     if n <= 125:
-        header = bytes([0x80 | opcode, 0x80 | n])
+        header = bytes([b0, mask_bit | n])
     elif n <= 65535:
-        header = struct.pack(">BBH", 0x80 | opcode, 0x80 | 126, n)
+        header = struct.pack(">BBH", b0, mask_bit | 126, n)
     else:
-        header = struct.pack(">BBQ", 0x80 | opcode, 0x80 | 127, n)
+        header = struct.pack(">BBQ", b0, mask_bit | 127, n)
+    if not masked:
+        return header + payload
     mask = b"\x37\x42\x9a\xc1"
-    masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
-    return header + mask + masked
+    masked_payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+    return header + mask + masked_payload
 
 
 class TestWsSend:
@@ -121,6 +126,78 @@ class TestWsRecv:
     def test_closed_socket_raises(self):
         sock = FakeSock(b"")  # nothing to read → recv returns empty → raise
         with pytest.raises(ConnectionResetError):
+            ws_recv(sock)
+
+
+class TestRfcCompliance:
+    """RFC 6455 behaviors: masking, fragmentation, control-frame handshakes."""
+
+    def test_unmasked_data_frame_is_a_protocol_error(self):
+        # §5.1: the server MUST close on an unmasked client frame.
+        sock = FakeSock(_client_frame(b"sneaky", masked=False))
+        with pytest.raises(ProtocolError, match="not masked"):
+            ws_recv(sock)
+
+    def test_unmasked_close_frame_is_tolerated(self):
+        # Bare unmasked close still completes the closing handshake.
+        sock = FakeSock(_client_frame(b"", opcode=0x8, masked=False))
+        assert ws_recv(sock) is None
+
+    def test_fragmented_message_is_reassembled(self):
+        frames = (_client_frame(b"hel", fin=False)
+                  + _client_frame(b"lo ", opcode=0x0, fin=False)
+                  + _client_frame(b"world", opcode=0x0))
+        sock = FakeSock(frames)
+        assert ws_recv(sock) == b"hello world"
+
+    def test_ping_interleaved_in_fragmented_message(self):
+        # §5.4: control frames may arrive mid-message without losing fragments.
+        frames = (_client_frame(b"hel", fin=False)
+                  + _client_frame(b"keepalive", opcode=0x9)
+                  + _client_frame(b"lo", opcode=0x0))
+        sock = FakeSock(frames)
+        assert ws_recv(sock) == b"hello"
+        # The interleaved ping was still answered with a pong.
+        assert sock.sent[0] == 0x8A
+        assert bytes(sock.sent[2:]) == b"keepalive"
+
+    def test_continuation_without_start_is_a_protocol_error(self):
+        sock = FakeSock(_client_frame(b"orphan", opcode=0x0))
+        with pytest.raises(ProtocolError, match="nothing to continue"):
+            ws_recv(sock)
+
+    def test_new_data_frame_during_fragmentation_is_a_protocol_error(self):
+        frames = (_client_frame(b"hel", fin=False)
+                  + _client_frame(b"interloper"))  # new text frame, not continuation
+        sock = FakeSock(frames)
+        with pytest.raises(ProtocolError, match="during fragmented"):
+            ws_recv(sock)
+
+    def test_ping_is_answered_with_matching_pong(self):
+        sock = FakeSock(_client_frame(b"are-you-there", opcode=0x9))
+        assert ws_recv(sock) == b""
+        assert sock.sent[0] == 0x8A  # FIN + pong
+        assert sock.sent[1] == len(b"are-you-there")
+        assert bytes(sock.sent[2:]) == b"are-you-there"
+
+    def test_close_is_echoed_before_returning_none(self):
+        status = struct.pack(">H", 1000)
+        sock = FakeSock(_client_frame(status, opcode=0x8))
+        assert ws_recv(sock) is None
+        assert sock.sent[0] == 0x88  # FIN + close
+        assert bytes(sock.sent[2:]) == status
+
+    def test_unsupported_opcode_is_a_protocol_error(self):
+        sock = FakeSock(_client_frame(b"", opcode=0x3))  # reserved opcode
+        with pytest.raises(ProtocolError, match="unsupported opcode"):
+            ws_recv(sock)
+
+    def test_oversized_fragmented_message_rejected(self):
+        half = b"x" * (_MAX_FRAME // 2 + 1)
+        frames = (_client_frame(half, fin=False)
+                  + _client_frame(half, opcode=0x0))
+        sock = FakeSock(frames)
+        with pytest.raises(ProtocolError, match="too large"):
             ws_recv(sock)
 
 
