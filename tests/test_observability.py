@@ -11,6 +11,7 @@ import logging
 import sqlite3
 import sys
 import threading
+import time
 import urllib.request
 
 import pytest
@@ -111,13 +112,27 @@ def srv():
     server.shutdown()
 
 
+def _access_records(caplog, timeout=2.0):
+    """Collect access-log records, waiting for the handler thread.
+
+    The access line is emitted by the request thread *after* the response
+    is flushed, so the client can finish reading before the record exists —
+    asserting immediately flakes on loaded CI runners.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        recs = [r for r in caplog.records if r.name == "nested_worlds.access"]
+        if recs or time.monotonic() > deadline:
+            return recs
+        time.sleep(0.01)
+
+
 class TestAccessLogE2E:
     def test_real_request_emits_one_line(self, srv, caplog):
         with caplog.at_level(logging.INFO, logger="nested_worlds.access"):
             with urllib.request.urlopen(f"{srv}/health") as resp:
                 resp.read()
-        access_lines = [r for r in caplog.records
-                        if r.name == "nested_worlds.access"]
+            access_lines = _access_records(caplog)
         assert len(access_lines) == 1
         payload = json.loads(access_lines[0].message)
         assert payload["path"]   == "/health"
@@ -130,8 +145,9 @@ class TestAccessLogE2E:
         with caplog.at_level(logging.INFO, logger="nested_worlds.access"):
             with urllib.request.urlopen(f"{srv}/worlds?seed=1&secret=42") as resp:
                 resp.read()
-        line = next(r for r in caplog.records
-                    if r.name == "nested_worlds.access")
+            records = _access_records(caplog)
+        assert records, "no access-log line was emitted"
+        line = records[0]
         payload = json.loads(line.message)
         assert payload["path"] == "/worlds"
         assert "secret" not in line.message
