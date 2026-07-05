@@ -188,6 +188,14 @@ export default function App() {
                         eventKind: "SCALE_ACT", duration: 1500 });
       }
     },
+    onAgentTalk: (msg) => {
+      // Two wanderers in conversation — surface the lines like chat, the
+      // closing stage direction as ambience.
+      for (const l of msg.lines || []) {
+        if (l.speaker) pushEvent({ type: "chat", name: l.speaker, text: l.line });
+        else pushEvent({ type: "system", text: l.line });
+      }
+    },
     onAgentEncounter: (msg) => {
       pushEvent({ type: "system", text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${msg.node}` });
       if (msg.node === currentNodeName) {

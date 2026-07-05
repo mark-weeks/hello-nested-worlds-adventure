@@ -16,6 +16,7 @@ function describeEntry(e) {
     case "AGENT_VISIT":   return `${who} passed through ${e.node}`;
     case "DANGER_ALERT":  return `danger stirred at ${e.node}`;
     case "SCALE_ACT":     return `${who} chose to ${(e.data && e.data.verb) || "act"} at ${e.node}`;
+    case "AGENT_TALK":    return `${(e.data && e.data.a) || "someone"} and ${(e.data && e.data.b) || "someone"} spoke at ${e.node}`;
     default:              return `something happened at ${e.node}`;
   }
 }

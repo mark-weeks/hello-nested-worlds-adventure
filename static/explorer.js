@@ -243,6 +243,7 @@ function describeMutation(m) {
     case 'AGENT_VISIT':   return `${when} · ${who} passed through ${m.node}`;
     case 'DANGER_ALERT':  return `${when} · danger stirred at ${m.node}`;
     case 'SCALE_ACT':     return `${when} · ${who} chose to ${(m.data && m.data.verb) || 'act'} at ${m.node}`;
+    case 'AGENT_TALK':    return `${when} · ${(m.data && m.data.a) || 'someone'} and ${(m.data && m.data.b) || 'someone'} spoke at ${m.node}`;
     default:              return `${when} · something happened at ${m.node}`;
   }
 }
@@ -797,6 +798,17 @@ function handleWsMsg(msg) {
     case 'agent_encounter':
       pushFeed(`⚡ ${escHtml(msg.agent1)} meets ${escHtml(msg.agent2)} @ ${escHtml(msg.node)}`);
       flashNode(msg.node, 0.9);
+      break;
+    case 'agent_talk':
+      // Two wanderers in conversation — the world telling its own story.
+      for (const l of msg.lines || []) {
+        if (l.speaker) {
+          pushFeed(`<span class="chat-name">${escHtml(l.speaker)}</span> ${escHtml(l.line)}`,
+                   { cls: 'chat-msg', html: true });
+        } else {
+          pushFeed(escHtml(l.line));
+        }
+      }
       break;
   }
 }
