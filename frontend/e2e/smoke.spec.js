@@ -46,6 +46,15 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
   // The chronicle opens and reports the world's record.
   await page.click("#btn-chronicle");
   await expect(page.locator("#chronicle-meta")).toContainText("recorded events");
+  await page.click("#chronicle-close");
+
+  // The ambient soundscape builds its full WebAudio graph (pad, sub,
+  // texture, music box, delay space) in a real browser without throwing.
+  await page.click("#btn-sound");
+  await expect(page.locator("#btn-sound")).toHaveText("♪ on");
+  await page.waitForTimeout(600);   // let the scheduler tick
+  await page.click("#btn-sound");
+  await expect(page.locator("#btn-sound")).toHaveText("♪ off");
 
   expect(errors).toEqual([]);
 });
