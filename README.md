@@ -141,6 +141,8 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_DISABLE_IMAGES` | Set to `1` to disable `/image` without a redeploy. | unset |
 | `NESTED_WORLDS_TRUST_PROXY` | Set to `1` only when running behind a trusted reverse proxy. The rate limiter then reads the real client IP from a proxy-set header (never the spoofable left-most `X-Forwarded-For`). | unset |
 | `NESTED_WORLDS_CLIENT_IP_HEADER` | Trusted client-IP header consulted when `TRUST_PROXY=1`. Falls back to the right-most `X-Forwarded-For` entry. | `Fly-Client-IP` |
+| `NESTED_WORLDS_MUTATION_TTL_DAYS` | Days of `world_mutations` retention. **Continuity-violating** — the mutation log is the world's permanent chronicle and feeds the generative art, so this is ignored (with a warning) unless `NESTED_WORLDS_ALLOW_HISTORY_PRUNE=1` is also set. | unset |
+| `NESTED_WORLDS_ALLOW_HISTORY_PRUNE` | Explicit confirmation flag for the above. Do not set it casually. | unset |
 | `SENTRY_DSN` | Optional. `sentry-sdk` ships as a default dependency; set the DSN to forward unhandled handler exceptions to Sentry. | unset |
 | `SENTRY_ENVIRONMENT` | Tag for the Sentry environment field. | `production` |
 

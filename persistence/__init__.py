@@ -23,6 +23,7 @@ from typing import Any, Callable
 _DB_PATH = Path.home() / ".nested-worlds" / "worlds.db"
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 _TTL_ENV_VAR = "NESTED_WORLDS_MUTATION_TTL_DAYS"
+_PRUNE_OVERRIDE_ENV = "NESTED_WORLDS_ALLOW_HISTORY_PRUNE"
 
 # --- SQL dialect seam ---
 # Concentrate SQLite-isms here so the Postgres port is mechanical.
@@ -134,9 +135,13 @@ def init_db() -> None:
 def _maybe_prune_from_env() -> None:
     """Honor the NESTED_WORLDS_MUTATION_TTL_DAYS env var on init.
 
-    Default is unset → no pruning. Operators set a positive integer to
-    cap mutation-log retention at that many days. Invalid values are
-    silently ignored so a typo doesn't break startup.
+    Default is unset → no pruning. `world_mutations` is the world's
+    chronicle — the continuity policy (docs/roadmap/phase-2-scale.md)
+    declares it permanent, and the generative art reads its per-node
+    activity counts — so the TTL alone no longer prunes: the operator
+    must also set NESTED_WORLDS_ALLOW_HISTORY_PRUNE=1 to confirm they
+    mean to violate that policy. Invalid values are ignored so a typo
+    doesn't break startup.
     """
     raw = os.environ.get(_TTL_ENV_VAR, "").strip()
     if not raw:
@@ -147,6 +152,14 @@ def _maybe_prune_from_env() -> None:
         _log.warning("ignoring invalid %s=%r", _TTL_ENV_VAR, raw)
         return
     if days <= 0:
+        return
+    if os.environ.get(_PRUNE_OVERRIDE_ENV, "").strip() != "1":
+        _log.warning(
+            "%s is set but ignored: pruning world_mutations erases the "
+            "world's chronicle (and the art's activity history), which "
+            "the continuity policy forbids. Set %s=1 if you truly mean it.",
+            _TTL_ENV_VAR, _PRUNE_OVERRIDE_ENV,
+        )
         return
     removed = prune_mutations(days)
     if removed:
