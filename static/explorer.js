@@ -3,6 +3,32 @@
 // invite key. Read `?key=` from the URL, stash it, and forward it on every
 // request. No-op when the gate is off (no key present).
 const _betaParams = new URLSearchParams(location.search);
+
+// Honor the OS-level motion preference: causal flashes and animated zooms
+// become instant state changes instead of movement.
+const REDUCED_MOTION = window.matchMedia
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Browser crashes were invisible to operators (Sentry is server-side only);
+// forward them so a broken deploy shows up in the server logs.
+window.addEventListener('error', e => {
+  try {
+    fetch(withKey('/client-error'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: String(e.message || '').slice(0, 512),
+                             source: `${e.filename || ''}:${e.lineno || 0}` }),
+    }).catch(() => {});
+  } catch (_) {}
+});
+window.addEventListener('unhandledrejection', e => {
+  try {
+    fetch(withKey('/client-error'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: `unhandled rejection: ${String(e.reason).slice(0, 480)}`,
+                             source: 'explorer' }),
+    }).catch(() => {});
+  } catch (_) {}
+});
 if (_betaParams.get('key')) localStorage.setItem('nw_beta_key', _betaParams.get('key'));
 function betaKey() { return localStorage.getItem('nw_beta_key') || _betaParams.get('key') || ''; }
 function withKey(url) {
@@ -287,6 +313,11 @@ function fitView() {
 function drawSigil(data) {
   const sigil = document.getElementById('node-sigil');
   if (!sigil) return;
+  // The art is meaning, not decoration — give non-visual users its content.
+  sigil.setAttribute('role', 'img');
+  sigil.setAttribute('aria-label',
+    `Generative sigil of ${data.name}, a ${data.level}. ` +
+    ((data.properties && data.properties.aspect) || ''));
   if (window.NodeArt) {
     try { window.NodeArt.drawNodeArt(sigil, worldParams.seed, data); } catch (_) {}
   } else {
@@ -340,6 +371,32 @@ function selectNode(data) {
   localStorage.setItem(LAST_NODE_KEY, data.name);
   savePositionToServer(data.name);
   wsSend({ type: 'move', node: data.name });
+
+  // If the ambience is on, the new place hums its own tone.
+  if (window._nwAmbience && window._nwAmbience.enabled) {
+    window._nwAmbience.setNode(worldParams.seed, data);
+  }
+}
+
+// ── Ambient sound ───────────────────────────────────────────────────────────
+// Deterministic per-node WebAudio hum (static/nodesound.js) — the audible
+// face of the node art. Off by default; the toggle is the activation gesture
+// browsers require anyway.
+
+function toggleSound() {
+  if (!window.NodeSound) return;
+  if (!window._nwAmbience) window._nwAmbience = new window.NodeSound.NodeAmbience();
+  const amb = window._nwAmbience;
+  const btn = document.getElementById('btn-sound');
+  if (amb.enabled) {
+    amb.disable();
+    btn.textContent = '♪ off';
+    btn.setAttribute('aria-pressed', 'false');
+  } else {
+    amb.enable(worldParams.seed, selected);
+    btn.textContent = '♪ on';
+    btn.setAttribute('aria-pressed', 'true');
+  }
 }
 
 // ── Scale-native verb (POST /act) ───────────────────────────────────────────
@@ -704,8 +761,12 @@ function joinModal() {
   loadWorld();
 }
 
+let wsAttempts = 0;
+let wsRetryTimer = null;
+
 function wsConnect(seed) {
-  if (ws) { ws.close(); ws = null; }
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }  // intentional close: no retry
+  clearTimeout(wsRetryTimer);
   players  = {};
   colorIdx = 0;
   renderPlayers();
@@ -714,9 +775,17 @@ function wsConnect(seed) {
   try { ws = new WebSocket(url); } catch (_) { return; }
   // Announce our current position on (re)connect so others see us where we
   // actually are — including the initial drop-in / resume node.
-  ws.onopen    = () => { if (selected) wsSend({ type: 'move', node: selected.name }); };
+  ws.onopen    = () => { wsAttempts = 0; if (selected) wsSend({ type: 'move', node: selected.name }); };
   ws.onmessage = e => { try { handleWsMsg(JSON.parse(e.data)); } catch (_) {} };
-  ws.onclose   = () => { ws = null; };
+  // Unintentional drop (server deploy, flaky network): reconnect with
+  // exponential backoff + jitter, resetting on success.
+  ws.onclose   = () => {
+    ws = null;
+    wsAttempts += 1;
+    const backoff = Math.min(30000, 1000 * 2 ** Math.min(wsAttempts - 1, 5));
+    wsRetryTimer = setTimeout(() => wsConnect(seed),
+                              backoff * (0.75 + Math.random() * 0.5));
+  };
   ws.onerror   = () => {};
 }
 
@@ -814,7 +883,7 @@ function handleWsMsg(msg) {
 }
 
 function flashNode(nodeName, strength) {
-  if (!nodeG) return;
+  if (!nodeG || REDUCED_MOTION) return;
   const target = nodeG.filter(d => d.data.name === nodeName);
   if (target.empty()) return;
   const datum   = target.datum();
@@ -922,6 +991,7 @@ document.getElementById('btn-do-observe').addEventListener('click', observe);
 document.getElementById('btn-do-puzzle' ).addEventListener('click', fetchPuzzle);
 document.getElementById('btn-do-act'    ).addEventListener('click', doAct);
 document.getElementById('btn-chronicle' ).addEventListener('click', openChronicle);
+document.getElementById('btn-sound'     ).addEventListener('click', toggleSound);
 document.getElementById('chronicle-older').addEventListener('click', () => loadChroniclePage(false));
 document.getElementById('chronicle-close').addEventListener('click',
   () => document.getElementById('chronicle-modal').classList.remove('visible'));

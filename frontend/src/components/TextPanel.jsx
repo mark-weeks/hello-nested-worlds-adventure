@@ -3,7 +3,7 @@ import Chronicle from "./Chronicle.jsx";
 import Interact from "./Interact.jsx";
 import { passageBadges } from "../badges.js";
 
-export default function TextPanel({ node, players, connected, events, seed, depth, playerName, onLoadWorld, onChat }) {
+export default function TextPanel({ node, players, connected, events, seed, depth, playerName, onLoadWorld, onChat, soundOn, onToggleSound }) {
   const [seedInput, setSeedInput] = useState(String(seed));
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
@@ -124,6 +124,17 @@ export default function TextPanel({ node, players, connected, events, seed, dept
         <span style={{ color: connected ? "#4af0a0" : "#f04a4a" }}>
           {connected ? "● connected" : "○ disconnected"}
         </span>
+        <span style={s.statusRight}>
+          {onToggleSound && (
+            <button
+              style={s.soundBtn}
+              aria-pressed={!!soundOn}
+              title="Ambient sound: every place hums its own deterministic tone"
+              onClick={onToggleSound}
+            >♪ {soundOn ? "on" : "off"}</button>
+          )}
+          <a href="/guide" style={s.guideLink} title="How to play">guide ↗</a>
+        </span>
       </div>
 
     </div>
@@ -147,6 +158,9 @@ const s = {
   section:     { display: "flex", flexDirection: "column", gap: "5px", flexShrink: 0 },
   feedSection: { display: "flex", flexDirection: "column", gap: "5px", flex: 1, minHeight: 0 },
   labelRow:    { display: "flex", justifyContent: "space-between", alignItems: "center" },
+  statusRight: { display: "flex", gap: "10px", alignItems: "center" },
+  soundBtn:    { background: "none", border: "1px solid #1e2235", color: "#4a5580", padding: "1px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em" },
+  guideLink:   { color: "#2a4060", fontSize: "9px", letterSpacing: "0.1em", textDecoration: "none" },
   chronicleBtn:{ background: "none", border: "1px solid #1e2235", color: "#4a5580", padding: "1px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase" },
   label:       { fontSize: "10px", color: "#4a5580", textTransform: "uppercase", letterSpacing: "0.12em" },
   name:        { fontSize: "18px", color: "#d0daf0", fontWeight: "bold", lineHeight: 1.2 },
@@ -163,7 +177,7 @@ const s = {
   btn:         { background: "#0e1828", border: "1px solid #2a4060", color: "#3a8eff", padding: "4px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", flexShrink: 0 },
   feed:        { overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "3px" },
   empty:       { fontSize: "11px", color: "#2a3555" },
-  status:      { fontSize: "11px", flexShrink: 0 },
+  status:      { fontSize: "11px", flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center" },
 };
 
 const er = {

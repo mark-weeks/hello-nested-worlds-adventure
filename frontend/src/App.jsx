@@ -1,9 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import SceneView from "./components/SceneView.jsx";
 import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
 import { withKey, urlName, betaKey } from "./auth.js";
 import { entryPath } from "./entry.js";
+import { NodeAmbience } from "../../static/nodesound.js";
+
+// Honor the OS-level motion preference: transient overlays (ripples,
+// sparkles, encounter glyphs) become no-ops instead of movement.
+const REDUCED_MOTION = typeof window !== "undefined" && window.matchMedia
+  && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const DEFAULT_SEED  = 42;
 const WORLD_DEPTH   = 6;   // must match the depth used for /puzzle lookups
@@ -77,6 +83,8 @@ export default function App() {
   const [loading, setLoading]     = useState(true);
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || urlName() || "");
   const [introSeen, setIntroSeen] = useState(() => !!localStorage.getItem(INTRO_SEEN));
+  const [soundOn, setSoundOn] = useState(false);
+  const ambienceRef = useRef(null);
 
   const pushEvent = useCallback((evt) => {
     setEvents(ev => [evt, ...ev].slice(0, MAX_EVENTS));
@@ -88,6 +96,7 @@ export default function App() {
   // a separate effect drops them all so a stray ripple from the previous
   // node never bleeds into the new one.
   const pushTransient = useCallback((t) => {
+    if (REDUCED_MOTION) return;
     const id = (typeof crypto !== "undefined" && crypto.randomUUID)
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random()}`;
@@ -262,6 +271,23 @@ export default function App() {
 
   const currentNode = nodeStack[nodeStack.length - 1] ?? null;
 
+  // Ambient sound: each place hums its own deterministic tone
+  // (static/nodesound.js). The toggle click is the activation gesture
+  // browsers require for audio.
+  const toggleSound = useCallback(() => {
+    if (!ambienceRef.current) ambienceRef.current = new NodeAmbience();
+    const amb = ambienceRef.current;
+    const node = nodeStack[nodeStack.length - 1];
+    if (amb.enabled) { amb.disable(); setSoundOn(false); }
+    else { amb.enable(seed, node); setSoundOn(true); }
+  }, [seed, nodeStack]);
+
+  useEffect(() => {
+    if (soundOn && ambienceRef.current && currentNode) {
+      ambienceRef.current.setNode(seed, currentNode);
+    }
+  }, [soundOn, seed, currentNode]);
+
   if (!introSeen) {
     return <Intro onBegin={() => {
       localStorage.setItem(INTRO_SEEN, "1");
@@ -298,6 +324,8 @@ export default function App() {
         playerName={playerName}
         onLoadWorld={handleLoadWorld}
         onChat={sendChat}
+        soundOn={soundOn}
+        onToggleSound={toggleSound}
       />
     </div>
   );

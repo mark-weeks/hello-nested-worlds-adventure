@@ -118,6 +118,7 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None) -> dict:
 
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
+    "/client-error",
 })
 
 
@@ -193,7 +194,8 @@ class Handler(BaseHTTPRequestHandler):
         """
         stripped = path.rstrip("/")
         if stripped in ("", "/health", "/explorer.js", "/d3.v7.min.js",
-                        "/nodeart.js", "/nodeart-global.js", "/favicon.ico"):
+                        "/nodeart.js", "/nodeart-global.js", "/nodesound.js",
+                        "/guide", "/favicon.ico"):
             return True
         if stripped == "/app" or path.startswith("/app/"):
             return True
@@ -334,6 +336,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ("", "/"):
             self._send_file(_STATIC_DIR / "index.html")
+
+        elif path == "/guide":
+            # Player-facing how-to-play page; linked from both intros.
+            self._send_file(_STATIC_DIR / "guide.html")
+
+        elif path == "/nodesound.js":
+            self._send_file(_STATIC_DIR / "nodesound.js",
+                            content_type="application/javascript; charset=utf-8")
 
         elif path == "/explorer.js":
             self._send_file(_STATIC_DIR / "explorer.js",
@@ -602,6 +612,20 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/position":
             self._do_save_position(body, user_key=user_key)
+
+        elif path == "/client-error":
+            # Browser crashes were invisible (Sentry is server-side only);
+            # clients POST window.onerror here so a broken deploy shows up
+            # in `fly logs` instead of only in a tester's DM. Log-only,
+            # size-capped, rate-limited like every hot endpoint.
+            message = str(body.get("message", ""))[:512]
+            source = str(body.get("source", ""))[:256]
+            stack = str(body.get("stack", ""))[:1024]
+            if message:
+                logging.getLogger("nested_worlds.client").warning(
+                    "client error: %s (at %s)%s", message, source or "?",
+                    f"\n{stack}" if stack else "")
+            self._send_json({"ok": True})
 
         else:
             self._send_error("not found", 404)
