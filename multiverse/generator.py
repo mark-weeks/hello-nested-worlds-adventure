@@ -53,6 +53,18 @@ def _pick(pool: list, rng: random.Random) -> str:
 # thousands). The path suffix stays — it is what makes names canonically
 # unique and resolvable in O(depth) — but the base in front of it now belongs
 # to that node alone. No bank word may contain "-" (the suffix separator).
+#
+# ── FROZEN AFTER FIRST PRODUCTION DEPLOY ────────────────────────────────────
+# Every bank below (and every property bank later in this file) is a
+# PERMANENT COMPATIBILITY SURFACE. Names and properties draw from one
+# per-node RNG stream, so ANY edit to ANY bank — including appending one
+# item — reshuffles nearly every name in every existing world (measured:
+# +1 syllable renames 77/83 nodes; +1 biome renames 64/83). Node names key
+# all durable history: the chronicle, saved positions, property overlays,
+# ripple scores, the art's activity counts. tests/test_continuity_freeze.py
+# pins the reference world and will fail loudly on any drift. New content
+# must arrive via NEW mechanisms (e.g. new levels, suffix-keyed additions),
+# never by editing these lists.
 
 _SYL_ROOTS = [
     "vel", "kar", "thal", "mor", "sel", "dra", "ny", "or", "az", "il",

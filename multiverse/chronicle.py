@@ -14,6 +14,11 @@ from __future__ import annotations
 import random
 from datetime import date, datetime
 
+# ── FROZEN AFTER FIRST PRODUCTION DEPLOY ────────────────────────────────────
+# Era names are recomputed from these banks at READ time — they are not
+# stored. Any edit (even appending) changes rng.choice outcomes and
+# RETROACTIVELY REWRITES the displayed name of every era that has already
+# happened. tests/test_continuity_freeze.py pins exact era names.
 _ERA_OPENERS = [
     "The Vigil", "The Season", "The Drift", "The Reckoning", "The Quiet",
     "The Kindling", "The Turning", "The Long Watch", "The Mending",

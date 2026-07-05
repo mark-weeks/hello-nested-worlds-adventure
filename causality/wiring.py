@@ -61,9 +61,20 @@ def make_effects_handler(seed: int):
     return handler
 
 
-def wire_world_handlers(bus: CausalityBus, seed: int) -> CausalityBus:
-    """Register the standard record + ripple + effects handlers on `bus`."""
-    bus.register_handler(make_record_handler(seed))
+def wire_world_handlers(bus: CausalityBus, seed: int,
+                        record: bool = True) -> CausalityBus:
+    """Register the standard record + ripple + effects handlers on `bus`.
+
+    `record=False` skips the chronicle handler: producers that write their
+    own attributed row for the origin event (POST /act, /puzzle/attempt,
+    the CLI equivalents) pass False so each event lands in the chronicle
+    exactly once — with attribution — instead of twice (one attributed,
+    one anonymous, which also double-counted the art's activity marks).
+    Staged rings drained by the pump always record: their hop rows are the
+    only chronicle trace those nodes get.
+    """
+    if record:
+        bus.register_handler(make_record_handler(seed))
     bus.register_handler(make_ripple_handler(seed))
     bus.register_handler(make_effects_handler(seed))
     return bus

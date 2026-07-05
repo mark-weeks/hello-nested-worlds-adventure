@@ -372,12 +372,23 @@ def get_player_exchanges(world_seed: int, node_name: str, identity: str,
 
 @_with_db
 def record_mutation(world_seed: int, node_name: str, mutation_type: str,
-                    player_name: str | None, data: dict) -> None:
+                    player_name: str | None, data: dict,
+                    actor_identity: str | None = None) -> None:
+    """Append one chronicle row.
+
+    `player_name` is the mutable display label; `actor_identity` is the
+    durable key for WHO — the credential hash (sha256(key)[:16]) when the
+    request carried a per-user invite key, else the display name, else
+    None. Callers on human paths should always pass it.
+    """
     with _connect() as conn:
         conn.execute(
-            """INSERT INTO world_mutations (world_seed, node_name, mutation_type, player_name, data)
-               VALUES (?, ?, ?, ?, ?)""",
-            (world_seed, node_name, mutation_type, player_name, json.dumps(data)),
+            """INSERT INTO world_mutations
+               (world_seed, node_name, mutation_type, player_name, data,
+                actor_identity)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (world_seed, node_name, mutation_type, player_name,
+             json.dumps(data), actor_identity),
         )
 
 
@@ -387,7 +398,7 @@ def get_mutations(world_seed: int, limit: int = 50) -> list[dict[str, Any]]:
         rows = conn.execute(
             """SELECT node_name, mutation_type, player_name, data, recorded_at
                FROM world_mutations WHERE world_seed = ?
-               ORDER BY recorded_at DESC LIMIT ?""",
+               ORDER BY recorded_at DESC, id DESC LIMIT ?""",
             (world_seed, limit),
         ).fetchall()
         return [{"node": r[0], "type": r[1], "player": r[2],
@@ -411,7 +422,7 @@ def get_chronicle(world_seed: int, limit: int = 50,
         if before_id is not None:
             rows = conn.execute(
                 """SELECT id, node_name, mutation_type, player_name, data,
-                          recorded_at
+                          recorded_at, actor_identity
                    FROM world_mutations WHERE world_seed = ? AND id < ?
                    ORDER BY id DESC LIMIT ?""",
                 (world_seed, before_id, limit),
@@ -419,7 +430,7 @@ def get_chronicle(world_seed: int, limit: int = 50,
         else:
             rows = conn.execute(
                 """SELECT id, node_name, mutation_type, player_name, data,
-                          recorded_at
+                          recorded_at, actor_identity
                    FROM world_mutations WHERE world_seed = ?
                    ORDER BY id DESC LIMIT ?""",
                 (world_seed, limit),
@@ -433,7 +444,8 @@ def get_chronicle(world_seed: int, limit: int = 50,
             (world_seed,),
         ).fetchone()[0]
     entries = [{"id": r[0], "node": r[1], "type": r[2], "player": r[3],
-                "data": json.loads(r[4]) if r[4] else {}, "at": r[5]}
+                "data": json.loads(r[4]) if r[4] else {}, "at": r[5],
+                "actor": r[6]}
                for r in rows]
     exhausted = len(rows) < limit
     return {
@@ -463,7 +475,7 @@ def get_agent_runs(world_seed: int) -> list[dict[str, Any]]:
         rows = conn.execute(
             """SELECT agent_name, started_at, nodes_visited
                FROM agent_runs WHERE world_seed = ?
-               ORDER BY started_at DESC""",
+               ORDER BY started_at DESC, id DESC""",
             (world_seed,),
         ).fetchall()
         return [{"agent_name": r[0], "started_at": r[1], "nodes_visited": r[2]} for r in rows]
@@ -827,3 +839,44 @@ def backup_to(target: Path) -> None:
         finally:
             dst.close()
     target.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+
+@_with_db
+def restore_from(source: Path) -> dict[str, Any]:
+    """Restore the live DB from a backup file — `backup_to` in reverse.
+
+    The continuity policy's promise is "a bad migration is a restore, not
+    a lost epoch"; this is the restore. Uses the same sqlite backup API,
+    which takes the proper locks, so it is safe against a live server's
+    per-operation connections (rehearsed against a running instance in the
+    pre-deployment review). In-memory state (rooms, puzzle sessions, rate
+    buckets) still reflects the pre-restore world — restart the process
+    after restoring (`fly machine restart` in production).
+
+    Refuses anything that is not a readable SQLite database containing a
+    `world_mutations` table, so a typo'd path can't blank the chronicle.
+    Returns {events_before, events_after} for the operator's sanity check.
+    """
+    source = Path(source)
+    if not source.is_file():
+        raise FileNotFoundError(f"backup not found: {source}")
+    src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    try:
+        try:
+            tables = {r[0] for r in src.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        except sqlite3.DatabaseError as exc:
+            raise ValueError(f"{source} is not a SQLite database") from exc
+        if "world_mutations" not in tables:
+            raise ValueError(
+                f"{source} is a SQLite database but not a worlds backup "
+                "(no world_mutations table) — refusing to restore it")
+        with _connect() as live:
+            before = live.execute(
+                "SELECT COUNT(*) FROM world_mutations").fetchone()[0]
+            src.backup(live)
+            after = live.execute(
+                "SELECT COUNT(*) FROM world_mutations").fetchone()[0]
+    finally:
+        src.close()
+    return {"events_before": before, "events_after": after}

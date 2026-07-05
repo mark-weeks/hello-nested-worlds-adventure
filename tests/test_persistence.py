@@ -456,3 +456,43 @@ class TestPlayerPosition:
         persistence.revoke_invite_key("k_rev")
         assert persistence.save_player_position("k_rev", "Y", 4, 6, 1, 3) is False
         assert persistence.get_player_position("k_rev") is None
+
+
+class TestRestore:
+    def test_restore_rolls_the_world_back_to_the_backup(self, tmp_path):
+        # Chronicle 2 events, snapshot, add 2 more, restore → back to 2.
+        persistence.record_mutation(881, "A-1", "AGENT_VISIT", None, {})
+        persistence.record_mutation(881, "B-1", "AGENT_VISIT", None, {})
+        snap = tmp_path / "snap.db"
+        persistence.backup_to(snap)
+        persistence.record_mutation(881, "C-1", "AGENT_VISIT", None, {})
+        persistence.record_mutation(881, "D-1", "AGENT_VISIT", None, {})
+        assert len(persistence.get_mutations(881, limit=10)) == 4
+
+        counts = persistence.restore_from(snap)
+        assert counts["events_before"] >= counts["events_after"]
+        nodes = {m["node"] for m in persistence.get_mutations(881, limit=10)}
+        assert nodes == {"A-1", "B-1"}
+
+    def test_restore_refuses_a_missing_file(self, tmp_path):
+        import pytest as _pytest
+        with _pytest.raises(FileNotFoundError):
+            persistence.restore_from(tmp_path / "nope.db")
+
+    def test_restore_refuses_a_non_database_file(self, tmp_path):
+        import pytest as _pytest
+        junk = tmp_path / "junk.db"
+        junk.write_text("this is not sqlite")
+        with _pytest.raises(ValueError, match="not a SQLite database"):
+            persistence.restore_from(junk)
+
+    def test_restore_refuses_a_foreign_database(self, tmp_path):
+        # A valid sqlite file that is NOT a worlds backup must be refused —
+        # a typo'd path can't be allowed to blank the chronicle.
+        import pytest as _pytest
+        other = tmp_path / "other.db"
+        conn = sqlite3.connect(other)
+        conn.execute("CREATE TABLE cats (name TEXT)")
+        conn.commit(); conn.close()
+        with _pytest.raises(ValueError, match="not a worlds backup"):
+            persistence.restore_from(other)
