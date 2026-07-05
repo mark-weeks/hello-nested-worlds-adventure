@@ -94,6 +94,19 @@ def _resolve_node(seed: int, node_name: str) -> SpatialNode | None:
     return node
 
 
+def _actor_identity(user_key: str, player_name: str | None) -> str | None:
+    """The durable WHO for chronicle rows.
+
+    Credential hash (sha256(key)[:16] — the same scheme the conversation
+    transcripts and the cost ledger use, so all three cross-reference) when
+    the request carried a per-user invite key; otherwise the display name;
+    otherwise None. FROZEN SCHEME — pinned by tests/test_continuity_freeze.
+    """
+    if user_key:
+        return hashlib.sha256(user_key.encode("utf-8")).hexdigest()[:16]
+    return player_name or None
+
+
 def _node_to_dict(node: SpatialNode, activity: dict | None = None) -> dict:
     verb = verb_for_level(node.level)
     return {
@@ -586,6 +599,7 @@ class Handler(BaseHTTPRequestHandler):
                     data["identity"] = identity
                 persistence.record_mutation(
                     seed, node.name, "PLAYER_SPEAK", player_name, data,
+                    actor_identity=identity,
                 )
                 self._send_json({"response": response, "ai": True})
             except Exception as exc:
@@ -599,10 +613,10 @@ class Handler(BaseHTTPRequestHandler):
                 })
 
         elif path == "/puzzle/attempt":
-            self._do_puzzle_attempt(body)
+            self._do_puzzle_attempt(body, user_key=user_key)
 
         elif path == "/act":
-            self._do_act(body)
+            self._do_act(body, user_key=user_key)
 
         elif path == "/image":
             self._do_image(body, user_key=user_key)
@@ -666,7 +680,14 @@ class Handler(BaseHTTPRequestHandler):
             sock = self.connection
             sock.settimeout(60)  # 60-second idle timeout
             session_id = uuid.uuid4().hex[:8]
-            player = Player(name=name, seed=seed, current_node="", session_id=session_id, sock=sock)
+            # Durable identity for this session's chronicle rows (chat).
+            ws_identity = _actor_identity(guard.supplied_key(self.headers, qs), name)
+            # Players enter at the world's root, not in limbo: chat sent
+            # before the first move used to be silently unrecorded because
+            # current_node started "".
+            root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
+            player = Player(name=name, seed=seed, current_node=root_name,
+                            session_id=session_id, sock=sock)
             player.start_writer()
 
             room = get_room(seed)
@@ -707,11 +728,11 @@ class Handler(BaseHTTPRequestHandler):
                             # Attribute the chat to the speaker's current node so
                             # downstream consumers (consciousness history, image
                             # invalidation) see it as a node interaction.
-                            if player.current_node:
-                                persistence.record_mutation(
-                                    seed, player.current_node, "PLAYER_CHAT",
-                                    name, {"text": text[:128]},
-                                )
+                            persistence.record_mutation(
+                                seed, player.current_node or root_name,
+                                "PLAYER_CHAT", name, {"text": text[:128]},
+                                actor_identity=ws_identity,
+                            )
                     elif msg_type == "ping":
                         player.send({"type": "pong"})
             except ProtocolError:
@@ -1000,7 +1021,7 @@ class Handler(BaseHTTPRequestHandler):
             "difficulty":   p.difficulty,
         })
 
-    def _do_act(self, body: dict) -> None:
+    def _do_act(self, body: dict, user_key: str = "") -> None:
         """Perform a node's scale-native verb (multiverse/verbs.py).
 
         The verb's material change applies exactly once, here at the
@@ -1038,9 +1059,13 @@ class Handler(BaseHTTPRequestHandler):
 
         if changed:
             persistence.upsert_node_properties(seed, target.name, changed)
+            # The one canonical chronicle row for this act — attributed by
+            # durable identity. The origin bus below is wired record=False
+            # so it doesn't write a second, anonymous copy.
             persistence.record_mutation(
                 seed, target.name, "SCALE_ACT", player_name,
                 {"verb": verb.name, "changed": changed},
+                actor_identity=_actor_identity(user_key, player_name),
             )
 
             room = get_room(seed)
@@ -1072,7 +1097,7 @@ class Handler(BaseHTTPRequestHandler):
                 })
 
             act_bus.register_handler(_act_handler)
-            wire_world_handlers(act_bus, seed)
+            wire_world_handlers(act_bus, seed, record=False)
             payload = {"verb": verb.name}
             if player_name:
                 payload["actor"] = player_name
@@ -1087,7 +1112,7 @@ class Handler(BaseHTTPRequestHandler):
             "flavor":  flavor,
         })
 
-    def _do_puzzle_attempt(self, body: dict) -> None:
+    def _do_puzzle_attempt(self, body: dict, user_key: str = "") -> None:
         try:
             root, seed, *_ = _build_world(body)
         except (ValueError, TypeError) as exc:
@@ -1142,10 +1167,14 @@ class Handler(BaseHTTPRequestHandler):
         contributors = sorted(session.contributors)
 
         if just_solved:
+            # The one canonical chronicle row for this solve — the origin
+            # bus below is wired record=False so it doesn't write a second,
+            # anonymous copy (which also double-counted the art's activity).
             persistence.record_mutation(
                 seed, effective_node, "PUZZLE_SOLVED",
                 session.solver if session.solver != "anonymous" else None,
                 {"puzzle": p.name, "contributors": contributors},
+                actor_identity=_actor_identity(user_key, player_name),
             )
             broadcast(room, {"type": "puzzle_solved", "node": effective_node,
                              "puzzle": p.name, "solver": session.solver,
@@ -1172,17 +1201,20 @@ class Handler(BaseHTTPRequestHandler):
                 })
 
             solve_bus.register_handler(_causal_handler)
-            wire_world_handlers(solve_bus, seed)
+            wire_world_handlers(solve_bus, seed, record=False)
             solve_bus.emit(target, EventKind.PUZZLE_SOLVED,
                            {"puzzle": p.name, "contributors": contributors})
             stage_cascade(seed, target, EventKind.PUZZLE_SOLVED,
                           {"puzzle": p.name, "contributors": contributors})
 
         if failed:
+            # The human who made the final attempt IS the actor — dropping
+            # them (the old player_name=None) threw attribution away.
             persistence.record_mutation(
-                seed, effective_node, "PUZZLE_FAILED", None,
+                seed, effective_node, "PUZZLE_FAILED", player_name,
                 {"puzzle": p.name, "answer_given": answer[:64],
                  "contributors": contributors},
+                actor_identity=_actor_identity(user_key, player_name),
             )
 
         self._send_json({

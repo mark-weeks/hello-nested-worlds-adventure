@@ -161,9 +161,10 @@ def _play_puzzle(node: SpatialNode, seed: int) -> None:
     if result == PuzzleResult.SOLVED:
         from causality.staging import stage_cascade
         persistence.save_puzzle_result(seed, puzzle.name, result.name, puzzle.attempts)
+        # record=False below: this row is the canonical origin record.
         persistence.record_mutation(
             seed, node.name, "PUZZLE_SOLVED", None, {"puzzle": puzzle.name})
-        bus = wire_world_handlers(CausalityBus(), seed)
+        bus = wire_world_handlers(CausalityBus(), seed, record=False)
         bus.emit(node, EventKind.PUZZLE_SOLVED, {"puzzle": puzzle.name})
         staged = stage_cascade(seed, node, EventKind.PUZZLE_SOLVED,
                                {"puzzle": puzzle.name})
@@ -190,13 +191,16 @@ def _do_scale_verb(node: SpatialNode, seed: int,
     if not changed:
         return
     persistence.upsert_node_properties(seed, node.name, changed)
+    # Local play has no credential; the display name is the identity.
+    # record=False below: this row is the canonical origin record.
     persistence.record_mutation(
         seed, node.name, "SCALE_ACT", player_name,
-        {"verb": verb.name, "changed": changed})
+        {"verb": verb.name, "changed": changed},
+        actor_identity=player_name)
     payload = {"verb": verb.name}
     if player_name:
         payload["actor"] = player_name
-    bus = wire_world_handlers(CausalityBus(), seed)
+    bus = wire_world_handlers(CausalityBus(), seed, record=False)
     bus.emit(node, EventKind.SCALE_ACT, payload)
     staged = stage_cascade(seed, node, EventKind.SCALE_ACT, payload)
     if staged:
@@ -229,6 +233,7 @@ def _speak_to(node: SpatialNode, message: str, seed: int = 0,
             data["identity"] = player_name
         persistence.record_mutation(
             seed, node.name, "PLAYER_SPEAK", player_name, data,
+            actor_identity=player_name,
         )
     except Exception:
         # The world goes quiet in character. Never an SDK error, never a
