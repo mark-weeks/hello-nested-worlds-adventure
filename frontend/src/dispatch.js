@@ -19,6 +19,7 @@ export function dispatchMessage(msg, h) {
     case "puzzle_solved":   h.onPuzzleSolved?.(msg); break;
     case "agent_done":      h.onAgentDone?.(msg); break;
     case "agent_encounter": h.onAgentEncounter?.(msg); break;
+    case "scale_act":       h.onScaleAct?.(msg); break;
     default: break;
   }
 }

@@ -14,6 +14,7 @@ class EventKind(Enum):
     AGENT_VISIT = auto()
     DANGER_ALERT = auto()
     STRUCTURAL_CHANGE = auto()
+    SCALE_ACT = auto()       # a scale-native verb (multiverse/verbs.py)
 
 
 @dataclass

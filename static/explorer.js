@@ -120,7 +120,7 @@ svg.call(zoom);
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
 function setMode(mode) {
-  ['speak', 'observe', 'puzzle'].forEach(m => {
+  ['speak', 'observe', 'puzzle', 'act'].forEach(m => {
     document.getElementById('panel-' + m).classList.toggle('active', m === mode);
     document.getElementById('btn-'   + m).classList.toggle('active', m === mode);
   });
@@ -242,6 +242,7 @@ function describeMutation(m) {
     case 'PLAYER_CHAT':   return `${when} · ${who} said something at ${m.node}`;
     case 'AGENT_VISIT':   return `${when} · ${who} passed through ${m.node}`;
     case 'DANGER_ALERT':  return `${when} · danger stirred at ${m.node}`;
+    case 'SCALE_ACT':     return `${when} · ${who} chose to ${(m.data && m.data.verb) || 'act'} at ${m.node}`;
     default:              return `${when} · something happened at ${m.node}`;
   }
 }
@@ -328,6 +329,7 @@ function selectNode(data) {
   document.getElementById('speak-response').className = 'response-box';
   document.getElementById('observe-rows').innerHTML = '';
   document.getElementById('puzzle-content').innerHTML = '';
+  refreshActPanel(data);
   loadPresences(data.name);
   puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
   if (observeES) { observeES.close(); observeES = null; }
@@ -337,6 +339,62 @@ function selectNode(data) {
   localStorage.setItem(LAST_NODE_KEY, data.name);
   savePositionToServer(data.name);
   wsSend({ type: 'move', node: data.name });
+}
+
+// ── Scale-native verb (POST /act) ───────────────────────────────────────────
+// Each level has exactly one act that only works at that scale — mend an
+// object, ward a region, observe a particle. The server owns the effect;
+// the flavor line is the fiction of what happened.
+
+function refreshActPanel(data) {
+  const verb = data.verb;
+  const btn = document.getElementById('btn-do-act');
+  const tagline = document.getElementById('act-tagline');
+  const resp = document.getElementById('act-response');
+  if (!btn) return;
+  resp.textContent = '';
+  if (!verb) {
+    btn.disabled = true;
+    btn.textContent = 'Nothing can be done here';
+    tagline.textContent = '';
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = verb.name[0].toUpperCase() + verb.name.slice(1) +
+                    ' this ' + data.level;
+  tagline.textContent = verb.tagline;
+}
+
+async function doAct() {
+  if (!selected || !selected.verb) return;
+  const resp = document.getElementById('act-response');
+  resp.textContent = '…';
+  try {
+    const res = await fetch(withKey('/act'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        seed: worldParams.seed, depth: worldParams.depth,
+        min_breadth: worldParams.min_b, max_breadth: worldParams.max_b,
+        node_name: selected.name, verb: selected.verb.name,
+        player_name: playerName || undefined,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) { resp.textContent = data.error; return; }
+    if (data.changed) {
+      // The world changed under us: fold the delta into the selected node
+      // so the panel and the sigil show the act immediately. (selectNode
+      // clears the act panel, so write the flavor line after.)
+      Object.assign(selected.properties, data.changed);
+      selectNode(selected);
+      setStatus(`You ${data.verb} — the act is traveling outward.`);
+    }
+    document.getElementById('act-response').textContent =
+      data.flavor || '(nothing happened)';
+  } catch (e) {
+    resp.textContent = 'The act fizzles: ' + e.message;
+  }
 }
 
 // ── Addressable presences ───────────────────────────────────────────────────
@@ -669,6 +727,16 @@ function handleWsMsg(msg) {
       flashNode(msg.node, msg.strength);
       break;
     }
+    case 'scale_act': {
+      pushFeed(`✦ ${escHtml(msg.actor)} ${escHtml(msg.verb)}s ${escHtml(msg.node)}`);
+      flashNode(msg.node, 0.8);
+      // Someone changed a place we may be looking at: fold in the delta.
+      if (selected && selected.name === msg.node && msg.changed) {
+        Object.assign(selected.properties, msg.changed);
+        selectNode(selected);
+      }
+      break;
+    }
     case 'agent_encounter':
       pushFeed(`⚡ ${escHtml(msg.agent1)} meets ${escHtml(msg.agent2)} @ ${escHtml(msg.node)}`);
       flashNode(msg.node, 0.9);
@@ -779,9 +847,11 @@ document.getElementById('chat-btn').addEventListener('click', sendChat);
 document.getElementById('btn-speak'  ).addEventListener('click', () => setMode('speak'));
 document.getElementById('btn-observe').addEventListener('click', () => setMode('observe'));
 document.getElementById('btn-puzzle' ).addEventListener('click', () => setMode('puzzle'));
+document.getElementById('btn-act'    ).addEventListener('click', () => setMode('act'));
 document.getElementById('btn-do-speak'  ).addEventListener('click', speak);
 document.getElementById('btn-do-observe').addEventListener('click', observe);
 document.getElementById('btn-do-puzzle' ).addEventListener('click', fetchPuzzle);
+document.getElementById('btn-do-act'    ).addEventListener('click', doAct);
 document.getElementById('message').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); speak(); }
 });

@@ -181,6 +181,13 @@ export default function App() {
       }
     },
     onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${msg.node}` }),
+    onScaleAct: (msg) => {
+      pushEvent({ type: "system", text: `✦ ${msg.actor} ${msg.verb}s ${msg.node} — ${msg.flavor}` });
+      if (msg.node === currentNodeName) {
+        pushTransient({ kind: "ripple", strength: 0.8,
+                        eventKind: "SCALE_ACT", duration: 1500 });
+      }
+    },
     onAgentEncounter: (msg) => {
       pushEvent({ type: "system", text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${msg.node}` });
       if (msg.node === currentNodeName) {

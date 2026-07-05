@@ -26,6 +26,7 @@ from multiverse.utils import (
     apply_property_overrides, apply_ripple_scores, build_distance_map,
     count_nodes, find_node,
 )
+from multiverse.verbs import apply_verb, verb_for_level
 from puzzles.engine import PuzzleEngine
 from server import guard, imageprompt, observability
 from server.protocol import ProtocolError, _send_frame, ws_recv
@@ -94,6 +95,7 @@ def _resolve_node(seed: int, node_name: str) -> SpatialNode | None:
 
 
 def _node_to_dict(node: SpatialNode, activity: dict | None = None) -> dict:
+    verb = verb_for_level(node.level)
     return {
         "id": node.id,
         "name": node.name,
@@ -105,6 +107,9 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None) -> dict:
         # How many recorded interactions this node has accumulated — the
         # generative art etches them as trace marks.
         "activity": (activity or {}).get(node.name, 0),
+        # The scale-native verb: the one act this level supports.
+        "verb": ({"name": verb.name, "tagline": verb.tagline}
+                 if verb else None),
         "children": [_node_to_dict(c, activity) for c in node.children],
     }
 
@@ -112,7 +117,7 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None) -> dict:
 # ── Handler ────────────────────────────────────────────────────────────────
 
 _RATE_LIMITED_PATHS = frozenset({
-    "/speak", "/agent/voice", "/image", "/puzzle/attempt",
+    "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
 })
 
 
@@ -568,6 +573,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/puzzle/attempt":
             self._do_puzzle_attempt(body)
 
+        elif path == "/act":
+            self._do_act(body)
+
         elif path == "/image":
             self._do_image(body, user_key=user_key)
 
@@ -948,6 +956,93 @@ class Handler(BaseHTTPRequestHandler):
             # Difficulty is a per-node property (1 gentle … 4 hard), surfaced so
             # a player can pick their own challenge while exploring.
             "difficulty":   p.difficulty,
+        })
+
+    def _do_act(self, body: dict) -> None:
+        """Perform a node's scale-native verb (multiverse/verbs.py).
+
+        The verb's material change applies exactly once, here at the
+        origin (the producer owns the flavor line); the act then rides
+        the standard causal rails — recorded in the chronicle, rippled,
+        staged outward ring by ring — so mending an object is felt, more
+        faintly, by the room that holds it and the molecules inside it.
+        """
+        try:
+            root, seed, *_ = _build_world(body)
+        except (ValueError, TypeError) as exc:
+            return self._send_error(str(exc))
+
+        node_name   = str(body.get("node_name", ""))[:128]
+        verb_name   = str(body.get("verb", ""))[:32].strip().lower()
+        raw_player  = body.get("player_name")
+        player_name = (str(raw_player)[:32].strip() or None) if raw_player else None
+
+        # Full-tree resolution (not _resolve_node): staging the cascade
+        # needs the node's real parent AND children arms.
+        target = find_node(root, node_name) if node_name else None
+        if target is None:
+            return self._send_error("no such place in this world", 404)
+
+        verb = verb_for_level(target.level)
+        if verb is None:
+            return self._send_error(f"nothing can be done at {target.level} scale")
+        if verb_name and verb_name != verb.name:
+            return self._send_error(
+                f"'{verb_name}' doesn't work at {target.level} scale — "
+                f"here you can only {verb.name}", 400)
+
+        token = f"{player_name or 'traveler'}:{target.name}"
+        changed, flavor = apply_verb(target, verb, token)
+
+        if changed:
+            persistence.upsert_node_properties(seed, target.name, changed)
+            persistence.record_mutation(
+                seed, target.name, "SCALE_ACT", player_name,
+                {"verb": verb.name, "changed": changed},
+            )
+
+            room = get_room(seed)
+            broadcast(room, {
+                "type":    "scale_act",
+                "node":    target.name,
+                "level":   target.level,
+                "verb":    verb.name,
+                "actor":   player_name or "someone",
+                "changed": changed,
+                "flavor":  flavor,
+            })
+
+            # The act echoes outward: origin already changed materially
+            # (above); every ring beyond it carries ripple + history via
+            # the queue, arriving at world speed.
+            act_bus = CausalityBus()
+
+            def _act_handler(n: SpatialNode, ev: causality.CausalEvent,
+                             _room=room, _origin=target.name) -> None:
+                broadcast(_room, {
+                    "type":     "causal_event",
+                    "node":     n.name,
+                    "level":    n.level,
+                    "kind":     ev.kind.name,
+                    "strength": round(ev.strength, 4),
+                    "depth":    0,
+                    "origin":   _origin,
+                })
+
+            act_bus.register_handler(_act_handler)
+            wire_world_handlers(act_bus, seed)
+            payload = {"verb": verb.name}
+            if player_name:
+                payload["actor"] = player_name
+            act_bus.emit(target, EventKind.SCALE_ACT, payload)
+            stage_cascade(seed, target, EventKind.SCALE_ACT, payload)
+
+        self._send_json({
+            "verb":    verb.name,
+            "level":   target.level,
+            "node":    target.name,
+            "changed": changed,
+            "flavor":  flavor,
         })
 
     def _do_puzzle_attempt(self, body: dict) -> None:
