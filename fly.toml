@@ -9,7 +9,7 @@
 # reachable without passing through a proxy that overwrites Fly-Client-IP —
 # a client could otherwise mint a fresh rate-limit bucket per request.
 
-app = "nested-worlds-beta"          # change to your unique app name
+app = "enfolded-beta"          # change to your unique app name
 primary_region = "iad"              # pick the region closest to your testers
 
 [build]
@@ -42,7 +42,7 @@ primary_region = "iad"              # pick the region closest to your testers
     grace_period = "10s"
 
 [mounts]
-  source = "nested_worlds_data"
+  source = "enfolded_data"
   destination = "/data"
 
 [[vm]]

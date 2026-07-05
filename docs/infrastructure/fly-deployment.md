@@ -115,7 +115,7 @@ concurrent WebSockets via `NESTED_WORLDS_MAX_WS_CONNECTIONS` /
 `NESTED_WORLDS_MAX_WS_PER_IP`.
 
 ```toml
-app = "nested-worlds-beta"          # change to your unique app name
+app = "enfolded-beta"          # change to your unique app name
 primary_region = "iad"              # pick the region closest to your testers
 
 [build]
@@ -147,7 +147,7 @@ primary_region = "iad"              # pick the region closest to your testers
     grace_period = "10s"
 
 [mounts]
-  source = "nested_worlds_data"
+  source = "enfolded_data"
   destination = "/data"
 
 [[vm]]
@@ -174,10 +174,10 @@ Run these from the repo root.
 
 ```bash
 # Create the app (no deploy yet), matching the name you set in fly.toml.
-fly apps create nested-worlds-beta
+fly apps create enfolded-beta
 
 # Provision the persistent volume in the same region as the app.
-fly volumes create nested_worlds_data --region iad --size 1
+fly volumes create enfolded_data --region iad --size 1
 
 # Set runtime secrets. These never appear in logs or the image.
 # FAL_KEY and SENTRY_DSN are optional — omit either line freely.
@@ -208,10 +208,10 @@ deploy takes ~3-5 minutes.
 
 ```bash
 # Should return {"status": "ok"}; /health is exempt from the invite gate.
-curl https://nested-worlds-beta.fly.dev/health
+curl https://enfolded-beta.fly.dev/health
 
 # Open the bundled UI in a browser.
-open https://nested-worlds-beta.fly.dev/app
+open https://enfolded-beta.fly.dev/app
 
 # Tail logs in another terminal.
 fly logs
@@ -280,7 +280,7 @@ fly ssh console -C "python main.py invite mint --name Alice --note 'design partn
 ```
 
 The output includes a ready-to-share URL of the form
-`https://nested-worlds-beta.fly.dev/app?key=nw_<hex>&name=Alice`.
+`https://enfolded-beta.fly.dev/app?key=nw_<hex>&name=Alice`.
 Send one to each tester.
 
 To audit:
