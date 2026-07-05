@@ -270,6 +270,11 @@ function describeMutation(m) {
     case 'DANGER_ALERT':  return `${when} · danger stirred at ${m.node}`;
     case 'SCALE_ACT':     return `${when} · ${who} chose to ${(m.data && m.data.verb) || 'act'} at ${m.node}`;
     case 'AGENT_TALK':    return `${when} · ${(m.data && m.data.a) || 'someone'} and ${(m.data && m.data.b) || 'someone'} spoke at ${m.node}`;
+    case 'AGENT_VOICE':   return `${when} · ${who} spoke with ${(m.data && m.data.agent) || 'a wanderer'} at ${m.node}`;
+    case 'PLAYER_JOIN':   return `${when} · ${who} arrived in the world`;
+    case 'PLAYER_LEAVE':  return `${when} · ${who} departed from ${m.node}`;
+    case 'PLAYER_MOVE':   return `${when} · ${who} passed into ${m.node}`;
+    case 'PUZZLE_ATTEMPT':return `${when} · ${who} worked at a puzzle in ${m.node}`;
     default:              return `${when} · something happened at ${m.node}`;
   }
 }

@@ -819,6 +819,18 @@ def _history_block(history: list[dict]) -> str:
         who = h.get("player") or data.get("agent") or "an unknown presence"
         event = h["type"].replace("_", " ").lower()
         date = h["at"][:10] if h.get("at") else "unknown time"
+        if h["type"] == "AGENT_VOICE":
+            # A visitor spoke with an agent INSIDE you — the agent answered,
+            # not you. Render it as witnessed conversation, never as your
+            # own reply.
+            agent = data.get("agent", "a wanderer")
+            line = f"  {date}: {who} spoke with {agent} here"
+            if data.get("message"):
+                line += f' — they asked: "{data["message"]}"'
+            if data.get("reply"):
+                line += f' — {agent} answered: "{data["reply"]}"'
+            lines.append(line)
+            continue
         if h["type"] == "AGENT_TALK":
             # A conversation held INSIDE you: two wanderers spoke here and
             # you overheard every word. Allude to it as something witnessed.

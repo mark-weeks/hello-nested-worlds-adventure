@@ -325,8 +325,12 @@ fly ssh sftp get /data/backups/worlds-YYYYMMDD.db ./local-backups/
 fly ssh console -C "sh -c 'ls -t /data/backups/*.db | tail -n +6 | xargs -r rm'"
 ```
 
-For an automated cadence, add a tiny cron job on your laptop or a CI
-schedule that runs the two commands above.
+The automated cadence ships in the repo:
+`.github/workflows/backup.yml` runs every Monday (or on demand via
+workflow_dispatch), takes an online backup on the machine, downloads it,
+and stores it as a GitHub artifact with 90-day retention. It activates
+the moment you add a `FLY_API_TOKEN` repository secret
+(`fly tokens create deploy`); until then it no-ops with a notice.
 
 ### Restoring from a backup
 
