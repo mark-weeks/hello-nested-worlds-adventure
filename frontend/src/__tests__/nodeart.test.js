@@ -44,6 +44,16 @@ describe("nodeArtParams", () => {
     expect(nodeArtParams(1, node("A-1", "Room", {}, 0, 12)).activity).toBe(12);
   });
 
+  it("draws the node's atmosphere and inscriptions", () => {
+    const a = nodeArtParams(1, node("T-1", "Room", { air: "dry and papery" }));
+    const b = nodeArtParams(1, node("T-1", "Room", { air: "cool and mineral" }));
+    expect(a.atmo).not.toBeNull();
+    expect(a.atmo.grain).not.toBe(b.atmo.grain); // each atmosphere its own texture
+    expect(nodeArtParams(1, node("T-1", "Room", {})).atmo).toBeNull();
+    expect(nodeArtParams(1, node("T-1", "Room", { inscriptions: 7 })).inscriptions).toBe(7);
+    expect(nodeArtParams(1, node("T-1", "Room", { inscriptions: 999 })).inscriptions).toBe(30); // capped
+  });
+
   it("reads structural properties into the composition", () => {
     const sparse = nodeArtParams(1, node("G-1", "Galaxy", { star_density: 50 }));
     const dense = nodeArtParams(1, node("G-1", "Galaxy", { star_density: 500 }));

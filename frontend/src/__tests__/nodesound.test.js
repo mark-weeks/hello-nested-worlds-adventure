@@ -82,6 +82,29 @@ describe("soundscapeParams", () => {
     expect(a.texture.center).not.toBe(b.texture.center);
   });
 
+  it("same-level same-color siblings can sit on different roots", () => {
+    // The per-node degree offset widens identity beyond the hue's 12
+    // pitch classes: across a handful of calm same-level nodes, more than
+    // one distinct root must appear even within one mode.
+    const roots = new Set();
+    for (let i = 1; i <= 8; i++) {
+      roots.add(soundscapeParams(1, node(`Sib-${i}1`, "Room")).rootMidi);
+    }
+    expect(roots.size).toBeGreaterThan(2);
+  });
+
+  it("inscriptions become an audible motif, capped", () => {
+    expect(soundscapeParams(1, node("I-1", "Room", { inscriptions: 3 })).motif).toBe(3);
+    expect(soundscapeParams(1, node("I-1", "Room", { inscriptions: 40 })).motif).toBe(5);
+    expect(soundscapeParams(1, node("I-1", "Room", {})).motif).toBe(0);
+  });
+
+  it("texture falls back to the node's own aspect, never generic", () => {
+    const a = soundscapeParams(1, node("A-1", "Molecule", { aspect: "it hums; softly." }));
+    const b = soundscapeParams(1, node("A-1", "Molecule", { aspect: "it waits; coldly." }));
+    expect(a.texture.center).not.toBe(b.texture.center);
+  });
+
   it("stays ambience-quiet", () => {
     expect(soundscapeParams(1, node("X-1", "Room")).gain).toBeLessThan(0.1);
   });

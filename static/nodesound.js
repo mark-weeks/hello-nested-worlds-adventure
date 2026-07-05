@@ -72,6 +72,12 @@ function _textureBand(props, rng) {
       return { center: 220 + r() * 2200, q: 0.7 + r() * 4 };
     }
   }
+  if (props && typeof props.aspect === "string") {
+    // Every generated node has an aspect — its unique sensory line — so the
+    // texture is always the node's own, never a generic hiss.
+    const r = mulberry32(hashString(`tex:aspect:${props.aspect}`));
+    return { center: 220 + r() * 2200, q: 0.7 + r() * 4 };
+  }
   return { center: 400 + rng() * 800, q: 1.2 };
 }
 
@@ -85,11 +91,17 @@ export function soundscapeParams(seed, node) {
   // Root: the level's register, pitched by the art's hue — a place sounds
   // the color it looks. Slight per-node offset keeps siblings apart.
   const pitchClass = Math.floor(((art.hue % 360) / 360) * 12);
-  const rootMidi = (LEVEL_ROOT_MIDI[node.level] ?? 43) + pitchClass;
-  const rootHz = midiHz(rootMidi);
 
   const modeName = _chooseMode(props, rng);
   const scale = MODES[modeName];
+
+  // Per-node identity width: beyond the hue's pitch class, each node picks
+  // its own tonal center from the lower degrees of its mode, so same-level
+  // same-color siblings still sit on different roots (bounded to the lower
+  // half of the scale so registers never overlap between levels).
+  const degreeOffset = scale[Math.floor(rng() * Math.min(4, scale.length))];
+  const rootMidi = (LEVEL_ROOT_MIDI[node.level] ?? 43) + pitchClass + degreeOffset;
+  const rootHz = midiHz(rootMidi);
 
   // Pad voicing: root, fifth, and a color tone from the mode (3rd degree
   // or, for pentatonics, the 2nd) — one voice a few cents wide.
@@ -138,6 +150,10 @@ export function soundscapeParams(seed, node) {
     wow: { depthCents: Math.min(12, art.activity * 0.3), rateHz: 0.13 },
     dropouts: !!art.glitch,
     shimmer: !!art.halo,
+    // Inscriptions, audible: the marks players cut become a recurring
+    // two-note knock in the music box (see the scheduler).
+    motif: Math.min(5, typeof props.inscriptions === "number"
+      ? props.inscriptions : 0),
     rough,
     gain: 0.05,                          // ambience, never music-forward
     // Legacy convenience fields (kept for callers/tests of the first cut).
@@ -289,12 +305,21 @@ export class NodeAmbience {
     // EVENTS — the generative music box. A lookahead scheduler walks the
     // node's own deterministic sequence of scale-locked bells.
     let nextAt = t + 1.2 + prng() * 1.5;
+    let eventCount = 0;
     const scheduleAhead = 0.5;
     const tick = () => {
       const now = ctx.currentTime;
       while (nextAt < now + scheduleAhead) {
-        const f = p.events.notePool[Math.floor(prng() * p.events.notePool.length)];
-        this._bell(ctx, f, nextAt, p, send, master);
+        if (p.motif > 0 && eventCount % 5 === 4) {
+          // The inscription knock: a fixed root-octave dyad — the same two
+          // notes every time, the way a carved mark reads the same forever.
+          this._bell(ctx, p.rootHz * 2, nextAt, p, send, master);
+          this._bell(ctx, p.rootHz * 3, nextAt + 0.18, p, send, master);
+        } else {
+          const f = p.events.notePool[Math.floor(prng() * p.events.notePool.length)];
+          this._bell(ctx, f, nextAt, p, send, master);
+        }
+        eventCount += 1;
         nextAt += p.events.intervalMin +
           prng() * (p.events.intervalMax - p.events.intervalMin);
       }

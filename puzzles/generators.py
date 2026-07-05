@@ -131,6 +131,98 @@ _WORD_BANKS: dict[str, list[str]] = {
     ],
 }
 
+# Second-generation vocabulary: each level's bank grew from 12 to 30 so a
+# player who has solved a few puzzles hasn't memorized the level's answer
+# key (measured before this expansion: 141 distinct answers across a full
+# 3,174-node world — "superposition" answered 410 nodes).
+_WORD_BANKS["Multiverse"] += [
+    "eternity", "recursion", "membrane", "totality", "emergence", "plenum",
+    "lattice", "threshold", "symmetry", "archetype", "confluence", "prism",
+    "resonance", "substrate", "horizon", "myriad", "nexus", "immanence",
+]
+_WORD_BANKS["Universe"] += [
+    "entropy", "photon", "redshift", "curvature", "plasma", "graviton",
+    "momentum", "particle", "fusion", "velocity", "expansion", "spectrum",
+    "isotropy", "relativity", "neutrino", "horizon", "quark", "field",
+]
+_WORD_BANKS["Galaxy"] += [
+    "spiral", "barred", "magnetar", "cepheid", "parallax", "accretion",
+    "starlight", "redgiant", "blazar", "darklane", "luminosity", "spur",
+    "globular", "voidward", "tidal", "bulge", "perseus", "cartwheel",
+]
+_WORD_BANKS["Planetary System"] += [
+    "ecliptic", "azimuth", "perihelion", "syzygy", "conjunction", "kepler",
+    "lagrange", "barycenter", "occultation", "retrograde", "apogee", "node",
+    "epicycle", "almanac", "gibbous", "waning", "zenith", "nadir",
+]
+_WORD_BANKS["Planet"] += [
+    "tundra", "caldera", "isthmus", "archipelago", "permafrost", "delta",
+    "steppe", "fumarole", "geyser", "moraine", "atoll", "badlands",
+    "tectonic", "monolith", "silt", "brine", "downpour", "thermals",
+]
+_WORD_BANKS["Region"] += [
+    "foothills", "crossroads", "palisade", "bulwark", "heath", "fenland",
+    "bramble", "hollow", "ridgeline", "waystation", "cairn", "thicket",
+    "boundary", "overlook", "backcountry", "sprawl", "enclave", "reaches",
+]
+_WORD_BANKS["Room"] += [
+    "balustrade", "cornice", "pantry", "scullery", "atrium", "gallery",
+    "wainscot", "transom", "rotunda", "annex", "landing", "parapet",
+    "casement", "lintel", "colonnade", "antechamber", "stairwell", "niche",
+]
+_WORD_BANKS["Object"] += [
+    "astrolabe", "sundial", "bellows", "crucible", "gimbal", "sextant",
+    "tumbler", "escapement", "amulet", "phylactery", "stylus", "tessera",
+    "orrery", "windlass", "hasp", "ferrule", "diadem", "censer",
+]
+_WORD_BANKS["Molecule"] += [
+    "benzene", "peptide", "ligand", "dimer", "aldehyde", "ester",
+    "titration", "colloid", "emulsion", "sublimate", "distill", "anhydride",
+    "racemic", "zwitterion", "micelle", "lipid", "buffer", "adduct",
+]
+_WORD_BANKS["Atom"] += [
+    "cathode", "anode", "excited", "decay", "halflife", "lanthanide",
+    "covalence", "photoelectric", "rydberg", "balmer", "shell", "dopant",
+    "scintilla", "tracer", "moderator", "capture", "emission", "bombard",
+]
+_WORD_BANKS["SubatomicParticle"] += [
+    "chirality", "strangeness", "tachyon", "axion", "parity", "isospin",
+    "muon", "tauon", "wavefunction", "entangle", "tunneling", "condensate",
+    "annihilate", "virtual", "colorcharge", "helicity", "soliton", "braneworld",
+]
+
+# Fused-compound vocabulary for ciphers: two evocative parts joined into a
+# word that has never been written before (~500 combinations per level).
+# A cipher is decoded mechanically — shift each letter back — so the answer
+# needn't be a dictionary word; it just has to be unambiguous. This is the
+# task-15 name-synthesis treatment applied to the answer space.
+_COMPOUND_A: dict[str, list[str]] = {
+    "Multiverse":        ["void", "ever", "dream", "fold", "true", "deep", "first", "silent", "veiled", "primal", "hollow", "endless", "woven", "shining", "unborn", "quiet", "sunder", "twin", "far", "inner", "aether", "myriad"],
+    "Universe":          ["dark", "light", "cold", "prime", "iron", "slow", "vast", "faint", "early", "late", "hidden", "bare", "burnt", "sharp", "still", "spent", "young", "heavy", "swift", "pale", "raw", "spun"],
+    "Galaxy":            ["star", "dust", "arm", "core", "rim", "halo", "ember", "frost", "ash", "silver", "amber", "shade", "ghost", "wheel", "drift", "ring", "cinder", "glass", "night", "storm", "milk", "opal"],
+    "Planetary System":  ["sun", "moon", "orbit", "ring", "tide", "dawn", "dusk", "belt", "twin", "wander", "iron", "ice", "gas", "storm", "far", "near", "swift", "still", "gold", "pale", "red", "blue"],
+    "Planet":            ["salt", "stone", "rain", "cloud", "river", "ridge", "shore", "wind", "moss", "sand", "snow", "reef", "root", "ember", "fog", "clay", "tide", "leaf", "bone", "iron", "dew", "loam"],
+    "Region":            ["mist", "thorn", "fen", "briar", "elder", "hound", "raven", "willow", "granite", "harrow", "winter", "summer", "black", "gray", "red", "lost", "last", "broken", "silent", "north", "outer", "deep"],
+    "Room":              ["dust", "oak", "brass", "candle", "shadow", "velvet", "ivory", "cedar", "amber", "silver", "quiet", "cold", "warm", "old", "worn", "hidden", "locked", "long", "low", "high", "bare", "dim"],
+    "Object":            ["clock", "key", "mirror", "chain", "blade", "coin", "lens", "bell", "cage", "knot", "seal", "hinge", "thread", "shard", "wax", "ink", "bone", "glass", "iron", "gold", "salt", "ash"],
+    "Molecule":          ["chain", "ring", "bond", "twist", "branch", "helix", "sheet", "cage", "knot", "cross", "double", "triple", "long", "short", "left", "right", "open", "closed", "free", "fixed", "polar", "inert"],
+    "Atom":              ["spin", "shell", "charge", "cloud", "core", "wave", "pulse", "flash", "ghost", "twin", "half", "whole", "bright", "faint", "bound", "free", "heavy", "light", "noble", "base", "keen", "raw"],
+    "SubatomicParticle": ["flux", "phase", "spin", "wave", "field", "path", "pair", "loop", "knot", "sea", "foam", "veil", "point", "cloud", "drift", "flick", "ghost", "mirror", "shadow", "twin", "null", "prime"],
+}
+_COMPOUND_B: dict[str, list[str]] = {
+    "Multiverse":        ["weave", "spire", "gate", "song", "root", "seam", "tide", "veil", "loom", "birth", "fold", "hush", "brink", "sleep", "wake", "turn", "pulse", "bloom", "rift", "call", "well", "arc"],
+    "Universe":          ["field", "wake", "shear", "burst", "well", "arc", "flow", "pull", "spin", "drift", "glow", "seam", "storm", "veil", "husk", "span", "birth", "fall", "wind", "knot", "beam", "web"],
+    "Galaxy":            ["reach", "spiral", "shoal", "veil", "crown", "spur", "lane", "gyre", "bloom", "swarm", "tail", "song", "field", "gate", "well", "seam", "coil", "spray", "wake", "fall", "arc", "run"],
+    "Planetary System":  ["path", "dance", "chord", "clock", "sweep", "lock", "step", "chase", "veil", "song", "wheel", "loom", "arc", "fall", "rise", "count", "pull", "watch", "ring", "drift", "tilt", "turn"],
+    "Planet":            ["fall", "reach", "spine", "field", "brow", "flats", "run", "wash", "gate", "break", "bed", "line", "song", "veil", "crest", "hollow", "sweep", "burn", "drift", "mouth", "step", "vein"],
+    "Region":            ["march", "watch", "gate", "moor", "vale", "cross", "ward", "wood", "fall", "reach", "hold", "run", "song", "path", "field", "stone", "mark", "brook", "rise", "shade", "walk", "end"],
+    "Room":              ["nook", "beam", "board", "step", "shelf", "sill", "post", "door", "vault", "frame", "panel", "floor", "hook", "seat", "arch", "grate", "ledge", "stair", "well", "screen", "latch", "rail"],
+    "Object":            ["work", "ward", "wright", "charm", "guard", "twist", "face", "spine", "tooth", "heart", "eye", "hand", "tongue", "wing", "coil", "crown", "stem", "throat", "root", "edge", "core", "loop"],
+    "Molecule":          ["link", "fold", "graft", "weave", "mesh", "seam", "join", "lock", "coil", "loop", "bridge", "arm", "site", "shift", "swap", "bend", "snap", "form", "pair", "stack", "path", "gate"],
+    "Atom":              ["leap", "state", "well", "trap", "gap", "line", "band", "step", "jump", "glow", "song", "dance", "shift", "hum", "count", "ring", "veil", "kick", "spark", "path", "shed", "hold"],
+    "SubatomicParticle": ["state", "trace", "jitter", "dance", "swap", "burst", "echo", "skip", "blink", "shiver", "twist", "hum", "leap", "split", "merge", "flip", "chase", "knot", "song", "drift", "veil", "spin"],
+}
+
 # A short noun phrase per scale, used to frame the first (conceptual) hint
 # without naming the answer.
 _THEME_LABEL: dict[str, str] = {
@@ -187,6 +279,53 @@ def _pick_word(node: SpatialNode, rng: random.Random) -> str:
     return rng.choice(candidates)
 
 
+def _pick_cipher_word(node: SpatialNode, rng: random.Random,
+                      difficulty: int) -> tuple[str, bool]:
+    """A cipher answer: usually a fused compound this world has never
+    written before ("emberveil", "spinshiver"), keeping the decoded text a
+    surprise even to a player who knows the level's vocabulary. Gentle
+    (difficulty-1) ciphers stay single dictionary words. Returns
+    (word, is_compound)."""
+    if difficulty >= 2 and rng.random() < 0.75:
+        a_bank = _COMPOUND_A.get(node.level)
+        b_bank = _COMPOUND_B.get(node.level)
+        if a_bank and b_bank:
+            forbidden = _property_values(node)
+            name = node.name.lower()
+            for _ in range(8):
+                word = rng.choice(a_bank) + rng.choice(b_bank)
+                if word not in forbidden and word not in name:
+                    return word, True
+    return _pick_word(node, rng), False
+
+
+# Prompt dressing: one deterministic sentence drawn from what the node IS —
+# its atmosphere, its condition, its danger — so a corrupted danger-9 vault
+# frames its puzzle differently than a warded meadow. Never contains the
+# answer (build_puzzle re-screens after dressing and strips it on collision).
+_DRESS_KEYS = ("air", "weather", "sky", "glow", "membrane", "dust",
+               "light_temper", "lighting", "terrain", "biome",
+               "tendency", "surface", "geometry", "material", "shape")
+
+
+def _dress(node: SpatialNode, rng: random.Random) -> str:
+    props = node.properties or {}
+    clauses: list[str] = []
+    for key in _DRESS_KEYS:
+        if key in props and isinstance(props[key], str):
+            clauses.append(f"The {key.replace('_', ' ')} here is {props[key]}.")
+    danger = props.get("danger_level")
+    if isinstance(danger, int) and danger >= 6 and not props.get("stabilized"):
+        clauses.append(f"Danger presses at {danger} of 10; work quickly.")
+    if props.get("condition") in ("damaged", "corrupted"):
+        clauses.append(f"The {props['condition']} matter distorts the marks.")
+    if props.get("stabilized"):
+        clauses.append("A recent stillness holds; the signs sit clear.")
+    if not clauses:
+        return ""
+    return rng.choice(clauses)
+
+
 def _answer_leaks(puzzle: Puzzle, node: SpatialNode) -> bool:
     """True if the answer is recoverable without solving — as a standalone token
     in the prompt or any hint (e.g. the node name happened to contain it, or a
@@ -237,15 +376,17 @@ def _make_anagram(node: SpatialNode, rng: random.Random, difficulty: int) -> Puz
 
 
 def _make_cipher(node: SpatialNode, rng: random.Random, difficulty: int) -> Puzzle:
-    word = _pick_word(node, rng)
+    word, is_compound = _pick_cipher_word(node, rng, difficulty)
     # Larger shift range with depth; never 0 (that would print the plaintext).
     max_shift = {1: 3, 2: 5, 3: 7, 4: 9}[difficulty]
     shift = rng.randint(1, max_shift)
     cipher = "".join(
         chr((ord(c) - ord("a") + shift) % 26 + ord("a")) for c in word
     ).upper()
+    theme = ("two words of this scale, fused into one"
+             if is_compound else _THEME_LABEL.get(node.level, "a word"))
     hints = [
-        f"It is {_THEME_LABEL.get(node.level, 'a word')}, written in a shifted alphabet.",
+        f"It is {theme}, written in a shifted alphabet.",
         f"Each letter was moved forward by {shift}; move it back by {shift}.",
         f"It begins with '{word[0]}'.",
     ]
@@ -356,6 +497,13 @@ def _make_riddle(node: SpatialNode, rng: random.Random, difficulty: int) -> Puzz
     usable = _clean_pool_puzzles(node.level, node)
     if not usable:
         return None
+    # Hand-written riddles are a tiny pool (3-6 per level) serving thousands
+    # of nodes — unthrottled they repeat hundreds of times across a full
+    # world (measured: one riddle answered 410 nodes). Decline in proportion
+    # to pool size so riddles stay rare hand-crafted treats; the caller
+    # falls through to a generated family.
+    if rng.random() > min(1.0, len(usable) / 24):
+        return None
     chosen = copy.deepcopy(rng.choice(usable))
     # Give it the same fair attempt budget as generated puzzles at this tier.
     chosen.max_attempts = max(chosen.max_attempts, _ATTEMPTS_BY_DIFFICULTY[difficulty])
@@ -383,10 +531,21 @@ _FAMILY_FN: dict[str, Callable[[SpatialNode, random.Random, int], Puzzle | None]
 }
 
 
-def build_puzzle(node: SpatialNode) -> Puzzle:
+def build_puzzle(node: SpatialNode, epoch: int = 0) -> Puzzle:
     """Generate this node's puzzle: fair, non-leaking, difficulty-tuned to the
-    scale, and unique to the node. Deterministic in the node's identity."""
-    rng = node_rng(node)
+    scale, and unique to the node. Deterministic in (node identity, epoch).
+
+    `epoch` is the node's renewal count: when the world's entropy re-arms a
+    solved node (see causality/wiring + PUZZLE_REARM), the epoch increments
+    and the node grows a FRESH puzzle — new content, new name (so the
+    solved-state of the old one doesn't apply), same per-node difficulty
+    (difficulty is a character trait; content is what renews). Epoch 0 is
+    byte-identical to the pre-renewal behavior.
+    """
+    rng = node_rng(node) if epoch == 0 else random.Random(int.from_bytes(
+        hashlib.sha256(
+            f"{node.level}:{node.name}:renewal:{epoch}".encode()).digest()[:8],
+        "big"))
     difficulty = node_difficulty(node)
     families = list(_FAMILY_WEIGHTS.get(difficulty, _FAMILY_WEIGHTS[2]))
 
@@ -402,9 +561,30 @@ def build_puzzle(node: SpatialNode) -> Puzzle:
         weights.pop(pick)
         puzzle = _FAMILY_FN[family](node, rng, difficulty)
         if puzzle is not None and not _answer_leaks(puzzle, node):
-            return puzzle
+            return _finish(puzzle, node, rng, epoch)
 
     # Every scale has a word bank and `_pick_word` already excludes any word in
     # the node's name or properties, so an anagram of a picked word cannot leak
     # (the answer appears only scrambled). Guaranteed-clean fallback.
-    return _make_anagram(node, rng, difficulty)
+    return _finish(_make_anagram(node, rng, difficulty), node, rng, epoch)
+
+
+def _finish(puzzle: Puzzle, node: SpatialNode, rng: random.Random,
+            epoch: int) -> Puzzle:
+    """Apply the node's prompt dressing and the renewal name suffix.
+
+    Dressing weaves what the node IS into the puzzle's fiction. It is
+    re-screened for answer leaks (a numeric answer could collide with a
+    danger figure) and dropped, not the puzzle, on collision.
+    """
+    dressing = _dress(node, rng)
+    if dressing:
+        dressed = copy.copy(puzzle)
+        dressed.prompt = f"{dressing} {puzzle.prompt}"
+        if not _answer_leaks(dressed, node):
+            puzzle = dressed
+    if epoch > 0:
+        renewed = copy.copy(puzzle)
+        renewed.name = f"{puzzle.name} · Renewal {epoch}"
+        puzzle = renewed
+    return puzzle

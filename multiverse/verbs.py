@@ -276,4 +276,11 @@ def apply_verb(node: "SpatialNode", verb: Verb,
     changed, flavor = verb.effect(node, token)
     if changed:
         node.properties.update(changed)
+        # Weave the node's own character into the moment: the first clause
+        # of its aspect makes the same verb read differently at every node.
+        aspect = node.properties.get("aspect")
+        if isinstance(aspect, str) and ";" in aspect:
+            clause = aspect.split(";")[0].strip().rstrip(".")
+            if clause:
+                flavor = f"{flavor} {clause[0].upper()}{clause[1:]}."
     return changed, flavor

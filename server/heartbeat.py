@@ -33,7 +33,8 @@ import time
 import persistence
 from agents.agent import Agent
 from agents.personas import for_name as persona_for_name
-from causality import CausalityBus
+from causality import CausalityBus, EventKind
+from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
@@ -101,6 +102,68 @@ def _drop_in(root: SpatialNode, rng: random.Random) -> SpatialNode:
     while not node.children and node.parent is not None:
         node = node.parent
     return node
+
+
+def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
+                 persona_name: str, visited_names: list[str],
+                 rng: random.Random, bus: CausalityBus) -> str | None:
+    """After a traversal, the wanderer acts on the world by temperament.
+
+    This is the world's living entropy loop: DESTABILIZERS emit real decay
+    (STRUCTURAL_CHANGE on matter, DANGER_ALERT elsewhere — the events the
+    restorative verbs exist to answer, and the trigger that re-arms solved
+    puzzles); TENDERS perform the visited node's own verb (ward, mend,
+    attune…), pushing back; SCHOLARS document (inscribe / observe /
+    calibrate). Wanderers only pass through. Every act rides the standard
+    causal rails with agent attribution. Returns a summary string or None.
+    """
+    from multiverse.utils import find_node
+    from multiverse.verbs import apply_verb, verb_for_level
+
+    if rng.random() > 0.6 or not visited_names:
+        return None
+    nodes = [n for n in (find_node(root, name)
+                         for name in rng.sample(visited_names,
+                                                min(4, len(visited_names))))
+             if n is not None]
+    payload = {"agent": agent_name, "persona": persona_name}
+
+    if persona_name == "destabilizer":
+        for node in nodes[:2]:
+            kind = (EventKind.STRUCTURAL_CHANGE
+                    if "condition" in (node.properties or {})
+                    else EventKind.DANGER_ALERT)
+            bus.emit(node, kind, dict(payload))
+            stage_cascade(seed, node, kind, dict(payload))
+        return f"destabilized {min(2, len(nodes))} node(s)"
+
+    if persona_name in ("tender", "scholar"):
+        allowed = None if persona_name == "tender" else (
+            "inscribe", "observe", "calibrate")
+        for node in nodes:
+            verb = verb_for_level(node.level)
+            if verb is None or (allowed and verb.name not in allowed):
+                continue
+            changed, flavor = apply_verb(node, verb,
+                                         token=f"{agent_name}:{node.name}")
+            if not changed:
+                continue
+            persistence.upsert_node_properties(seed, node.name, changed)
+            persistence.record_mutation(
+                seed, node.name, "SCALE_ACT", None,
+                {"verb": verb.name, "changed": changed, **payload},
+                actor_identity=agent_name)
+            broadcast(room, {
+                "type": "scale_act", "node": node.name, "level": node.level,
+                "verb": verb.name, "actor": agent_name,
+                "changed": changed, "flavor": flavor,
+            })
+            act_payload = {"verb": verb.name, **payload}
+            act_bus = wire_world_handlers(CausalityBus(), seed, record=False)
+            act_bus.emit(node, EventKind.SCALE_ACT, act_payload)
+            stage_cascade(seed, node, EventKind.SCALE_ACT, act_payload)
+            return f"{verb.name}ed {node.name}"
+    return None
 
 
 def _hold_conversation(seed: int, room, node: SpatialNode,
@@ -218,10 +281,16 @@ def run_tick(seed: int | None = None, rng: random.Random | None = None,
     persistence.save_agent_run(agent_name, seed, agent.fresh_count, events)
     persistence.save_agent_memory(agent_name, seed, agent.memory, events[-100:])
 
+    # The wanderer acts on the world by temperament — the living entropy
+    # (destabilizers) and tending (tenders/scholars) loop.
+    act = _persona_act(seed, room, root, agent_name, persona.name,
+                       [e["node"] for e in events], rng, bus)
+
     broadcast(room, {"type": "agent_done", "node": target.name,
                      "nodes_visited": agent.fresh_count})
     summary = {"seed": seed, "agent": agent_name, "persona": persona.name,
-               "origin": target.name, "fresh": agent.fresh_count}
+               "origin": target.name, "fresh": agent.fresh_count,
+               "act": act}
     _log.info("heartbeat: %(agent)s (%(persona)s) walked %(fresh)d fresh "
               "node(s) from %(origin)s in world %(seed)d", summary)
     return summary
