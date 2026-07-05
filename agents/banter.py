@@ -18,6 +18,8 @@ from __future__ import annotations
 import random
 from typing import TYPE_CHECKING
 
+from agents.roster import profile_for
+
 if TYPE_CHECKING:
     from multiverse.node import SpatialNode
 
@@ -183,6 +185,19 @@ def _detail(node: "SpatialNode", rng: random.Random) -> str:
     return rng.choice(candidates)
 
 
+def _with_tic(line: str, speaker: str, rng: random.Random) -> str:
+    """A cast regular's signature phrase occasionally rides their line.
+
+    Individuation on top of the archetype banks: two tenders share openers,
+    but only The Locksmith adds "Every seal remembers its key." Fires often
+    enough to be a recognizable habit, rarely enough to stay a tic.
+    """
+    profile = profile_for(speaker)
+    if profile is not None and profile.tic and rng.random() < 0.4:
+        return f"{line} {profile.tic}"
+    return line
+
+
 def compose_exchange(seed: int, node: "SpatialNode",
                      agent_a: str, persona_a: str,
                      agent_b: str, persona_b: str,
@@ -206,9 +221,9 @@ def compose_exchange(seed: int, node: "SpatialNode",
 
     return [
         {"speaker": agent_a, "persona": persona_a,
-         "line": opener.format(**fmt)},
+         "line": _with_tic(opener.format(**fmt), agent_a, rng)},
         {"speaker": agent_b, "persona": persona_b,
-         "line": response.format(**fmt)},
+         "line": _with_tic(response.format(**fmt), agent_b, rng)},
         {"speaker": "", "persona": "",
          "line": closer.format(**fmt)},
     ]

@@ -12,9 +12,10 @@ persona surfaces in three places:
   consciousness agent bible (`_AGENT_ARCHETYPES`) — the single source of
   archetype voice text, so there is no duplicate copy here to drift
 
-`for_name()` picks an archetype deterministically from the agent's name so
-the same name always gets the same persona across runs and machines without
-needing to thread a seed through.
+`for_name()` resolves cast regulars through their deliberate roster
+assignment (agents/roster.py) and everyone else through a deterministic
+hash of the name, so the same name always gets the same persona across
+runs and machines without needing to thread a seed through.
 """
 from __future__ import annotations
 
@@ -54,10 +55,19 @@ _BY_NAME: dict[str, Persona] = {p.name: p for p in CATALOG}
 
 
 def for_name(name: str) -> Persona:
-    """Pick a persona deterministically from the agent's name.
+    """Resolve an agent's persona: deliberate for the cast, hashed otherwise.
 
-    Stable across processes (uses sha1, not Python's randomized hash).
+    Cast regulars carry an explicit assignment on their roster trait sheet
+    (agents/roster.py), keeping the archetype balance a design decision —
+    the pure hash dealt the original cast four tenders and one destabilizer,
+    with Aunt Entropy landing "scholar". Names off the roster still hash
+    deterministically (sha1, not Python's randomized hash), so ad-hoc agents
+    keep a stable persona across runs and machines.
     """
+    from agents.roster import profile_for  # deferred: keeps roster import-free
+    profile = profile_for(name)
+    if profile is not None and profile.persona in _BY_NAME:
+        return _BY_NAME[profile.persona]
     digest = hashlib.sha1(name.encode("utf-8")).digest()
     return CATALOG[digest[0] % len(CATALOG)]
 

@@ -2,13 +2,18 @@
 surface.
 
 Node names key ALL durable history — world_mutations, saved positions,
-property overlays, ripple scores, the art's activity counts. Names and
-properties are drawn from one per-node RNG stream over the content banks in
-multiverse/generator.py, so ANY edit to ANY bank (even appending one item)
-reshuffles nearly every name in every existing world: measured on seed 42,
-adding a single syllable to _SYL_ROOTS renames 77 of 83 nodes, and adding a
-single biome renames 64 of 83. After the first production deploy that means
-orphaning the entire chronicle and breaking every saved position.
+property overlays, ripple scores, the art's activity counts. Each node
+draws name → properties → breadth from its own (seed, path)-keyed RNG
+stream over the content banks in multiverse/generator.py, so a bank edit
+corrupts existing worlds two ways. Name-bank edits rename surviving nodes
+outright (measured on seed 42: +1 syllable in _SYL_ROOTS renames 77 of 83
+reference nodes). Property-bank edits reshuffle the property VALUES of
+every node at that level — the baselines the persisted overlay applies its
+deltas to — and can shift breadth draws via choice()'s rejection sampling,
+deleting and spawning whole subtrees (measured: +1 biome replaces 2 of 83
+names at depth 6, ~170 of 3017 across the full world). After the first
+production deploy either failure orphans chronicle history and breaks
+saved positions.
 
 Era names are worse: they are recomputed from the banks at READ time, so a
 bank edit retroactively rewrites the displayed history of every era that
@@ -40,14 +45,16 @@ def _walk(node: SpatialNode, out: list) -> list:
 
 
 # The canonical reference world: default seed, depth 6 (the default the
-# clients load). Pinned 2026-07-05, before first production deploy.
+# clients load). Pinned 2026-07-05, before first production deploy;
+# world + puzzle digests re-pinned same day for the diversity batch (bank
+# widening + LOCK puzzles — names, landmarks, aspect, eras all unchanged).
 _REF_SEED = 42
 _REF_NODE_COUNT = 83
 _REF_NAMES_DIGEST = (
     "39d3c52794e496e3c6bdfdf992e84c2184e747b6880d8675a39a51da010e7d44"
 )
 _REF_WORLD_DIGEST = (
-    "7664d82fc3fffa7103abbfeed00504d195dad5b924a750b2d4bfb08e4b6e74fc"
+    "25983bdc04a76ce61020dbd5e5f52b3a978314528ce09010583999269bdf0cb1"
 )
 
 
@@ -112,7 +119,7 @@ class TestPuzzleLayerIsFrozen:
             for n in nodes)
         digest = hashlib.sha256(blob.encode()).hexdigest()
         assert digest == (
-            "cc49dc3972251ac3da778789933d38d83d2f41b936a379c51bf48de2c2da012c"
+            "fcd1cba980facd6f75088a300fc47772597efceafca0beb83ec2b7f2c55fdf79"
         ), (
             "Epoch-0 puzzle generation changed for the reference world. "
             "Post-launch this resets every solved puzzle. Revert, or "

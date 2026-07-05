@@ -50,7 +50,11 @@ const LEVEL_BASE = {
 };
 
 const BIOME_HUES = { tundra: 195, jungle: 130, desert: 45, ocean: 210,
-                     volcanic: 15, temperate: 110, irradiated: 80 };
+                     volcanic: 15, temperate: 110, irradiated: 80,
+                     mangrove: 155, glacial: 185, fungal: 275,
+                     "salt flat": 60, "cloud forest": 140,
+                     "basalt waste": 250, "reef shallows": 175,
+                     grassland: 95 };
 
 // ── Parameter derivation (pure — unit-tested) ───────────────────────────────
 

@@ -353,11 +353,14 @@ _AGENT_ARCHETYPES: dict[str, str] = {
 # The recurring ambient cast. The world heartbeat sends these wanderers on
 # paced traversals between requests; their traces accrete in node history, so
 # the bibles teach every voice to recognize them as known, returning
-# presences rather than anonymous noise. Canonical list lives here (a leaf
-# module) so the heartbeat and the prompts cannot drift apart.
+# presences rather than anonymous noise. This list lives here (a leaf
+# module) so the heartbeat and the prompts cannot drift apart; each name
+# also carries a trait sheet — persona, home scales, courage, banter tic —
+# in agents/roster.py, and tests/test_roster.py pins the two in sync.
 WANDERER_CAST = [
     "Tessera", "Halden", "Mirrorbird", "Sela", "Cartographer-9",
     "Vex", "Aunt Entropy", "The Locksmith",
+    "Bellhollow", "Karst", "Marginalia", "Petrichor",
 ]
 
 

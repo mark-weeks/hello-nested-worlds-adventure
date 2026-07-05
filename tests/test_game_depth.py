@@ -67,6 +67,59 @@ class TestPuzzleVocabulary:
             assert not _answer_leaks(build_puzzle(n), n), n.name
 
 
+class TestLockPuzzles:
+    """The travel-key mechanic: `locked` finally does something. A locked
+    node's puzzle sends the player one scale UP to read a truth about the
+    place that holds it — knowledge-of-the-world, not word-decoding."""
+
+    def _locked(self, root):
+        return [n for n in _walk(root, [])
+                if n.properties.get("locked") and n.parent is not None]
+
+    def test_locked_rooms_usually_serve_their_lock(self):
+        from puzzles.types import PuzzleKind
+        locked = self._locked(generate_node_hierarchy(seed=42, max_depth=8))
+        assert locked, "the reference world must contain locked rooms"
+        served = sum(1 for n in locked
+                     if build_puzzle(n).kind is PuzzleKind.LOCK)
+        assert served / len(locked) >= 0.5
+
+    def test_answer_is_readable_in_the_keeper_one_scale_up(self):
+        from puzzles.generators import _LOCK_KEY_CANDIDATES, _answer_leaks
+        from puzzles.types import PuzzleKind
+        checked = 0
+        for n in self._locked(generate_node_hierarchy(seed=42, max_depth=8)):
+            p = build_puzzle(n)
+            if p.kind is not PuzzleKind.LOCK:
+                continue
+            checked += 1
+            keeper_values = {str(n.parent.properties[k]).strip().lower()
+                             for k in _LOCK_KEY_CANDIDATES
+                             if isinstance(n.parent.properties.get(k), str)}
+            assert p.answer in keeper_values, n.name
+            # Not answerable from where you stand: the key never appears
+            # among the locked node's own property values or its prompt.
+            own = {str(v).strip().lower() for v in n.properties.values()}
+            assert p.answer not in own, n.name
+            assert not _answer_leaks(p, n), n.name
+        assert checked > 0
+
+    def test_unlocked_nodes_never_serve_a_lock(self):
+        from puzzles.types import PuzzleKind
+        for n in _walk(generate_node_hierarchy(seed=42, max_depth=6), []):
+            if not n.properties.get("locked"):
+                assert build_puzzle(n).kind is not PuzzleKind.LOCK, n.name
+
+    def test_lock_keys_are_overlay_immutable(self):
+        # The decay/verb overlay mutates danger_level, condition, stability,
+        # stabilized, inscriptions… — a lock keyed on those would change its
+        # answer under the players mid-session. Pin the contract: locks only
+        # listen for generated Region categoricals the overlay never touches.
+        from puzzles.generators import _LOCK_KEY_CANDIDATES
+        assert set(_LOCK_KEY_CANDIDATES) == {
+            "weather", "terrain", "faction_control"}
+
+
 class TestPuzzleRenewal:
     def test_epoch_changes_name_and_content_deterministically(self):
         node = generate_node_hierarchy(seed=42, max_depth=2).children[0]

@@ -38,8 +38,12 @@ LEVELS = [
     "SubatomicParticle",
 ]
 
-_BIOMES = ["tundra", "jungle", "desert", "ocean", "volcanic", "temperate", "irradiated"]
-_FACTIONS = ["The Conclave", "Iron Veil", "Drifters", "Null Cult", "Reclaimer Order"]
+_BIOMES = ["tundra", "jungle", "desert", "ocean", "volcanic", "temperate", "irradiated",
+           "mangrove", "glacial", "fungal", "salt flat", "cloud forest",
+           "basalt waste", "reef shallows", "grassland"]
+_FACTIONS = ["The Conclave", "Iron Veil", "Drifters", "Null Cult", "Reclaimer Order",
+             "Lanternwrights", "The Unnumbered", "Verge Assembly", "Saltborn",
+             "Chorus of Nine", "Emberkeep", "The Quiet Ledger"]
 
 
 def _pick(pool: list, rng: random.Random) -> str:
@@ -56,15 +60,20 @@ def _pick(pool: list, rng: random.Random) -> str:
 #
 # ── FROZEN AFTER FIRST PRODUCTION DEPLOY ────────────────────────────────────
 # Every bank below (and every property bank later in this file) is a
-# PERMANENT COMPATIBILITY SURFACE. Names and properties draw from one
-# per-node RNG stream, so ANY edit to ANY bank — including appending one
-# item — reshuffles nearly every name in every existing world (measured:
-# +1 syllable renames 77/83 nodes; +1 biome renames 64/83). Node names key
-# all durable history: the chronicle, saved positions, property overlays,
-# ripple scores, the art's activity counts. tests/test_continuity_freeze.py
-# pins the reference world and will fail loudly on any drift. New content
-# must arrive via NEW mechanisms (e.g. new levels, suffix-keyed additions),
-# never by editing these lists.
+# PERMANENT COMPATIBILITY SURFACE. Each node draws name → properties →
+# breadth from its own (seed, path)-keyed stream, so a bank edit corrupts
+# existing worlds two ways: (1) name-bank edits (syllables, level word
+# banks) rename surviving nodes outright — measured: +1 syllable renames
+# 77/83 reference nodes; (2) property-bank edits reshuffle the property
+# VALUES of every node at that level (the persisted overlay applies deltas
+# on top of these baselines) and can shift a node's breadth draw via
+# choice()'s rejection sampling, deleting and spawning whole subtrees —
+# measured: +1 biome replaces 2/83 names at depth 6 and ~170/3017 across
+# the full world. Node names key all durable history: the chronicle, saved
+# positions, property overlays, ripple scores, the art's activity counts.
+# tests/test_continuity_freeze.py pins the reference world and will fail
+# loudly on any drift. New content must arrive via NEW mechanisms (e.g.
+# new levels, suffix-keyed additions), never by editing these lists.
 
 _SYL_ROOTS = [
     "vel", "kar", "thal", "mor", "sel", "dra", "ny", "or", "az", "il",
@@ -229,7 +238,10 @@ def _props_multiverse(rng: random.Random) -> dict:
 
 def _props_universe(rng: random.Random) -> dict:
     return {
-        "laws_of_physics": _pick(["Newtonian", "Quantum", "Fractal", "Inverted", "Probabilistic"], rng),
+        "laws_of_physics": _pick(["Newtonian", "Quantum", "Fractal", "Inverted",
+                                  "Probabilistic", "Recursive", "Viscous",
+                                  "Crystalline", "Tidal", "Threadbare",
+                                  "Palindromic", "Slow light"], rng),
         "dark_matter_ratio": round(rng.uniform(0.1, 0.9), 2),
         "dominant_faction": _pick(_FACTIONS, rng),
         "light_temper": _pick(["honeyed", "clinical", "wine dark", "brittle", "syrup slow",
@@ -242,7 +254,9 @@ def _props_universe(rng: random.Random) -> dict:
 def _props_galaxy(rng: random.Random) -> dict:
     return {
         "star_density": rng.randint(50, 500),
-        "shape": _pick(["spiral", "elliptical", "irregular", "ring"], rng),
+        "shape": _pick(["spiral", "elliptical", "irregular", "ring", "barred spiral",
+                        "lenticular", "shell", "tidal plume", "double core",
+                        "threadwork"], rng),
         "black_hole_mass_solar": rng.randint(100_000, 10_000_000),
         "dust": _pick(["rose gray", "verdigris", "charcoal", "opaline", "sulfur",
                        "lavender", "carbon black", "honeyed", "spectral blue",
@@ -253,7 +267,9 @@ def _props_galaxy(rng: random.Random) -> dict:
 
 def _props_planetary_system(rng: random.Random) -> dict:
     return {
-        "star_type": _pick(["yellow dwarf", "red dwarf", "white dwarf", "binary", "neutron star"], rng),
+        "star_type": _pick(["yellow dwarf", "red dwarf", "white dwarf", "binary",
+                            "neutron star", "blue giant", "pulsar", "carbon star",
+                            "brown dwarf", "cepheid variable"], rng),
         "planet_count": rng.randint(1, 12),
         "habitable_zone": rng.choice([True, False]),
         "asteroid_belt": rng.choice([True, False]),
@@ -282,7 +298,9 @@ def _props_planet(rng: random.Random) -> dict:
 def _props_region(rng: random.Random) -> dict:
     return {
         "danger_level": rng.randint(1, 10),
-        "terrain": _pick(["ruins", "wilderness", "urban", "underground", "floating"], rng),
+        "terrain": _pick(["ruins", "wilderness", "urban", "underground", "floating",
+                          "terraced", "drowned", "petrified", "shifting dunes",
+                          "crystal fields", "overgrown", "cliffbound"], rng),
         "faction_control": _pick(_FACTIONS + ["contested", "none"], rng),
         "has_settlement": rng.choice([True, False]),
         "weather": _pick(["dry lightning", "slow drizzle", "ground fog", "heat shimmer",
@@ -311,7 +329,9 @@ def _props_room(rng: random.Random) -> dict:
 def _props_object(rng: random.Random) -> dict:
     return {
         "interactive": rng.choice([True, False]),
-        "material": _pick(["stone", "metal", "crystal", "wood", "energy", "bone"], rng),
+        "material": _pick(["stone", "metal", "crystal", "wood", "energy", "bone",
+                           "glass", "amber", "chitin", "woven light", "cold iron",
+                           "pressed ash"], rng),
         "condition": _pick(["pristine", "worn", "damaged", "corrupted"], rng),
         "weight_kg": round(rng.uniform(0.01, 500.0), 2),
         "surface": _pick(["mirror smooth", "hatch marked", "pitted", "engraved",
@@ -323,7 +343,9 @@ def _props_object(rng: random.Random) -> dict:
 
 def _props_molecule(rng: random.Random) -> dict:
     return {
-        "compound_type": _pick(["organic", "inorganic", "synthetic", "exotic"], rng),
+        "compound_type": _pick(["organic", "inorganic", "synthetic", "exotic",
+                                "metastable", "prebiotic", "self-repairing",
+                                "photoreactive", "cryogenic", "resonant"], rng),
         "bond_count": rng.randint(1, 12),
         "reactive": rng.choice([True, False]),
         "geometry": _pick(["helical", "planar ring", "cage", "branched chain",
