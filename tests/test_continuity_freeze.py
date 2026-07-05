@@ -99,6 +99,27 @@ class TestGeneratedWorldIsFrozen:
         )
 
 
+class TestPuzzleLayerIsFrozen:
+    def test_epoch_zero_puzzles_are_pinned(self):
+        # Solved-state rehydration keys on (node, puzzle NAME): changing
+        # epoch-0 puzzle generation after launch would silently reset every
+        # solved puzzle in the world. Renewal epochs (>0) are deliberately
+        # dynamic; epoch 0 is the frozen baseline.
+        from puzzles.engine import build_puzzle
+        nodes = _walk(generate_node_hierarchy(seed=_REF_SEED, max_depth=6), [])
+        blob = "\n".join(
+            f"{n.name}|{build_puzzle(n).name}|{build_puzzle(n).answer}"
+            for n in nodes)
+        digest = hashlib.sha256(blob.encode()).hexdigest()
+        assert digest == (
+            "cc49dc3972251ac3da778789933d38d83d2f41b936a379c51bf48de2c2da012c"
+        ), (
+            "Epoch-0 puzzle generation changed for the reference world. "
+            "Post-launch this resets every solved puzzle. Revert, or "
+            "re-pin consciously before first production deploy only."
+        )
+
+
 class TestEraNamesAreFrozen:
     def test_exact_era_names_are_pinned(self):
         # Era names are derived at READ time — a bank edit rewrites the

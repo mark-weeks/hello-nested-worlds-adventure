@@ -91,7 +91,32 @@ export function nodeArtParams(seed, node) {
     spin: props.spin || "",
     coherence: typeof props.coherence === "number" ? props.coherence : 0.6,
     atomicNumber: props.atomic_number || 8,
+    // The node's atmosphere, drawn: its air/weather/sky/glow (whichever it
+    // has) becomes a texture treatment — grain, streak direction, and a
+    // warmth shift — so the same properties the sound plays and the voice
+    // speaks are visible. Inscriptions are the permanent marks players cut.
+    atmo: _atmosphere(props),
+    inscriptions: Math.max(0, Math.min(30,
+      typeof props.inscriptions === "number" ? props.inscriptions : 0)),
   };
+}
+
+const _ATMO_KEYS = ["air", "weather", "sky", "glow", "membrane", "dust",
+                    "light_temper", "tendency"];
+
+function _atmosphere(props) {
+  for (const key of _ATMO_KEYS) {
+    if (props && typeof props[key] === "string") {
+      const r = mulberry32(hashString(`atmo:${key}:${props[key]}`));
+      return {
+        key,
+        grain: 0.15 + r() * 0.5,          // particle density of the air
+        drift: (r() - 0.5) * 1.6,          // streak slope: weather direction
+        warmth: Math.round((r() - 0.5) * 18), // hue lean, warm vs cold
+      };
+    }
+  }
+  return null;
 }
 
 // ── Rendering ───────────────────────────────────────────────────────────────
@@ -347,6 +372,27 @@ export function drawNodeArt(canvas, seed, node) {
 
   (FAMILIES[p.family] || FAMILIES.speckle)();
 
+  // ── The node's atmosphere, made visible ──────────────────────────────────
+  // The same air/weather/sky/glow the ambience plays and the voice speaks:
+  // drifting grain whose density and slope belong to this atmosphere, and a
+  // faint warmth wash leaning the palette warm or cold.
+  if (p.atmo) {
+    const g = p.atmo;
+    ctx.fillStyle = hsl((p.hue + g.warmth + 360) % 360, p.saturation, 60, 0.05);
+    ctx.fillRect(0, 0, W, H);
+    const n = Math.round(30 + g.grain * 90);
+    for (let i = 0; i < n; i++) {
+      const x = rng() * W, y = rng() * H, len = 1 + g.grain * 6;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + len, y + len * g.drift);
+      ctx.strokeStyle = hsl((p.hue + g.warmth + 360) % 360, p.saturation - 10,
+                            62 + rng() * 20, 0.10 + g.grain * 0.12);
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+    }
+  }
+
   // ── The marks the world has left ──────────────────────────────────────────
   if (p.halo) { // stabilized: a settled, symmetric ring
     ctx.beginPath();
@@ -379,5 +425,24 @@ export function drawNodeArt(canvas, seed, node) {
     ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
     ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
     ctx.stroke();
+  }
+  // Inscriptions: the permanent marks players cut, drawn as tally strokes
+  // in the lower-left corner — groups of five, the way walls keep count.
+  if (p.inscriptions > 0) {
+    ctx.strokeStyle = hsl((p.hue + 40) % 360, 45, 78, 0.85);
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < p.inscriptions; i++) {
+      const group = Math.floor(i / 5), inGroup = i % 5;
+      const gx = 8 + group * 16, gy = H - 16;
+      ctx.beginPath();
+      if (inGroup < 4) {
+        ctx.moveTo(gx + inGroup * 3, gy);
+        ctx.lineTo(gx + inGroup * 3, gy + 9);
+      } else { // the fifth stroke crosses the four
+        ctx.moveTo(gx - 2, gy + 8);
+        ctx.lineTo(gx + 11, gy + 1);
+      }
+      ctx.stroke();
+    }
   }
 }

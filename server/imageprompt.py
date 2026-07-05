@@ -108,8 +108,13 @@ def derive_modifiers(properties: dict, history: list[dict],
 
 
 def _prop_pairs(properties: dict, limit: int = 6) -> list[tuple[str, object]]:
-    """Stable, capped property listing for prompt + signature."""
-    return sorted(properties.items())[:limit]
+    """Stable, capped property listing for prompt + signature.
+
+    `aspect` is excluded — it gets its own dedicated prompt line.
+    """
+    return sorted(
+        (k, v) for k, v in properties.items() if k != "aspect"
+    )[:limit]
 
 
 def assemble_prompt(level: str, name: str, properties: dict,
@@ -124,6 +129,11 @@ def assemble_prompt(level: str, name: str, properties: dict,
         f"A {level.lower()} called {name} in a nested multiverse.",
         f"Style: {baseline}.",
     ]
+    # The node's unique sensory line — the same aspect the voice speaks and
+    # the sound layer textures from — anchors the imagery to THIS node.
+    aspect = properties.get("aspect")
+    if isinstance(aspect, str) and aspect:
+        parts.append(f"This place specifically: {aspect}")
     if modifiers:
         parts.append(f"Mood: {'; '.join(modifiers)}.")
     if prop_summary:

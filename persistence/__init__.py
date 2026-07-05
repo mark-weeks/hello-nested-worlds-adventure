@@ -418,6 +418,36 @@ def get_mutations(world_seed: int, limit: int = 50) -> list[dict[str, Any]]:
 
 
 @_with_db
+def count_node_mutations(world_seed: int, node_name: str,
+                         mutation_type: str) -> int:
+    """How many events of one type this node has accumulated."""
+    with _connect() as conn:
+        return conn.execute(
+            """SELECT COUNT(*) FROM world_mutations
+               WHERE world_seed = ? AND node_name = ? AND mutation_type = ?""",
+            (world_seed, node_name, mutation_type),
+        ).fetchone()[0]
+
+
+@_with_db
+def count_rearms_by_node(world_seed: int) -> dict[str, int]:
+    """Per-node puzzle renewal counts — each node's current puzzle epoch.
+
+    A PUZZLE_REARM lands when the world's entropy (a strong decay event)
+    hits a node whose current puzzle is already solved; the epoch folds
+    into puzzle generation so the node grows a fresh, unsolved puzzle.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT node_name, COUNT(*) FROM world_mutations
+               WHERE world_seed = ? AND mutation_type = 'PUZZLE_REARM'
+               GROUP BY node_name""",
+            (world_seed,),
+        ).fetchall()
+    return {name: count for name, count in rows}
+
+
+@_with_db
 def get_puzzle_attempt_state(world_seed: int, node_name: str,
                              puzzle_name: str) -> dict[str, Any]:
     """Rehydrate the pooled co-op attempt state from the attempt log.

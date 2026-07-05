@@ -53,11 +53,32 @@ def make_ripple_handler(seed: int):
 
 
 def make_effects_handler(seed: int):
-    """Apply and persist the event's material consequence, if any."""
+    """Apply and persist the event's material consequence, if any.
+
+    Decay that materially changes a node whose current puzzle is already
+    solved also RE-ARMS the puzzle: a PUZZLE_REARM row increments the
+    node's puzzle epoch, and the next /puzzle build serves a fresh,
+    renamed, unsolved variant. This is the world's renewal loop — entropy
+    doesn't just corrode, it re-opens challenges the last cohort finished,
+    so the permanent world never runs out of puzzles.
+    """
+    from causality import EventKind
+
     def handler(node: "SpatialNode", event: CausalEvent) -> None:
         changed = apply_event_effects(node, event)
         if changed:
             persistence.upsert_node_properties(seed, node.name, changed)
+            if event.kind in (EventKind.DANGER_ALERT,
+                              EventKind.STRUCTURAL_CHANGE):
+                solves = persistence.count_node_mutations(
+                    seed, node.name, "PUZZLE_SOLVED")
+                rearms = persistence.count_node_mutations(
+                    seed, node.name, "PUZZLE_REARM")
+                if solves > rearms:
+                    persistence.record_mutation(
+                        seed, node.name, "PUZZLE_REARM", None,
+                        {"trigger": event.kind.name,
+                         "agent": event.payload.get("agent")})
     return handler
 
 

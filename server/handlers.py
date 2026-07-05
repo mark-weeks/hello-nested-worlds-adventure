@@ -1056,7 +1056,10 @@ class Handler(BaseHTTPRequestHandler):
         target    = (find_node(root, node_name) if node_name else None) or root
 
         engine  = PuzzleEngine(seed=seed)
-        engine.attach_puzzles(target)
+        # Renewal epochs: decay that lands on a solved node re-arms it with
+        # a fresh puzzle (see causality/wiring); the epoch renames and
+        # reseeds the build so old solved-state doesn't apply.
+        engine.attach_puzzles(target, persistence.count_rearms_by_node(seed))
         puzzles = engine.collect_puzzles(target)
 
         if not puzzles:
@@ -1178,7 +1181,10 @@ class Handler(BaseHTTPRequestHandler):
         target = (find_node(root, node_name) if node_name else None) or root
 
         engine  = PuzzleEngine(seed=seed)
-        engine.attach_puzzles(target)
+        # Renewal epochs: decay that lands on a solved node re-arms it with
+        # a fresh puzzle (see causality/wiring); the epoch renames and
+        # reseeds the build so old solved-state doesn't apply.
+        engine.attach_puzzles(target, persistence.count_rearms_by_node(seed))
         puzzles = engine.collect_puzzles(target)
 
         if not puzzles:

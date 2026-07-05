@@ -13,7 +13,8 @@ from puzzles.types import Puzzle, PuzzleKind, PuzzleResult
 # ── Puzzle selector ────────────────────────────────────────────────────────
 
 
-def _make_puzzle_for_node(node: SpatialNode, rng: random.Random) -> Puzzle:
+def _make_puzzle_for_node(node: SpatialNode, rng: random.Random,
+                          epoch: int = 0) -> Puzzle:
     """Generate a fair, non-leaking, node-unique puzzle for `node`.
 
     The eleven canonical scales are handled by `puzzles.generators.build_puzzle`,
@@ -29,7 +30,7 @@ def _make_puzzle_for_node(node: SpatialNode, rng: random.Random) -> Puzzle:
     node's own RNG rather than the caller's advancing one.
     """
     if node.level in CANONICAL_LEVELS:
-        return build_puzzle(node)
+        return build_puzzle(node, epoch)
 
     pool = LEVEL_POOLS.get(node.level, DEFAULT_POOL)
     return copy.deepcopy(node_rng(node).choice(pool))
@@ -47,13 +48,19 @@ class PuzzleEngine:
         # node's own persona could be asked to reveal the solution.
         self._by_node: dict[str, Puzzle] = {}
 
-    def attach_puzzles(self, root: SpatialNode) -> int:
+    def attach_puzzles(self, root: SpatialNode,
+                       epochs: dict[str, int] | None = None) -> int:
+        """Attach each node's puzzle. `epochs` maps node name → renewal
+        count (from persistence.count_rearms_by_node); a renewed node grows
+        a fresh, renamed puzzle whose solved-state starts clean."""
         count = 0
         if root.name not in self._by_node:
-            self._by_node[root.name] = _make_puzzle_for_node(root, self._rng)
+            epoch = (epochs or {}).get(root.name, 0)
+            self._by_node[root.name] = _make_puzzle_for_node(
+                root, self._rng, epoch)
             count += 1
         for child in root.children:
-            count += self.attach_puzzles(child)
+            count += self.attach_puzzles(child, epochs)
         return count
 
     def puzzle_for(self, node: SpatialNode) -> Puzzle | None:
