@@ -396,6 +396,24 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send_json({"mutations": persistence.get_mutations(seed)})
 
+        elif path == "/chronicle":
+            # The world's full lived history, paginated backward in time and
+            # grouped into deterministically named eras — how a new arrival
+            # perceives everything every player and agent did before them.
+            from multiverse.chronicle import annotate_eras, current_era
+            try:
+                seed = int(param("seed", "42"))
+                limit = int(param("limit", "50"))
+                before_raw = param("before", "")
+                before = int(before_raw) if before_raw else None
+            except ValueError:
+                return self._send_error("invalid chronicle params")
+            page = persistence.get_chronicle(seed, limit=limit, before_id=before)
+            page["entries"] = annotate_eras(seed, page["entries"])
+            page["seed"] = seed
+            page["era_now"] = current_era(seed)
+            self._send_json(page)
+
         elif path == "/position":
             # Cross-device resume: the caller's last position, keyed on their
             # per-user invite credential. Empty for shared-key / no-key sessions

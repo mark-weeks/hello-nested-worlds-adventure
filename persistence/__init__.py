@@ -396,6 +396,55 @@ def get_mutations(world_seed: int, limit: int = 50) -> list[dict[str, Any]]:
 
 
 @_with_db
+def get_chronicle(world_seed: int, limit: int = 50,
+                  before_id: int | None = None) -> dict[str, Any]:
+    """A page of the world's full history, newest first, cursor-paginated.
+
+    `before_id` walks backward in time (fetch entries with id < before_id).
+    Returns {entries, next_before, total, began}: `next_before` is the
+    cursor for the next-older page (None when exhausted), `total` the
+    world's full event count, `began` the timestamp of its first recorded
+    event — the world's birth in lived history.
+    """
+    limit = max(1, min(int(limit), 200))
+    with _connect() as conn:
+        if before_id is not None:
+            rows = conn.execute(
+                """SELECT id, node_name, mutation_type, player_name, data,
+                          recorded_at
+                   FROM world_mutations WHERE world_seed = ? AND id < ?
+                   ORDER BY id DESC LIMIT ?""",
+                (world_seed, before_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT id, node_name, mutation_type, player_name, data,
+                          recorded_at
+                   FROM world_mutations WHERE world_seed = ?
+                   ORDER BY id DESC LIMIT ?""",
+                (world_seed, limit),
+            ).fetchall()
+        total = conn.execute(
+            "SELECT COUNT(*) FROM world_mutations WHERE world_seed = ?",
+            (world_seed,),
+        ).fetchone()[0]
+        began = conn.execute(
+            "SELECT MIN(recorded_at) FROM world_mutations WHERE world_seed = ?",
+            (world_seed,),
+        ).fetchone()[0]
+    entries = [{"id": r[0], "node": r[1], "type": r[2], "player": r[3],
+                "data": json.loads(r[4]) if r[4] else {}, "at": r[5]}
+               for r in rows]
+    exhausted = len(rows) < limit
+    return {
+        "entries": entries,
+        "next_before": None if exhausted else entries[-1]["id"],
+        "total": total,
+        "began": began,
+    }
+
+
+@_with_db
 def count_mutations_by_node(world_seed: int) -> dict[str, int]:
     """Recorded interactions per node — the world's lived history, in counts.
     Feeds the per-node generative art (trace etchings) via /world."""

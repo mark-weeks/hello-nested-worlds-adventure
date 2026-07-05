@@ -268,7 +268,10 @@
     </div>
 
     <div class="panel" id="players-panel">
-      <div class="panel-title">Explorers</div>
+      <div class="panel-title">Explorers
+        <button id="btn-chronicle" title="The world's full history — everything every player and agent has done here"
+                style="float:right;font-size:9px;padding:1px 8px;letter-spacing:1px">CHRONICLE</button>
+      </div>
       <div id="players-list"><div style="color:#2a4060;font-size:10px">Not connected</div></div>
       <div id="event-feed"></div>
     </div>
@@ -329,6 +332,19 @@
   </div>
 </div>
 
+
+<!-- World chronicle: the permanent record, era by era -->
+<div class="modal-overlay" id="chronicle-modal">
+  <div class="modal-box" style="max-width:520px;width:calc(100vw - 48px);max-height:80vh">
+    <div class="modal-title">World Chronicle</div>
+    <div class="modal-desc" id="chronicle-meta"></div>
+    <div id="chronicle-entries" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:2px;min-height:120px"></div>
+    <div style="display:flex;gap:10px">
+      <button id="chronicle-older">further back</button>
+      <button id="chronicle-close">close</button>
+    </div>
+  </div>
+</div>
 
 <script type="module" src="/nodeart-global.js"></script>
 <script src="/explorer.js" defer></script>

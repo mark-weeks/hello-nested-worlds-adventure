@@ -397,6 +397,63 @@ async function doAct() {
   }
 }
 
+// ── World chronicle ─────────────────────────────────────────────────────────
+// The permanent record: everything every player and agent has done in this
+// world, paginated backward in time and grouped into named eras. This is
+// how a new arrival perceives the history they're building on.
+
+let chronicleCursor = null;   // next_before id, null = start from newest
+let chronicleLastEra = null;  // last era header rendered, to group across pages
+
+function describeChronicleEntry(e) {
+  return describeMutation(e).replace(/^\S+ · /, ''); // strip the date prefix
+}
+
+async function loadChroniclePage(reset) {
+  const box = document.getElementById('chronicle-entries');
+  const meta = document.getElementById('chronicle-meta');
+  if (reset) { box.innerHTML = ''; chronicleCursor = null; chronicleLastEra = null; }
+  try {
+    const cursor = chronicleCursor ? `&before=${chronicleCursor}` : '';
+    const res = await fetch(withKey(
+      `/chronicle?seed=${worldParams.seed}&limit=40${cursor}`));
+    const data = await res.json();
+    meta.textContent = `seed ${data.seed} · ${data.total} recorded events` +
+      (data.began ? ` since ${data.began.slice(0, 10)}` : '') +
+      ` · now: ${data.era_now}`;
+    for (const e of data.entries || []) {
+      if (e.era && e.era !== chronicleLastEra) {
+        chronicleLastEra = e.era;
+        const h = document.createElement('div');
+        h.style.cssText = 'font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#3a8eff;margin:10px 0 4px;border-bottom:1px solid #141828;padding-bottom:3px';
+        h.textContent = e.era;
+        box.appendChild(h);
+      }
+      const row = document.createElement('div');
+      row.style.cssText = 'font-size:10px;color:#5a7090;line-height:1.5';
+      const when = (e.at || '').slice(5, 16).replace(' ', ' · ');
+      row.textContent = `${when}  ${describeChronicleEntry(e)}`;
+      box.appendChild(row);
+    }
+    chronicleCursor = data.next_before;
+    document.getElementById('chronicle-older').style.display =
+      chronicleCursor ? '' : 'none';
+    if (!data.entries || (!data.entries.length && reset)) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'font-size:10px;color:#2a4060';
+      empty.textContent = 'Nothing has happened here yet. You would be first.';
+      box.appendChild(empty);
+    }
+  } catch (e) {
+    meta.textContent = 'The chronicle is unreadable right now.';
+  }
+}
+
+function openChronicle() {
+  document.getElementById('chronicle-modal').classList.add('visible');
+  loadChroniclePage(true);
+}
+
 // ── Addressable presences ───────────────────────────────────────────────────
 // Agents whose traces sit in the selected node's history can be spoken to —
 // "the Tessera who passed through here" — via /agent/voice, which grounds
@@ -852,6 +909,14 @@ document.getElementById('btn-do-speak'  ).addEventListener('click', speak);
 document.getElementById('btn-do-observe').addEventListener('click', observe);
 document.getElementById('btn-do-puzzle' ).addEventListener('click', fetchPuzzle);
 document.getElementById('btn-do-act'    ).addEventListener('click', doAct);
+document.getElementById('btn-chronicle' ).addEventListener('click', openChronicle);
+document.getElementById('chronicle-older').addEventListener('click', () => loadChroniclePage(false));
+document.getElementById('chronicle-close').addEventListener('click',
+  () => document.getElementById('chronicle-modal').classList.remove('visible'));
+document.getElementById('chronicle-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('chronicle-modal'))
+    document.getElementById('chronicle-modal').classList.remove('visible');
+});
 document.getElementById('message').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); speak(); }
 });
