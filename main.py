@@ -119,6 +119,23 @@ def cmd_backup(args):
     print(f"Backup written: {target} ({size_kb} KB)")
 
 
+def cmd_restore(args):
+    source = Path(getattr(args, "from")).expanduser()
+    if not args.yes:
+        print(f"This OVERWRITES the live world database with {source}.")
+        print("Everything recorded since that backup will be lost.")
+        answer = input("Type 'restore' to proceed: ").strip().lower()
+        if answer != "restore":
+            print("Aborted — nothing was changed.")
+            return
+    counts = persistence.restore_from(source)
+    print(f"Restored from {source}")
+    print(f"  chronicle events: {counts['events_before']} -> "
+          f"{counts['events_after']}")
+    print("Restart the server so in-memory state matches the restored "
+          "world (production: `fly machine restart <id>`).")
+
+
 def invite_share_url(key: str, name: str, base: str = "<BASE>") -> str:
     """Build the invite URL to hand a tester.
 
@@ -256,6 +273,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_backup.add_argument("--to", type=str, required=True,
                           help="Target file path (parent dirs are created)")
     p_backup.set_defaults(func=cmd_backup)
+
+    p_restore = sub.add_parser(
+        "restore",
+        help="Restore the live world database from a backup file")
+    p_restore.add_argument("--from", type=str, required=True, dest="from",
+                           metavar="PATH",
+                           help="Backup file to restore (made by `backup`)")
+    p_restore.add_argument("--yes", action="store_true",
+                           help="Skip the interactive confirmation")
+    p_restore.set_defaults(func=cmd_restore)
 
     p_invite = sub.add_parser("invite",
         help="Manage per-user beta invite keys (mint / list / revoke)")

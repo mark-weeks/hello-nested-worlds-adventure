@@ -839,3 +839,44 @@ def backup_to(target: Path) -> None:
         finally:
             dst.close()
     target.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+
+@_with_db
+def restore_from(source: Path) -> dict[str, Any]:
+    """Restore the live DB from a backup file — `backup_to` in reverse.
+
+    The continuity policy's promise is "a bad migration is a restore, not
+    a lost epoch"; this is the restore. Uses the same sqlite backup API,
+    which takes the proper locks, so it is safe against a live server's
+    per-operation connections (rehearsed against a running instance in the
+    pre-deployment review). In-memory state (rooms, puzzle sessions, rate
+    buckets) still reflects the pre-restore world — restart the process
+    after restoring (`fly machine restart` in production).
+
+    Refuses anything that is not a readable SQLite database containing a
+    `world_mutations` table, so a typo'd path can't blank the chronicle.
+    Returns {events_before, events_after} for the operator's sanity check.
+    """
+    source = Path(source)
+    if not source.is_file():
+        raise FileNotFoundError(f"backup not found: {source}")
+    src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    try:
+        try:
+            tables = {r[0] for r in src.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        except sqlite3.DatabaseError as exc:
+            raise ValueError(f"{source} is not a SQLite database") from exc
+        if "world_mutations" not in tables:
+            raise ValueError(
+                f"{source} is a SQLite database but not a worlds backup "
+                "(no world_mutations table) — refusing to restore it")
+        with _connect() as live:
+            before = live.execute(
+                "SELECT COUNT(*) FROM world_mutations").fetchone()[0]
+            src.backup(live)
+            after = live.execute(
+                "SELECT COUNT(*) FROM world_mutations").fetchone()[0]
+    finally:
+        src.close()
+    return {"events_before": before, "events_after": after}

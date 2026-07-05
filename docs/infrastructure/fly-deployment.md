@@ -328,6 +328,28 @@ fly ssh console -C "sh -c 'ls -t /data/backups/*.db | tail -n +6 | xargs -r rm'"
 For an automated cadence, add a tiny cron job on your laptop or a CI
 schedule that runs the two commands above.
 
+### Restoring from a backup
+
+The policy's promise is "a bad migration is a restore, not a lost
+epoch" — this is the restore. It overwrites the live database with the
+backup; everything recorded since that backup is lost, so read the
+event counts it prints.
+
+```bash
+# 1. Restore (uses the sqlite backup API in reverse — safe against the
+#    running server's per-operation connections; --yes skips the prompt).
+fly ssh console -C "python main.py restore --from /data/backups/worlds-YYYYMMDD.db --yes"
+
+# 2. Restart so in-memory state (rooms, puzzle sessions, rate buckets)
+#    matches the restored world.
+fly machine restart <machine-id>
+```
+
+If the backup only exists off-host, upload it first:
+`fly ssh sftp shell` then `put ./local-backups/worlds-YYYYMMDD.db /data/backups/`.
+This procedure was rehearsed against a live server in the
+pre-deployment review (backup → mutate → restore → verified rollback).
+
 ---
 
 ## 8. Day-2 operations
@@ -340,6 +362,7 @@ schedule that runs the two commands above.
 | See current machine status | `fly status` |
 | Restart the machine | `fly machine restart <id>` |
 | Inspect the volume | `fly volumes list` |
+| Restore from a backup | `python main.py restore --from <file>` then restart (§7) |
 | Adjust a runtime cap | `fly secrets set NESTED_WORLDS_ANTHROPIC_DAILY_CALLS=1000` |
 | Kill switch AI without redeploy | `fly secrets set NESTED_WORLDS_DISABLE_AI=1` |
 | Slow/speed causal ripple travel | `fly secrets set NESTED_WORLDS_HOP_DELAY=30` |
