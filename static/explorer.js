@@ -282,6 +282,19 @@ function fitView() {
     .scale(scale));
 }
 
+function drawSigil(data) {
+  const sigil = document.getElementById('node-sigil');
+  if (!sigil) return;
+  if (window.NodeArt) {
+    try { window.NodeArt.drawNodeArt(sigil, worldParams.seed, data); } catch (_) {}
+  } else {
+    // The art ships as a deferred ES module, so the initial entry selection
+    // can beat it; redraw whatever is selected once it announces itself.
+    window.addEventListener('nodeart-ready',
+      () => { if (selected) drawSigil(selected); }, { once: true });
+  }
+}
+
 function selectNode(data) {
   selected = data;
   const color = LEVEL_COLORS[data.level] || '#3a8eff';
@@ -306,6 +319,10 @@ function selectNode(data) {
       `<span class="prop-val"${hot}>${bars} ${data.ripple_score.toFixed(2)}</span></div>`;
   }
   document.getElementById('node-props').innerHTML = propsHtml;
+
+  // The node's own generative art: deterministic in (seed, name), shaped by
+  // properties, marked by history (pressure, effects, activity etchings).
+  drawSigil(data);
 
   document.getElementById('speak-response').textContent = '';
   document.getElementById('speak-response').className = 'response-box';

@@ -149,17 +149,20 @@ def _play_puzzle(node: SpatialNode, seed: int) -> None:
     result = engine.run_puzzle(puzzle)
 
     # A CLI solve is a real solve: it persists and cascades exactly like a
-    # browser solve, so the consequence outlives the command.
+    # browser solve. The origin settles immediately; the rest of the cascade
+    # rides the causal queue and arrives ring by ring (fired by the server's
+    # causal pump), so the consequence travels outward over real time.
     if result == PuzzleResult.SOLVED:
+        from causality.staging import stage_cascade
         persistence.save_puzzle_result(seed, puzzle.name, result.name, puzzle.attempts)
         persistence.record_mutation(
             seed, node.name, "PUZZLE_SOLVED", None, {"puzzle": puzzle.name})
         bus = wire_world_handlers(CausalityBus(), seed)
-        event_count_before = len(bus.get_log())
-        bus.propagate(node, EventKind.PUZZLE_SOLVED, {"puzzle": puzzle.name})
-        fired = len(bus.get_log()) - event_count_before
-        print(f"  {_DIM}The solve ripples outward — {fired} node(s) felt it."
-              f"{_RESET}")
+        bus.emit(node, EventKind.PUZZLE_SOLVED, {"puzzle": puzzle.name})
+        staged = stage_cascade(seed, node, EventKind.PUZZLE_SOLVED,
+                               {"puzzle": puzzle.name})
+        print(f"  {_DIM}The place settles. {staged} consequence(s) are "
+              f"already traveling outward.{_RESET}")
     elif result == PuzzleResult.FAILED:
         persistence.record_mutation(
             seed, node.name, "PUZZLE_FAILED", None, {"puzzle": puzzle.name})

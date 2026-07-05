@@ -41,6 +41,11 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     heartbeat_stop = None
     if heartbeat.enabled():
         heartbeat_stop = heartbeat.start()
+    # The causal pump: fires due hops of staged cascades so consequences
+    # travel outward over time. Disable with NESTED_WORLDS_CAUSAL_PUMP=0.
+    pump_stop = None
+    if heartbeat.pump_enabled():
+        pump_stop = heartbeat.start_pump()
 
     # Graceful shutdown on SIGTERM (Fly/Render send it on every deploy/stop).
     # serve_forever() blocks the main thread and shutdown() must be called
@@ -68,6 +73,8 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     finally:
         if heartbeat_stop is not None:
             heartbeat_stop.set()
+        if pump_stop is not None:
+            pump_stop.set()
         server.server_close()
         try:
             persistence.checkpoint()

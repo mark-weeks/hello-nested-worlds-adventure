@@ -1,8 +1,11 @@
 """Tests for room presence + broadcast in server/rooms.py."""
 import json
+import threading
+import time
 
 import pytest
 
+import server.rooms as rooms
 from server.rooms import (
     Player, PuzzleSession, Room, _rooms, _rooms_lock,
     agent_enter, agent_leave, agent_move,
@@ -22,6 +25,28 @@ class FakeSock:
         if self.fail:
             raise OSError("simulated socket failure")
         self.sent.append(data)
+
+
+class StallSock:
+    """sendall blocks until released — a peer whose TCP window is full."""
+
+    def __init__(self):
+        self.release = threading.Event()
+        self.sent = []
+
+    def sendall(self, data: bytes) -> None:
+        if not self.release.wait(timeout=5):
+            raise OSError("stalled beyond test timeout")
+        self.sent.append(data)
+
+
+def _wait_for(predicate, timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
 
 
 @pytest.fixture(autouse=True)
@@ -155,6 +180,92 @@ class TestPlayerSend:
         sock = FakeSock(fail=True)
         p = Player(name="X", seed=1, current_node="root", session_id="x", sock=sock)
         assert p.send({"type": "ping"}) is False
+
+    def test_stays_dead_after_first_failure(self):
+        # Once the socket has failed, later sends short-circuit to False
+        # without touching the socket again.
+        sock = FakeSock(fail=True)
+        p = Player(name="X", seed=1, current_node="root", session_id="x", sock=sock)
+        assert p.send({"type": "ping"}) is False
+        sock.fail = False  # even a now-healthy socket doesn't resurrect it
+        assert p.send({"type": "ping"}) is False
+        assert sock.sent == []
+
+
+class TestNonBlockingBroadcast:
+    """A dedicated writer thread per player means one stalled client can't
+    head-of-line-block the room: broadcast only enqueues."""
+
+    def _player(self, sid: str, sock) -> Player:
+        p = Player(name=f"P{sid}", seed=1, current_node="root",
+                   session_id=sid, sock=sock)
+        p.start_writer()
+        return p
+
+    def test_writer_thread_delivers_messages(self):
+        p = self._player("w", FakeSock())
+        try:
+            assert p.send({"n": 1}) is True
+            assert p.send({"n": 2}) is True
+            assert _wait_for(lambda: len(p.sock.sent) == 2)
+            # In-order delivery: strip the 2-byte frame header of each frame.
+            payloads = [json.loads(f[2:]) for f in p.sock.sent]
+            assert payloads == [{"n": 1}, {"n": 2}]
+        finally:
+            p.stop_writer()
+
+    def test_stalled_client_does_not_block_broadcast(self):
+        room = get_room(1)
+        stalled = self._player("stalled", StallSock())
+        good = self._player("good", FakeSock())
+        with room.lock:
+            room.players["stalled"] = stalled
+            room.players["good"] = good
+        try:
+            started = time.monotonic()
+            broadcast(room, {"type": "hello"})
+            elapsed = time.monotonic() - started
+            assert elapsed < 0.5, f"broadcast blocked for {elapsed:.2f}s on a stalled client"
+            # The healthy player still receives the message promptly.
+            assert _wait_for(lambda: len(good.sock.sent) == 1)
+        finally:
+            stalled.sock.release.set()
+            stalled.stop_writer()
+            good.stop_writer()
+
+    def test_overflowing_outbox_marks_player_dead(self, monkeypatch):
+        monkeypatch.setattr(rooms, "OUTBOX_LIMIT", 4)
+        p = self._player("slow", StallSock())
+        try:
+            # Writer picks up at most one message and stalls in sendall;
+            # the bounded outbox then fills and send() starts refusing.
+            results = [p.send({"n": i}) for i in range(8)]
+            assert results[-1] is False, "outbox overflow must mark the player dead"
+            assert p.send({"type": "anything"}) is False
+        finally:
+            p.sock.release.set()
+            p.stop_writer()
+
+    def test_dead_player_is_evicted_on_next_broadcast(self, monkeypatch):
+        monkeypatch.setattr(rooms, "OUTBOX_LIMIT", 2)
+        room = get_room(1)
+        slow = self._player("slow", StallSock())
+        with room.lock:
+            room.players["slow"] = slow
+        try:
+            for i in range(6):  # overflow the outbox → player marked dead
+                broadcast(room, {"n": i})
+            with room.lock:
+                assert "slow" not in room.players
+        finally:
+            slow.sock.release.set()
+            slow.stop_writer()
+
+    def test_stop_writer_terminates_thread(self):
+        p = self._player("bye", FakeSock())
+        p.stop_writer()
+        p._writer.join(timeout=2)
+        assert not p._writer.is_alive()
 
 
 class TestPuzzleSession:

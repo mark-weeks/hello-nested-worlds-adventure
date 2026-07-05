@@ -80,6 +80,15 @@ class CausalityBus:
         self._fire(node, event)
         return event
 
+    def fire(self, node: SpatialNode, event: CausalEvent) -> None:
+        """Fire a pre-built event at *node* as-is (strength preserved).
+
+        Used by staged cascades (causality/staging.py), where a hop built
+        earlier — already dampened — arrives at its node after a delay and
+        must fire without being reset to full strength.
+        """
+        self._fire(node, event)
+
     def propagate(self, origin: SpatialNode, kind: EventKind,
                   payload: dict[str, Any] | None = None,
                   dampening: float = 0.5,

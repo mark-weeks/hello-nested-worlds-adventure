@@ -247,3 +247,41 @@ class TestWorldAlreadyInMotion:
     def test_app_has_first_run_intro(self):
         src = _all_text(_FRONTEND_SRC, ".jsx")
         assert "nw_seen_intro" in src, "/app has no first-run intro"
+
+
+class TestGenerativeArtLayer:
+    """Per-node generative art is a core feature: both clients must consume
+    the shared deterministic art module, and the server must expose the
+    per-node activity counts the art etches as history marks."""
+
+    def test_shared_art_module_exists_and_is_deterministic_by_contract(self):
+        art = (_ROOT / "static" / "nodeart.js").read_text()
+        assert "nodeArtParams" in art
+        assert "drawNodeArt" in art
+        # No wall-clock or Math.random — determinism is the contract.
+        assert "Math.random" not in art
+        assert "Date.now" not in art
+
+    def test_react_scene_renders_the_art_as_base_layer(self):
+        src = (_FRONTEND_SRC / "components" / "SceneView.jsx").read_text()
+        assert "drawNodeArt" in src
+        assert "_addArtBg" in src
+
+    def test_explorer_draws_the_node_sigil(self):
+        explorer = (_ROOT / "static" / "explorer.js").read_text()
+        assert "NodeArt" in explorer
+        html = (_ROOT / "static" / "index.html").read_text()
+        assert "node-sigil" in html
+        assert "nodeart-global.js" in html
+
+    @pytest.mark.skipif(not _BUILT_APP.exists(),
+                        reason="static/app not built")
+    def test_built_bundle_carries_the_art(self):
+        # Function names are minified away; the form-family string literals
+        # (LEVEL_BASE values in nodeart.js) survive minification.
+        bundle = _all_text(_BUILT_APP, ".js")
+        for family in ("filaments", "speckle", "ridges", "shells"):
+            assert family in bundle, (
+                f"built bundle is missing the {family!r} art family — "
+                "rebuild the frontend so /app ships the generative art"
+            )

@@ -158,10 +158,13 @@ them yet. They're listed so future-us doesn't repaint the bike shed.
   Introduce a "shard within a seed" concept so a room holds at most ~50
   participants.
 
-* **Background causality worker.** Causal events currently fire
-  synchronously inside the request that triggered them. At high event
-  rates this couples request latency to causality complexity. Move to a
-  worker process consuming an event queue.
+* **Out-of-process causality worker.** The first half of this shipped:
+  only the origin's immediate ring fires inside the triggering request;
+  farther rings are staged in the durable `causal_queue` table and
+  drained by an in-process pump thread (`server/heartbeat.py`,
+  `NESTED_WORLDS_HOP_DELAY`). What remains at scale is moving that pump
+  into a separate worker process so cascade drain never competes with
+  request threads for the GIL.
 
 ---
 
@@ -173,7 +176,27 @@ shouldn't be pulled forward without a serious signal:
 * GraphQL or alternative API layer.
 * Account/login system (the invite key IS the credential).
 * Mobile-native clients.
-* Persistent game state across cohorts (each beta cohort gets a fresh DB).
+
+---
+
+## Continuity policy (standing, not phase-gated)
+
+Cross-cohort persistence is a **product goal**, not an ops convenience to
+trade away: each new player — human or agent — builds on the experience
+created by everyone before them and everyone currently active. The world
+database is a continuous chronicle. Operationally that means:
+
+* **Never wipe the DB between cohorts.** A new beta wave joins the same
+  world history the last one left behind.
+* **Migrations are additive.** New tables and new columns with defaults;
+  no destructive rewrites of `world_mutations`, `node_interactions`,
+  `agent_memory`, or `puzzle_results`. The migration runner
+  (`persistence/migrations/`) already applies files in order — a
+  migration that would drop accumulated history needs an explicit
+  data-preserving backfill plan in review.
+* **Back up before every deploy.** `python main.py backup` does an online
+  SQLite backup; make it the first step of the deploy script, so a bad
+  migration is a restore, not a lost epoch.
 
 ---
 

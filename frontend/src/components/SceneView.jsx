@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Application, Assets, Container, Graphics, Sprite, Text, TextStyle } from "pixi.js";
+import { Application, Assets, Container, Graphics, Sprite, Text, TextStyle, Texture } from "pixi.js";
 import { withKey } from "../auth.js";
 import { passageBadges } from "../badges.js";
+import { drawNodeArt } from "../../../static/nodeart.js";
 
 export default function SceneView({
   node, players, transients = [],
@@ -56,7 +57,7 @@ export default function SceneView({
 
     let tickCallback = null;
 
-    app.init({
+    const initPromise = app.init({
       resizeTo: container,
       background: 0x07080f,
       antialias: true,
@@ -73,7 +74,7 @@ export default function SceneView({
       transientLayerRef.current = transientLayer;
 
       readyRef.current = true;
-      renderScene(app, node, players, onNavigate, bgUrl);
+      renderScene(app, node, players, onNavigate, bgUrl, seed);
       app.stage.addChild(transientLayer);
 
       tickCallback = () => {
@@ -81,18 +82,27 @@ export default function SceneView({
         paintTransients(transientLayer, transientsRef.current, app.screen);
       };
       app.ticker.add(tickCallback);
-    }).catch(() => {
+    }).catch((err) => {
       // WebGL/WebGPU unavailable (headless without GPU, locked-down mobile).
       // Leave the scene blank; the rest of the app (text panel, speak, puzzle)
-      // stays fully usable instead of white-screening.
+      // stays fully usable instead of white-screening. Warn instead of going
+      // fully silent so a real init regression is distinguishable from a
+      // GPU-less environment.
+      console.warn("scene renderer unavailable:", err?.message ?? err);
     });
 
     return () => {
       readyRef.current = false;
       if (tickCallback && app.ticker) app.ticker.remove(tickCallback);
-      app.destroy(true, { children: true });
       appRef.current = null;
       transientLayerRef.current = null;
+      // Destroy only after init settles: PixiJS v8 throws from its resize
+      // plugin (`this._cancelResize is not a function`) when a mid-init app
+      // is destroyed — which is exactly what a fast unmount (or React
+      // StrictMode's dev double-mount) does.
+      initPromise.then(() => {
+        try { app.destroy(true, { children: true }); } catch (_) { /* torn down */ }
+      });
     };
   }, []);
 
@@ -107,12 +117,12 @@ export default function SceneView({
       app.stage.removeChild(transientLayer);
     }
     app.stage.removeChildren();
-    renderScene(app, node, players, onNavigate, bgUrl);
+    renderScene(app, node, players, onNavigate, bgUrl, seed);
     if (transientLayer) {
       transientLayer.removeChildren();  // clear stale transient graphics
       app.stage.addChild(transientLayer);
     }
-  }, [node, players, onNavigate, bgUrl]);
+  }, [node, players, onNavigate, bgUrl, seed]);
 
   return (
     <div style={styles.wrapper}>
@@ -127,15 +137,17 @@ export default function SceneView({
 
 // ── Static scene rendering ────────────────────────────────────────────────
 
-function renderScene(app, node, players, onNavigate, bgUrl) {
+function renderScene(app, node, players, onNavigate, bgUrl, seed) {
   // Guard against a not-yet-initialised or torn-down renderer — `app.screen`
   // throws until init resolves, and an unguarded throw here has no error
   // boundary above it and would blank the entire app.
   if (!app || !app.renderer) return;
   const { width, height } = app.screen;
 
-  // Placeholder color background (index 0 — replaced by Sprite once loaded)
-  _addColorBg(app, node, width, height);
+  // The node's own generative art — deterministic in (seed, name), shaped
+  // by its properties and marked by its history. Always present: this is
+  // the scene, with or without any image service (index 0).
+  _addArtBg(app, node, seed, width, height);
 
   // Node name
   const label = new Text({
@@ -176,15 +188,17 @@ function renderScene(app, node, players, onNavigate, bgUrl) {
     app.stage.addChild(group);
   });
 
-  // Async: swap out the color bg with the fal.ai generated image
+  // Async enhancement: the fal.ai render washes over the generative art
+  // (never replaces it) — the node keeps its unique visual identity and the
+  // photographic layer deepens it when available.
   if (bgUrl) {
     Assets.load(bgUrl).then((texture) => {
       if (!app.stage || app.stage.destroyed) return;
       const sprite  = new Sprite(texture);
       sprite.width  = width;
       sprite.height = height;
-      app.stage.removeChildAt(0);
-      app.stage.addChildAt(sprite, 0);
+      sprite.alpha  = 0.6;
+      app.stage.addChildAt(sprite, 1);
     }).catch(() => {});
   }
 }
@@ -252,10 +266,15 @@ function paintTransients(layer, list, screen) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function _addColorBg(app, node, width, height) {
-  const bg = new Graphics();
-  bg.rect(0, 0, width, height).fill(levelColor(node.level));
-  if (app.stage) app.stage.addChildAt(bg, 0);
+function _addArtBg(app, node, seed, width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(64, Math.floor(width));
+  canvas.height = Math.max(64, Math.floor(height));
+  drawNodeArt(canvas, seed ?? 0, node);
+  const sprite = new Sprite(Texture.from(canvas));
+  sprite.width = width;
+  sprite.height = height;
+  if (app.stage) app.stage.addChildAt(sprite, 0);
 }
 
 // Hotspot affordance — closes design.md item #4. The visual treatment is
@@ -357,15 +376,6 @@ function makeHotspot(app, node, x, y, onNavigate) {
   group.on("pointertap",  () => onNavigate(node));
 
   return group;
-}
-
-function levelColor(level) {
-  const palette = {
-    Multiverse: 0x0a0320, Universe: 0x0b0a28, Galaxy: 0x0a1030,
-    "Planetary System": 0x0d1520, Planet: 0x0e1c18, Region: 0x121a12,
-    Room: 0x141010, Object: 0x1a1008,
-  };
-  return palette[level] ?? 0x07080f;
 }
 
 const _PLAYER_PALETTE = [

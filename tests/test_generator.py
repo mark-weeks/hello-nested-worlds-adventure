@@ -200,3 +200,66 @@ class TestGeneratorValidation:
     def test_equal_min_max_breadth_is_valid(self):
         root = generate_node_hierarchy(seed=1, max_depth=3, min_breadth=2, max_breadth=2)
         assert len(root.children) == 2
+
+
+class TestNodeUniqueness:
+    """Each node is one of a kind: full names unique by construction, base
+    names synthesized from spaces large enough that repetition is rare, and
+    every node carries an `aspect` description belonging to it alone."""
+
+    def _walk(self, seed, depth=11):
+        root = generate_node_hierarchy(seed=seed, max_depth=depth)
+        out = []
+
+        def walk(n):
+            out.append(n)
+            for c in n.children:
+                walk(c)
+
+        walk(root)
+        return out
+
+    def test_full_names_unique(self):
+        nodes = self._walk(seed=13)
+        names = [n.name for n in nodes]
+        assert len(names) == len(set(names))
+
+    def test_base_names_rarely_repeat(self):
+        nodes = self._walk(seed=13)
+        bases = [n.name.rsplit("-", 1)[0] for n in nodes]
+        distinct = len(set(bases)) / len(bases)
+        assert distinct >= 0.95, (
+            f"only {distinct:.1%} of base names are distinct — the synthesis "
+            "space has collapsed and nodes no longer feel unique"
+        )
+
+    def test_every_node_has_a_unique_aspect(self):
+        nodes = self._walk(seed=13)
+        aspects = [n.properties.get("aspect") for n in nodes]
+        assert all(aspects), "every node must carry an aspect description"
+        distinct = len(set(aspects)) / len(aspects)
+        assert distinct >= 0.99
+
+    def test_property_sets_never_repeat(self):
+        # Continuous values + the aspect make a node's full property tuple
+        # effectively unrepeatable within a world.
+        nodes = self._walk(seed=13)
+        fingerprints = [tuple(sorted((k, str(v)) for k, v in n.properties.items()))
+                        for n in nodes]
+        assert len(set(fingerprints)) == len(fingerprints)
+
+    def test_base_names_never_contain_the_suffix_separator(self):
+        # rpartition("-") is how resolve_node_by_name recovers the path; a
+        # hyphen inside a base name would corrupt resolution.
+        nodes = self._walk(seed=13, depth=8)
+        for n in nodes:
+            base = n.name.rsplit("-", 1)[0]
+            assert "-" not in base, f"{n.name!r} has a hyphenated base"
+
+    def test_synthesized_names_still_resolve(self):
+        from multiverse.generator import resolve_node_by_name
+        nodes = self._walk(seed=13, depth=8)
+        for n in nodes[:: max(1, len(nodes) // 25)]:
+            resolved = resolve_node_by_name(13, n.name)
+            assert resolved is not None, f"{n.name} failed to resolve"
+            assert resolved.properties == n.properties
