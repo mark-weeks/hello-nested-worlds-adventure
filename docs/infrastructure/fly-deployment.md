@@ -2,7 +2,7 @@
 
 This guide walks through standing up Enfolded on Fly.io for
 the initial beta. It assumes you have shell access to a clone of this
-repository and an Anthropic + fal.ai key in hand.
+repository and an Anthropic key in hand.
 
 End state: one VM in one region, SQLite on a persistent volume, the
 React frontend baked into the image, Sentry wired in, and per-user
@@ -20,7 +20,10 @@ invite keys distributed to your testers.
   fly auth login
   ```
 - An Anthropic API key (`ANTHROPIC_API_KEY`).
-- A fal.ai API key (`FAL_KEY`).
+- Optionally, a fal.ai API key (`FAL_KEY`). Scene imagery is an
+  enhancement wash over the built-in deterministic node art — without
+  the key, every node still renders its generative art; with it,
+  `/image` layers AI backgrounds on top.
 - Optionally, a Sentry DSN (`SENTRY_DSN`). Sentry is already a default
   dependency — setting the DSN is sufficient to activate it.
 
@@ -166,6 +169,7 @@ fly apps create nested-worlds-beta
 fly volumes create nested_worlds_data --region iad --size 1
 
 # Set runtime secrets. These never appear in logs or the image.
+# FAL_KEY and SENTRY_DSN are optional — omit either line freely.
 fly secrets set \
   ANTHROPIC_API_KEY=sk-ant-... \
   FAL_KEY=... \
@@ -230,18 +234,32 @@ fly ssh console -C "python main.py invite revoke nw_<key>"
 ## 6. Backups
 
 The SQLite store sits on the volume at `/data/.nested-worlds/worlds.db`.
-Two layers:
+The continuity policy (`docs/roadmap/phase-2-scale.md`) makes this file
+the world's permanent chronicle — it is never wiped between cohorts —
+so the volume is the only live copy of everything every player and
+agent has ever done. Three layers:
 
 **Volume snapshots (automatic).** Fly takes daily snapshots of every
-volume by default and retains them for 5 days. List with
-`fly volumes snapshots list <volume-id>`.
+volume by default and retains them for **5 days only**. List with
+`fly volumes snapshots list <volume-id>`. Treat these as a convenience,
+not the archive.
 
-**Application-level backups (recommended weekly).** Run the online
-backup CLI and stream the result off-host:
+**Before every deploy (required).** Per the continuity policy, an
+online backup is the first step of every deploy, so a bad migration is
+a restore, not a lost epoch:
 
 ```bash
 fly ssh console -C "python main.py backup --to /data/backups/worlds-$(date -u +%Y%m%d).db"
+```
+
+**Off-host copies (recommended weekly).** Stream a backup off the
+machine, then prune what's already copied — the backups directory
+shares the 1 GB volume with the live DB and grows by one file per
+deploy:
+
+```bash
 fly ssh sftp get /data/backups/worlds-YYYYMMDD.db ./local-backups/
+fly ssh console -C "sh -c 'ls -t /data/backups/*.db | tail -n +6 | xargs -r rm'"
 ```
 
 For an automated cadence, add a tiny cron job on your laptop or a CI
@@ -255,21 +273,26 @@ schedule that runs the two commands above.
 |---|---|
 | Tail logs | `fly logs` |
 | Open a shell in the running machine | `fly ssh console` |
-| Redeploy after a code change | `git push` (CI runs) then `fly deploy` |
+| Redeploy after a code change | backup first (§6), then `git push` (CI runs) and `fly deploy` |
 | See current machine status | `fly status` |
 | Restart the machine | `fly machine restart <id>` |
 | Inspect the volume | `fly volumes list` |
 | Adjust a runtime cap | `fly secrets set NESTED_WORLDS_ANTHROPIC_DAILY_CALLS=1000` |
 | Kill switch AI without redeploy | `fly secrets set NESTED_WORLDS_DISABLE_AI=1` |
+| Slow/speed causal ripple travel | `fly secrets set NESTED_WORLDS_HOP_DELAY=30` |
+| Pause staged-cascade drain (hops queue durably) | `fly secrets set NESTED_WORLDS_CAUSAL_PUMP=0` |
 
 A `fly secrets set` triggers an automatic rolling redeploy. The single
 machine means there is roughly 10-30 seconds of downtime per change, and
 **every deploy drops live WebSocket sessions** (browsers auto-reconnect) —
-acceptable for a beta. On SIGTERM the server drains, stops accepting new
-connections, and checkpoints the SQLite WAL back into the main file, so a
-redeploy never leaves a large `-wal` sidecar to replay on next boot. The
-`cost_budget` and `invite_keys` tables live on the volume, so they survive
-restarts and redeploys.
+acceptable for a beta. In-flight causal cascades are safe to deploy over:
+staged hops live in the durable `causal_queue` table, so a ripple pauses
+during the rollover and resumes when the pump thread comes back up. On
+SIGTERM the server drains, stops accepting new connections, and
+checkpoints the SQLite WAL back into the main file, so a redeploy never
+leaves a large `-wal` sidecar to replay on next boot. The `cost_budget`
+and `invite_keys` tables live on the volume, so they survive restarts
+and redeploys.
 
 ---
 
