@@ -1,13 +1,15 @@
 name: Off-host backup
 
 # The volume holding worlds.db is the only live copy of the permanent
-# chronicle; Fly's automatic snapshots retain just 5 days. This schedule
-# pulls a weekly application-level backup off-host into a GitHub artifact.
+# chronicle; Fly's automatic snapshots retain just 5 days and live on the
+# same platform. This schedule pulls a daily application-level backup
+# off-host into a GitHub artifact — the continuity promise makes data loss
+# a broken covenant, not an outage, so the loss window is kept to a day.
 # Requires the FLY_API_TOKEN repo secret (fly tokens create deploy); until
 # it is set, runs no-op with a notice instead of failing.
 on:
   schedule:
-    - cron: '0 6 * * 1'   # Mondays 06:00 UTC
+    - cron: '0 6 * * *'   # daily 06:00 UTC
   workflow_dispatch: {}
 
 jobs:

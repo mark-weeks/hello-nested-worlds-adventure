@@ -417,6 +417,91 @@ def get_mutations(world_seed: int, limit: int = 50) -> list[dict[str, Any]]:
                 for r in rows]
 
 
+# ── Redaction: the sanctioned exception to append-only ─────────────────────
+# The chronicle is permanent, but permanence needs an escape hatch for
+# abuse: a slur cut into a room, doxxing in chat, a poisoned puzzle guess.
+# Redaction is CONTENT-level, never row-level — the event, its node, its
+# type, its timestamp, and its durable actor_identity all survive (the
+# world still remembers that something happened and who did it); only the
+# human-authored words are tombstoned. Mechanical fields (puzzle names,
+# correct flags, verbs) are preserved so co-op counter rehydration and
+# renewal epochs are untouched. See the runbook's "Redaction" section for
+# the operator procedure.
+
+_REDACTABLE_FIELDS = ("message", "reply", "text", "guess", "answer_given")
+_REDACTED = "[redacted]"
+
+
+@_with_db
+def find_mutations_by_text(needle: str, world_seed: int | None = None,
+                           limit: int = 20) -> list[dict[str, Any]]:
+    """Locate chronicle rows whose content or display name contains
+    `needle` (case-insensitive substring) — the operator's search step
+    before redacting. Newest first, ids included for redact_mutation."""
+    where = "(data LIKE '%' || ? || '%' OR player_name LIKE '%' || ? || '%')"
+    args: list[Any] = [needle, needle]
+    if world_seed is not None:
+        where += " AND world_seed = ?"
+        args.append(world_seed)
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT id, world_seed, node_name, mutation_type,
+                       player_name, data, recorded_at
+                FROM world_mutations WHERE {where}
+                ORDER BY id DESC LIMIT ?""",
+            (*args, limit),
+        ).fetchall()
+    return [{"id": r[0], "seed": r[1], "node": r[2], "type": r[3],
+             "player": r[4], "data": json.loads(r[5]) if r[5] else {},
+             "at": r[6]} for r in rows]
+
+
+@_with_db
+def redact_mutation(mutation_id: int, scrub_name: bool = False,
+                    reason: str | None = None) -> dict[str, Any] | None:
+    """Tombstone the human-authored content of one chronicle row.
+
+    Replaces the free-text fields in `data` with "[redacted]" and stamps
+    redacted/redacted_at (+ an optional short operator reason). With
+    `scrub_name`, also nulls the display name (for names that are
+    themselves the abuse) — actor_identity is deliberately kept, so
+    accountability survives the cleanup. Idempotent. Returns a summary of
+    what changed, or None if no row has that id.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT world_seed, node_name, mutation_type, player_name,
+                      data FROM world_mutations WHERE id = ?""",
+            (mutation_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        data = json.loads(row[4]) if row[4] else {}
+        fields = [f for f in _REDACTABLE_FIELDS
+                  if f in data and data[f] != _REDACTED]
+        for f in fields:
+            data[f] = _REDACTED
+        data["redacted"] = True
+        data.setdefault(
+            "redacted_at",
+            conn.execute(f"SELECT {_NOW}").fetchone()[0])
+        if reason:
+            data["redacted_reason"] = str(reason)[:80]
+        name_scrubbed = scrub_name and row[3] is not None
+        if name_scrubbed:
+            conn.execute(
+                """UPDATE world_mutations SET data = ?, player_name = NULL
+                   WHERE id = ?""",
+                (json.dumps(data), mutation_id))
+        else:
+            conn.execute(
+                "UPDATE world_mutations SET data = ? WHERE id = ?",
+                (json.dumps(data), mutation_id))
+    return {"id": mutation_id, "seed": row[0], "node": row[1],
+            "type": row[2], "fields": fields,
+            "name_scrubbed": bool(name_scrubbed)}
+
+
 @_with_db
 def count_node_mutations(world_seed: int, node_name: str,
                          mutation_type: str) -> int:

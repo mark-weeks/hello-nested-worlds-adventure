@@ -136,6 +136,46 @@ def cmd_restore(args):
           "world (production: `fly machine restart <id>`).")
 
 
+def cmd_redact(args):
+    if args.find is not None:
+        rows = persistence.find_mutations_by_text(args.find,
+                                                  world_seed=args.seed)
+        if not rows:
+            print("No chronicle rows match.")
+            return
+        print(f"{'id':>8}  {'recorded':<20}  {'type':<15}  {'seed':>6}  "
+              f"{'player':<16}  content")
+        print("-" * 110)
+        for r in rows:
+            snippet = "; ".join(
+                f"{k}={v}" for k, v in r["data"].items()
+                if isinstance(v, str))[:48]
+            print(f"{r['id']:>8}  {r['at']:<20}  {r['type']:<15}  "
+                  f"{r['seed']:>6}  {(r['player'] or '—'):<16}  {snippet}")
+        print("\nApply with: python main.py redact --id <id> "
+              "[--scrub-name] [--reason '...']")
+        return
+
+    if not args.yes:
+        print(f"This tombstones the human-authored text of chronicle row "
+              f"{args.id} (the row, its event type, and its actor identity "
+              f"are kept).")
+        answer = input("Type 'redact' to proceed: ").strip().lower()
+        if answer != "redact":
+            print("Aborted — nothing was changed.")
+            return
+    summary = persistence.redact_mutation(args.id, scrub_name=args.scrub_name,
+                                          reason=args.reason)
+    if summary is None:
+        raise SystemExit(f"no chronicle row has id {args.id}")
+    fields = ", ".join(summary["fields"]) or "(no free-text fields present)"
+    print(f"Redacted row {summary['id']} — {summary['type']} at "
+          f"{summary['node']} (world {summary['seed']})")
+    print(f"  fields tombstoned: {fields}")
+    if summary["name_scrubbed"]:
+        print("  display name scrubbed (actor_identity retained)")
+
+
 def invite_share_url(key: str, name: str, base: str = "<BASE>") -> str:
     """Build the invite URL to hand a tester.
 
@@ -283,6 +323,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_restore.add_argument("--yes", action="store_true",
                            help="Skip the interactive confirmation")
     p_restore.set_defaults(func=cmd_restore)
+
+    p_redact = sub.add_parser(
+        "redact",
+        help="Tombstone abusive text in a chronicle row (content-level; "
+             "the event, its type, and its actor identity are preserved)")
+    group = p_redact.add_mutually_exclusive_group(required=True)
+    group.add_argument("--find", type=str, metavar="TEXT",
+                       help="List rows whose content or display name "
+                            "contains TEXT (read-only search step)")
+    group.add_argument("--id", type=int,
+                       help="Chronicle row id to redact (from --find or "
+                            "the /chronicle cursor)")
+    p_redact.add_argument("--seed", type=int, default=None,
+                          help="Restrict --find to one world")
+    p_redact.add_argument("--scrub-name", action="store_true",
+                          help="Also null the display name (for names that "
+                               "are themselves the abuse)")
+    p_redact.add_argument("--reason", type=str, default=None,
+                          help="Short operator note stored on the row")
+    p_redact.add_argument("--yes", action="store_true",
+                          help="Skip the interactive confirmation")
+    p_redact.set_defaults(func=cmd_redact)
 
     p_invite = sub.add_parser("invite",
         help="Manage per-user beta invite keys (mint / list / revoke)")
