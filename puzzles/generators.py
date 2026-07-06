@@ -490,6 +490,52 @@ def _clean_pool_puzzles(level: str, node: SpatialNode) -> list[Puzzle]:
     return out
 
 
+# Keys a LOCK may listen for: generated Region categoricals that the
+# property overlay never mutates, so the answer is stable for the life of
+# the world (a danger_level key would change under the players mid-session).
+_LOCK_KEY_CANDIDATES = ("weather", "terrain", "faction_control")
+
+
+def _make_lock(node: SpatialNode, rng: random.Random,
+               difficulty: int) -> Puzzle | None:
+    """A travel-key lock: the answer is a property of the node that HOLDS
+    this one — readable in plain sight one scale up, not guessable here.
+
+    This is the mechanic that makes the `locked` trait real: a locked Room
+    sends the player back out to its Region to learn something about where
+    they are. Deliberately knowledge-of-the-world, not word-decoding.
+    Returns None when the node isn't locked or has no suitable keeper.
+    """
+    if not node.properties.get("locked") or node.parent is None:
+        return None
+    parent = node.parent
+    own_values = _property_values(node)
+    keys = [k for k in _LOCK_KEY_CANDIDATES
+            if isinstance(parent.properties.get(k), str)
+            and parent.properties[k].strip().lower() not in own_values]
+    if not keys:
+        return None
+    key = rng.choice(keys)
+    answer = parent.properties[key].strip().lower()
+    key_label = key.replace("_", " ")
+    hints = [
+        f"The keeper is {parent.name} — the {parent.level} that holds this place.",
+        f"Stand in the keeper and read its {key_label}.",
+        f"It begins with '{answer[0]}'.",
+    ]
+    return Puzzle(
+        name=f"The Sealed {node.level}",
+        kind=PuzzleKind.LOCK,
+        prompt=(f"{node.name} is sealed. The lock listens for a truth about "
+                f"the {parent.level.lower()} that holds it: speak its "
+                f"{key_label}, and the way opens."),
+        answer=answer,
+        hints=hints,
+        max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
+        difficulty=difficulty,
+    )
+
+
 def _make_riddle(node: SpatialNode, rng: random.Random, difficulty: int) -> Puzzle | None:
     """Reuse a hand-written static-pool riddle/cipher/pattern for this scale,
     de-leaked and selected per node. Returns None if the pool has nothing
@@ -528,6 +574,7 @@ _FAMILY_FN: dict[str, Callable[[SpatialNode, random.Random, int], Puzzle | None]
     "cipher":   _make_cipher,
     "sequence": _make_sequence,
     "riddle":   _make_riddle,
+    "lock":     _make_lock,
 }
 
 
@@ -548,6 +595,11 @@ def build_puzzle(node: SpatialNode, epoch: int = 0) -> Puzzle:
         "big"))
     difficulty = node_difficulty(node)
     families = list(_FAMILY_WEIGHTS.get(difficulty, _FAMILY_WEIGHTS[2]))
+    # A locked node usually serves its LOCK — the travel-key mechanic that
+    # makes the trait real. Heavy weight, not certainty: _make_lock still
+    # declines when there's no suitable keeper property.
+    if node.properties.get("locked") and node.parent is not None:
+        families.append(("lock", 12))
 
     # Try families in a node-seeded weighted-random order; the first that yields
     # a non-leaking puzzle wins. A family can decline (`riddle` on an empty/leaky

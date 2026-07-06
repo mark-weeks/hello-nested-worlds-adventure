@@ -33,10 +33,11 @@ import time
 import persistence
 from agents.agent import Agent
 from agents.personas import for_name as persona_for_name
+from agents.roster import profile_for
 from causality import CausalityBus, EventKind
 from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
-from multiverse.generator import generate_node_hierarchy
+from multiverse.generator import LEVELS, generate_node_hierarchy
 from multiverse.node import SpatialNode
 from multiverse.utils import (
     apply_property_overrides, apply_ripple_scores, build_distance_map,
@@ -56,10 +57,12 @@ _DEFAULT_PACE = 1.2  # seconds between hops — motion a watcher can follow
 
 # A recurring cast: the same names return to the same worlds run after run,
 # accreting memory (visited ground persists per (name, seed)), so their
-# traces read as individuals rather than anonymous noise. Persona follows
-# deterministically from the name (agents.personas.for_name). The canonical
-# list lives in consciousness (a leaf module) because the cached bibles
-# teach every node voice to recognize these names as returning regulars.
+# traces read as individuals rather than anonymous noise. Each name carries
+# a trait sheet (agents/roster.py) — deliberate persona, home scales, a
+# personal danger threshold, a banter tic — that this module reads so the
+# regulars behave like individuals. The name list itself lives in
+# consciousness (a leaf module) because the cached bibles teach every node
+# voice to recognize these names as returning regulars.
 from consciousness import WANDERER_CAST as WANDERER_ROSTER
 
 
@@ -91,14 +94,32 @@ def _pick_seed(rng: random.Random) -> int:
     return 42
 
 
-def _drop_in(root: SpatialNode, rng: random.Random) -> SpatialNode:
-    """A random mid-world node to start from — somewhere with ground below."""
-    node = root
+def _drop_in(root: SpatialNode, rng: random.Random,
+             profile=None) -> SpatialNode:
+    """A random mid-world node to start from — somewhere with ground below.
+
+    Cast regulars gravitate home: most drop-ins aim the walk at one of the
+    agent's home levels (Marginalia sinks to Molecules, Aunt Entropy stays
+    among the cosmic shells), the rest ramble shallow like anyone else. On
+    the way down, children flagged ``contains_npc`` pull the walk toward
+    them — inhabited rooms actually receive visitors.
+    """
     hops = rng.randint(1, 5)
+    if profile is not None and profile.home_levels and rng.random() < 0.6:
+        home_depths = [LEVELS.index(lvl) for lvl in profile.home_levels
+                       if lvl in LEVELS]
+        if home_depths:
+            hops = rng.choice(home_depths)
+    node = root
     for _ in range(hops):
         if not node.children:
             break
-        node = rng.choice(node.children)
+        peopled = [c for c in node.children
+                   if (c.properties or {}).get("contains_npc")]
+        if peopled and rng.random() < 0.5:
+            node = rng.choice(peopled)
+        else:
+            node = rng.choice(node.children)
     while not node.children and node.parent is not None:
         node = node.parent
     return node
@@ -126,6 +147,14 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                          for name in rng.sample(visited_names,
                                                 min(4, len(visited_names))))
              if n is not None]
+    # A regular reaches for their signature act first: nodes whose level
+    # verb matches the profile's favored verb move to the front, so The
+    # Locksmith inscribes and Bellhollow wards whenever the ground allows.
+    profile = profile_for(agent_name)
+    if profile is not None and profile.favored_verb:
+        nodes.sort(key=lambda n: (verb_for_level(n.level) is None
+                                  or verb_for_level(n.level).name
+                                  != profile.favored_verb))
     payload = {"agent": agent_name, "persona": persona_name}
 
     if persona_name == "destabilizer":
@@ -208,11 +237,12 @@ def run_tick(seed: int | None = None, rng: random.Random | None = None,
 
     agent_name = rng.choice(WANDERER_ROSTER)
     persona = persona_for_name(agent_name)
+    profile = profile_for(agent_name)
 
     root = generate_node_hierarchy(seed=seed)
     apply_ripple_scores(root, persistence.load_ripple_scores(seed))
     apply_property_overrides(root, persistence.load_node_property_overrides(seed))
-    target = _drop_in(root, rng)
+    target = _drop_in(root, rng, profile)
 
     room = get_room(seed)
     distance_map = build_distance_map(target)
@@ -221,9 +251,11 @@ def run_tick(seed: int | None = None, rng: random.Random | None = None,
     # Roughly a third of ticks are social: a second wanderer is already
     # loitering where the walker drops in, so the two actually MEET — an
     # encounter broadcast plus a persisted conversation — instead of the
-    # cast only ever walking the world alone.
+    # cast only ever walking the world alone. Ground flagged contains_npc
+    # is where someone is usually home: meetings there are twice as likely.
     companion = None
-    if rng.random() < 0.35:
+    social_p = 0.7 if (target.properties or {}).get("contains_npc") else 0.35
+    if rng.random() < social_p:
         others = [n for n in WANDERER_ROSTER if n != agent_name]
         companion = rng.choice(others)
         companion_persona = persona_for_name(companion)
@@ -264,27 +296,35 @@ def run_tick(seed: int | None = None, rng: random.Random | None = None,
     bus.register_handler(live_handler)
     wire_world_handlers(bus, seed)
 
-    agent = Agent(name=agent_name, danger_threshold=7, bus=bus, persona=persona)
+    # Courage is character: each regular withdraws at their own threshold
+    # (Aunt Entropy walks into anything; The Locksmith turns back early).
+    threshold = profile.danger_threshold if profile is not None else 7
+    agent = Agent(name=agent_name, danger_threshold=threshold, bus=bus,
+                  persona=persona)
     saved = persistence.load_agent_memory(agent_name, seed)
     if saved:
         agent.memory = saved["visited_ids"]
 
+    act = None
     try:
         agent.traverse(target, max_nodes=max_nodes, pace=pace)
+        events = [{"node": e.node_name, "level": e.level, "state": e.state.name,
+                   "action": e.action, "persona": e.persona} for e in agent.log]
+        persistence.save_agent_run(agent_name, seed, agent.fresh_count, events)
+        persistence.save_agent_memory(agent_name, seed, agent.memory,
+                                      events[-100:])
+
+        # The wanderer acts on the world by temperament — the living entropy
+        # (destabilizers) and tending (tenders/scholars) loop. This runs
+        # BEFORE agent_leave: a destabilizer's decay events replay through
+        # live_handler, whose agent_move would otherwise re-register the
+        # walker after departure and leave a ghost in room.active_agents.
+        act = _persona_act(seed, room, root, agent_name, persona.name,
+                           [e["node"] for e in events], rng, bus)
     finally:
         agent_leave(room, agent_name)
         if companion is not None:
             agent_leave(room, companion)
-
-    events = [{"node": e.node_name, "level": e.level, "state": e.state.name,
-               "action": e.action, "persona": e.persona} for e in agent.log]
-    persistence.save_agent_run(agent_name, seed, agent.fresh_count, events)
-    persistence.save_agent_memory(agent_name, seed, agent.memory, events[-100:])
-
-    # The wanderer acts on the world by temperament — the living entropy
-    # (destabilizers) and tending (tenders/scholars) loop.
-    act = _persona_act(seed, room, root, agent_name, persona.name,
-                       [e["node"] for e in events], rng, bus)
 
     broadcast(room, {"type": "agent_done", "node": target.name,
                      "nodes_visited": agent.fresh_count})
