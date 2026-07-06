@@ -19,10 +19,14 @@ Era names are worse: they are recomputed from the banks at READ time, so a
 bank edit retroactively rewrites the displayed history of every era that
 has already happened.
 
-These tests pin exact outputs. If one fails, you are about to rewrite the
-permanent world — stop, and either revert the change or (pre-launch only)
-consciously re-pin the values. Post-launch there is no re-pinning; the
-banks are frozen.
+These tests pin exact outputs at TWO depths: the depth-6 reference world
+(the default the clients load — small, human-diagnosable canaries) and the
+full 11-level world the server actually serves. Both are required: five
+levels (Room and deeper) exist only below depth 6, so their property banks
+are invisible to the shallow pins. If a pin fails, you are about to
+rewrite the permanent world — stop, and either revert the change or
+(pre-launch only) consciously re-pin the values. Post-launch there is no
+re-pinning; the banks are frozen.
 
 The pins also police the Python RNG contract: worlds must generate
 identically under the pinned interpreter (Dockerfile and CI both pin 3.11).
@@ -55,6 +59,25 @@ _REF_NAMES_DIGEST = (
 )
 _REF_WORLD_DIGEST = (
     "25983bdc04a76ce61020dbd5e5f52b3a978314528ce09010583999269bdf0cb1"
+)
+
+# The FULL-depth reference world: all 11 levels, the tree the server
+# actually serves. The depth-6 pins alone are blind to five levels — Rooms,
+# Objects, Molecules, Atoms, SubatomicParticles — whose property banks
+# could then be edited with every freeze test green (measured: +1 material
+# at the Object level passes all depth-6 pins while deleting 38 full-depth
+# nodes and silently changing 19 surviving nodes' property baselines).
+# These pins close that blind spot. Pinned 2026-07-05, pre-launch.
+_REF_FULL_DEPTH = 11
+_REF_FULL_NODE_COUNT = 3017
+_REF_FULL_NAMES_DIGEST = (
+    "7e669d5cc95378078cdb54d0f695678382a4cd85bc447711b2a086d4caf20098"
+)
+_REF_FULL_WORLD_DIGEST = (
+    "7f5a10ff2ce5047c531d82eaa67fefbea65933868d3fbeb9d0b74d14b21506ac"
+)
+_REF_FULL_PUZZLES_DIGEST = (
+    "775c90406b00910f88f0c6482493a8b26ee2c07a98e9698044d9366a0475440f"
 )
 
 
@@ -104,6 +127,68 @@ class TestGeneratedWorldIsFrozen:
             "its edges are stitched with ash; a slow tide moves under its "
             "surface, and it wears its age like a medal."
         )
+
+
+class TestFullDepthWorldIsFrozen:
+    """Every level, not just the shallow six. Deep-level property banks
+    (rooms' air, objects' materials, molecules' geometries…) exist only
+    below depth 6, so only these pins can catch an edit to them."""
+
+    def _nodes(self):
+        return _walk(generate_node_hierarchy(seed=_REF_SEED,
+                                             max_depth=_REF_FULL_DEPTH), [])
+
+    def test_full_depth_names_digest_is_pinned(self):
+        names = [n.name for n in self._nodes()]
+        assert len(names) == _REF_FULL_NODE_COUNT
+        digest = hashlib.sha256("\n".join(names).encode()).hexdigest()
+        assert digest == _REF_FULL_NAMES_DIGEST, (
+            "Full-depth node names changed while the depth-6 canaries may "
+            "still be green — a deep-level bank edit deleting or spawning "
+            "subtrees. Names key all durable history. Revert (or "
+            "consciously re-pin pre-launch only)."
+        )
+
+    def test_full_depth_world_digest_is_pinned(self):
+        nodes = self._nodes()
+        full = "\n".join(
+            f"{n.name}|{json.dumps(n.properties, sort_keys=True)}"
+            for n in nodes
+        )
+        digest = hashlib.sha256(full.encode()).hexdigest()
+        assert digest == _REF_FULL_WORLD_DIGEST, (
+            "Full-depth generated properties changed — likely an edit to a "
+            "deep-level property bank (Room/Object/Molecule/Atom/"
+            "SubatomicParticle) that the depth-6 pins cannot see. The "
+            "overlay applies deltas on top of these baselines. Revert (or "
+            "consciously re-pin pre-launch only)."
+        )
+
+    def test_full_depth_puzzles_are_pinned(self):
+        from puzzles.engine import build_puzzle
+        blob = "\n".join(
+            f"{n.name}|{(p := build_puzzle(n)).name}|{p.answer}"
+            for n in self._nodes())
+        digest = hashlib.sha256(blob.encode()).hexdigest()
+        assert digest == _REF_FULL_PUZZLES_DIGEST, (
+            "Epoch-0 puzzle generation changed somewhere below depth 6 — "
+            "Rooms and deeper hold most of the world's puzzles (including "
+            "every LOCK). Post-launch this resets solved state. Revert, or "
+            "re-pin consciously before first production deploy only."
+        )
+
+    def test_deep_landmark_names_are_pinned(self):
+        # One canary per unpinned level, so a digest failure is diagnosable.
+        nodes = self._nodes()
+        first_of = {}
+        for n in nodes:
+            first_of.setdefault(n.level, n.name)
+        assert first_of["Room"] == "Deepvane Workshop-1111111"
+        assert first_of["Object"] == "Haleisara Conduit-11111111"
+        assert first_of["Molecule"] == "Ulauide-111111111"
+        assert first_of["Atom"] == "Velanoride-1111111111"
+        assert first_of["SubatomicParticle"] == "Veriunon-11111111111"
+        assert nodes[-1].name == "Galysule-13221131322"
 
 
 class TestPuzzleLayerIsFrozen:
