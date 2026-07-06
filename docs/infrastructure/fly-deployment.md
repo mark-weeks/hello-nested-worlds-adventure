@@ -316,22 +316,20 @@ backups. The manual equivalent:
 fly ssh console -C "python main.py backup --to /data/backups/worlds-$(date -u +%Y%m%d).db"
 ```
 
-**Off-host copies (recommended weekly).** Stream a backup off the
-machine, then prune what's already copied — the backups directory
-shares the 1 GB volume with the live DB and grows by one file per
-deploy:
+**Off-host copies (daily, automated).** The continuity promise makes
+data loss a broken covenant, not an outage — the loss window is kept to
+one day. `.github/workflows/backup.yml` runs daily at 06:00 UTC (or on
+demand via workflow_dispatch), takes an online backup on the machine,
+downloads it, and stores it as a GitHub artifact with 90-day retention.
+It activates the moment you add a `FLY_API_TOKEN` repository secret
+(`fly tokens create deploy`); **until the secret is set it no-ops with a
+notice — set it before launch and manually dispatch one run to verify
+the artifact appears.** The manual equivalent:
 
 ```bash
 fly ssh sftp get /data/backups/worlds-YYYYMMDD.db ./local-backups/
 fly ssh console -C "sh -c 'ls -t /data/backups/*.db | tail -n +6 | xargs -r rm'"
 ```
-
-The automated cadence ships in the repo:
-`.github/workflows/backup.yml` runs every Monday (or on demand via
-workflow_dispatch), takes an online backup on the machine, downloads it,
-and stores it as a GitHub artifact with 90-day retention. It activates
-the moment you add a `FLY_API_TOKEN` repository secret
-(`fly tokens create deploy`); until then it no-ops with a notice.
 
 ### Restoring from a backup
 
@@ -355,9 +353,93 @@ If the backup only exists off-host, upload it first:
 This procedure was rehearsed against a live server in the
 pre-deployment review (backup → mutate → restore → verified rollback).
 
+### Redaction — the sanctioned exception to append-only
+
+The chronicle is permanent, but permanence needs an escape hatch for
+abuse (a slur cut into a room, doxxing in chat, a poisoned puzzle
+guess). Policy: redaction is **content-level, never row-level** — the
+event, its node, its type, its timestamp, and its durable
+`actor_identity` all survive; only the human-authored words are
+tombstoned to `[redacted]`. Mechanical fields (puzzle names, correct
+flags, verbs) are preserved, so co-op counters and renewal epochs are
+untouched. Deleting whole rows is NOT an option; if you think you need
+that, you actually need `restore` (§7) plus a conversation.
+
+```bash
+# 1. Find the offending rows (read-only substring search).
+fly ssh console -C "python main.py redact --find 'the offending text'"
+
+# 2. Tombstone by id. --scrub-name also nulls the display name (for
+#    names that are themselves the abuse); actor_identity is kept so
+#    accountability survives the cleanup. --reason stores a short note.
+fly ssh console -C "python main.py redact --id 12345 --scrub-name --reason 'ToS' --yes"
+```
+
+No restart is needed — history is read per request. If the abusive text
+also fed a cached node image, delete that node's `node_images` row (the
+image regenerates on next request). Off-host backups made before the
+redaction still contain the original text; their 90-day artifact expiry
+is the retention bound.
+
 ---
 
-## 8. Day-2 operations
+## 8. Launch window
+
+The pre-mortem in `docs/evaluation/` identified the launch-day failure
+modes; this section is their checklist. Work through it top to bottom on
+the day.
+
+**T-1 week:**
+
+- [ ] `FLY_API_TOKEN` repo secret set; one manual `workflow_dispatch` of
+      the backup workflow verified to produce an artifact.
+- [ ] Restore rehearsed once against a downloaded production backup.
+- [ ] `SENTRY_DSN` set; `fly logs` shows `Sentry initialized` on boot.
+- [ ] External uptime ping pointed at `/guide` (ungated, exercises the
+      full serving path). Any free checker works.
+- [ ] Size the day-one budgets deliberately: launch day is the highest-
+      traffic day the app will ever see. Estimate
+      `cohort size x expected exchanges x cost per exchange` and set
+      `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` (and `_FAL_DAILY_CALLS`)
+      with headroom above it — the `_PER_USER` caps already bound any
+      single account; the global cap is the one that can mute the whole
+      cohort at the worst moment.
+- [ ] Watch 2-3 people who have never seen the app complete onboarding
+      (screen share is fine). Fix what confuses them before wide invites.
+
+**Launch day:**
+
+- [ ] **Deploy freeze** — one machine means every deploy drops all live
+      sessions. Nothing ships during the window short of a fire.
+- [ ] **Live-voice probe** — quiet degradation hides outages by design,
+      so verify the voice is LIVE, not just answering: a `/speak` reply
+      must carry `"ai": true`. `"ai": false` means the failure voice is
+      covering for a missing key or an exhausted budget (the probe spends
+      one budgeted call — that's the point):
+      `curl -s -X POST https://<app>/speak -H 'X-Beta-Key: <key>' -H 'Content-Type: application/json' -d '{"message":"hello"}' | grep -o '"ai": true'`
+- [ ] Watch spend as the cohort arrives: the `cost_budget` table carries
+      per-day counters — `fly ssh console -C "sqlite3 /data/.nested-worlds/worlds.db 'SELECT * FROM cost_budget ORDER BY day DESC LIMIT 20'"`.
+- [ ] Mint **one key per person** (`python main.py invite mint --name ...`);
+      a shared key merges transcript identities, budget buckets, and
+      attribution. Say so in the invite message.
+- [ ] Onboard the cohort in the same window, not a trickle — encounters,
+      co-op puzzles, and live cascades only exist when people overlap.
+      Give the cohort a shared first errand (e.g. "somewhere under
+      <region> is a sealed room; the key is written one scale up" — a
+      LOCK expedition forces travel and co-presence).
+
+**T+1 day and weekly:**
+
+- [ ] Read the world's own numbers — visitors, RETURNING visitors,
+      conversations, solves — straight from the chronicle:
+      `python scripts/beta_metrics.py --days 1` (works on the machine or
+      against any off-host backup with `--db`). The return rate is the
+      success metric for a contemplative world; decide response
+      thresholds before you look.
+
+---
+
+## 9. Day-2 operations
 
 | Task | Command |
 |---|---|
@@ -387,7 +469,7 @@ and redeploys.
 
 ---
 
-## 9. When to graduate
+## 10. When to graduate
 
 The phase-2 scale plan in `docs/roadmap/phase-2-scale.md` names the
 triggers for moving past this single-VM setup. The relevant ones for
