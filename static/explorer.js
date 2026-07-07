@@ -932,7 +932,13 @@ function handleWsMsg(msg) {
       const others = (msg.contributors || []).filter(c => c !== msg.solver);
       const credit = others.length ? ` (with ${others.join(', ')})` : '';
       const by = msg.solver ? ` by ${msg.solver}${credit}` : '';
-      pushFeed(`Puzzle solved: ${msg.puzzle} @ ${msg.node}${by}`);
+      if (msg.entangled_with) {
+        // Locality failed: this node resolved because its twin did.
+        pushFeed(`⇄ ${msg.node} resolves — entangled with ${msg.entangled_with}`);
+        flashNode(msg.node, 1.0);
+      } else {
+        pushFeed(`Puzzle solved: ${msg.puzzle} @ ${msg.node}${by}`);
+      }
       break;
     }
     case 'agent_done':

@@ -23,11 +23,52 @@ collapse. No wall-clock, no global RNG.
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from multiverse.node import SpatialNode
+
+
+# ── Deep time ────────────────────────────────────────────────────────────────
+# The cosmic scales answer on cosmic clocks: a verb performed at these
+# levels records its act immediately, but the property change MATURES —
+# it rides the durable verb_maturation queue and lands later, so kindling
+# a galaxy is planting, not doing. The scale multiplier exists for tests
+# and impatient operators; 0 makes every verb instant again.
+
+MATURATION_ENV = "NESTED_WORLDS_MATURATION_SCALE"
+MATURATION_SECONDS: dict[str, float] = {
+    "Multiverse":        1800.0,
+    "Universe":           900.0,
+    "Galaxy":             300.0,
+    "Planetary System":   120.0,
+}
+
+
+def maturation_seconds(level: str) -> float:
+    """How long this level's verb takes to settle (0 = instant)."""
+    base = MATURATION_SECONDS.get(level, 0.0)
+    raw = os.environ.get(MATURATION_ENV, "").strip()
+    if raw:
+        try:
+            return base * max(0.0, float(raw))
+        except ValueError:
+            pass
+    return base
+
+
+def maturation_note(seconds: float) -> str:
+    """The in-fiction suffix for a planted (not yet landed) change."""
+    if seconds >= 3600:
+        span = f"{seconds / 3600:.0f} hour(s)"
+    elif seconds >= 60:
+        span = f"{seconds / 60:.0f} minute(s)"
+    else:
+        span = f"{seconds:.0f} second(s)"
+    return (f" …but nothing at this scale is sudden: the change is still "
+            f"traveling, and will settle in about {span}.")
 
 _CONDITION_REPAIR = {
     "corrupted": "damaged",

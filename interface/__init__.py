@@ -187,15 +187,28 @@ def _do_scale_verb(node: SpatialNode, seed: int,
         return
     token = f"{player_name or 'traveler'}:{node.name}"
     changed, flavor = apply_verb(node, verb, token)
+    matures = 0.0
+    if changed:
+        from multiverse.verbs import maturation_note, maturation_seconds
+        matures = maturation_seconds(node.level)
+        if matures > 0:
+            flavor += maturation_note(matures)
     print(f"\n  {_BOLD}{verb.name}{_RESET} — {flavor}\n")
     if not changed:
         return
-    persistence.upsert_node_properties(seed, node.name, changed)
+    act_data = {"verb": verb.name, "changed": changed}
+    if matures > 0:
+        # Deep time: the change is planted, not applied — it rides the
+        # maturation queue and lands when the pump says it's time.
+        persistence.enqueue_verb_maturation(
+            seed, node.name, verb.name, changed, player_name, matures)
+        act_data["matures_in"] = int(matures)
+    else:
+        persistence.upsert_node_properties(seed, node.name, changed)
     # Local play has no credential; the display name is the identity.
     # record=False below: this row is the canonical origin record.
     persistence.record_mutation(
-        seed, node.name, "SCALE_ACT", player_name,
-        {"verb": verb.name, "changed": changed},
+        seed, node.name, "SCALE_ACT", player_name, act_data,
         actor_identity=player_name)
     payload = {"verb": verb.name}
     if player_name:

@@ -496,6 +496,91 @@ def _clean_pool_puzzles(level: str, node: SpatialNode) -> list[Puzzle]:
 _LOCK_KEY_CANDIDATES = ("weather", "terrain", "faction_control")
 
 
+# ── ENFOLD: the nesting itself as puzzle content ─────────────────────────────
+# The cosmic scales get the mirror of the LOCK. A LOCK makes you look UP
+# ("the key is written in the place that holds you"); an ENFOLD makes you
+# think about what a cosmic node IS — a container of containers — and
+# about your own position inside the fold. Every answer derives from the
+# node's NAME alone (its path suffix encodes its whole lineage), so the
+# puzzle is a pure function of node identity like every other family, and
+# solving one teaches the world's deepest structural secret: names are
+# maps.
+
+_ENFOLD_LEVELS = ("Multiverse", "Universe", "Galaxy", "Planetary System")
+
+# Total scale count, mirrored from multiverse.generator.LEVELS (imported
+# lazily below to keep this module free of a hard multiverse.generator
+# dependency at import time).
+_TOTAL_SCALES = 11
+
+_ENFOLD_CHILD_WORD = {
+    "Multiverse":       "universes",
+    "Universe":         "galaxies",
+    "Galaxy":           "systems",
+    "Planetary System": "worlds",
+}
+
+
+def _make_enfold(node: SpatialNode, rng: random.Random,
+                 difficulty: int) -> Puzzle | None:
+    suffix = node.name.rpartition("-")[2]
+    if not suffix.isdigit():
+        return None
+    depth = len(suffix)
+    forms: list[tuple[str, str, str, list[str]]] = []
+
+    enclosures = depth - 1
+    within = _TOTAL_SCALES - depth
+    ordinal = suffix[-1]
+
+    if enclosures > 0:
+        forms.append((
+            "The Enfolding Count",
+            f"Every place is held. Count the scales that enfold {node.name}, "
+            "from the whole of everything down to the one whose skin "
+            "touches it. How many hold it?",
+            str(enclosures),
+            ["Start from the largest thing there is and step inward.",
+             "A name carries its whole lineage — read what follows the dash.",
+             "Count the digits after the dash, then subtract this place itself."],
+        ))
+    if within > 0:
+        forms.append((
+            "The Depth Within",
+            f"Within {node.name} the folding continues — worlds inside "
+            "worlds, down to the smallest indivisible grain. How many "
+            "scales lie enfolded beneath this one?",
+            str(within),
+            ["Eleven scales run from the whole of everything to the "
+             "smallest particle.",
+             "Count how many of them are smaller than this place.",
+             "Eleven, minus every scale from here upward."],
+        ))
+    if depth > 1:
+        child_word = _ENFOLD_CHILD_WORD.get(node.level, "children")
+        forms.append((
+            "The Fold Ordinal",
+            f"Of all the {child_word} its holder keeps, which one is "
+            f"{node.name}? Speak its number.",
+            ordinal,
+            ["Position in the fold is written where everything else is.",
+             "The last step of the lineage is the newest one.",
+             "Read the final digit after the dash."],
+        ))
+    if not forms:
+        return None
+    name, prompt, answer, hints = forms[rng.randrange(len(forms))]
+    return Puzzle(
+        name=f"{name} of the {node.level}",
+        kind=PuzzleKind.NAVIGATION,
+        prompt=prompt,
+        answer=answer,
+        hints=hints,
+        max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
+        difficulty=difficulty,
+    )
+
+
 def _make_lock(node: SpatialNode, rng: random.Random,
                difficulty: int) -> Puzzle | None:
     """A travel-key lock: the answer is a property of the node that HOLDS
@@ -575,6 +660,7 @@ _FAMILY_FN: dict[str, Callable[[SpatialNode, random.Random, int], Puzzle | None]
     "sequence": _make_sequence,
     "riddle":   _make_riddle,
     "lock":     _make_lock,
+    "enfold":   _make_enfold,
 }
 
 
@@ -600,6 +686,10 @@ def build_puzzle(node: SpatialNode, epoch: int = 0) -> Puzzle:
     # declines when there's no suitable keeper property.
     if node.properties.get("locked") and node.parent is not None:
         families.append(("lock", 12))
+    # Cosmic scales often serve an ENFOLD — the nesting itself as content
+    # (the mirror of the LOCK: look into the fold instead of up out of it).
+    if node.level in _ENFOLD_LEVELS:
+        families.append(("enfold", 6))
 
     # Try families in a node-seeded weighted-random order; the first that yields
     # a non-leaking puzzle wins. A family can decline (`riddle` on an empty/leaky

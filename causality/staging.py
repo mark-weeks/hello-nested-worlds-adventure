@@ -54,24 +54,31 @@ def stage_cascade(seed: int, origin: SpatialNode, kind: EventKind,
 
     The caller fires the origin itself (immediate feedback for whoever
     caused it); this enqueues the origin's parent (upward arm) and children
-    (downward arms) at dampened strength. Returns hops enqueued.
+    (downward arms) at FULL strength with the hop counter at 1 — each hop
+    dampens itself on arrival under the law of the universe it lands in
+    (causality/laws.py), so staged physics match the live bus exactly.
+    (Direction inversion is a no-op here: staging always fires both arms,
+    and flipping both arms of a both-ways cascade is the same cascade —
+    Inverted physics only bites one-armed live propagation.) Returns hops
+    enqueued.
     """
-    strength = 1.0 * dampening
-    if strength < MIN_STRENGTH:
-        return 0
+    from causality.laws import law_for
+
     hop_payload = dict(payload or {})
     hop_payload["_origin"] = origin.name
     hop_payload["_origin_level"] = origin.level
-    delay = hop_delay_seconds()
+    hop_payload["_hop"] = 1
+    law = law_for(origin)
+    delay = hop_delay_seconds() * (law.delay_scale if law else 1.0)
     enqueued = 0
     if origin.parent is not None:
         persistence.enqueue_causal_hop(
-            seed, origin.parent.name, kind.name, strength, "up",
+            seed, origin.parent.name, kind.name, 1.0, "up",
             hop_payload, delay)
         enqueued += 1
     for child in origin.children:
         persistence.enqueue_causal_hop(
-            seed, child.name, kind.name, strength, "down",
+            seed, child.name, kind.name, 1.0, "down",
             hop_payload, delay)
         enqueued += 1
     return enqueued
@@ -111,29 +118,59 @@ def drain_due_hops(limit: int = 64,
             continue  # world params changed under an in-flight hop; drop it
 
         payload = row["payload"]
-        event = CausalEvent(
-            kind=EventKind[row["kind"]],
-            origin_id=payload.get("_origin", node.name),
-            origin_level=payload.get("_origin_level", node.level),
-            strength=row["strength"],
-            payload=payload,
-        )
-        bus = wire_world_handlers(CausalityBus(), seed)
-        bus.fire(node, event)
-        fired += 1
-        if broadcaster is not None:
-            broadcaster(seed, node, event)
+        hop = payload.get("_hop")
+        if hop is None:
+            # Legacy row (queued before per-hop law physics): its strength
+            # is already dampened — fire as-is, continue the old way.
+            arrived, tunneled, next_hop_payload = row["strength"], False, payload
+            next_strength = row["strength"] * STAGED_DAMPENING
+            next_delay = delay
+        else:
+            # The hop dampens itself on arrival, under the law of the
+            # universe it lands IN — staged physics match the live bus.
+            from causality.laws import hop_token, law_for
+            law = law_for(node)
+            origin_name = payload.get("_origin", node.name)
+            if law is None:
+                factor, tunneled = STAGED_DAMPENING, False
+            else:
+                token = hop_token(law, origin_name, node.name, hop)
+                if law.drops(token):
+                    continue  # the thread frays; this arm ends here
+                tunneled = law.tunnels(token)
+                factor = 1.0 if tunneled else law.dampening(
+                    hop, row["direction"], token)
+            arrived = row["strength"] * factor
+            if arrived < MIN_STRENGTH:
+                continue
+            next_strength = arrived
+            next_hop_payload = dict(payload)
+            next_hop_payload["_hop"] = hop + 1
+            next_delay = delay * (law.delay_scale if law else 1.0)
+
+        if not tunneled:
+            event = CausalEvent(
+                kind=EventKind[row["kind"]],
+                origin_id=payload.get("_origin", node.name),
+                origin_level=payload.get("_origin_level", node.level),
+                strength=arrived,
+                payload=payload,
+            )
+            bus = wire_world_handlers(CausalityBus(), seed)
+            bus.fire(node, event)
+            fired += 1
+            if broadcaster is not None:
+                broadcaster(seed, node, event)
 
         # The cascade continues outward in its committed direction.
-        next_strength = row["strength"] * STAGED_DAMPENING
         if next_strength >= MIN_STRENGTH:
             if row["direction"] == "up" and node.parent is not None:
                 persistence.enqueue_causal_hop(
                     seed, node.parent.name, row["kind"], next_strength,
-                    "up", payload, delay)
+                    "up", next_hop_payload, next_delay)
             elif row["direction"] == "down":
                 for child in node.children:
                     persistence.enqueue_causal_hop(
                         seed, child.name, row["kind"], next_strength,
-                        "down", payload, delay)
+                        "down", next_hop_payload, next_delay)
     return fired

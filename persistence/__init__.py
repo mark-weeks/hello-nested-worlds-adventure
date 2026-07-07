@@ -265,6 +265,56 @@ def claim_due_causal_hops(limit: int = 64) -> list[dict[str, Any]]:
 
 
 @_with_db
+def enqueue_verb_maturation(world_seed: int, node_name: str, verb: str,
+                            changed: dict, actor: str | None,
+                            delay_seconds: float) -> None:
+    """Plant a cosmic verb's property delta to land after `delay_seconds`.
+
+    Deep time made durable: the act is already in the chronicle; this row
+    is the change itself, still traveling. Drained by the causal pump.
+    """
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO verb_maturation
+               (world_seed, node_name, verb, changed, actor, due_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now', ?))""",
+            (world_seed, node_name, verb, json.dumps(changed), actor,
+             f"+{int(delay_seconds)} seconds"),
+        )
+
+
+@_with_db
+def claim_due_verb_maturations(limit: int = 32) -> list[dict[str, Any]]:
+    """Atomically remove and return maturations whose time has come."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """DELETE FROM verb_maturation
+               WHERE id IN (SELECT id FROM verb_maturation
+                            WHERE due_at <= datetime('now')
+                            ORDER BY due_at, id LIMIT ?)
+               RETURNING world_seed, node_name, verb, changed, actor""",
+            (limit,),
+        ).fetchall()
+        return [{"world_seed": r[0], "node_name": r[1], "verb": r[2],
+                 "changed": json.loads(r[3]) if r[3] else {}, "actor": r[4]}
+                for r in rows]
+
+
+@_with_db
+def pending_verb_maturations(world_seed: int | None = None) -> int:
+    """How many planted changes are still traveling (ops / test signal)."""
+    with _connect() as conn:
+        if world_seed is None:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM verb_maturation").fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM verb_maturation WHERE world_seed = ?",
+                (world_seed,)).fetchone()
+        return int(row[0])
+
+
+@_with_db
 def pending_causal_hops(world_seed: int | None = None) -> int:
     """How many cascade hops are still in flight (ops / test signal)."""
     with _connect() as conn:

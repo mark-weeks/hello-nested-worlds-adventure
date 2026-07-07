@@ -28,14 +28,17 @@ from multiverse.utils import (
     apply_property_overrides, apply_ripple_scores, build_distance_map,
     count_nodes, find_node,
 )
-from multiverse.verbs import apply_verb, verb_for_level
+from multiverse.verbs import (
+    apply_verb, maturation_note, maturation_seconds, verb_for_level,
+)
 from puzzles import gates
-from puzzles.engine import PuzzleEngine
+from puzzles.engine import PuzzleEngine, build_puzzle
 from server import guard, imageprompt, observability
 from server.protocol import ProtocolError, _send_frame, ws_recv
 from server.rooms import (
     Player, agent_enter, agent_leave, agent_move, agent_persona,
-    agents_snapshot, broadcast, get_room, record_attempt, snapshot,
+    agents_snapshot, broadcast, get_puzzle_session, get_room, record_attempt,
+    snapshot,
 )
 
 
@@ -73,6 +76,61 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int]:
     apply_ripple_scores(root, persistence.load_ripple_scores(seed))
     apply_property_overrides(root, persistence.load_node_property_overrides(seed))
     return root, seed, depth
+
+
+def _entangled_twin(node: SpatialNode) -> SpatialNode | None:
+    """The sibling particle `node` is entangled with, or None.
+
+    Pairing is structural and symmetric — adjacent path ordinals (1,2),
+    (3,4), … — but a pair is only LIVE when at least one member's
+    generated `tendency` is "entangled". Solving either member's puzzle
+    resolves both: at the smallest scale, locality fails.
+    """
+    if node.level != "SubatomicParticle" or node.parent is None:
+        return None
+    suffix = node.name.rpartition("-")[2]
+    if not suffix or not suffix[-1].isdigit():
+        return None
+    d = int(suffix[-1])
+    twin_suffix = suffix[:-1] + str(d + 1 if d % 2 == 1 else d - 1)
+    twin = next((c for c in node.parent.children
+                 if c.name.rpartition("-")[2] == twin_suffix), None)
+    if twin is None:
+        return None
+    tendencies = (node.properties.get("tendency"),
+                  twin.properties.get("tendency"))
+    return twin if "entangled" in tendencies else None
+
+
+def _resolve_entangled_twin(seed: int, room, twin: SpatialNode,
+                            origin_name: str, solver: str | None,
+                            contributors: list, actor_identity: str | None,
+                            ) -> None:
+    """Mark the twin's current puzzle solved alongside its partner's.
+
+    Records the solve (attributed to the same solver, tagged with the
+    entanglement), syncs any open co-op session, and broadcasts a
+    puzzle_solved players can see land at a node nobody touched. Idempotent:
+    an already-solved twin is left alone, so a pair resolves exactly once.
+    """
+    epoch = persistence.count_node_mutations(seed, twin.name, "PUZZLE_REARM")
+    twin_puzzle = build_puzzle(twin, epoch)
+    if persistence.get_puzzle_solve(seed, twin.name, twin_puzzle.name):
+        return
+    display = solver if solver != "anonymous" else None
+    persistence.record_mutation(
+        seed, twin.name, "PUZZLE_SOLVED", display,
+        {"puzzle": twin_puzzle.name, "contributors": contributors,
+         "entangled_with": origin_name},
+        actor_identity=actor_identity)
+    twin_session = get_puzzle_session(room, twin.name, twin_puzzle.name)
+    with room.lock:
+        twin_session.solver = solver
+        twin_session.contributors |= set(contributors)
+    broadcast(room, {"type": "puzzle_solved", "node": twin.name,
+                     "puzzle": twin_puzzle.name, "solver": solver,
+                     "contributors": contributors,
+                     "entangled_with": origin_name})
 
 
 def _resolve_node(seed: int, node_name: str) -> SpatialNode | None:
@@ -1146,15 +1204,27 @@ class Handler(BaseHTTPRequestHandler):
 
         token = f"{player_name or 'traveler'}:{target.name}"
         changed, flavor = apply_verb(target, verb, token)
+        matures = maturation_seconds(target.level) if changed else 0.0
 
         if changed:
-            persistence.upsert_node_properties(seed, target.name, changed)
+            if matures > 0:
+                # Deep time: the cosmic scales answer on cosmic clocks. The
+                # act is chronicled now; the property change rides the
+                # maturation queue and lands when the pump says it's time.
+                persistence.enqueue_verb_maturation(
+                    seed, target.name, verb.name, changed, player_name,
+                    matures)
+                flavor += maturation_note(matures)
+            else:
+                persistence.upsert_node_properties(seed, target.name, changed)
             # The one canonical chronicle row for this act — attributed by
             # durable identity. The origin bus below is wired record=False
             # so it doesn't write a second, anonymous copy.
+            act_data = {"verb": verb.name, "changed": changed}
+            if matures > 0:
+                act_data["matures_in"] = int(matures)
             persistence.record_mutation(
-                seed, target.name, "SCALE_ACT", player_name,
-                {"verb": verb.name, "changed": changed},
+                seed, target.name, "SCALE_ACT", player_name, act_data,
                 actor_identity=_actor_identity(user_key, player_name),
             )
 
@@ -1165,7 +1235,10 @@ class Handler(BaseHTTPRequestHandler):
                 "level":   target.level,
                 "verb":    verb.name,
                 "actor":   player_name or "someone",
-                "changed": changed,
+                # A maturing change hasn't landed: clients must not fold
+                # the delta into the node they're looking at yet.
+                "changed": None if matures > 0 else changed,
+                "matures_in": int(matures) if matures > 0 else None,
                 "flavor":  flavor,
             })
 
@@ -1199,6 +1272,7 @@ class Handler(BaseHTTPRequestHandler):
             "level":   target.level,
             "node":    target.name,
             "changed": changed,
+            "matures_in": int(matures) if matures > 0 else None,
             "flavor":  flavor,
         })
 
@@ -1309,6 +1383,15 @@ class Handler(BaseHTTPRequestHandler):
                            {"puzzle": p.name, "contributors": contributors})
             stage_cascade(seed, target, EventKind.PUZZLE_SOLVED,
                           {"puzzle": p.name, "contributors": contributors})
+
+            # Entanglement: at the smallest scale, locality fails. A
+            # particle paired with its sibling resolves the moment its
+            # twin does — a solve fires at a node nobody touched.
+            twin = _entangled_twin(target)
+            if twin is not None:
+                _resolve_entangled_twin(
+                    seed, room, twin, effective_node, session.solver,
+                    contributors, _actor_identity(user_key, player_name))
 
         if failed:
             # The human who made the final attempt IS the actor — dropping

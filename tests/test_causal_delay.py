@@ -57,39 +57,55 @@ class TestStageCascade:
 
 
 class TestDrain:
-    def _canonical_room(self, seed):
-        """A canonical Room node with both a parent and children."""
+    def _canonical_room(self, seed, steady_law=False):
+        """A canonical Room node with both a parent and children.
+
+        With `steady_law`, only rooms whose universe law is pure dampening
+        (no tunneling, no drops, no drawn factors) qualify — the exact-value
+        assertions below need physics without dice.
+        """
+        from causality.laws import law_for
         root = generate_node_hierarchy(seed=seed)
         stack = [root]
         while stack:
             n = stack.pop()
             if n.level == "Room" and n.children:
+                law = law_for(n)
+                if steady_law and law is not None and (
+                        law.tunnel_chance or law.drop_chance or law.drawn):
+                    stack.extend(n.children)
+                    continue
                 return n
             stack.extend(n.children)
-        pytest.skip("no mid-world Room in this seed")
+        pytest.skip("no qualifying mid-world Room in this seed")
 
     def test_due_hops_fire_with_wiring_and_chain_onward(self):
+        from causality.laws import law_for
         seed = 33
-        room = self._canonical_room(seed)
+        room = self._canonical_room(seed, steady_law=True)
         parent_name = room.parent.name
+        law = law_for(room)
+        up_factor = (law.dampening(1, "up", "") if law is not None
+                     else STAGED_DAMPENING)
 
         stage_cascade(seed, room, EventKind.PUZZLE_SOLVED, {"puzzle": "P"})
         first_ring = persistence.pending_causal_hops(seed)
         assert first_ring >= 1
 
         fired = drain_due_hops()
-        assert fired == first_ring
+        assert fired == first_ring  # steady law: nothing tunnels or drops
 
         # The parent hop fired through the full wiring: mutation recorded,
-        # ripple accrued at the dampened strength, material effect applied.
+        # ripple accrued at the law-dampened arrival strength, material
+        # effect applied.
         history = [h["type"] for h in persistence.get_node_history(seed, parent_name)]
         assert "PUZZLE_SOLVED" in history
         assert persistence.get_ripple_score(seed, parent_name) == pytest.approx(
-            STAGED_DAMPENING * 0.1)
+            up_factor * 0.1)
         overlay = persistence.load_node_property_overrides(seed)
         assert overlay.get(parent_name, {}).get("stabilized") is True
 
-        # And the cascade chained: the NEXT ring is now queued (0.25 ≥ floor).
+        # And the cascade chained: the NEXT ring is now queued.
         assert persistence.pending_causal_hops(seed) > 0
 
     def test_full_cascade_matches_synchronous_reach(self):
@@ -116,32 +132,47 @@ class TestDrain:
             if not rows:
                 break
             for row in rows:
+                # New row contract: strength is pre-arrival; each hop
+                # dampens itself on landing (law of the landing node —
+                # none here, so the staged fallback applies).
                 node = nodes_by_name[row["node_name"]]
-                staged_reach[node.name] = row["strength"]
-                nxt = row["strength"] * STAGED_DAMPENING
-                if nxt >= MIN_STRENGTH:
-                    if row["direction"] == "up" and node.parent is not None:
+                arrived = row["strength"] * STAGED_DAMPENING
+                if arrived < MIN_STRENGTH:
+                    continue
+                staged_reach[node.name] = arrived
+                if row["direction"] == "up" and node.parent is not None:
+                    persistence.enqueue_causal_hop(
+                        seed, node.parent.name, row["kind"], arrived, "up",
+                        row["payload"], 0)
+                elif row["direction"] == "down":
+                    for child in node.children:
                         persistence.enqueue_causal_hop(
-                            seed, node.parent.name, row["kind"], nxt, "up",
+                            seed, child.name, row["kind"], arrived, "down",
                             row["payload"], 0)
-                    elif row["direction"] == "down":
-                        for child in node.children:
-                            persistence.enqueue_causal_hop(
-                                seed, child.name, row["kind"], nxt, "down",
-                                row["payload"], 0)
 
         assert staged_reach == pytest.approx(sync_reach)
 
     def test_drain_broadcasts_each_arrival(self):
+        from causality.laws import law_for
         seed = 35
-        room = self._canonical_room(seed)
+        room = self._canonical_room(seed, steady_law=True)
+        law = law_for(room)
         stage_cascade(seed, room, EventKind.PUZZLE_SOLVED, {"puzzle": "P"})
         seen = []
         drain_due_hops(broadcaster=lambda s, node, ev: seen.append(
             (s, node.name, round(ev.strength, 4))))
         assert seen, "live players must see hops arrive"
         assert all(s == seed for s, _, _ in seen)
-        assert all(strength == pytest.approx(0.5) for _, _, strength in seen)
+        # Arrivals carry the LAW-dampened strength (steady law: exact).
+        expected = {}
+        if room.parent is not None:
+            expected[room.parent.name] = (
+                law.dampening(1, "up", "") if law else STAGED_DAMPENING)
+        for c in room.children:
+            expected[c.name] = (
+                law.dampening(1, "down", "") if law else STAGED_DAMPENING)
+        for _, name, strength in seen:
+            assert strength == pytest.approx(expected[name])
 
     def test_vanished_node_hops_are_dropped_harmlessly(self):
         persistence.enqueue_causal_hop(

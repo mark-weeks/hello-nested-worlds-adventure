@@ -19,6 +19,8 @@ from multiverse.generator import generate_node_hierarchy
 @pytest.fixture(autouse=True)
 def _zero_hop_delay(monkeypatch):
     monkeypatch.setenv("NESTED_WORLDS_HOP_DELAY", "0")
+    # Legacy semantics: these tests predate deep time; verbs act instantly.
+    monkeypatch.setenv("NESTED_WORLDS_MATURATION_SCALE", "0")
     yield
 
 

@@ -23,6 +23,8 @@ from multiverse.verbs import VERBS, VERBS_BY_NAME, apply_verb, verb_for_level
 @pytest.fixture(autouse=True)
 def _zero_hop_delay(monkeypatch):
     monkeypatch.setenv("NESTED_WORLDS_HOP_DELAY", "0")
+    # Legacy semantics: these tests predate deep time; verbs act instantly.
+    monkeypatch.setenv("NESTED_WORLDS_MATURATION_SCALE", "0")
     yield
 
 

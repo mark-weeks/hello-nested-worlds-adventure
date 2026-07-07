@@ -97,7 +97,7 @@ _REF_FULL_WORLD_DIGEST = (
     "b02c167b0d2280f558e69fa60e0400d9ff3d42b8054519a061d2bd753990c414"
 )
 _REF_FULL_PUZZLES_DIGEST = (
-    "902cac767f47a1bcaab4b8104b101e21f721871de35d4abfeae3ef5a31050598"
+    "c269746b17fa79c8c07feb3ec94c4b368e5a5c607305527016b0da10e826c151"
 )
 
 
@@ -233,7 +233,7 @@ class TestPuzzleLayerIsFrozen:
             for n in nodes)
         digest = hashlib.sha256(blob.encode()).hexdigest()
         assert digest == (
-            "0aa72ce95ec11b0fe6bce0dae4d55b6222021d0bc1ce9cfd1c16995dfd365143"
+            "79518fa8321a421b990008a4384a1ffe044d28af236a6993a2278eeacc30362a"
         ), (
             "Epoch-0 puzzle generation changed for the reference world. "
             "Post-launch this resets every solved puzzle. Revert, or "
