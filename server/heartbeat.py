@@ -37,7 +37,7 @@ from agents.roster import profile_for
 from causality import CausalityBus, EventKind
 from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
-from multiverse.generator import LEVELS, generate_node_hierarchy
+from multiverse.generator import LEVELS, generate_node_hierarchy, resolve_node_by_name
 from multiverse.node import SpatialNode
 from multiverse.utils import (
     apply_property_overrides, apply_ripple_scores, build_distance_map,
@@ -167,6 +167,7 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
         return f"destabilized {min(2, len(nodes))} node(s)"
 
     if persona_name in ("tender", "scholar"):
+        from multiverse.verbs import maturation_note, maturation_seconds
         allowed = None if persona_name == "tender" else (
             "inscribe", "observe", "calibrate")
         for node in nodes:
@@ -177,15 +178,27 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                                          token=f"{agent_name}:{node.name}")
             if not changed:
                 continue
-            persistence.upsert_node_properties(seed, node.name, changed)
+            # Deep time binds the cast too: a cosmic verb an agent
+            # performs is planted, not instant — the same clock players
+            # live under.
+            matures = maturation_seconds(node.level)
+            act_data = {"verb": verb.name, "changed": changed, **payload}
+            if matures > 0:
+                persistence.enqueue_verb_maturation(
+                    seed, node.name, verb.name, changed, agent_name, matures)
+                act_data["matures_in"] = int(matures)
+                flavor += maturation_note(matures)
+            else:
+                persistence.upsert_node_properties(seed, node.name, changed)
             persistence.record_mutation(
-                seed, node.name, "SCALE_ACT", None,
-                {"verb": verb.name, "changed": changed, **payload},
+                seed, node.name, "SCALE_ACT", None, act_data,
                 actor_identity=agent_name)
             broadcast(room, {
                 "type": "scale_act", "node": node.name, "level": node.level,
                 "verb": verb.name, "actor": agent_name,
-                "changed": changed, "flavor": flavor,
+                "changed": None if matures > 0 else changed,
+                "matures_in": int(matures) if matures > 0 else None,
+                "flavor": flavor,
             })
             act_payload = {"verb": verb.name, **payload}
             act_bus = wire_world_handlers(CausalityBus(), seed, record=False)
@@ -380,6 +393,37 @@ def _pump_broadcaster(seed, node, event) -> None:
     })
 
 
+def drain_matured_verbs(limit: int = 32) -> int:
+    """Land every planted cosmic-verb change whose time has come.
+
+    Deep time's second half: the property delta finally applies, the
+    chronicle gains a SCALE_ACT_MATURED row, and connected players watch
+    the change arrive — often long after (and far from) whoever planted
+    it. Returns maturations landed.
+    """
+    rows = persistence.claim_due_verb_maturations(limit)
+    for row in rows:
+        seed, node_name = row["world_seed"], row["node_name"]
+        persistence.upsert_node_properties(seed, node_name, row["changed"])
+        persistence.record_mutation(
+            seed, node_name, "SCALE_ACT_MATURED", row["actor"],
+            {"verb": row["verb"], "changed": row["changed"]},
+            actor_identity=row["actor"])
+        resolved = resolve_node_by_name(seed, node_name)
+        broadcast(get_room(seed), {
+            "type":    "scale_act",
+            "node":    node_name,
+            "level":   resolved.level if resolved else "",
+            "verb":    row["verb"],
+            "actor":   row["actor"] or "the slow work of someone",
+            "changed": row["changed"],
+            "matured": True,
+            "flavor":  (f"The {row['verb']} planted here settles at last — "
+                        "the change arrives."),
+        })
+    return len(rows)
+
+
 def run_pump_loop(stop: threading.Event) -> None:
     from causality import staging
     _log.info("causal pump started (interval %.0fs, hop delay %.0fs)",
@@ -389,6 +433,10 @@ def run_pump_loop(stop: threading.Event) -> None:
             staging.drain_due_hops(broadcaster=_pump_broadcaster)
         except Exception:  # noqa: BLE001 — cascades must keep traveling
             _log.exception("causal pump tick failed; continuing")
+        try:
+            drain_matured_verbs()
+        except Exception:  # noqa: BLE001 — planted changes must still land
+            _log.exception("verb maturation drain failed; continuing")
 
 
 def start_pump() -> threading.Event:

@@ -218,7 +218,10 @@ export default function App() {
         ? ` (with ${msg.contributors.filter(c => c !== msg.solver).join(", ")})`
         : "";
       const by = msg.solver ? ` by ${msg.solver}${credit}` : "";
-      pushEvent({ type: "puzzle", text: `Puzzle solved: ${msg.puzzle} @ ${msg.node}${by}` });
+      pushEvent({ type: "puzzle",
+                  text: msg.entangled_with
+                    ? `⇄ ${msg.node} resolves — entangled with ${msg.entangled_with}`
+                    : `Puzzle solved: ${msg.puzzle} @ ${msg.node}${by}` });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "solve", duration: 2000 });
         // If we were standing at a sealed threshold, the solve is the key —

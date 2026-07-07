@@ -97,14 +97,24 @@ class CausalityBus:
         """Emit at *origin* and cascade across the hierarchy.
 
         `direction` is one of "down", "up", or "both" (default). Strength
-        attenuates by `dampening` at each hop and the cascade halts when
-        strength drops below `MIN_STRENGTH`.
+        attenuates at each hop and the cascade halts when strength drops
+        below `MIN_STRENGTH`.
+
+        The physics of the walk come from the containing universe's law
+        (causality/laws.py): dampening pattern, direction inversion,
+        tunneling, drops. Where no universe holds the origin (the
+        Multiverse root, synthetic trees), the caller's `dampening`
+        applies uniformly — the pre-law contract, byte for byte. The law
+        consulted at each hop is the law of the node the hop lands in, so
+        a cascade crossing a universe boundary changes physics there.
 
         Origin fires exactly once even when direction is "both" — the
         downward and upward cascades only walk away from origin.
         """
         if direction not in ("down", "up", "both"):
             raise ValueError(f"direction must be down|up|both, got {direction!r}")
+
+        from causality.laws import law_for
 
         event = CausalEvent(
             kind=kind,
@@ -115,16 +125,48 @@ class CausalityBus:
         )
         self._fire(origin, event)
 
-        if direction in ("down", "both"):
-            child_event = event.dampen(dampening)
-            for child in origin.children:
-                self._cascade_down(child, child_event, dampening)
+        arms = {"down": ["down"], "up": ["up"], "both": ["down", "up"]}[direction]
+        law = law_for(origin)
+        if law is not None and law.flip:
+            arms = [{"down": "up", "up": "down"}[a] for a in arms]
 
-        if direction in ("up", "both") and origin.parent is not None:
-            parent_event = event.dampen(dampening)
-            self._cascade_up(origin.parent, parent_event, dampening)
+        for arm in arms:
+            if arm == "down":
+                for child in origin.children:
+                    self._walk(child, event, "down", hop=1,
+                               origin_name=origin.name, fallback=dampening)
+            elif origin.parent is not None:
+                self._walk(origin.parent, event, "up", hop=1,
+                           origin_name=origin.name, fallback=dampening)
 
         return event
+
+    def _walk(self, node: SpatialNode, prior: CausalEvent, arm: str,
+              hop: int, origin_name: str, fallback: float) -> None:
+        """One cascade step onto `node`: dampen by the local law (or the
+        caller's fallback), maybe tunnel through, maybe drop, fire, and
+        continue outward along the same arm."""
+        from causality.laws import hop_token, law_for
+
+        law = law_for(node)
+        if law is None:
+            factor, tunneled = fallback, False
+        else:
+            token = hop_token(law, origin_name, node.name, hop)
+            if law.drops(token):
+                return  # the thread frays; the cascade ends here
+            tunneled = law.tunnels(token)
+            factor = 1.0 if tunneled else law.dampening(hop, arm, token)
+        event = prior.dampen(factor)
+        if event.strength < MIN_STRENGTH:
+            return
+        if not tunneled:
+            self._fire(node, event)
+        if arm == "down":
+            for child in node.children:
+                self._walk(child, event, "down", hop + 1, origin_name, fallback)
+        elif node.parent is not None:
+            self._walk(node.parent, event, "up", hop + 1, origin_name, fallback)
 
     def _fire(self, node: SpatialNode, event: CausalEvent) -> None:
         self._event_log.append((node.name, event))
@@ -135,24 +177,6 @@ class CausalityBus:
         node.ripple_score = min(1.0, node.ripple_score + event.strength * 0.1)
         for handler in self._handlers:
             handler(node, event)
-
-    def _cascade_down(self, node: SpatialNode, event: CausalEvent,
-                      dampening: float) -> None:
-        if event.strength < MIN_STRENGTH:
-            return
-        self._fire(node, event)
-        child_event = event.dampen(dampening)
-        for child in node.children:
-            self._cascade_down(child, child_event, dampening)
-
-    def _cascade_up(self, node: SpatialNode, event: CausalEvent,
-                    dampening: float) -> None:
-        if event.strength < MIN_STRENGTH:
-            return
-        self._fire(node, event)
-        if node.parent is not None:
-            parent_event = event.dampen(dampening)
-            self._cascade_up(node.parent, parent_event, dampening)
 
 
 # Default module-level bus.  Most code uses the convenience wrappers below;
