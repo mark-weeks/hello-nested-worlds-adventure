@@ -3,7 +3,7 @@ import Chronicle from "./Chronicle.jsx";
 import Interact from "./Interact.jsx";
 import { passageBadges } from "../badges.js";
 
-export default function TextPanel({ node, players, connected, events, seed, depth, playerName, onLoadWorld, onChat, soundOn, onToggleSound }) {
+export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onLoadWorld, onChat, onJump, soundOn, onToggleSound }) {
   const [seedInput, setSeedInput] = useState(String(seed));
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
@@ -84,6 +84,36 @@ export default function TextPanel({ node, players, connected, events, seed, dept
         <div style={s.section}>
           <div style={s.label}>Present here</div>
           {here.map(p => <div key={p.session_id} style={s.player}>◈ {p.name}</div>)}
+        </div>
+      )}
+
+      {(players.length > 0 || Object.keys(agents).length > 0) && (
+        <div style={s.section}>
+          <div style={s.label}>Travelers</div>
+          {players.map(p => (
+            <div
+              key={p.session_id}
+              style={s.traveler}
+              title={`go to ${p.name}`}
+              onClick={() => p.node && onJump?.(p.node)}
+            >
+              <span style={s.travelerName}>◈ {p.name}</span>
+              <span style={s.travelerNode}>{p.node || "—"}</span>
+            </div>
+          ))}
+          {Object.entries(agents).map(([name, a]) => (
+            <div
+              key={name}
+              style={s.traveler}
+              title={`follow ${name}`}
+              onClick={() => a.node && onJump?.(a.node)}
+            >
+              <span style={{ ...s.travelerName, color: "#f0c878" }}>
+                ✦ {name}{a.persona ? <span style={s.travelerPersona}> · {a.persona}</span> : null}
+              </span>
+              <span style={s.travelerNode}>{a.node || "…arriving"}</span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -171,6 +201,10 @@ const s = {
   passageLevel:{ color: "#4a5580" },
   badge:       { fontSize: "9px", border: "1px solid", borderRadius: "3px", padding: "0 4px", marginLeft: "5px", letterSpacing: "0.06em", whiteSpace: "nowrap" },
   player:      { fontSize: "12px", color: "#4af0c8" },
+  traveler:    { display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "11px", cursor: "pointer", padding: "1px 0" },
+  travelerName: { color: "#4af0c8", whiteSpace: "nowrap" },
+  travelerPersona: { color: "#5a6a8a" },
+  travelerNode: { color: "#5a6a8a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   row:         { display: "flex", gap: "6px", flexShrink: 0 },
   seedInput:   { flex: 1, background: "#10131f", border: "1px solid #2a3050", color: "#b0bcd0", padding: "4px 6px", fontFamily: "inherit", fontSize: "12px", minWidth: 0 },
   chatInput:   { flex: 1, background: "#10131f", border: "1px solid #2a3050", color: "#b0bcd0", padding: "4px 6px", fontFamily: "inherit", fontSize: "12px", minWidth: 0 },

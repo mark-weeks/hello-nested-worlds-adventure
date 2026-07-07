@@ -198,6 +198,8 @@ function renderTree(worldRoot) {
   root_g.selectAll('*').remove();
   nodeG   = null;
   players = {};
+  agents  = {};
+  indexSuffixes(worldRoot);
   renderPlayers();
 
   const hier   = d3.hierarchy(worldRoot, d => d.children?.length ? d.children : null);
@@ -722,6 +724,10 @@ async function submitAnswer() {
       resultEl.className   = 'puzzle-result correct';
       hintEl.textContent   = '';
       document.getElementById('puzzle-answer').disabled = true;
+      // If this node was sealed, the solve IS the key: walk through the
+      // now-open door (a harmless re-move anywhere else — the server
+      // validates every move the same way).
+      if (selected) wsSend({ type: 'move', node: selected.name });
     } else if (data.result === 'FAILED') {
       resultEl.textContent = `Failed. The answer was: ${data.correct_answer}`;
       resultEl.className   = 'puzzle-result failed';
@@ -743,10 +749,62 @@ let playerName  = localStorage.getItem('nw_player_name') || _betaParams.get('nam
 let ws          = null;
 let mySessionId = null;
 let players     = {};
+let agents      = {};   // name → { node, persona } — the ambient cast, live
 let colorIdx    = 0;
 
 const PLAYER_COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#ff9ff3','#ff9f43','#54a0ff','#a29bfe'];
+const AGENT_RING_COLOR = '#f0c878';  // the cast rings gold; humans ring bright
 const eventFeed = [];
+
+// ── Travelers: jump-to-presence ─────────────────────────────────────────────
+// Names encode their path ("Vault-1121" lies under path 1→1→2→1), so the
+// client can find any traveler's enclosing RENDERED ancestor — or deepen
+// the view to reach them — without asking the server anything.
+let nodesBySuffix = {};
+
+function indexSuffixes(root) {
+  nodesBySuffix = {};
+  (function walk(n) {
+    nodesBySuffix[n.name.split('-').pop()] = n;
+    for (const c of n.children || []) walk(c);
+  })(root);
+}
+
+function deepestVisibleAncestor(nodeName) {
+  const suffix = (nodeName || '').split('-').pop();
+  if (!/^\d+$/.test(suffix)) return null;
+  for (let i = suffix.length - 1; i >= 1; i--) {
+    const hit = nodesBySuffix[suffix.slice(0, i)];
+    if (hit) return hit;
+  }
+  return null;
+}
+
+async function jumpTo(nodeName) {
+  if (!nodeName) return;
+  let hit = findNodeByName(hierLayout && hierLayout.data, nodeName);
+  if (!hit) {
+    // Below the rendered horizon: the suffix length IS the needed depth.
+    const suffix = nodeName.split('-').pop();
+    if (/^\d+$/.test(suffix) && suffix.length > worldParams.depth) {
+      document.getElementById('depth').value = Math.min(11, suffix.length);
+      pushFeed(`… deepening the view toward ${nodeName}`);
+      await loadWorld();
+      hit = findNodeByName(hierLayout && hierLayout.data, nodeName);
+    }
+  }
+  if (hit) {
+    selectNode(hit);
+    centerOnNode(hit);
+  } else {
+    const anc = deepestVisibleAncestor(nodeName);
+    if (anc) {
+      selectNode(anc);
+      centerOnNode(anc);
+      pushFeed(`▼ ${nodeName} lies enfolded beneath ${anc.name}`);
+    }
+  }
+}
 
 function showJoinModal() {
   document.getElementById('join-modal').classList.add('visible');
@@ -812,8 +870,40 @@ function handleWsMsg(msg) {
         if (p.session_id !== mySessionId)
           players[p.session_id] = { name: p.name, node: p.node, color: assignColor() };
       }
+      agents = {};
+      for (const a of (msg.agents || []))
+        agents[a.name] = { node: a.node, persona: a.persona };
       renderPlayers();
       updatePresenceRings();
+      break;
+    case 'agent_enter':
+      agents[msg.name] = { node: '', persona: msg.persona };
+      renderPlayers();
+      break;
+    case 'agent_move':
+      if (!agents[msg.name]) agents[msg.name] = { node: '', persona: null };
+      agents[msg.name].node = msg.node;
+      renderPlayers();
+      updatePresenceRings();
+      break;
+    case 'agent_leave':
+      if (agents[msg.name]) {
+        delete agents[msg.name];
+        renderPlayers();
+        updatePresenceRings();
+      }
+      break;
+    case 'move_denied':
+      if (msg.reason === 'sealed') {
+        // Position stays outside; SELECTION stays on the sealed node so
+        // its puzzle panel is attemptable — the key is spoken from the
+        // threshold, and solving re-sends the move (the way opens).
+        pushFeed(`▦ ${escHtml(msg.node)} is sealed — its key is written in ` +
+                 `${escHtml(msg.keeper || 'the scale above')}`);
+        if (msg.prompt) pushFeed(`   ${escHtml(msg.prompt)}`);
+      } else {
+        pushFeed(`✕ no way to ${escHtml(msg.node)} — ${escHtml(msg.reason)}`);
+      }
       break;
     case 'player_join':
       if (msg.session_id !== mySessionId) {
@@ -909,20 +999,45 @@ function flashNode(nodeName, strength) {
 }
 
 function renderPlayers() {
-  const el   = document.getElementById('players-list');
-  const list = Object.values(players);
-  if (!list.length) {
-    el.innerHTML = '<div style="color:#2a4060;font-size:10px">No other explorers online</div>';
-  } else {
-    el.innerHTML = list.map(p =>
-      `<div class="player-row">` +
+  const el     = document.getElementById('players-list');
+  const humans = Object.values(players);
+  const cast   = Object.entries(agents);
+  if (!humans.length && !cast.length) {
+    el.innerHTML = '<div style="color:#2a4060;font-size:10px">No other travelers abroad</div>';
+    return;
+  }
+  // Every row is a door: click a traveler to go where they are (below the
+  // horizon, the view deepens to reach them).
+  const rows = [];
+  for (const p of humans) {
+    rows.push(
+      `<div class="player-row traveler-row" data-node="${escHtml(p.node || '')}" ` +
+      `title="go to ${escHtml(p.name)}">` +
       `<span class="player-dot" style="background:${p.color}"></span>` +
       `<span class="player-name">${escHtml(p.name)}</span>` +
       `<span class="player-node">${escHtml(p.node || '—')}</span>` +
-      `</div>`
-    ).join('');
+      `</div>`);
   }
+  for (const [name, a] of cast) {
+    rows.push(
+      `<div class="player-row traveler-row" data-node="${escHtml(a.node || '')}" ` +
+      `title="follow ${escHtml(name)}">` +
+      `<span class="player-dot" style="background:${AGENT_RING_COLOR}"></span>` +
+      `<span class="player-name">${escHtml(name)}` +
+      (a.persona ? ` <span style="color:#5a6a8a">· ${escHtml(a.persona)}</span>` : '') +
+      `</span>` +
+      `<span class="player-node">${escHtml(a.node || '…arriving')}</span>` +
+      `</div>`);
+  }
+  el.innerHTML = rows.join('');
 }
+
+// One delegated listener: traveler rows carry their node in data-node
+// (inline handlers are barred by the production CSP).
+document.getElementById('players-list').addEventListener('click', (e) => {
+  const row = e.target.closest('[data-node]');
+  if (row && row.dataset.node) jumpTo(row.dataset.node);
+});
 
 function pushFeed(text, { cls = '', html = false } = {}) {
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -951,23 +1066,34 @@ function sendChat() {
 function updatePresenceRings() {
   if (!nodeG) return;
   nodeG.selectAll('.presence-ring').remove();
-  const nodeColors = {};
-  for (const p of Object.values(players)) {
-    if (!p.node) continue;
-    if (!nodeColors[p.node]) nodeColors[p.node] = [];
-    nodeColors[p.node].push(p.color);
-  }
-  for (const [nodeName, colors] of Object.entries(nodeColors)) {
+  // Each traveler rings the node they stand at — or, when they're below
+  // the rendered horizon, the deepest visible ancestor that enfolds them
+  // (dotted sparser: presence sensed THROUGH the enclosing scale).
+  const ringsAt = {};  // nodeName → [{color, beneath}]
+  const place = (nodeName, color) => {
+    if (!nodeName) return;
+    let target = nodeName, beneath = false;
+    if (!nodesBySuffix[(nodeName.split('-').pop())]) {
+      const anc = deepestVisibleAncestor(nodeName);
+      if (!anc) return;
+      target = anc.name;
+      beneath = true;
+    }
+    (ringsAt[target] = ringsAt[target] || []).push({ color, beneath });
+  };
+  for (const p of Object.values(players)) place(p.node, p.color);
+  for (const a of Object.values(agents))  place(a.node, AGENT_RING_COLOR);
+  for (const [nodeName, rings] of Object.entries(ringsAt)) {
     const group = nodeG.filter(d => d.data.name === nodeName);
-    colors.forEach((color, i) => {
+    rings.forEach(({ color, beneath }, i) => {
       group.insert('circle', ':first-child')
         .attr('class',          'presence-ring')
         .attr('r',              d => (LEVEL_R[d.data.level] || 7) + 6 + i * 5)
         .attr('fill',           'none')
         .attr('stroke',         color)
-        .attr('stroke-width',   1.5)
-        .attr('stroke-dasharray', '4,3')
-        .attr('opacity',        0.8)
+        .attr('stroke-width',   beneath ? 1 : 1.5)
+        .attr('stroke-dasharray', beneath ? '2,6' : '4,3')
+        .attr('opacity',        beneath ? 0.55 : 0.8)
         .attr('pointer-events', 'none');
     });
   }

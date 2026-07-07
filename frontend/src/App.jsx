@@ -83,7 +83,13 @@ export default function App() {
   });
   const [nodeStack, setNodeStack] = useState([]);
   const [players, setPlayers]     = useState([]);
+  const [agents, setAgents]       = useState({});  // name → { node, persona }
   const [events, setEvents]       = useState([]);
+  // The fetched world tree, retained so jump-to-traveler can rebuild a real
+  // ancestry stack from a node name (names encode their path).
+  const worldRootRef = useRef(null);
+  // A node whose seal we just opened: walk through once the solve lands.
+  const [walkThrough, setWalkThrough] = useState(null);
   const [transients, setTransients] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || urlName() || "");
@@ -125,6 +131,7 @@ export default function App() {
         // the nav stack, so "back" walks the real ancestry.
         const savedNode = localStorage.getItem(LAST_NODE_KEY);
         const name = localStorage.getItem(NAME_KEY) || urlName() || "";
+        worldRootRef.current = data.world;
         setNodeStack(entryPath(data.world, savedNode, name));
         setLoading(false);
       })
@@ -154,9 +161,31 @@ export default function App() {
         .filter(p => p.session_id !== msg.session_id)
         .map(p => ({ name: p.name, session_id: p.session_id, node: p.node || "" }));
       setPlayers(others);
+      const cast = {};
+      for (const a of (msg.agents || [])) cast[a.name] = { node: a.node || "", persona: a.persona };
+      setAgents(cast);
       if (others.length) {
         pushEvent({ type: "system",
                     text: `${others.length} explorer${others.length > 1 ? "s" : ""} already here` });
+      }
+    },
+    onAgentEnter: (msg) => setAgents(a => ({ ...a, [msg.name]: { node: "", persona: msg.persona } })),
+    onAgentMove:  (msg) => setAgents(a => ({ ...a, [msg.name]: { ...(a[msg.name] || {}), node: msg.node } })),
+    onAgentLeave: (msg) => setAgents(a => {
+      const next = { ...a };
+      delete next[msg.name];
+      return next;
+    }),
+    onMoveDenied: (msg) => {
+      if (msg.reason === "sealed") {
+        // The scene stays on the sealed node — you stand at the threshold;
+        // the server keeps your true position outside until the key is
+        // spoken (solving the room's puzzle re-sends the move).
+        pushEvent({ type: "system",
+                    text: `▦ ${msg.node} is sealed — its key is written in ${msg.keeper || "the scale above"}` });
+        if (msg.prompt) pushEvent({ type: "system", text: msg.prompt });
+      } else {
+        pushEvent({ type: "system", text: `✕ no way to ${msg.node} — ${msg.reason}` });
       }
     },
     onPlayerJoin: (msg) => {
@@ -192,6 +221,9 @@ export default function App() {
       pushEvent({ type: "puzzle", text: `Puzzle solved: ${msg.puzzle} @ ${msg.node}${by}` });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "solve", duration: 2000 });
+        // If we were standing at a sealed threshold, the solve is the key —
+        // walk through (the effect below re-sends the move once connected).
+        setWalkThrough(msg.node);
       }
     },
     onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${msg.node}` }),
@@ -260,6 +292,17 @@ export default function App() {
     loadWorld(s);
   }, [loadWorld]);
 
+  // A solve at the current node may have opened its seal — re-announce the
+  // move so the server's position walks through the now-open door. (The
+  // position-broadcast effect won't refire on its own: the node name
+  // didn't change.)
+  useEffect(() => {
+    if (walkThrough && connected && walkThrough === currentNodeName) {
+      sendMessage({ type: "move", node: walkThrough });
+      setWalkThrough(null);
+    }
+  }, [walkThrough, connected, currentNodeName, sendMessage]);
+
   // Position is broadcast by the effect above (keyed on currentNodeName), so
   // navigation only has to update the stack — no direct send here.
   const navigateTo = useCallback((node) => {
@@ -269,6 +312,28 @@ export default function App() {
   const navigateUp = useCallback(() => {
     setNodeStack(s => (s.length <= 1 ? s : s.slice(0, -1)));
   }, []);
+
+  // Jump to a traveler: rebuild the real ancestry stack from the node name
+  // (names encode their path — "…-1121" lies under 1→1→2→1). A traveler
+  // below the fetched horizon lands us on their deepest fetched ancestor.
+  const jumpTo = useCallback((nodeName) => {
+    const root = worldRootRef.current;
+    const suffix = (nodeName || "").split("-").pop() || "";
+    if (!root || !/^\d+$/.test(suffix)) return;
+    const path = [root];
+    let cur = root;
+    for (const ch of suffix.slice(1)) {   // the leading 1 is the root itself
+      const next = (cur.children || [])[Number(ch) - 1];
+      if (!next) break;                   // deeper than this view reaches
+      path.push(next);
+      cur = next;
+    }
+    if (cur.name !== nodeName) {
+      pushEvent({ type: "system",
+                  text: `▼ ${nodeName} lies enfolded beneath ${cur.name}` });
+    }
+    setNodeStack(path);
+  }, [pushEvent]);
 
   const sendChat = useCallback((text) => {
     sendMessage({ type: "chat", text });
@@ -322,6 +387,7 @@ export default function App() {
       <TextPanel
         node={currentNode}
         players={players}
+        agents={agents}
         connected={connected}
         events={events}
         seed={seed}
@@ -329,6 +395,7 @@ export default function App() {
         playerName={playerName}
         onLoadWorld={handleLoadWorld}
         onChat={sendChat}
+        onJump={jumpTo}
         soundOn={soundOn}
         onToggleSound={toggleSound}
       />

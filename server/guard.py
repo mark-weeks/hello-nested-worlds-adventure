@@ -398,6 +398,41 @@ class ConnectionLimiter:
 WS_LIMITER = ConnectionLimiter()
 
 
+class TokenBucket:
+    """Per-connection message throttle (continuous refill).
+
+    ConnectionLimiter bounds how many sockets exist; this bounds what one
+    socket can DO. Every WS move/chat writes a permanent chronicle row and
+    broadcasts to every player in the room, so an unthrottled connection is
+    an unbounded chronicle writer and a broadcast amplifier. One bucket per
+    connection per message type; excess messages are dropped silently (an
+    abuse guard, not UX — no human clicks 3 times a second for a sustained
+    minute). Single-threaded use: each WS connection reads its own socket
+    from one thread, so no lock."""
+
+    def __init__(self, rate: float, burst: int):
+        self.rate = float(rate)      # tokens replenished per second
+        self.burst = float(burst)    # bucket capacity (initial allowance)
+        self.tokens = float(burst)
+        self.last = time.monotonic()
+
+    def allow(self) -> bool:
+        now = time.monotonic()
+        self.tokens = min(self.burst,
+                          self.tokens + (now - self.last) * self.rate)
+        self.last = now
+        if self.tokens >= 1.0:
+            self.tokens -= 1.0
+            return True
+        return False
+
+
+# A burst covers real exploration (a flurry of map clicks); the sustained
+# rate is what caps a flood.
+WS_MOVE_RATE, WS_MOVE_BURST = 3.0, 20
+WS_CHAT_RATE, WS_CHAT_BURST = 0.5, 5
+
+
 # ── Daily cost caps ─────────────────────────────────────────────────────────
 
 def _utc_day() -> str:

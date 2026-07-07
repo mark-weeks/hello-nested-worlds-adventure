@@ -29,12 +29,13 @@ from multiverse.utils import (
     count_nodes, find_node,
 )
 from multiverse.verbs import apply_verb, verb_for_level
+from puzzles import gates
 from puzzles.engine import PuzzleEngine
 from server import guard, imageprompt, observability
 from server.protocol import ProtocolError, _send_frame, ws_recv
 from server.rooms import (
     Player, agent_enter, agent_leave, agent_move, agent_persona,
-    broadcast, get_room, record_attempt, snapshot,
+    agents_snapshot, broadcast, get_room, record_attempt, snapshot,
 )
 
 
@@ -722,7 +723,8 @@ class Handler(BaseHTTPRequestHandler):
                 room.players[session_id] = player
 
             player.send({"type": "welcome", "session_id": session_id,
-                         "players": snapshot(room)})
+                         "players": snapshot(room),
+                         "agents": agents_snapshot(room)})
             broadcast(room, {"type": "player_join", "name": name, "session_id": session_id},
                       exclude=session_id)
             # Presence is chronicle material: that someone was HERE is the
@@ -731,6 +733,13 @@ class Handler(BaseHTTPRequestHandler):
                 seed, root_name, "PLAYER_JOIN", name, {},
                 actor_identity=ws_identity)
 
+            # Per-connection throttles: the connection limiter bounds how
+            # many sockets exist; these bound what one socket can write
+            # into the permanent chronicle (and amplify into broadcasts).
+            move_bucket = guard.TokenBucket(guard.WS_MOVE_RATE,
+                                            guard.WS_MOVE_BURST)
+            chat_bucket = guard.TokenBucket(guard.WS_CHAT_RATE,
+                                            guard.WS_CHAT_BURST)
             try:
                 while True:
                     # send_lock keeps this thread's pong/close echoes from
@@ -746,20 +755,43 @@ class Handler(BaseHTTPRequestHandler):
                         continue
                     msg_type = msg.get("type")
                     if msg_type == "move":
+                        if not move_bucket.allow():
+                            continue  # flood — drop before any work
                         node_name = str(msg.get("node", ""))[:64]
+                        # Node identity is server-derived, like every other
+                        # write path: a client cannot move to (and write
+                        # permanent history for) a place that doesn't exist.
+                        target = (resolve_node_by_name(seed, node_name)
+                                  if node_name else None)
+                        if target is None:
+                            player.send({"type": "move_denied",
+                                         "node": node_name,
+                                         "reason": "no such place"})
+                            continue
+                        # Sealed passages: a locked Room bars entry to
+                        # itself and everything enfolded beneath it until
+                        # its current puzzle is solved (puzzles/gates).
+                        seal = gates.seal_check(
+                            seed, target, current_name=player.current_node)
+                        if seal is not None:
+                            player.send({"type": "move_denied",
+                                         "node": node_name,
+                                         "reason": "sealed", **seal})
+                            continue
                         with room.lock:
                             player.current_node = node_name
                         broadcast(room, {"type": "player_move", "name": name,
                                          "node": node_name, "session_id": session_id},
                                   exclude=session_id)
-                        if node_name:
-                            # Movement trails persist: they feed the node's
-                            # activity count (the art's wear marks) and let
-                            # the chronicle answer "who traveled here".
-                            persistence.record_mutation(
-                                seed, node_name, "PLAYER_MOVE", name, {},
-                                actor_identity=ws_identity)
+                        # Movement trails persist: they feed the node's
+                        # activity count (the art's wear marks) and let
+                        # the chronicle answer "who traveled here".
+                        persistence.record_mutation(
+                            seed, node_name, "PLAYER_MOVE", name, {},
+                            actor_identity=ws_identity)
                     elif msg_type == "chat":
+                        if not chat_bucket.allow():
+                            continue  # flood — drop before any work
                         text = str(msg.get("text", "")).strip()[:256]
                         if text:
                             broadcast(room, {"type": "chat", "name": name,

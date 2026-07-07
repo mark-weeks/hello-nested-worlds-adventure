@@ -14,11 +14,15 @@ export function dispatchMessage(msg, h) {
     case "player_join":     h.onPlayerJoin?.(msg); break;
     case "player_leave":    h.onPlayerLeave?.(msg); break;
     case "player_move":     h.onPlayerMove?.(msg); break;
+    case "move_denied":     h.onMoveDenied?.(msg); break;
     case "chat":            h.onChat?.(msg); break;
     case "causal_event":    h.onCausalEvent?.(msg); break;
     case "puzzle_solved":   h.onPuzzleSolved?.(msg); break;
     case "agent_done":      h.onAgentDone?.(msg); break;
     case "agent_encounter": h.onAgentEncounter?.(msg); break;
+    case "agent_enter":     h.onAgentEnter?.(msg); break;
+    case "agent_move":      h.onAgentMove?.(msg); break;
+    case "agent_leave":     h.onAgentLeave?.(msg); break;
     case "scale_act":       h.onScaleAct?.(msg); break;
     case "agent_talk":      h.onAgentTalk?.(msg); break;
     default: break;
