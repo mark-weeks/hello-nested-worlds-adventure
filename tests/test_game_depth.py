@@ -33,12 +33,16 @@ def _walk(n, out):
 
 class TestPuzzleVocabulary:
     def test_answer_space_no_longer_memorizable(self):
-        # Pre-expansion: 55% distinct at depth 6, 4% at depth 11 (one riddle
-        # answered 410 nodes). Guard the floor so the answer key can't
-        # quietly collapse back into a dozen words per level.
+        # Pre-expansion: 55% distinct at depth 6 (83 nodes), 4% at depth 11
+        # (one riddle answered 410 nodes). The reshape tripled the depth-6
+        # world (293 nodes drawing on the same per-level banks), so the
+        # honest guards are a ratio floor plus an absolute answer-space
+        # floor — together they keep the answer key from collapsing back
+        # into a dozen memorizable words per level.
         nodes = _walk(generate_node_hierarchy(seed=42, max_depth=6), [])
         answers = [build_puzzle(n).answer for n in nodes]
-        assert len(set(answers)) / len(answers) >= 0.6
+        assert len(set(answers)) / len(answers) >= 0.45
+        assert len(set(answers)) >= 120
 
     def test_word_answers_rarely_repeat(self):
         # Numeric sequence answers may repeat (same number, different rule,

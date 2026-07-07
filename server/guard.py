@@ -69,33 +69,16 @@ FAL_BUCKET       = "fal_ai"
 
 # ── World-gen parameter bounds ──────────────────────────────────────────────
 
-# 11 is the depth of the full hierarchy; nobody needs more.
+# 11 is the depth of the full hierarchy; nobody needs more. Depth is the
+# only shape input a request controls: breadth comes from the generator's
+# canonical BREADTH_BY_LEVEL profile (the same seed must be the same world
+# for every participant), which bounds the worst-case full-depth tree at
+# ~12k nodes by construction — the old depth×breadth amplification vector
+# (client-supplied breadth 5 at depth 11 → ~12M nodes, an OOM on the beta
+# VM) no longer exists. Legacy min_breadth/max_breadth params are accepted
+# for URL compatibility and ignored.
 MAX_DEPTH        = 11
-MAX_BREADTH      = 5
 MIN_DEPTH        = 1
-MIN_BREADTH_LO   = 1
-
-# The per-field bounds above are NOT sufficient on their own: depth and breadth
-# multiply, so a request that is in-range on every individual field can still
-# ask for a runaway tree. depth=11, max_breadth=5 → ~5**11 ≈ 12M nodes, which
-# OOM-kills the single beta VM (measured: it exhausts a 6 GB cap) and, well
-# before that, returns a tens-of-MB JSON blob on every /world call. The
-# generator builds `randint(min_breadth, max_breadth)` children per internal
-# node, so the worst case is `max_breadth` at every node. We cap that worst-case
-# node count so no single request can exhaust memory or amplify one small
-# request into a huge response. 20k nodes (~12 MB worst-case JSON, a few MB RSS)
-# still admits the full 11-level hierarchy at breadth 1–2 and generous breadth
-# at moderate depth — only the pathological deep-and-wide combos are rejected.
-MAX_TOTAL_NODES  = 20_000
-
-
-def _worst_case_node_count(depth: int, max_breadth: int) -> int:
-    """Upper bound on nodes for a tree of `depth` levels with at most
-    `max_breadth` children per internal node (a full m-ary tree)."""
-    if max_breadth <= 1:
-        return depth
-    # Geometric series 1 + b + b**2 + ... + b**(depth-1).
-    return (max_breadth ** depth - 1) // (max_breadth - 1)
 
 
 # ── Node-properties clamp (token-cost guard) ────────────────────────────────
@@ -135,35 +118,22 @@ def cap_properties(props: Any) -> dict:
 
 
 def validate_world_params(params: Mapping[str, Any]) -> None:
-    """Raise ValueError if any of the four generator inputs is out of range.
+    """Raise ValueError if the depth input is out of range.
 
-    Called from `_build_world` so every endpoint that rebuilds the world tree
-    inherits the same clamp without each handler repeating the check.
+    Called from `_build_world` so every endpoint that rebuilds the world
+    tree inherits the same clamp without each handler repeating the check.
+    Depth is the only client-controllable shape input; breadth is the
+    generator's canonical profile (legacy breadth params are ignored, not
+    rejected — old clients still send them).
     """
-    def _bounded(key: str, default: int, lo: int, hi: int) -> int:
-        raw = params.get(key, default)
-        try:
-            v = int(raw)
-        except (TypeError, ValueError):
-            raise ValueError(f"invalid {key}: {raw!r}")
-        if v < lo or v > hi:
-            raise ValueError(f"{key} must be between {lo} and {hi} (got {v})")
-        return v
-
-    depth = _bounded("depth",       6, MIN_DEPTH,      MAX_DEPTH)
-    min_b = _bounded("min_breadth", 1, MIN_BREADTH_LO, MAX_BREADTH)
-    max_b = _bounded("max_breadth", 3, MIN_BREADTH_LO, MAX_BREADTH)
-    if min_b > max_b:
-        raise ValueError(f"min_breadth ({min_b}) > max_breadth ({max_b})")
-    # Reject depth×breadth combinations that individually pass the field bounds
-    # but multiply into a memory-exhausting / response-amplifying tree.
-    worst = _worst_case_node_count(depth, max_b)
-    if worst > MAX_TOTAL_NODES:
+    raw = params.get("depth", 6)
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"invalid depth: {raw!r}")
+    if v < MIN_DEPTH or v > MAX_DEPTH:
         raise ValueError(
-            f"world too large: depth={depth}, max_breadth={max_b} could "
-            f"generate up to {worst} nodes (limit {MAX_TOTAL_NODES}); "
-            f"reduce depth or max_breadth"
-        )
+            f"depth must be between {MIN_DEPTH} and {MAX_DEPTH} (got {v})")
 
 
 # ── Invite key ──────────────────────────────────────────────────────────────

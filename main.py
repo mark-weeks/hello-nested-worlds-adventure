@@ -4,22 +4,18 @@ from pathlib import Path
 
 import persistence
 from agents.agent import Agent
-from multiverse.generator import generate_node_hierarchy
+from multiverse.generator import BREADTH_ENVELOPE, generate_node_hierarchy
 from multiverse.node import SpatialNode
 from multiverse.utils import count_nodes, find_node
 from puzzles.engine import PuzzleEngine
 
 
 def cmd_world(args):
-    root = generate_node_hierarchy(
-        seed=args.seed,
-        max_depth=args.depth,
-        min_breadth=args.min_breadth,
-        max_breadth=args.max_breadth,
-    )
+    root = generate_node_hierarchy(seed=args.seed, max_depth=args.depth)
     print(root)
     node_count = count_nodes(root)
-    persistence.save_world(args.seed, node_count, args.depth, args.min_breadth, args.max_breadth)
+    persistence.save_world(args.seed, node_count, args.depth,
+                           *BREADTH_ENVELOPE)
     print(f"[Saved: seed={args.seed}, {node_count} nodes]")
 
 
@@ -101,8 +97,6 @@ def cmd_play(args):
     interface.run_session(
         seed=args.seed,
         depth=args.depth,
-        min_breadth=args.min_breadth,
-        max_breadth=args.max_breadth,
         player_name=args.name,
     )
 
@@ -272,8 +266,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_world = sub.add_parser("world", help="Generate and print the world hierarchy")
     _accept_seed(p_world)
     p_world.add_argument("--depth", type=int, default=11, help="Max hierarchy depth (default: 11)")
-    p_world.add_argument("--min-breadth", type=int, default=1, dest="min_breadth")
-    p_world.add_argument("--max-breadth", type=int, default=3, dest="max_breadth")
     p_world.set_defaults(func=cmd_world)
 
     p_agent = sub.add_parser("agent", help="Run an agent traversal of the world")
@@ -297,8 +289,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_play = sub.add_parser("play", help="Start an interactive session in the world")
     _accept_seed(p_play)
     p_play.add_argument("--depth", type=int, default=6, help="Max hierarchy depth (default: 6)")
-    p_play.add_argument("--min-breadth", type=int, default=1, dest="min_breadth")
-    p_play.add_argument("--max-breadth", type=int, default=3, dest="max_breadth")
     p_play.add_argument("--name", type=str, default=None,
                         help="Your explorer name — nodes will remember you by it")
     p_play.set_defaults(func=cmd_play)

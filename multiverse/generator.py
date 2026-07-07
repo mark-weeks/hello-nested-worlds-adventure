@@ -38,6 +38,38 @@ LEVELS = [
     "SubatomicParticle",
 ]
 
+# How many children a node at each level generates (inclusive range, one
+# rng.randint draw per node — the draw itself is part of the frozen stream).
+# The profile is level-shaped rather than uniform: wide at the cosmic
+# shells, where every extra universe or galaxy multiplies the distinctness
+# of everything beneath it (uniform 1-3 produced single-universe worlds in
+# 88 of 300 seeds — one physics for all existence — and worlds as small as
+# 46 nodes); plural rooms, because rooms are the human scale; tapered
+# below Object, where uniform breadth spent 88% of the world on the
+# least-visited shells. Floors of 2-3 at the top make degenerate worlds
+# structurally impossible (minimum world ≈ 2.4k nodes, always 3+
+# universes). Part of the FROZEN surface below: changing any range after
+# first production deploy deletes and spawns subtrees in every existing
+# world. tests/test_continuity_freeze.py pins this profile exactly.
+BREADTH_BY_LEVEL: dict[str, tuple[int, int]] = {
+    "Multiverse":        (3, 4),
+    "Universe":          (3, 4),
+    "Galaxy":            (2, 3),
+    "Planetary System":  (2, 2),
+    "Planet":            (2, 2),
+    "Region":            (2, 2),
+    "Room":              (1, 2),
+    "Object":            (1, 2),
+    "Molecule":          (1, 2),
+    "Atom":              (1, 2),
+    "SubatomicParticle": (1, 2),  # leaf level — drawn, never used
+}
+
+# The profile's outer bounds — descriptive, for records like the worlds
+# table; the per-level ranges above are what generation actually uses.
+BREADTH_ENVELOPE = (min(lo for lo, _ in BREADTH_BY_LEVEL.values()),
+                    max(hi for _, hi in BREADTH_BY_LEVEL.values()))
+
 _BIOMES = ["tundra", "jungle", "desert", "ocean", "volcanic", "temperate", "irradiated",
            "mangrove", "glacial", "fungal", "salt flat", "cloud forest",
            "basalt waste", "reef shallows", "grassland"]
@@ -59,8 +91,8 @@ def _pick(pool: list, rng: random.Random) -> str:
 # to that node alone. No bank word may contain "-" (the suffix separator).
 #
 # ── FROZEN AFTER FIRST PRODUCTION DEPLOY ────────────────────────────────────
-# Every bank below (and every property bank later in this file) is a
-# PERMANENT COMPATIBILITY SURFACE. Each node draws name → properties →
+# Every bank below (and every property bank later in this file, and the
+# BREADTH_BY_LEVEL profile above) is a PERMANENT COMPATIBILITY SURFACE. Each node draws name → properties →
 # breadth from its own (seed, path)-keyed stream, so a bank edit corrupts
 # existing worlds two ways: (1) name-bank edits (syllables, level word
 # banks) rename surviving nodes outright — measured: +1 syllable renames
@@ -433,8 +465,7 @@ def _node_seed(seed: int, path: tuple[int, ...]) -> int:
 MAX_GENERATOR_BREADTH = 9
 
 
-def resolve_node_by_name(seed: int, name: str,
-                         min_breadth: int = 1, max_breadth: int = 3) -> SpatialNode | None:
+def resolve_node_by_name(seed: int, name: str) -> SpatialNode | None:
     """Resolve a node from its name alone, without generating the tree.
 
     Names encode their path ("Vault-1231" sits at path 1→2→3→1), so the
@@ -467,7 +498,7 @@ def resolve_node_by_name(seed: int, name: str,
         level = LEVELS[depth_index]
         node_name = _generate_name(level, path, rng)
         properties = generate_properties(level, rng)
-        breadth = rng.randint(min_breadth, max_breadth)
+        breadth = rng.randint(*BREADTH_BY_LEVEL[level])
         node = SpatialNode(name=node_name, level=level, properties=properties)
         node._breadth = breadth  # how many children this node would generate
         if parent is not None:
@@ -482,13 +513,18 @@ def resolve_node_by_name(seed: int, name: str,
     return node
 
 
-def generate_node_hierarchy(seed: int = 42, max_depth: int = 11, min_breadth: int = 1, max_breadth: int = 3) -> SpatialNode:
-    if min_breadth > max_breadth:
-        raise ValueError(f"min_breadth ({min_breadth}) must not exceed max_breadth ({max_breadth})")
+def generate_node_hierarchy(seed: int = 42, max_depth: int = 11) -> SpatialNode:
+    """Generate the canonical world for `seed` down to `max_depth`.
+
+    The world's shape is not a caller input: every node draws its child
+    count from BREADTH_BY_LEVEL, so the same seed is the same world in
+    every client, every request, and every process — the property the
+    entire persistence layer keys on. A shallower `max_depth` yields a
+    truthful prefix of the full world (each node depends only on
+    (seed, path), never on how deep the caller asked to look).
+    """
     if not 1 <= max_depth <= len(LEVELS):
         raise ValueError(f"max_depth must be between 1 and {len(LEVELS)}, got {max_depth}")
-    if max_breadth > MAX_GENERATOR_BREADTH:
-        raise ValueError(f"max_breadth must be at most {MAX_GENERATOR_BREADTH}, got {max_breadth}")
 
     def generate(level_index: int, path: tuple[int, ...]) -> SpatialNode:
         # A node-local RNG: nothing about this node depends on siblings,
@@ -500,7 +536,7 @@ def generate_node_hierarchy(seed: int = 42, max_depth: int = 11, min_breadth: in
         properties = generate_properties(level, rng)
         node = SpatialNode(name=name, level=level, properties=properties)
 
-        breadth = rng.randint(min_breadth, max_breadth)
+        breadth = rng.randint(*BREADTH_BY_LEVEL[level])
         if level_index + 1 < max_depth:
             for i in range(1, breadth + 1):
                 node.add_child(generate(level_index + 1, path + (i,)))
