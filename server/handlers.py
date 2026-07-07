@@ -20,7 +20,9 @@ from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
-from multiverse.generator import generate_node_hierarchy, resolve_node_by_name
+from multiverse.generator import (
+    BREADTH_ENVELOPE, generate_node_hierarchy, resolve_node_by_name,
+)
 from multiverse.node import SpatialNode
 from multiverse.utils import (
     apply_property_overrides, apply_ripple_scores, build_distance_map,
@@ -49,27 +51,27 @@ def _flatten_qs(qs: Mapping[str, list[str]]) -> dict[str, str]:
     return {k: v[0] for k, v in qs.items() if v}
 
 
-def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int, int, int]:
+def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int]:
     """Generate a world tree from params dict (scalar values).
 
     Caller is responsible for catching ValueError on bad ints / generator
-    arguments. `guard.validate_world_params` clamps depth/breadth so a
-    request can't ask for a runaway tree.
+    arguments. `guard.validate_world_params` clamps depth so a request
+    can't ask for a runaway tree. Breadth params, once client inputs, are
+    accepted for URL compatibility and ignored: the world's shape is the
+    canonical BREADTH_BY_LEVEL profile — the same seed must be the same
+    world for every participant, or persisted history fragments.
     """
     guard.validate_world_params(params)
-    seed  = int(params.get("seed",        42))
-    depth = int(params.get("depth",        6))
-    min_b = int(params.get("min_breadth",  1))
-    max_b = int(params.get("max_breadth",  3))
-    root = generate_node_hierarchy(seed=seed, max_depth=depth,
-                                   min_breadth=min_b, max_breadth=max_b)
+    seed  = int(params.get("seed",  42))
+    depth = int(params.get("depth",  6))
+    root = generate_node_hierarchy(seed=seed, max_depth=depth)
     # Hydrate the world's durable evolution onto the deterministic tree:
     # persisted causal pressure, then the property overlay written by
     # causal-event effects (multiverse/effects.py) — so the world every
     # participant sees carries what has happened in it.
     apply_ripple_scores(root, persistence.load_ripple_scores(seed))
     apply_property_overrides(root, persistence.load_node_property_overrides(seed))
-    return root, seed, depth, min_b, max_b
+    return root, seed, depth
 
 
 def _resolve_node(seed: int, node_name: str) -> SpatialNode | None:
@@ -466,11 +468,11 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/world":
             try:
-                root, seed, depth, min_b, max_b = _build_world(_flatten_qs(qs))
+                root, seed, depth = _build_world(_flatten_qs(qs))
             except ValueError as exc:
                 return self._send_error(str(exc))
             node_count = count_nodes(root)
-            persistence.save_world(seed, node_count, depth, min_b, max_b)
+            persistence.save_world(seed, node_count, depth, *BREADTH_ENVELOPE)
             activity = persistence.count_mutations_by_node(seed)
             self._send_json({"seed": seed, "node_count": node_count,
                              "world": _node_to_dict(root, activity)})

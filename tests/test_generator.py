@@ -1,5 +1,7 @@
 import pytest
-from multiverse.generator import generate_node_hierarchy, LEVELS
+from multiverse.generator import (
+    BREADTH_BY_LEVEL, MAX_GENERATOR_BREADTH, LEVELS, generate_node_hierarchy,
+)
 from multiverse.node import SpatialNode
 
 
@@ -15,7 +17,7 @@ def test_root_has_no_parent():
 
 
 def test_children_link_back_to_parent():
-    root = generate_node_hierarchy(seed=1, max_depth=4, min_breadth=2, max_breadth=2)
+    root = generate_node_hierarchy(seed=1, max_depth=4)
 
     def check(node):
         for child in node.children:
@@ -47,7 +49,7 @@ def test_root_is_multiverse():
 
 
 def test_all_nodes_have_properties():
-    root = generate_node_hierarchy(seed=42, max_depth=4, min_breadth=1, max_breadth=2)
+    root = generate_node_hierarchy(seed=42, max_depth=4)
 
     def check(node):
         assert isinstance(node.properties, dict)
@@ -58,22 +60,32 @@ def test_all_nodes_have_properties():
     check(root)
 
 
-def test_breadth_respected():
-    root = generate_node_hierarchy(seed=7, max_depth=3, min_breadth=2, max_breadth=2)
-    assert len(root.children) == 2
-    for child in root.children:
-        assert len(child.children) == 2
+def test_breadth_profile_respected():
+    # Every node's child count sits inside its level's canonical range.
+    root = generate_node_hierarchy(seed=7, max_depth=4)
+
+    def check(node):
+        if node.children:
+            lo, hi = BREADTH_BY_LEVEL[node.level]
+            assert lo <= len(node.children) <= hi, (
+                f"{node.level} generated {len(node.children)} children, "
+                f"outside its profile range {lo}-{hi}")
+            for child in node.children:
+                check(child)
+
+    check(root)
+    assert root.children, "the root always has children"
 
 
 def test_depth_respected():
-    root = generate_node_hierarchy(seed=1, max_depth=3, min_breadth=1, max_breadth=1)
+    root = generate_node_hierarchy(seed=1, max_depth=3)
     level1 = root.children[0]
     level2 = level1.children[0]
     assert len(level2.children) == 0
 
 
 def test_node_levels_follow_hierarchy():
-    root = generate_node_hierarchy(seed=5, max_depth=5, min_breadth=1, max_breadth=1)
+    root = generate_node_hierarchy(seed=5, max_depth=5)
     node = root
     for expected_level in LEVELS[:5]:
         assert node.level == expected_level
@@ -82,7 +94,7 @@ def test_node_levels_follow_hierarchy():
 
 
 def test_planetary_system_in_hierarchy():
-    root = generate_node_hierarchy(seed=1, max_depth=4, min_breadth=1, max_breadth=1)
+    root = generate_node_hierarchy(seed=1, max_depth=4)
     # With max_depth=4: Multiverse → Universe → Galaxy → Planetary System
     node = root
     for _ in range(3):
@@ -96,7 +108,7 @@ def test_planetary_system_in_hierarchy():
 
 def test_planet_properties():
     # max_depth=6 reaches Planet (index 4) with Planetary System (index 3) now in between
-    root = generate_node_hierarchy(seed=42, max_depth=6, min_breadth=2, max_breadth=2)
+    root = generate_node_hierarchy(seed=42, max_depth=6)
 
     def find_planets(node):
         results = []
@@ -157,13 +169,13 @@ class TestCanonicalWorld:
     def test_node_identity_independent_of_siblings(self):
         # A node's name/properties depend only on (seed, path) — not on how
         # deep the rest of the tree goes.
-        a = generate_node_hierarchy(seed=3, max_depth=4, min_breadth=2, max_breadth=2)
-        b = generate_node_hierarchy(seed=3, max_depth=8, min_breadth=2, max_breadth=2)
+        a = generate_node_hierarchy(seed=3, max_depth=4)
+        b = generate_node_hierarchy(seed=3, max_depth=8)
         assert a.children[1].name == b.children[1].name
         assert a.children[1].properties == b.children[1].properties
 
     def test_atom_element_matches_atomic_number(self):
-        root = generate_node_hierarchy(seed=11, max_depth=11, min_breadth=1, max_breadth=2)
+        root = generate_node_hierarchy(seed=11, max_depth=11)
         table = {"H": 1, "C": 6, "N": 7, "O": 8, "Si": 14,
                  "Fe": 26, "Xe": 54, "Au": 79, "Pb": 82, "U": 92}
 
@@ -175,16 +187,17 @@ class TestCanonicalWorld:
 
         walk(root)
 
-    def test_breadth_above_nine_rejected(self):
-        with pytest.raises(ValueError, match="max_breadth"):
-            generate_node_hierarchy(seed=1, max_depth=3, min_breadth=1, max_breadth=10)
+    def test_breadth_profile_is_structurally_valid(self):
+        # Path digits must stay single-digit for name uniqueness, so no
+        # level may generate more than MAX_GENERATOR_BREADTH children; and
+        # every level must generate at least one (the tree never dead-ends
+        # above the leaf level).
+        assert set(BREADTH_BY_LEVEL) == set(LEVELS)
+        for level, (lo, hi) in BREADTH_BY_LEVEL.items():
+            assert 1 <= lo <= hi <= MAX_GENERATOR_BREADTH, level
 
 
 class TestGeneratorValidation:
-    def test_min_breadth_exceeds_max_raises(self):
-        with pytest.raises(ValueError, match="min_breadth"):
-            generate_node_hierarchy(min_breadth=5, max_breadth=2)
-
     def test_max_depth_zero_raises(self):
         with pytest.raises(ValueError, match="max_depth"):
             generate_node_hierarchy(max_depth=0)
@@ -194,12 +207,15 @@ class TestGeneratorValidation:
             generate_node_hierarchy(max_depth=len(LEVELS) + 1)
 
     def test_valid_params_do_not_raise(self):
-        root = generate_node_hierarchy(seed=1, max_depth=3, min_breadth=2, max_breadth=2)
+        root = generate_node_hierarchy(seed=1, max_depth=3)
         assert root is not None
 
-    def test_equal_min_max_breadth_is_valid(self):
-        root = generate_node_hierarchy(seed=1, max_depth=3, min_breadth=2, max_breadth=2)
-        assert len(root.children) == 2
+    def test_legacy_breadth_kwargs_are_gone(self):
+        # The world's shape is canonical, not a caller input — the old
+        # breadth knobs must not silently come back as accepted arguments.
+        with pytest.raises(TypeError):
+            generate_node_hierarchy(seed=1, max_depth=3,
+                                    min_breadth=2, max_breadth=2)
 
 
 class TestNodeUniqueness:

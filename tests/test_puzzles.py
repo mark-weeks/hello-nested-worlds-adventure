@@ -84,22 +84,25 @@ class TestPuzzleTypes:
 
 class TestPuzzleEngine:
     def test_attach_and_collect(self):
-        root = generate_node_hierarchy(seed=42, max_depth=3, min_breadth=2, max_breadth=2)
+        root = generate_node_hierarchy(seed=42, max_depth=3)
         engine = PuzzleEngine(seed=42)
         engine.attach_puzzles(root)
         puzzles = engine.collect_puzzles(root)
         assert len(puzzles) > 0
 
     def test_puzzles_at_all_levels(self):
-        root = generate_node_hierarchy(seed=42, max_depth=11, min_breadth=1, max_breadth=1)
+        from multiverse.generator import LEVELS
+        root = generate_node_hierarchy(seed=42, max_depth=11)
         engine = PuzzleEngine(seed=42)
         count = engine.attach_puzzles(root)
-        puzzles = engine.collect_puzzles(root)
-        assert count == 11
-        assert len(puzzles) == 11
+        nodes = []
+        _walk(root, nodes)
+        assert count == len(nodes)  # every node grew a puzzle
+        assert {n.level for n in nodes
+                if engine.puzzle_for(n) is not None} == set(LEVELS)
 
     def test_attached_puzzles_are_puzzle_instances(self):
-        root = generate_node_hierarchy(seed=42, max_depth=7, min_breadth=2, max_breadth=2)
+        root = generate_node_hierarchy(seed=42, max_depth=7)
         engine = PuzzleEngine(seed=1)
         engine.attach_puzzles(root)
         puzzles = engine.collect_puzzles(root)
@@ -107,7 +110,7 @@ class TestPuzzleEngine:
             assert isinstance(p, Puzzle)
 
     def test_attach_is_idempotent(self):
-        root = generate_node_hierarchy(seed=42, max_depth=7, min_breadth=2, max_breadth=2)
+        root = generate_node_hierarchy(seed=42, max_depth=7)
         engine = PuzzleEngine(seed=1)
         engine.attach_puzzles(root)
         count1 = len(engine.collect_puzzles(root))
@@ -149,7 +152,7 @@ class TestNoAnswerLeak:
     def test_answer_never_equals_a_shipped_property(self):
         # Build against a real world so the generator sees real property values
         # (theme, biome, shape, element, particle_type, …) and must avoid them.
-        root = generate_node_hierarchy(seed=3, max_depth=8, min_breadth=2, max_breadth=2)
+        root = generate_node_hierarchy(seed=3, max_depth=8)
         engine = PuzzleEngine(seed=3)
         engine.attach_puzzles(root)
         nodes = []
@@ -251,7 +254,7 @@ class TestPerNodeUniqueness:
         # Across a realistic tree, the fraction of exact-duplicate puzzles must
         # be far below the pre-redesign 35%, and no single puzzle may dominate
         # the way "The Widdershins Door" once did (~150 identical copies).
-        root = generate_node_hierarchy(seed=11, max_depth=8, min_breadth=2, max_breadth=3)
+        root = generate_node_hierarchy(seed=11, max_depth=8)
         engine = PuzzleEngine(seed=11)
         engine.attach_puzzles(root)
         nodes = []

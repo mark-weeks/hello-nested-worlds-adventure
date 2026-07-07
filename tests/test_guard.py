@@ -57,6 +57,11 @@ def _get_status(url: str, headers: dict | None = None) -> int:
         return exc.code
 
 
+def _get_json(url: str) -> dict:
+    with urllib.request.urlopen(urllib.request.Request(url)) as resp:
+        return json.loads(resp.read())
+
+
 # ── Invite gate ─────────────────────────────────────────────────────────────
 
 class TestInviteGate:
@@ -179,17 +184,9 @@ class TestWorldBounds:
         base, _ = srv
         assert _get_status(f"{base}/world?depth=99") == 400
 
-    def test_runaway_breadth_rejected(self, srv):
-        base, _ = srv
-        assert _get_status(f"{base}/world?max_breadth=20") == 400
-
-    def test_min_breadth_above_max_rejected(self, srv):
-        base, _ = srv
-        assert _get_status(f"{base}/world?min_breadth=4&max_breadth=2") == 400
-
     def test_in_range_accepted(self, srv):
         base, _ = srv
-        assert _get_status(f"{base}/world?depth=4&max_breadth=3") == 200
+        assert _get_status(f"{base}/world?depth=4") == 200
 
     def test_unit_validate_rejects_runaway(self):
         with pytest.raises(ValueError):
@@ -200,34 +197,43 @@ class TestWorldBounds:
         # callers without explicit params would 400.
         guard.validate_world_params({})
 
-    def test_deep_and_wide_combo_rejected(self, srv):
-        # REGRESSION (P0-1): depth=11 and max_breadth=5 each pass their own
-        # field bound, but multiply into ~12M nodes. That combination used to
-        # be ACCEPTED and would OOM-kill the single beta VM (and, short of
-        # that, return a tens-of-MB JSON on every /world call). It must 400.
+    def test_legacy_breadth_params_ignored_not_rejected(self, srv):
+        # Breadth was once a client input; old clients (and saved position
+        # records) still send it. The world's shape is now the canonical
+        # BREADTH_BY_LEVEL profile — the params must be ignored so legacy
+        # URLs keep working, and even absurd values must not change or
+        # break anything (the amplification vector is gone by construction).
         base, _ = srv
-        assert _get_status(f"{base}/world?depth=11&min_breadth=5&max_breadth=5") == 400
-        assert _get_status(f"{base}/world?depth=9&min_breadth=4&max_breadth=4") == 400
+        assert _get_status(f"{base}/world?depth=4&min_breadth=1&max_breadth=3") == 200
+        assert _get_status(f"{base}/world?depth=4&min_breadth=5&max_breadth=2") == 200
+        assert _get_status(f"{base}/world?depth=11&min_breadth=5&max_breadth=5") == 200
 
-    def test_full_depth_low_breadth_still_accepted(self, srv):
-        # The clamp must not break the documented full-hierarchy experience:
-        # depth=11 at breadth 1-2 is only ~2k nodes and stays allowed.
+    def test_breadth_params_cannot_change_the_world(self, srv):
+        # The same seed is the same world for every participant: a request
+        # carrying breadth params gets identical structure to one without
+        # them. (Node ids are per-process UUIDs — compare everything else.)
         base, _ = srv
-        assert _get_status(f"{base}/world?depth=11&min_breadth=1&max_breadth=2") == 200
 
-    def test_unit_validate_rejects_deep_and_wide(self):
-        # Every individual field is in range; only the product is too large.
-        with pytest.raises(ValueError):
-            guard.validate_world_params(
-                {"depth": 11, "min_breadth": 5, "max_breadth": 5}
-            )
+        def strip_ids(node):
+            return {k: ([strip_ids(c) for c in v] if k == "children" else v)
+                    for k, v in node.items() if k != "id"}
 
-    def test_unit_worst_case_node_count(self):
-        # Sanity-check the estimator the clamp relies on.
-        assert guard._worst_case_node_count(1, 5) == 1
-        assert guard._worst_case_node_count(11, 1) == 11        # breadth 1 → a path
-        assert guard._worst_case_node_count(6, 3) == 364        # server default
-        assert guard._worst_case_node_count(11, 5) > guard.MAX_TOTAL_NODES
+        plain = _get_json(f"{base}/world?seed=42&depth=4")
+        with_params = _get_json(
+            f"{base}/world?seed=42&depth=4&min_breadth=1&max_breadth=2")
+        assert strip_ids(plain["world"]) == strip_ids(with_params["world"])
+
+    def test_full_depth_world_is_bounded_by_the_profile(self):
+        # Worst case at full depth under the canonical profile: the product
+        # of per-level maxima stays a single-VM-sized tree (~12k nodes), so
+        # no request can amplify into an OOM the way client breadth once
+        # could (depth=11 × breadth 5 ≈ 12M nodes).
+        from multiverse.generator import BREADTH_BY_LEVEL, LEVELS
+        worst, layer = 1, 1
+        for level in LEVELS[:-1]:
+            layer *= BREADTH_BY_LEVEL[level][1]
+            worst += layer
+        assert worst < 20_000
 
 
 # ── AI kill switch ──────────────────────────────────────────────────────────

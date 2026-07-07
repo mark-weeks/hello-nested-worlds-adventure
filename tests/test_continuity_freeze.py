@@ -50,16 +50,36 @@ def _walk(node: SpatialNode, out: list) -> list:
 
 # The canonical reference world: default seed, depth 6 (the default the
 # clients load). Pinned 2026-07-05, before first production deploy;
-# world + puzzle digests re-pinned same day for the diversity batch (bank
-# widening + LOCK puzzles — names, landmarks, aspect, eras all unchanged).
+# re-pinned 2026-07-06 for the world reshape (level-shaped BREADTH_BY_LEVEL
+# replacing uniform 1-3 — the surviving paths kept byte-identical names and
+# properties; the root, first universe, every first-child-chain landmark,
+# and the root aspect are unchanged).
 _REF_SEED = 42
-_REF_NODE_COUNT = 83
+_REF_NODE_COUNT = 293
 _REF_NAMES_DIGEST = (
-    "39d3c52794e496e3c6bdfdf992e84c2184e747b6880d8675a39a51da010e7d44"
+    "f6044332ea2055ce7b27a177d7793179a7374fe946fdad42c39e70017df29af4"
 )
 _REF_WORLD_DIGEST = (
-    "25983bdc04a76ce61020dbd5e5f52b3a978314528ce09010583999269bdf0cb1"
+    "1e514afa5464483212310a11ea6f4f3d6195f3841a8945da49376f7698f2a930"
 )
+
+# The world's shape itself: one rng.randint draw per node over these exact
+# ranges. Changing any range after first production deploy deletes and
+# spawns subtrees in every existing world — same failure class as a bank
+# edit, pinned the same way.
+_REF_BREADTH_PROFILE = {
+    "Multiverse":        (3, 4),
+    "Universe":          (3, 4),
+    "Galaxy":            (2, 3),
+    "Planetary System":  (2, 2),
+    "Planet":            (2, 2),
+    "Region":            (2, 2),
+    "Room":              (1, 2),
+    "Object":            (1, 2),
+    "Molecule":          (1, 2),
+    "Atom":              (1, 2),
+    "SubatomicParticle": (1, 2),
+}
 
 # The FULL-depth reference world: all 11 levels, the tree the server
 # actually serves. The depth-6 pins alone are blind to five levels — Rooms,
@@ -69,15 +89,15 @@ _REF_WORLD_DIGEST = (
 # nodes and silently changing 19 surviving nodes' property baselines).
 # These pins close that blind spot. Pinned 2026-07-05, pre-launch.
 _REF_FULL_DEPTH = 11
-_REF_FULL_NODE_COUNT = 3017
+_REF_FULL_NODE_COUNT = 4439
 _REF_FULL_NAMES_DIGEST = (
-    "7e669d5cc95378078cdb54d0f695678382a4cd85bc447711b2a086d4caf20098"
+    "06d672c624f88f6df41fa2ad1dd3e6d68736f5ec0e52ac2036cb4014598257e5"
 )
 _REF_FULL_WORLD_DIGEST = (
-    "7f5a10ff2ce5047c531d82eaa67fefbea65933868d3fbeb9d0b74d14b21506ac"
+    "b02c167b0d2280f558e69fa60e0400d9ff3d42b8054519a061d2bd753990c414"
 )
 _REF_FULL_PUZZLES_DIGEST = (
-    "775c90406b00910f88f0c6482493a8b26ee2c07a98e9698044d9366a0475440f"
+    "902cac767f47a1bcaab4b8104b101e21f721871de35d4abfeae3ef5a31050598"
 )
 
 
@@ -118,8 +138,17 @@ class TestGeneratedWorldIsFrozen:
         names = [n.name for n in self._nodes()]
         assert names[0] == "Fenolos-1"
         assert names[1] == "Solaorne-11"
-        assert names[10] == "Frostlight Shallows-111123"
-        assert names[-1] == "Loamcrest Fens-132211"
+        assert names[10] == "Caloeth-1112"
+        assert names[-1] == "Rustmarsh Fens-144322"
+
+    def test_breadth_profile_is_pinned(self):
+        from multiverse.generator import BREADTH_BY_LEVEL
+        assert BREADTH_BY_LEVEL == _REF_BREADTH_PROFILE, (
+            "The world's breadth profile changed. Breadth draws shape which "
+            "paths exist: post-launch this deletes and spawns subtrees in "
+            "every existing world. Revert (or consciously re-pin pre-launch "
+            "only)."
+        )
 
     def test_root_aspect_is_pinned(self):
         root = self._nodes()[0]
@@ -188,7 +217,7 @@ class TestFullDepthWorldIsFrozen:
         assert first_of["Molecule"] == "Ulauide-111111111"
         assert first_of["Atom"] == "Velanoride-1111111111"
         assert first_of["SubatomicParticle"] == "Veriunon-11111111111"
-        assert nodes[-1].name == "Galysule-13221131322"
+        assert nodes[-1].name == "Moramarette-14432222222"
 
 
 class TestPuzzleLayerIsFrozen:
@@ -204,7 +233,7 @@ class TestPuzzleLayerIsFrozen:
             for n in nodes)
         digest = hashlib.sha256(blob.encode()).hexdigest()
         assert digest == (
-            "fcd1cba980facd6f75088a300fc47772597efceafca0beb83ec2b7f2c55fdf79"
+            "0aa72ce95ec11b0fe6bce0dae4d55b6222021d0bc1ce9cfd1c16995dfd365143"
         ), (
             "Epoch-0 puzzle generation changed for the reference world. "
             "Post-launch this resets every solved puzzle. Revert, or "

@@ -266,16 +266,12 @@ _HELP = f"""
 
 
 def run_session(seed: int = 42, depth: int = 6,
-                min_breadth: int = 1, max_breadth: int = 3,
                 player_name: str | None = None) -> None:
     """Launch an interactive terminal session in the nested worlds."""
     print(f"\n{_BOLD}Enfolded: Nested World Adventure{_RESET}")
-    print(f"{_DIM}seed={seed}  depth={depth}  breadth={min_breadth}–{max_breadth}{_RESET}")
+    print(f"{_DIM}seed={seed}  depth={depth}{_RESET}")
     print("Generating world…", end=" ", flush=True)
-    root = generate_node_hierarchy(
-        seed=seed, max_depth=depth,
-        min_breadth=min_breadth, max_breadth=max_breadth,
-    )
+    root = generate_node_hierarchy(seed=seed, max_depth=depth)
     # Hydrate the world's persisted evolution: what other participants have
     # done here — ripple pressure and property changes — is already true
     # when a CLI player arrives.
