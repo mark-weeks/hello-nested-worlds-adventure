@@ -179,19 +179,27 @@ def agent_enter(room: Room, name: str, persona: str | None = None) -> None:
         room.active_agents[name] = ""
         if persona is not None:
             room.agent_personas[name] = persona
+    # Agent presence is first-class, like player presence: connected
+    # clients keep a live travelers roster, so the cast is visible (and
+    # followable) between the causal events their walks emit.
+    broadcast(room, {"type": "agent_enter", "name": name, "persona": persona})
 
 
 def agent_move(room: Room, name: str, node: str) -> list[str]:
     """Update agent position; return names of agents already at the same node."""
     with room.lock:
         room.active_agents[name] = node
-        return [n for n, pos in room.active_agents.items() if pos == node and n != name]
+        others = [n for n, pos in room.active_agents.items()
+                  if pos == node and n != name]
+    broadcast(room, {"type": "agent_move", "name": name, "node": node})
+    return others
 
 
 def agent_leave(room: Room, name: str) -> None:
     with room.lock:
         room.active_agents.pop(name, None)
         room.agent_personas.pop(name, None)
+    broadcast(room, {"type": "agent_leave", "name": name})
 
 
 def agent_persona(room: Room, name: str) -> str | None:
@@ -204,6 +212,15 @@ def snapshot(room: Room) -> list[dict]:
     with room.lock:
         return [{"name": p.name, "node": p.current_node, "session_id": p.session_id}
                 for p in room.players.values()]
+
+
+def agents_snapshot(room: Room) -> list[dict]:
+    """The cast members currently walking this world, with positions —
+    the agent half of the travelers roster the welcome payload carries."""
+    with room.lock:
+        return [{"name": n, "node": pos,
+                 "persona": room.agent_personas.get(n)}
+                for n, pos in room.active_agents.items()]
 
 
 # ── Puzzle sessions (co-op state) ───────────────────────────────────────────

@@ -97,13 +97,13 @@ class TestNavigation:
     def test_descend_enters_child(self, capsys):
         root = make_tree()
         stack = [root]
-        _descend(stack, 1)
+        _descend(stack, 1, seed=42)
         assert stack[-1].name == "Vela-2"
 
     def test_descend_out_of_range(self, capsys):
         root = make_tree()
         stack = [root]
-        _descend(stack, 99)
+        _descend(stack, 99, seed=42)
         out = capsys.readouterr().out
         assert "No path" in out
         assert len(stack) == 1
@@ -111,7 +111,7 @@ class TestNavigation:
     def test_descend_leaf_node(self, capsys):
         leaf = SpatialNode("Leaf", "SubatomicParticle")
         stack = [leaf]
-        _descend(stack, 1)
+        _descend(stack, 1, seed=42)
         out = capsys.readouterr().out
         assert "No deeper" in out
         assert len(stack) == 1

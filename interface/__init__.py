@@ -337,10 +337,10 @@ def run_session(seed: int = 42, depth: int = 6,
             if not rest.isdigit():
                 print("  Usage: go <N>")
                 continue
-            _descend(stack, int(rest))
+            _descend(stack, int(rest), seed)
 
         elif cmd.isdigit():
-            _descend(stack, int(cmd))
+            _descend(stack, int(cmd), seed)
 
         else:
             # Typing the scale's own verb ("mend" at an Object, "observe"
@@ -353,15 +353,29 @@ def run_session(seed: int = 42, depth: int = 6,
                 _speak_to(stack[-1], raw, seed=seed, player_name=player_name)
 
 
-def _descend(stack: list[SpatialNode], n: int) -> None:
+def _descend(stack: list[SpatialNode], n: int, seed: int) -> None:
     node = stack[-1]
     if not node.children:
         print("  No deeper paths from here.")
         return
     idx = n - 1
-    if 0 <= idx < len(node.children):
-        stack.append(node.children[idx])
-        _print_breadcrumb(stack)
-        _print_look(stack[-1])
-    else:
+    if not (0 <= idx < len(node.children)):
         print(f"  No path {n}. Choose 1–{len(node.children)}.")
+        return
+    child = node.children[idx]
+    # Sealed passages: a locked Room bars entry until its current puzzle
+    # is solved — the same gate every client meets (puzzles/gates). The
+    # key is spoken from the threshold, so the attempt happens right here.
+    from puzzles.gates import seal_check
+    seal = seal_check(seed, child, current_name=node.name)
+    if seal is not None:
+        print(f"  {_style(child)}{child.name}{_RESET} is sealed.")
+        print(f"  {seal['prompt']}")
+        print("  You may speak the key from the threshold:")
+        _play_puzzle(child, seed)
+        if seal_check(seed, child, current_name=node.name) is not None:
+            return  # still sealed — the threshold holds
+        print("  The way opens.")
+    stack.append(child)
+    _print_breadcrumb(stack)
+    _print_look(stack[-1])
