@@ -229,6 +229,15 @@ export default function App() {
         setWalkThrough(msg.node);
       }
     },
+    onConstellation: (msg) => {
+      pushEvent({ type: "puzzle",
+                  text: `✦✦ CONSTELLATION — every one of ${msg.node}'s ` +
+                        `${msg.children} ${msg.of || "children"} is resolved` +
+                        (msg.by ? ` (completed by ${msg.by})` : "") });
+      if (msg.node === currentNodeName) {
+        pushTransient({ kind: "solve", duration: 2500 });
+      }
+    },
     onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${msg.node}` }),
     onScaleAct: (msg) => {
       pushEvent({ type: "system", text: `✦ ${msg.actor} ${msg.verb}s ${msg.node} — ${msg.flavor}` });

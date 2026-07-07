@@ -18,6 +18,7 @@ export function dispatchMessage(msg, h) {
     case "chat":            h.onChat?.(msg); break;
     case "causal_event":    h.onCausalEvent?.(msg); break;
     case "puzzle_solved":   h.onPuzzleSolved?.(msg); break;
+    case "constellation_complete": h.onConstellation?.(msg); break;
     case "agent_done":      h.onAgentDone?.(msg); break;
     case "agent_encounter": h.onAgentEncounter?.(msg); break;
     case "agent_enter":     h.onAgentEnter?.(msg); break;
