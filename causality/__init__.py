@@ -15,6 +15,7 @@ class EventKind(Enum):
     DANGER_ALERT = auto()
     STRUCTURAL_CHANGE = auto()
     SCALE_ACT = auto()       # a scale-native verb (multiverse/verbs.py)
+    CONSTELLATION_COMPLETE = auto()  # every child of a container solved
 
 
 @dataclass

@@ -521,6 +521,96 @@ _ENFOLD_CHILD_WORD = {
 }
 
 
+# ── LINEAGE: the enfolding, traveled ─────────────────────────────────────────
+# Deep nodes look UP through their whole fold. The answer is an acrostic
+# sigil assembled from the enclosing scales — the first letters of the
+# region's weather, the world's biome, the galaxy's shape — readable only
+# by traveling your own lineage and holding three scales in mind at once.
+# All three source keys are generated categoricals the overlay never
+# mutates, so a sigil is stable for the life of the world; and every node
+# (resolver-built included) carries its full parent chain, so the family
+# is a pure function of node identity.
+
+_LINEAGE_LEVELS = ("Object", "Molecule")
+_LINEAGE_SOURCES = (            # (level, property, spoken label)
+    ("Region", "weather", "the weather of the region that holds it"),
+    ("Planet", "biome", "the biome of the world beneath that"),
+    ("Galaxy", "shape", "the shape of the galaxy over everything"),
+)
+
+
+def _make_lineage(node: SpatialNode, rng: random.Random,
+                  difficulty: int) -> Puzzle | None:
+    ancestors: dict[str, SpatialNode] = {}
+    n = node.parent
+    while n is not None:
+        ancestors[n.level] = n
+        n = n.parent
+    letters, labels = [], []
+    for level, key, label in _LINEAGE_SOURCES:
+        holder = ancestors.get(level)
+        value = holder.properties.get(key) if holder is not None else None
+        if not isinstance(value, str) or not value:
+            return None  # lineage incomplete — another family serves
+        letters.append(value.strip()[0].lower())
+        labels.append(label)
+    answer = "".join(letters)
+    return Puzzle(
+        name=f"The Lineage Sigil of the {node.level}",
+        kind=PuzzleKind.LOCK,
+        prompt=(f"{node.name} is sealed by its whole lineage. Three marks "
+                f"open it — the first letter of {labels[0]}, of {labels[1]}, "
+                f"and of {labels[2]}. Speak the three-letter sigil."),
+        answer=answer,
+        hints=[
+            "Every scale that enfolds this place has left one mark on it.",
+            "Climb: region, then world, then galaxy — read one word at each.",
+            f"The first mark is '{letters[0]}'.",
+        ],
+        max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
+        difficulty=difficulty,
+    )
+
+
+# ── BOND: the middle scale looks up one step ─────────────────────────────────
+# An atom's puzzle is chemistry: name the thing that binds it. The answer
+# is a property of the MOLECULE that holds it — geometry or compound type,
+# both generated categoricals the overlay never mutates — the LOCK idea at
+# the scale where "the place that holds you" is a lattice.
+
+_BOND_KEYS = (("geometry", "geometry"), ("compound_type", "compound nature"))
+
+
+def _make_bond(node: SpatialNode, rng: random.Random,
+               difficulty: int) -> Puzzle | None:
+    if node.level != "Atom" or node.parent is None:
+        return None
+    molecule = node.parent
+    own_values = _property_values(node)
+    usable = [(key, label) for key, label in _BOND_KEYS
+              if isinstance(molecule.properties.get(key), str)
+              and molecule.properties[key].strip().lower() not in own_values]
+    if not usable:
+        return None
+    key, label = usable[rng.randrange(len(usable))]
+    answer = molecule.properties[key].strip().lower()
+    return Puzzle(
+        name=f"The Bond of the {node.level}",
+        kind=PuzzleKind.LOCK,
+        prompt=(f"{node.name} does not float free — a lattice holds it. "
+                f"Name the {label} of the molecule it is bound into, and "
+                "the bond will answer."),
+        answer=answer,
+        hints=[
+            f"The molecule that holds this atom is {molecule.name}.",
+            f"Step up one scale and read its {label}.",
+            f"It begins with '{answer[0]}'.",
+        ],
+        max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
+        difficulty=difficulty,
+    )
+
+
 def _make_enfold(node: SpatialNode, rng: random.Random,
                  difficulty: int) -> Puzzle | None:
     suffix = node.name.rpartition("-")[2]
@@ -661,6 +751,8 @@ _FAMILY_FN: dict[str, Callable[[SpatialNode, random.Random, int], Puzzle | None]
     "riddle":   _make_riddle,
     "lock":     _make_lock,
     "enfold":   _make_enfold,
+    "lineage":  _make_lineage,
+    "bond":     _make_bond,
 }
 
 
@@ -690,6 +782,12 @@ def build_puzzle(node: SpatialNode, epoch: int = 0) -> Puzzle:
     # (the mirror of the LOCK: look into the fold instead of up out of it).
     if node.level in _ENFOLD_LEVELS:
         families.append(("enfold", 6))
+    # Deep scales travel their lineage; atoms read the lattice that binds
+    # them — the relational families that de-flatten the middle world.
+    if node.level in _LINEAGE_LEVELS and node.parent is not None:
+        families.append(("lineage", 6))
+    if node.level == "Atom" and node.parent is not None:
+        families.append(("bond", 6))
 
     # Try families in a node-seeded weighted-random order; the first that yields
     # a non-leaking puzzle wins. A family can decline (`riddle` on an empty/leaky

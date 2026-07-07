@@ -24,6 +24,7 @@ describe("dispatchMessage", () => {
     ["chat", "onChat"],
     ["causal_event", "onCausalEvent"],
     ["puzzle_solved", "onPuzzleSolved"],
+    ["constellation_complete", "onConstellation"],
     ["agent_done", "onAgentDone"],
     ["agent_encounter", "onAgentEncounter"],
     ["agent_enter", "onAgentEnter"],

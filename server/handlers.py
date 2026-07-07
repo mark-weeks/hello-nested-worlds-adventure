@@ -78,6 +78,62 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int]:
     return root, seed, depth
 
 
+# Containers that light up when everything they enfold is resolved. Two
+# levels, deliberately one cosmic and one human: a Galaxy completes over
+# its systems, a Region over its rooms.
+_CONSTELLATION_LEVELS = {"Galaxy": "systems", "Region": "rooms"}
+
+
+def _constellation_progress(seed: int, container: SpatialNode) -> tuple[int, int]:
+    """(children whose CURRENT puzzle has a human solve, total children)."""
+    solved = 0
+    for child in container.children:
+        epoch = persistence.count_node_mutations(seed, child.name,
+                                                 "PUZZLE_REARM")
+        pz = build_puzzle(child, epoch)
+        if persistence.get_puzzle_solve(seed, child.name, pz.name):
+            solved += 1
+    return solved, len(container.children)
+
+
+def _check_constellation(seed: int, room, container: SpatialNode | None,
+                         solver: str | None,
+                         actor_identity: str | None) -> None:
+    """Light the container if this solve completed it.
+
+    Nested puzzles as a state layer: completion is read from the same
+    solve chronicle every other mechanic uses — no generated surface
+    changes. Once lit, lit forever (renewal may re-arm a child's puzzle,
+    but the constellation is a fact of history, not a live condition).
+    Completion is a world event: a permanent property, a chronicle row,
+    and a strong cascade that travels under the local physics.
+    """
+    if container is None or container.level not in _CONSTELLATION_LEVELS:
+        return
+    if not container.children:
+        return
+    if persistence.count_node_mutations(seed, container.name,
+                                        "CONSTELLATION_COMPLETE"):
+        return
+    solved, total = _constellation_progress(seed, container)
+    if solved < total:
+        return
+    display = solver if solver != "anonymous" else None
+    word = _CONSTELLATION_LEVELS[container.level]
+    persistence.record_mutation(
+        seed, container.name, "CONSTELLATION_COMPLETE", display,
+        {"children": total, "of": word}, actor_identity=actor_identity)
+    persistence.upsert_node_properties(seed, container.name,
+                                       {"constellated": True})
+    broadcast(room, {"type": "constellation_complete",
+                     "node": container.name, "level": container.level,
+                     "by": display, "children": total, "of": word})
+    bus = wire_world_handlers(CausalityBus(), seed, record=False)
+    bus.emit(container, EventKind.CONSTELLATION_COMPLETE, {"by": display})
+    stage_cascade(seed, container, EventKind.CONSTELLATION_COMPLETE,
+                  {"by": display})
+
+
 def _entangled_twin(node: SpatialNode) -> SpatialNode | None:
     """The sibling particle `node` is entangled with, or None.
 
@@ -1158,7 +1214,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"found": False})
 
         p = puzzles[0]
-        self._send_json({
+        payload = {
             "found":        True,
             "name":         p.name,
             "kind":         p.kind.name,
@@ -1168,7 +1224,18 @@ class Handler(BaseHTTPRequestHandler):
             # Difficulty is a per-node property (1 gentle … 4 hard), surfaced so
             # a player can pick their own challenge while exploring.
             "difficulty":   p.difficulty,
-        })
+        }
+        # Constellation containers also report their nested progress: how
+        # much of what they enfold is already resolved.
+        if target.level in _CONSTELLATION_LEVELS and target.children:
+            solved, total = _constellation_progress(seed, target)
+            payload["constellation"] = {
+                "solved": solved, "total": total,
+                "of": _CONSTELLATION_LEVELS[target.level],
+                "complete": bool(persistence.count_node_mutations(
+                    seed, target.name, "CONSTELLATION_COMPLETE")),
+            }
+        self._send_json(payload)
 
     def _do_act(self, body: dict, user_key: str = "") -> None:
         """Perform a node's scale-native verb (multiverse/verbs.py).
@@ -1392,6 +1459,11 @@ class Handler(BaseHTTPRequestHandler):
                 _resolve_entangled_twin(
                     seed, room, twin, effective_node, session.solver,
                     contributors, _actor_identity(user_key, player_name))
+
+            # Nested puzzles: did this solve light its container? (A
+            # Galaxy completes over its systems, a Region over its rooms.)
+            _check_constellation(seed, room, target.parent, session.solver,
+                                 _actor_identity(user_key, player_name))
 
         if failed:
             # The human who made the final attempt IS the actor — dropping

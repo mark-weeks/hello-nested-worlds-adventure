@@ -674,11 +674,22 @@ function _diffStars(n) {
 function renderPuzzle(data) {
   const diffLabels = { 1: 'gentle', 2: 'moderate', 3: 'tricky', 4: 'hard' };
   const diff = data.difficulty || 2;
+  // Nested progress: a Galaxy completes over its systems, a Region over
+  // its rooms — show how much of what this place enfolds is resolved.
+  const c = data.constellation;
+  const constellationHtml = c
+    ? `<div class="attempt-info" style="color:${c.complete ? '#f0c878' : '#5a6a8a'}">` +
+      (c.complete
+        ? `✦ constellation complete — all ${c.total} ${escHtml(c.of)} resolved`
+        : `constellation: ${c.solved} of ${c.total} ${escHtml(c.of)} resolved`) +
+      `</div>`
+    : '';
   document.getElementById('puzzle-content').innerHTML = `
     <div class="puzzle-kind">${escHtml(data.kind.replace(/_/g, ' '))}
       <span class="puzzle-diff" title="difficulty: ${diffLabels[diff]}">${_diffStars(diff)}</span>
     </div>
     <div class="puzzle-name">${escHtml(data.name)}</div>
+    ${constellationHtml}
     <div class="puzzle-prompt">${escHtml(data.prompt)}</div>
     <div class="attempt-info" id="attempt-info">
       ${data.max_attempts} attempt${data.max_attempts !== 1 ? 's' : ''} allowed
@@ -965,6 +976,12 @@ function handleWsMsg(msg) {
       }
       break;
     }
+    case 'constellation_complete':
+      pushFeed(`✦✦ CONSTELLATION — every one of ${escHtml(msg.node)}'s ` +
+               `${msg.children} ${escHtml(msg.of || 'children')} is resolved` +
+               (msg.by ? ` (completed by ${escHtml(msg.by)})` : ''));
+      flashNode(msg.node, 1.0);
+      break;
     case 'agent_encounter':
       pushFeed(`⚡ ${escHtml(msg.agent1)} meets ${escHtml(msg.agent2)} @ ${escHtml(msg.node)}`);
       flashNode(msg.node, 0.9);

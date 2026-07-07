@@ -173,10 +173,15 @@ class TestMoveValidation:
         seed = 4311
         target = generate_node_hierarchy(seed=seed, max_depth=2).children[0]
         a, _ = _ws_connect(srv, seed, "Ada")
-        b, _ = _ws_connect(srv, seed, "Ben")
+        b, rest = _connect_keep_rest(srv, seed, "Ben")
+        # B must be registered (welcome received) before A moves, or the
+        # broadcast can race past an in-flight join and never reach B.
+        _recv_frames(b, lambda fs: any(f.get("type") == "welcome"
+                                       for f in fs), seed_buf=rest)
         _ws_send_json(a, {"type": "move", "node": target.name})
         frames = _recv_frames(
-            b, lambda fs: any(f.get("type") == "player_move" for f in fs))
+            b, lambda fs: any(f.get("type") == "player_move" for f in fs),
+            timeout=6.0)
         moves = [f for f in frames if f.get("type") == "player_move"]
         assert moves and moves[0]["node"] == target.name
         a.close(); b.close()
