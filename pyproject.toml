@@ -15,6 +15,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    # Real RFC 6455 client used as an executable conformance spec for the
+    # hand-rolled /ws server (tests/test_ws_conformance.py). >=13 for the
+    # sync client's recv(timeout=...) the test relies on.
+    "websockets>=13",
 ]
 
 [tool.setuptools]

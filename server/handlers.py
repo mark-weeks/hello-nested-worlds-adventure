@@ -820,6 +820,15 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.flush()
 
+            # An upgraded socket is one-shot: it can never carry a second HTTP
+            # request, so we opt out of HTTP/1.1 keep-alive here (every other
+            # endpoint does the same via _send_security_headers). Without this,
+            # BaseHTTPRequestHandler loops back to read another request after
+            # the session ends and never closes the socket — so the RFC 6455
+            # closing handshake never ends with a TCP FIN, and spec-strict
+            # clients (Python `websockets`) block until their close timeout.
+            self.close_connection = True
+
             sock = self.connection
             sock.settimeout(60)  # 60-second idle timeout
             session_id = uuid.uuid4().hex[:8]
