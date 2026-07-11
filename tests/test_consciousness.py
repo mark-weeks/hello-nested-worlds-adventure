@@ -227,6 +227,58 @@ class TestSpeakSystemBlocks:
         assert "Room" in dyn
         assert "Tessera" in dyn
 
+    def test_dynamic_block_names_the_current_speaker(self, captured_speak_call):
+        # The bible instructs "greet a returning visitor as returning"; that
+        # is inert unless the node is told who is speaking now. Passing the
+        # visitor's name closes the loop against the "by <name>" memory lines.
+        node = SpatialNode(name="Vault-3", level="Room", properties={})
+        consciousness.speak(node, "Remember me?", speaker="Ada")
+        dyn = captured_speak_call["system"][1]["text"]
+        assert "Ada" in dyn
+        assert "returning" in dyn.lower()
+
+    def test_dynamic_block_omits_speaker_when_anonymous(self, captured_speak_call):
+        # No name → no speaker line; the craft already voices unnamed
+        # visitors as "an unknown presence", so we must not fabricate one.
+        node = SpatialNode(name="Vault-3", level="Room", properties={})
+        consciousness.speak(node, "Who is there?")
+        dyn = captured_speak_call["system"][1]["text"]
+        assert "gives the name" not in dyn
+
+
+class TestVoiceAgentSurroundings:
+    """voice_agent must carry the node's real state into the prompt: the
+    agent bible instructs danger-avoidance and scale-appropriate observation,
+    which need the place's actual properties, ambience, and causal pressure."""
+
+    def test_agent_context_carries_node_state(self, captured_speak_call):
+        persona = types.SimpleNamespace(name="tender")
+        node = SpatialNode(name="The Mire", level="Region",
+                           properties={"danger_level": 8, "condition": "worn"})
+        node.ripple_score = 0.61
+        consciousness.voice_agent(persona, "Tessera", node, "What do you see?")
+        dyn = captured_speak_call["system"][1]["text"]
+        assert "danger_level=8" in dyn
+        assert "0.61" in dyn
+        assert "Where you stand" in dyn
+
+    def test_agent_context_frames_the_place_not_the_agent_body(
+        self, captured_speak_call,
+    ):
+        # Perspective integrity: the node's pressure is described as the place
+        # AROUND the traveler ("around you"), never as the agent's own body
+        # ("runs high in you") — that would collapse traveler into place and
+        # break the archetype's visitor stance.
+        persona = types.SimpleNamespace(name="wanderer")
+        node = SpatialNode(name="Atom-9", level="Atom",
+                           properties={"danger_level": 9})
+        node.ripple_score = 0.7
+        consciousness.voice_agent(persona, "Vex", node, "hi")
+        dyn = captured_speak_call["system"][1]["text"]
+        assert "Where you stand" in dyn
+        assert "around you" in dyn.lower()
+        assert "in you" not in dyn.lower()
+
 
 class TestAgentBibleStructure:
     def test_agent_bible_embeds_every_archetype(self):

@@ -919,6 +919,26 @@ def _ripple_line(ripple_score: float) -> str:
     return ""
 
 
+def _speaker_line(speaker: str | None) -> str:
+    """Name the visitor speaking right now.
+
+    The world bible's MEMORY CRAFT tells the node to greet a returning
+    visitor as returning ("If THIS visitor appears in [your memory], you
+    know them") — but that instruction is inert unless the node is told who
+    is actually here. Memory lines record a visitor by display name ("by
+    Ada"), so passing that same name closes the loop. Empty for an anonymous
+    visitor; the craft already voices unnamed presences as "an unknown
+    presence"."""
+    name = (speaker or "").strip()
+    if not name:
+        return ""
+    return (
+        f"\nThe visitor addressing you now gives the name {name}. If that "
+        "name appears in your memory below, you have met before — greet them "
+        "as returning, and let what passed between you shape what you say now."
+    )
+
+
 def _log_cache_usage(endpoint: str, response: Any) -> None:
     """Emit a structured log line with cache read/write token counts.
 
@@ -942,20 +962,25 @@ def _log_cache_usage(endpoint: str, response: Any) -> None:
 def speak(node: SpatialNode, message: str,
           history: list[dict] | None = None,
           transcript: list[dict] | None = None,
-          ripple_score: float = 0.0) -> str:
+          ripple_score: float = 0.0,
+          speaker: str | None = None) -> str:
     """Send `message` to `node` and return its in-character response.
 
     Two system blocks: a large cached "world bible" that consolidates the
     preamble, world premise, all 11 level voices, and behavioural rules
     (1-hour TTL since the content is deploy-stable); followed by a small
     dynamic per-call block carrying this node's name, level, properties,
-    accumulated causal pressure, and recent history.
+    accumulated causal pressure, the current visitor's name, and recent
+    history.
 
     Pass `history` (from persistence.get_node_history) to give the node
     memory of past visitors and events; pass `transcript` — a list of
     `{"user": ..., "assistant": ...}` exchanges (oldest first) — to give the
     node a real multi-turn conversation with THIS visitor, so the second
-    exchange knows the first happened.
+    exchange knows the first happened; pass `speaker` (the visitor's display
+    name) so the node can recognize a returning visitor in its own memory —
+    without it, the bible's returning-visitor instruction has no name to
+    match.
     """
     props = "; ".join(f"{k}={v}" for k, v in node.properties.items())
     node_context = (
@@ -964,6 +989,7 @@ def speak(node: SpatialNode, message: str,
         f"Your nature: {props or '(no specific properties)'}."
         + _presentation_line(node)
         + _ripple_line(ripple_score)
+        + _speaker_line(speaker)
         + _history_block(history or [])
     )
 
@@ -1024,6 +1050,44 @@ def _agent_memory_block(agent_memory: dict | None, node: SpatialNode) -> str:
     return "\n".join(lines)
 
 
+def _node_surroundings_block(node: SpatialNode) -> str:
+    """Describe the place the agent is standing in — its properties, form,
+    ambience, and causal pressure — from a traveler's outside perspective.
+
+    The node arrives already hydrated with its persisted causal overlay and
+    `ripple_score` (see server.handlers._resolve_node). The agent bible
+    instructs danger-avoidance ("you withdraw from places whose danger
+    outruns your nerve") and scale-appropriate observation; without the
+    node's actual state in context those instructions have nothing to act
+    on. Phrased in the second person as the place *around* the agent — never
+    as the agent's own body — so the traveler/place boundary the archetype
+    depends on stays intact."""
+    lines: list[str] = []
+    props = "; ".join(f"{k}={v}" for k, v in (node.properties or {}).items())
+    if props:
+        lines.append(f"The place around you reads: {props}.")
+    family = _FORM_FAMILY.get(node.level)
+    if family:
+        lines.append(
+            f"It shows itself as {family}; its ambience hums in "
+            f"{_ambient_mode(node.properties or {})}."
+        )
+    ripple = getattr(node, "ripple_score", 0.0) or 0.0
+    if ripple >= 0.5:
+        lines.append(
+            f"It rings with recent consequence (causal pressure {ripple:.2f} "
+            "of 1) — something happened here lately, and you can feel it."
+        )
+    elif ripple > 0.05:
+        lines.append(
+            f"Faint ripples still move through it "
+            f"(causal pressure {ripple:.2f} of 1)."
+        )
+    if not lines:
+        return ""
+    return "\nWhere you stand: " + " ".join(lines)
+
+
 def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
                 message: str, history: list[dict] | None = None,
                 agent_memory: dict | None = None) -> str:
@@ -1036,15 +1100,18 @@ def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
     Two system blocks: a large cached "agent bible" with the universal
     preamble, world premise, all four archetypes, the 11 scales, and
     behavioural rules (1-hour TTL); followed by a small dynamic block
-    naming the specific agent, its persona, where it is — plus, when passed,
-    what has actually happened at that node (`history`) and the agent's own
-    persisted memory (`agent_memory`), so addressing "the Tessera whose
-    traces are in this room" reaches an agent that remembers being here.
+    naming the specific agent, its persona, where it is and the current
+    state of that place (properties, ambience, causal pressure) — plus, when
+    passed, what has actually happened at that node (`history`) and the
+    agent's own persisted memory (`agent_memory`), so addressing "the
+    Tessera whose traces are in this room" reaches an agent that remembers
+    being here and can react to how dangerous or unsettled the place now is.
     """
     agent_context = (
         f"You are {agent_name}, a {persona.name}. "
         f"Follow the {persona.name.capitalize()} archetype defined above. "
         f"You are presently at {node.name}, a {node.level}."
+        + _node_surroundings_block(node)
         + _agent_memory_block(agent_memory, node)
         + _history_block(history or [])
     )

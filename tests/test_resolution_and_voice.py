@@ -113,8 +113,9 @@ class TestSpeakResolution:
         seen = {}
 
         def fake_speak(node, message, history=None, transcript=None,
-                       ripple_score=0.0):
+                       ripple_score=0.0, speaker=None):
             seen["transcript"] = list(transcript or [])
+            seen["speaker"] = speaker
             return f"I heard: {message}"
 
         monkeypatch.setattr(consciousness, "speak", fake_speak)
@@ -127,6 +128,9 @@ class TestSpeakResolution:
         assert speak_rows
         assert speak_rows[0]["data"]["message"] == "first words"
         assert speak_rows[0]["data"]["reply"] == "I heard: first words"
+        # The handler threads the visitor's display name through to speak(),
+        # so the node can recognize a returning "Ada" in its own memory.
+        assert seen["speaker"] == "Ada"
 
         # The second conversation knows the first happened.
         _post(f"{srv}/speak", {"node_name": real.name, "seed": 42,
@@ -312,7 +316,7 @@ class TestTranscriptIdentityOverHTTP:
         seen = {}
 
         def fake_speak(node, message, history=None, transcript=None,
-                       ripple_score=0.0):
+                       ripple_score=0.0, speaker=None):
             seen["transcript"] = list(transcript or [])
             return "reply"
 

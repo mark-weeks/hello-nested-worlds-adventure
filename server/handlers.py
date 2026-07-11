@@ -728,6 +728,7 @@ class Handler(BaseHTTPRequestHandler):
                     history=history,
                     transcript=transcript,
                     ripple_score=node.ripple_score,
+                    speaker=player_name,
                 )
                 # The exchange — both sides of it — becomes node memory.
                 data = {"message": message[:128], "reply": response[:200]}

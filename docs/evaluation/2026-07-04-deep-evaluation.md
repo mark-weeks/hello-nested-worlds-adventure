@@ -2,6 +2,8 @@
 
 Method note: every file in the repository was read in full; the game was run hands-on (CLI, server, both browser clients under headless Chromium, two concurrent WebSocket players) with no `ANTHROPIC_API_KEY`/`FAL_KEY`, which is the state any repo-cloner and any budget-exhausted deployment is in; and every load-bearing claim below was independently re-verified against the code, several by execution. Test suite at HEAD: 434 passed, 0 failed, ~24s.
 
+> **Addendum (2026-07-11): this is a frozen 2026-07-04 snapshot — read it as history, not current state.** Most of its structural recommendations have since shipped and its harshest verdicts no longer hold: the failure voice (rec 1, `consciousness.LEVEL_FALLBACKS`), one canonical world per seed (rec 3, `resolve_node_by_name` + `tests/test_continuity_freeze.py`), causality that changes world substance (rec 4, `multiverse/effects.py` + persisted overlay), node memory with real transcripts (rec 5), the unattended world heartbeat (rec 6, `server/heartbeat.py`), and server-derived node identity (rec 7, `_resolve_node`) are all in. "Nothing moves unless a player moves it" and "the same seed is not the same world" are both false as of this addendum. For the authoritative present state see `docs/CHANGELOG.md` and the README current-state matrix; the test suite is now 700 passing, not 434. The sections below are preserved verbatim as the map-vs-territory audit that drove PRs #45–#61.
+
 ---
 
 ## 1. Goal Alignment Audit

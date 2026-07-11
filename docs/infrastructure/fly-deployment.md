@@ -385,9 +385,11 @@ is the retention bound.
 
 ## 8. Launch window
 
-The pre-mortem in `docs/evaluation/` identified the launch-day failure
-modes; this section is their checklist. Work through it top to bottom on
-the day.
+This checklist is the launch-day distillation of the pre-mortem hardening
+batch (see the "Pre-mortem hardening" entry in `docs/CHANGELOG.md`, PR #57)
+and the launch-readiness findings in
+`docs/evaluation/2026-07-04-deep-evaluation.md`. Work through it top to
+bottom on the day.
 
 **T-1 week:**
 
