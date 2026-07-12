@@ -884,15 +884,44 @@ def schema_versions() -> list[int]:
         )]
 
 
+class NameUnavailable(ValueError):
+    """A registration was attempted with a name already in use.
+
+    Distinct from the key-collision IntegrityError: the *name* clashed, not
+    the random key. Callers (the invite CLI) turn this into a friendly
+    'choose another name' message. (ADR-004 §7 — every player's name is
+    unique.)
+    """
+
+
+def _normalize_invite_name(name: str) -> str:
+    """The comparison form used for name-uniqueness: trimmed and lowercased.
+
+    Kept in lockstep with the DB's `lower(trim(name))` UNIQUE index
+    (migration 0011) so the application check and the database backstop
+    agree on what counts as 'the same name'.
+    """
+    return name.strip().lower()
+
+
 @_with_db
 def mint_invite_key(key: str, name: str, note: str | None = None) -> None:
     """Insert a new invite key. Caller generates the random key string.
 
-    Raises sqlite3.IntegrityError on collision so the caller can retry
-    with a new random key — at 32 hex chars (128 bits) collisions are
-    astronomically unlikely in practice.
+    The name must be unique (case- and whitespace-insensitively) across all
+    invite keys — it becomes the player's authoritative display name at
+    runtime (ADR-004 §7). Raises NameUnavailable if the name is already
+    registered, and sqlite3.IntegrityError on a key collision so the caller
+    can retry with a new random key (at 32 hex chars, key collisions are
+    astronomically unlikely).
     """
+    norm = _normalize_invite_name(name)
     with _connect() as conn:
+        taken = conn.execute(
+            "SELECT 1 FROM invite_keys WHERE lower(trim(name)) = ?", (norm,)
+        ).fetchone()
+        if taken is not None:
+            raise NameUnavailable(f"the name {name!r} is already registered")
         conn.execute(
             "INSERT INTO invite_keys (key, name, note) VALUES (?, ?, ?)",
             (key, name, note),

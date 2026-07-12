@@ -94,10 +94,20 @@ def cmd_history(args):
 
 def cmd_play(args):
     import interface
+    name = args.name.strip() if args.name else None
+    if name:
+        from consciousness import WANDERER_CAST
+        if name.lower() in {n.lower() for n in WANDERER_CAST}:
+            # CLI play writes to the same permanent chronicle as everyone else;
+            # a reserved cast name would impersonate an agent there (world
+            # covenant). Reject it here too. (ADR-004 §7 / reserved-names.)
+            raise SystemExit(
+                f"'{name}' is a reserved world name (the wandering cast) — "
+                "choose another with --name.")
     interface.run_session(
         seed=args.seed,
         depth=args.depth,
-        player_name=args.name,
+        player_name=name,
     )
 
 
@@ -186,13 +196,25 @@ def invite_share_url(key: str, name: str, base: str = "<BASE>") -> str:
 def cmd_invite(args):
     action = args.invite_action
     if action == "mint":
+        from consciousness import WANDERER_CAST
+        name = args.name.strip()
+        if not name:
+            raise SystemExit("A registered name must not be empty.")
+        if name.lower() in {n.lower() for n in WANDERER_CAST}:
+            raise SystemExit(
+                f"'{name}' is a reserved world name (the wandering cast) — "
+                "choose another.")
         key = "nw_" + secrets.token_hex(16)
-        persistence.mint_invite_key(key, name=args.name, note=args.note)
-        print(f"Minted invite for {args.name}:")
+        try:
+            persistence.mint_invite_key(key, name=name, note=args.note)
+        except persistence.NameUnavailable as exc:
+            # ADR-004 §7: every player's name is unique. Fail friendly.
+            raise SystemExit(f"{exc} — choose another name.")
+        print(f"Minted invite for {name}:")
         print(f"  key: {key}")
         if args.note:
             print(f"  note: {args.note}")
-        print(f"\nShare the URL: {invite_share_url(key, args.name)}")
+        print(f"\nShare the URL: {invite_share_url(key, name)}")
     elif action == "list":
         rows = persistence.list_invite_keys(include_revoked=args.all)
         if not rows:

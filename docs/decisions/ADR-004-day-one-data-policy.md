@@ -121,25 +121,30 @@ multi-turn transcript passed to `speak()` is deliberately left unclipped — it 
 the real conversation and is already bounded to a few recent exchanges.
 *Because this fix lands pre-launch, no real player history is ever stored truncated.*
 
-### 7. Unique player names, no anonymous play *(intended policy — implementation gap)*
+### 7. Unique player names, no anonymous play *(implemented)*
 
-**Intended:** every player, human *and* agent, has a **unique name**, enforced
-at name selection; nobody plays anonymously.
+**Policy:** every player, human *and* agent, has a **unique name**, and no
+authenticated player is anonymous. Realized by binding the name to the
+**per-user invite credential**:
 
-**Current state (the gap):** display names are *not* globally unique (duplicates
-are silently disambiguated by the hidden credential), an anonymous / "unknown
-presence" path exists (CLI; stripped names), and only the twelve cast names are
-reserved (`agents/roster.py`; a WS join as a cast name is refused `403`, a
-matching body name is stripped). Reserving the cast is driven by **narrative
-integrity** — a node greets "Tessera" as a known regular, so a human posing as
-Tessera would hijack that recognition and corrupt node memory — with an
-anti-impersonation benefit.
-
-Realizing the intended policy needs a **uniqueness constraint at name
-selection** (pick a variant if taken) and **removal of the anonymous path**.
-This is a **pre-launch requirement** (enforced before real gameplay); it is
-recorded here and to be built as its own change — larger than this ADR's PR
-should carry.
+- **Unique at registration.** `python main.py invite mint --name X` rejects a
+  name already taken (case- and whitespace-insensitive) and the twelve cast
+  names; a DB UNIQUE index on `lower(trim(name))` (migration 0011) is the
+  atomic backstop, and `persistence.mint_invite_key` raises `NameUnavailable`.
+- **Server-authoritative at runtime.** A request carrying a per-user invite key
+  uses that key's registered name (`guard.registered_name`), ignoring any
+  client-supplied `player_name` / `?name=` — so names can't collide or
+  impersonate, and a keyed session is never anonymous
+  (`server/handlers.py::_display_name`). Client-name normalization was unified
+  (trim-then-cap), closing a whitespace bypass that let `" Tessera"` slip past
+  the cast-name block.
+- **Dev exemption.** The shared `NESTED_WORLDS_BETA_KEY` and keyless local dev
+  can't carry per-player names (all shared-key users collapse to one
+  credential), so they stay dev/testing paths outside the uniqueness guarantee
+  — per-user keys are the path for real play (ADR §5, "register once, one
+  key"). A future self-service registration flow (player picks their own name,
+  told "taken, choose another") could layer on top, but is not required for the
+  policy.
 
 ---
 
@@ -168,9 +173,8 @@ should carry.
   no link to past history).
 - **The history-render budget widens** → revisit the 128/200 render clip in
   `consciousness._history_block`.
-- **(Pre-launch build)** → implement §7 (unique-name enforcement at selection +
-  removal of the anonymous path) and §2 (local-filter-first + Haiku moderation,
-  fail-open).
+- **(Pre-launch build)** → §2 input moderation (local-filter-first + Haiku
+  classify, fail-open). §7 (unique names / no anonymous play) is implemented.
 
 ## Rejected alternatives
 

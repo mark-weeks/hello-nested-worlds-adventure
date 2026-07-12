@@ -182,6 +182,22 @@ def _per_user_key_match(supplied: str) -> bool:
     return True
 
 
+def registered_name(supplied: str) -> str | None:
+    """The registered display name for a per-user invite key, else None.
+
+    A per-user key carries a name chosen (and made unique) at registration —
+    so it is the player's authoritative identity: unique, non-anonymous, and
+    unimpersonatable. The server uses it in preference to any client-supplied
+    name (ADR-004 §7). Returns None for the shared env key, an unknown key,
+    or no key — those sessions are dev-only and fall back to the normalized
+    client name.
+    """
+    if not supplied:
+        return None
+    row = persistence.lookup_invite_key(supplied)
+    return row["name"] if row else None
+
+
 def invite_gate_active() -> bool:
     """True when any invite mechanism is configured.
 

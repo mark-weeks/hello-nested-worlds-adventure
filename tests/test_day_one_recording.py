@@ -125,6 +125,53 @@ class TestReservedNames:
         assert _parse_player_name({"player_name": "Ada"}) == "Ada"
         assert _parse_player_name({}) is None
 
+    def test_ws_join_whitespace_wanderer_now_refused(self, srv):
+        # A leading space once slipped a cast name past the WS reserved-name
+        # check (cap-then-lower, no strip). The WS path now trims first, so a
+        # "%20Tessera" join normalizes to the reserved name and is refused.
+        s, status = _ws_connect(srv, 255, "%20" + WANDERER_CAST[0])
+        assert b"403" in status
+        s.close()
+
+    def test_normalize_client_name_trims_before_reserved_check(self):
+        from server.handlers import _normalize_client_name
+        assert _normalize_client_name(" " + WANDERER_CAST[0] + " ") is None
+        assert _normalize_client_name("  Ada  ") == "Ada"
+        assert _normalize_client_name("") is None
+        assert _normalize_client_name(None) is None
+
+
+class TestUniqueNames:
+    """ADR-004 §7: a per-user invite key carries a registered, unique name;
+    the server uses it and ignores any client-supplied name, and a keyed
+    session is never anonymous. Shared-key / keyless sessions are dev-only and
+    fall back to the normalized client name."""
+
+    def test_registered_name_is_authoritative_over_client_name(self):
+        import server.guard as guard
+        from server.handlers import _display_name
+        persistence.mint_invite_key("nw_alice", "Alice")
+        assert guard.registered_name("nw_alice") == "Alice"
+        # A keyed request uses the registered name, ignoring the client's —
+        # this is what makes the name unique and unimpersonatable.
+        assert _display_name("nw_alice", "Zorg") == "Alice"
+        # ...and is never anonymous, even when the client sends no name.
+        assert _display_name("nw_alice", None) == "Alice"
+
+    def test_dev_and_keyless_fall_back_to_client_name(self):
+        from server.handlers import _display_name
+        # Unknown / shared / empty key → dev path: normalized client name,
+        # which may be None (keyless dev is exempt from the no-anonymous rule).
+        assert _display_name("", "Ada") == "Ada"
+        assert _display_name("not-a-real-key", "Ada") == "Ada"
+        assert _display_name("", None) is None
+
+    def test_registered_name_none_for_revoked_key(self):
+        import server.guard as guard
+        persistence.mint_invite_key("nw_bob", "Bob")
+        persistence.revoke_invite_key("nw_bob")
+        assert guard.registered_name("nw_bob") is None
+
 
 class TestPuzzleAttempts:
     def _attempt(self, port, seed, node, answer, name="Ada"):
