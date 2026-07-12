@@ -13,12 +13,12 @@ players see are all derived **at read time** from these rows. So "data policy"
 here is not back-office plumbing — every choice about what is recorded and how
 it can be removed directly shapes the game.
 
-Launch is near and **the beta database already holds real player history**
-(a decision recorded below), so these policies bind *now*, not from some future
-clean-slate. Several of them were already made and partly implemented
-(redaction, presence recording, credential identity, reserved names) but never
-written down; this ADR records them and their reasoning, and is explicit about
-the two places where the *intended* policy is not yet fully implemented.
+Launch is near, and these policies are being put in place **pre-launch, before
+real gameplay begins** — so there is no legacy/migration burden and the record
+is correct from the first real row. Several of them were already made and partly
+implemented (redaction, presence recording, credential identity, reserved names)
+but never written down; this ADR records them and their reasoning, and is
+explicit about the places where the *intended* policy is not yet fully built.
 
 This ADR was produced by interviewing the human (the "interview-me" practice in
 `CLAUDE.md`), one architecture-changing question at a time.
@@ -53,16 +53,26 @@ ahead of the "what if."
 cost is precisely the loss of mechanical integrity and accountability that
 content-level redaction avoids.
 
-### 2. Input moderation is planned but deferred behind an abuse trigger
+### 2. Input moderation is planned for launch (the tax is manageable)
 
-Redaction is the **day-one backstop**. Screening player text *before* it enters
-the chronicle is desirable but deferred: when triggered, start with a **cheap
-local filter** (wordlist/heuristic, near-zero cost/latency) and escalate to
-LLM-grade moderation only if that proves insufficient — LLM moderation adds a
-model call to *every* player input (including chat, which today costs zero LLM),
-bounded by the existing daily/per-user caps and the concurrency semaphore, plus
-latency on a real-time surface. Precise cost must get a blind-spot pass (live
-docs / measurement) before it is built.
+Screening player text *before* it enters the chronicle is desirable, and a
+blind-spot pass against the current model docs found the cost/latency tax
+**manageable**, so it is planned for launch rather than deferred behind a
+trigger. The cheap shape: a **local filter first** (wordlist/heuristic,
+in-process, zero API cost/latency) catches the obvious cases; only *ambiguous*
+inputs escalate to a **Haiku-tier classification call** (`claude-haiku-4-5`,
+$1/$5 per 1M tokens — ~5× cheaper than the Opus voice model; a short classify
+costs a fraction of a cent per input). There is no dedicated moderation
+endpoint — moderation is a single Messages-API call. **Fail-open** — if the
+check errors or times out, allow the content (redaction stays the backstop),
+consistent with "failure stays in fiction." Taxes to account for: it adds a
+model call to *chat*, which today costs zero LLM; the calls draw on the
+daily/per-user caps and the concurrency semaphore, so moderation gets its own
+budget line / relaxed cap; and it adds sub-second latency on a real-time
+surface. Do **not** prompt-cache the moderation system prompt — it sits below
+the 4096-token cache minimum, so a `cache_control` marker would be a silent
+no-op (the trap this repo has hit twice). Redaction remains the backstop for
+whatever slips through.
 
 ### 3. Continuity: never wipe; the covenant is already in force
 
@@ -74,10 +84,12 @@ players' contributions and read as "all my gameplay is gone" → real backlash.
 Continuity is a **player-trust commitment**, not just an ops convenience.
 `docs/roadmap/phase-2-scale.md` (Continuity policy).
 
-The beta DB is treated as **real player history to preserve**, so the covenant
-has *already started*. Recovery from a bad state is **restore from backup, never
-a clean wipe** (`scripts/deploy.sh` backs up before every deploy; the restore
-path is rehearsed, runbook §7).
+The current database is **pre-launch**; the never-wipe covenant governs real
+player history from the first real player onward (there is no throwaway
+pre-launch data worth protecting, and no real history yet to lose). Recovery
+from a bad state is **restore from backup, never a clean wipe**
+(`scripts/deploy.sh` backs up before every deploy; the restore path is
+rehearsed, runbook §7).
 
 ### 4. Write-path scope: record participation broadly
 
@@ -107,7 +119,7 @@ stores full content at all three player-content sites (`/speak`, `PLAYER_CHAT`,
 (`_MEM_MSG_CHARS`/`_MEM_REPLY_CHARS`) so voice-call prompts are unchanged. The
 multi-turn transcript passed to `speak()` is deliberately left unclipped — it is
 the real conversation and is already bounded to a few recent exchanges.
-*Rows written before this fix remain truncated; that tail is unrecoverable.*
+*Because this fix lands pre-launch, no real player history is ever stored truncated.*
 
 ### 7. Unique player names, no anonymous play *(intended policy — implementation gap)*
 
@@ -125,8 +137,9 @@ anti-impersonation benefit.
 
 Realizing the intended policy needs a **uniqueness constraint at name
 selection** (pick a variant if taken) and **removal of the anonymous path**.
-That is larger than this ADR should carry, so it is recorded here as the target
-and **left to a follow-up PR**.
+This is a **pre-launch requirement** (enforced before real gameplay); it is
+recorded here and to be built as its own change — larger than this ADR's PR
+should carry.
 
 ---
 
@@ -146,9 +159,8 @@ and **left to a follow-up PR**.
 
 ## Revisit when…
 
-- **Repeated bad-actor content / abuse volume crosses a threshold** → introduce
-  input moderation, cheap local filter first. *(Cross-list on the
-  `docs/roadmap/phase-2-scale.md` trigger list.)*
+- **Moderation cost/latency proves heavier than measured** → drop to the
+  local-filter-only tier, or move the classification call to an async/batch path.
 - **Persisted activity becomes noise/cost without shaping the world** → rebalance
   the write-path (which events earn a permanent row).
 - **A "start over" or key-rotation use case emerges** → design account-level
@@ -156,8 +168,9 @@ and **left to a follow-up PR**.
   no link to past history).
 - **The history-render budget widens** → revisit the 128/200 render clip in
   `consciousness._history_block`.
-- **(Committed follow-up)** → implement §7: unique-name enforcement at selection
-  and removal of the anonymous path.
+- **(Pre-launch build)** → implement §7 (unique-name enforcement at selection +
+  removal of the anonymous path) and §2 (local-filter-first + Haiku moderation,
+  fail-open).
 
 ## Rejected alternatives
 
