@@ -731,7 +731,13 @@ class Handler(BaseHTTPRequestHandler):
                     speaker=player_name,
                 )
                 # The exchange — both sides of it — becomes node memory.
-                data = {"message": message[:128], "reply": response[:200]}
+                # Store the FULL message and reply: the chronicle keeps the
+                # record, and prompt-size budgeting happens at render time
+                # (consciousness._history_block clips for the prompt), never by
+                # truncating the permanent memory. (ADR-004 — we don't truncate
+                # the record.) Both are already bounded upstream: the message
+                # by the [:1024] input cap, the reply by the call's max_tokens.
+                data = {"message": message, "reply": response}
                 if identity:
                     data["identity"] = identity
                 persistence.record_mutation(
@@ -925,7 +931,11 @@ class Handler(BaseHTTPRequestHandler):
                             # invalidation) see it as a node interaction.
                             persistence.record_mutation(
                                 seed, player.current_node or root_name,
-                                "PLAYER_CHAT", name, {"text": text[:128]},
+                                # Store the full chat text (already [:256] above,
+                                # the same value broadcast to the room) — the
+                                # record isn't truncated; the prompt clips it at
+                                # render time. (ADR-004.)
+                                "PLAYER_CHAT", name, {"text": text},
                                 actor_identity=ws_identity,
                             )
                     elif msg_type == "ping":
@@ -1077,8 +1087,9 @@ class Handler(BaseHTTPRequestHandler):
             player_name = _parse_player_name(body)
             persistence.record_mutation(
                 seed, node.name, "AGENT_VOICE", player_name,
+                # Full exchange stored; the prompt clips at render time. (ADR-004.)
                 {"agent": agent_name, "persona": persona.name,
-                 "message": message[:128], "reply": response[:200]},
+                 "message": message, "reply": response},
                 actor_identity=_actor_identity(user_key, player_name),
             )
             self._send_json({

@@ -197,7 +197,7 @@ ring at world speed, and see a cast of Claude-adjacent agents keep the world
 moving while you stand still — most of it with no API key at all, and none of it
 breaking character when a key or a budget runs out. It is deliberately quiet,
 contemplative, and honest about what it is: the infrastructure is real and
-tested (**703 passing Python tests**, `pytest tests/ -q`, plus 46 Vitest
+tested (**705 passing Python tests**, `pytest tests/ -q`, plus 46 Vitest
 cross-client parity tests), the world is a genuine append-only
 chronicle, and the hardest engineering questions — canonical worlds, truthful
 cascade physics, server-derived identity, unattended life, durable agent memory,

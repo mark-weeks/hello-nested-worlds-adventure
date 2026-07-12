@@ -139,6 +139,26 @@ class TestSpeakResolution:
             {"user": "first words", "assistant": "I heard: first words"},
         ]
 
+    def test_speak_stores_full_message_and_reply_untruncated(self, srv, monkeypatch):
+        # ADR-004: the permanent record keeps the full message and reply — the
+        # old [:128]/[:200] storage truncation silently lost the tail forever.
+        real = generate_node_hierarchy(seed=42, max_depth=1)
+        long_msg = "the vault keeps a very long secret and wants it recorded " * 4
+
+        def fake_speak(node, message, history=None, transcript=None,
+                       ripple_score=0.0, speaker=None):
+            return "a reply comfortably longer than the old two-hundred-char cap " * 4
+
+        monkeypatch.setattr(consciousness, "speak", fake_speak)
+        _post(f"{srv}/speak", {"node_name": real.name, "seed": 42,
+                               "message": long_msg, "player_name": "Ada"})
+        rows = [h for h in persistence.get_node_history(42, real.name)
+                if h["type"] == "PLAYER_SPEAK"]
+        assert rows
+        stored = rows[0]["data"]
+        assert stored["message"] == long_msg and len(stored["message"]) > 128
+        assert len(stored["reply"]) > 200
+
 
 class TestFallbackVoices:
     def test_every_level_has_an_authored_silence(self):
@@ -163,6 +183,26 @@ class TestNodeMemoryContent:
         block = consciousness._history_block(history)
         assert 'they said: "what do you guard?"' in block
         assert 'you answered: "Only the dark."' in block
+
+    def test_history_block_clips_long_content_for_the_prompt_only(self):
+        # ADR-004: the chronicle stores full content; the PROMPT clips it to a
+        # render budget so a long message can't blow a voice call's context.
+        long_msg = "m" * 500
+        long_reply = "r" * 500
+        history = [{
+            "type": "PLAYER_SPEAK", "player": "Ada",
+            "data": {"message": long_msg, "reply": long_reply},
+            "at": "2026-07-12T10:00",
+        }]
+        block = consciousness._history_block(history)
+        # Clipped to exactly the render budget — not one char more, and the
+        # full stored strings never reach the prompt.
+        assert long_msg not in block
+        assert long_reply not in block
+        assert "m" * consciousness._MEM_MSG_CHARS in block
+        assert "m" * (consciousness._MEM_MSG_CHARS + 1) not in block
+        assert "r" * consciousness._MEM_REPLY_CHARS in block
+        assert "r" * (consciousness._MEM_REPLY_CHARS + 1) not in block
 
     def test_player_exchanges_round_trip(self):
         persistence.record_mutation(

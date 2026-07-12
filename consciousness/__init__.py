@@ -813,6 +813,22 @@ def _get_client() -> Any:
     return _client
 
 
+# Prompt-render budget for stored memory content. The chronicle keeps the FULL
+# message and reply (ADR-004: the permanent record is never truncated); the
+# history block clips them to these lengths only when composing a prompt, so a
+# long message can't blow a voice call's context/token budget. Tune here — it
+# changes what the model sees, never what is stored. (The multi-turn transcript
+# passed to speak() is deliberately NOT clipped: it is the real conversation,
+# and it is already bounded to a few recent exchanges by persistence.)
+_MEM_MSG_CHARS = 128
+_MEM_REPLY_CHARS = 200
+
+
+def _clip(text: Any, limit: int) -> str:
+    s = str(text)
+    return s if len(s) <= limit else s[:limit]
+
+
 def _history_block(history: list[dict]) -> str:
     if not history:
         return ""
@@ -829,9 +845,9 @@ def _history_block(history: list[dict]) -> str:
             agent = data.get("agent", "a wanderer")
             line = f"  {date}: {who} spoke with {agent} here"
             if data.get("message"):
-                line += f' — they asked: "{data["message"]}"'
+                line += f' — they asked: "{_clip(data["message"], _MEM_MSG_CHARS)}"'
             if data.get("reply"):
-                line += f' — {agent} answered: "{data["reply"]}"'
+                line += f' — {agent} answered: "{_clip(data["reply"], _MEM_REPLY_CHARS)}"'
             lines.append(line)
             continue
         if h["type"] == "AGENT_TALK":
@@ -848,10 +864,10 @@ def _history_block(history: list[dict]) -> str:
         # and what you answered, are part of what you are now.
         said = data.get("message") or data.get("text")
         if said:
-            line += f' — they said: "{said}"'
+            line += f' — they said: "{_clip(said, _MEM_MSG_CHARS)}"'
         reply = data.get("reply")
         if reply:
-            line += f' — you answered: "{reply}"'
+            line += f' — you answered: "{_clip(reply, _MEM_REPLY_CHARS)}"'
         lines.append(line)
     return "\nMemory of those who have passed through:\n" + "\n".join(lines)
 
