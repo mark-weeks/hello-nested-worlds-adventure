@@ -11,7 +11,6 @@ import pytest
 
 import persistence
 from server import _Handler, _ThreadedServer
-from server import guard
 
 
 @pytest.fixture(scope="module")
@@ -301,13 +300,13 @@ class TestPositionResume:
         data, _, _ = _get(f"{base}/position")
         assert data["position"] is None
 
-    def test_shared_env_key_session_is_noop(self, srv, monkeypatch):
-        # A shared-secret session authenticates but has no per-user row, so
+    def test_unknown_key_session_is_noop(self, srv):
+        # There is no shared key. In open dev mode the gate is off, so an
+        # arbitrary ?key= "authenticates" but has no per-user invite row —
         # server-side resume no-ops and the browser cache stands.
         base, _ = srv
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "shared-secret")
         saved, _ = _post(
-            f"{base}/position?key=shared-secret", {"node": "X", "seed": 1})
+            f"{base}/position?key=made-up", {"node": "X", "seed": 1})
         assert saved["saved"] is False
-        data, _, _ = _get(f"{base}/position?key=shared-secret")
+        data, _, _ = _get(f"{base}/position?key=made-up")
         assert data["position"] is None

@@ -65,47 +65,56 @@ def _get_json(url: str) -> dict:
 # ── Invite gate ─────────────────────────────────────────────────────────────
 
 class TestInviteGate:
-    def test_no_key_means_open(self, srv, monkeypatch):
-        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+    """The gate is the per-user `invite_keys` table only — there is no shared
+    key (removed pre-launch: a shared credential let many players collapse to
+    one identity and could play anonymously, ADR-004 §7). No key minted → open
+    (local dev / tests). One key minted → every request needs a valid, named
+    credential."""
+
+    def _gate_on(self):
+        # Minting one active per-user key closes the gate for this test's
+        # isolated DB.
+        persistence.mint_invite_key("nw_letmein", "Gatekeeper")
+
+    def test_no_key_means_open(self, srv):
         base, _ = srv
         assert _get_status(f"{base}/worlds") == 200
 
-    def test_health_exempt_even_with_key_set(self, srv, monkeypatch):
-        # Platform load balancers shouldn't need the secret to probe liveness.
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+    def test_health_exempt_even_when_gated(self, srv):
+        # Platform load balancers shouldn't need a credential to probe liveness.
+        self._gate_on()
         base, _ = srv
         assert _get_status(f"{base}/health") == 200
 
-    def test_missing_key_rejected(self, srv, monkeypatch):
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+    def test_missing_key_rejected(self, srv):
+        self._gate_on()
         base, _ = srv
         assert _get_status(f"{base}/worlds") == 403
 
-    def test_wrong_key_rejected(self, srv, monkeypatch):
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+    def test_wrong_key_rejected(self, srv):
+        self._gate_on()
         base, _ = srv
         assert _get_status(f"{base}/worlds?key=nope") == 403
 
-    def test_key_via_query_param_accepted(self, srv, monkeypatch):
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+    def test_key_via_query_param_accepted(self, srv):
+        self._gate_on()
         base, _ = srv
-        assert _get_status(f"{base}/worlds?key=letmein") == 200
+        assert _get_status(f"{base}/worlds?key=nw_letmein") == 200
 
-    def test_key_via_header_accepted(self, srv, monkeypatch):
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+    def test_key_via_header_accepted(self, srv):
+        self._gate_on()
         base, _ = srv
         status = _get_status(f"{base}/worlds",
-                              headers={guard.BETA_KEY_HEADER: "letmein"})
+                              headers={guard.BETA_KEY_HEADER: "nw_letmein"})
         assert status == 200
 
 
 # ── Per-user invite keys ────────────────────────────────────────────────────
 
 class TestPerUserInviteKeys:
-    """Per-user keys must work alongside the shared env key without
-    disabling either mechanism. These tests cover the four states the
-    auth function actually sees: no creds, valid shared key, valid
-    per-user key, revoked per-user key."""
+    """Per-user keys are the whole gate. These tests cover the three states
+    the auth function sees: valid per-user key, revoked per-user key, unknown
+    key while the gate is active."""
 
     @pytest.fixture(autouse=True)
     def _clear_touch_cache(self):
@@ -113,15 +122,12 @@ class TestPerUserInviteKeys:
         # process — reset it so each case sees a clean cache.
         guard._touch_cache.clear()
 
-    def test_active_per_user_key_accepted(self, srv, monkeypatch):
-        # No shared env key — only the per-user table is configured.
-        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+    def test_active_per_user_key_accepted(self, srv):
         persistence.mint_invite_key("k_alice", "Alice")
         base, _ = srv
         assert _get_status(f"{base}/worlds?key=k_alice") == 200
 
-    def test_revoked_per_user_key_rejected(self, srv, monkeypatch):
-        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+    def test_revoked_per_user_key_rejected(self, srv):
         persistence.mint_invite_key("k_alice", "Alice")
         persistence.revoke_invite_key("k_alice")
         base, _ = srv
@@ -131,36 +137,22 @@ class TestPerUserInviteKeys:
         persistence.mint_invite_key("k_bob", "Bob")
         assert _get_status(f"{base}/worlds?key=k_alice") == 403
 
-    def test_unknown_key_rejected_when_per_user_gate_active(self, srv, monkeypatch):
-        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+    def test_unknown_key_rejected_when_per_user_gate_active(self, srv):
         persistence.mint_invite_key("k_alice", "Alice")
         base, _ = srv
         assert _get_status(f"{base}/worlds?key=k_nope") == 403
 
-    def test_per_user_key_via_header_accepted(self, srv, monkeypatch):
-        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+    def test_per_user_key_via_header_accepted(self, srv):
         persistence.mint_invite_key("k_alice", "Alice")
         base, _ = srv
         status = _get_status(f"{base}/worlds",
                               headers={guard.BETA_KEY_HEADER: "k_alice"})
         assert status == 200
 
-    def test_shared_and_per_user_keys_both_valid(self, srv, monkeypatch):
-        # Mixed mode: env key is set AND per-user keys exist. Either
-        # should authorize independently — operators may run the cohort
-        # on per-user keys while keeping a shared key for ops scripts.
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "shared-secret")
-        persistence.mint_invite_key("k_alice", "Alice")
-        base, _ = srv
-        assert _get_status(f"{base}/worlds?key=shared-secret") == 200
-        assert _get_status(f"{base}/worlds?key=k_alice") == 200
-        assert _get_status(f"{base}/worlds?key=neither") == 403
-
-    def test_unit_check_invite_key_touches_last_used(self, monkeypatch):
+    def test_unit_check_invite_key_touches_last_used(self):
         # Verifies the touch path actually updates the row — guards
         # against a future refactor that breaks the admin CLI's
         # "is Alice still active" signal.
-        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
         persistence.mint_invite_key("k_alice", "Alice")
         assert guard.check_invite_key(
             {guard.BETA_KEY_HEADER: "k_alice"}, {}
@@ -168,9 +160,8 @@ class TestPerUserInviteKeys:
         row = persistence.lookup_invite_key("k_alice")
         assert row is not None and row["last_used_at"] is not None
 
-    def test_unit_invite_gate_active_reflects_db(self, monkeypatch):
-        # With no env key and no per-user rows the gate is open.
-        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
+    def test_unit_invite_gate_active_reflects_db(self):
+        # With no per-user rows the gate is open.
         assert guard.invite_gate_active() is False
         # Mint a row — gate flips active.
         persistence.mint_invite_key("k_alice", "Alice")
@@ -554,15 +545,15 @@ class TestStaticAssetGate:
     invite key so the browser can boot the SPA, which then forwards the key
     on data calls. Data endpoints must stay gated."""
 
-    def test_app_shell_ungated_but_world_gated(self, srv, monkeypatch):
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+    def test_app_shell_ungated_but_world_gated(self, srv):
+        persistence.mint_invite_key("nw_gate", "Gatekeeper")
         base, _ = srv
         # Shell loads with no key (browser can't send one on the <script> tag).
         assert _get_status(f"{base}/app") == 200
         # But the data endpoint the SPA fetches is still gated.
         assert _get_status(f"{base}/world?seed=1&depth=3") == 403
         # ...and works once the key is forwarded (as the fixed SPA does).
-        assert _get_status(f"{base}/world?seed=1&depth=3&key=letmein") == 200
+        assert _get_status(f"{base}/world?seed=1&depth=3&key=nw_gate") == 200
 
     def test_is_public_asset_unit(self):
         from server.handlers import Handler
@@ -578,11 +569,11 @@ class TestStaticAssetGate:
                   "/players", "/history", "/worlds"):
             assert not Handler._is_public_asset(p), p
 
-    def test_vendored_d3_served_ungated(self, srv, monkeypatch):
+    def test_vendored_d3_served_ungated(self, srv):
         # REGRESSION (P1-2): D3 must be served same-origin and ungated so the
         # invite default page never depends on the d3js.org CDN (a blocked /
         # offline CDN or an SRI mismatch used to brick the whole page).
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+        persistence.mint_invite_key("nw_gate", "Gatekeeper")
         base, _ = srv
         req = urllib.request.Request(f"{base}/d3.v7.min.js")
         with urllib.request.urlopen(req) as resp:
@@ -591,26 +582,26 @@ class TestStaticAssetGate:
         # It is really D3 v7 (the UMD banner), not an error page.
         assert "d3js.org v7" in body
 
-    def test_favicon_returns_204_ungated(self, srv, monkeypatch):
+    def test_favicon_returns_204_ungated(self, srv):
         # The browser auto-requests /favicon.ico with no key; it must not fall
         # through to a gated 403 in every tester's console.
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+        persistence.mint_invite_key("nw_gate", "Gatekeeper")
         base, _ = srv
         assert _get_status(f"{base}/favicon.ico") == 204
 
 
 class TestWebSocketGate:
-    def test_ws_gated_without_key(self, srv, monkeypatch):
+    def test_ws_gated_without_key(self, srv):
         # REGRESSION: the WebSocket upgrade must be invite-gated like REST.
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+        persistence.mint_invite_key("nw_gate", "Gatekeeper")
         _, port = srv
         code, _ = _ws_upgrade(port, "/ws?seed=42&name=A")
         assert code == 403
 
-    def test_ws_accepts_forwarded_key(self, srv, monkeypatch):
-        monkeypatch.setenv(guard.BETA_KEY_ENV, "letmein")
+    def test_ws_accepts_forwarded_key(self, srv):
+        persistence.mint_invite_key("nw_gate", "Gatekeeper")
         _, port = srv
-        code, sock = _ws_upgrade(port, "/ws?seed=42&name=A&key=letmein", hold=True)
+        code, sock = _ws_upgrade(port, "/ws?seed=42&name=A&key=nw_gate", hold=True)
         assert code == 101
         if sock:
             sock.close()
@@ -619,7 +610,6 @@ class TestWebSocketGate:
         # REGRESSION (P1-2): concurrent WS connections are capped; the
         # (cap+1)th upgrade is rejected with 503 instead of spawning an
         # unbounded thread.
-        monkeypatch.delenv(guard.BETA_KEY_ENV, raising=False)
         monkeypatch.setenv(guard.MAX_WS_TOTAL_ENV, "1")
         monkeypatch.setenv(guard.MAX_WS_PER_IP_ENV, "50")
         guard.WS_LIMITER.reset()

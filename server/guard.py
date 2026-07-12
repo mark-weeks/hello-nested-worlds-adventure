@@ -2,8 +2,11 @@
 
 Six pieces wired into `server/handlers.py`:
 
-  1. `check_invite_key`   — shared-secret gate read from env, applied to every
-                            request including the WebSocket upgrade.
+  1. `check_invite_key`   — per-user invite-key gate (the `invite_keys` table),
+                            applied to every request including the WebSocket
+                            upgrade. There is no shared key: every credential
+                            is individually minted, named, and revocable, so a
+                            gated session is always a known, unique player.
   2. `RateLimiter`        — per-IP fixed-window limiter for the AI / image /
                             puzzle-attempt endpoints.
   3. `consume_anthropic`  — daily call cap on Anthropic, persisted in SQLite.
@@ -33,7 +36,6 @@ import persistence
 
 # ── Env vars ────────────────────────────────────────────────────────────────
 
-BETA_KEY_ENV         = "NESTED_WORLDS_BETA_KEY"
 BETA_KEY_HEADER      = "X-Beta-Key"
 BETA_KEY_QUERY       = "key"
 ANTHROPIC_CAP_ENV    = "NESTED_WORLDS_ANTHROPIC_DAILY_CALLS"
@@ -138,10 +140,6 @@ def validate_world_params(params: Mapping[str, Any]) -> None:
 
 # ── Invite key ──────────────────────────────────────────────────────────────
 
-def _expected_key() -> str:
-    return os.environ.get(BETA_KEY_ENV, "").strip()
-
-
 # Cap how often we touch the DB to update last_used_at — without this, every
 # /speak call would fire an UPDATE just to advance the timestamp by a second.
 # 5 minutes is short enough to feel live in the admin CLI and long enough to
@@ -182,15 +180,30 @@ def _per_user_key_match(supplied: str) -> bool:
     return True
 
 
-def invite_gate_active() -> bool:
-    """True when any invite mechanism is configured.
+def registered_name(supplied: str) -> str | None:
+    """The registered display name for a per-user invite key, else None.
 
-    Shared env key OR at least one active per-user key counts as "gated."
-    Tests and pure dev mode (no env key, no DB rows) leave the gate off
-    and the server stays open.
+    A per-user key carries a name chosen (and made unique) at registration —
+    so it is the player's authoritative identity: unique, non-anonymous, and
+    unimpersonatable. The server uses it in preference to any client-supplied
+    name (ADR-004 §7). Returns None for an unknown key or no key — the only
+    keyless path is ungated local dev, which falls back to the normalized
+    client name.
     """
-    if _expected_key():
-        return True
+    if not supplied:
+        return None
+    row = persistence.lookup_invite_key(supplied)
+    return row["name"] if row else None
+
+
+def invite_gate_active() -> bool:
+    """True once at least one active per-user invite key exists.
+
+    Minting the first per-user key closes the gate; from then on every
+    request needs a valid credential. Tests and pure local dev (no minted
+    keys) leave the gate off and the server stays open — the only path on
+    which a session can be nameless, and it never touches real play.
+    """
     try:
         return bool(persistence.list_invite_keys())
     except Exception:
@@ -210,33 +223,26 @@ def supplied_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) -> str
 
 
 def check_invite_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) -> bool:
-    """Return True iff this request carries a valid beta credential.
+    """Return True iff this request carries a valid per-user invite credential.
 
-    Two mechanisms are consulted in order:
-      1. The shared `NESTED_WORLDS_BETA_KEY` env var (legacy, single value).
-      2. The per-user `invite_keys` table (operator-minted, individually
-         revocable). If any active row matches, the request is authorized
-         and the row's `last_used_at` is bumped (throttled).
+    Authorization is the per-user `invite_keys` table only — each key is
+    operator-minted, carries a unique registered name, and is individually
+    revocable. There is no shared key: with the gate active, every authorized
+    session is a known, named player (ADR-004 §7, no anonymous gameplay). If
+    an active row matches, the request is authorized and the row's
+    `last_used_at` is bumped (throttled).
 
-    The gate is open if both mechanisms are unconfigured (env unset AND no
-    active per-user rows). Accepts either the `X-Beta-Key` header
-    (preferred) or a `?key=` query param so the WebSocket connector — which
-    can't easily set headers in the browser — can still authenticate.
+    The gate is open only when no per-user key has been minted (pure local
+    dev / tests). Accepts either the `X-Beta-Key` header (preferred) or a
+    `?key=` query param so the WebSocket connector — which can't easily set
+    headers in the browser — can still authenticate.
     """
-    supplied = headers.get(BETA_KEY_HEADER) or headers.get(BETA_KEY_HEADER.lower())
-    if not supplied:
-        vals = qs.get(BETA_KEY_QUERY)
-        supplied = vals[0] if vals else ""
-    supplied = (supplied or "").strip()
-
-    expected = _expected_key()
-    if expected and supplied and supplied == expected:
-        return True
+    supplied = supplied_key(headers, qs)
 
     if _per_user_key_match(supplied):
         return True
 
-    # Gate only blocks when at least one mechanism is configured.
+    # Gate only blocks once at least one per-user key has been minted.
     return not invite_gate_active()
 
 

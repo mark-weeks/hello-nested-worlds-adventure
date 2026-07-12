@@ -107,8 +107,8 @@ function resolveEntryNode(root) {
 // invite key, so the position follows the player across devices. On boot we pull
 // the server copy (if this browser carries a per-user key) into localStorage so
 // the existing resume path uses it; on every move we mirror the new position
-// back. Shared-key / no-key sessions have no server row — the fetch returns null
-// and we silently keep the local cache.
+// back. A no-key (ungated local dev) session has no server row — the fetch
+// returns null and we silently keep the local cache.
 async function hydrateFromServer() {
   if (!betaKey()) return;
   try {

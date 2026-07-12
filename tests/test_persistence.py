@@ -404,6 +404,29 @@ class TestInviteKeys:
         with pytest.raises(sqlite3.IntegrityError):
             persistence.mint_invite_key("k_dup", "Second")
 
+    def test_mint_rejects_duplicate_name(self):
+        # ADR-004 §7: every player's name is unique (the registered name is
+        # the player's authoritative display name at runtime).
+        persistence.mint_invite_key("k_ada1", "Ada")
+        with pytest.raises(persistence.NameUnavailable):
+            persistence.mint_invite_key("k_ada2", "Ada")
+
+    def test_mint_name_uniqueness_is_case_and_whitespace_insensitive(self):
+        persistence.mint_invite_key("k_ada1", "Ada")
+        for variant in ("ada", "  ADA  ", "aDa"):
+            with pytest.raises(persistence.NameUnavailable):
+                persistence.mint_invite_key("k_x", variant)
+
+    def test_unique_name_index_backstops_the_app_check(self):
+        # Even a direct insert that bypasses mint_invite_key's guard is
+        # rejected by the DB UNIQUE index on lower(trim(name)) (migration 0011).
+        persistence.mint_invite_key("k_ada1", "Ada")
+        with pytest.raises(sqlite3.IntegrityError):
+            with persistence._connect() as conn:
+                conn.execute(
+                    "INSERT INTO invite_keys (key, name) VALUES (?, ?)",
+                    ("k_ada2", " ADA "))
+
 
 class TestPlayerPosition:
     """Cross-device resume: the last node is stored per invite key, so it

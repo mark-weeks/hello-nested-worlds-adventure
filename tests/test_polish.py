@@ -10,7 +10,7 @@ import urllib.request
 
 import pytest
 
-from server import guard
+import persistence
 
 
 @pytest.fixture()
@@ -31,10 +31,10 @@ class TestGuidePage:
         assert "How to Play" in body
         assert "attune" in body and "observe" in body  # the 11 verbs table
 
-    def test_guide_is_ungated_like_the_ui_shell(self, srv, monkeypatch):
+    def test_guide_is_ungated_like_the_ui_shell(self, srv):
         # The guide is onboarding material — a prospective tester follows the
-        # link before they have a key.
-        monkeypatch.setenv("NESTED_WORLDS_BETA_KEY", "sekrit")
+        # link before they have a key. Minting a key activates the gate.
+        persistence.mint_invite_key("nw_gate", "Gatekeeper")
         with urllib.request.urlopen(f"{srv}/guide") as resp:
             assert resp.status == 200
 

@@ -36,12 +36,12 @@ here is operational headroom; nothing on this list is speculative.
 
 2. **Per-user invite keys** (`persistence/migrations/0004_invite_keys.sql`,
    `server/guard.py`, `main.py`). Each tester gets a unique key minted via
-   `python main.py invite mint --name <Name>`. Keys are individually
-   revocable (`invite revoke <key>`), and `lookup_invite_key` opportunistically
-   touches `last_used_at` (throttled to 5-minute intervals to keep the auth
-   path off the SQLite hot path). Coexists with the shared
-   `NESTED_WORLDS_BETA_KEY` env var so ops scripts can still authenticate
-   without a DB row.
+   `python main.py invite mint --name <Name>`, and the name is unique too
+   (rejected at mint if taken). Keys are individually revocable
+   (`invite revoke <key>`), and `lookup_invite_key` opportunistically touches
+   `last_used_at` (throttled to 5-minute intervals to keep the auth path off
+   the SQLite hot path). Per-user keys are the whole gate — there is no shared
+   key, so every gated session is a known, non-anonymous player (ADR-004 §7).
 
 ### Operator workflow at 20 users
 

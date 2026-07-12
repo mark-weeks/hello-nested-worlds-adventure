@@ -218,17 +218,42 @@ from consciousness import WANDERER_CAST as _WANDERER_CAST
 _RESERVED_PLAYER_NAMES = {n.lower() for n in _WANDERER_CAST}
 
 
-def _parse_player_name(body: dict) -> str | None:
-    """Extract the display name from a request body.
+def _normalize_client_name(raw: Any) -> str | None:
+    """Normalize a client-supplied display name: trim FIRST, then cap at 32.
 
-    Reserved (wanderer-cast) names are stripped to None — the action still
-    happens, but it happens anonymously rather than in an agent's name.
+    Trimming before the reserved-name check closes the whitespace-bypass a
+    cap-then-strip order left open (" Tessera" once evaded the cast block).
+    Reserved (wanderer-cast) names normalize to None — the action still
+    happens, anonymously, rather than in an agent's name.
     """
-    raw = body.get("player_name")
-    name = (str(raw)[:32].strip() or None) if raw else None
-    if name and name.lower() in _RESERVED_PLAYER_NAMES:
+    if not raw:
+        return None
+    name = str(raw).strip()[:32].strip()
+    if not name:
+        return None
+    if name.lower() in _RESERVED_PLAYER_NAMES:
         return None
     return name
+
+
+def _parse_player_name(body: dict) -> str | None:
+    """Extract and normalize the display name from a request body (dev path)."""
+    return _normalize_client_name(body.get("player_name"))
+
+
+def _display_name(user_key: str, raw_client_name: Any) -> str | None:
+    """The authoritative display name for a request.
+
+    A per-user invite key carries a registered, unique name — use it, and
+    ignore any client-supplied name, which could otherwise collide with or
+    impersonate another player (ADR-004 §7 — every player has a unique name,
+    nobody plays anonymously). The only keyless path is ungated local dev,
+    which falls back to the normalized client name (which may be None).
+    """
+    reg = guard.registered_name(user_key)
+    if reg:
+        return reg
+    return _normalize_client_name(raw_client_name)
 
 
 def _actor_identity(user_key: str, player_name: str | None) -> str | None:
@@ -576,8 +601,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/position":
             # Cross-device resume: the caller's last position, keyed on their
-            # per-user invite credential. Empty for shared-key / no-key sessions
-            # (those fall back to the client's own localStorage cache).
+            # per-user invite credential. Empty for a no-key (ungated local
+            # dev) session, which falls back to the client's own localStorage
+            # cache.
             key = guard.supplied_key(self.headers, qs)
             self._send_json({"position": persistence.get_player_position(key)})
 
@@ -698,7 +724,7 @@ class Handler(BaseHTTPRequestHandler):
                 seed = int(body.get("seed", 42))
             except (ValueError, TypeError):
                 seed = 42
-            player_name = _parse_player_name(body)
+            player_name = _display_name(user_key, body.get("player_name"))
             # The speaker's durable conversation identity: the per-user
             # invite credential (hashed) when one was presented, else the
             # display name. Credential-keyed transcripts mean two players
@@ -796,15 +822,29 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             seed = int(qs.get("seed", ["42"])[0])
-            name = (qs.get("name", ["Anonymous"])[0] or "Anonymous")[:32]
         except (ValueError, IndexError):
             return self._send_error("invalid params", 400)
-        if name.lower() in _RESERVED_PLAYER_NAMES:
-            # The wandering cast's names are world canon — a player joining
-            # as "Tessera" would impersonate an agent in the permanent
-            # chronicle. Reject loudly so the client can pick another name.
-            return self._send_error(
-                f"'{name}' belongs to the world — choose another name", 403)
+
+        # Server-authoritative name: a per-user invite key carries a
+        # registered, unique name — use it, ignoring the client's ?name=
+        # (ADR-004 §7 — every player has a unique name). With the gate active
+        # this branch always fires (a keyless join was already refused with a
+        # 403 upstream), so no gated session is anonymous. The else-branch
+        # keyless name is reachable only in ungated local dev; it is still
+        # normalized (trim THEN cap) so a leading-space variant can't slip a
+        # reserved cast name past the check below.
+        ws_key = guard.supplied_key(self.headers, qs)
+        reg = guard.registered_name(ws_key)
+        if reg:
+            name = reg
+        else:
+            name = (qs.get("name", ["Anonymous"])[0] or "").strip()[:32] or "Anonymous"
+            if name.lower() in _RESERVED_PLAYER_NAMES:
+                # The wandering cast's names are world canon — a player joining
+                # as "Tessera" would impersonate an agent in the permanent
+                # chronicle. Reject loudly so the client can pick another name.
+                return self._send_error(
+                    f"'{name}' belongs to the world — choose another name", 403)
 
         # Cap concurrent connections (global + per-IP) before upgrading, so a
         # reconnect flood can't exhaust threads/memory. Reject cheaply with 503.
@@ -839,7 +879,7 @@ class Handler(BaseHTTPRequestHandler):
             sock.settimeout(60)  # 60-second idle timeout
             session_id = uuid.uuid4().hex[:8]
             # Durable identity for this session's chronicle rows (chat).
-            ws_identity = _actor_identity(guard.supplied_key(self.headers, qs), name)
+            ws_identity = _actor_identity(ws_key, name)
             # Players enter at the world's root, not in limbo: chat sent
             # before the first move used to be silently unrecorded because
             # current_node started "".
@@ -1084,7 +1124,7 @@ class Handler(BaseHTTPRequestHandler):
             # The exchange persists into node memory, like /speak: an agent
             # you talked with should be part of what this place remembers
             # (and future replies can reference it via node history).
-            player_name = _parse_player_name(body)
+            player_name = _display_name(user_key, body.get("player_name"))
             persistence.record_mutation(
                 seed, node.name, "AGENT_VOICE", player_name,
                 # Full exchange stored; the prompt clips at render time. (ADR-004.)
@@ -1274,7 +1314,7 @@ class Handler(BaseHTTPRequestHandler):
 
         node_name   = str(body.get("node_name", ""))[:128]
         verb_name   = str(body.get("verb", ""))[:32].strip().lower()
-        player_name = _parse_player_name(body)
+        player_name = _display_name(user_key, body.get("player_name"))
 
         # Full-tree resolution (not _resolve_node): staging the cascade
         # needs the node's real parent AND children arms.
@@ -1372,7 +1412,7 @@ class Handler(BaseHTTPRequestHandler):
 
         node_name   = body.get("node_name", "")
         answer      = body.get("answer", "").strip()
-        player_name = _parse_player_name(body)
+        player_name = _display_name(user_key, body.get("player_name"))
 
         target = (find_node(root, node_name) if node_name else None) or root
 
