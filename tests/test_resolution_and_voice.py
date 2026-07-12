@@ -349,9 +349,13 @@ class TestAgentAddressability:
 
 
 class TestTranscriptIdentityOverHTTP:
-    def test_same_credential_shares_transcript_across_renames(self, srv, monkeypatch):
-        import server.guard as guard_mod
-        monkeypatch.setenv(guard_mod.BETA_KEY_ENV, "sharedkey")
+    def test_same_credential_shares_one_transcript(self, srv, monkeypatch):
+        # The transcript is keyed on the invite CREDENTIAL (its hash), not the
+        # display name — so two calls on the same key share one conversation.
+        # The per-user key is server-authoritative for the name (the client's
+        # player_name is ignored), which is exactly why credential-keying is
+        # what makes the transcript stable.
+        persistence.mint_invite_key("nw_ada", "Ada")
         real = generate_node_hierarchy(seed=42, max_depth=1)
         seen = {}
 
@@ -361,11 +365,12 @@ class TestTranscriptIdentityOverHTTP:
             return "reply"
 
         monkeypatch.setattr(consciousness, "speak", fake_speak)
-        _post(f"{srv}/speak?key=sharedkey",
+        _post(f"{srv}/speak?key=nw_ada",
               {"node_name": real.name, "seed": 42,
-               "message": "as ada", "player_name": "Ada"})
-        # Same credential, different display name → same conversation.
-        _post(f"{srv}/speak?key=sharedkey",
+               "message": "first words", "player_name": "Ada"})
+        # Same credential; the client even sends a different name (ignored) —
+        # still the same conversation.
+        _post(f"{srv}/speak?key=nw_ada",
               {"node_name": real.name, "seed": 42,
-               "message": "as bob now", "player_name": "Bob"})
-        assert [t["user"] for t in seen["transcript"]] == ["as ada"]
+               "message": "second words", "player_name": "Bob"})
+        assert [t["user"] for t in seen["transcript"]] == ["first words"]

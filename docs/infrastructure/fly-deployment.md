@@ -186,12 +186,12 @@ fly secrets set \
   FAL_KEY=... \
   SENTRY_DSN=https://...ingest.sentry.io/...
 
-# REQUIRED for any public deployment: close the invite gate. The gate
-# stays OPEN until either this shared key is set or the first per-user
-# key is minted (§6) — an ungated server is an open proxy to your
-# Anthropic budget (the daily caps bound the damage; they don't prevent
-# strangers spending it). Set this now so the app is born gated.
-fly secrets set NESTED_WORLDS_BETA_KEY=$(openssl rand -hex 16)
+# REQUIRED for any public deployment: close the invite gate. There is no
+# shared key — the gate is the per-user `invite_keys` table and stays OPEN
+# until the first per-user key is minted (§6). An ungated server is an open
+# proxy to your Anthropic budget (the daily caps bound the damage; they
+# don't prevent strangers spending it). Mint the first per-user key in §6
+# BEFORE you announce the URL, and do not share the URL until then.
 
 # Deploy. (--first-deploy skips the pre-deploy backup — nothing to back
 # up yet. Every subsequent deploy goes through scripts/deploy.sh plain.)
@@ -269,11 +269,12 @@ URLs you mint afterwards (§6) can be shared with either hostname.
 
 ## 6. Mint invite keys
 
-Per-user keys give you revocable, attributable access for each tester.
-Note the gate semantics: the invite gate closes as soon as **either**
-`NESTED_WORLDS_BETA_KEY` is set (§3) **or** the first per-user key below
-is minted — if you skipped the shared key, everything before this step
-is publicly reachable, so mint before you share the URL anywhere.
+Per-user keys give you revocable, attributable access for each tester, and
+they are the whole invite gate — there is no shared key. Every key carries a
+unique registered name, so a gated session is always a known, non-anonymous
+player (ADR-004 §7). Gate semantics: the gate is OPEN until the first per-user
+key below is minted, so everything before this step is publicly reachable —
+**mint the first key before you share the URL anywhere.**
 `fly ssh console` opens a shell inside the running machine.
 
 ```bash
@@ -421,9 +422,12 @@ bottom on the day.
       `curl -s -X POST https://<app>/speak -H 'X-Beta-Key: <key>' -H 'Content-Type: application/json' -d '{"message":"hello"}' | grep -o '"ai": true'`
 - [ ] Watch spend as the cohort arrives: the `cost_budget` table carries
       per-day counters — `fly ssh console -C "sqlite3 /data/.nested-worlds/worlds.db 'SELECT * FROM cost_budget ORDER BY day DESC LIMIT 20'"`.
-- [ ] Mint **one key per person** (`python main.py invite mint --name ...`);
-      a shared key merges transcript identities, budget buckets, and
-      attribution. Say so in the invite message.
+- [ ] Mint **one key per person** (`python main.py invite mint --name ...`).
+      This is the only way in — there is no shared key (it was removed
+      because one credential merges transcript identities, budget buckets,
+      and attribution, and lets players collapse to one identity or play
+      anonymously). Each key's name is unique; a name already taken is
+      rejected at mint. Say so in the invite message.
 - [ ] Onboard the cohort in the same window, not a trickle — encounters,
       co-op puzzles, and live cascades only exist when people overlap.
       Give the cohort a shared first errand (e.g. "somewhere under

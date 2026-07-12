@@ -996,9 +996,9 @@ def save_player_position(key: str, node_name: str, seed: int, depth: int,
     """Record where an invite-key holder left off, for cross-device resume.
 
     Keyed on the per-user invite key, so this only persists for a real per-user
-    credential — the UPDATE affects zero rows (returns False) for the shared env
-    key, an unknown key, or a revoked one, and the client keeps using its local
-    cache. Best-effort: callers fire-and-forget on navigation.
+    credential — the UPDATE affects zero rows (returns False) for an unknown key
+    or a revoked one, and the client keeps using its local cache. Best-effort:
+    callers fire-and-forget on navigation.
     """
     if not key:
         return False

@@ -39,12 +39,15 @@ def srv():
     server.shutdown()
 
 
-def _ws_connect(port: int, seed: int, name: str):
+def _ws_connect(port: int, seed: int, name: str, invite_key: str | None = None):
     """Minimal real WebSocket client: upgrade + return (socket, status line)."""
     s = socket.create_connection(("127.0.0.1", port), timeout=5)
     key = base64.b64encode(os.urandom(16)).decode()
+    path = f"/ws?seed={seed}&name={name}"
+    if invite_key is not None:
+        path += f"&key={invite_key}"
     s.sendall((
-        f"GET /ws?seed={seed}&name={name} HTTP/1.1\r\nHost: t\r\n"
+        f"GET {path} HTTP/1.1\r\nHost: t\r\n"
         "Upgrade: websocket\r\nConnection: Upgrade\r\n"
         f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
     ).encode())
@@ -144,8 +147,8 @@ class TestReservedNames:
 class TestUniqueNames:
     """ADR-004 §7: a per-user invite key carries a registered, unique name;
     the server uses it and ignores any client-supplied name, and a keyed
-    session is never anonymous. Shared-key / keyless sessions are dev-only and
-    fall back to the normalized client name."""
+    session is never anonymous. The only keyless path is ungated local dev,
+    which falls back to the normalized client name."""
 
     def test_registered_name_is_authoritative_over_client_name(self):
         import server.guard as guard
@@ -160,8 +163,9 @@ class TestUniqueNames:
 
     def test_dev_and_keyless_fall_back_to_client_name(self):
         from server.handlers import _display_name
-        # Unknown / shared / empty key → dev path: normalized client name,
-        # which may be None (keyless dev is exempt from the no-anonymous rule).
+        # Unknown / empty key → ungated-dev path: normalized client name,
+        # which may be None (keyless local dev is the one place a session can
+        # be nameless; it never reaches real, gated play).
         assert _display_name("", "Ada") == "Ada"
         assert _display_name("not-a-real-key", "Ada") == "Ada"
         assert _display_name("", None) is None
@@ -171,6 +175,43 @@ class TestUniqueNames:
         persistence.mint_invite_key("nw_bob", "Bob")
         persistence.revoke_invite_key("nw_bob")
         assert guard.registered_name("nw_bob") is None
+
+
+class TestNoAnonymousGameplay:
+    """ADR-004 §7: with the gate active (a per-user key minted) there is no
+    anonymous presence. A keyless request — HTTP or WebSocket — is refused, and
+    a keyed session is recorded under its registered name, never a client-chosen
+    or empty one. Removing the shared key is what closes the old anonymous path:
+    a single shared credential once let many players in under one identity, or
+    with no name at all."""
+
+    def test_gate_active_refuses_keyless_ws_join(self, srv):
+        # A key is minted → the gate is up → a join with no ?key= is refused
+        # before any presence can be recorded.
+        persistence.mint_invite_key("nw_named", "Named")
+        s, status = _ws_connect(srv, 261, "Ghost")
+        assert b"403" in status
+        s.close()
+
+    def test_gate_active_refuses_keyless_http(self, srv):
+        persistence.mint_invite_key("nw_named", "Named")
+        req = urllib.request.Request(f"http://127.0.0.1:{srv}/worlds")
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            urllib.request.urlopen(req)
+        assert exc.value.code == 403
+
+    def test_keyed_ws_join_records_registered_name_over_client_name(self, srv):
+        seed = 262
+        persistence.mint_invite_key("nw_real", "Aurelia")
+        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
+        # Client sends "Zorg" AND a valid key: the registered name wins.
+        s, status = _ws_connect(srv, seed, "Zorg", invite_key="nw_real")
+        assert b"101" in status
+        _ws_send_json(s, {"type": "chat", "text": "hello"})
+        joins = _wait_for_rows(seed, root_name, "PLAYER_JOIN")
+        assert joins and joins[0]["player"] == "Aurelia"
+        assert joins[0]["player"] != "Zorg"
+        s.close()
 
 
 class TestPuzzleAttempts:

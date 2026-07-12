@@ -247,8 +247,8 @@ def _display_name(user_key: str, raw_client_name: Any) -> str | None:
     A per-user invite key carries a registered, unique name — use it, and
     ignore any client-supplied name, which could otherwise collide with or
     impersonate another player (ADR-004 §7 — every player has a unique name,
-    nobody plays anonymously). Shared-key and keyless sessions are dev-only
-    and fall back to the normalized client name (which may be None).
+    nobody plays anonymously). The only keyless path is ungated local dev,
+    which falls back to the normalized client name (which may be None).
     """
     reg = guard.registered_name(user_key)
     if reg:
@@ -601,8 +601,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/position":
             # Cross-device resume: the caller's last position, keyed on their
-            # per-user invite credential. Empty for shared-key / no-key sessions
-            # (those fall back to the client's own localStorage cache).
+            # per-user invite credential. Empty for a no-key (ungated local
+            # dev) session, which falls back to the client's own localStorage
+            # cache.
             key = guard.supplied_key(self.headers, qs)
             self._send_json({"position": persistence.get_player_position(key)})
 
@@ -826,10 +827,12 @@ class Handler(BaseHTTPRequestHandler):
 
         # Server-authoritative name: a per-user invite key carries a
         # registered, unique name — use it, ignoring the client's ?name=
-        # (ADR-004 §7 — every player has a unique name). Shared-key / keyless
-        # sessions are dev-only and keep their supplied name, normalized (trim
-        # THEN cap) so a leading-space variant can't slip a reserved cast name
-        # past the check below.
+        # (ADR-004 §7 — every player has a unique name). With the gate active
+        # this branch always fires (a keyless join was already refused with a
+        # 403 upstream), so no gated session is anonymous. The else-branch
+        # keyless name is reachable only in ungated local dev; it is still
+        # normalized (trim THEN cap) so a leading-space variant can't slip a
+        # reserved cast name past the check below.
         ws_key = guard.supplied_key(self.headers, qs)
         reg = guard.registered_name(ws_key)
         if reg:

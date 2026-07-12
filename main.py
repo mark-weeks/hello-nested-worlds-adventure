@@ -94,16 +94,21 @@ def cmd_history(args):
 
 def cmd_play(args):
     import interface
-    name = args.name.strip() if args.name else None
-    if name:
-        from consciousness import WANDERER_CAST
-        if name.lower() in {n.lower() for n in WANDERER_CAST}:
-            # CLI play writes to the same permanent chronicle as everyone else;
-            # a reserved cast name would impersonate an agent there (world
-            # covenant). Reject it here too. (ADR-004 §7 / reserved-names.)
-            raise SystemExit(
-                f"'{name}' is a reserved world name (the wandering cast) — "
-                "choose another with --name.")
+    name = args.name.strip() if args.name else ""
+    if not name:
+        # CLI play writes PLAYER_SPEAK / SCALE_ACT rows into the same permanent
+        # chronicle as everyone else; a nameless session would record an
+        # unknown presence there. No anonymous gameplay (ADR-004 §7): require a
+        # name so every recorded actor is known.
+        raise SystemExit("A player name is required — pass --name <you>.")
+    from consciousness import WANDERER_CAST
+    if name.lower() in {n.lower() for n in WANDERER_CAST}:
+        # CLI play writes to the same permanent chronicle as everyone else;
+        # a reserved cast name would impersonate an agent there (world
+        # covenant). Reject it here too. (ADR-004 §7 / reserved-names.)
+        raise SystemExit(
+            f"'{name}' is a reserved world name (the wandering cast) — "
+            "choose another with --name.")
     interface.run_session(
         seed=args.seed,
         depth=args.depth,
@@ -312,7 +317,8 @@ def build_parser() -> argparse.ArgumentParser:
     _accept_seed(p_play)
     p_play.add_argument("--depth", type=int, default=6, help="Max hierarchy depth (default: 6)")
     p_play.add_argument("--name", type=str, default=None,
-                        help="Your explorer name — nodes will remember you by it")
+                        help="Your explorer name (required) — nodes will "
+                             "remember you by it; no anonymous play")
     p_play.set_defaults(func=cmd_play)
 
     p_serve = sub.add_parser("serve", help="Start the REST API server")

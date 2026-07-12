@@ -123,9 +123,11 @@ the real conversation and is already bounded to a few recent exchanges.
 
 ### 7. Unique player names, no anonymous play *(implemented)*
 
-**Policy:** every player, human *and* agent, has a **unique name**, and no
-authenticated player is anonymous. Realized by binding the name to the
-**per-user invite credential**:
+**Policy:** every player, human *and* agent, has a **unique name**, and there
+is **no anonymous gameplay** — once the invite gate is active, every player is
+authenticated by a per-user credential that carries a known, unique name.
+Realized by binding the name to the **per-user invite credential** and removing
+the shared key entirely:
 
 - **Unique at registration.** `python main.py invite mint --name X` rejects a
   name already taken (case- and whitespace-insensitive) and the twelve cast
@@ -138,13 +140,21 @@ authenticated player is anonymous. Realized by binding the name to the
   (`server/handlers.py::_display_name`). Client-name normalization was unified
   (trim-then-cap), closing a whitespace bypass that let `" Tessera"` slip past
   the cast-name block.
-- **Dev exemption.** The shared `NESTED_WORLDS_BETA_KEY` and keyless local dev
-  can't carry per-player names (all shared-key users collapse to one
-  credential), so they stay dev/testing paths outside the uniqueness guarantee
-  — per-user keys are the path for real play (ADR §5, "register once, one
-  key"). A future self-service registration flow (player picks their own name,
-  told "taken, choose another") could layer on top, but is not required for the
-  policy.
+- **No shared key.** The `NESTED_WORLDS_BETA_KEY` env gate was **removed**: a
+  single shared credential let many players in under one identity — colliding
+  names, merged transcripts and budget buckets, and no way to tell them apart
+  — which is exactly the anonymity this policy forbids. The gate is now the
+  per-user `invite_keys` table alone (`server/guard.check_invite_key`); minting
+  the first key closes it, and from then on every request is a named player.
+- **The one keyless path is ungated local dev.** With no key minted the gate is
+  open (tests, a developer's own machine) and a session may be nameless — but
+  it never touches real, gated play. The CLI `python main.py play` still
+  **requires `--name`** so even a local session records a known actor, never an
+  unknown presence, in the shared chronicle.
+- **Self-service registration is the planned follow-up.** Today an operator
+  mints each key/name. A player-facing flow (pick your own name, told
+  "taken — choose another") layers on top of this same uniqueness backstop; it
+  is tracked as its own change, not part of this one.
 
 ---
 
@@ -187,3 +197,9 @@ authenticated player is anonymous. Realized by binding the name to the
   world; to dedicated players it would read as "my gameplay is gone."
 - **Storage-level truncation for token budgeting** — permanently loses the
   record's tail; the budget belongs at render time.
+- **A shared beta key alongside per-user keys** — the original design kept the
+  `NESTED_WORLDS_BETA_KEY` env gate as an operator/dev convenience. Rejected
+  (removed) pre-launch: a shared credential collapses every holder to one
+  identity, so it silently reintroduces exactly the anonymous, name-colliding
+  play §7 exists to prevent. There is no throwaway pre-launch data and no key
+  had been issued, so removing it costs nothing and the policy becomes absolute.
