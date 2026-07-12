@@ -149,8 +149,9 @@ co-op. Consequences:
 ## Pointers
 
 - `docs/CHANGELOG.md` — the batch-by-batch record; read it to learn what shipped.
-- `docs/decisions/ADR-00{1,2,3}-*.md` — stack, image generation, persistence
-  backend, each with its "Revisit when…" triggers.
+- `docs/decisions/ADR-00{1,2,3,4}-*.md` — stack, image generation, persistence
+  backend, and the day-one data policy (permanence, redaction, continuity,
+  identity, write-path scope), each with its "Revisit when…" triggers.
 - `docs/roadmap/phase-2-scale.md` — the continuity policy and the phase-2b/2c
   trigger list (living document — edit in place as triggers fire).
 - `docs/infrastructure/fly-deployment.md` — the deploy runbook and §8 launch
