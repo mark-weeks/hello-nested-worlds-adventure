@@ -151,10 +151,15 @@ the shared key entirely:
   it never touches real, gated play. The CLI `python main.py play` still
   **requires `--name`** so even a local session records a known actor, never an
   unknown presence, in the shared chronicle.
-- **Self-service registration is the planned follow-up.** Today an operator
-  mints each key/name. A player-facing flow (pick your own name, told
-  "taken — choose another") layers on top of this same uniqueness backstop; it
-  is tracked as its own change, not part of this one.
+- **Self-service registration is the planned follow-up, and stays
+  invite-gated.** Today an operator mints each key/name. The next step is a
+  player-facing flow (pick your own name, told "taken — choose another") that
+  layers on top of this same uniqueness backstop — but registration remains
+  **invite-gated**: a new player still needs an invite to reach it, so the beta
+  stays a closed, known cohort. **Fully open registration** (anyone can self-
+  register without an invite) is deliberately *not* decided now — it is deferred
+  until we have real usage data to judge whether opening the doors is safe for
+  spend, moderation load, and world integrity (see "Revisit when…").
 
 ---
 
@@ -181,6 +186,11 @@ the shared key entirely:
 - **A "start over" or key-rotation use case emerges** → design account-level
   identity that survives credential rotation (today a new key = a new actor with
   no link to past history).
+- **Usage data supports opening the doors** → decide on **fully open
+  registration** (self-register without an invite). Deferred today; registration
+  stays invite-gated until the beta's real spend, moderation load, and
+  world-integrity signals show it is safe to let anyone in without an operator
+  in the loop.
 - **The history-render budget widens** → revisit the 128/200 render clip in
   `consciousness._history_block`.
 - **(Pre-launch build)** → §2 input moderation (local-filter-first + Haiku

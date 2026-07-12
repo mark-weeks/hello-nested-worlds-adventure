@@ -136,13 +136,18 @@ co-op. Consequences:
   live docs or a live run *before* implementing. The repo's three worst shipped
   defects all lived exactly here (the 1024-vs-4096 cache minimum, PixiJS dead
   under production CSP, deploy files that existed only as fenced code in a doc).
-- **Quiz the human before merge.** After tests pass and before requesting merge,
-  ask 5–6 diff-derived questions, hardest first — always including one on which
-  golden pins this PR re-pins and why that is safe, one on any new chronicle row
-  / migration / write path, and one launch-runbook (§8) operational scenario.
-  Fold any missed answer back into that PR's CHANGELOG entry. The human is the
-  last un-automated gate on this repo's irreversible decisions; keep their
-  understanding verified, not assumed.
+- **Gate merges by irreversibility, not by reflex.** After tests pass, write a
+  2–3 line **irreversibility check** yourself and put it in the merge request:
+  does this diff re-pin a golden world, add or alter a migration, or add a
+  `world_mutations` write path / chronicle row? For most PRs the answer is
+  "none, and here's why" — verify that from the diff and merge on green. Don't
+  make the human answer what the diff already answers; comprehension checks the
+  code makes for you are friction, not a gate. **Escalate to an actual quiz only
+  when the check trips** a one-way door — then ask just the 1–2 questions that
+  door raises (which pins and why safe; what the new row/migration/write path is;
+  the matching launch-runbook §8 scenario), hardest first, and fold any missed
+  answer into that PR's CHANGELOG entry. The human is the last un-automated gate
+  on *irreversible* decisions — spend their attention there, not everywhere.
 
 ---
 
