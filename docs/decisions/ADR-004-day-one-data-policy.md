@@ -151,15 +151,23 @@ the shared key entirely:
   it never touches real, gated play. The CLI `python main.py play` still
   **requires `--name`** so even a local session records a known actor, never an
   unknown presence, in the shared chronicle.
-- **Self-service registration is the planned follow-up, and stays
-  invite-gated.** Today an operator mints each key/name. The next step is a
-  player-facing flow (pick your own name, told "taken — choose another") that
-  layers on top of this same uniqueness backstop — but registration remains
-  **invite-gated**: a new player still needs an invite to reach it, so the beta
-  stays a closed, known cohort. **Fully open registration** (anyone can self-
-  register without an invite) is deliberately *not* decided now — it is deferred
-  until we have real usage data to judge whether opening the doors is safe for
-  spend, moderation load, and world integrity (see "Revisit when…").
+- **Self-service registration, invite-gated** *(implemented)*. An operator
+  creates a **single-use registration token** (`python main.py invite create`,
+  migration 0012) and shares `/register?invite=<token>`; the **player** picks
+  their own name there. Redemption is one transaction
+  (`persistence.redeem_registration_token`): it mints the per-user play key
+  and consumes the token together, so a taken name replies 409
+  "choose another" and leaves the token redeemable for the retry, while a
+  successful redeem can never leave the token live. The token is the
+  credential on the pre-account surface (`POST /register` is reachable
+  without a play key — the registrant doesn't have one yet), so **no token,
+  no account**: the beta stays a closed, known cohort. Operator-minted
+  `invite mint --name` remains alongside for pre-named accounts; a leaked
+  unredeemed link is `invite cancel <token>`. **Fully open registration**
+  (anyone can self-register without an invite) is deliberately *not* decided
+  now — it is deferred until we have real usage data to judge whether opening
+  the doors is safe for spend, moderation load, and world integrity (see
+  "Revisit when…").
 
 ---
 

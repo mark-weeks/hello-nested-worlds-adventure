@@ -237,6 +237,41 @@ def cmd_invite(args):
             print(f"Revoked: {args.key}")
         else:
             print(f"No active key matched: {args.key}")
+    elif action == "create":
+        # Self-service registration (ADR-004 §7): the operator shares this
+        # single-use link; the PLAYER picks their own unique name at
+        # /register, and redemption mints their per-user play key.
+        token = "nwr_" + secrets.token_hex(16)
+        persistence.create_registration_token(token, note=args.note)
+        print("Created a single-use registration invite:")
+        print(f"  token: {token}")
+        if args.note:
+            print(f"  note: {args.note}")
+        print(f"\nShare the URL: <BASE>/register?invite={token}")
+        print("The invitee chooses their own name there; it must be unique.")
+    elif action == "tokens":
+        rows = persistence.list_registration_tokens(include_spent=args.all)
+        if not rows:
+            print("No registration invites"
+                  + ("" if args.all else " outstanding") + ".")
+            return
+        print(f"{'Token':<40}  {'Created':<20}  {'Status':<22}  Note")
+        print("-" * 100)
+        for r in rows:
+            if r["redeemed_at"]:
+                status = f"redeemed → {r['redeemed_name']}"
+            elif r["revoked_at"]:
+                status = "cancelled"
+            else:
+                status = "redeemable"
+            print(f"{r['token']:<40}  {r['created_at']:<20}  {status:<22}  "
+                  f"{r['note'] or '—'}")
+    elif action == "cancel":
+        ok = persistence.cancel_registration_token(args.token)
+        if ok:
+            print(f"Cancelled: {args.token}")
+        else:
+            print(f"No redeemable registration invite matched: {args.token}")
     else:  # pragma: no cover — argparse already constrains this
         raise SystemExit(f"unknown invite action: {action}")
 
@@ -365,11 +400,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_redact.set_defaults(func=cmd_redact)
 
     p_invite = sub.add_parser("invite",
-        help="Manage per-user beta invite keys (mint / list / revoke)")
+        help="Manage per-user beta invite keys and registration invites "
+             "(mint / list / revoke / create / tokens / cancel)")
     invite_sub = p_invite.add_subparsers(dest="invite_action", required=True)
 
     p_invite_mint = invite_sub.add_parser("mint",
-        help="Mint a new invite key for a named tester")
+        help="Mint a new invite key for a named tester (operator picks the name)")
     p_invite_mint.add_argument("--name", type=str, required=True,
                                help="Tester name (must be unique per cohort)")
     p_invite_mint.add_argument("--note", type=str, default=None,
@@ -385,6 +421,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Revoke an invite key (irreversible)")
     p_invite_revoke.add_argument("key", type=str, help="The key string to revoke")
     p_invite_revoke.set_defaults(func=cmd_invite)
+
+    p_invite_create = invite_sub.add_parser("create",
+        help="Create a single-use registration invite (the PLAYER picks "
+             "their own name at /register)")
+    p_invite_create.add_argument("--note", type=str, default=None,
+                                 help="Optional free-text note (who this is for)")
+    p_invite_create.set_defaults(func=cmd_invite)
+
+    p_invite_tokens = invite_sub.add_parser("tokens",
+        help="List registration invites (redeemable only by default)")
+    p_invite_tokens.add_argument("--all", action="store_true",
+                                 help="Include redeemed and cancelled invites")
+    p_invite_tokens.set_defaults(func=cmd_invite)
+
+    p_invite_cancel = invite_sub.add_parser("cancel",
+        help="Cancel an outstanding registration invite (e.g. a leaked link)")
+    p_invite_cancel.add_argument("token", type=str,
+                                 help="The registration token to cancel")
+    p_invite_cancel.set_defaults(func=cmd_invite)
 
     p_speak = sub.add_parser("speak", help="Speak to a node using Claude consciousness")
     _accept_seed(p_speak)

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Register — Enfolded</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #07080f; color: #8aaccc;
+    font-family: "Courier New", monospace;
+    font-size: 14px; line-height: 1.7;
+    max-width: 560px; margin: 0 auto; padding: 60px 24px 80px;
+  }
+  h1 { color: #3a8eff; font-size: 20px; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 6px; }
+  .sub { color: #4a6080; font-size: 11px; letter-spacing: 1px; margin-bottom: 36px; }
+  p { margin: 10px 0; }
+  b { color: #c0d0e8; }
+  form { margin: 28px 0; }
+  label { display: block; color: #4a6080; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+  input[type=text] {
+    width: 100%; padding: 10px 12px; font: inherit; color: #c0d0e8;
+    background: #0b0e18; border: 1px solid #141828; border-radius: 3px;
+    outline: none;
+  }
+  input[type=text]:focus { border-color: #3a8eff; }
+  button {
+    margin-top: 14px; padding: 10px 22px; font: inherit; cursor: pointer;
+    color: #07080f; background: #3a8eff; border: none; border-radius: 3px;
+    letter-spacing: 1px; text-transform: uppercase; font-size: 12px;
+  }
+  button:disabled { background: #1a2438; color: #4a6080; cursor: default; }
+  .error { color: #f0704a; margin-top: 14px; min-height: 1.7em; }
+  .hidden { display: none; }
+  a { color: #3a8eff; }
+</style>
+</head>
+<body>
+<h1>Enfolded</h1>
+<div class="sub">a living multiverse of eleven nested scales</div>
+
+<div id="no-invite" class="hidden">
+  <p>This page opens only by invitation. The link you were given carries
+  an invite token — follow it exactly as it was shared with you.</p>
+</div>
+
+<div id="register">
+  <p>You have been invited. Before you enter, choose the name the worlds
+  will remember you by. It is yours alone — every word you speak, every
+  puzzle you solve, every trace you leave is recorded under it, permanently,
+  for every traveler who comes after.</p>
+  <form id="form">
+    <label for="name">Your name</label>
+    <input type="text" id="name" maxlength="32" autocomplete="off"
+           spellcheck="false" autofocus>
+    <button id="go" type="submit">Enter the worlds</button>
+    <div id="error" class="error"></div>
+  </form>
+</div>
+
+<script>
+  var invite = new URLSearchParams(location.search).get('invite') || '';
+  if (!invite) {
+    document.getElementById('register').classList.add('hidden');
+    document.getElementById('no-invite').classList.remove('hidden');
+  }
+  document.getElementById('form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = document.getElementById('name').value.trim();
+    var errEl = document.getElementById('error');
+    var btn = document.getElementById('go');
+    errEl.textContent = '';
+    if (!name) { errEl.textContent = 'A name is required.'; return; }
+    btn.disabled = true;
+    fetch('/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invite: invite, name: name }),
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (res.ok && data.url) {
+          // The explorer reads ?key= from its own URL and stashes it;
+          // from here on this player is a named, keyed account.
+          location.href = data.url;
+        } else {
+          // 409 name-taken / 403 bad-or-spent invite / 400 validation —
+          // the server's message is already player-facing ("…the name is
+          // taken — choose another"). The token survives a 409, so the
+          // player just tries a different name.
+          errEl.textContent = (data && data.error) ||
+            'Something went wrong — try again.';
+          btn.disabled = false;
+        }
+      });
+    }).catch(function () {
+      errEl.textContent = 'Could not reach the worlds — try again.';
+      btn.disabled = false;
+    });
+  });
+</script>
+</body>
+</html>

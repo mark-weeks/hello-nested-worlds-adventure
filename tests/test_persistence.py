@@ -428,6 +428,70 @@ class TestInviteKeys:
                     ("k_ada2", " ADA "))
 
 
+class TestRegistrationTokens:
+    """ADR-004 §7 self-service: a single-use registration token is redeemed
+    by the PLAYER choosing their own name; redemption mints the per-user
+    invite key and consumes the token in one transaction."""
+
+    def test_create_and_lookup(self):
+        persistence.create_registration_token("nwr_t1", note="for Priya")
+        row = persistence.lookup_registration_token("nwr_t1")
+        assert row is not None and row["note"] == "for Priya"
+        assert row["redeemed_at"] is None and row["revoked_at"] is None
+
+    def test_redeem_mints_the_key_and_spends_the_token(self):
+        persistence.create_registration_token("nwr_t1")
+        persistence.redeem_registration_token("nwr_t1", "k_priya", "Priya")
+        # The play key exists under the chosen name…
+        assert persistence.lookup_invite_key("k_priya")["name"] == "Priya"
+        # …and the token is spent (single-use), with an audit trail.
+        assert persistence.lookup_registration_token("nwr_t1") is None
+        spent = [r for r in persistence.list_registration_tokens(include_spent=True)
+                 if r["token"] == "nwr_t1"][0]
+        assert spent["redeemed_name"] == "Priya"
+        assert spent["redeemed_at"] is not None
+
+    def test_taken_name_rolls_back_and_leaves_token_redeemable(self):
+        # The crux of the flow: NameUnavailable must NOT consume the token —
+        # the whole redemption is one transaction, so the player retries with
+        # another name on the same invite.
+        persistence.mint_invite_key("k_ada", "Ada")
+        persistence.create_registration_token("nwr_t1")
+        with pytest.raises(persistence.NameUnavailable):
+            persistence.redeem_registration_token("nwr_t1", "k_x", "  ADA ")
+        assert persistence.lookup_registration_token("nwr_t1") is not None
+        assert persistence.lookup_invite_key("k_x") is None
+        # Same token, fresh name → succeeds.
+        persistence.redeem_registration_token("nwr_t1", "k_x", "Adjacent")
+        assert persistence.lookup_invite_key("k_x")["name"] == "Adjacent"
+
+    def test_double_redeem_and_unknown_token_refused(self):
+        persistence.create_registration_token("nwr_t1")
+        persistence.redeem_registration_token("nwr_t1", "k_a", "Aster")
+        with pytest.raises(persistence.TokenInvalid):
+            persistence.redeem_registration_token("nwr_t1", "k_b", "Briar")
+        with pytest.raises(persistence.TokenInvalid):
+            persistence.redeem_registration_token("nwr_nope", "k_c", "Cove")
+        # The failed redeems minted nothing.
+        assert persistence.lookup_invite_key("k_b") is None
+        assert persistence.lookup_invite_key("k_c") is None
+
+    def test_cancel_is_single_shot_and_blocks_redemption(self):
+        persistence.create_registration_token("nwr_t1")
+        assert persistence.cancel_registration_token("nwr_t1") is True
+        assert persistence.cancel_registration_token("nwr_t1") is False
+        with pytest.raises(persistence.TokenInvalid):
+            persistence.redeem_registration_token("nwr_t1", "k_x", "Xen")
+
+    def test_redeemed_token_cannot_be_cancelled(self):
+        # A redeemed token has already become an invite key; revoking THAT
+        # account is revoke_invite_key, not cancel.
+        persistence.create_registration_token("nwr_t1")
+        persistence.redeem_registration_token("nwr_t1", "k_a", "Aster")
+        assert persistence.cancel_registration_token("nwr_t1") is False
+        assert persistence.lookup_invite_key("k_a") is not None
+
+
 class TestPlayerPosition:
     """Cross-device resume: the last node is stored per invite key, so it
     follows the player across devices."""
