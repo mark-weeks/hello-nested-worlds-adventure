@@ -1154,3 +1154,62 @@ def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
         if block.type == "text":
             return block.text
     raise ValueError(f"No text in response (stop_reason={response.stop_reason})")
+
+
+# ── Input-moderation classify (ADR-004 §2) ──────────────────────────────────
+# The Haiku-tier half of the two-tier screen in server/moderation.py: the
+# local filter handles the definite cases at zero cost, and only AMBIGUOUS
+# inputs reach this single Messages-API call. Callers treat any exception as
+# fail-open (allow; redaction is the backstop), so this function raises
+# naturally rather than swallowing errors.
+
+_MODERATION_MODEL_ENV = "NESTED_WORLDS_MODERATION_MODEL"
+_DEFAULT_MODERATION_MODEL = "claude-haiku-4-5"
+# A moderation verdict must not stall a real-time chat surface: bound the
+# call hard, and let the timeout surface as an exception → fail-open.
+_MODERATION_TIMEOUT_SECONDS = 3.0
+
+# Deliberately NOT cache-marked: this prompt is far below the 4096-token
+# Opus-class cache minimum, so a cache_control marker would be a silent
+# no-op — the exact trap this repo shipped twice (see CLAUDE.md).
+_MODERATION_SYSTEM = (
+    "You are a content-safety classifier for a shared, persistent, "
+    "all-ages online fantasy world where player text becomes permanent, "
+    "publicly visible world history.\n"
+    "Classify the player input. Answer with exactly one word:\n"
+    "BLOCK — slurs or hate speech; harassment or threats aimed at a real "
+    "person; sexual content that is explicit or involves minors; someone's "
+    "real-world personal information (addresses, phone numbers, IDs); "
+    "credible real-world violence.\n"
+    "ALLOW — everything else, including fantasy violence and conflict, "
+    "mild profanity, in-fiction menace, philosophy, and nonsense.\n"
+    "If genuinely uncertain, answer ALLOW."
+)
+
+
+def classify_content(text: str) -> bool:
+    """True iff `text` is allowed. Raises on any API failure (caller fails
+    open). One short uncached call on the Haiku-tier moderation model."""
+    import time as _time
+    started = _time.monotonic()
+    with _call_semaphore:
+        response = _get_client().messages.create(
+            model=os.environ.get(_MODERATION_MODEL_ENV,
+                                 _DEFAULT_MODERATION_MODEL),
+            max_tokens=8,
+            system=_MODERATION_SYSTEM,
+            messages=[{"role": "user", "content": text}],
+            timeout=_MODERATION_TIMEOUT_SECONDS,
+        )
+    elapsed_ms = (_time.monotonic() - started) * 1000.0
+    _log_cache_usage("moderate", response)
+    verdict = ""
+    for block in response.content:
+        if block.type == "text":
+            verdict = block.text.strip().upper()
+            break
+    _log.info("moderation_call ms=%.0f verdict=%s", elapsed_ms,
+              verdict or "?")
+    # Anything that isn't an explicit BLOCK allows — same fail-open posture
+    # as the transport layer, so a confused reply can't censor a player.
+    return verdict != "BLOCK"

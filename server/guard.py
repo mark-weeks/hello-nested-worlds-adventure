@@ -65,8 +65,15 @@ _DEFAULT_ANTHROPIC_PER_USER = 150
 _DEFAULT_FAL_PER_USER       = 60
 _DEFAULT_RATE_PER_MIN    = 20
 
-ANTHROPIC_BUCKET = "anthropic"
-FAL_BUCKET       = "fal_ai"
+ANTHROPIC_BUCKET  = "anthropic"
+FAL_BUCKET        = "fal_ai"
+# Moderation classify calls get their OWN budget line (ADR-004 §2): they must
+# never drain the voice budget (a burst of screened chat should not silence
+# /speak), and when THIS budget runs dry the screen fails open rather than
+# blocking chat — redaction stays the backstop.
+MODERATION_BUCKET = "moderation"
+MODERATION_CAP_ENV = "NESTED_WORLDS_MODERATION_DAILY_CALLS"
+_DEFAULT_MODERATION_DAILY = 2000
 
 
 # ── World-gen parameter bounds ──────────────────────────────────────────────
@@ -517,6 +524,19 @@ def consume_anthropic(user_key: str | None = None) -> bool:
                              _DEFAULT_ANTHROPIC_PER_USER, user_key):
         return False
     return _consume(ANTHROPIC_BUCKET, ANTHROPIC_CAP_ENV, _DEFAULT_ANTHROPIC_DAILY)
+
+
+def consume_moderation() -> bool:
+    """Reserve one moderation-classify call against its own daily budget.
+
+    Deliberately separate from the voice budget, and with no per-user
+    sub-cap: the input being screened already rode the per-IP rate limiter,
+    and a False here means the SCREEN fails open (allow), never that the
+    player's message is blocked — so this cap bounds moderation spend
+    without ever becoming a censorship lever.
+    """
+    return _consume(MODERATION_BUCKET, MODERATION_CAP_ENV,
+                    _DEFAULT_MODERATION_DAILY)
 
 
 def consume_fal(user_key: str | None = None) -> bool:

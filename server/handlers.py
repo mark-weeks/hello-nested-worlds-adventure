@@ -34,7 +34,7 @@ from multiverse.verbs import (
 )
 from puzzles import gates
 from puzzles.engine import PuzzleEngine, build_puzzle
-from server import guard, imageprompt, observability
+from server import guard, imageprompt, moderation, observability
 from server.protocol import ProtocolError, _send_frame, ws_recv
 from server.rooms import (
     Player, agent_enter, agent_leave, agent_move, agent_persona,
@@ -746,6 +746,14 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 identity = player_name
 
+            # Screen the input BEFORE the voice budget is touched and before
+            # anything can become a chronicle row (ADR-004 §2). A decline is
+            # HTTP 200 in the world's voice — a policy act, not a failure —
+            # and leaves no trace of the declined words anywhere.
+            if not moderation.screen(message).allowed:
+                return self._send_json({"response": moderation.DECLINE_LINE,
+                                        "ai": False, "declined": True})
+
             import consciousness
             if not guard.consume_anthropic(user_key=user_key):
                 return self._send_json({"response": guard.QUIET_RESPONSE,
@@ -977,6 +985,14 @@ class Handler(BaseHTTPRequestHandler):
                         if not chat_bucket.allow():
                             continue  # flood — drop before any work
                         text = str(msg.get("text", "")).strip()[:256]
+                        # Screened before broadcast AND before the chronicle
+                        # row (ADR-004 §2): a declined line reaches nobody
+                        # and is stored nowhere — only the sender hears the
+                        # world decline it.
+                        if text and not moderation.screen(text).allowed:
+                            player.send({"type": "chat_declined",
+                                         "text": moderation.DECLINE_LINE})
+                            continue
                         if text:
                             broadcast(room, {"type": "chat", "name": name,
                                              "text": text, "session_id": session_id})
@@ -1109,10 +1125,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})
-        if not guard.consume_anthropic(user_key=user_key):
-            return self._send_json({"response": guard.QUIET_RESPONSE,
-                                    "agent": "", "persona": "", "node": "",
-                                    "ai": False})
         agent_name = str(body.get("agent_name", "Scout"))[:32]
         node_name  = str(body.get("node_name",  ""))[:128]
         message    = str(body.get(
@@ -1124,6 +1136,20 @@ class Handler(BaseHTTPRequestHandler):
             seed = 42
         persona_arg = str(body.get("persona", ""))[:32]
         persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
+
+        # Screen before the voice budget is charged (the consume used to sit
+        # first — a declined message must cost nothing) and before any
+        # chronicle row can exist. Same authored decline as /speak.
+        if not moderation.screen(message).allowed:
+            return self._send_json({"response": moderation.DECLINE_LINE,
+                                    "agent": agent_name,
+                                    "persona": persona.name,
+                                    "node": node_name,
+                                    "ai": False, "declined": True})
+        if not guard.consume_anthropic(user_key=user_key):
+            return self._send_json({"response": guard.QUIET_RESPONSE,
+                                    "agent": "", "persona": "", "node": "",
+                                    "ai": False})
 
         node = _resolve_node(seed, node_name)
         if node is None:
@@ -1190,6 +1216,12 @@ class Handler(BaseHTTPRequestHandler):
             # names are world canon and unimpersonatable.
             return self._send_error(
                 f"'{name}' belongs to the world — choose another name", 403)
+        if not moderation.name_allowed(name):
+            # A registered name is permanent, unique, and visible everywhere
+            # — the strict local screen applies (ADR-004 §2). The token is
+            # kept; the registrant just picks differently.
+            return self._send_error(
+                "that name can't be carried here — choose another name", 403)
 
         key = "nw_" + secrets.token_hex(16)
         try:

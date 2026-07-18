@@ -960,6 +960,12 @@ function handleWsMsg(msg) {
       pushFeed(`${nameHtml} ${escHtml(msg.text)}`, { cls: 'chat-msg', html: true });
       break;
     }
+    case 'chat_declined':
+      // Moderation decline (sender-only): the message reached nobody and
+      // was stored nowhere — surface the world's line so it doesn't just
+      // silently vanish.
+      pushFeed(`✕ ${escHtml(msg.text)}`);
+      break;
     case 'causal_event': {
       const kindFmt = msg.kind.replace(/_/g, ' ').toLowerCase();
       pushFeed(`↯ ${kindFmt} · ${msg.node} ×${msg.strength.toFixed(2)}`);
