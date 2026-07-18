@@ -53,26 +53,40 @@ ahead of the "what if."
 cost is precisely the loss of mechanical integrity and accountability that
 content-level redaction avoids.
 
-### 2. Input moderation is planned for launch (the tax is manageable)
+### 2. Input moderation *(implemented — the measured tax matches the plan)*
 
-Screening player text *before* it enters the chronicle is desirable, and a
-blind-spot pass against the current model docs found the cost/latency tax
-**manageable**, so it is planned for launch rather than deferred behind a
-trigger. The cheap shape: a **local filter first** (wordlist/heuristic,
-in-process, zero API cost/latency) catches the obvious cases; only *ambiguous*
-inputs escalate to a **Haiku-tier classification call** (`claude-haiku-4-5`,
-$1/$5 per 1M tokens — ~5× cheaper than the Opus voice model; a short classify
-costs a fraction of a cent per input). There is no dedicated moderation
-endpoint — moderation is a single Messages-API call. **Fail-open** — if the
-check errors or times out, allow the content (redaction stays the backstop),
-consistent with "failure stays in fiction." Taxes to account for: it adds a
-model call to *chat*, which today costs zero LLM; the calls draw on the
-daily/per-user caps and the concurrency semaphore, so moderation gets its own
-budget line / relaxed cap; and it adds sub-second latency on a real-time
-surface. Do **not** prompt-cache the moderation system prompt — it sits below
-the 4096-token cache minimum, so a `cache_control` marker would be a silent
-no-op (the trap this repo has hit twice). Redaction remains the backstop for
-whatever slips through.
+Player text is screened *before* it enters the chronicle (`/speak`,
+`/agent/voice`, WS chat) and before a name enters the registry
+(`/register`, `invite mint`, `play --name`). Two tiers, cheapest first
+(`server/moderation.py`):
+
+- **Local filter** — in-process. Only the unambiguous word-boundary
+  blocklist can block on its own; watch words/phrases, evasion-shaped
+  sequences (spaced/leet slurs), and long digit runs (doxxing shape) mark
+  the input *ambiguous* instead, so a heuristic can never censor a player
+  ("sniggering", the river Niger). Measured: **12–38 µs per call, zero API
+  calls for clean input** — the common case is free.
+- **Haiku classify** — ambiguous inputs make one short uncached call
+  (`consciousness.classify_content`, `claude-haiku-4-5`, ~166-token system
+  prompt, `max_tokens=8`, hard 3 s timeout). Measured by arithmetic:
+  **~$0.0003–0.0005 per escalated input**; its **own budget line**
+  (`NESTED_WORLDS_MODERATION_DAILY_CALLS`, default 2000 → worst case
+  <$1/day) so a burst of screened chat can never drain the voice budget.
+  The prompt is deliberately **not** cache-marked — it sits far below the
+  4096-token cache minimum, where a marker is a silent no-op (the trap this
+  repo has hit twice).
+
+**Fail-open everywhere**: classify error, timeout, exhausted moderation
+budget, or the kill switch (`NESTED_WORLDS_DISABLE_MODERATION=1`) all
+ALLOW — redaction stays the backstop, and a safety feature must never be
+what breaks chat. A decline is HTTP 200 in the world's voice ("The worlds
+decline to carry those words. Say it another way."), leaves **no trace** —
+no chronicle row, no broadcast (WS senders get a private `chat_declined`),
+no voice-budget charge — and blocklists are hot-tunable via env
+(`NESTED_WORLDS_MODERATION_{BLOCK,WATCH}_EXTRA`). The CLI's own speak path
+is deliberately unscreened: the local terminal is the operator themselves.
+Real production latency/cost is visible from day one via the structured
+`moderation_call` log line.
 
 ### 3. Continuity: never wipe; the covenant is already in force
 
@@ -181,9 +195,11 @@ the shared key entirely:
 - **Not truncating storage** means larger `data` blobs — bounded by the input
   caps (`message[:1024]`, chat `[:256]`) and the reply's `max_tokens`, so
   acceptable.
-- **Deferring moderation** makes the day-one defense reactive (redaction) rather
-  than preventive — accepted given no evidence of need yet and the real per-input
-  cost of LLM moderation.
+- **Fail-open moderation** means determined abuse can still land (an API
+  outage, an exhausted budget, or a novel phrasing all allow) — accepted,
+  because the inverted failure mode (a safety check that silences legitimate
+  players when it breaks) is worse, and content-level redaction remains the
+  backstop for whatever slips through.
 
 ## Revisit when…
 
@@ -201,8 +217,9 @@ the shared key entirely:
   in the loop.
 - **The history-render budget widens** → revisit the 128/200 render clip in
   `consciousness._history_block`.
-- **(Pre-launch build)** → §2 input moderation (local-filter-first + Haiku
-  classify, fail-open). §7 (unique names / no anonymous play) is implemented.
+- ~~**(Pre-launch build)**~~ Both pre-launch builds have shipped: §7 (unique
+  names / no anonymous play / invite-gated self-service) and §2 (input
+  moderation). The first trigger above governs §2's tuning from here.
 
 ## Rejected alternatives
 

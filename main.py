@@ -109,6 +109,13 @@ def cmd_play(args):
         raise SystemExit(
             f"'{name}' is a reserved world name (the wandering cast) — "
             "choose another with --name.")
+    from server.moderation import name_allowed
+    if not name_allowed(name):
+        # Same strict name screen as mint and /register (ADR-004 §2) — the
+        # CLI writes to the same permanent chronicle.
+        raise SystemExit(
+            f"'{name}' can't be carried as a player name — choose another "
+            "with --name.")
     interface.run_session(
         seed=args.seed,
         depth=args.depth,
@@ -202,12 +209,17 @@ def cmd_invite(args):
     action = args.invite_action
     if action == "mint":
         from consciousness import WANDERER_CAST
+        from server.moderation import name_allowed
         name = args.name.strip()
         if not name:
             raise SystemExit("A registered name must not be empty.")
         if name.lower() in {n.lower() for n in WANDERER_CAST}:
             raise SystemExit(
                 f"'{name}' is a reserved world name (the wandering cast) — "
+                "choose another.")
+        if not name_allowed(name):
+            raise SystemExit(
+                f"'{name}' can't be carried as a registered name — "
                 "choose another.")
         key = "nw_" + secrets.token_hex(16)
         try:

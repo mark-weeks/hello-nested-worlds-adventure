@@ -22,6 +22,7 @@ describe("dispatchMessage", () => {
     ["player_move", "onPlayerMove"],
     ["move_denied", "onMoveDenied"],
     ["chat", "onChat"],
+    ["chat_declined", "onChatDeclined"],
     ["causal_event", "onCausalEvent"],
     ["puzzle_solved", "onPuzzleSolved"],
     ["constellation_complete", "onConstellation"],

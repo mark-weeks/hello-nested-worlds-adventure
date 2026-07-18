@@ -16,6 +16,7 @@ export function dispatchMessage(msg, h) {
     case "player_move":     h.onPlayerMove?.(msg); break;
     case "move_denied":     h.onMoveDenied?.(msg); break;
     case "chat":            h.onChat?.(msg); break;
+    case "chat_declined":   h.onChatDeclined?.(msg); break;
     case "causal_event":    h.onCausalEvent?.(msg); break;
     case "puzzle_solved":   h.onPuzzleSolved?.(msg); break;
     case "constellation_complete": h.onConstellation?.(msg); break;

@@ -206,6 +206,9 @@ export default function App() {
         ? p.map(x => x.session_id === msg.session_id ? { ...x, node: msg.node } : x)
         : [...p, { name: msg.name, session_id: msg.session_id, node: msg.node }]),
     onChat:         (msg) => pushEvent({ type: "chat",   name: msg.name, text: msg.text }),
+    // Moderation decline (sender-only): the message reached nobody and was
+    // stored nowhere — surface the world's line so it doesn't silently vanish.
+    onChatDeclined: (msg) => pushEvent({ type: "system", text: `✕ ${msg.text}` }),
     onCausalEvent:  (msg) => {
       pushEvent({ type: "causal", kind: msg.kind, node: msg.node, strength: msg.strength });
       if (msg.node === currentNodeName) {
