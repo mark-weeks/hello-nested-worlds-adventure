@@ -6,12 +6,13 @@ import hashlib
 import json
 import logging
 import mimetypes
+import secrets
 import struct
 import uuid
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Mapping
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import causality
 import persistence
@@ -293,7 +294,7 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None) -> dict:
 
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
-    "/client-error",
+    "/client-error", "/register",
 })
 
 
@@ -365,12 +366,16 @@ class Handler(BaseHTTPRequestHandler):
         """True for the ungated static UI shell + assets (never data endpoints).
 
         Data / paid endpoints do not live under these prefixes, so exempting
-        the shell can't accidentally open one up.
+        the shell can't accidentally open one up. `/register` is the one
+        deliberate exception with a write path: a registering player has no
+        play key YET, so the invite gate can't apply — the registration token
+        itself is the credential, verified in-handler, and nothing is minted
+        without a live token (ADR-004 §7, invite-gated self-service).
         """
         stripped = path.rstrip("/")
         if stripped in ("", "/health", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js", "/nodesound.js",
-                        "/guide", "/favicon.ico"):
+                        "/guide", "/register", "/favicon.ico"):
             return True
         if stripped == "/app" or path.startswith("/app/"):
             return True
@@ -515,6 +520,12 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/guide":
             # Player-facing how-to-play page; linked from both intros.
             self._send_file(_STATIC_DIR / "guide.html")
+
+        elif path == "/register":
+            # Self-service registration page (ADR-004 §7). Ungated like the
+            # UI shell — a registering player has no key yet; the ?invite=
+            # token in their link is the credential, checked on the POST.
+            self._send_file(_STATIC_DIR / "register.html")
 
         elif path == "/nodesound.js":
             self._send_file(_STATIC_DIR / "nodesound.js",
@@ -795,6 +806,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/position":
             self._do_save_position(body, user_key=user_key)
+
+        elif path == "/register":
+            self._do_register(body)
 
         elif path == "/client-error":
             # Browser crashes were invisible (Sentry is server-side only);
@@ -1151,6 +1165,52 @@ class Handler(BaseHTTPRequestHandler):
                 ),
                 "ai": False,
             })
+
+    def _do_register(self, body: dict) -> None:
+        """POST /register — invite-gated self-service registration (ADR-004 §7).
+
+        The player redeems a single-use registration token and picks their own
+        name; redemption mints their per-user invite key. The token is the
+        credential (this endpoint is reachable without a play key — the
+        registrant doesn't have one yet), so nothing mints without a live
+        token, and the beta stays a closed cohort. A taken name replies 409
+        "choose another" and — because redemption is one transaction — leaves
+        the token redeemable for the retry.
+        """
+        token = str(body.get("invite", ""))[:128].strip()
+        name = str(body.get("name", "")).strip()
+        if not token:
+            return self._send_error("an invite is required to register", 403)
+        if not name:
+            return self._send_error("a name is required", 400)
+        if len(name) > 32:
+            return self._send_error("name too long (32 characters max)", 400)
+        if name.lower() in _RESERVED_PLAYER_NAMES:
+            # Same rule as the WS join and the mint CLI: the wandering cast's
+            # names are world canon and unimpersonatable.
+            return self._send_error(
+                f"'{name}' belongs to the world — choose another name", 403)
+
+        key = "nw_" + secrets.token_hex(16)
+        try:
+            persistence.redeem_registration_token(token, key, name)
+        except persistence.TokenInvalid:
+            # Unknown, spent, and cancelled tokens all read the same — don't
+            # leak which. 403: the credential (the invite) failed.
+            return self._send_error("this invite is not valid", 403)
+        except persistence.NameUnavailable:
+            # 409: the invite is fine, the NAME collided. The client shows
+            # "choose another" inline and retries with the same token.
+            return self._send_error(
+                f"the name '{name}' is taken — choose another", 409)
+
+        self._send_json({
+            "key":  key,
+            "name": name,
+            # Same shape as the operator-minted share URL (main.invite_share_url),
+            # relative so it works on whatever host served this page.
+            "url":  f"/?key={key}&name={quote(name)}",
+        })
 
     def _do_save_position(self, body: dict, user_key: str = "") -> None:
         """POST /position — persist the caller's last position for cross-device

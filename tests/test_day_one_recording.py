@@ -214,6 +214,90 @@ class TestNoAnonymousGameplay:
         s.close()
 
 
+def _post_register(port: int, payload: dict) -> tuple[int, dict]:
+    """POST /register without raising on 4xx; returns (status, json body)."""
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/register",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+class TestSelfServiceRegistration:
+    """ADR-004 §7 self-service, invite-gated: the operator shares a
+    single-use /register?invite=<token> link; the PLAYER picks their own
+    unique name and redemption mints their per-user play key. No token, no
+    account — the beta stays a closed cohort even though the page and the
+    POST are reachable without a play key."""
+
+    def test_register_surface_reachable_while_gate_active(self, srv):
+        # Gate up (a key exists) — the registration page still loads, like
+        # the UI shell: the registrant has no play key yet.
+        persistence.mint_invite_key("nw_named", "Named")
+        req = urllib.request.Request(f"http://127.0.0.1:{srv}/register")
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+
+    def test_full_flow_register_then_play_under_chosen_name(self, srv):
+        # The crown path: token → chosen name → minted key → that key
+        # authorizes play and the chronicle records the CHOSEN name, even
+        # when the client tries to join as someone else.
+        seed = 263
+        persistence.mint_invite_key("nw_named", "Named")  # gate up
+        persistence.create_registration_token("nwr_live")
+        status, data = _post_register(
+            srv, {"invite": "nwr_live", "name": "Priya"})
+        assert status == 200
+        key = data["key"]
+        assert key.startswith("nw_") and data["url"].startswith("/?key=")
+
+        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
+        s, ws_status = _ws_connect(srv, seed, "Zorg", invite_key=key)
+        assert b"101" in ws_status
+        _ws_send_json(s, {"type": "chat", "text": "first words"})
+        joins = _wait_for_rows(seed, root_name, "PLAYER_JOIN")
+        assert joins and joins[0]["player"] == "Priya"
+        s.close()
+
+    def test_taken_name_is_409_and_the_token_survives_for_a_retry(self, srv):
+        persistence.mint_invite_key("nw_ada", "Ada")
+        persistence.create_registration_token("nwr_live")
+        status, data = _post_register(
+            srv, {"invite": "nwr_live", "name": "  ada "})
+        assert status == 409
+        assert "choose another" in data["error"]
+        # Same invite, different name → in.
+        status, _ = _post_register(
+            srv, {"invite": "nwr_live", "name": "Adjacent"})
+        assert status == 200
+
+    def test_invalid_and_spent_tokens_refused_alike(self, srv):
+        persistence.create_registration_token("nwr_live")
+        assert _post_register(
+            srv, {"invite": "nwr_live", "name": "Aster"})[0] == 200
+        # Spent and never-existed read identically (no oracle).
+        s1, d1 = _post_register(srv, {"invite": "nwr_live", "name": "Briar"})
+        s2, d2 = _post_register(srv, {"invite": "nwr_fake", "name": "Briar"})
+        assert (s1, d1["error"]) == (s2, d2["error"]) == (403, "this invite is not valid")
+        # Nothing was minted for the refused attempts.
+        assert persistence.lookup_invite_key("k_b") is None
+
+    def test_reserved_and_missing_names_refused_token_kept(self, srv):
+        persistence.create_registration_token("nwr_live")
+        status, data = _post_register(
+            srv, {"invite": "nwr_live", "name": WANDERER_CAST[0]})
+        assert status == 403 and "belongs to the world" in data["error"]
+        assert _post_register(srv, {"invite": "nwr_live", "name": ""})[0] == 400
+        assert _post_register(
+            srv, {"invite": "nwr_live", "name": "x" * 33})[0] == 400
+        # None of those consumed the invite.
+        assert persistence.lookup_registration_token("nwr_live") is not None
+
+
 class TestPuzzleAttempts:
     def _attempt(self, port, seed, node, answer, name="Ada"):
         req = urllib.request.Request(

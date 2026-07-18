@@ -277,19 +277,31 @@ key below is minted, so everything before this step is publicly reachable —
 **mint the first key before you share the URL anywhere.**
 `fly ssh console` opens a shell inside the running machine.
 
+Two ways to invite, both single-use per person:
+
 ```bash
+# (a) Operator-named: you pick the name, hand out a ready-to-play URL.
 fly ssh console -C "python main.py invite mint --name Alice --note 'design partner'"
+
+# (b) Self-service: you hand out a registration link; the INVITEE picks
+#     their own unique name at /register (told "taken — choose another"
+#     if it collides), and redemption mints their play key.
+fly ssh console -C "python main.py invite create --note 'for the art channel'"
 ```
 
-The output includes a ready-to-share URL of the form
-`https://enfolded-beta.fly.dev/app?key=nw_<hex>&name=Alice`.
-Send one to each tester.
+Mint output includes a ready-to-share URL of the form
+`https://enfolded-beta.fly.dev/app?key=nw_<hex>&name=Alice`; create output
+includes `https://<host>/register?invite=nwr_<hex>`. Send one per person —
+registration tokens are single-use, so a leaked link mints at most one
+account (and an unredeemed leak is revocable, below).
 
 To audit:
 
 ```bash
 fly ssh console -C "python main.py invite list"
 fly ssh console -C "python main.py invite revoke nw_<key>"
+fly ssh console -C "python main.py invite tokens --all"
+fly ssh console -C "python main.py invite cancel nwr_<token>"
 ```
 
 ---

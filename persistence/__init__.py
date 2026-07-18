@@ -904,6 +904,27 @@ def _normalize_invite_name(name: str) -> str:
     return name.strip().lower()
 
 
+def _mint_invite_key_on(conn, key: str, name: str,
+                        note: str | None = None) -> None:
+    """Name-uniqueness check + INSERT on an already-open connection.
+
+    Shared by `mint_invite_key` and `redeem_registration_token`: redemption
+    must mint inside its OWN transaction (consume the token and mint the key
+    as one unit — and roll back together if the name is taken), and a second
+    writer connection opened mid-transaction would risk SQLITE_BUSY.
+    """
+    norm = _normalize_invite_name(name)
+    taken = conn.execute(
+        "SELECT 1 FROM invite_keys WHERE lower(trim(name)) = ?", (norm,)
+    ).fetchone()
+    if taken is not None:
+        raise NameUnavailable(f"the name {name!r} is already registered")
+    conn.execute(
+        "INSERT INTO invite_keys (key, name, note) VALUES (?, ?, ?)",
+        (key, name, note),
+    )
+
+
 @_with_db
 def mint_invite_key(key: str, name: str, note: str | None = None) -> None:
     """Insert a new invite key. Caller generates the random key string.
@@ -915,17 +936,8 @@ def mint_invite_key(key: str, name: str, note: str | None = None) -> None:
     can retry with a new random key (at 32 hex chars, key collisions are
     astronomically unlikely).
     """
-    norm = _normalize_invite_name(name)
     with _connect() as conn:
-        taken = conn.execute(
-            "SELECT 1 FROM invite_keys WHERE lower(trim(name)) = ?", (norm,)
-        ).fetchone()
-        if taken is not None:
-            raise NameUnavailable(f"the name {name!r} is already registered")
-        conn.execute(
-            "INSERT INTO invite_keys (key, name, note) VALUES (?, ?, ?)",
-            (key, name, note),
-        )
+        _mint_invite_key_on(conn, key, name, note)
 
 
 @_with_db
@@ -988,6 +1000,116 @@ def list_invite_keys(include_revoked: bool = False) -> list[dict[str, Any]]:
              "created_at": r[3], "revoked_at": r[4], "last_used_at": r[5]}
             for r in rows
         ]
+
+
+class TokenInvalid(ValueError):
+    """A registration was attempted with an unknown, spent, or cancelled token.
+
+    Distinct from NameUnavailable: the INVITE failed, not the chosen name.
+    Callers reply "this invite isn't valid" without leaking which condition
+    matched (unknown / already used / cancelled all read the same).
+    """
+
+
+def _registration_token_row(row) -> dict[str, Any]:
+    return {
+        "token": row[0], "note": row[1], "created_at": row[2],
+        "redeemed_at": row[3], "redeemed_name": row[4], "revoked_at": row[5],
+    }
+
+
+_REG_TOKEN_COLS = ("token, note, created_at, redeemed_at, redeemed_name, "
+                   "revoked_at")
+
+
+@_with_db
+def create_registration_token(token: str, note: str | None = None) -> None:
+    """Insert a new single-use registration token (ADR-004 §7 self-service).
+
+    Caller generates the random token string. Raises sqlite3.IntegrityError
+    on a token collision so the caller can retry with a fresh random value.
+    """
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO registration_tokens (token, note) VALUES (?, ?)",
+            (token, note),
+        )
+
+
+@_with_db
+def lookup_registration_token(token: str) -> dict[str, Any] | None:
+    """Return the row for `token` iff it is still redeemable.
+
+    None for unknown, already-redeemed, and cancelled tokens alike — the
+    caller treats all three as "not a valid invite" without learning which.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            f"""SELECT {_REG_TOKEN_COLS} FROM registration_tokens
+                WHERE token = ? AND redeemed_at IS NULL
+                      AND revoked_at IS NULL""",
+            (token,),
+        ).fetchone()
+        return _registration_token_row(row) if row else None
+
+
+@_with_db
+def redeem_registration_token(token: str, key: str, name: str) -> None:
+    """Consume `token` and mint the per-user invite key, atomically.
+
+    One transaction covers the token check, the name-uniqueness check, the
+    invite-key INSERT, and the token consumption — so a taken name
+    (NameUnavailable) rolls the whole thing back and the token stays
+    redeemable for another try, while a successful redeem can never leave the
+    token live. Raises TokenInvalid for an unknown/spent/cancelled token.
+    """
+    with _connect() as conn:
+        live = conn.execute(
+            """SELECT 1 FROM registration_tokens
+               WHERE token = ? AND redeemed_at IS NULL
+                     AND revoked_at IS NULL""",
+            (token,),
+        ).fetchone()
+        if live is None:
+            raise TokenInvalid("this invite is not valid")
+        _mint_invite_key_on(conn, key, name)
+        conn.execute(
+            f"""UPDATE registration_tokens
+                SET redeemed_at = {_NOW}, redeemed_name = ?
+                WHERE token = ?""",
+            (name, token),
+        )
+
+
+@_with_db
+def cancel_registration_token(token: str) -> bool:
+    """Cancel an outstanding token (e.g. a leaked link). True iff it was live.
+
+    Only unredeemed tokens can be cancelled — a redeemed one has already
+    become an invite key, and revoking THAT is `revoke_invite_key`.
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            f"""UPDATE registration_tokens SET revoked_at = {_NOW}
+                WHERE token = ? AND redeemed_at IS NULL
+                      AND revoked_at IS NULL""",
+            (token,),
+        )
+        return cur.rowcount > 0
+
+
+@_with_db
+def list_registration_tokens(include_spent: bool = False) -> list[dict[str, Any]]:
+    """All registration tokens, newest first. Redeemable-only unless
+    include_spent (then redeemed and cancelled rows appear too)."""
+    where = ("" if include_spent
+             else "WHERE redeemed_at IS NULL AND revoked_at IS NULL")
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT {_REG_TOKEN_COLS} FROM registration_tokens {where}
+                ORDER BY created_at DESC"""
+        ).fetchall()
+        return [_registration_token_row(r) for r in rows]
 
 
 @_with_db
