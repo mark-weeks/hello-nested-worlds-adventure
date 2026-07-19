@@ -1,5 +1,23 @@
-"""Golden-master freeze: the generated world is a permanent compatibility
-surface.
+"""Golden-master freeze — RE-SCOPED by ADR-006 (Option A, 2026-07-19):
+these pins now describe what generator v1 BIRTHS, not the permanent world.
+
+The world is materialized (`multiverse/store.py`, `world_nodes`): the
+generator runs once per seed as a birthing tool, born rows are the node's
+identity, and a bank edit can no longer touch any world that already
+exists (pinned by tests/test_world_store.py::TestBankEditImmunity). What
+these digests guard since the pivot: (1) a fresh install birthing a
+reference seed must reproduce it exactly — production's launch world is
+born from these banks, so until that birth happens, and for every new
+seed after it, drift here is still drift worth catching; (2) a meaningful
+generator change must be CONSCIOUS — bump GENERATOR_VERSION
+(multiverse/store.py), re-pin deliberately, record why in the CHANGELOG.
+A failing pin means "you changed what new worlds are born as," not "you
+are rewriting the permanent world." The era-name pins are the exception:
+era names are still recomputed from display banks at read time, so their
+banks remain genuinely frozen until eras are materialized (ADR-006).
+
+The original stakes, kept for history (they describe the pre-pivot world
+where the banks WERE the storage medium):
 
 Node names key ALL durable history — world_mutations, saved positions,
 property overlays, ripple scores, the art's activity counts. Each node

@@ -1,8 +1,11 @@
 # ADR-006: An Evolving World With Memory — the Freeze as Scaffolding, Not Covenant
 
-**Status:** Proposed 2026-07-19 — awaiting ratification (interview-me
-practice; options and a recommendation below, decision deliberately left
-to the human because this re-words a one-way-door covenant).
+**Status:** Accepted 2026-07-19 — **Option A ratified by the project
+owner** (materialize before launch), chosen over the staged Option B this
+ADR recommended: with no permanent history yet in production, the owner
+judged pre-launch the cheapest moment for the data-model change and
+accepted the launch delay. The pivot shipped the same day; see the
+Decision record below and the CHANGELOG batch "The world is data now."
 
 ---
 
@@ -66,7 +69,38 @@ silent change by making change an event.
 
 ---
 
-## Options
+## Decision record (what shipped under Option A)
+
+- **The store** (`multiverse/store.py`, migration 0013 `world_nodes`):
+  the generator runs once per seed as a birthing tool; rows are the
+  node's identity; births are lazy (first visit), idempotent, and
+  race-safe (`persistence.save_world_nodes` refuses to overwrite — a
+  born world is never re-born).
+- **The read-path swap**: `server/handlers.py` (`_build_world`, node
+  resolution, WS root/resume/move), `server/heartbeat.py`,
+  `causality/staging.py`, `main.py`, `interface/` all read the stored
+  world; nothing outside `store.birth_world` calls the generator at
+  runtime.
+- **Equivalence and immunity pinned** (`tests/test_world_store.py`):
+  stored ≡ generated at depths 6 and 11; resolution parity including
+  every forgery refusal; birth discipline; and **bank-edit immunity** —
+  a prepended syllable that would rename essentially every node under
+  regeneration changes nothing about a born world, while a world born
+  after the edit expresses it (banks govern births, nothing else).
+- **Measured**: birth 4,439 rows in ~350 ms (once per seed ever);
+  serving depth 6 ~8 ms and full depth ~82 ms vs ~7/~109 ms for the old
+  regeneration — the pivot is not a performance trade. Full suite
+  800 passed; E2E 3/3 in real Chromium.
+- **One read-time generative surface deliberately remains**: era names
+  (`multiverse/chronicle.py`) derive from their own two small display
+  banks at read time, so those banks stay frozen (pinned by the freeze
+  suite). Materializing eras is a small additive follow-up if era-bank
+  evolution is ever wanted; out of scope here.
+- **Launch consequence**: the ADR-005 staging rehearsal must exercise
+  the store path (first-birth on a fresh volume, resume, seals) — it
+  now rehearses the world's actual birth.
+
+## Options (as proposed)
 
 ### A. Materialize before launch (world-as-data now)
 
@@ -161,7 +195,7 @@ The freeze was protecting real covenants, and they survive it:
   screenshots survive; they now follow evolution instead of being walled
   from it.
 
-## What is genuinely lost (accepted under B)
+## What is genuinely lost (accepted — applies to A as shipped)
 
 - **Offline regenerability**: "any client rebuilds the world from a seed"
   ends at the pivot. This is already fiction for browsers (they fetch
@@ -174,24 +208,26 @@ The freeze was protecting real covenants, and they survive it:
 - **A second copy of the world to operate**: the DB becomes the sole
   authority for world content, raising the stakes on the backup posture —
   which ADR-005 §1 has already raised (hourly now, continuous replication
-  scheduled). The Litestream batch and the pivot batch belong to the same
-  post-launch season.
+  scheduled). Litestream matters more now, not less.
 
 ## Revisit when…
 
-- **The mirror test has run green in production for the launch window**
-  → schedule the pivot batch (target: within the first post-launch
-  month, alongside or immediately after Litestream).
-- **The pivot lands** → unfreeze the banks for new growth; write the
-  evolution-event grammar (kinds, cadence, who may trigger — operator
-  only at first); re-scope the freeze suite; update CLAUDE.md's one-way
-  door section.
+- **Evolution mechanics are wanted** (frontier growth, new families via
+  renewal epochs, deliberate change to a born node) → design the
+  evolution-event grammar first (event kinds, cadence, operator-only
+  triggering at first, how a rename records lineage) — the store makes
+  these *possible*; nothing ships until the grammar is decided. New
+  chronicle write paths remain one-way doors under the merge gate.
+- **The generator's content or rules change meaningfully** → bump
+  `GENERATOR_VERSION` (`multiverse/store.py`) and consciously re-pin the
+  golden digests: they now describe what NEW worlds are born as, and a
+  silent change to births is still drift worth catching.
+- **Era-bank evolution is ever wanted** → materialize era names (small
+  additive `eras` table, stamped on first display); until then the two
+  chronicle display banks stay frozen and pinned.
 - **The first deliberate evolution event ships** → evaluate whether
   change-as-event reads as world-life or as churn to the cohort
   (returning-visitor metric + direct ask).
-- **Ratification chooses A or C instead** → this ADR's option text
-  becomes the plan of record for that path; B's step 1 (covenant
-  re-wording) applies in every branch except D.
 
 ## Rejected alternatives
 

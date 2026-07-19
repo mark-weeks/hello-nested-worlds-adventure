@@ -809,6 +809,98 @@ def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
         return {name: json.loads(blob) for name, blob in rows if blob}
 
 
+# ── The materialized world (ADR-006 Option A) ──
+# Rows in world_nodes are born once per seed and never rewritten by
+# generation again; the stored row IS the node's identity. Only
+# multiverse/store.py writes here, and only through save_world_nodes.
+
+
+@_with_db
+def world_is_born(world_seed: int) -> bool:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM world_nodes WHERE world_seed = ? LIMIT 1",
+            (world_seed,),
+        ).fetchone()
+        return row is not None
+
+
+@_with_db
+def save_world_nodes(world_seed: int,
+                     rows: list[tuple[str, str, str, str, int]],
+                     generator_version: int) -> int:
+    """Birth a world: write its node rows in one transaction.
+
+    `rows` is [(path, name, level, properties_json, breadth), ...].
+    Refuses to overwrite: if the seed already has any row (including a
+    concurrent birth racing this one — the PK raises IntegrityError),
+    nothing is written and 0 is returned. A born world is never re-born.
+    """
+    with _connect() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM world_nodes WHERE world_seed = ? LIMIT 1",
+            (world_seed,),
+        ).fetchone()
+        if exists:
+            return 0
+        try:
+            conn.executemany(
+                f"""INSERT INTO world_nodes
+                    (world_seed, path, name, level, properties, breadth,
+                     generator_version, born_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, {_NOW})""",
+                [(world_seed, path, name, level, props_json, breadth,
+                  generator_version)
+                 for path, name, level, props_json, breadth in rows],
+            )
+        except sqlite3.IntegrityError:
+            conn.rollback()  # lost a birth race — the other writer's world stands
+            return 0
+        return len(rows)
+
+
+@_with_db
+def get_world_nodes(world_seed: int,
+                    max_depth: int | None = None) -> list[tuple[str, str, str, str, int]]:
+    """All born rows for a seed as (path, name, level, properties_json,
+    breadth), ordered by path so parents precede children. `max_depth`
+    limits path length in ordinals (a depth view of the stored world)."""
+    with _connect() as conn:
+        if max_depth is None:
+            rows = conn.execute(
+                """SELECT path, name, level, properties, breadth
+                   FROM world_nodes WHERE world_seed = ? ORDER BY path""",
+                (world_seed,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT path, name, level, properties, breadth
+                   FROM world_nodes WHERE world_seed = ?
+                   AND (LENGTH(path) - LENGTH(REPLACE(path, '.', '')) + 1) <= ?
+                   ORDER BY path""",
+                (world_seed, max_depth),
+            ).fetchall()
+        return rows
+
+
+@_with_db
+def get_world_node_chain(world_seed: int,
+                         paths: list[str]) -> list[tuple[str, str, str, str, int]]:
+    """The rows for an ancestor chain (a list of path prefixes), ordered
+    root-first. Missing paths are simply absent from the result."""
+    if not paths:
+        return []
+    with _connect() as conn:
+        marks = ",".join("?" for _ in paths)
+        rows = conn.execute(
+            f"""SELECT path, name, level, properties, breadth
+                FROM world_nodes WHERE world_seed = ? AND path IN ({marks})
+                ORDER BY LENGTH(path), path""",
+            (world_seed, *paths),
+        ).fetchall()
+        return rows
+
+
 @_with_db
 def get_ripple_score(world_seed: int, node_name: str) -> float:
     with _connect() as conn:

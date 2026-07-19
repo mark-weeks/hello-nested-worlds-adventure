@@ -6,19 +6,19 @@ around the project owner's challenge to the freeze-at-launch stance
 (ADR-006). Living document, phase-2-scale style: edit in place as items
 land; when one ships, fold it into the CHANGELOG entry and strike it here.
 
-Governing decision: **ADR-006 (evolving world with memory) is Proposed and
-awaiting ratification.** Track 0 gates the items marked ⚑. Everything else
-proceeds regardless of which option is ratified.
+Governing decision: **ADR-006 ratified 2026-07-19 — Option A (materialize
+before launch), and the pivot has shipped.** Track 0 is complete; items
+formerly gated on it (⚑) are unblocked.
 
 ---
 
-## Track 0 — The evolution decision (gate)
+## Track 0 — The evolution decision ✅ RESOLVED
 
-| # | Item | Size | Notes |
-|---|------|------|-------|
-| 0.1 | **Ratify ADR-006** (options A–D; recommendation is B: freeze-as-scaffolding, materialize post-launch) | decision | The one architecture-changing question; everything ⚑ below assumes B until ratified otherwise |
-| 0.2 | **Re-word the freeze covenant** in CLAUDE.md + freeze-suite docstrings: temporary scaffolding with a named successor, not a permanent door | ~1 hr | Do before launch in every branch except D — the permanent-freeze *language* is itself about to freeze. Replaces the evaluation's rec 3 ("ceiling decision memo") with the stronger form |
-| 0.3 ⚑ | **Land the mirror**: additive `nodes` table (seed, path, name, level, properties_json, born_at, generator_version), birthed per seed on first use; behavior test asserts mirror ≡ generation at both depths | 1–2 days | Additive migration; nothing reads it yet; zero launch risk. The freeze suite now also guards the mirror |
+| # | Item | Status |
+|---|------|--------|
+| 0.1 | ~~Ratify ADR-006~~ | **Option A ratified by the owner, 2026-07-19** |
+| 0.2 | ~~Re-word the freeze covenant~~ | **Shipped** — CLAUDE.md's permanent-world section and the freeze-suite docstring now describe the materialized world (banks govern births only) |
+| 0.3 | ~~Materialize the world~~ | **Shipped as the full Option A pivot** (`multiverse/store.py`, migration 0013, all read paths swapped; equivalence + bank-edit immunity pinned; suite 800 green, E2E 3/3). See CHANGELOG "The world is data now" |
 
 ## Track 1 — Pre-launch gates (blockers; order matters)
 
@@ -47,8 +47,8 @@ default surface.
 
 | # | Item | Size | Finding |
 |---|------|------|---------|
-| 3.1 ⚑ | **The pivot batch**: swap read paths to the stored world; `resolve_node_by_name` becomes a lookup; generator retires to birthing; re-scope the freeze suite to birth-digest + migration invariants. Schedule beside/after the Litestream batch (both raise the DB to sole-authority status) | ~1 wk | ADR-006 §B step 3 |
-| 3.2 ⚑ | **Open evolution**: banks unfreeze for new growth (new seeds, renewal-epoch content, frontier growth ≤9 children/node); deliberate change to existing nodes ships as chronicled `WORLD_EVOLVED` events — operator-triggered only at first | ~1 wk | ADR-006 §B step 4; supersedes the era-gated escape hatch |
+| 3.1 | ~~The pivot batch~~ **Shipped pre-launch with Track 0** (Option A) — note: Litestream (4.1) matters MORE now; the DB is the sole authority for world content | done | ADR-006 |
+| 3.2 | **Open evolution mechanics**: design the evolution-event grammar first (kinds, cadence, operator-only triggers, rename lineage — ADR-006 "Revisit when"), then ship frontier growth / renewal-epoch families / chronicled `WORLD_EVOLVED` change. The store makes these possible today; each new chronicle write path stays a one-way door under the merge gate | ~1 wk | ADR-006; supersedes the era-gated escape hatch |
 | 3.3 | **Cohort rhythm**: extend runbook §8's one-time shared LOCK expedition into a recurring weekly gathering; read `beta_metrics.py` weekly, returning-visitor number governs phase-2 pulls | ~hrs + standing | §5.2 |
 | 3.4 | **Since-you-left recap**: personal delta on resume ("since you left: Tessera passed your room; the Wastes renewed their puzzle") — the chronicle can already answer it | 1–2 days | §5.2 |
 | 3.5 | **Close the FSM-agent renewal-epoch mismatch** (agents roll epoch-0 puzzles post-renewal while their solves feed the re-arm condition) | ~½ day | §3.1 |

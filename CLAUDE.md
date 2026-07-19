@@ -68,36 +68,56 @@ it first.
 
 ## The permanent world (one-way doors — treat with care)
 
-The generated world is a **compatibility surface**: node names key all durable
-history (mutations, saved positions, property overlays, ripple scores, art
-activity counts). See `tests/test_continuity_freeze.py` — read its docstring in
-full before any change to `multiverse/generator.py` content banks.
+**The world is data now** (ADR-006, Option A, ratified 2026-07-19): the
+generator runs ONCE per seed as a *birthing* tool (`multiverse/store.py`,
+`world_nodes` table, migration 0013), and from birth on the **stored row is
+the node's identity**. Node names still key all durable history (mutations,
+saved positions, property overlays, ripple scores, art activity counts) —
+but those names now live in the store, not in the banks.
 
-- **The freeze/re-pin protocol.** If a freeze pin fails, you are about to
-  rewrite the permanent world. **Stop.** Pre-launch: either revert, or
-  *consciously* re-pin after confirming the drift is intended (and record why
-  in the CHANGELOG + PR body). **Post-launch there is no re-pinning — the banks
-  are frozen.**
-- **Pins cover BOTH depths.** The depth-6 reference world *and* the full
-  11-level world. Five scales (Room and deeper) exist only below depth 6, so a
-  depth-6-only pin is blind to their banks — this exact gap once let an
-  Object-level edit silently delete ~170 deep nodes while every shallow pin
-  passed. Never re-pin only the shallow digest.
+- **A born world is never re-born.** `birth_world` is idempotent and
+  `persistence.save_world_nodes` refuses to overwrite — nothing in
+  application code may regenerate or rewrite `world_nodes` rows for a seed
+  that has them. Deliberate evolution of a born node is a *future,
+  ADR-gated* write path (chronicled world events — see ADR-006 "Revisit
+  when"); it does not exist yet, so today any code path that would mutate a
+  stored node's name/level/base properties is a bug.
+- **Content banks govern births only.** Editing `multiverse/generator.py`
+  banks cannot touch any world that already exists — pinned by
+  `tests/test_world_store.py::TestBankEditImmunity`. A bank edit changes
+  what NEW worlds are born as: bump `GENERATOR_VERSION`
+  (`multiverse/store.py`) for meaningful generator changes and consciously
+  re-pin the golden digests, recording why in the CHANGELOG.
+- **The golden pins now describe births.** `tests/test_continuity_freeze.py`
+  (both depths — the depth-6 reference world AND the full 11-level world;
+  five scales exist only below depth 6) pins what generator v1 births. A
+  failing pin no longer means "you are rewriting the permanent world" — the
+  store forbids that — it means "you changed what new worlds are born as":
+  stop, confirm it's intended, bump the version, re-pin deliberately.
+- **One read-time generative surface remains frozen: era names.**
+  `multiverse/chronicle.py`'s two display banks are read at render time, so
+  editing them retroactively renames every era already displayed. They stay
+  frozen (exact strings pinned) until eras are materialized (ADR-006).
 - **Continuity policy** (`docs/roadmap/phase-2-scale.md` "Continuity policy"):
   never wipe the DB between cohorts; migrations are **additive only** (new
   tables / new columns with defaults — no destructive rewrites of
-  `world_mutations`, `agent_memory`, `puzzle_results`);
+  `world_mutations`, `agent_memory`, `puzzle_results`, `world_nodes`);
   back up before every deploy. Deploy via `scripts/deploy.sh`, which refuses to
-  deploy over an unbacked chronicle.
+  deploy over an unbacked chronicle. The DB is now the sole authority for
+  world content — backups protect the world itself, not just its history.
 
 ---
 
 ## Determinism contract
 
-Every node is a pure function of `(seed, path)`: name → properties → breadth all
-draw from that node's own keyed RNG stream, so any depth prefix of a world is
-byte-identical to the full world, and art/sound/puzzles are reproducible for
-co-op. Consequences:
+**At birth**, every node is a pure function of `(seed, path)` under the
+current `GENERATOR_VERSION`: name → properties → breadth all draw from that
+node's own keyed RNG stream, so a fresh install birthing a reference seed
+reproduces it exactly, and any depth view is a true prefix of the one stored
+full-depth world. **After birth**, the stored row is authoritative, and
+art/sound/puzzles derive deterministically from the node *as served* — so
+co-op reproducibility and reproducible screenshots survive, and will follow
+evolution when it exists. Consequences:
 
 - No `Math.random()`, `Date.now()`, `time.time()`, or other wall-clock/entropy
   in generation, art, sound, or puzzle-selection code paths.
@@ -173,11 +193,13 @@ co-op. Consequences:
 ## Pointers
 
 - `docs/CHANGELOG.md` — the batch-by-batch record; read it to learn what shipped.
-- `docs/decisions/ADR-00{1,2,3,4,5}-*.md` — stack, image generation, persistence
-  backend, the day-one data policy (permanence, redaction, continuity,
-  identity, write-path scope), and the launch-window operations policy
-  (backup cadence, staging rehearsal, beta client posture, voice model),
-  each with its "Revisit when…" triggers.
+- `docs/decisions/ADR-00{1,2,3,4,5,6}-*.md` — stack, image generation,
+  persistence backend, the day-one data policy (permanence, redaction,
+  continuity, identity, write-path scope), the launch-window operations
+  policy (backup cadence, staging rehearsal, beta client posture, voice
+  model), and the evolving-world decision (the world materialized as data;
+  banks govern births only — Option A, ratified), each with its "Revisit
+  when…" triggers.
 - `docs/roadmap/phase-2-scale.md` — the continuity policy and the phase-2b/2c
   trigger list (living document — edit in place as triggers fire).
 - `docs/infrastructure/fly-deployment.md` — the deploy runbook and §8 launch

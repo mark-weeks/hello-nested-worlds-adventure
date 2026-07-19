@@ -36,7 +36,8 @@ from agents.roster import profile_for
 from causality import CausalityBus, EventKind
 from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
-from multiverse.generator import LEVELS, generate_node_hierarchy, resolve_node_by_name
+from multiverse import store
+from multiverse.generator import LEVELS
 from multiverse.node import SpatialNode
 from multiverse.utils import (
     apply_property_overrides, apply_ripple_scores, build_distance_map,
@@ -251,7 +252,7 @@ def run_tick(seed: int | None = None, rng: random.Random | None = None,
     persona = persona_for_name(agent_name)
     profile = profile_for(agent_name)
 
-    root = generate_node_hierarchy(seed=seed)
+    root = store.world_tree(seed=seed)
     apply_ripple_scores(root, persistence.load_ripple_scores(seed))
     apply_property_overrides(root, persistence.load_node_property_overrides(seed))
     target = _drop_in(root, rng, profile)
@@ -408,7 +409,7 @@ def drain_matured_verbs(limit: int = 32) -> int:
             seed, node_name, "SCALE_ACT_MATURED", row["actor"],
             {"verb": row["verb"], "changed": row["changed"]},
             actor_identity=row["actor"])
-        resolved = resolve_node_by_name(seed, node_name)
+        resolved = store.resolve_node_by_name(seed, node_name)
         broadcast(get_room(seed), {
             "type":    "scale_act",
             "node":    node_name,
