@@ -26,9 +26,9 @@ Status reflects what shipped to `main`. See the [CHANGELOG](../CHANGELOG.md) for
 
 ## Out of Scope for Phase 1 (deferred to Phase 2)
 
-- Animated ripple effects on the multiverse graph
+- ~~Animated ripple effects on the multiverse graph~~ Shipped — animated causal ripples / ring flashes render in both clients; see CHANGELOG
 - ~~Cooperative mechanics in-product~~ Shipped — co-op puzzle sessions (`server/rooms.py::PuzzleSession`) pool attempts/contributors per room; see CHANGELOG
-- Full multiverse map view (D3 / Cytoscape)
+- ~~Full multiverse map view (D3 / Cytoscape)~~ Shipped — the vanilla D3 explorer (`static/explorer.js`, served at `/`) is the map view and the default invite target
 - IP-Adapter scene conditioning
 - Style zone LoRAs
 - Pan animation polish

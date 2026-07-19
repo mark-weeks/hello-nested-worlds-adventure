@@ -28,7 +28,6 @@ import logging
 import os
 import random
 import threading
-import time
 
 import persistence
 from agents.agent import Agent
@@ -63,7 +62,7 @@ _DEFAULT_PACE = 1.2  # seconds between hops — motion a watcher can follow
 # regulars behave like individuals. The name list itself lives in
 # consciousness (a leaf module) because the cached bibles teach every node
 # voice to recognize these names as returning regulars.
-from consciousness import WANDERER_CAST as WANDERER_ROSTER
+from consciousness import WANDERER_CAST as WANDERER_ROSTER  # noqa: E402
 
 
 def enabled() -> bool:

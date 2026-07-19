@@ -213,8 +213,9 @@ def _resolve_node(seed: int, node_name: str) -> SpatialNode | None:
 
 
 # The wandering cast's names are world canon: their chronicle rows must be
-# unimpersonatable, so no player may claim them.
-from consciousness import WANDERER_CAST as _WANDERER_CAST
+# unimpersonatable, so no player may claim them. Imported here, after the
+# module-level constants it sits beside, by design.
+from consciousness import WANDERER_CAST as _WANDERER_CAST  # noqa: E402
 
 _RESERVED_PLAYER_NAMES = {n.lower() for n in _WANDERER_CAST}
 
@@ -296,6 +297,25 @@ _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
     "/client-error", "/register",
 })
+
+# Expensive reads: these rebuild (and for /world, fully serialize) the
+# canonical tree, or run an FSM traversal, on every hit. They cost no API
+# budget, so the cost caps never bound them — they get their own, looser
+# per-IP limiter (guard.READ_RATE_LIMITER) sized so gameplay-paced browsing
+# never trips it.
+_READ_LIMITED_PATHS = frozenset({
+    "/world", "/agent", "/observe", "/puzzle", "/chronicle", "/history",
+})
+
+# The player-facing pace line (429). Rate limiting is a mechanical guard, but
+# the explorer renders this text verbatim in the speak/puzzle panels, so it
+# arrives as the world's voice, not an ops message.
+_PACE_LINE = "the world asks for a quieter pace — a breath, then try again"
+
+# The image layer's line of silence — the visual counterpart of the /speak
+# fallback voice. Sent whenever imagery can't be produced (no key, budget,
+# upstream failure); the operator-facing reason goes to the server log only.
+_IMAGE_QUIET_LINE = "the light does not gather here today"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -390,7 +410,17 @@ class Handler(BaseHTTPRequestHandler):
         ip = guard.client_ip(self.client_address, self.headers)
         if guard.RATE_LIMITER.allow(ip):
             return True
-        self._send_error("rate limited — slow down", 429)
+        self._send_error(_PACE_LINE, 429)
+        return False
+
+    def _read_rate_ok(self, path: str) -> bool:
+        """Per-IP limit on the expensive GET endpoints; 429 on deny."""
+        if path not in _READ_LIMITED_PATHS:
+            return True
+        ip = guard.client_ip(self.client_address, self.headers)
+        if guard.READ_RATE_LIMITER.allow(ip):
+            return True
+        self._send_error(_PACE_LINE, 429)
         return False
 
     # ── response helpers ──
@@ -508,6 +538,8 @@ class Handler(BaseHTTPRequestHandler):
         path   = parsed.path.rstrip("/")
 
         if not self._authorized(qs):
+            return
+        if not self._read_rate_ok(path):
             return
 
         def param(key: str, default: str = "") -> str:
@@ -634,7 +666,10 @@ class Handler(BaseHTTPRequestHandler):
                 seed      = int(param("seed",      "42"))
                 name      = param("name",           "Scout")
                 threshold = int(param("threshold",  "6"))
-                max_nodes = int(param("max_nodes",  "50"))
+                # Clamped: this drives a per-request FSM walk over the full
+                # tree, and an unbounded client value was the one way to buy
+                # arbitrary server CPU with a single request.
+                max_nodes = max(1, min(500, int(param("max_nodes", "50"))))
             except ValueError as exc:
                 return self._send_error(str(exc))
             persona_arg = param("persona", "")
@@ -715,12 +750,20 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
         except ValueError:
             length = 0
+        # max(0, …): a negative Content-Length would pass the size cap and
+        # turn rfile.read(length) into read-to-EOF on a held-open socket.
+        length = max(0, length)
         if length > _MAX_BODY:
             return self._send_error("payload too large", 413)
         try:
             body = json.loads(self.rfile.read(length)) if length else {}
         except json.JSONDecodeError:
             return self._send_error("invalid JSON")
+        # Valid JSON is not necessarily an object — `[1,2]` or `"hi"` parse
+        # fine, then every body.get() below would AttributeError into the
+        # catch-all 500. Malformed shape is the client's error: answer 400.
+        if not isinstance(body, dict):
+            return self._send_error("request body must be a JSON object")
 
         if path == "/speak":
             if guard.ai_disabled():
@@ -1074,12 +1117,21 @@ class Handler(BaseHTTPRequestHandler):
         if cached:
             return self._send_json({"url": cached})
 
+        # Failure stays in fiction: these payloads are player-fetchable, so
+        # they carry an authored line, never an ops detail ("FAL_KEY not set"
+        # and raw fal.ai exceptions used to ride here). The operator-facing
+        # reason goes to the log; `images: false` is the UI's quiet signal,
+        # mirroring the `ai: false` convention on /speak.
         fal_key = os.environ.get("FAL_KEY", "")
         if not fal_key:
-            return self._send_json({"url": None, "error": "FAL_KEY not set"})
+            _log.info("image request with no FAL_KEY configured")
+            return self._send_json({"url": None, "images": False,
+                                    "error": _IMAGE_QUIET_LINE})
 
         if not guard.consume_fal(user_key=user_key):
-            return self._send_json({"url": None, "error": "daily image budget exhausted"})
+            _log.info("image request past the daily fal.ai budget")
+            return self._send_json({"url": None, "images": False,
+                                    "error": _IMAGE_QUIET_LINE})
 
         prompt = imageprompt.assemble_prompt(
             node.level, node.name, node.properties, history,
@@ -1108,7 +1160,8 @@ class Handler(BaseHTTPRequestHandler):
             url = images[0]["url"] if images else None
         except Exception as exc:
             _log.warning("fal.ai image error: %s", exc)
-            return self._send_json({"url": None, "error": str(exc)})
+            return self._send_json({"url": None, "images": False,
+                                    "error": _IMAGE_QUIET_LINE})
 
         if url:
             persistence.cache_image(node_key, url)
@@ -1503,7 +1556,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error(str(exc))
 
         node_name   = body.get("node_name", "")
-        answer      = body.get("answer", "").strip()
+        # str(...): a numeric guess ({"answer": 7}) is a legitimate attempt at
+        # a sequence puzzle, not a reason to AttributeError into a 500.
+        answer      = str(body.get("answer", "") or "").strip()
         player_name = _display_name(user_key, body.get("player_name"))
 
         target = (find_node(root, node_name) if node_name else None) or root

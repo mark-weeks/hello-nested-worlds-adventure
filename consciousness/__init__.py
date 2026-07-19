@@ -855,8 +855,8 @@ def _history_block(history: list[dict]) -> str:
             # you overheard every word. Allude to it as something witnessed.
             a, b = data.get("a", "someone"), data.get("b", "someone")
             spoken = "; ".join(
-                f'{l["speaker"]}: "{l["line"]}"'
-                for l in (data.get("lines") or []) if l.get("speaker"))
+                f'{ln["speaker"]}: "{ln["line"]}"'
+                for ln in (data.get("lines") or []) if ln.get("speaker"))
             lines.append(f"  {date}: you overheard {a} and {b} talking — {spoken}")
             continue
         line = f"  {date}: {event}, by {who}"

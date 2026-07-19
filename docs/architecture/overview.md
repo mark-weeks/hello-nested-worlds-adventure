@@ -86,16 +86,16 @@ SQLite-backed store. Enables the world to exist between sessions and across mult
 ### `server/` — API Layer
 Threaded `http.server` with REST + WebSocket support (HTTP/1.1 handshake), security headers (CSP, X-Frame-Options, etc.), and POST/frame size caps. `/speak`, `/image`, and `/agent/voice` resolve node identity server-side against the canonical world — clients never assert a node's nature.
 - **`heartbeat.py`** — the world runs unattended: a daemon loop sends recurring persona agents on paced traversals that persist through the standard wiring and broadcast live to the seed-room (FSM-driven; zero API spend)
-- **REST**: `/health`, `/worlds`, `/world`, `/players`, `/history`, `/agent`, `/observe`, `/puzzle`, `/image`, plus `POST /speak`, `POST /puzzle/attempt`, and `POST /agent/voice`
+- **REST**: `/health`, `/worlds`, `/world`, `/players`, `/history`, `/chronicle`, `/agent`, `/observe`, `/puzzle`, `/image`, `GET`/`POST /position`, plus `POST /speak`, `POST /puzzle/attempt`, `POST /agent/voice`, `POST /act`, `POST /register`, and `POST /client-error`
 - **WebSocket** (`/ws`): presence, player-to-player chat, broadcast of causal events, ping/keepalive
-- **Static**: bundled D3 browser UI mounted at `/app`; easter-egg routes under `/easter-egg/`
+- **Static**: the built React + PixiJS bundle (`static/app/`) mounted at `/app`; the vanilla D3 explorer (`static/index.html` + `static/explorer.js`) served at `/`; easter-egg routes under `/easter-egg/`
 - Module split: `handlers.py` (HTTP/WebSocket dispatch), `protocol.py` (frame parsing), `rooms.py` (presence + co-op `PuzzleSession` state), `imageprompt.py` (per-level prompt assembly + style-signature cache key)
 
 ### `interface/` — Terminal Interaction Layer
 Interactive terminal session (`run_session`) with three modes — spatial (`go`/`up`/`map`), conversational (`speak`), and ambient (`observe`) — plus inline puzzles. Each scale level renders in a distinct ANSI colour.
 
 ### `frontend/` — Browser Client
-React + PixiJS + Vite app that talks to the WebSocket server. Renders fal.ai-generated scene backgrounds, hotspot interactions, multiplayer presence, and live causal-event ripples. A complementary vanilla D3 tree explorer is served from `static/app/`.
+React + PixiJS + Vite app that talks to the WebSocket server, built into `static/app/` and served at `/app`. Renders fal.ai-generated scene backgrounds, hotspot interactions, multiplayer presence, and live causal-event ripples. A complementary vanilla D3 tree explorer is served at `/` from `static/explorer.js`.
 
 ### `puzzles/` — Embedded Challenges
 - **`types.py`** — `Puzzle` dataclass (kind, attempts, hints, result)
@@ -131,7 +131,7 @@ Navigate hierarchy (spatial / conversational / ambient)
         │
         ├──► Trigger action ──► causality/ ──► propagate effects across scales
         │
-        ├──► Encounter agent ──► agents/ ──► Claude-powered exchange
+        ├──► Encounter agent ──► agents/ ──► deterministic in-character banter (zero API cost; Claude-voiced only via /agent/voice)
         │
         └──► All state changes ──► persistence/ ──► world evolves for all participants
 ```

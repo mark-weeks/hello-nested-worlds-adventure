@@ -165,7 +165,6 @@ class TestDistanceMap:
 class TestWorldAge:
     def test_created_at_survives_revisits(self):
         persistence.save_world(55, 10, 6, 1, 3)
-        first = {w["seed"]: w["created_at"] for w in persistence.list_worlds()}[55]
         # Backdate the row, then save again — created_at must not reset.
         with persistence._connect() as conn:
             conn.execute(

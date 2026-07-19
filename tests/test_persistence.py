@@ -1,9 +1,5 @@
-import json
 import sqlite3
 import stat
-import tempfile
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -444,10 +440,13 @@ class TestRegistrationTokens:
         persistence.redeem_registration_token("nwr_t1", "k_priya", "Priya")
         # The play key exists under the chosen name…
         assert persistence.lookup_invite_key("k_priya")["name"] == "Priya"
-        # …and the token is spent (single-use), with an audit trail.
+        # …and the token is spent (single-use), with an audit trail. Tokens
+        # are stored hashed at rest, so the audit row carries the digest, not
+        # the plaintext link.
         assert persistence.lookup_registration_token("nwr_t1") is None
+        digest = persistence._credential_digest("nwr_t1")
         spent = [r for r in persistence.list_registration_tokens(include_spent=True)
-                 if r["token"] == "nwr_t1"][0]
+                 if r["token"] == digest][0]
         assert spent["redeemed_name"] == "Priya"
         assert spent["redeemed_at"] is not None
 
@@ -580,7 +579,8 @@ class TestRestore:
         other = tmp_path / "other.db"
         conn = sqlite3.connect(other)
         conn.execute("CREATE TABLE cats (name TEXT)")
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
         with _pytest.raises(ValueError, match="not a worlds backup"):
             persistence.restore_from(other)
 
@@ -615,3 +615,94 @@ class TestConcurrentFirstTouch:
         conn.close()
         assert versions == sorted(set(versions))
         assert len(persistence.get_mutations(1, limit=20)) == 12
+
+
+# ── Credentials hashed at rest (2026-07-18 evaluation rec 5) ────────────────
+
+class TestCredentialsAtRest:
+    """Invite keys and registration tokens are stored as sha256 digests.
+
+    Everything *derived* from a credential (actor_identity, cost-ledger
+    buckets) was already hashed; the credential row itself was the one
+    plaintext copy, handed over by every DB backup. These tests pin the
+    at-rest form, the plaintext-in/digest-stored round trip, the one-time
+    legacy backfill, and the operator's revoke-by-digest-prefix path (the
+    plaintext is unrecoverable after mint, so revocation must not need it).
+    """
+
+    def test_plaintext_key_is_never_stored(self):
+        persistence.mint_invite_key("nw_secret1", "Resa")
+        conn = sqlite3.connect(persistence._DB_PATH)
+        stored = [r[0] for r in conn.execute("SELECT key FROM invite_keys")]
+        conn.close()
+        assert stored == [persistence._credential_digest("nw_secret1")]
+        # …and the plaintext the player holds still authorizes.
+        assert persistence.lookup_invite_key("nw_secret1")["name"] == "Resa"
+
+    def test_plaintext_token_is_never_stored(self):
+        persistence.create_registration_token("nwr_leaky")
+        conn = sqlite3.connect(persistence._DB_PATH)
+        stored = [r[0] for r in
+                  conn.execute("SELECT token FROM registration_tokens")]
+        conn.close()
+        assert stored == [persistence._credential_digest("nwr_leaky")]
+        assert persistence.lookup_registration_token("nwr_leaky") is not None
+
+    def test_legacy_plaintext_rows_hash_on_init_and_still_authorize(self):
+        # A pre-hashing DB carries plaintext `nw_…` rows. The next init must
+        # convert them in place — and the holder's key must keep working.
+        persistence.init_db()
+        conn = sqlite3.connect(persistence._DB_PATH)
+        conn.execute("INSERT INTO invite_keys (key, name) VALUES (?, ?)",
+                     ("nw_legacy", "Olde"))
+        conn.commit()
+        conn.close()
+        persistence._initialized.discard(persistence._DB_PATH)
+        row = persistence.lookup_invite_key("nw_legacy")  # re-inits, backfills
+        assert row is not None and row["name"] == "Olde"
+        conn = sqlite3.connect(persistence._DB_PATH)
+        stored = [r[0] for r in conn.execute("SELECT key FROM invite_keys")]
+        conn.close()
+        assert "nw_legacy" not in stored
+        assert persistence._credential_digest("nw_legacy") in stored
+
+    def test_revoke_accepts_a_unique_digest_prefix(self):
+        persistence.mint_invite_key("nw_gone", "Gone")
+        digest = persistence._credential_digest("nw_gone")
+        assert persistence.revoke_invite_key(digest[:12]) is True
+        assert persistence.lookup_invite_key("nw_gone") is None
+
+    def test_short_prefix_revokes_nothing(self):
+        # <12 chars is refused outright — a fat-fingered fragment must never
+        # revoke a key by accident.
+        persistence.mint_invite_key("nw_short", "Short")
+        digest = persistence._credential_digest("nw_short")
+        assert persistence.revoke_invite_key(digest[:8]) is False
+        assert persistence.lookup_invite_key("nw_short") is not None
+
+    def test_digest_is_not_a_credential(self):
+        # Knowing the stored digest must revoke, never authorize: the auth
+        # path hashes its input, so presenting the digest looks up
+        # sha256(digest) — a different row that doesn't exist.
+        persistence.mint_invite_key("nw_authz", "Authz")
+        digest = persistence._credential_digest("nw_authz")
+        assert persistence.lookup_invite_key(digest) is None
+
+    def test_cancel_token_by_digest_prefix(self):
+        persistence.create_registration_token("nwr_oops")
+        digest = persistence._credential_digest("nwr_oops")
+        assert persistence.cancel_registration_token(digest[:12]) is True
+        assert persistence.lookup_registration_token("nwr_oops") is None
+
+
+class TestConnectionConfig:
+    def test_busy_timeout_is_set(self):
+        # WAL allows one writer at a time and this process always has
+        # several (request threads, heartbeat, causal pump); busy_timeout=0
+        # turns momentary contention into instant "database is locked"
+        # errors that tear down WS sessions. _connect must configure a wait.
+        persistence.init_db()
+        conn = persistence._connect()
+        (ms,) = conn.execute("PRAGMA busy_timeout").fetchone()
+        conn.close()
+        assert ms == 5000

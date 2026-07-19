@@ -48,7 +48,7 @@ here is operational headroom; nothing on this list is speculative.
 ```bash
 # Mint a key per tester (do once per cohort member)
 python main.py invite mint --name Alice --note "design partner"
-# → emits a URL: <BASE>/app?key=<KEY>&name=Alice
+# → emits a URL: <BASE>/?key=<KEY>&name=Alice
 
 # Check who's still active (last_used_at reflects ~5-min-quantized activity)
 python main.py invite list
@@ -79,15 +79,20 @@ Pull each item forward when its trigger fires, not on a calendar.
 
 ### Trigger: cost cap utilization > 60%
 
-**Raise daily caps and add per-user budgets.**
+**Raise daily caps; uniform per-user budgets already shipped.**
 
 * Bump `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS=5000` and
   `NESTED_WORLDS_FAL_DAILY_CALLS=2000` as a first response.
-* If individual testers are skewing the distribution, add a per-key budget
-  column to `invite_keys` (e.g. `daily_anthropic_quota`) and an
-  `(invite_key, day)` row in `cost_budget` (or a new
-  `cost_budget_per_key` table). Bound: ~half a day's work; the
-  cost-tracking code is already centralized in `server/guard.py`.
+* *Shipped (2026-07):* per-credential daily sub-caps —
+  `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` (default 150) and
+  `NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER` (default 60), enforced in
+  `server/guard.py` — so no single account can drain the shared budget.
+* What remains deferred: per-key *custom* budget overrides — if individual
+  testers need bigger or smaller allowances than the uniform default, add a
+  per-key budget column to `invite_keys` (e.g. `daily_anthropic_quota`)
+  consulted where the uniform sub-cap is enforced today. Bound: ~half a
+  day's work; the cost-tracking code is already centralized in
+  `server/guard.py`.
 
 ### Trigger: fal.ai monthly bill > $50
 
@@ -189,7 +194,7 @@ database is a continuous chronicle. Operationally that means:
 * **Never wipe the DB between cohorts.** A new beta wave joins the same
   world history the last one left behind.
 * **Migrations are additive.** New tables and new columns with defaults;
-  no destructive rewrites of `world_mutations`, `node_interactions`,
+  no destructive rewrites of `world_mutations`,
   `agent_memory`, or `puzzle_results`. The migration runner
   (`persistence/migrations/`) already applies files in order — a
   migration that would drop accumulated history needs an explicit

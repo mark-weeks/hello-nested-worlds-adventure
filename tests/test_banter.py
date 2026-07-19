@@ -3,7 +3,6 @@ persists — the world generates stories that later arrivals can find.
 """
 from __future__ import annotations
 
-import json
 import random
 
 import persistence
@@ -39,17 +38,17 @@ class TestComposeExchange:
         assert lines[0]["speaker"] == "A" and lines[0]["persona"] == "wanderer"
         assert lines[1]["speaker"] == "B" and lines[1]["persona"] == "destabilizer"
         assert lines[2]["speaker"] == ""  # closing stage direction
-        assert all(l["line"] for l in lines)
+        assert all(ln["line"] for ln in lines)
 
     def test_grounded_in_the_nodes_actual_state(self):
         node = _node(props={"danger_level": 8})
         lines = compose_exchange(3, node, "A", "tender", "B", "scholar")
-        text = " ".join(l["line"] for l in lines)
+        text = " ".join(ln["line"] for ln in lines)
         assert "danger here reads 8" in text
 
     def test_unknown_persona_falls_back_to_wanderer_voice(self):
         lines = compose_exchange(5, _node(), "A", "glitch", "B", "???")
-        assert len(lines) == 3 and all(l["line"] for l in lines)
+        assert len(lines) == 3 and all(ln["line"] for ln in lines)
 
 
 class TestHeartbeatConversations:

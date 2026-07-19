@@ -154,7 +154,7 @@ class TestBanterTics:
         hits = sum(
             1 for ordinal in range(12)
             if tic in " ".join(
-                l["line"] for l in compose_exchange(
+                ln["line"] for ln in compose_exchange(
                     9, node, "The Locksmith", "tender",
                     "Vex", "destabilizer", ordinal=ordinal)))
         assert 1 <= hits < 12
@@ -165,7 +165,7 @@ class TestBanterTics:
         for ordinal in range(12):
             lines = compose_exchange(9, node, "Brann", "tender",
                                      "Quill", "scholar", ordinal=ordinal)
-            text = " ".join(l["line"] for l in lines)
+            text = " ".join(ln["line"] for ln in lines)
             assert not any(t in text for t in all_tics)
 
 

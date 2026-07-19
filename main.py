@@ -5,7 +5,6 @@ from pathlib import Path
 import persistence
 from agents.agent import Agent
 from multiverse.generator import BREADTH_ENVELOPE, generate_node_hierarchy
-from multiverse.node import SpatialNode
 from multiverse.utils import count_nodes, find_node
 from puzzles.engine import PuzzleEngine
 
@@ -232,17 +231,21 @@ def cmd_invite(args):
         if args.note:
             print(f"  note: {args.note}")
         print(f"\nShare the URL: {invite_share_url(key, name)}")
+        print("(Keys are stored hashed — this is the only time the key is "
+              "shown. If it's lost, revoke and mint a new one.)")
     elif action == "list":
         rows = persistence.list_invite_keys(include_revoked=args.all)
         if not rows:
             print("No invite keys issued yet.")
             return
-        print(f"{'Name':<20}  {'Key':<36}  {'Created':<20}  {'Last used':<20}  Status")
-        print("-" * 110)
+        # Keys are hashed at rest, so the list shows a digest prefix — enough
+        # for `invite revoke <prefix>` to target the row, never a credential.
+        print(f"{'Name':<20}  {'Key (hash)':<14}  {'Created':<20}  {'Last used':<20}  Status")
+        print("-" * 92)
         for r in rows:
             status = "revoked" if r["revoked_at"] else "active"
             last = r["last_used_at"] or "—"
-            print(f"{r['name']:<20}  {r['key']:<36}  {r['created_at']:<20}  {last:<20}  {status}")
+            print(f"{r['name']:<20}  {r['key'][:12] + '…':<14}  {r['created_at']:<20}  {last:<20}  {status}")
     elif action == "revoke":
         ok = persistence.revoke_invite_key(args.key)
         if ok:
@@ -261,14 +264,19 @@ def cmd_invite(args):
             print(f"  note: {args.note}")
         print(f"\nShare the URL: <BASE>/register?invite={token}")
         print("The invitee chooses their own name there; it must be unique.")
+        print("(Tokens are stored hashed — this is the only time the link is "
+              "shown. If it leaks, `invite cancel` it.)")
     elif action == "tokens":
         rows = persistence.list_registration_tokens(include_spent=args.all)
         if not rows:
             print("No registration invites"
                   + ("" if args.all else " outstanding") + ".")
             return
-        print(f"{'Token':<40}  {'Created':<20}  {'Status':<22}  Note")
-        print("-" * 100)
+        # Tokens are hashed at rest — the listing shows a digest prefix that
+        # `invite cancel <prefix>` accepts; the sharable link is shown once
+        # at `invite create` and never again.
+        print(f"{'Token (hash)':<14}  {'Created':<20}  {'Status':<22}  Note")
+        print("-" * 80)
         for r in rows:
             if r["redeemed_at"]:
                 status = f"redeemed → {r['redeemed_name']}"
@@ -276,7 +284,7 @@ def cmd_invite(args):
                 status = "cancelled"
             else:
                 status = "redeemable"
-            print(f"{r['token']:<40}  {r['created_at']:<20}  {status:<22}  "
+            print(f"{r['token'][:12] + '…':<14}  {r['created_at']:<20}  {status:<22}  "
                   f"{r['note'] or '—'}")
     elif action == "cancel":
         ok = persistence.cancel_registration_token(args.token)

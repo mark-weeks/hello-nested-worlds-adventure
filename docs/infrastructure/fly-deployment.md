@@ -123,25 +123,26 @@ primary_region = "iad"              # pick the region closest to your testers
 
 [env]
   HOME = "/data"
-  NESTED_WORLDS_TRUST_PROXY = "1"
+  NESTED_WORLDS_TRUST_PROXY = "1"          # safe only behind Fly's edge
+  NESTED_WORLDS_MAX_WS_CONNECTIONS = "96"  # under the proxy hard_limit; headroom on 1GB
   SENTRY_ENVIRONMENT = "beta"
 
 [http_service]
   internal_port = 8080
   force_https = true
   auto_stop_machines = false        # keep the in-memory rate limiter / rooms alive
-  min_machines_running = 1
+  min_machines_running = 1          # never suspend: persistent WS + in-memory state
   processes = ["app"]
 
   [http_service.concurrency]
     type = "connections"            # WS sessions are long-lived connections
-    soft_limit = 180
-    hard_limit = 200
+    soft_limit = 120
+    hard_limit = 150                # leave margin above the app's WS cap (96)
 
   [http_service.checks.health]
     type = "http"
     method = "GET"
-    path = "/health"
+    path = "/health"                # cheap, gate-exempt, never calls the LLM
     interval = "30s"
     timeout = "5s"
     grace_period = "10s"
@@ -152,7 +153,7 @@ primary_region = "iad"              # pick the region closest to your testers
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "1024mb"                 # headroom for thread-per-connection + in-flight LLM
 ```
 
 ---
@@ -290,7 +291,7 @@ fly ssh console -C "python main.py invite create --note 'for the art channel'"
 ```
 
 Mint output includes a ready-to-share URL of the form
-`https://enfolded-beta.fly.dev/app?key=nw_<hex>&name=Alice`; create output
+`https://enfolded-beta.fly.dev/?key=nw_<hex>&name=Alice`; create output
 includes `https://<host>/register?invite=nwr_<hex>`. Send one per person —
 registration tokens are single-use, so a leaked link mints at most one
 account (and an unredeemed leak is revocable, below).
@@ -509,6 +510,6 @@ Fly:
 
 ## Cost expectation
 
-A `shared-cpu-1x` / 512 MB machine plus a 1 GB volume runs roughly
+A `shared-cpu-1x` / 1 GB machine plus a 1 GB volume runs roughly
 $2-5/month at the 20-user beta scale. Anthropic and fal.ai usage are
 separate and bounded by the daily call caps you set in env.

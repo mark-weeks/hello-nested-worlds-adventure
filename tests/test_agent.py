@@ -1,4 +1,3 @@
-import pytest
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from agents.agent import Agent

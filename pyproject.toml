@@ -19,6 +19,9 @@ dev = [
     # hand-rolled /ws server (tests/test_ws_conformance.py). >=13 for the
     # sync client's recv(timeout=...) the test relies on.
     "websockets>=13",
+    # Lint gate (CI runs `ruff check .`) — mechanical drift insurance for a
+    # fresh-session-per-PR workflow.
+    "ruff>=0.5",
 ]
 
 [tool.setuptools]
@@ -35,3 +38,16 @@ packages = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+# Default rule set (E4/E7/E9 + F): real defects and dead code only — no
+# style bikeshedding. CI runs `ruff check .` alongside pytest.
+extend-exclude = ["static"]
+
+[tool.ruff.lint.per-file-ignores]
+# Pure re-export shims: the package's public API is these imports.
+"agents/__init__.py" = ["F401"]
+"puzzles/__init__.py" = ["F401"]
+# Pytest fixtures imported from sibling test modules are consumed via
+# parameter injection, which ruff reads as an unused-then-shadowed name.
+"tests/*" = ["F811"]

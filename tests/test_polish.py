@@ -65,7 +65,7 @@ class TestClientErrorSink:
                                   "source": "app.js:120"}) as resp:
                 assert json.loads(resp.read()) == {"ok": True}
             lines = _client_log_lines(caplog)
-        assert any("TypeError: x is undefined" in l for l in lines)
+        assert any("TypeError: x is undefined" in ln for ln in lines)
 
     def test_oversized_fields_are_truncated_not_rejected(self, srv, caplog):
         with caplog.at_level(logging.WARNING, logger="nested_worlds.client"):
@@ -73,7 +73,7 @@ class TestClientErrorSink:
                                   "stack": "y" * 5000}) as resp:
                 assert resp.status == 200
             lines = _client_log_lines(caplog)
-        logged = next(l for l in lines if "client error" in l)
+        logged = next(ln for ln in lines if "client error" in ln)
         assert len(logged) < 2200  # 512 msg + 1024 stack + framing
 
     def test_empty_message_is_a_silent_ok(self, srv, caplog):
@@ -81,7 +81,7 @@ class TestClientErrorSink:
             with self._post(srv, {}) as resp:
                 assert resp.status == 200
             lines = _client_log_lines(caplog, timeout=0.3)
-        assert not [l for l in lines if "client error" in l]
+        assert not [ln for ln in lines if "client error" in ln]
 
     def test_client_error_is_rate_limited(self):
         from server.handlers import _RATE_LIMITED_PATHS

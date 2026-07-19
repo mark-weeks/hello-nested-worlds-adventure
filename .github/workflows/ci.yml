@@ -22,6 +22,9 @@ jobs:
       - name: Install package with dev extras
         run: pip install -e ".[dev]"
 
+      - name: Ruff lint
+        run: ruff check .
+
       - name: Run pytest
         run: python -m pytest tests/ -q
 
@@ -49,6 +52,22 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # The committed static/app bundle is what `python main.py serve` serves
+      # at /app and what the backend contract tests inspect; the production
+      # Docker image rebuilds its own. This gate keeps all three the same
+      # artifact: a frontend/src change without a bundle recommit fails here
+      # instead of shipping a stale /app to every non-Docker run (the
+      # 2026-07-18 evaluation's headline finding — #67's chat_declined was
+      # missing from the committed bundle and nothing could notice).
+      - name: Committed bundle is fresh
+        working-directory: .
+        run: |
+          if [ -n "$(git status --porcelain -- static/app)" ]; then
+            git status --porcelain -- static/app
+            echo "::error::static/app is stale — run 'cd frontend && npm run build' and commit the result."
+            exit 1
+          fi
 
   e2e:
     name: Browser E2E smoke
