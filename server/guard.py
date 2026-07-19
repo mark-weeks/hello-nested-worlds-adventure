@@ -152,6 +152,12 @@ def validate_world_params(params: Mapping[str, Any]) -> None:
 # 5 minutes is short enough to feel live in the admin CLI and long enough to
 # stay off the hot path.
 _TOUCH_INTERVAL_SEC = 300.0
+# Only keys that resolved to a live invite row ever enter the cache, so its
+# size tracks the minted-key count — bounded in practice, but a long-lived
+# process should not carry every key ever seen. Prune expired entries once
+# the cache outgrows this; entries older than the interval are dead weight
+# (the next touch would fire the UPDATE regardless).
+_TOUCH_CACHE_MAX = 1024
 _touch_cache: dict[str, float] = {}
 _touch_lock = threading.Lock()
 
@@ -168,6 +174,10 @@ def _maybe_touch(key: str) -> None:
         if now - last < _TOUCH_INTERVAL_SEC:
             return
         _touch_cache[key] = now
+        if len(_touch_cache) > _TOUCH_CACHE_MAX:
+            cutoff = now - _TOUCH_INTERVAL_SEC
+            for stale in [k for k, t in _touch_cache.items() if t < cutoff]:
+                del _touch_cache[stale]
     persistence.touch_invite_key(key)
 
 
@@ -323,6 +333,12 @@ class RateLimiter:
             return self._default
         return max(1, v)
 
+    # Every distinct client IP leaves a window entry behind forever without
+    # eviction — a slow scan of the IPv4 space would grow the dict without
+    # bound. Once it outgrows this, expired windows (>=60s old, which the
+    # next `allow` for that key would reset anyway) are dropped in one pass.
+    _COUNTS_MAX = 4096
+
     def allow(self, key: str, *, now: float | None = None) -> bool:
         """Return True if `key` is allowed this call; record it on success."""
         import time
@@ -334,6 +350,10 @@ class RateLimiter:
                 window_start, count = now, 0
             count += 1
             self._counts[key] = (window_start, count)
+            if len(self._counts) > self._COUNTS_MAX:
+                for stale in [k for k, (ws, _) in self._counts.items()
+                              if now - ws >= 60.0 and k != key]:
+                    del self._counts[stale]
             return count <= limit
 
     def reset(self) -> None:

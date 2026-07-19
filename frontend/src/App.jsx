@@ -4,6 +4,7 @@ import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
 import { withKey, urlName, betaKey } from "./auth.js";
 import { entryPath } from "./entry.js";
+import { describeMutation } from "./mutations.js";
 import { NodeAmbience } from "../../static/nodesound.js";
 
 // Honor the OS-level motion preference: transient overlays (ripples,
@@ -21,27 +22,10 @@ const LAST_NODE_KEY = "nw_last_node";   // resume: the node the player last stoo
 const LAST_SEED_KEY = "nw_last_seed";   // resume: the world it belonged to
 const INTRO_SEEN    = "nw_seen_intro";  // shared with the D3 explorer
 
-// The world's recent past, rendered into the event feed on load so a new
-// arrival sees a world already in motion — who solved what, which agents
-// passed through, where danger stirred — instead of "No events yet."
-function describeMutation(m) {
-  const when = (m.at || "").slice(0, 10);
-  const who = m.player || m.data?.agent || "someone";
-  switch (m.type) {
-    case "PUZZLE_SOLVED":  return `${when} · ${who} solved a puzzle at ${m.node}`;
-    case "PUZZLE_FAILED":  return `${when} · a puzzle resisted ${who} at ${m.node}`;
-    case "PLAYER_SPEAK":   return `${when} · ${who} spoke with ${m.node}`;
-    case "PLAYER_CHAT":    return `${when} · ${who} said something at ${m.node}`;
-    case "AGENT_VISIT":    return `${when} · ${who} passed through ${m.node}`;
-    case "DANGER_ALERT":   return `${when} · danger stirred at ${m.node}`;
-    case "AGENT_VOICE":    return `${when} · ${who} spoke with ${m.data?.agent || "a wanderer"} at ${m.node}`;
-    case "PLAYER_JOIN":    return `${when} · ${who} arrived in the world`;
-    case "PLAYER_LEAVE":   return `${when} · ${who} departed`;
-    case "PLAYER_MOVE":    return `${when} · ${who} passed into ${m.node}`;
-    case "PUZZLE_ATTEMPT": return `${when} · ${who} worked at a puzzle in ${m.node}`;
-    default:               return `${when} · something happened at ${m.node}`;
-  }
-}
+// The world's recent past is rendered into the event feed on load (via the
+// shared mutations.js) so a new arrival sees a world already in motion —
+// who solved what, which agents passed through, where danger stirred —
+// instead of "No events yet."
 
 // ── Cross-device resume ─────────────────────────────────────────────────────
 // localStorage remembers the last node per browser; the server remembers it per
@@ -411,6 +395,7 @@ export default function App() {
         onLoadWorld={handleLoadWorld}
         onChat={sendChat}
         onJump={jumpTo}
+        onSolved={setWalkThrough}
         soundOn={soundOn}
         onToggleSound={toggleSound}
       />

@@ -410,6 +410,47 @@ class TestRateLimit:
         assert rl.allow("1.2.3.4", now=0.0) is False  # 21st in window — denied
         assert rl.allow("1.2.3.4", now=61.0) is True  # past the window — fresh
 
+    def test_limiter_memory_stays_bounded_across_an_ip_scan(self):
+        # Every distinct client IP leaves a window entry behind; without
+        # eviction a slow scan grows the dict forever. Expired windows are
+        # swept once the dict outgrows its bound — while active windows
+        # keep their counts.
+        rl = guard.RateLimiter()
+        base = 1000.0
+        for i in range(rl._COUNTS_MAX + 5):
+            rl.allow(f"scan-{i}", now=base)
+        rl.allow("active", now=base + 30.0)   # mid-window when the sweep runs
+        rl.allow("trigger", now=base + 61.0)  # scan windows expired — swept here
+        assert len(rl._counts) == 2           # only active + trigger survive
+        # The surviving active window still counts from its own start: one
+        # call landed at base+30, so 19 more reach the 20/min default limit
+        # and the 21st is denied.
+        for _ in range(19):
+            assert rl.allow("active", now=base + 62.0) is True
+        assert rl.allow("active", now=base + 62.0) is False
+
+
+class TestTouchCacheBound:
+    def test_touch_cache_prunes_stale_keys(self, monkeypatch):
+        # The last_used_at throttle cache holds one timestamp per live key
+        # ever seen; entries older than the interval are dead weight (the
+        # next touch fires the UPDATE regardless), so they are pruned once
+        # the cache outgrows its bound.
+        guard._touch_cache.clear()
+        monkeypatch.setattr(guard.persistence, "touch_invite_key",
+                            lambda key: None)
+        clock = {"now": 1_000_000.0}
+        monkeypatch.setattr(guard.time, "time", lambda: clock["now"])
+        try:
+            for i in range(guard._TOUCH_CACHE_MAX + 5):
+                guard._maybe_touch(f"key-{i}")
+            assert len(guard._touch_cache) == guard._TOUCH_CACHE_MAX + 5
+            clock["now"] += guard._TOUCH_INTERVAL_SEC + 1
+            guard._maybe_touch("late-arrival")
+            assert set(guard._touch_cache) == {"late-arrival"}
+        finally:
+            guard._touch_cache.clear()
+
 
 # ── Client IP extraction (spoof resistance) ─────────────────────────────────
 

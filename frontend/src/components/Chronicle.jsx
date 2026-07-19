@@ -1,30 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { withKey } from "../auth.js";
+import { mutationLine } from "../mutations.js";
 
 // The world chronicle: the permanent record of everything every player and
 // agent has done in this world, paginated backward in time and grouped into
 // deterministically named eras (GET /chronicle). This is how a new arrival
-// perceives the history they are building on.
-
-function describeEntry(e) {
-  const who = e.player || (e.data && e.data.agent) || "someone";
-  switch (e.type) {
-    case "PUZZLE_SOLVED": return `${who} solved a puzzle at ${e.node}`;
-    case "PUZZLE_FAILED": return `a puzzle resisted ${who} at ${e.node}`;
-    case "PLAYER_SPEAK":  return `${who} spoke with ${e.node}`;
-    case "PLAYER_CHAT":   return `${who} said something at ${e.node}`;
-    case "AGENT_VISIT":   return `${who} passed through ${e.node}`;
-    case "DANGER_ALERT":  return `danger stirred at ${e.node}`;
-    case "SCALE_ACT":     return `${who} chose to ${(e.data && e.data.verb) || "act"} at ${e.node}`;
-    case "AGENT_TALK":    return `${(e.data && e.data.a) || "someone"} and ${(e.data && e.data.b) || "someone"} spoke at ${e.node}`;
-    case "AGENT_VOICE":   return `${who} spoke with ${(e.data && e.data.agent) || "a wanderer"} at ${e.node}`;
-    case "PLAYER_JOIN":   return `${who} arrived in the world`;
-    case "PLAYER_LEAVE":  return `${who} departed from ${e.node}`;
-    case "PLAYER_MOVE":   return `${who} passed into ${e.node}`;
-    case "PUZZLE_ATTEMPT": return `${who} worked at a puzzle in ${e.node}`;
-    default:              return `something happened at ${e.node}`;
-  }
-}
+// perceives the history they are building on. Rows render through the
+// shared mutations.js (the date is shown in its own column here).
 
 export default function Chronicle({ seed, onClose }) {
   const [entries, setEntries] = useState([]);
@@ -65,7 +47,7 @@ export default function Chronicle({ seed, onClose }) {
     }
     rows.push(
       <div key={e.id} style={c.row}>
-        <span style={c.when}>{(e.at || "").slice(5, 16)}</span> {describeEntry(e)}
+        <span style={c.when}>{(e.at || "").slice(5, 16)}</span> {mutationLine(e)}
       </div>
     );
   }

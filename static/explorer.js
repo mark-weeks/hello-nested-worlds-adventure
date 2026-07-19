@@ -183,7 +183,9 @@ async function loadWorld() {
 
 // The single most salient trait of a node, as a marker color — or null for
 // unremarkable places. Priority order and colors mirror the React client's
-// passageBadges (frontend/src/badges.js).
+// passageBadges (frontend/src/badges.js) — all six rules; parity is
+// executed by badges.test.js, which runs THIS function against
+// passageBadges over the same nodes.
 function nodeMark(data) {
   const p = data.properties || {};
   if (typeof p.danger_level === 'number' && p.danger_level >= 7) return '#f05a5a';
@@ -191,6 +193,7 @@ function nodeMark(data) {
   if (p.disturbed) return '#ff8a4a';
   if (p.stabilized) return '#4af0c8';
   if ((data.ripple_score || 0) >= 0.3) return '#a078ff';
+  if (p.locked) return '#8a93b0';
   return null;
 }
 
@@ -259,6 +262,9 @@ function renderTree(worldRoot) {
 // Backfill recent mutations into the event feed so a new arrival sees a
 // world already in motion — who solved what, which agents passed through,
 // where danger stirred — instead of an empty feed.
+// Hand-mirror of frontend/src/mutations.js (this file is served raw, no
+// build step). mutations.test.js executes both copies over every event
+// type and fails on any drift — do not edit one without the other.
 
 function describeMutation(m) {
   const when = (m.at || '').slice(0, 10);

@@ -3,7 +3,7 @@ import Chronicle from "./Chronicle.jsx";
 import Interact from "./Interact.jsx";
 import { passageBadges } from "../badges.js";
 
-export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onLoadWorld, onChat, onJump, soundOn, onToggleSound }) {
+export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onLoadWorld, onChat, onJump, onSolved, soundOn, onToggleSound }) {
   const [seedInput, setSeedInput] = useState(String(seed));
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
@@ -64,7 +64,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
         </div>
       )}
 
-      <Interact node={node} seed={seed} depth={depth} playerName={playerName} />
+      <Interact node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} />
 
       {node.children.length > 0 && (
         <div style={s.section}>

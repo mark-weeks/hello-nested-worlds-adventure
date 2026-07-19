@@ -61,6 +61,7 @@ describe("explorer.js parity", () => {
     [{ disturbed: true }, 0, "disturbed"],
     [{ stabilized: true }, 0, "stabilized"],
     [{}, 0.4, "pressure"],
+    [{ locked: true }, 0, "locked"],
   ])("marks %o with the same color as the React badge", (props, ripple, key) => {
     const badge = passageBadges(node(props, ripple)).find(b => b.key === key);
     expect(nodeMark({ properties: props, ripple_score: ripple })).toBe(badge.css);
@@ -68,5 +69,24 @@ describe("explorer.js parity", () => {
 
   it("marks unremarkable nodes with null", () => {
     expect(nodeMark({ properties: { danger_level: 2 }, ripple_score: 0 })).toBeNull();
+  });
+
+  it("always shows the React client's HIGHEST-priority badge — all six rules", () => {
+    // The full invariant: the explorer's single mark is the first badge the
+    // React client would render, across every rule and combination. This is
+    // what caught the missing `locked` rule (5 of 6 mirrored).
+    const cases = [
+      [{ danger_level: 9, locked: true }, 0],
+      [{ condition: "corrupted", stabilized: true }, 0],
+      [{ locked: true }, 0.4],
+      [{ locked: true }, 0],
+      [{ disturbed: true, locked: true }, 0.4],
+      [{}, 0],
+    ];
+    for (const [props, ripple] of cases) {
+      const badges = passageBadges(node(props, ripple));
+      expect(nodeMark({ properties: props, ripple_score: ripple }))
+        .toBe(badges.length ? badges[0].css : null);
+    }
   });
 });

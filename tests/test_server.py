@@ -262,21 +262,32 @@ class TestAgentPersonas:
 
 class TestPositionResume:
     """/position gives cross-device resume: the last node is stored per invite
-    key, so it follows a tester from one device (or browser) to another."""
+    key, so it follows a tester from one device (or browser) to another.
+
+    Saved nodes must be REAL — the WS join restores the ledger position from
+    this table, so the write path validates the name like a move does (a
+    forged name is refused with saved:false; see TestReconnectResume in
+    test_movement.py for the seal rules)."""
+
+    @staticmethod
+    def _real_node(seed):
+        from multiverse.generator import generate_node_hierarchy
+        return generate_node_hierarchy(seed=seed, max_depth=2).children[0]
 
     def test_round_trip_keyed_by_invite_key(self, srv):
         base, _ = srv
         persistence.mint_invite_key("k_pos", "Pat")
+        node = self._real_node(42)
         saved, status = _post(
             f"{base}/position?key=k_pos",
-            {"node": "Planet · Droven-13", "seed": 42, "depth": 6,
+            {"node": node.name, "seed": 42, "depth": 6,
              "min_breadth": 1, "max_breadth": 3},
         )
         assert status == 200 and saved["saved"] is True
         # A "second device" carrying the same key reads the same position back.
         data, _, _ = _get(f"{base}/position?key=k_pos")
         assert data["position"] == {
-            "node": "Planet · Droven-13", "seed": 42,
+            "node": node.name, "seed": 42,
             "depth": 6, "min_breadth": 1, "max_breadth": 3,
         }
 
@@ -284,12 +295,24 @@ class TestPositionResume:
         base, _ = srv
         persistence.mint_invite_key("k_a", "A")
         persistence.mint_invite_key("k_b", "B")
-        _post(f"{base}/position?key=k_a", {"node": "Room · Attic", "seed": 1})
-        _post(f"{base}/position?key=k_b", {"node": "Atom · Fe-2", "seed": 2})
+        node1, node2 = self._real_node(1), self._real_node(2)
+        _post(f"{base}/position?key=k_a", {"node": node1.name, "seed": 1})
+        _post(f"{base}/position?key=k_b", {"node": node2.name, "seed": 2})
         da, _, _ = _get(f"{base}/position?key=k_a")
         db, _, _ = _get(f"{base}/position?key=k_b")
-        assert da["position"]["node"] == "Room · Attic"
-        assert db["position"]["node"] == "Atom · Fe-2"
+        assert da["position"]["node"] == node1.name
+        assert db["position"]["node"] == node2.name
+
+    def test_forged_node_names_are_refused(self, srv):
+        # resolve_node_by_name is the same forgery gate moves pass through:
+        # a name the world never generated cannot become a resume point.
+        base, _ = srv
+        persistence.mint_invite_key("k_forge", "Forge")
+        saved, status = _post(
+            f"{base}/position?key=k_forge", {"node": "Fake-11", "seed": 42})
+        assert status == 200 and saved["saved"] is False
+        data, _, _ = _get(f"{base}/position?key=k_forge")
+        assert data["position"] is None
 
     def test_no_key_session_is_noop(self, srv):
         # Gate off (no keys minted): the endpoint answers but there's nothing to

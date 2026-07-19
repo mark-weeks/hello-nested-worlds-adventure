@@ -12,6 +12,19 @@ execution where claimed. Two things could not be verified from this sandbox:
 the live deployment (outbound network is policy-blocked) and the "~12k
 worst-case full-depth tree" figure (single-sourced in the CHANGELOG).
 
+> **Second addendum (2026-07-19, later): four residuals this audit left
+> outside its top ten are also resolved** — in the pre-launch hardening
+> batch at the top of `docs/CHANGELOG.md`: the §4 reconnect edge (the WS
+> join now resumes the key's saved position; `/position` validates and
+> seal-checks at write time), the §3 P3 prompt-injection seam (recorded
+> speech is folded and framed as testimony in both bibles), the §7
+> `describeMutation` drift + missing `locked` badge + walk-through
+> mechanism split (one canonical module, executed parity), and two §3
+> nitpicks (RFC 6455 control-frame limits; rate-limiter/touch-cache
+> eviction). Still open from this audit, by scope decision: the seal
+> gates only movement, agent solves feed the re-arm epoch, and FSM
+> agents roll against epoch-0 puzzles post-renewal.
+
 > **Addendum (2026-07-19): the ten recommendations below are resolved** —
 > in the follow-up batch recorded at the top of `docs/CHANGELOG.md`
 > ([Unreleased], "The 2026-07-18 evaluation's ten recommendations,
