@@ -174,6 +174,7 @@ async function loadWorld() {
     renderTree(data.world);
     if (playerName) wsConnect(seed);
     loadHistoryFeed(seed);
+    maybeOfferSound();
   } catch (e) {
     setStatus('Error: ' + e.message);
   } finally {
@@ -398,6 +399,8 @@ function selectNode(data) {
 
 function toggleSound() {
   if (!window.NodeSound) return;
+  const invite = document.getElementById('sound-invite');
+  if (invite) invite.classList.remove('visible');
   if (!window._nwAmbience) window._nwAmbience = new window.NodeSound.NodeAmbience();
   const amb = window._nwAmbience;
   const btn = document.getElementById('btn-sound');
@@ -410,6 +413,24 @@ function toggleSound() {
     btn.textContent = '♪ on';
     btn.setAttribute('aria-pressed', 'true');
   }
+}
+
+// The soundscape is off by default (browsers require an activation gesture),
+// which made it the game's least-discoverable rich surface. Offer it once per
+// session, in fiction, a moment after the world settles — the click IS the
+// gesture the browser requires. Declining leaves only the header toggle.
+const SOUND_INVITED = 'nw_sound_invited';
+
+function maybeOfferSound() {
+  if (sessionStorage.getItem(SOUND_INVITED)) return;
+  setTimeout(() => {
+    if (sessionStorage.getItem(SOUND_INVITED)) return;
+    if (!window.NodeSound) return;  // module not loaded — retry on next world load
+    if (window._nwAmbience && window._nwAmbience.enabled) return;  // already listening
+    sessionStorage.setItem(SOUND_INVITED, '1');
+    const bar = document.getElementById('sound-invite');
+    if (bar) bar.classList.add('visible');
+  }, 3000);
 }
 
 // ── Scale-native verb (POST /act) ───────────────────────────────────────────
@@ -1158,6 +1179,15 @@ document.getElementById('btn-do-puzzle' ).addEventListener('click', fetchPuzzle)
 document.getElementById('btn-do-act'    ).addEventListener('click', doAct);
 document.getElementById('btn-chronicle' ).addEventListener('click', openChronicle);
 document.getElementById('btn-sound'     ).addEventListener('click', toggleSound);
+document.getElementById('sound-invite-yes').addEventListener('click', toggleSound);
+document.getElementById('sound-invite-no').addEventListener('click',
+  () => document.getElementById('sound-invite').classList.remove('visible'));
+document.getElementById('btn-advanced').addEventListener('click', () => {
+  // The engine room, on request: seed / depth / breadth + Generate.
+  const controls = document.querySelector('.controls');
+  const open = controls.classList.toggle('open');
+  document.getElementById('btn-advanced').setAttribute('aria-expanded', String(open));
+});
 document.getElementById('chronicle-older').addEventListener('click', () => loadChroniclePage(false));
 document.getElementById('chronicle-close').addEventListener('click',
   () => document.getElementById('chronicle-modal').classList.remove('visible'));

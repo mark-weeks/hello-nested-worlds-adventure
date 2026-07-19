@@ -34,7 +34,11 @@
       border-bottom: 1px solid #1a2038;
     }
     header h1 { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; color: #3a8eff; white-space: nowrap; }
-    .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    /* The world-generation controls are the engine room, not the game —
+       hidden until the ⚙ affordance opens them (a first-time player should
+       meet the fiction, not Seed/Depth inputs). */
+    .controls { display: none; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .controls.open { display: flex; flex: 1; }
     .ctrl-group { display: flex; align-items: center; gap: 6px; }
     .ctrl-group label { font-size: 10px; color: #4a6080; letter-spacing: 1px; text-transform: uppercase; }
     input[type=number] { background: #10131f; border: 1px solid #222840; color: #b0bcd0; padding: 4px 6px; width: 56px; font-family: inherit; font-size: 11px; }
@@ -58,11 +62,13 @@
     .node.selected circle { stroke: #fff !important; stroke-width: 2.5 !important; }
 
     /* ── Sidebar ── */
-    .sidebar { flex: 0 0 300px; border-left: 1px solid #1a2038; background: #0b0d1a; display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar { flex: 0 0 340px; border-left: 1px solid #1a2038; background: #0b0d1a; display: flex; flex-direction: column; overflow: hidden; }
 
     .panel { padding: 14px 16px; border-bottom: 1px solid #141828; }
     .panel-title { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #304060; margin-bottom: 10px; }
 
+    /* The node's generative art is the hero of the location panel — the place
+       itself, not a thumbnail beside its data. */
     #node-sigil { display: block; width: 100%; border: 1px solid #1a2038; margin-bottom: 10px; background: #07080f; }
     #node-level { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
     #node-name  { font-size: 20px; font-weight: bold; margin-bottom: 12px; line-height: 1.2; }
@@ -165,6 +171,16 @@
     .egg-link:hover { text-decoration: underline; }
     #close { position: absolute; top: 10px; right: 14px; background: none; border: none; color: #3a8eff; font-size: 20px; cursor: pointer; line-height: 1; }
 
+    /* ── Sound invitation ──
+       The soundscape is off by default (browsers require a gesture); this is
+       its once-per-session in-fiction offer. The click IS the gesture. */
+    #sound-invite { display: none; position: fixed; left: 18px; bottom: 18px; z-index: 60;
+      align-items: center; gap: 12px; padding: 10px 14px;
+      background: #0b0d1acc; border: 1px solid #2a4060; backdrop-filter: blur(2px); }
+    #sound-invite.visible { display: flex; }
+    #sound-invite .invite-line { font-size: 11px; color: #7a9ab8; font-style: italic; }
+    #sound-invite-no { border: none; background: none; color: #3a5070; font-size: 14px; padding: 2px 4px; }
+
     /* ── Onboarding intro (join modal) ── */
     .intro-goal { font-size: 11px; color: #7a9ab8; line-height: 1.6; }
     .intro-steps { list-style: none; margin: 4px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
@@ -181,7 +197,7 @@
       body { height: auto; min-height: 100vh; overflow-y: auto; }
       header { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
       header h1 { flex: 1 1 100%; }
-      .controls { flex: 1 1 100%; }
+      .controls.open { flex: 1 1 100%; }
       .body { flex-direction: column; overflow: visible; }
       #graph { flex: none; height: 48vh; min-height: 300px; width: 100%; border-bottom: 1px solid #1a2038; }
       .sidebar { flex: none; width: 100%; border-left: none; overflow: visible; }
@@ -243,7 +259,7 @@
 
 <header>
   <h1>Enfolded</h1>
-  <div class="controls" style="flex:1">
+  <div class="controls">
     <div class="ctrl-group"><label>Seed</label><input type="number" id="seed" value="42" min="0"></div>
     <div class="ctrl-group"><label>Depth</label><input type="number" id="depth" value="6" min="2" max="11"></div>
     <div class="ctrl-group">
@@ -254,6 +270,10 @@
     </div>
     <button class="primary" id="gen-btn">Generate</button>
   </div>
+  <div style="flex:1"></div>
+  <button id="btn-advanced" title="World controls — visit a different world or change the view depth"
+          aria-expanded="false"
+          style="font-size:10px;padding:3px 8px;letter-spacing:1px;white-space:nowrap">⚙</button>
   <button id="btn-sound" title="Ambient sound: every place hums its own deterministic tone"
           aria-pressed="false"
           style="font-size:10px;padding:3px 8px;letter-spacing:1px;white-space:nowrap">♪ off</button>
@@ -267,7 +287,7 @@
   <div class="sidebar">
     <div class="panel">
       <div class="panel-title">Location</div>
-      <canvas id="node-sigil" width="268" height="140"></canvas>
+      <canvas id="node-sigil" width="308" height="232"></canvas>
       <div id="node-level" style="color:#3a8eff">—</div>
       <div id="node-name"  style="color:#3a8eff">Select a node</div>
       <div id="node-props"></div>
@@ -338,6 +358,14 @@
   </div>
 </div>
 
+
+<!-- Sound invitation: once per session, in fiction; the click is the
+     WebAudio activation gesture browsers require. -->
+<div id="sound-invite">
+  <span class="invite-line">The world hums, softly, in every place. Listen?</span>
+  <button id="sound-invite-yes">♪ listen</button>
+  <button id="sound-invite-no" title="not now" aria-label="dismiss">×</button>
+</div>
 
 <!-- World chronicle: the permanent record, era by era -->
 <div class="modal-overlay" id="chronicle-modal">
