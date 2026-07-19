@@ -48,6 +48,15 @@ def _recv_frame(sock) -> tuple[int, bool, bytes]:
         length = struct.unpack(">H", _ws_recvall(sock, 2))[0]
     elif length == 127:
         length = struct.unpack(">Q", _ws_recvall(sock, 8))[0]
+    if opcode >= 0x8:
+        # RFC 6455 §5.5: control frames carry at most 125 bytes of payload
+        # and MUST NOT be fragmented. Before this check a 64KB "ping" was
+        # accepted (and buffered) — spec-violating control traffic is an
+        # attack shape, not a client to accommodate.
+        if length > 125:
+            raise ProtocolError("control frame payload exceeds 125 bytes")
+        if not fin:
+            raise ProtocolError("fragmented control frame")
     if length > _MAX_FRAME:
         raise ProtocolError("WebSocket frame too large")
     if not masked and opcode != 0x8:

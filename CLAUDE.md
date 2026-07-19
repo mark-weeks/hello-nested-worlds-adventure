@@ -124,7 +124,7 @@ co-op. Consequences:
 
 ## The Claude runtime
 
-- Model: `claude-opus-4-7` (env `NESTED_WORLDS_MODEL`). Voice quality is
+- Model: `claude-opus-4-8` (env `NESTED_WORLDS_MODEL`). Voice quality is
   bottlenecked by the *context* the prompt carries, not the model — when a voice
   is flat, first ask what world-state the dynamic block is withholding, not
   whether the model is capable.
@@ -173,9 +173,11 @@ co-op. Consequences:
 ## Pointers
 
 - `docs/CHANGELOG.md` — the batch-by-batch record; read it to learn what shipped.
-- `docs/decisions/ADR-00{1,2,3,4}-*.md` — stack, image generation, persistence
-  backend, and the day-one data policy (permanence, redaction, continuity,
-  identity, write-path scope), each with its "Revisit when…" triggers.
+- `docs/decisions/ADR-00{1,2,3,4,5}-*.md` — stack, image generation, persistence
+  backend, the day-one data policy (permanence, redaction, continuity,
+  identity, write-path scope), and the launch-window operations policy
+  (backup cadence, staging rehearsal, beta client posture, voice model),
+  each with its "Revisit when…" triggers.
 - `docs/roadmap/phase-2-scale.md` — the continuity policy and the phase-2b/2c
   trigger list (living document — edit in place as triggers fire).
 - `docs/infrastructure/fly-deployment.md` — the deploy runbook and §8 launch

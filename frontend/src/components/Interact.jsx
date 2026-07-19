@@ -6,7 +6,7 @@ import { withKey } from "../auth.js";
 // (/puzzle + /puzzle/attempt). Kept in its own component so TextPanel stays
 // small; mirrors the request shapes the D3 explorer already uses.
 
-export default function Interact({ node, seed, depth, playerName }) {
+export default function Interact({ node, seed, depth, playerName, onSolved }) {
   const [tab, setTab] = useState("speak");
 
   // Reset the sub-panels whenever the player moves to a different node.
@@ -34,7 +34,7 @@ export default function Interact({ node, seed, depth, playerName }) {
       {tab === "speak" &&
         <Speak key={`sp-${nodeKey}`} node={node} seed={seed} playerName={playerName} />}
       {tab === "puzzle" &&
-        <Puzzle key={`pz-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} />}
+        <Puzzle key={`pz-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} />}
       {tab === "act" && verb &&
         <Act key={`act-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} />}
     </div>
@@ -190,7 +190,7 @@ function Speak({ node, seed, playerName }) {
 
 // ── Puzzle (GET /puzzle, POST /puzzle/attempt) ──────────────────────────────
 
-function Puzzle({ node, seed, depth, playerName }) {
+function Puzzle({ node, seed, depth, playerName, onSolved }) {
   const [puzzle, setPuzzle] = useState(null);
   const [status, setStatus] = useState("");
   const [answer, setAnswer] = useState("");
@@ -227,12 +227,18 @@ function Puzzle({ node, seed, depth, playerName }) {
       const data = await r.json();
       setResult(data);
       setAttempt(data.attempt ?? attempt + 1);
+      // If this node was sealed, the solve IS the key: tell App to walk
+      // through the now-open door off the HTTP response itself — the same
+      // trigger the D3 explorer uses — instead of relying only on the WS
+      // puzzle_solved broadcast, which an evicted or reconnecting socket
+      // can miss. (A harmless re-move anywhere else.)
+      if (data.correct) onSolved?.(node.name);
     } catch (e) {
       setStatus("Error: " + e.message);
     } finally {
       setBusy(false);
     }
-  }, [answer, busy, result, seed, depth, node, playerName, attempt]);
+  }, [answer, busy, result, seed, depth, node, playerName, attempt, onSolved]);
 
   if (!puzzle) {
     return (

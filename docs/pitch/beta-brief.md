@@ -6,7 +6,7 @@ questions a skeptical engineer will raise before they raise them. Everything
 here is grounded in the shipped code — every claim names the file, the CHANGELOG
 batch, and the test that guards it, so you can check any of it.*
 
-*Last re-verified against the code: 2026-07-18.*
+*Last re-verified against the code: 2026-07-19.*
 
 ---
 
@@ -199,7 +199,7 @@ ring at world speed, and see a cast of Claude-adjacent agents keep the world
 moving while you stand still — most of it with no API key at all, and none of it
 breaking character when a key or a budget runs out. It is deliberately quiet,
 contemplative, and honest about what it is: the infrastructure is real and
-tested (**750 passing Python tests**, `pytest tests/ -q`, plus 69 Vitest
+tested (**792 passing Python tests**, `pytest tests/ -q`, plus 77 Vitest
 cross-client parity tests), the world is a genuine append-only
 chronicle, and the hardest engineering questions — canonical worlds, truthful
 cascade physics, server-derived identity, unattended life, durable agent memory,

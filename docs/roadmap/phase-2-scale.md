@@ -71,6 +71,20 @@ already emitted — read them from Sentry (uncaught exceptions) and the
 | Concurrent /speak in flight | semaphore wait time (add timing log if needed) | observed wait > 500ms p95 |
 | Active testers | `invite_keys.last_used_at` | crosses 50 active in 7-day window |
 
+### First post-launch batch (scheduled, not triggered): continuous backup
+
+Decided in ADR-005: the hourly off-host backup (`backup.yml`) is the
+launch-week posture, and **Litestream-style continuous WAL replication
+to object storage is the first post-launch infrastructure batch** — it
+shrinks the chronicle's loss window from an hour to seconds, which is
+what the continuity covenant actually deserves. It is deliberately NOT
+a pre-launch change: it is a new external seam (Litestream wants to own
+WAL checkpointing while the server checkpoints on SIGTERM; the
+entrypoint and the restore procedure both change), so it gets a full
+blind-spot pass and a restore rehearsal of its own, not a launch-week
+rush. When it lands, revisit the hourly cadence (the artifact trail may
+drop back to daily as a second net).
+
 ---
 
 ## Phase 2b — 100 users (deferred, triggered)

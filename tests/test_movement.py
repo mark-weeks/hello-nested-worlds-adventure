@@ -4,10 +4,12 @@ rooms, and live agent presence — the substrate the travelers panel rides on.
 from __future__ import annotations
 
 import base64
+import json
 import os
 import random
 import socket
 import time
+import urllib.request
 
 import pytest
 
@@ -20,7 +22,9 @@ from server.rooms import (
     Player, agent_enter, agent_leave, agent_move, agents_snapshot, clear_rooms,
     get_room,
 )
-from tests.test_day_one_recording import _ws_connect, _ws_send_json, srv  # noqa: F401
+from tests.test_day_one_recording import (  # noqa: F401
+    _wait_for_rows, _ws_connect, _ws_send_json, srv,
+)
 from tests.test_heartbeat import _FakeSock, _decode_frames
 
 
@@ -283,3 +287,103 @@ class TestAgentPresence:
         assert "agent_leave" in kinds
         # Presence state is clean after the walk.
         assert agents_snapshot(room) == []
+
+
+# ── Reconnect resume (the ledger position survives a dropped session) ───────
+
+def _post_position(port, key, node, seed):
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/position",
+        data=json.dumps({"node": node, "seed": seed}).encode(),
+        headers={"Content-Type": "application/json", "X-Beta-Key": key},
+        method="POST")
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return json.loads(r.read())
+
+
+class TestReconnectResume:
+    """A keyed WS join resumes where the key last verifiably stood.
+
+    Every deploy drops all live sessions; before this, the server ledger
+    reset every reconnecting player to the world's root — silently diverging
+    from the client's resumed view, and locking a player whose room had
+    re-sealed around them OUT of their own position. Positions are validated
+    and seal-checked when POSTed (write time); the join trusts the table.
+    """
+
+    def test_join_resumes_saved_position_and_chat_lands_there(self, srv):
+        seed = 42
+        key = "nw_resume_key"
+        persistence.mint_invite_key(key, "Resa")
+        mid = generate_node_hierarchy(seed=seed, max_depth=2).children[0]
+        assert _post_position(srv, key, mid.name, seed)["saved"] is True
+
+        s, status = _ws_connect(srv, seed, "ignored", invite_key=key)
+        assert b"101" in status
+        joins = _wait_for_rows(seed, mid.name, "PLAYER_JOIN")
+        assert joins and joins[0]["player"] == "Resa"
+        # Chat before any move is attributed to the RESUMED node, not root.
+        _ws_send_json(s, {"type": "chat", "text": "back where I stood"})
+        chats = _wait_for_rows(seed, mid.name, "PLAYER_CHAT")
+        assert chats and chats[0]["data"]["text"] == "back where I stood"
+        s.close()
+
+    def test_keyless_or_unsaved_joins_still_enter_at_root(self, srv):
+        seed = 4341
+        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
+        s, _ = _ws_connect(srv, seed, "Fresh")
+        assert _wait_for_rows(seed, root_name, "PLAYER_JOIN")
+        s.close()
+
+    def test_position_in_another_world_grants_nothing(self, srv):
+        # A position saved in world 42 must not resolve inside world 4342.
+        key = "nw_crossworld"
+        persistence.mint_invite_key(key, "Cross")
+        mid = generate_node_hierarchy(seed=42, max_depth=2).children[0]
+        assert _post_position(srv, key, mid.name, 42)["saved"] is True
+        other = 4342
+        s, _ = _ws_connect(srv, other, "ignored", invite_key=key)
+        root_name = generate_node_hierarchy(seed=other, max_depth=1).name
+        assert _wait_for_rows(other, root_name, "PLAYER_JOIN")
+        s.close()
+
+    def test_a_sealed_room_cannot_be_saved_from_outside(self, srv):
+        # The seal-bypass this table could have become: POST a position
+        # inside an unsolved locked room, reconnect, stand past the door.
+        seed = 42
+        key = "nw_mallory"
+        persistence.mint_invite_key(key, "Mallory1")
+        room = _rooms_by_lock(seed, locked=True)[0]
+        assert _post_position(srv, key, room.name, seed)["saved"] is False
+        assert persistence.get_player_position(key) is None
+        # The join falls back to the root — no teleport past the seal.
+        s, _ = _ws_connect(srv, seed, "ignored", invite_key=key)
+        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
+        assert _wait_for_rows(seed, root_name, "PLAYER_JOIN")
+        s.close()
+
+    def test_reseal_never_imprisons_across_a_reconnect(self, srv):
+        # The covenant edge this feature exists for: a player standing
+        # legitimately inside a room when entropy re-seals it must get
+        # their position back on reconnect — and still move freely within.
+        seed = 42
+        key = "nw_inside"
+        persistence.mint_invite_key(key, "Indra")
+        room = next(r for r in _rooms_by_lock(seed, locked=True) if r.children)
+        inner = room.children[0]
+        _human_solve(seed, room)  # the way opens
+        assert _post_position(srv, key, inner.name, seed)["saved"] is True
+        # Entropy re-arms the puzzle: the door seals with Indra inside.
+        persistence.record_mutation(seed, room.name, "PUZZLE_REARM", None,
+                                    {"trigger": "DANGER_ALERT"})
+        assert seal_check(seed, room) is not None  # sealed again for outsiders
+        # Mirroring a position WITHIN the sealed subtree still works — the
+        # prior saved position is already inside ("already inside" rule).
+        assert _post_position(srv, key, room.name, seed)["saved"] is True
+        # Reconnect: the ledger resumes inside the seal, not at the root.
+        s, _ = _ws_connect(srv, seed, "ignored", invite_key=key)
+        assert _wait_for_rows(seed, room.name, "PLAYER_JOIN")
+        # And movement within the subtree is not imprisoned.
+        _ws_send_json(s, {"type": "move", "node": inner.name})
+        assert _wait_for_rows(seed, inner.name, "PLAYER_MOVE")
+        s.close()

@@ -161,6 +161,36 @@ class TestRfcCompliance:
         assert sock.sent[0] == 0x8A
         assert bytes(sock.sent[2:]) == b"keepalive"
 
+
+class TestControlFrameLimits:
+    """§5.5: control frames carry at most 125 bytes and are never fragmented.
+
+    Before these limits, a 64KB "ping" was accepted, buffered, and answered —
+    spec-violating control traffic is an attack shape, not a client quirk.
+    """
+
+    def test_oversized_ping_is_a_protocol_error(self):
+        sock = FakeSock(_client_frame(b"x" * 126, opcode=0x9))
+        with pytest.raises(ProtocolError, match="control frame"):
+            ws_recv(sock)
+        assert not sock.sent  # no pong for spec-violating traffic
+
+    def test_oversized_close_is_a_protocol_error(self):
+        sock = FakeSock(_client_frame(b"x" * 200, opcode=0x8))
+        with pytest.raises(ProtocolError, match="control frame"):
+            ws_recv(sock)
+
+    def test_boundary_125_byte_ping_is_still_ponged(self):
+        payload = b"k" * 125
+        sock = FakeSock(_client_frame(payload, opcode=0x9))
+        assert ws_recv(sock) == b""
+        assert sock.sent[0] == 0x8A and bytes(sock.sent[2:]) == payload
+
+    def test_fragmented_control_frame_is_a_protocol_error(self):
+        sock = FakeSock(_client_frame(b"", opcode=0x9, fin=False))
+        with pytest.raises(ProtocolError, match="fragmented control"):
+            ws_recv(sock)
+
     def test_continuation_without_start_is_a_protocol_error(self):
         sock = FakeSock(_client_frame(b"orphan", opcode=0x0))
         with pytest.raises(ProtocolError, match="nothing to continue"):

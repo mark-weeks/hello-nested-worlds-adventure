@@ -945,11 +945,26 @@ class Handler(BaseHTTPRequestHandler):
             session_id = uuid.uuid4().hex[:8]
             # Durable identity for this session's chronicle rows (chat).
             ws_identity = _actor_identity(ws_key, name)
-            # Players enter at the world's root, not in limbo: chat sent
-            # before the first move used to be silently unrecorded because
-            # current_node started "".
+            # Players enter at their saved position, else the world's root —
+            # never in limbo (chat sent before the first move used to be
+            # silently unrecorded because current_node started ""). Restoring
+            # matters because every deploy drops all live sessions: a ledger
+            # that reset everyone to the root silently diverged from the
+            # client's resumed view, and a player whose room re-sealed
+            # around them was locked OUT of their own position on reconnect.
+            # Saved positions are validated and seal-checked at write time
+            # (_do_save_position), so no seal re-check here is deliberate: a
+            # seal that closed after the save is exactly the "already inside
+            # — the seal never imprisons" case.
             root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
-            player = Player(name=name, seed=seed, current_node=root_name,
+            entry_node = root_name
+            if ws_key:
+                saved = persistence.get_player_position(ws_key)
+                if saved and saved.get("seed") == seed and saved.get("node"):
+                    target = resolve_node_by_name(seed, str(saved["node"])[:128])
+                    if target is not None:
+                        entry_node = target.name
+            player = Player(name=name, seed=seed, current_node=entry_node,
                             session_id=session_id, sock=sock)
             player.start_writer()
 
@@ -965,7 +980,7 @@ class Handler(BaseHTTPRequestHandler):
             # Presence is chronicle material: that someone was HERE is the
             # experience later players build on, and it cannot be backfilled.
             persistence.record_mutation(
-                seed, root_name, "PLAYER_JOIN", name, {},
+                seed, entry_node, "PLAYER_JOIN", name, {},
                 actor_identity=ws_identity)
 
             # Per-connection throttles: the connection limiter bounds how
@@ -1300,7 +1315,17 @@ class Handler(BaseHTTPRequestHandler):
     def _do_save_position(self, body: dict, user_key: str = "") -> None:
         """POST /position — persist the caller's last position for cross-device
         resume. No-ops (saved:false) unless the request carries a per-user
-        invite key with a live row."""
+        invite key with a live row.
+
+        The saved node is validated like a move: it must resolve, and it is
+        seal-checked from the caller's PREVIOUS saved position. The WS join
+        restores from this table without re-checking seals, so write-time is
+        where the door is guarded — a client that could freely save any node
+        name could otherwise teleport past a seal by reconnecting. Checking
+        from the prior saved position (not from outside) is what lets a
+        player standing legitimately inside a room mirror their position
+        even after the room re-seals around them — the same "already
+        inside" rule the move path applies."""
         node_name = str(body.get("node", ""))[:128].strip()
         if not node_name:
             return self._send_error("missing node")
@@ -1315,8 +1340,21 @@ class Handler(BaseHTTPRequestHandler):
         depth = _int("depth", 6)
         min_b = _int("min_breadth", 1)
         max_b = _int("max_breadth", 3)
+        target = resolve_node_by_name(seed, node_name)
+        if target is None:
+            # A phantom name never enters the resume path; the client's
+            # local cache stands.
+            return self._send_json({"saved": False})
+        prior = persistence.get_player_position(user_key) if user_key else None
+        prior_name = (prior or {}).get("node") or ""
+        if (prior or {}).get("seed") != seed:
+            prior_name = ""  # standing in another world grants no standing here
+        if gates.seal_check(seed, target, current_name=prior_name) is not None:
+            # Sealed off from where this key last verifiably stood — an
+            # unearned position is not saved.
+            return self._send_json({"saved": False})
         saved = persistence.save_player_position(
-            user_key, node_name, seed, depth, min_b, max_b,
+            user_key, target.name, seed, depth, min_b, max_b,
         )
         self._send_json({"saved": bool(saved)})
 

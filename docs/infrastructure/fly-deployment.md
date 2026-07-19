@@ -203,6 +203,36 @@ scripts/deploy.sh --first-deploy
 attaches the volume, and rolls the machine over to the new image. First
 deploy takes ~3-5 minutes.
 
+### 3a. Staging rehearsal — before the permanent world begins
+
+The first production deploy springs two one-way doors at once: the
+content banks freeze and history becomes permanent. Rehearse on a
+disposable twin first (ADR-005): the onboarding watch, the WS soak, and
+the live-voice probe all run against a world that is thrown away, and
+the deploy runbook itself gets exercised end-to-end before the run that
+counts. Everything below is the production procedure with a different
+app name — `scripts/deploy.sh` honors `FLY_APP`.
+
+```bash
+# Stand up the twin (same region; its own volume).
+fly apps create enfolded-staging
+fly volumes create enfolded_data -a enfolded-staging --region iad --size 1
+fly secrets set -a enfolded-staging ANTHROPIC_API_KEY=sk-ant-... # + FAL_KEY / SENTRY_DSN as desired
+
+FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy
+
+# Rehearse against it: mint a key, run the live-voice probe (§8), run
+# scripts/ws_soak.py, and watch 2-3 newcomers complete onboarding here —
+# never on production. Rehearse a restore (§7) against its volume too.
+
+# Tear it down before launch — the staging chronicle must not linger as
+# a second world that looks real.
+fly apps destroy enfolded-staging --yes
+```
+
+Fix what the rehearsal surfaces, then run §3 against the production app
+— deliberately.
+
 ---
 
 ## 4. Smoke test
@@ -330,12 +360,14 @@ backups. The manual equivalent:
 fly ssh console -C "python main.py backup --to /data/backups/worlds-$(date -u +%Y%m%d).db"
 ```
 
-**Off-host copies (daily, automated).** The continuity promise makes
+**Off-host copies (hourly, automated).** The continuity promise makes
 data loss a broken covenant, not an outage — the loss window is kept to
-one day. `.github/workflows/backup.yml` runs daily at 06:00 UTC (or on
-demand via workflow_dispatch), takes an online backup on the machine,
-downloads it, and stores it as a GitHub artifact with 90-day retention.
-It activates the moment you add a `FLY_API_TOKEN` repository secret
+one hour (ADR-005; continuous Litestream-style replication, which
+shrinks it to seconds, is the recorded post-launch follow-up).
+`.github/workflows/backup.yml` runs hourly (or on demand via
+workflow_dispatch), takes an online backup on the machine, downloads
+it, and stores it as a GitHub artifact with 90-day retention. It
+activates the moment you add a `FLY_API_TOKEN` repository secret
 (`fly tokens create deploy`); **until the secret is set it no-ops with a
 notice — set it before launch and manually dispatch one run to verify
 the artifact appears.** The manual equivalent:
@@ -421,7 +453,10 @@ bottom on the day.
       single account; the global cap is the one that can mute the whole
       cohort at the worst moment.
 - [ ] Watch 2-3 people who have never seen the app complete onboarding
-      (screen share is fine). Fix what confuses them before wide invites.
+      (screen share is fine) — **on the staging rehearsal app (§3a),
+      never on production**: their first fumbling sessions must not
+      become permanent world history. Fix what confuses them, tear the
+      staging app down, then deploy production.
 
 **Launch day:**
 
