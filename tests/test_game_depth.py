@@ -4,7 +4,6 @@ entropy, agents acting by persona, and per-node verb character.
 from __future__ import annotations
 
 import random
-import threading
 
 import pytest
 
@@ -15,7 +14,7 @@ from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from puzzles.engine import PuzzleEngine, build_puzzle
 from server import heartbeat
-from server.rooms import clear_rooms, get_room
+from server.rooms import clear_rooms
 
 
 @pytest.fixture(autouse=True)

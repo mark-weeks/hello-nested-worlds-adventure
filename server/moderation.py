@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from server import guard
@@ -57,10 +58,36 @@ _LEET = str.maketrans({
     "0": "o", "$": "s", "5": "s", "7": "t",
 })
 
+# Homoglyph fold: letters from other scripts that render identically (or
+# near-identically) to Latin ones. Without this, a slur written with one
+# Cyrillic vowel had its non-ASCII letters *stripped* by the [^a-z0-9] pass —
+# matching neither the block tier nor any escalation trigger, entering the
+# chronicle screened by nothing. Applied after NFKC (which already folds
+# fullwidth forms and ligatures) and casefold (which lowers the uppercase
+# variants into the forms mapped here). Deliberately only the classic
+# confusable set — unmapped scripts still strip, and redaction remains the
+# backstop for what no filter catches.
+_CONFUSABLES = str.maketrans({
+    # Cyrillic
+    "а": "a", "в": "b", "е": "e", "ё": "e", "к": "k", "м": "m", "н": "h",
+    "о": "o", "р": "p", "с": "c", "т": "t", "у": "y", "х": "x", "і": "i",
+    "ї": "i", "ѕ": "s", "ј": "j", "ԁ": "d", "ԛ": "q", "ԝ": "w",
+    # Greek
+    "α": "a", "ε": "e", "η": "n", "ι": "i", "κ": "k", "ν": "v", "ο": "o",
+    "ρ": "p", "τ": "t", "υ": "u", "χ": "x",
+    # Latin look-alikes
+    "ı": "i", "ɡ": "g", "ℓ": "l",
+})
+
+
+def _normalize(text: str) -> str:
+    """NFKC + casefold + homoglyph fold — one canonical form for matching."""
+    return unicodedata.normalize("NFKC", text).casefold().translate(_CONFUSABLES)
+
 
 def _words(text: str) -> list[str]:
-    """Casefolded, leet-mapped, punctuation-stripped word list."""
-    mapped = text.casefold().translate(_LEET)
+    """Normalized, leet-mapped, punctuation-stripped word list."""
+    mapped = _normalize(text).translate(_LEET)
     return re.sub(r"[^a-z0-9]+", " ", mapped).split()
 
 

@@ -7,7 +7,6 @@ env-var-driven behaviour can be set per test without leaking across cases.
 from __future__ import annotations
 
 import base64
-import http.client
 import json
 import os
 import socket
@@ -295,7 +294,13 @@ class TestCostCap:
                               {"node_name": real_node, "seed": 42})
         assert status == 200
         assert data["url"] is None
-        assert "budget" in data["error"]
+        # Failure stays in fiction: the exhausted budget answers with the
+        # authored quiet line and an images:false flag — never an ops string
+        # ("budget", "FAL_KEY") in a player-fetchable payload.
+        assert data["images"] is False
+        assert "budget" not in data["error"]
+        assert "FAL_KEY" not in data["error"]
+        assert data["error"]  # an authored line, not an empty string
 
 
 # ── Per-user spend sub-cap (fairness) ───────────────────────────────────────
@@ -626,3 +631,99 @@ class TestWebSocketGate:
             for s in held:
                 if s:
                     s.close()
+
+
+# ── Read-side rate limiting (2026-07-18 evaluation rec 3) ───────────────────
+
+class TestReadRateLimit:
+    """The expensive GETs get their own, looser per-IP limiter.
+
+    /world rebuilds and serializes the canonical tree per hit and /agent
+    runs an FSM traversal — neither costs API budget, so the cost caps
+    never bound them; before READ_RATE_LIMITER they were the one
+    unthrottled way to pin the beta VM's CPU.
+    """
+
+    def test_expensive_get_is_limited(self, srv, monkeypatch):
+        monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, "2")
+        base, _ = srv
+        assert _get_status(f"{base}/history?seed=42") == 200
+        assert _get_status(f"{base}/history?seed=42") == 200
+        assert _get_status(f"{base}/history?seed=42") == 429
+
+    def test_deny_line_stays_in_fiction(self, srv, monkeypatch):
+        monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, "1")
+        base, _ = srv
+        _get_status(f"{base}/history?seed=42")
+        try:
+            urllib.request.urlopen(f"{base}/history?seed=42")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 429
+            body = json.loads(exc.read())
+            # The explorer renders this text verbatim in its panels, so the
+            # deny must arrive as the world's voice, not ops-speak.
+            assert body["error"]
+            assert "rate" not in body["error"].lower()
+            assert "slow down" not in body["error"].lower()
+        else:
+            pytest.fail("expected 429 after exceeding the read limit")
+
+    def test_static_shell_and_health_are_never_read_limited(self, srv,
+                                                            monkeypatch):
+        monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, "1")
+        base, _ = srv
+        _get_status(f"{base}/history?seed=42")   # burn the read quota
+        assert _get_status(f"{base}/health") == 200
+        assert _get_status(f"{base}/") == 200
+
+    def test_read_limiter_is_independent_of_post_limiter(self, srv,
+                                                         monkeypatch):
+        # Burning the POST quota must not 429 a read, and vice versa.
+        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "1")
+        monkeypatch.setenv(guard.DISABLE_AI_ENV, "1")
+        base, _ = srv
+        _post(f"{base}/speak", {"node_name": "X", "message": "hi"})
+        assert _get_status(f"{base}/history?seed=42") == 200
+
+
+class TestAgentMaxNodesClamp:
+    def test_huge_max_nodes_is_clamped(self, srv):
+        # An unbounded client value bought arbitrary server CPU with one
+        # request; the walk is now capped at 500 visits regardless of ask.
+        base, _ = srv
+        data = _get_json(
+            f"{base}/agent?seed=42&name=ClampScout&max_nodes=999999")
+        assert data["nodes_visited"] <= 500
+
+    def test_nonpositive_max_nodes_still_answers(self, srv):
+        base, _ = srv
+        data = _get_json(f"{base}/agent?seed=42&name=ClampScout2&max_nodes=-5")
+        assert data["nodes_visited"] >= 0
+
+
+class TestBodyShapeRobustness:
+    """Malformed-but-valid JSON must be the client's 400, never our 500."""
+
+    def test_json_array_body_is_400_not_500(self, srv):
+        # json.loads(b"[1,2]") succeeds, and body.get() would AttributeError
+        # into the catch-all 500 without the isinstance guard.
+        base, _ = srv
+        req = urllib.request.Request(
+            f"{base}/speak", data=b"[1, 2, 3]",
+            headers={"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(req)
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 400
+        else:
+            pytest.fail("expected 400 for a JSON array body")
+
+    def test_numeric_answer_is_a_guess_not_a_500(self, srv):
+        # {"answer": 7} is a legitimate attempt at a sequence puzzle.
+        from multiverse.generator import generate_node_hierarchy
+        base, _ = srv
+        real_node = generate_node_hierarchy(seed=42, max_depth=1).name
+        data, status = _post(f"{base}/puzzle/attempt",
+                             {"node_name": real_node, "seed": 42, "answer": 7})
+        assert status == 200
+        assert "result" in data

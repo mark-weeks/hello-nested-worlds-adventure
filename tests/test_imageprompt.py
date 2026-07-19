@@ -1,9 +1,7 @@
 """Tests for server/imageprompt.py — structured per-level prompt assembly."""
 from __future__ import annotations
 
-import pytest
 
-from server import imageprompt
 from server.imageprompt import (
     HIERARCHY_STYLES, assemble_prompt, derive_modifiers, style_signature,
 )

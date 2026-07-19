@@ -40,7 +40,9 @@ def _isolate_rate_limits():
     singletons; one test file's requests must not 429 the next file's."""
     from server import guard
     guard.RATE_LIMITER.reset()
+    guard.READ_RATE_LIMITER.reset()
     guard.WS_LIMITER.reset()
     yield
     guard.RATE_LIMITER.reset()
+    guard.READ_RATE_LIMITER.reset()
     guard.WS_LIMITER.reset()

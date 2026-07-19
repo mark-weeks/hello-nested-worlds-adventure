@@ -2,12 +2,12 @@
 
 import copy
 import random
-from typing import Callable, List
+from typing import List
 
 from multiverse.node import SpatialNode
 from puzzles.data import DEFAULT_POOL, LEVEL_POOLS
 from puzzles.generators import CANONICAL_LEVELS, build_puzzle, node_rng
-from puzzles.types import Puzzle, PuzzleKind, PuzzleResult
+from puzzles.types import Puzzle, PuzzleResult
 
 
 # ── Puzzle selector ────────────────────────────────────────────────────────

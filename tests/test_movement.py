@@ -4,17 +4,15 @@ rooms, and live agent presence — the substrate the travelers panel rides on.
 from __future__ import annotations
 
 import base64
-import json
 import os
 import random
 import socket
-import threading
 import time
 
 import pytest
 
 import persistence
-from multiverse.generator import generate_node_hierarchy, resolve_node_by_name
+from multiverse.generator import generate_node_hierarchy
 from puzzles.gates import seal_check, sealing_room
 from puzzles.generators import build_puzzle
 from server import guard, heartbeat
@@ -184,7 +182,8 @@ class TestMoveValidation:
             timeout=6.0)
         moves = [f for f in frames if f.get("type") == "player_move"]
         assert moves and moves[0]["node"] == target.name
-        a.close(); b.close()
+        a.close()
+        b.close()
 
     def test_forged_names_cannot_enter_the_chronicle(self, srv):
         # A name with a REAL path but a wrong base is forged identity —

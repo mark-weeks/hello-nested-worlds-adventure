@@ -15,7 +15,7 @@ No IP-Adapter or LoRA conditioning at beta. Consistency is achieved through stru
 Lives in `server/imageprompt.py`, called from `server/handlers.py::_do_image`. Three pieces:
 
 1. **`HIERARCHY_STYLES`** — per-level aesthetic baseline string, covering all 11 scales (Multiverse → SubatomicParticle).
-2. **`derive_modifiers(properties, history)`** — implements the property→signal matrix from `docs/design/game-design.md`. Six of seven rows are live (agent activity, conflict, cooperation, pristine, corrupted, puzzle). The seventh — *high ripple weight* — still waits on causality→`ripple_score` being mutated.
+2. **`derive_modifiers(properties, history)`** — implements the property→signal matrix from `docs/design/game-design.md`. Six of seven rows are live (agent activity, conflict, cooperation, pristine, corrupted, puzzle). The seventh — *high ripple weight* — still waits on causality→`ripple_score` being mutated. *(Update 2026-07-18: the seventh row is live too — persisted `ripple_score` is mutated via `persistence.increment_ripple_score`, wired in `causality/wiring.py`, and read by `server/imageprompt.py`. All seven rows ship.)*
 3. **`assemble_prompt(level, name, properties, history)`** — combines baseline + modifiers + property summary into the final fal.ai prompt.
 
 Inputs are the same `world_mutations` rows the cache key already consumes; no extra DB calls vs. the previous flat-dump prompt.
@@ -49,7 +49,7 @@ The model swap to `fast-sdxl` is incidental — comparable cost and quality; rev
 
 The original ADR keyed invalidation off `ripple_score`, a field on `SpatialNode`. That field is now mutated on every causality-bus fire (`causality/__init__.py::CausalityBus._fire`), but it lives in memory on the in-process tree — not in persistence — so the server cache layer still doesn't have a cross-request handle on it. The cache key instead folds in (a) a coarse bucket of accumulated interaction history (`world_mutations` rows for the node, divided by 5) and (b) a style-modifier signature (`server.imageprompt.style_signature`). Together these deliver the user-visible behaviour the ADR promised — visuals refresh as a node accumulates state, *and* refresh whenever the modifier mix would change.
 
-Persisted `ripple_score` (so the cache layer can read it across requests) remains a future enhancement; until then the high-ripple matrix row uses total mutation count as a serviceable proxy.
+Persisted `ripple_score` (so the cache layer can read it across requests) remains a future enhancement; until then the high-ripple matrix row uses total mutation count as a serviceable proxy. *(Update 2026-07-18: shipped — `ripple_score` is now persisted via `persistence.increment_ripple_score`, wired through `causality/wiring.py`, and `server/imageprompt.py` reads it across requests; the mutation-count proxy is retired.)*
 
 ---
 
@@ -73,7 +73,7 @@ These are not deferrals — they are gaps that should be closed before Phase 1 b
 
 ### 2. ~~Structured prompt assembly~~ — closed via `server/imageprompt.py`
 
-**Resolved.** Per-level baselines (`HIERARCHY_STYLES`) cover all 11 scales, and six of the seven property→signal matrix rows from `docs/design/game-design.md` are live. The seventh (*high ripple weight*) waits on causality→`ripple_score` mutation to land.
+**Resolved.** Per-level baselines (`HIERARCHY_STYLES`) cover all 11 scales, and six of the seven property→signal matrix rows from `docs/design/game-design.md` are live. The seventh (*high ripple weight*) waits on causality→`ripple_score` mutation to land. *(Since landed — see the 2026-07-18 notes above; all seven rows are live.)*
 
 The cache key now includes a style signature so a modifier flip (e.g. crossing the AGENT_VISIT≥5 threshold, or DANGER_ALERT appearing for the first time) regenerates the image even if the count bucket hasn't advanced.
 

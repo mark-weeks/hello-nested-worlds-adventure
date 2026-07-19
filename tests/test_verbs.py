@@ -14,10 +14,9 @@ import urllib.request
 import pytest
 
 import persistence
-from causality import EventKind
 from multiverse.generator import LEVELS, generate_node_hierarchy
 from multiverse.node import SpatialNode
-from multiverse.verbs import VERBS, VERBS_BY_NAME, apply_verb, verb_for_level
+from multiverse.verbs import VERBS, VERBS_BY_NAME, apply_verb
 
 
 @pytest.fixture(autouse=True)

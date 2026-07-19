@@ -7,7 +7,7 @@ from puzzles.engine import PuzzleEngine
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from puzzles.generators import (
-    CANONICAL_LEVELS, build_puzzle, node_difficulty, node_rng,
+    CANONICAL_LEVELS, build_puzzle, node_difficulty,
 )
 
 

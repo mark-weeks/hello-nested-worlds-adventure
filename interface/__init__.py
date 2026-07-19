@@ -8,9 +8,7 @@ from causality import CausalityBus, EventKind
 from causality.wiring import wire_world_handlers
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
-from multiverse.utils import (
-    apply_property_overrides, apply_ripple_scores, build_distance_map,
-)
+from multiverse.utils import apply_property_overrides, apply_ripple_scores
 from puzzles.engine import PuzzleEngine
 from puzzles.types import PuzzleResult
 from agents.agent import Agent
@@ -145,7 +143,8 @@ def _ambient_mode(node: SpatialNode, seed: int) -> None:
         pass
 
 
-def _play_puzzle(node: SpatialNode, seed: int) -> None:
+def _play_puzzle(node: SpatialNode, seed: int,
+                 player_name: str | None = None) -> None:
     engine = PuzzleEngine(seed=seed)
     engine.attach_puzzles(node, persistence.count_rearms_by_node(seed))
     puzzle = engine.puzzle_for(node)
@@ -158,12 +157,17 @@ def _play_puzzle(node: SpatialNode, seed: int) -> None:
     # browser solve. The origin settles immediately; the rest of the cascade
     # rides the causal queue and arrives ring by ring (fired by the server's
     # causal pump), so the consequence travels outward over real time.
+    # The solve is recorded under the session's required --name (ADR-004 §7:
+    # no session writes an unknown presence into the permanent chronicle) —
+    # a nameless PUZZLE_SOLVED row would open seals and count as human
+    # progress while being attributable to no one.
     if result == PuzzleResult.SOLVED:
         from causality.staging import stage_cascade
         persistence.save_puzzle_result(seed, puzzle.name, result.name, puzzle.attempts)
         # record=False below: this row is the canonical origin record.
         persistence.record_mutation(
-            seed, node.name, "PUZZLE_SOLVED", None, {"puzzle": puzzle.name})
+            seed, node.name, "PUZZLE_SOLVED", player_name,
+            {"puzzle": puzzle.name}, actor_identity=player_name)
         bus = wire_world_handlers(CausalityBus(), seed, record=False)
         bus.emit(node, EventKind.PUZZLE_SOLVED, {"puzzle": puzzle.name})
         staged = stage_cascade(seed, node, EventKind.PUZZLE_SOLVED,
@@ -172,7 +176,8 @@ def _play_puzzle(node: SpatialNode, seed: int) -> None:
               f"already traveling outward.{_RESET}")
     elif result == PuzzleResult.FAILED:
         persistence.record_mutation(
-            seed, node.name, "PUZZLE_FAILED", None, {"puzzle": puzzle.name})
+            seed, node.name, "PUZZLE_FAILED", player_name,
+            {"puzzle": puzzle.name}, actor_identity=player_name)
 
 
 def _do_scale_verb(node: SpatialNode, seed: int,
@@ -341,7 +346,7 @@ def run_session(seed: int = 42, depth: int = 6,
             _ambient_mode(stack[-1], seed)
 
         elif cmd in ("puzzle", "p"):
-            _play_puzzle(stack[-1], seed)
+            _play_puzzle(stack[-1], seed, player_name=player_name)
 
         elif cmd in ("act", "a"):
             _do_scale_verb(stack[-1], seed, player_name=player_name)
@@ -350,10 +355,10 @@ def run_session(seed: int = 42, depth: int = 6,
             if not rest.isdigit():
                 print("  Usage: go <N>")
                 continue
-            _descend(stack, int(rest), seed)
+            _descend(stack, int(rest), seed, player_name=player_name)
 
         elif cmd.isdigit():
-            _descend(stack, int(cmd), seed)
+            _descend(stack, int(cmd), seed, player_name=player_name)
 
         else:
             # Typing the scale's own verb ("mend" at an Object, "observe"
@@ -366,7 +371,8 @@ def run_session(seed: int = 42, depth: int = 6,
                 _speak_to(stack[-1], raw, seed=seed, player_name=player_name)
 
 
-def _descend(stack: list[SpatialNode], n: int, seed: int) -> None:
+def _descend(stack: list[SpatialNode], n: int, seed: int,
+             player_name: str | None = None) -> None:
     node = stack[-1]
     if not node.children:
         print("  No deeper paths from here.")
@@ -385,7 +391,7 @@ def _descend(stack: list[SpatialNode], n: int, seed: int) -> None:
         print(f"  {_style(child)}{child.name}{_RESET} is sealed.")
         print(f"  {seal['prompt']}")
         print("  You may speak the key from the threshold:")
-        _play_puzzle(child, seed)
+        _play_puzzle(child, seed, player_name=player_name)
         if seal_check(seed, child, current_name=node.name) is not None:
             return  # still sealed — the threshold holds
         print("  The way opens.")

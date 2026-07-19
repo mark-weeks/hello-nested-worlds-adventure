@@ -368,3 +368,36 @@ class TestNameScreening:
             depth = 6
         with pytest.raises(SystemExit, match="choose another"):
             main.cmd_play(A())
+
+
+class TestUnicodeNormalization:
+    """Homoglyph text must screen like its Latin look-alike (rec 4).
+
+    Before NFKC + the confusables fold, a slur written with one Cyrillic
+    vowel had its non-ASCII letters stripped by the [^a-z0-9] pass — it
+    matched neither the block tier nor any escalation trigger and entered
+    the chronicle screened by nothing.
+    """
+
+    def test_cyrillic_homoglyph_slur_blocks(self):
+        # 'е' below is U+0435 (Cyrillic), not ASCII 'e'.
+        assert moderation._local_tier("you niggеr") == "block"
+
+    def test_fullwidth_text_folds_via_nfkc(self):
+        assert moderation._local_tier(
+            "ｎｉｇｇｅｒ") == "block"  # ｎｉｇｇｅｒ
+
+    def test_greek_homoglyph_watch_word_escalates(self):
+        # 'ν' is Greek nu → v; 'α' is Greek alpha → a: "nαzi" escalates like
+        # "nazi" (watch tier — classify decides, never a local block).
+        assert moderation._local_tier("you nαzi") == "escalate"
+
+    def test_accented_benign_text_stays_clean(self):
+        # é/è carry no confusable mapping and strip as before — legitimate
+        # accents must not start escalating.
+        assert moderation._local_tier("René explored the café") == "clean"
+
+    def test_homoglyph_name_is_rejected(self):
+        # Names get the stricter local-only screen; the fold applies there
+        # too ('а' below is U+0430, Cyrillic).
+        assert moderation.name_allowed("fаggot") is False

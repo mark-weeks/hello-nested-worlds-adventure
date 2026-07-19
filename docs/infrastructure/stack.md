@@ -7,7 +7,7 @@ The as-built Phase 1 stack. Diverges from the original ADRs in three places (Fas
 | Browser frontend | React + PixiJS + Vite (`frontend/`) | Scene rendering, hotspots, multiplayer presence; built into `static/app/` |
 | Browser frontend (alt) | Vanilla D3 (`static/index.html` + `static/explorer.js`) | Tree explorer served at `/` directly by the Python server |
 | Backend HTTP/WebSocket | Python stdlib `http.server` + `ThreadingMixIn` (`server/`) | Threaded, no external HTTP framework; security headers + CSP + body/frame caps |
-| WebSocket protocol | Hand-rolled framing via `struct` (`server/protocol.py`) | Subset we use: text frames + ping; ~55 lines |
+| WebSocket protocol | Hand-rolled framing via `struct` (`server/protocol.py`) | Full RFC 6455 framing — masking enforcement, fragmentation reassembly, ping/pong, close handshake; 138 lines |
 | Multiplayer state | In-memory rooms (`server/rooms.py`) | Per-seed presence, broadcast, chat |
 | Image generation | fal.ai (`fal-ai/fast-sdxl`) via `urllib` | Pay-as-you-go, no SDK dependency |
 | Image cache + storage | SQLite (`persistence.cache_image`) | Cache key includes a coarse interaction-history bucket so visuals refresh as the node evolves |
@@ -17,7 +17,7 @@ The as-built Phase 1 stack. Diverges from the original ADRs in three places (Fas
 ## Runtime requirements
 
 - Python 3.11+ (stdlib server, no external HTTP framework)
-- Node 22+ (only for building the React frontend; not required to run the server)
+- Node 20+ (CI and the Dockerfile use 20; only for building the React frontend, not required to run the server)
 - `ANTHROPIC_API_KEY` for `/speak`
 - `FAL_KEY` for AI scene backgrounds (optional — frontend gracefully degrades)
 

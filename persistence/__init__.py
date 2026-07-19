@@ -12,6 +12,7 @@ for the switchover plan and the full translation table.
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
 import logging
 import os
@@ -76,6 +77,15 @@ _log = logging.getLogger("nested_worlds.persistence")
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(_DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    # WAL permits one writer at a time, and this process always has several
+    # (request threads, the heartbeat, the causal pump). The default busy
+    # timeout is 0 — a second writer fails *immediately* with "database is
+    # locked" instead of waiting its turn, and in the WS loop that error
+    # tears down the player's connection. Five seconds absorbs essentially
+    # all real single-host contention; the Postgres switchover trigger
+    # (docs/roadmap/phase-2-scale.md) remains the answer if waits ever show
+    # up in latency, but a trigger is not a defense.
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -137,6 +147,7 @@ def init_db() -> None:
         _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         with _connect() as conn:
             _run_migrations(conn)
+            _hash_legacy_credentials(conn)
         # 0o600 — owner read/write only.  Set once on init, not per-connect.
         _DB_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
         _initialized.add(_DB_PATH)
@@ -904,6 +915,56 @@ def _normalize_invite_name(name: str) -> str:
     return name.strip().lower()
 
 
+def _credential_digest(secret: str) -> str:
+    """The at-rest form of an invite key or registration token: sha256 hex.
+
+    Credentials are the one thing every backup of this DB used to hand over
+    in plaintext — everything *derived* from them (actor_identity, the cost
+    ledger buckets) was already hashed, but the credential row itself was
+    not. Stored form is the full digest; the plaintext appears exactly once,
+    at mint/registration, and cannot be recovered afterwards (lost key →
+    revoke and re-mint). Plaintext credentials carry a `nw_`/`nwr_` prefix
+    and digests are pure hex, so the two forms can never collide — which is
+    what makes the one-time legacy backfill in `init_db` safe.
+    """
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+def _hash_legacy_credentials(conn: sqlite3.Connection) -> None:
+    """One-time, idempotent: convert any plaintext credential rows to digests.
+
+    Runs on every init; matches only rows still carrying the plaintext
+    prefix (`nw_` / `nwr_`), so an already-converted DB is a no-op. UPDATEs
+    a credential *store*, not the chronicle — invite_keys and
+    registration_tokens are operational tables, outside the append-only
+    covenant's protected set.
+    """
+    for table, column, prefix in (
+        ("invite_keys", "key", "nw@_%"),
+        ("registration_tokens", "token", "nwr@_%"),
+    ):
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        if not exists:
+            # A partially-migrated DB (e.g. a test applying a filtered
+            # migration set) may not have the table yet; nothing to backfill.
+            continue
+        rows = conn.execute(
+            f"SELECT {column} FROM {table} WHERE {column} LIKE ? ESCAPE '@'",
+            (prefix,),
+        ).fetchall()
+        for (plaintext,) in rows:
+            conn.execute(
+                f"UPDATE {table} SET {column} = ? WHERE {column} = ?",
+                (_credential_digest(plaintext), plaintext),
+            )
+        if rows:
+            _log.info("hashed %d legacy plaintext %s row(s) at rest",
+                      len(rows), table)
+
+
 def _mint_invite_key_on(conn, key: str, name: str,
                         note: str | None = None) -> None:
     """Name-uniqueness check + INSERT on an already-open connection.
@@ -921,7 +982,7 @@ def _mint_invite_key_on(conn, key: str, name: str,
         raise NameUnavailable(f"the name {name!r} is already registered")
     conn.execute(
         "INSERT INTO invite_keys (key, name, note) VALUES (?, ?, ?)",
-        (key, name, note),
+        (_credential_digest(key), name, note),
     )
 
 
@@ -946,13 +1007,14 @@ def lookup_invite_key(key: str) -> dict[str, Any] | None:
 
     Returns None for unknown keys and revoked keys alike — the caller
     treats both as "not authorized" without leaking which condition
-    matched.
+    matched. `key` is the plaintext credential the request presented; the
+    row's stored (and returned) "key" field is its at-rest sha256 digest.
     """
     with _connect() as conn:
         row = conn.execute(
             """SELECT key, name, note, created_at, revoked_at, last_used_at
                FROM invite_keys WHERE key = ? AND revoked_at IS NULL""",
-            (key,),
+            (_credential_digest(key),),
         ).fetchone()
         if row is None:
             return None
@@ -969,20 +1031,54 @@ def touch_invite_key(key: str) -> None:
     with _connect() as conn:
         conn.execute(
             f"UPDATE invite_keys SET last_used_at = {_NOW} WHERE key = ?",
-            (key,),
+            (_credential_digest(key),),
         )
 
 
 @_with_db
 def revoke_invite_key(key: str) -> bool:
-    """Mark `key` revoked. Returns True iff a row was actually updated."""
+    """Mark `key` revoked. Returns True iff a row was actually updated.
+
+    Accepts the plaintext key (`nw_…`, what an operator pastes from a share
+    URL) or a unique digest prefix of ≥12 hex chars (what `invite list`
+    shows) — revocation must stay possible after the plaintext is gone. The
+    digest form is only honoured here, never on the auth path: knowing a
+    digest revokes a key, it does not authorize one.
+    """
     with _connect() as conn:
         cur = conn.execute(
             f"""UPDATE invite_keys SET revoked_at = {_NOW}
                 WHERE key = ? AND revoked_at IS NULL""",
-            (key,),
+            (_credential_digest(key),),
         )
-        return cur.rowcount > 0
+        if cur.rowcount > 0:
+            return True
+        return _revoke_by_digest_prefix(conn, "invite_keys", "key", key)
+
+
+def _revoke_by_digest_prefix(conn, table: str, column: str,
+                             supplied: str) -> bool:
+    """Revoke by a digest prefix from the CLI listing. Ops convenience only.
+
+    Requires ≥12 hex chars and exactly ONE live row matching — an ambiguous
+    prefix revokes nothing rather than guessing. Table/column are internal
+    constants supplied by the two callers, never user input.
+    """
+    prefix = supplied.strip().rstrip("…")
+    if len(prefix) < 12 or not all(c in "0123456789abcdef" for c in prefix):
+        return False
+    rows = conn.execute(
+        f"""SELECT {column} FROM {table}
+            WHERE {column} LIKE ? AND revoked_at IS NULL""",
+        (prefix + "%",),
+    ).fetchall()
+    if len(rows) != 1:
+        return False
+    conn.execute(
+        f"UPDATE {table} SET revoked_at = {_NOW} WHERE {column} = ?",
+        (rows[0][0],),
+    )
+    return True
 
 
 @_with_db
@@ -1028,11 +1124,13 @@ def create_registration_token(token: str, note: str | None = None) -> None:
 
     Caller generates the random token string. Raises sqlite3.IntegrityError
     on a token collision so the caller can retry with a fresh random value.
+    Stored hashed at rest, like invite keys — the plaintext token exists
+    only in the share link.
     """
     with _connect() as conn:
         conn.execute(
             "INSERT INTO registration_tokens (token, note) VALUES (?, ?)",
-            (token, note),
+            (_credential_digest(token), note),
         )
 
 
@@ -1048,7 +1146,7 @@ def lookup_registration_token(token: str) -> dict[str, Any] | None:
             f"""SELECT {_REG_TOKEN_COLS} FROM registration_tokens
                 WHERE token = ? AND redeemed_at IS NULL
                       AND revoked_at IS NULL""",
-            (token,),
+            (_credential_digest(token),),
         ).fetchone()
         return _registration_token_row(row) if row else None
 
@@ -1064,11 +1162,12 @@ def redeem_registration_token(token: str, key: str, name: str) -> None:
     token live. Raises TokenInvalid for an unknown/spent/cancelled token.
     """
     with _connect() as conn:
+        token_digest = _credential_digest(token)
         live = conn.execute(
             """SELECT 1 FROM registration_tokens
                WHERE token = ? AND redeemed_at IS NULL
                      AND revoked_at IS NULL""",
-            (token,),
+            (token_digest,),
         ).fetchone()
         if live is None:
             raise TokenInvalid("this invite is not valid")
@@ -1077,7 +1176,7 @@ def redeem_registration_token(token: str, key: str, name: str) -> None:
             f"""UPDATE registration_tokens
                 SET redeemed_at = {_NOW}, redeemed_name = ?
                 WHERE token = ?""",
-            (name, token),
+            (name, token_digest),
         )
 
 
@@ -1087,15 +1186,39 @@ def cancel_registration_token(token: str) -> bool:
 
     Only unredeemed tokens can be cancelled — a redeemed one has already
     become an invite key, and revoking THAT is `revoke_invite_key`.
+    Accepts the plaintext token or a unique ≥12-hex-char digest prefix
+    (same rationale as `revoke_invite_key`: cancellation must outlive the
+    plaintext).
     """
     with _connect() as conn:
         cur = conn.execute(
             f"""UPDATE registration_tokens SET revoked_at = {_NOW}
                 WHERE token = ? AND redeemed_at IS NULL
                       AND revoked_at IS NULL""",
-            (token,),
+            (_credential_digest(token),),
         )
-        return cur.rowcount > 0
+        if cur.rowcount > 0:
+            return True
+        return _cancel_token_by_digest_prefix(conn, token)
+
+
+def _cancel_token_by_digest_prefix(conn, supplied: str) -> bool:
+    """Cancel a still-redeemable token by a unique ≥12-hex-char digest prefix."""
+    prefix = supplied.strip().rstrip("…")
+    if len(prefix) < 12 or not all(c in "0123456789abcdef" for c in prefix):
+        return False
+    rows = conn.execute(
+        """SELECT token FROM registration_tokens
+           WHERE token LIKE ? AND redeemed_at IS NULL AND revoked_at IS NULL""",
+        (prefix + "%",),
+    ).fetchall()
+    if len(rows) != 1:
+        return False
+    conn.execute(
+        f"UPDATE registration_tokens SET revoked_at = {_NOW} WHERE token = ?",
+        (rows[0][0],),
+    )
+    return True
 
 
 @_with_db
@@ -1130,7 +1253,8 @@ def save_player_position(key: str, node_name: str, seed: int, depth: int,
                 SET last_node = ?, last_seed = ?, last_depth = ?,
                     last_min_breadth = ?, last_max_breadth = ?, last_node_at = {_NOW}
                 WHERE key = ? AND revoked_at IS NULL""",
-            (node_name, seed, depth, min_breadth, max_breadth, key),
+            (node_name, seed, depth, min_breadth, max_breadth,
+             _credential_digest(key)),
         )
         return cur.rowcount > 0
 
@@ -1145,7 +1269,7 @@ def get_player_position(key: str) -> dict[str, Any] | None:
         row = conn.execute(
             """SELECT last_node, last_seed, last_depth, last_min_breadth, last_max_breadth
                FROM invite_keys WHERE key = ? AND revoked_at IS NULL""",
-            (key,),
+            (_credential_digest(key),),
         ).fetchone()
     if row is None or row[0] is None:
         return None

@@ -17,7 +17,6 @@ import base64
 import json
 import os
 import socket
-import statistics
 import struct
 import sys
 import threading
@@ -90,7 +89,6 @@ def run_client(i):
             if not chunk:
                 break
             head += chunk
-        status = head.split(b" ", 2)[1:2]
         if b"101" not in head.split(b"\r\n", 1)[0]:
             with lock:
                 shed.append(i)

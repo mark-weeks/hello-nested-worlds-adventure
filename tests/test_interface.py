@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 from unittest.mock import patch
 
 import pytest
@@ -233,6 +232,21 @@ class TestPuzzleMode:
         mutations = persistence.get_mutations(31)
         assert any(m["type"] == "PUZZLE_SOLVED" for m in mutations)
         assert persistence.get_ripple_score(31, "Vault-1") > 0
+
+    def test_solved_puzzle_is_attributed_to_the_session_name(self, capsys):
+        # ADR-004 §7: play requires --name, so the chronicle row a CLI solve
+        # writes must carry it — a nameless PUZZLE_SOLVED would open seals
+        # and count as human progress while being attributable to no one.
+        from puzzles.engine import PuzzleEngine
+        node = SpatialNode("Vault-1", "Room", properties={"has_puzzle": True})
+        engine = PuzzleEngine(seed=33)
+        engine.attach_puzzles(node)
+        answer = engine.puzzle_for(node).answer
+        with patch("builtins.input", return_value=answer):
+            _play_puzzle(node, seed=33, player_name="Ada")
+        solved = [m for m in persistence.get_mutations(33)
+                  if m["type"] == "PUZZLE_SOLVED"]
+        assert solved and solved[0]["player"] == "Ada"
 
 
 class TestPassageTags:

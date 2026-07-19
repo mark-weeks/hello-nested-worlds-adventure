@@ -259,3 +259,83 @@ class TestIdentitySchemeIsFrozen:
         # attribution row keyed on it.
         assert hashlib.sha256("nw_testkey".encode()).hexdigest()[:16] == \
             "c2db0327dc788cc9"
+
+
+class TestRenewalEpochPuzzlesArePinned:
+    def test_epoch_one_and_two_puzzles_are_pinned(self):
+        # Solved-state rehydration keys on the puzzle NAME *including* the
+        # "· Renewal N" suffix, so renewal-epoch generation is durable-history
+        # surface exactly like epoch 0 — an edit to the epoch>0 RNG branch or
+        # to any family generator would rename renewed nodes' puzzles and
+        # silently reset their solved state while the epoch-0 pin stayed
+        # green (the gap the 2026-07-18 evaluation found). Same protocol as
+        # the epoch-0 pin: a failure here means stop, revert, or re-pin
+        # consciously pre-launch only.
+        from puzzles.engine import build_puzzle
+        nodes = _walk(generate_node_hierarchy(seed=_REF_SEED, max_depth=6), [])
+        pinned = {
+            1: "dcda8be3c59211403eff5afddc15fabe1a9d7ac53991efbce776304b28362cf9",
+            2: "a71072e573b6d0ac4ea982b7155fa3ed9715d0bf53e6cd88f2c6248a8c0fdeaa",
+        }
+        for epoch, expected in pinned.items():
+            blob = "\n".join(
+                f"{n.name}|{build_puzzle(n, epoch=epoch).name}"
+                f"|{build_puzzle(n, epoch=epoch).answer}"
+                for n in nodes)
+            digest = hashlib.sha256(blob.encode()).hexdigest()
+            assert digest == expected, (
+                f"Renewal-epoch {epoch} puzzle generation changed for the "
+                "reference world. Post-launch this resets every RENEWED "
+                "solved puzzle. Revert, or re-pin consciously before first "
+                "production deploy only."
+            )
+
+
+class TestVerbOverlayKeysAreFrozen:
+    def test_overlay_property_keys_are_pinned(self):
+        # Verb effects persist as property-overlay deltas keyed by these
+        # names; renaming one ("warded" → "guarded") strands every existing
+        # overlay row written under the old key. Behavior pin: run each
+        # verb against a node crafted to trigger every branch and pin the
+        # exact key set it may write.
+        from multiverse.node import SpatialNode
+        from multiverse.verbs import VERBS, apply_verb
+
+        trigger_props = {
+            "attune":    {"stability": "collapsing"},
+            "calibrate": {"dark_matter_ratio": 0.3},
+            "kindle":    {"star_density": 100},
+            "align":     {"ecliptic_tilt_deg": 10.0},
+            "seed":      {},
+            "ward":      {"danger_level": 5},
+            "inscribe":  {},
+            "mend":      {"condition": "damaged", "fractured": True},
+            "catalyze":  {"bond_count": 3},
+            "excite":    {"resonance_nm": 500.0},
+            "observe":   {"spin": "superposed", "coherence": 0.5},
+        }
+        pinned_keys = {
+            "attune":    {"stability", "attuned"},
+            "calibrate": {"dark_matter_ratio", "calibrated"},
+            "kindle":    {"star_density", "kindled"},
+            "align":     {"ecliptic_tilt_deg", "aligned"},
+            "seed":      {"inhabited", "population", "seeded"},
+            "ward":      {"danger_level", "warded"},
+            "inscribe":  {"inscriptions"},
+            "mend":      {"condition", "fractured"},
+            "catalyze":  {"bond_count", "catalyzed"},
+            "excite":    {"resonance_nm", "ionized"},
+            "observe":   {"spin", "coherence", "observed"},
+        }
+        for level, verb in VERBS.items():
+            node = SpatialNode(name=f"Pin-{level}", level=level,
+                               properties=dict(trigger_props[verb.name]))
+            changed, _flavor = apply_verb(node, verb, token="freeze-pin")
+            assert changed is not None, f"{verb.name} produced no delta"
+            assert set(changed) == pinned_keys[verb.name], (
+                f"Verb {verb.name!r} writes overlay keys {set(changed)} — "
+                f"pinned {pinned_keys[verb.name]}. Renaming an overlay key "
+                "post-launch strands every existing overlay row written "
+                "under the old name. Revert, or re-pin consciously "
+                "pre-launch only."
+            )

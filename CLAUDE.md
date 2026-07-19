@@ -26,24 +26,43 @@ it first.
   players drop in at any scale — so scale sets a puzzle's *flavour*, never how
   hard it is; each node draws its own 1–4 difficulty from its identity.
   `puzzles/generators.py` (`node_difficulty`), README puzzle row.
-- **Failure stays in fiction.** No player-facing `503` or stack trace. Every
-  scale has an authored line of silence (`consciousness.LEVEL_FALLBACKS`,
-  `fallback_voice`); AI/budget/kill-switch paths return HTTP 200 with
-  `ai: false`, never an error. `server/handlers.py` `/speak` fallback,
-  `server/guard.py` `QUIET_RESPONSE`.
-- **The blur is the product; the presentation must not un-blur it.** Whether a
-  visitor is human or agent is deliberately left open — one trace ledger voices
-  them the same way. Don't add UI or prompts that authoritatively taxonomize
-  actor type. README concept, `docs/evaluation/2026-07-04-deep-evaluation.md`.
+- **Failure stays in fiction — on every authored surface.** Anything a player
+  reads as the world's voice speaks in fiction: AI/budget/kill-switch paths
+  return HTTP 200 with `ai: false` and an authored line of silence
+  (`consciousness.LEVEL_FALLBACKS`, `fallback_voice`,
+  `guard.QUIET_RESPONSE`), image failures answer the authored quiet line with
+  `images: false` (`handlers._IMAGE_QUIET_LINE` — never "FAL_KEY not set" or
+  a raw upstream error), and rate-limit denials carry the pace line
+  (`handlers._PACE_LINE`) because both clients render `error` text verbatim.
+  Transport-level refusals sit *outside* the fiction by scoped decision
+  (2026-07-18 evaluation §4): the invite-gate 403, payload 413, malformed-body
+  400, and WS-cap 503 are plumbing a browser client never surfaces — they may
+  stay mechanical, but must be clean JSON. What is never acceptable: a stack
+  trace, or a 5xx for a client-shaped mistake (malformed bodies and non-string
+  answers are the client's 400/200, guarded by
+  `tests/test_guard.py::TestBodyShapeRobustness`).
+- **The chronicle blurs; live presence may distinguish.** Whether a *trace*
+  was left by human or agent is deliberately left open — one ledger voices
+  them the same way, and `/chronicle` carries no actor-type flag. Live
+  presence is the scoped exception, decided when the travelers panel shipped
+  (PR #59) and made explicit on 2026-07-18: the panel persona-tags the
+  walking cast and routes presences to `/agent/voice` vs `/speak`, because
+  addressability needs an addressee. Don't extend taxonomization into the
+  chronicle, history feeds, or node voices. README concept,
+  `docs/evaluation/2026-07-04-deep-evaluation.md` G1.
 - **Agent solves don't count as human progress.** An ambient/FSM agent standing
   on a puzzle never claims a co-op session, opens a seal, or lights a
   constellation. `persistence/__init__.py` (`Agent solves … carry "agent"`),
   CHANGELOG constellations entry.
-- **The chronicle is append-only; redaction is the *sole* sanctioned
-  exception.** Never delete or rewrite `world_mutations` rows. Abuse is handled
-  by content-level redaction only (`python main.py redact`, runbook §7) —
-  mechanical fields survive so counters and epochs stay intact.
-  `persistence/__init__.py` redaction section, `fly-deployment.md` §7.
+- **The chronicle is append-only; three sanctioned mechanisms, no more.**
+  Never delete or rewrite `world_mutations` rows in application code. Abuse is
+  handled by content-level redaction (`python main.py redact`, runbook §7 —
+  mechanical fields survive so counters and epochs stay intact); pruning
+  exists but is double-gated behind `NESTED_WORLDS_MUTATION_TTL_DAYS` *and*
+  `NESTED_WORLDS_ALLOW_HISTORY_PRUNE=1` (and `prune_mutations()` must never
+  be called directly); whole-DB restore (`python main.py restore`) is the
+  disaster path, not an edit path. `persistence/__init__.py` redaction
+  section, `fly-deployment.md` §7.
 
 ---
 
@@ -67,7 +86,7 @@ full before any change to `multiverse/generator.py` content banks.
 - **Continuity policy** (`docs/roadmap/phase-2-scale.md` "Continuity policy"):
   never wipe the DB between cohorts; migrations are **additive only** (new
   tables / new columns with defaults — no destructive rewrites of
-  `world_mutations`, `node_interactions`, `agent_memory`, `puzzle_results`);
+  `world_mutations`, `agent_memory`, `puzzle_results`);
   back up before every deploy. Deploy via `scripts/deploy.sh`, which refuses to
   deploy over an unbacked chronicle.
 

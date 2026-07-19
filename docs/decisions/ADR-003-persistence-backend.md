@@ -11,7 +11,7 @@ All durable state lives in a single SQLite database at `~/.nested-worlds/worlds.
 Hot paths — the writes that will bottleneck first:
 
 - **`record_mutation`** — fires on every `AGENT_VISIT`, `DANGER_ALERT`, `PUZZLE_FAILED`, `PLAYER_SPEAK`, `PLAYER_CHAT`, and every agent-driven causal event. One `INSERT` per fire.
-- **`upsert_ripple_score`** — fires from the causality bus on every event propagation, per node, per hop. One UPSERT per fire (typically 5–10 per player action with bidirectional propagation).
+- **`upsert_ripple_score`** — fires from the causality bus on every event propagation, per node, per hop. One UPSERT per fire (typically 5–10 per player action with bidirectional propagation). *(2026-07-18: `upsert_ripple_score` is legacy — the live wiring calls `increment_ripple_score` (additive upsert, via `causality/wiring.py`); the load profile is the same.)*
 - **`get_node_history`** — called on every `/speak` and every image-prompt assembly. Indexed by `(world_seed, node_name)` via `idx_world_mutations_seed_node`.
 
 The three account for the bulk of synchronous traffic and all run inside the request path.
@@ -113,7 +113,7 @@ After the SQLite file is deleted, rollback requires restoring the pre-cut-over b
 
 These are the invariants that make this ADR's plan executable. If a future change breaks any of them, update this ADR.
 
-1. No source file outside `persistence/` imports `sqlite3` or otherwise opens the database directly.
+1. No source file outside `persistence/` imports `sqlite3` or otherwise opens the database directly. *(2026-07-18: `scripts/` is carved out of this criterion — `scripts/beta_metrics.py` imports `sqlite3` by design, as a read-only ops script that must run against off-host backup files, not just the live module path. The criterion continues to bind all application source.)*
 2. Every connection in `persistence/__init__.py` goes through `_connect()`.
 3. Every `datetime('now')` in Python (not in the `.sql` migration files) is sourced from `_NOW`.
 4. Every relative-interval `DELETE` goes through `_delete_older_than(...)`.

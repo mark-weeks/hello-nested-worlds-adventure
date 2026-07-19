@@ -6,7 +6,7 @@ from agents.personas import (
     CATALOG, DESTABILIZER, SCHOLAR, TENDER, WANDERER,
     by_name, for_name,
 )
-from causality import CausalityBus, EventKind
+from causality import CausalityBus
 from multiverse.node import SpatialNode
 
 

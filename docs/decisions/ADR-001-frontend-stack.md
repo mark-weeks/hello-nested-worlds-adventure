@@ -32,7 +32,7 @@ Enfolded requires a multiplayer-capable client and server for a multiverse node-
 
 The original ADR named **FastAPI WebSockets**, **Redis** (scene cache), **Cloudflare R2** (image storage), and **Flux Schnell**. None of those shipped:
 
-- **FastAPI → stdlib `http.server`.** The original rationale was "Python-primary, no new runtime required." The stdlib choice honors that constraint *more strictly* — zero new runtime dependencies (no uvicorn/hypercorn). With ~780 lines of server code, 116 tests passing, and security headers / body and frame size caps already in place, the stdlib server has met every Phase 1 requirement.
+- **FastAPI → stdlib `http.server`.** The original rationale was "Python-primary, no new runtime required." The stdlib choice honors that constraint *more strictly* — zero new runtime dependencies (no uvicorn/hypercorn). With ~780 lines of server code and 116 tests passing (figures as of this 2026-05-03 revision — both have since grown severalfold), plus security headers / body and frame size caps already in place, the stdlib server has met every Phase 1 requirement.
 - **Redis / R2 → SQLite.** A single SQLite database now handles world state, agent runs, agent memory, node history, world mutations, *and* the scene-image cache. One persistence layer beats three for solo dev. R2 may still be relevant if image volume grows beyond local disk.
 - **Flux Schnell → fast-sdxl.** Cost per image is comparable; the model swap is incidental. ADR-002 should be updated to match.
 
@@ -79,3 +79,11 @@ Migrate from SQLite-only persistence when:
 **2D tile-based (Stardew-style)** — High effort, low differentiation, wrong fit for node graph design.
 
 **Full 3D with character movement** — Out of scope for solo dev beta timeline.
+
+---
+
+## Revisit log (2026-07-18)
+
+- **The fragmentation/backpressure trigger fired — and was resolved in-stack, not by migrating.** The RFC 6455 hardening batch gave the hand-rolled server masking enforcement, fragmentation reassembly, and per-player writer threads with bounded outboxes (`server/protocol.py`, `server/rooms.py`) instead of the prescribed FastAPI migration. Deliberate: by then the stdlib server was well-tested and load-measured (`scripts/ws_soak.py`), so hardening it was cheaper and safer than replacing it.
+- **The auth/session trigger fired — likewise absorbed by the stdlib stack.** Per-user invite keys, registered unique names, registration tokens, and cross-device positions all shipped without a framework (`server/guard.py`, ADR-004).
+- **The primary client this ADR never predicted.** The vanilla D3 explorer at `/` — absent from this document, even as a rejected alternative — became the default invite target (WebGL-free first-click reliability); the React + PixiJS app remains the immersive client at `/app`.

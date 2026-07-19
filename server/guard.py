@@ -306,19 +306,21 @@ class RateLimiter:
     single-VPS beta the README describes.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, env_var: str = RATE_LIMIT_ENV,
+                 default: int = _DEFAULT_RATE_PER_MIN) -> None:
         self._counts: dict[str, tuple[float, int]] = {}
         self._lock = threading.Lock()
+        self._env_var = env_var
+        self._default = default
 
-    @staticmethod
-    def _limit_per_min() -> int:
-        raw = os.environ.get(RATE_LIMIT_ENV, "").strip()
+    def _limit_per_min(self) -> int:
+        raw = os.environ.get(self._env_var, "").strip()
         if not raw:
-            return _DEFAULT_RATE_PER_MIN
+            return self._default
         try:
             v = int(raw)
         except ValueError:
-            return _DEFAULT_RATE_PER_MIN
+            return self._default
         return max(1, v)
 
     def allow(self, key: str, *, now: float | None = None) -> bool:
@@ -341,6 +343,17 @@ class RateLimiter:
 
 # Module-level singleton — handlers import and call `.allow()` per request.
 RATE_LIMITER = RateLimiter()
+
+# Read-side limiter for the expensive GETs (`/world` rebuilds and serializes
+# the full canonical tree per hit; `/agent` runs an FSM traversal). These cost
+# no API budget, so the cost caps never bound them — without their own
+# limiter, they were the one unthrottled way to pin the single beta VM's CPU.
+# The ceiling is deliberately higher than the POST limiter's: normal play
+# fetches `/world` on navigation, so a gameplay-shaped browsing pace must
+# never trip it.
+READ_RATE_LIMIT_ENV       = "NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN"
+_DEFAULT_READ_RATE_PER_MIN = 120
+READ_RATE_LIMITER = RateLimiter(READ_RATE_LIMIT_ENV, _DEFAULT_READ_RATE_PER_MIN)
 
 
 # ── WebSocket connection cap ─────────────────────────────────────────────────

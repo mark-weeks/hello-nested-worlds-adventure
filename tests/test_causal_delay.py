@@ -19,7 +19,6 @@ from causality import CausalityBus, EventKind, MIN_STRENGTH
 from causality.staging import (
     STAGED_DAMPENING, drain_due_hops, hop_delay_seconds, stage_cascade,
 )
-from causality.wiring import wire_world_handlers
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 

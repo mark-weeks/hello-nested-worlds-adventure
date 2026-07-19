@@ -12,6 +12,19 @@ execution where claimed. Two things could not be verified from this sandbox:
 the live deployment (outbound network is policy-blocked) and the "~12k
 worst-case full-depth tree" figure (single-sourced in the CHANGELOG).
 
+> **Addendum (2026-07-19): the ten recommendations below are resolved** —
+> in the follow-up batch recorded at the top of `docs/CHANGELOG.md`
+> ([Unreleased], "The 2026-07-18 evaluation's ten recommendations,
+> resolved"). The bundle is rebuilt with a CI freshness gate (rec 1),
+> `busy_timeout` is set (2), the GET limiter + `max_nodes` clamp exist (3),
+> moderation NFKC-folds homoglyphs (4), credentials are hashed at rest (5),
+> renewal-epoch puzzles and verb overlay keys are pinned (6), the doc-drift
+> census is swept (7), both covenants are re-scoped in CLAUDE.md with the
+> perimeter 500s fixed (8), a dated release boundary is cut (9), and ruff
+> runs in CI (10). The findings sections below are preserved verbatim as
+> the audit that drove that batch — read them as history of 2026-07-18
+> HEAD, not current state.
+
 The one-line verdict up front: **the engineering is better than the
 documentation says, and the documentation is the best thing in the repo —
 both at once.** The determinism contract, the freeze pins, the covenant
