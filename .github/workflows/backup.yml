@@ -2,14 +2,17 @@ name: Off-host backup
 
 # The volume holding worlds.db is the only live copy of the permanent
 # chronicle; Fly's automatic snapshots retain just 5 days and live on the
-# same platform. This schedule pulls a daily application-level backup
-# off-host into a GitHub artifact — the continuity promise makes data loss
-# a broken covenant, not an outage, so the loss window is kept to a day.
-# Requires the FLY_API_TOKEN repo secret (fly tokens create deploy); until
-# it is set, runs no-op with a notice instead of failing.
+# same platform. This schedule pulls an application-level backup off-host
+# into a GitHub artifact every hour — the continuity promise makes data
+# loss a broken covenant, not an outage, so the loss window is kept to an
+# hour (ADR-005; Litestream-style continuous replication is the recorded
+# post-launch follow-up that shrinks it to seconds). Hourly full copies
+# are cheap at beta scale; revisit the cadence if the DB outgrows a quick
+# sftp pull. Requires the FLY_API_TOKEN repo secret (fly tokens create
+# deploy); until it is set, runs no-op with a notice instead of failing.
 on:
   schedule:
-    - cron: '0 6 * * *'   # daily 06:00 UTC
+    - cron: '17 * * * *'   # hourly at :17 (off the top-of-hour congestion)
   workflow_dispatch: {}
 
 jobs:
@@ -36,7 +39,7 @@ jobs:
       - name: Take an online backup on the machine
         if: steps.gate.outputs.ready == 'yes'
         run: |
-          STAMP="$(date -u +%Y%m%d)"
+          STAMP="$(date -u +%Y%m%d-%H00)"
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
           flyctl ssh console -a "$FLY_APP" -C \
             "python main.py backup --to /data/backups/offhost-$STAMP.db"
@@ -60,5 +63,5 @@ jobs:
         if: steps.gate.outputs.ready == 'yes'
         run: |
           flyctl ssh console -a "$FLY_APP" -C \
-            "sh -c 'ls -t /data/backups/offhost-*.db 2>/dev/null | tail -n +4 | xargs -r rm'" \
+            "sh -c 'ls -t /data/backups/offhost-*.db 2>/dev/null | tail -n +7 | xargs -r rm'" \
             || echo "prune skipped"

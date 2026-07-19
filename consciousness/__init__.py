@@ -14,7 +14,7 @@ guidance, and is marked with 1-hour TTL because the content is deploy-stable.
 
 CACHING (see `_warn_if_cache_ineffective`): prompt caching only engages
 when the cached prefix meets the model's minimum cacheable length — on the
-Opus-class default (`claude-opus-4-7`) that minimum is **4096 tokens**, NOT
+Opus-class default (`claude-opus-4-8`) that minimum is **4096 tokens**, NOT
 1024. Both bibles were deliberately enriched past it (per-level lore, craft
 sections, shared style rules — content that also deepens the voices), so
 the 1-hour-TTL `cache_control` markers genuinely fire: after the first
@@ -34,7 +34,7 @@ from typing import Any
 
 from multiverse.node import SpatialNode
 
-_MODEL = os.environ.get("NESTED_WORLDS_MODEL", "claude-opus-4-7")
+_MODEL = os.environ.get("NESTED_WORLDS_MODEL", "claude-opus-4-8")
 
 _client: Any = None
 _client_lock = threading.Lock()
