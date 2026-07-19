@@ -36,12 +36,12 @@ the game's best material is behind an alternate client, a mute toggle, and
 a key. These keep the ADR-005 client posture and move the senses into the
 default surface.
 
-| # | Item | Size | Finding |
-|---|------|------|---------|
-| 2.1 | **Hero-size the explorer's sigil** — the generative art as the panel's lead element, not a sidebar thumbnail | ~½ day | §4.1 |
-| 2.2 | **Sound invitation**: once-per-session in-fiction line ("the world hums — listen?") whose click is the WebAudio gesture; plus a sound section in `/guide` (currently zero mentions) | ~½ day | §4.2 |
-| 2.3 | **Capture the four pitch assets** from a live seed-42 run (drop-in, cascade GIF, 11-family art grid, heartbeat wanderer) into `docs/pitch/assets/` | ~½ day | §2.2 |
-| 2.4 | **Tuck the explorer's Seed/Depth/Breadth header behind an "advanced" affordance** — stop handing first-timers the engine room | ~½ day | §5.1 |
+| # | Item | Status | Finding |
+|---|------|--------|---------|
+| 2.1 | ~~Hero-size the explorer's sigil~~ | **Shipped 2026-07-19** — sidebar 300→340px, sigil 268×140→308×232, the art leads the location panel | §4.1 |
+| 2.2 | ~~Sound invitation + guide sound section~~ | **Shipped 2026-07-19** — once-per-session in-fiction offer ("The world hums, softly, in every place. Listen?"), click = the WebAudio gesture, e2e-verified; `/guide` gains "The world hums — listen" | §4.2 |
+| 2.3 | ~~Capture the four pitch assets~~ | **Shipped 2026-07-19** — all four captured live from seed 42 in headless Chromium (`docs/pitch/assets/`), brief updated; the cascade GIF shows dampening in the feed numbers (+0.50 → +0.25) | §2.2 |
+| 2.4 | ~~Tuck the engine-room header~~ | **Shipped 2026-07-19** — Seed/Depth/Breadth/Generate hidden behind a ⚙ affordance, e2e-verified | §5.1 |
 
 ## Track 3 — Early post-launch (first month)
 

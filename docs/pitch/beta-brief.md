@@ -165,8 +165,8 @@ the register this repo trades in:
 
 ## Visuals
 
-**There are no image assets in this repo, and that is on purpose** — the headline
-visual is *generative*, not authored. `static/nodeart.js` paints every node's art
+**Every image in this repo is a capture, never an authored asset** — the
+headline visual is *generative*. `static/nodeart.js` paints every node's art
 as a **deterministic pure function of `(seed, name, properties, history)`** with
 no `Math.random`, `Date.now`, or `performance.now` anywhere in the module
 (verified: zero occurrences), seeded by a mulberry32 PRNG over an FNV-1a hash of
@@ -175,18 +175,31 @@ is reproducible.** A partner running seed 42 at depth 6 sees the same reference
 world you captured, pixel-family for pixel-family, so a screenshot or GIF is a
 faithful, checkable artifact rather than a marketing composite.
 
-To keep this brief honest, no images are embedded (fabricating a screenshot would
-violate the determinism it's meant to demonstrate). Drop real captures in at the
-marked spots below — capture them from a live `python main.py serve` on seed 42:
+The captures below are real, taken from a live `python main.py serve` on seed
+42 driven by headless Chromium (2026-07-19) — no compositing, no retouching.
+Rerun the same seed and check them.
 
-- `![Drop-in — a mid-world node, art already painted](./assets/PLACEHOLDER-dropin.png)`
-  — *tour step 1; the explorer at the deterministic arrival node.*
-- `![A cascade arriving ring by ring in the feed](./assets/PLACEHOLDER-cascade.gif)`
-  — *tour step 4; the ~12s-per-ring ripple, best as a short GIF.*
-- `![Eleven per-scale art families](./assets/PLACEHOLDER-artgrid.png)`
-  — *the art layer; one node from each scale, side by side.*
-- `![A wanderer moving through the feed unattended](./assets/PLACEHOLDER-heartbeat.png)`
-  — *tour step 5; Tessera or Halden mid-traversal.*
+![Drop-in — a mid-world node, art already painted](./assets/dropin.png)
+*Tour step 1: the explorer at a deterministic arrival node (Planet ·
+Ondunalara-14122) — the hero sigil is already painted, expressing the node's
+own properties: a rust-red sky in bands, a jungle-green horizon, four moons.*
+
+![A cascade arriving ring by ring in the feed](./assets/cascade.gif)
+*Tour step 4: a Region cipher solved at Stillcrest Wastes-111111 — then the
+feed reads the consequence traveling: the Planet settles at `+0.50`, the
+System at `+0.25`, dampening visible in the numbers as each ring lands (~22s
+of real time; captured with `NESTED_WORLDS_HOP_DELAY=2`).*
+
+![Eleven per-scale art families](./assets/artgrid.png)
+*The art layer: the first-child chain of seed 42, one node per scale, drawn
+live by `static/nodeart.js` — membrane folds, cosmic web, spiral arms,
+orbits, a horizon, terrain ridges, room panels, an object sigil, a bond
+graph, electron shells, probability speckle.*
+
+![A wanderer moving through the feed unattended](./assets/heartbeat.png)
+*Tour step 5: Tessera and Petrichor abroad with no human prompting — the
+travelers panel persona-tags them, agent visits tick into the feed, and
+Petrichor leaves a line of banter ("Somewhere a door just opened.").*
 
 ---
 

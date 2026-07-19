@@ -26,6 +26,15 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
   await expect(page.locator("#graph svg")).toBeVisible();
   await expect(page.locator("#node-name")).not.toHaveText("Select a node");
 
+  // The engine room stays tucked away: world-generation controls are hidden
+  // until the ⚙ affordance opens them, and close again.
+  await expect(page.locator("#seed")).toBeHidden();
+  await page.click("#btn-advanced");
+  await expect(page.locator("#seed")).toBeVisible();
+  await expect(page.locator("#gen-btn")).toBeVisible();
+  await page.click("#btn-advanced");
+  await expect(page.locator("#seed")).toBeHidden();
+
   // The generative-art sigil actually painted: opaque pixels on the canvas.
   await expect
     .poll(async () => page.evaluate(() => {
@@ -48,9 +57,15 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
   await expect(page.locator("#chronicle-meta")).toContainText("recorded events");
   await page.click("#chronicle-close");
 
-  // The ambient soundscape builds its full WebAudio graph (pad, sub,
-  // texture, music box, delay space) in a real browser without throwing.
-  await page.click("#btn-sound");
+  // The sound invitation appears once per session, in fiction, a moment
+  // after the world settles — and accepting it IS the WebAudio activation
+  // gesture: the full graph (pad, sub, texture, music box, delay space)
+  // builds in a real browser without throwing.
+  await expect(page.locator("#sound-invite")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator("#sound-invite .invite-line"))
+    .toContainText("The world hums");
+  await page.click("#sound-invite-yes");
+  await expect(page.locator("#sound-invite")).toBeHidden();
   await expect(page.locator("#btn-sound")).toHaveText("♪ on");
   await page.waitForTimeout(600);   // let the scheduler tick
   await page.click("#btn-sound");
