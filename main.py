@@ -4,13 +4,14 @@ from pathlib import Path
 
 import persistence
 from agents.agent import Agent
-from multiverse.generator import BREADTH_ENVELOPE, generate_node_hierarchy
+from multiverse import store
+from multiverse.generator import BREADTH_ENVELOPE
 from multiverse.utils import count_nodes, find_node
 from puzzles.engine import PuzzleEngine
 
 
 def cmd_world(args):
-    root = generate_node_hierarchy(seed=args.seed, max_depth=args.depth)
+    root = store.world_tree(seed=args.seed, max_depth=args.depth)
     print(root)
     node_count = count_nodes(root)
     persistence.save_world(args.seed, node_count, args.depth,
@@ -19,7 +20,7 @@ def cmd_world(args):
 
 
 def cmd_agent(args):
-    root = generate_node_hierarchy(seed=args.seed)
+    root = store.world_tree(seed=args.seed)
     agent = Agent(name=args.name, danger_threshold=args.danger_threshold)
 
     saved = persistence.load_agent_memory(args.name, args.seed)
@@ -42,7 +43,7 @@ def cmd_agent(args):
 def cmd_puzzles(args):
     from puzzles.types import PuzzleResult
 
-    root = generate_node_hierarchy(seed=args.seed)
+    root = store.world_tree(seed=args.seed)
     engine = PuzzleEngine(seed=args.seed)
     engine.attach_puzzles(root)
     puzzles = engine.collect_puzzles(root)
@@ -303,7 +304,7 @@ def cmd_speak(args):
         print("The worlds are silent — install the 'anthropic' package to hear them.")
         return
 
-    root = generate_node_hierarchy(seed=args.seed)
+    root = store.world_tree(seed=args.seed)
     target = find_node(root, args.node) if args.node else root
     if target is None:
         print(f"Node '{args.node}' not found in seed={args.seed}. Run 'world' to see available nodes.")

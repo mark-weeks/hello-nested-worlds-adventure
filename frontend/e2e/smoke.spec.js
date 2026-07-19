@@ -59,6 +59,35 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("/register runs its logic under the production CSP", async ({ page }) => {
+  // The page's behavior IS its script: without JS, #no-invite stays hidden
+  // and the form does nothing. This page shipped with an inline <script>
+  // once — blocked wholesale by script-src 'self' — and the self-service
+  // invite flow silently failed (2026-07-19 ensemble evaluation). Both
+  // assertions below only pass if the external script actually executed.
+  const errors = collectErrors(page);
+
+  // No invite token → the script must swap the panels.
+  await page.goto("/register");
+  await expect(page.locator("#no-invite")).toBeVisible();
+  await expect(page.locator("#register")).toBeHidden();
+
+  // A (bogus) invite token → form visible; submitting must reach the
+  // server and render its player-facing refusal — proving the submit
+  // handler attached and the fetch wiring works end-to-end.
+  await page.goto("/register?invite=nwr_not_a_real_token");
+  await expect(page.locator("#register")).toBeVisible();
+  await page.fill("#name", "SmokeRegistrant");
+  await page.click("#go");
+  await expect(page.locator("#error")).not.toHaveText("", { timeout: 10_000 });
+
+  // The bogus token's 403 is the expected outcome above — Chromium logs
+  // every non-2xx fetch as a console "Failed to load resource" error, so
+  // that one line is allow-listed; anything else (a CSP violation, a
+  // pageerror) still fails the run.
+  expect(errors.filter(e => !/Failed to load resource/.test(e))).toEqual([]);
+});
+
 test("/app mounts the Pixi scene under the production CSP", async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto("/app");

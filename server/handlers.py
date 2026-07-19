@@ -21,9 +21,8 @@ from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
-from multiverse.generator import (
-    BREADTH_ENVELOPE, generate_node_hierarchy, resolve_node_by_name,
-)
+from multiverse import store
+from multiverse.generator import BREADTH_ENVELOPE
 from multiverse.node import SpatialNode
 from multiverse.utils import (
     apply_property_overrides, apply_ripple_scores, build_distance_map,
@@ -69,8 +68,8 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int]:
     guard.validate_world_params(params)
     seed  = int(params.get("seed",  42))
     depth = int(params.get("depth",  6))
-    root = generate_node_hierarchy(seed=seed, max_depth=depth)
-    # Hydrate the world's durable evolution onto the deterministic tree:
+    root = store.world_tree(seed=seed, max_depth=depth)
+    # Hydrate the world's durable evolution onto the stored tree:
     # persisted causal pressure, then the property overlay written by
     # causal-event effects (multiverse/effects.py) — so the world every
     # participant sees carries what has happened in it.
@@ -202,7 +201,7 @@ def _resolve_node(seed: int, node_name: str) -> SpatialNode | None:
     """
     if not node_name:
         return None
-    node = resolve_node_by_name(seed, node_name)
+    node = store.resolve_node_by_name(seed, node_name)
     if node is None:
         return None
     node.ripple_score = persistence.get_ripple_score(seed, node.name)
@@ -395,7 +394,7 @@ class Handler(BaseHTTPRequestHandler):
         stripped = path.rstrip("/")
         if stripped in ("", "/health", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js", "/nodesound.js",
-                        "/guide", "/register", "/favicon.ico"):
+                        "/guide", "/register", "/register.js", "/favicon.ico"):
             return True
         if stripped == "/app" or path.startswith("/app/"):
             return True
@@ -559,6 +558,12 @@ class Handler(BaseHTTPRequestHandler):
             # token in their link is the credential, checked on the POST.
             self._send_file(_STATIC_DIR / "register.html")
 
+        elif path == "/register.js":
+            # The page's logic — external because the CSP (script-src 'self')
+            # blocks inline scripts; ungated alongside its page.
+            self._send_file(_STATIC_DIR / "register.js",
+                            content_type="application/javascript; charset=utf-8")
+
         elif path == "/nodesound.js":
             self._send_file(_STATIC_DIR / "nodesound.js",
                             content_type="application/javascript; charset=utf-8")
@@ -674,7 +679,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_error(str(exc))
             persona_arg = param("persona", "")
             persona = persona_by_name(persona_arg) or persona_for_name(name)
-            root  = generate_node_hierarchy(seed=seed)
+            root  = store.world_tree(seed=seed)
             apply_ripple_scores(root, persistence.load_ripple_scores(seed))
             # Per-request bus with the standard record/ripple/effects wiring
             # so traversal events persist and change world substance.
@@ -956,12 +961,12 @@ class Handler(BaseHTTPRequestHandler):
             # (_do_save_position), so no seal re-check here is deliberate: a
             # seal that closed after the save is exactly the "already inside
             # — the seal never imprisons" case.
-            root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
+            root_name = store.root_name(seed)
             entry_node = root_name
             if ws_key:
                 saved = persistence.get_player_position(ws_key)
                 if saved and saved.get("seed") == seed and saved.get("node"):
-                    target = resolve_node_by_name(seed, str(saved["node"])[:128])
+                    target = store.resolve_node_by_name(seed, str(saved["node"])[:128])
                     if target is not None:
                         entry_node = target.name
             player = Player(name=name, seed=seed, current_node=entry_node,
@@ -1011,7 +1016,7 @@ class Handler(BaseHTTPRequestHandler):
                         # Node identity is server-derived, like every other
                         # write path: a client cannot move to (and write
                         # permanent history for) a place that doesn't exist.
-                        target = (resolve_node_by_name(seed, node_name)
+                        target = (store.resolve_node_by_name(seed, node_name)
                                   if node_name else None)
                         if target is None:
                             player.send({"type": "move_denied",
@@ -1340,7 +1345,7 @@ class Handler(BaseHTTPRequestHandler):
         depth = _int("depth", 6)
         min_b = _int("min_breadth", 1)
         max_b = _int("max_breadth", 3)
-        target = resolve_node_by_name(seed, node_name)
+        target = store.resolve_node_by_name(seed, node_name)
         if target is None:
             # A phantom name never enters the resume path; the client's
             # local cache stands.

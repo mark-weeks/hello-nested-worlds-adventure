@@ -23,7 +23,7 @@ from typing import Callable
 import persistence
 from causality import CausalEvent, CausalityBus, EventKind, MIN_STRENGTH
 from causality.wiring import wire_world_handlers
-from multiverse.generator import generate_node_hierarchy
+from multiverse import store
 from multiverse.node import SpatialNode
 from multiverse.utils import (
     apply_property_overrides, apply_ripple_scores, find_node,
@@ -108,7 +108,7 @@ def drain_due_hops(limit: int = 64,
     for row in rows:
         seed = row["world_seed"]
         if seed not in worlds:
-            root = generate_node_hierarchy(seed=seed)
+            root = store.world_tree(seed=seed)
             apply_ripple_scores(root, persistence.load_ripple_scores(seed))
             apply_property_overrides(
                 root, persistence.load_node_property_overrides(seed))

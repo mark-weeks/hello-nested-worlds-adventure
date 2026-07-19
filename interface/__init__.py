@@ -6,7 +6,7 @@ import causality
 import persistence
 from causality import CausalityBus, EventKind
 from causality.wiring import wire_world_handlers
-from multiverse.generator import generate_node_hierarchy
+from multiverse import store
 from multiverse.node import SpatialNode
 from multiverse.utils import apply_property_overrides, apply_ripple_scores
 from puzzles.engine import PuzzleEngine
@@ -289,7 +289,7 @@ def run_session(seed: int = 42, depth: int = 6,
     print(f"\n{_BOLD}Enfolded: Nested World Adventure{_RESET}")
     print(f"{_DIM}seed={seed}  depth={depth}{_RESET}")
     print("Generating world…", end=" ", flush=True)
-    root = generate_node_hierarchy(seed=seed, max_depth=depth)
+    root = store.world_tree(seed=seed, max_depth=depth)
     # Hydrate the world's persisted evolution: what other participants have
     # done here — ripple pressure and property changes — is already true
     # when a CLI player arrives.
