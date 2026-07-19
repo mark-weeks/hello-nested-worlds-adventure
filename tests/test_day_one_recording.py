@@ -242,6 +242,31 @@ class TestSelfServiceRegistration:
         with urllib.request.urlopen(req) as resp:
             assert resp.status == 200
 
+    def test_register_logic_is_external_and_served_under_the_csp(self, srv):
+        # The page is served under CSP script-src 'self' (no unsafe-inline),
+        # which blocks inline <script> blocks wholesale — the whole
+        # registration flow silently died that way once (2026-07-19 ensemble
+        # evaluation). The logic must live in an external file the server
+        # actually serves, ungated like its page; the page must reference it
+        # and carry no inline script for the CSP to strangle.
+        persistence.mint_invite_key("nw_named", "Named")  # gate up
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:{srv}/register.js") as resp:
+            assert resp.status == 200
+            assert "javascript" in resp.headers.get("Content-Type", "")
+            body = resp.read().decode()
+        assert "getElementById('form')" in body  # the submit wiring shipped
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:{srv}/register") as resp:
+            csp = resp.headers.get("Content-Security-Policy", "")
+            html = resp.read().decode()
+        assert "script-src 'self'" in csp and "unsafe-inline" not in csp.split(
+            "style-src")[0]  # style may be inline; script must not
+        assert '<script src="/register.js" defer></script>' in html
+        import re
+        assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html), (
+            "register.html must carry no inline script — the CSP blocks it")
+
     def test_full_flow_register_then_play_under_chosen_name(self, srv):
         # The crown path: token → chosen name → minted key → that key
         # authorizes play and the chronicle records the CHOSEN name, even

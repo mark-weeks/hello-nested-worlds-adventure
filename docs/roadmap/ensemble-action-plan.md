@@ -24,7 +24,7 @@ proceeds regardless of which option is ratified.
 
 | # | Item | Size | Finding |
 |---|------|------|---------|
-| 1.1 | **Fix `/register`**: externalize the inline script to `static/register.js` (CSP `script-src 'self'` currently blocks the whole self-service invite flow); add `/register` to the Playwright smoke suite | hours | Eval §top, §5.1 — the one broken front door; confirmed by execution |
+| 1.1 | ~~**Fix `/register`**: externalize the inline script to `static/register.js`; add `/register` to the Playwright smoke suite~~ **Shipped 2026-07-19** (see CHANGELOG) — e2e-verified in real Chromium under the production CSP | hours | Eval §top, §5.1 — the one broken front door; confirmed by execution |
 | 1.2 | **Set `FLY_API_TOKEN` + verify one dispatched backup run** — ADR-005's hourly-backup decision is paper until this exists | minutes + verify | Eval §6.1; runbook §8 already lists it |
 | 1.3 | **Run the ADR-005 staging rehearsal** (onboarding watch, WS soak, live-voice probe on `claude-opus-4-8`, restore rehearsal) on the disposable twin | scheduled | Eval §6.1; ADR-005 §2 |
 | 1.4 | Track 0 items 0.1–0.2 (and 0.3 if B ratified in time; 0.3 may also land launch-week — it is additive) | — | — |

@@ -395,7 +395,7 @@ class Handler(BaseHTTPRequestHandler):
         stripped = path.rstrip("/")
         if stripped in ("", "/health", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js", "/nodesound.js",
-                        "/guide", "/register", "/favicon.ico"):
+                        "/guide", "/register", "/register.js", "/favicon.ico"):
             return True
         if stripped == "/app" or path.startswith("/app/"):
             return True
@@ -558,6 +558,12 @@ class Handler(BaseHTTPRequestHandler):
             # UI shell — a registering player has no key yet; the ?invite=
             # token in their link is the credential, checked on the POST.
             self._send_file(_STATIC_DIR / "register.html")
+
+        elif path == "/register.js":
+            # The page's logic — external because the CSP (script-src 'self')
+            # blocks inline scripts; ungated alongside its page.
+            self._send_file(_STATIC_DIR / "register.js",
+                            content_type="application/javascript; charset=utf-8")
 
         elif path == "/nodesound.js":
             self._send_file(_STATIC_DIR / "nodesound.js",
