@@ -66,6 +66,7 @@ default surface.
 | 4.6 | Constellation-style arcs at a third scale pair; numeric answer-tail rework | post-pivot, as evolution content (3.2 makes this possible for existing nodes) | §3.1, §3.2 |
 | 4.7 | Display-name treatment for deep-scale suffixes | post-pivot (a rename-grammar question — fold into 3.2's event design) | §2.1, §3.3 |
 | 4.8 | Publish the cost-engineering case study | whenever | §2.3 |
+| 4.9 | Generate hashed Python locks from `pyproject.toml`, layering the dev lock over the runtime lock instead of restating it | before or with the next Python dependency bump | PR #72 review — prevent declaration/lock and runtime/dev duplication drift |
 
 ## Explicitly deferred / declined
 

@@ -34,7 +34,11 @@ def handle_websocket(
     reserved_names: set[str],
     logger: logging.Logger,
 ) -> None:
-    """Upgrade one request and own the socket until its session ends."""
+    """Upgrade one request and own the socket until its session ends.
+
+    ``request`` provides the ``BaseHTTPRequestHandler`` surface used below
+    plus ``Handler._send_error(message, status)`` from ``server.handlers``.
+    """
     key = request.headers.get("Sec-WebSocket-Key", "")
     if not key:
         request._send_error("WebSocket upgrade required", 400)

@@ -43,7 +43,7 @@ packages = [
 
 [tool.setuptools.package-data]
 persistence = ["migrations/*.sql"]
-static = ["*.html", "*.js", "app/*", "app/assets/*", "easter-egg/*"]
+static = ["*.html", "*.js", "app/**/*", "easter-egg/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

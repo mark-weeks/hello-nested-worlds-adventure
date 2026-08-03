@@ -1,4 +1,8 @@
-"""Build and smoke-test the distributable application wheel."""
+"""Build and smoke-test the distributable application wheel.
+
+Dependencies come from the ambient environment by design: this verifies
+packaging, not dependency resolution; the lock files own that contract.
+"""
 from __future__ import annotations
 
 import os
@@ -45,10 +49,14 @@ def main() -> None:
             "persistence/migrations/0013_world_nodes.sql",
             "static/index.html",
             "static/nodesound.js",
+            "static/clientlogic.js",
+            "static/app/index.html",
         }
         missing = sorted(required - names)
         if missing:
             raise RuntimeError(f"wheel is missing runtime files: {missing}")
+        if not any(name.startswith("static/app/assets/") for name in names):
+            raise RuntimeError("wheel is missing the built frontend bundle")
         if not any(name.endswith(".dist-info/entry_points.txt") for name in names):
             raise RuntimeError("wheel is missing the enfolded CLI entry point")
 

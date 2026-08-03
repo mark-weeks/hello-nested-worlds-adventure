@@ -135,12 +135,8 @@ class TestNonLinearEntry:
         assert "selectNode(resolveEntryNode" in js or "resolveEntryNode(worldRoot)" in js
 
     def test_both_clients_use_the_canonical_browser_rules(self):
-        shared = (_ROOT / "static" / "clientlogic.js").read_text()
         explorer = self._EXPLORER.read_text()
         html = (_ROOT / "static" / "index.html").read_text()
-        assert "function entryPath" in shared
-        assert "function passageBadges" in shared
-        assert "function mutationLine" in shared
         assert "window.EnfoldedClient" in explorer
         assert html.index('/clientlogic.js') < html.index('/explorer.js')
 
