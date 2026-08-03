@@ -45,7 +45,8 @@ A shared persistent multiverse inhabited simultaneously by human players and AI 
 
 ### `multiverse/` — World Model
 - **`node.py`** — `SpatialNode`: recursive data structure with id, name, level, children, properties; per-node interaction history is stored in `persistence/` (`world_mutations` table) and accessed via `persistence.get_node_history`
-- **`generator.py`** — canonical PCG: every node is a pure function of (seed, path), so any depth prefix of a world is identical to the full-depth world and all clients agree on node identity. Names encode their path and resolve in O(depth) via `resolve_node_by_name`
+- **`generator.py`** — birth-time PCG: every new node is a pure function of (seed, path), so any depth prefix of a newly born world is identical to the full-depth world
+- **`store.py`** — authoritative materialized world: births each seed once, serves stored prefix views, and resolves path-encoded names in O(depth) via `resolve_node_by_name`
 - **`effects.py`** — causal events change node substance: solves stabilize and calm danger, alerts roughen, structural change degrades condition; deltas persist as a property overlay applied at every rebuild
 - **`utils.py`** — tree helpers: `count_nodes`, `find_node`, `build_depth_map`, `build_distance_map` (origin-relative hop distances incl. ancestors), `apply_ripple_scores`, `apply_property_overrides`
 
@@ -89,13 +90,13 @@ Threaded `http.server` with REST + WebSocket support (HTTP/1.1 handshake), secur
 - **REST**: `/health`, `/worlds`, `/world`, `/players`, `/history`, `/chronicle`, `/agent`, `/observe`, `/puzzle`, `/image`, `GET`/`POST /position`, plus `POST /speak`, `POST /puzzle/attempt`, `POST /agent/voice`, `POST /act`, `POST /register`, and `POST /client-error`
 - **WebSocket** (`/ws`): presence, player-to-player chat, broadcast of causal events, ping/keepalive
 - **Static**: the built React + PixiJS bundle (`static/app/`) mounted at `/app`; the vanilla D3 explorer (`static/index.html` + `static/explorer.js`) served at `/`; easter-egg routes under `/easter-egg/`
-- Module split: `handlers.py` (HTTP/WebSocket dispatch), `protocol.py` (frame parsing), `rooms.py` (presence + co-op `PuzzleSession` state), `imageprompt.py` (per-level prompt assembly + style-signature cache key)
+- Module split: `handlers.py` (HTTP routing and endpoint orchestration), `websocket.py` (upgrade + connection loop), `protocol.py` (frame parsing), `rooms.py` (presence + co-op `PuzzleSession` state), `world_mechanics.py` (constellations, particle entanglement, canonical node hydration), and `imageprompt.py` (per-level prompt assembly + style-signature cache key)
 
 ### `interface/` — Terminal Interaction Layer
 Interactive terminal session (`run_session`) with three modes — spatial (`go`/`up`/`map`), conversational (`speak`), and ambient (`observe`) — plus inline puzzles. Each scale level renders in a distinct ANSI colour.
 
 ### `frontend/` — Browser Client
-React + PixiJS + Vite app that talks to the WebSocket server, built into `static/app/` and served at `/app`. Renders fal.ai-generated scene backgrounds, hotspot interactions, multiplayer presence, and live causal-event ripples. A complementary vanilla D3 tree explorer is served at `/` from `static/explorer.js`.
+React + PixiJS + Vite app that talks to the WebSocket server, built into `static/app/` and served at `/app`. Renders deterministic node art and sound, optional fal.ai scene washes, hotspot interactions, multiplayer presence, and live causal-event ripples. A complementary vanilla D3 tree explorer is served at `/`; both clients consume `static/clientlogic.js` for entry, passage-affordance, and chronicle rules.
 
 ### `puzzles/` — Embedded Challenges
 - **`types.py`** — `Puzzle` dataclass (kind, attempts, hints, result)

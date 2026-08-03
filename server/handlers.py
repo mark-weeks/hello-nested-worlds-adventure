@@ -1,14 +1,11 @@
 """HTTP request dispatch for the nested-worlds server."""
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
 import mimetypes
 import secrets
-import struct
-import uuid
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Mapping
@@ -32,20 +29,26 @@ from multiverse.verbs import (
     apply_verb, maturation_note, maturation_seconds, verb_for_level,
 )
 from puzzles import gates
-from puzzles.engine import PuzzleEngine, build_puzzle
+from puzzles.engine import PuzzleEngine
 from server import guard, imageprompt, moderation, observability
-from server.protocol import ProtocolError, _send_frame, ws_recv
 from server.rooms import (
-    Player, agent_enter, agent_leave, agent_move, agent_persona,
-    agents_snapshot, broadcast, get_puzzle_session, get_room, record_attempt,
-    snapshot,
+    agent_enter, agent_leave, agent_move, agent_persona, broadcast, get_room,
+    record_attempt, snapshot,
 )
+from server.world_mechanics import (
+    CONSTELLATION_LEVELS as _CONSTELLATION_LEVELS,
+    check_constellation as _check_constellation,
+    constellation_progress as _constellation_progress,
+    entangled_twin as _entangled_twin,
+    resolve_entangled_twin as _resolve_entangled_twin,
+    resolve_node as _resolve_node,
+)
+from server.websocket import handle_websocket
 
 
 _STATIC_DIR   = Path(__file__).parent.parent / "static"
 _FRONTEND_DIR = _STATIC_DIR / "app"
 _log = logging.getLogger("nested_worlds")
-_WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 _MAX_BODY = 64 * 1024  # 64 KB
 
 
@@ -76,139 +79,6 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int]:
     apply_ripple_scores(root, persistence.load_ripple_scores(seed))
     apply_property_overrides(root, persistence.load_node_property_overrides(seed))
     return root, seed, depth
-
-
-# Containers that light up when everything they enfold is resolved. Two
-# levels, deliberately one cosmic and one human: a Galaxy completes over
-# its systems, a Region over its rooms.
-_CONSTELLATION_LEVELS = {"Galaxy": "systems", "Region": "rooms"}
-
-
-def _constellation_progress(seed: int, container: SpatialNode) -> tuple[int, int]:
-    """(children whose CURRENT puzzle has a human solve, total children)."""
-    solved = 0
-    for child in container.children:
-        epoch = persistence.count_node_mutations(seed, child.name,
-                                                 "PUZZLE_REARM")
-        pz = build_puzzle(child, epoch)
-        if persistence.get_puzzle_solve(seed, child.name, pz.name):
-            solved += 1
-    return solved, len(container.children)
-
-
-def _check_constellation(seed: int, room, container: SpatialNode | None,
-                         solver: str | None,
-                         actor_identity: str | None) -> None:
-    """Light the container if this solve completed it.
-
-    Nested puzzles as a state layer: completion is read from the same
-    solve chronicle every other mechanic uses — no generated surface
-    changes. Once lit, lit forever (renewal may re-arm a child's puzzle,
-    but the constellation is a fact of history, not a live condition).
-    Completion is a world event: a permanent property, a chronicle row,
-    and a strong cascade that travels under the local physics.
-    """
-    if container is None or container.level not in _CONSTELLATION_LEVELS:
-        return
-    if not container.children:
-        return
-    if persistence.count_node_mutations(seed, container.name,
-                                        "CONSTELLATION_COMPLETE"):
-        return
-    solved, total = _constellation_progress(seed, container)
-    if solved < total:
-        return
-    display = solver if solver != "anonymous" else None
-    word = _CONSTELLATION_LEVELS[container.level]
-    persistence.record_mutation(
-        seed, container.name, "CONSTELLATION_COMPLETE", display,
-        {"children": total, "of": word}, actor_identity=actor_identity)
-    persistence.upsert_node_properties(seed, container.name,
-                                       {"constellated": True})
-    broadcast(room, {"type": "constellation_complete",
-                     "node": container.name, "level": container.level,
-                     "by": display, "children": total, "of": word})
-    bus = wire_world_handlers(CausalityBus(), seed, record=False)
-    bus.emit(container, EventKind.CONSTELLATION_COMPLETE, {"by": display})
-    stage_cascade(seed, container, EventKind.CONSTELLATION_COMPLETE,
-                  {"by": display})
-
-
-def _entangled_twin(node: SpatialNode) -> SpatialNode | None:
-    """The sibling particle `node` is entangled with, or None.
-
-    Pairing is structural and symmetric — adjacent path ordinals (1,2),
-    (3,4), … — but a pair is only LIVE when at least one member's
-    generated `tendency` is "entangled". Solving either member's puzzle
-    resolves both: at the smallest scale, locality fails.
-    """
-    if node.level != "SubatomicParticle" or node.parent is None:
-        return None
-    suffix = node.name.rpartition("-")[2]
-    if not suffix or not suffix[-1].isdigit():
-        return None
-    d = int(suffix[-1])
-    twin_suffix = suffix[:-1] + str(d + 1 if d % 2 == 1 else d - 1)
-    twin = next((c for c in node.parent.children
-                 if c.name.rpartition("-")[2] == twin_suffix), None)
-    if twin is None:
-        return None
-    tendencies = (node.properties.get("tendency"),
-                  twin.properties.get("tendency"))
-    return twin if "entangled" in tendencies else None
-
-
-def _resolve_entangled_twin(seed: int, room, twin: SpatialNode,
-                            origin_name: str, solver: str | None,
-                            contributors: list, actor_identity: str | None,
-                            ) -> None:
-    """Mark the twin's current puzzle solved alongside its partner's.
-
-    Records the solve (attributed to the same solver, tagged with the
-    entanglement), syncs any open co-op session, and broadcasts a
-    puzzle_solved players can see land at a node nobody touched. Idempotent:
-    an already-solved twin is left alone, so a pair resolves exactly once.
-    """
-    epoch = persistence.count_node_mutations(seed, twin.name, "PUZZLE_REARM")
-    twin_puzzle = build_puzzle(twin, epoch)
-    if persistence.get_puzzle_solve(seed, twin.name, twin_puzzle.name):
-        return
-    display = solver if solver != "anonymous" else None
-    persistence.record_mutation(
-        seed, twin.name, "PUZZLE_SOLVED", display,
-        {"puzzle": twin_puzzle.name, "contributors": contributors,
-         "entangled_with": origin_name},
-        actor_identity=actor_identity)
-    twin_session = get_puzzle_session(room, twin.name, twin_puzzle.name)
-    with room.lock:
-        twin_session.solver = solver
-        twin_session.contributors |= set(contributors)
-    broadcast(room, {"type": "puzzle_solved", "node": twin.name,
-                     "puzzle": twin_puzzle.name, "solver": solver,
-                     "contributors": contributors,
-                     "entangled_with": origin_name})
-
-
-def _resolve_node(seed: int, node_name: str) -> SpatialNode | None:
-    """Resolve a client-named node against the canonical world.
-
-    Node identity is server-derived: the client supplies only (seed, name),
-    never level or properties — a request can no longer forge a node's
-    nature or write history for places that don't exist. Names encode their
-    path, so resolution is O(depth) (`resolve_node_by_name`), and the node
-    is hydrated with its persisted evolution: ripple pressure and the
-    property overlay written by causal-event effects.
-    """
-    if not node_name:
-        return None
-    node = store.resolve_node_by_name(seed, node_name)
-    if node is None:
-        return None
-    node.ripple_score = persistence.get_ripple_score(seed, node.name)
-    overlay = persistence.load_node_property_overrides(seed).get(node.name)
-    if overlay:
-        node.properties.update(overlay)
-    return node
 
 
 # The wandering cast's names are world canon: their chronicle rows must be
@@ -392,7 +262,7 @@ class Handler(BaseHTTPRequestHandler):
         without a live token (ADR-004 §7, invite-gated self-service).
         """
         stripped = path.rstrip("/")
-        if stripped in ("", "/health", "/explorer.js", "/d3.v7.min.js",
+        if stripped in ("", "/health", "/clientlogic.js", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js", "/nodesound.js",
                         "/guide", "/register", "/register.js", "/favicon.ico"):
             return True
@@ -566,6 +436,10 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/nodesound.js":
             self._send_file(_STATIC_DIR / "nodesound.js",
+                            content_type="application/javascript; charset=utf-8")
+
+        elif path == "/clientlogic.js":
+            self._send_file(_STATIC_DIR / "clientlogic.js",
                             content_type="application/javascript; charset=utf-8")
 
         elif path == "/explorer.js":
@@ -886,218 +760,13 @@ class Handler(BaseHTTPRequestHandler):
     # ── WebSocket ──
 
     def _do_ws(self, qs: dict) -> None:
-        key = self.headers.get("Sec-WebSocket-Key", "")
-        if not key:
-            return self._send_error("WebSocket upgrade required", 400)
-
-        try:
-            seed = int(qs.get("seed", ["42"])[0])
-        except (ValueError, IndexError):
-            return self._send_error("invalid params", 400)
-
-        # Server-authoritative name: a per-user invite key carries a
-        # registered, unique name — use it, ignoring the client's ?name=
-        # (ADR-004 §7 — every player has a unique name). With the gate active
-        # this branch always fires (a keyless join was already refused with a
-        # 403 upstream), so no gated session is anonymous. The else-branch
-        # keyless name is reachable only in ungated local dev; it is still
-        # normalized (trim THEN cap) so a leading-space variant can't slip a
-        # reserved cast name past the check below.
-        ws_key = guard.supplied_key(self.headers, qs)
-        reg = guard.registered_name(ws_key)
-        if reg:
-            name = reg
-        else:
-            name = (qs.get("name", ["Anonymous"])[0] or "").strip()[:32] or "Anonymous"
-            if name.lower() in _RESERVED_PLAYER_NAMES:
-                # The wandering cast's names are world canon — a player joining
-                # as "Tessera" would impersonate an agent in the permanent
-                # chronicle. Reject loudly so the client can pick another name.
-                return self._send_error(
-                    f"'{name}' belongs to the world — choose another name", 403)
-
-        # Cap concurrent connections (global + per-IP) before upgrading, so a
-        # reconnect flood can't exhaust threads/memory. Reject cheaply with 503.
-        ip = guard.client_ip(self.client_address, self.headers)
-        if not guard.WS_LIMITER.acquire(ip):
-            return self._send_error("too many connections", 503)
-
-        # Everything past acquire() is wrapped so the connection slot is
-        # released no matter how the socket dies (handshake failure, loop
-        # exit, unexpected error).
-        try:
-            accept = base64.b64encode(
-                hashlib.sha1((key + _WS_GUID).encode()).digest()
-            ).decode()
-            self.send_response(101, "Switching Protocols")
-            self.send_header("Upgrade", "websocket")
-            self.send_header("Connection", "Upgrade")
-            self.send_header("Sec-WebSocket-Accept", accept)
-            self.end_headers()
-            self.wfile.flush()
-
-            # An upgraded socket is one-shot: it can never carry a second HTTP
-            # request, so we opt out of HTTP/1.1 keep-alive here (every other
-            # endpoint does the same via _send_security_headers). Without this,
-            # BaseHTTPRequestHandler loops back to read another request after
-            # the session ends and never closes the socket — so the RFC 6455
-            # closing handshake never ends with a TCP FIN, and spec-strict
-            # clients (Python `websockets`) block until their close timeout.
-            self.close_connection = True
-
-            sock = self.connection
-            sock.settimeout(60)  # 60-second idle timeout
-            session_id = uuid.uuid4().hex[:8]
-            # Durable identity for this session's chronicle rows (chat).
-            ws_identity = _actor_identity(ws_key, name)
-            # Players enter at their saved position, else the world's root —
-            # never in limbo (chat sent before the first move used to be
-            # silently unrecorded because current_node started ""). Restoring
-            # matters because every deploy drops all live sessions: a ledger
-            # that reset everyone to the root silently diverged from the
-            # client's resumed view, and a player whose room re-sealed
-            # around them was locked OUT of their own position on reconnect.
-            # Saved positions are validated and seal-checked at write time
-            # (_do_save_position), so no seal re-check here is deliberate: a
-            # seal that closed after the save is exactly the "already inside
-            # — the seal never imprisons" case.
-            root_name = store.root_name(seed)
-            entry_node = root_name
-            if ws_key:
-                saved = persistence.get_player_position(ws_key)
-                if saved and saved.get("seed") == seed and saved.get("node"):
-                    target = store.resolve_node_by_name(seed, str(saved["node"])[:128])
-                    if target is not None:
-                        entry_node = target.name
-            player = Player(name=name, seed=seed, current_node=entry_node,
-                            session_id=session_id, sock=sock)
-            player.start_writer()
-
-            room = get_room(seed)
-            with room.lock:
-                room.players[session_id] = player
-
-            player.send({"type": "welcome", "session_id": session_id,
-                         "players": snapshot(room),
-                         "agents": agents_snapshot(room)})
-            broadcast(room, {"type": "player_join", "name": name, "session_id": session_id},
-                      exclude=session_id)
-            # Presence is chronicle material: that someone was HERE is the
-            # experience later players build on, and it cannot be backfilled.
-            persistence.record_mutation(
-                seed, entry_node, "PLAYER_JOIN", name, {},
-                actor_identity=ws_identity)
-
-            # Per-connection throttles: the connection limiter bounds how
-            # many sockets exist; these bound what one socket can write
-            # into the permanent chronicle (and amplify into broadcasts).
-            move_bucket = guard.TokenBucket(guard.WS_MOVE_RATE,
-                                            guard.WS_MOVE_BURST)
-            chat_bucket = guard.TokenBucket(guard.WS_CHAT_RATE,
-                                            guard.WS_CHAT_BURST)
-            try:
-                while True:
-                    # send_lock keeps this thread's pong/close echoes from
-                    # interleaving with the writer thread's data frames.
-                    payload = ws_recv(sock, send_lock=player.send_lock)
-                    if payload is None:
-                        break
-                    if not payload:
-                        continue  # control frame
-                    try:
-                        msg = json.loads(payload)
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        continue
-                    msg_type = msg.get("type")
-                    if msg_type == "move":
-                        if not move_bucket.allow():
-                            continue  # flood — drop before any work
-                        node_name = str(msg.get("node", ""))[:64]
-                        # Node identity is server-derived, like every other
-                        # write path: a client cannot move to (and write
-                        # permanent history for) a place that doesn't exist.
-                        target = (store.resolve_node_by_name(seed, node_name)
-                                  if node_name else None)
-                        if target is None:
-                            player.send({"type": "move_denied",
-                                         "node": node_name,
-                                         "reason": "no such place"})
-                            continue
-                        # Sealed passages: a locked Room bars entry to
-                        # itself and everything enfolded beneath it until
-                        # its current puzzle is solved (puzzles/gates).
-                        seal = gates.seal_check(
-                            seed, target, current_name=player.current_node)
-                        if seal is not None:
-                            player.send({"type": "move_denied",
-                                         "node": node_name,
-                                         "reason": "sealed", **seal})
-                            continue
-                        with room.lock:
-                            player.current_node = node_name
-                        broadcast(room, {"type": "player_move", "name": name,
-                                         "node": node_name, "session_id": session_id},
-                                  exclude=session_id)
-                        # Movement trails persist: they feed the node's
-                        # activity count (the art's wear marks) and let
-                        # the chronicle answer "who traveled here".
-                        persistence.record_mutation(
-                            seed, node_name, "PLAYER_MOVE", name, {},
-                            actor_identity=ws_identity)
-                    elif msg_type == "chat":
-                        if not chat_bucket.allow():
-                            continue  # flood — drop before any work
-                        text = str(msg.get("text", "")).strip()[:256]
-                        # Screened before broadcast AND before the chronicle
-                        # row (ADR-004 §2): a declined line reaches nobody
-                        # and is stored nowhere — only the sender hears the
-                        # world decline it.
-                        if text and not moderation.screen(text).allowed:
-                            player.send({"type": "chat_declined",
-                                         "text": moderation.DECLINE_LINE})
-                            continue
-                        if text:
-                            broadcast(room, {"type": "chat", "name": name,
-                                             "text": text, "session_id": session_id})
-                            # Attribute the chat to the speaker's current node so
-                            # downstream consumers (consciousness history, image
-                            # invalidation) see it as a node interaction.
-                            persistence.record_mutation(
-                                seed, player.current_node or root_name,
-                                # Store the full chat text (already [:256] above,
-                                # the same value broadcast to the room) — the
-                                # record isn't truncated; the prompt clips it at
-                                # render time. (ADR-004.)
-                                "PLAYER_CHAT", name, {"text": text},
-                                actor_identity=ws_identity,
-                            )
-                    elif msg_type == "ping":
-                        player.send({"type": "pong"})
-            except ProtocolError:
-                # RFC 6455 violation (unmasked frame, bad fragmentation, …):
-                # attempt a 1002 close, then drop the connection.
-                try:
-                    _send_frame(sock, 0x8, struct.pack(">H", 1002),
-                                lock=player.send_lock)
-                except OSError:
-                    pass
-            except (OSError, ConnectionResetError, BrokenPipeError):
-                pass
-            finally:
-                player.stop_writer()
-                with room.lock:
-                    room.players.pop(session_id, None)
-                broadcast(room, {"type": "player_leave", "name": name,
-                                 "session_id": session_id})
-                try:
-                    persistence.record_mutation(
-                        seed, player.current_node or root_name,
-                        "PLAYER_LEAVE", name, {},
-                        actor_identity=ws_identity)
-                except Exception:  # noqa: BLE001 — teardown must not raise
-                    _log.exception("failed to record PLAYER_LEAVE")
-        finally:
-            guard.WS_LIMITER.release(ip)
+        handle_websocket(
+            self,
+            qs,
+            actor_identity=_actor_identity,
+            reserved_names=_RESERVED_PLAYER_NAMES,
+            logger=_log,
+        )
 
     # ── Observe (SSE) ──
 

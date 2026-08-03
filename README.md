@@ -84,7 +84,7 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 
 ## Current State
 
-*Matrix last verified against code: 2026-07-19.*
+*Matrix last verified against code: 2026-08-02.*
 
 | System | Status |
 |--------|--------|
@@ -98,22 +98,21 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 | CLI (`main.py`) | Functional — `world`, `agent`, `puzzles` (`--limit`, skip/quit, EOF-safe), `play` (`--name` required — no anonymous play, so nodes remember you and the chronicle records a known actor), `serve`, `speak`, `history` (now includes puzzle results); `--seed` accepted before or after the subcommand. CLI play is part of the shared world: solves persist and cascade, ambient observation leaves real traces, and the session tree carries the world's persisted evolution |
 | Node consciousness (`consciousness/`) | Functional — Claude-powered node voices with per-scale registers (`LEVEL_VOICES`) AND deep per-scale lore (`LEVEL_LORE`: diction, how each scale senses its neighbors, pressure behavior, exemplar exchanges) for all 11 levels. Memory has content: nodes hear what you said and remember what they answered, per-(node, speaker) transcripts make conversations multi-turn (keyed on the invite credential, so same-name strangers stay strangers), and accumulated causal pressure colors the voice. **Prompt caching genuinely fires**: both bibles exceed the real 4096-token Opus minimum (guarded by tests), so after the first call in a 1h window the prefix bills at the ~10x cache-read discount. Without a key the world degrades in character: every scale has an authored fallback line — never an HTTP 503 or SDK error |
 | Interface (`interface/`) | Functional — interactive terminal session (spatial, conversational, ambient) |
-| Frontend (`frontend/`) | Functional — React + PixiJS + Vite client wired to the WebSocket server; node conversation (`/speak`) and puzzle play (`/puzzle`) panels; **speak-to-presences**: agents whose traces sit in the current node's history can be addressed directly (`/agent/voice`); **passage affordances**: danger / corruption / unrest / stabilization / causal-pressure badges on passages (text panel + hotspot studs + explorer rings — parity-tested across clients); **per-node generative art** (`static/nodeart.js`, one deterministic module shared by both clients): every node renders unique canvas art derived purely from (seed, name, properties, history) — 11 per-scale form families (folds, filaments, spirals, orbits, shells…), causal pressure saturates and jitters the composition, stabilization draws a halo, corruption glitches it, danger vignettes the edges, and accumulated interactions etch activity marks; always present at zero API spend, with fal.ai imagery blended over it as a translucent enhancement wash; named player markers; animated causal ripples / encounter glyphs / solve sparkles. Scene init degrades gracefully when WebGL is unavailable |
+| Frontend (`frontend/`) | Functional — React + PixiJS + Vite client wired to the WebSocket server; node conversation (`/speak`) and puzzle play (`/puzzle`) panels; **speak-to-presences**: agents whose traces sit in the current node's history can be addressed directly (`/agent/voice`); **passage affordances**: danger / corruption / unrest / stabilization / causal-pressure badges on passages (text panel + hotspot studs + explorer rings); **per-node generative art** (`static/nodeart.js`, shared by both clients): every node renders deterministic art derived from seed, identity, properties, and history across 11 form families, with causal pressure, stabilization, corruption, danger, and accumulated activity visibly expressed; **per-node generative soundscape** (`static/nodesound.js`, also shared): scale sets register and event pace, the art hue informs pitch, condition selects harmony, atmosphere colors texture, and history becomes audible as activity, motifs, and wear. The explorer offers listening once per session in fiction; both clients keep sound opt-in for the browser activation gesture. fal.ai imagery remains an optional translucent enhancement wash over the always-present generated scene; WebGL failure degrades gracefully. |
 | Beta hardening (`server/guard.py`, `server/observability.py`) | Functional — per-user invite keys are the whole invite gate (`invite_keys` table; mint/list/revoke via `python main.py invite ...`; no shared key, so every gated session is a known, unique, named player — ADR-004 §7), **invite-gated self-service registration** (`invite create` mints a single-use token; the player picks their own unique name at `/register` and redemption atomically mints their play key — name taken → "choose another", token survives for the retry), **input moderation** (ADR-004 §2: fail-open two-tier screen on `/speak`, `/agent/voice`, WS chat, and registered names — a µs-scale local filter blocks only unambiguous slurs and escalates anything fuzzy to one uncached Haiku-tier classify on its own daily budget; declined input gets an authored in-fiction line and leaves no chronicle row, no broadcast, no voice-budget charge; `NESTED_WORLDS_DISABLE_MODERATION=1` kill switch), per-IP rate limiter, Anthropic concurrency semaphore (env-tunable), daily Anthropic + fal.ai cost caps — both a global cap and a per-user (per-credential) sub-cap so one account can't drain the shared budget (all persisted), kill switches for AI / images, world-gen parameter bounds, optional Sentry, JSON access log, online SQLite backup CLI |
 | Frontends: which is which | Two browser clients. `/` (vanilla-D3 explorer) and `/app` (React+PixiJS) are **both** feature-complete for the core loop — navigate, speak to nodes, solve puzzles, live multiplayer. Ambient observe (`/observe` SSE) is explorer-only; `/app` covers the rest of the loop. For the beta, the explorer is the **default surface** (ADR-005): invite URLs land on `/` because it has no WebGL dependency and works on any device first-click, and the guide names `/app` as "the scene view" to try once oriented — the same world and key carry over via localStorage. |
-| Non-linear entry (both clients) | Traversal is non-linear (move up or down from any node; no "reach the bottom" goal), so there is no fixed root start. A **first-time player drops in at a node in the middle of the world** — one with places to go both up and down — chosen deterministically from their name. A **returning player resumes exactly where they left off**, and that resume **follows them across devices**: the last node (and the world it belonged to) is stored server-side keyed on the invite key (`GET`/`POST /position`, columns on `invite_keys`), so a tester who opens the game on a new device or browser lands back where they were. `localStorage` stays a same-browser cache and the server is the cross-device source of truth; a no-key (ungated dev) session has no server row and falls back to the local cache. Falls back to a fresh drop-in if the saved node is gone. Shared logic in `frontend/src/entry.js` (React) mirrored in `static/explorer.js` (D3). |
-| Tests | 792 Python tests across generator (incl. canonical prefix-stability + node-uniqueness invariants), agents (incl. memory-across-rebuilds and puzzle-rule parity), puzzles (quality invariants — no-leak, solvable, node-unique, per-node difficulty spread, transform integrity, never-in-properties), effects + causal wiring, staged causal delay (incl. staged≡synchronous cascade equivalence), persistence (incl. invite keys + cross-device position + property overlay + restart-proof co-op), causality, interface, consciousness (incl. transcripts, fallback voices, bible cache-effectiveness), heartbeat, HTTP/WebSocket server (incl. RFC 6455 masking/fragmentation/ping-pong and non-blocking broadcast under a stalled client), node resolution + agent addressability, beta guards (invite gate — per-user keys only, no shared key; no-anonymous invariant), Fly deploy config, frontend↔endpoint contract (incl. the generative-art layer in both clients and the built bundle), and observability — plus 77 Vitest JS tests (entry + affordance + event-narration cross-client parity, WS dispatch, deterministic node art) run in CI |
+| Non-linear entry (both clients) | Traversal is non-linear (move up or down from any node; no "reach the bottom" goal), so there is no fixed root start. A **first-time player drops in at a node in the middle of the world** — one with places to go both up and down — chosen deterministically from their name. A **returning player resumes exactly where they left off**, and that resume **follows them across devices**: the last node (and the world it belonged to) is stored server-side keyed on the invite key (`GET`/`POST /position`, columns on `invite_keys`), so a tester who opens the game on a new device or browser lands back where they were. `localStorage` stays a same-browser cache and the server is the cross-device source of truth; a no-key (ungated dev) session has no server row and falls back to the local cache. Falls back to a fresh drop-in if the saved node is gone. Entry, passage-badge, and chronicle-rendering rules are canonical in `static/clientlogic.js` and consumed by both clients. |
+| Tests | 805 Python tests across generator and stored-world continuity, agents, puzzle quality, effects and staged causality, persistence, consciousness, heartbeat, HTTP/WebSocket conformance, node resolution, beta guards, deployment contracts, frontend↔endpoint contracts, and observability — plus 74 Vitest tests for canonical entry/affordance/chronicle behavior, WebSocket dispatch, and deterministic node art and sound. CI also builds the production frontend, rejects a stale committed bundle, smoke-tests the installed wheel, and runs Playwright against the real server under the production CSP. |
 
 ---
 
 ## Setup
 
 ```bash
-# Install runtime dependencies
-pip install anthropic
-
-# Install with dev dependencies (for tests)
-pip install -e ".[dev]"
+# Use the pinned runtimes, then install the locked Python and Node dependencies
+nvm use
+./setup.sh
+source .venv/bin/activate
 
 # Copy the environment template and fill in keys you need
 cp .env.example .env
@@ -157,7 +156,6 @@ The browser frontend (`frontend/`) is a separate Vite project:
 
 ```bash
 cd frontend
-npm install
 npm run dev    # dev server with hot reload
 npm run build  # production bundle
 ```
@@ -201,8 +199,10 @@ python main.py world --seed 7 --depth 6
 ## Running Tests
 
 ```bash
-pip install -e ".[dev]"
-pytest tests/ -v
+./scripts/check.sh
+
+# Include the real-browser smoke tests after Playwright Chromium is installed
+ENFOLDED_E2E=1 ./scripts/check.sh
 ```
 
 ---

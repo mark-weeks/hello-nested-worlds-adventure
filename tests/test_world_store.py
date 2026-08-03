@@ -11,8 +11,8 @@ Three contracts pinned here, in order of importance:
 
 2. **Birth equivalence** — at birth, the store serves exactly what the
    generator generated: same names, levels, properties, and child order,
-   at every depth view, and resolution refuses exactly the forgeries the
-   generator's resolver refused.
+   at every depth view; stored resolution returns that same identity and
+   refuses paths or names that were never born.
 
 3. **Birth discipline** — births are idempotent (a born world is never
    re-born) and lazy (first visit births).
@@ -23,9 +23,7 @@ import pytest
 
 import persistence
 from multiverse import store
-from multiverse.generator import (
-    generate_node_hierarchy, resolve_node_by_name,
-)
+from multiverse.generator import generate_node_hierarchy
 
 SEED = 4242  # not the canonical 42: keep these worlds test-local
 
@@ -84,10 +82,19 @@ class TestBirthEquivalence:
 class TestResolutionParity:
     def test_resolves_every_level_with_ancestry(self):
         root = store.world_tree(seed=SEED, max_depth=11)
+        generated = generate_node_hierarchy(seed=SEED, max_depth=11)
+        generated_by_name = {}
+
+        def index(node):
+            generated_by_name[node.name] = node
+            for child in node.children:
+                index(child)
+
+        index(generated)
         for name in _sample_names(root):
             got = store.resolve_node_by_name(SEED, name)
-            ref = resolve_node_by_name(SEED, name)
-            assert got is not None and ref is not None
+            ref = generated_by_name[name]
+            assert got is not None
             assert got.name == ref.name == name
             assert got.level == ref.level
             assert got.properties == ref.properties
@@ -100,7 +107,7 @@ class TestResolutionParity:
                 assert g.name == r.name
             assert g.parent is None
 
-    def test_refuses_the_same_forgeries_as_the_generator(self):
+    def test_refuses_names_and_paths_that_were_never_born(self):
         root = store.world_tree(seed=SEED, max_depth=11)
         real = root.children[0].name           # a Universe, path "1.N"
         suffix = real.rpartition("-")[2]
@@ -114,7 +121,6 @@ class TestResolutionParity:
         ]
         for name in forged:
             assert store.resolve_node_by_name(SEED, name) is None, name
-            assert resolve_node_by_name(SEED, name) is None, name
 
 
 class TestBirthDiscipline:

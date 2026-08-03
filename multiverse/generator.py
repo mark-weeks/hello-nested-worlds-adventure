@@ -465,54 +465,6 @@ def _node_seed(seed: int, path: tuple[int, ...]) -> int:
 MAX_GENERATOR_BREADTH = 9
 
 
-def resolve_node_by_name(seed: int, name: str) -> SpatialNode | None:
-    """Resolve a node from its name alone, without generating the tree.
-
-    Names encode their path ("Vault-1231" sits at path 1→2→3→1), so the
-    node — and its ancestor chain, with parent links — can be regenerated
-    in O(depth). Returns None when the name doesn't correspond to a real
-    node in this world: bad suffix, out-of-range step, level mismatch, or a
-    base name that doesn't match what the path actually generates (so a
-    client cannot forge "Fake-11" into existence).
-
-    The returned node carries no children; it is for identity, properties,
-    and ancestry — use `generate_node_hierarchy` when structure is needed.
-    """
-    if not name or "-" not in name:
-        return None
-    _, _, suffix = name.rpartition("-")
-    if not suffix.isdigit() or not suffix.startswith("1"):
-        return None
-    path_digits = [int(c) for c in suffix]
-    if len(path_digits) > len(LEVELS):
-        return None
-
-    parent: SpatialNode | None = None
-    node: SpatialNode | None = None
-    path: tuple[int, ...] = ()
-    for depth_index, step in enumerate(path_digits):
-        if step < 1:
-            return None  # children are numbered from 1; path digit 0 is forged
-        path = path + (step,)
-        rng = random.Random(_node_seed(seed, path))
-        level = LEVELS[depth_index]
-        node_name = _generate_name(level, path, rng)
-        properties = generate_properties(level, rng)
-        breadth = rng.randint(*BREADTH_BY_LEVEL[level])
-        node = SpatialNode(name=node_name, level=level, properties=properties)
-        node._breadth = breadth  # how many children this node would generate
-        if parent is not None:
-            # The claimed step must be a child that actually exists.
-            if step > getattr(parent, "_breadth", 0):
-                return None
-            parent.add_child(node)
-        parent = node
-
-    if node is None or node.name != name:
-        return None
-    return node
-
-
 def generate_node_hierarchy(seed: int = 42, max_depth: int = 11) -> SpatialNode:
     """Generate the canonical world for `seed` down to `max_depth`.
 

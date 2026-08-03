@@ -5,6 +5,7 @@
 import { defineConfig } from "@playwright/test";
 
 const PORT = 8199;
+const PYTHON = process.env.ENFOLDED_PYTHON || "python";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -20,7 +21,7 @@ export default defineConfig({
       : {},
   },
   webServer: {
-    command: `python ../main.py serve --host 127.0.0.1 --port ${PORT}`,
+    command: `${PYTHON} ../main.py serve --host 127.0.0.1 --port ${PORT}`,
     url: `http://127.0.0.1:${PORT}/health`,
     reuseExistingServer: false,
     timeout: 30_000,

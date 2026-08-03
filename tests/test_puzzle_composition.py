@@ -14,7 +14,8 @@ import urllib.request
 import pytest
 
 import persistence
-from multiverse.generator import generate_node_hierarchy, resolve_node_by_name
+from multiverse import store
+from multiverse.generator import generate_node_hierarchy
 from puzzles.engine import build_puzzle
 from server.handlers import (
     _check_constellation, _constellation_progress,
@@ -75,7 +76,7 @@ class TestLineageSigils:
         # The resolver builds the full ancestor chain, so a childless twin
         # must yield the identical puzzle.
         for n, p in self._lineages()[::25]:
-            twin = resolve_node_by_name(42, n.name)
+            twin = store.resolve_node_by_name(42, n.name)
             q = build_puzzle(twin)
             assert (q.name, q.answer) == (p.name, p.answer), n.name
 
@@ -106,7 +107,7 @@ class TestBondPuzzles:
 
     def test_pure_function_of_identity(self):
         for n, p in self._bonds()[::40]:
-            twin = resolve_node_by_name(42, n.name)
+            twin = store.resolve_node_by_name(42, n.name)
             q = build_puzzle(twin)
             assert (q.name, q.answer) == (p.name, p.answer), n.name
 

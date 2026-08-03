@@ -273,9 +273,9 @@ class TestNodeUniqueness:
             assert "-" not in base, f"{n.name!r} has a hyphenated base"
 
     def test_synthesized_names_still_resolve(self):
-        from multiverse.generator import resolve_node_by_name
+        from multiverse import store
         nodes = self._walk(seed=13, depth=8)
         for n in nodes[:: max(1, len(nodes) // 25)]:
-            resolved = resolve_node_by_name(13, n.name)
+            resolved = store.resolve_node_by_name(13, n.name)
             assert resolved is not None, f"{n.name} failed to resolve"
             assert resolved.properties == n.properties

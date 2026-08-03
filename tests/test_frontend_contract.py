@@ -134,6 +134,16 @@ class TestNonLinearEntry:
         # No longer hard-pins entry to the root.
         assert "selectNode(resolveEntryNode" in js or "resolveEntryNode(worldRoot)" in js
 
+    def test_both_clients_use_the_canonical_browser_rules(self):
+        shared = (_ROOT / "static" / "clientlogic.js").read_text()
+        explorer = self._EXPLORER.read_text()
+        html = (_ROOT / "static" / "index.html").read_text()
+        assert "function entryPath" in shared
+        assert "function passageBadges" in shared
+        assert "function mutationLine" in shared
+        assert "window.EnfoldedClient" in explorer
+        assert html.index('/clientlogic.js') < html.index('/explorer.js')
+
     @pytest.mark.skipif(not _BUILT_APP.exists(),
                         reason="static/app not built; run: cd frontend && npm run build")
     def test_built_bundle_has_resume(self):

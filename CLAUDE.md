@@ -133,8 +133,11 @@ evolution when it exists. Consequences:
   appears in a file. Two P0s shipped because substring/grep "tests" passed while
   behavior was broken; the fix each time was a real behavior test. See
   `tests/test_frontend_contract.py`'s own history and the CHANGELOG P0 entries.
-- Run the suite before proposing merge: `pip install -e ".[dev]" && pytest tests/ -q`
-  (plus `cd frontend && npm test` for the Vitest cross-client parity tests).
+- Bootstrap once with `./setup.sh`, then run `./scripts/check.sh` before
+  proposing merge. The check runs Ruff, the Python and Vitest behavior suites,
+  the production frontend build + committed-bundle freshness gate, and an
+  installed-wheel smoke test. Set `ENFOLDED_E2E=1` to include Playwright after
+  installing Chromium.
 - The invariant suites are the crown jewels — keep them honest: puzzle no-leak /
   solvable / per-node-difficulty (`tests/test_puzzles.py`), continuity freeze
   (`tests/test_continuity_freeze.py`), causal wiring, staged-cascade equivalence,

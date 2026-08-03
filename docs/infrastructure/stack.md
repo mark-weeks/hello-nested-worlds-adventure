@@ -16,8 +16,8 @@ The as-built Phase 1 stack. Diverges from the original ADRs in three places (Fas
 
 ## Runtime requirements
 
-- Python 3.11+ (stdlib server, no external HTTP framework)
-- Node 20+ (CI and the Dockerfile use 20; only for building the React frontend, not required to run the server)
+- Python 3.11 (pinned for deterministic world birth; stdlib server, no external HTTP framework)
+- Node 20.19+ (pinned by `.nvmrc`, CI, and the Dockerfile; only for building the React frontend, not required to run the server)
 - `ANTHROPIC_API_KEY` for `/speak`
 - `FAL_KEY` for AI scene backgrounds (optional — frontend gracefully degrades)
 

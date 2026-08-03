@@ -288,7 +288,7 @@ class TestEnfoldPuzzles:
     def test_answers_derive_from_the_name_alone(self):
         # Structural answers must be correct AND independent of whether the
         # node came with children attached (pure function of identity).
-        from multiverse.generator import resolve_node_by_name
+        from multiverse import store
         for n in self._cosmic():
             p = build_puzzle(n)
             if not self._is_enfold(p):
@@ -297,7 +297,7 @@ class TestEnfoldPuzzles:
             assert p.answer in {str(len(suffix) - 1),
                                 str(len(LEVELS) - len(suffix)),
                                 suffix[-1]}, n.name
-            resolved = resolve_node_by_name(42, n.name)  # childless twin
+            resolved = store.resolve_node_by_name(42, n.name)  # childless twin
             q = build_puzzle(resolved)
             assert (q.name, q.answer) == (p.name, p.answer), (
                 "an enfold must not depend on attached children")
