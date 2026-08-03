@@ -319,6 +319,11 @@ class TestChatScreening:
         sender, s_status = _ws_connect(srv, seed, "Ada")
         other, o_status = _ws_connect(srv, seed, "Bee")
         assert b"101" in s_status and b"101" in o_status
+        # The HTTP upgrade completes before the handler adds the player to the
+        # room. Waiting for each welcome closes that registration race before
+        # we assert which broadcasts the second player receives.
+        _read_ws_json_until(sender, "welcome")
+        _read_ws_json_until(other, "welcome")
 
         _ws_send_json(sender, {"type": "chat", "text": f"you {_SLUR}"})
         # The sender hears the world decline it…

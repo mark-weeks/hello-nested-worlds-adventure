@@ -156,13 +156,8 @@ export function soundscapeParams(seed, node) {
       ? props.inscriptions : 0),
     rough,
     gain: 0.05,                          // ambience, never music-forward
-    // Legacy convenience fields (kept for callers/tests of the first cut).
-    freq: rootHz,
   };
 }
-
-// Back-compat alias: the original thin API name.
-export const ambienceParams = soundscapeParams;
 
 
 export class NodeAmbience {

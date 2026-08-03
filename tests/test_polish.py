@@ -98,3 +98,14 @@ class TestNodeSoundServing:
         # Determinism contract, same as the art module.
         assert "Math.random" not in body
         assert "Date.now" not in body
+
+
+class TestSharedClientLogicServing:
+    def test_canonical_client_rules_are_served(self, srv):
+        with urllib.request.urlopen(f"{srv}/clientlogic.js") as resp:
+            body = resp.read().decode()
+        assert resp.status == 200
+        assert "javascript" in resp.headers["Content-Type"]
+        assert "EnfoldedClient" in body
+        assert "passageBadges" in body
+        assert "mutationLine" in body

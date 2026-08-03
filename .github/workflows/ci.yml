@@ -20,13 +20,18 @@ jobs:
           cache: pip
 
       - name: Install package with dev extras
-        run: pip install -e ".[dev]"
+        run: |
+          pip install "setuptools==82.0.0"
+          pip install --no-build-isolation -c requirements-dev.lock -e ".[dev]"
 
       - name: Ruff lint
         run: ruff check .
 
       - name: Run pytest
         run: python -m pytest tests/ -q
+
+      - name: Verify installable wheel
+        run: python scripts/verify_wheel.py
 
   frontend:
     name: Frontend build
@@ -40,7 +45,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -84,12 +89,14 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install the package (real server, real world)
-        run: pip install -e .
+        run: |
+          pip install "setuptools==82.0.0"
+          pip install --no-build-isolation -c requirements.lock -e .
 
       - name: Install frontend dependencies
         run: npm ci

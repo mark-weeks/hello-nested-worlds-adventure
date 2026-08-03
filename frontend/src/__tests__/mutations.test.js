@@ -1,15 +1,9 @@
-// Behavior tests for the canonical chronicle/history line renderer — and
-// the cross-client parity harness that executes the hand-mirrored copy in
-// static/explorer.js against it. Four hand copies of this switch once
-// existed; the React feed's copy was missing SCALE_ACT and AGENT_TALK, so
-// those events rendered as "something happened" on one surface only. One
-// canonical module + this executed parity is the fix (same harness as
-// entry.test.js).
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+// Behavior tests for the canonical chronicle/history renderer shared by both
+// browser clients.
 import { describe, expect, it } from "vitest";
-import { describeMutation, mutationLine } from "../mutations.js";
+import {
+  describeChronicleEntry, describeMutation, mutationLine,
+} from "../mutations.js";
 
 // One fixture per event type the world records, plus the fallbacks: a
 // typeless row, an agent-attributed row, and rows with missing data.
@@ -63,41 +57,10 @@ describe("describeMutation", () => {
   });
 });
 
-describe("explorer.js parity", () => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const explorerSrc = readFileSync(
-    join(here, "../../../static/explorer.js"), "utf8");
-
-  function extract(name) {
-    const start = explorerSrc.indexOf(`function ${name}(`);
-    if (start === -1) throw new Error(`function ${name} not found in explorer.js`);
-    let depth = 0, i = explorerSrc.indexOf("{", start);
-    for (; i < explorerSrc.length; i++) {
-      if (explorerSrc[i] === "{") depth++;
-      if (explorerSrc[i] === "}") depth--;
-      if (depth === 0) break;
-    }
-    return explorerSrc.slice(start, i + 1);
-  }
-
-  it("the hand-mirrored describeMutation agrees on every event type", () => {
-    // eslint-disable-next-line no-new-func
-    const explorerDescribe = new Function(
-      `${extract("describeMutation")}\nreturn describeMutation;`)();
-    for (const m of FIXTURES) {
-      expect(explorerDescribe(m)).toBe(describeMutation(m));
-    }
-  });
-
-  it("the explorer's chronicle rows agree with mutationLine", () => {
-    // describeChronicleEntry derives from describeMutation by stripping the
-    // date prefix — it must land exactly on the canonical undated line.
-    // eslint-disable-next-line no-new-func
-    const explorerChronicle = new Function(
-      `${extract("describeMutation")}\n${extract("describeChronicleEntry")}\n` +
-      "return describeChronicleEntry;")();
+describe("chronicle entry", () => {
+  it("uses the canonical undated mutation line", () => {
     for (const m of FIXTURES.filter(f => f.at)) {
-      expect(explorerChronicle(m)).toBe(mutationLine(m));
+      expect(describeChronicleEntry(m)).toBe(mutationLine(m));
     }
   });
 });

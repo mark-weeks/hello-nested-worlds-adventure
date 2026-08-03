@@ -1,10 +1,5 @@
-// Behavior tests for non-linear entry resolution. These functions are
-// hand-mirrored in static/explorer.js — the parity test at the bottom
-// executes BOTH copies on the same input and fails if they ever drift
-// (previously they were guarded only by substring greps).
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+// Behavior tests for the canonical non-linear entry rules shared by both
+// browser clients.
 import { describe, expect, it } from "vitest";
 import { dropInNode, entryPath, findPath } from "../entry.js";
 
@@ -58,40 +53,5 @@ describe("entryPath", () => {
     const a = entryPath(world(), "Gone-77", "Ada").map(n => n.name);
     const b = entryPath(world(), null, "Ada").map(n => n.name);
     expect(a).toEqual(b);
-  });
-});
-
-describe("explorer.js parity", () => {
-  // Execute the hand-mirrored copies from static/explorer.js against the
-  // same inputs. A tweak to one client's hash or candidate-pool logic that
-  // doesn't reach the other now fails a test instead of silently
-  // desynchronizing cross-client entry points.
-  const here = dirname(fileURLToPath(import.meta.url));
-  const explorerSrc = readFileSync(
-    join(here, "../../../static/explorer.js"), "utf8");
-
-  function extract(name) {
-    const start = explorerSrc.indexOf(`function ${name}(`);
-    if (start === -1) throw new Error(`function ${name} not found in explorer.js`);
-    let depth = 0, i = explorerSrc.indexOf("{", start);
-    const open = i;
-    for (; i < explorerSrc.length; i++) {
-      if (explorerSrc[i] === "{") depth++;
-      if (explorerSrc[i] === "}") depth--;
-      if (depth === 0) break;
-    }
-    return explorerSrc.slice(start, i + 1);
-  }
-
-  it("dropInNode agrees between the two clients for many names", () => {
-    const code = `${extract("_entryHash")}\n${extract("dropInNode")}\n` +
-      // explorer's dropInNode calls _entryHash; expose it for the test.
-      `return dropInNode;`;
-    // eslint-disable-next-line no-new-func
-    const explorerDropIn = new Function(code)();
-    for (const name of ["Ada", "Bob", "Wendy", "Mallory", "æøå", ""]) {
-      expect(explorerDropIn(world(), name).name)
-        .toBe(dropInNode(world(), name).name);
-    }
   });
 });

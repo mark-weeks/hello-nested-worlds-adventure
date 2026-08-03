@@ -18,7 +18,8 @@ import pytest
 
 import consciousness
 import persistence
-from multiverse.generator import generate_node_hierarchy, resolve_node_by_name
+from multiverse import store
+from multiverse.generator import generate_node_hierarchy
 from server import _Handler, _ThreadedServer
 
 
@@ -52,14 +53,14 @@ def _some_deep_node(seed=42):
 class TestResolveNodeByName:
     def test_resolves_root(self):
         root = generate_node_hierarchy(seed=42, max_depth=1)
-        node = resolve_node_by_name(42, root.name)
+        node = store.resolve_node_by_name(42, root.name)
         assert node is not None
         assert node.level == "Multiverse"
         assert node.properties == root.properties
 
     def test_resolves_deep_node_with_ancestry(self):
         target = _some_deep_node()
-        node = resolve_node_by_name(42, target.name)
+        node = store.resolve_node_by_name(42, target.name)
         assert node is not None
         assert node.level == target.level
         assert node.properties == target.properties
@@ -73,18 +74,18 @@ class TestResolveNodeByName:
         assert depth == 5
 
     def test_rejects_forged_base_name(self):
-        assert resolve_node_by_name(42, "TotallyFake-11") is None
+        assert store.resolve_node_by_name(42, "TotallyFake-11") is None
 
     def test_rejects_out_of_range_path(self):
         # Path digit 9 exceeds any breadth the generator rolls (1–3).
         root = generate_node_hierarchy(seed=42, max_depth=1)
         base = root.name.rsplit("-", 1)[0]
-        assert resolve_node_by_name(42, f"{base}-19") is None
+        assert store.resolve_node_by_name(42, f"{base}-19") is None
 
     def test_rejects_garbage(self):
-        assert resolve_node_by_name(42, "") is None
-        assert resolve_node_by_name(42, "no-suffix-here") is None
-        assert resolve_node_by_name(42, "Vault-10") is None  # 0 step forged
+        assert store.resolve_node_by_name(42, "") is None
+        assert store.resolve_node_by_name(42, "no-suffix-here") is None
+        assert store.resolve_node_by_name(42, "Vault-10") is None  # 0 step forged
 
 
 class TestSpeakResolution:

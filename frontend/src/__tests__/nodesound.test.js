@@ -3,7 +3,7 @@
 // graph needs a browser; the params are pure and carry the whole musical
 // contract — harmony, register, density, history marks.
 import { describe, expect, it } from "vitest";
-import { ambienceParams, soundscapeParams } from "../../../static/nodesound.js";
+import { soundscapeParams } from "../../../static/nodesound.js";
 
 const node = (name, level, properties = {}, activity = 0) =>
   ({ name, level, properties, ripple_score: 0, activity });
@@ -107,11 +107,5 @@ describe("soundscapeParams", () => {
 
   it("stays ambience-quiet", () => {
     expect(soundscapeParams(1, node("X-1", "Room")).gain).toBeLessThan(0.1);
-  });
-
-  it("keeps the legacy alias and fields", () => {
-    const p = ambienceParams(1, node("X-1", "Room"));
-    expect(p.freq).toBe(p.rootHz);
-    expect(typeof p.rough).toBe("boolean");
   });
 });

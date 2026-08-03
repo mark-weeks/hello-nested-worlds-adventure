@@ -63,35 +63,13 @@ let hierLayout  = null;   // the laid-out d3 hierarchy, for centring on a node
 // persist across sessions via localStorage.
 const LAST_NODE_KEY  = 'nw_last_node';
 const LAST_WORLD_KEY = 'nw_last_world';
-
-function _entryHash(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return h >>> 0;
-}
-
-function findNodeByName(node, name) {
-  if (!node) return null;
-  if (node.name === name) return node;
-  for (const c of node.children || []) {
-    const hit = findNodeByName(c, name);
-    if (hit) return hit;
-  }
-  return null;
-}
-
-function dropInNode(root, key) {
-  const mids = [], nonRoot = [];
-  (function walk(n, depth) {
-    if (depth > 0) {
-      nonRoot.push(n);
-      if (n.children && n.children.length) mids.push(n);
-    }
-    for (const c of n.children || []) walk(c, depth + 1);
-  })(root, 0);
-  const pool = mids.length ? mids : (nonRoot.length ? nonRoot : [root]);
-  return pool[_entryHash(key || 'anon') % pool.length];
-}
+const {
+  describeChronicleEntry,
+  describeMutation,
+  dropInNode,
+  findNodeByName,
+  nodeMark,
+} = window.EnfoldedClient;
 
 function resolveEntryNode(root) {
   const saved = localStorage.getItem(LAST_NODE_KEY);
@@ -182,22 +160,6 @@ async function loadWorld() {
   }
 }
 
-// The single most salient trait of a node, as a marker color — or null for
-// unremarkable places. Priority order and colors mirror the React client's
-// passageBadges (frontend/src/badges.js) — all six rules; parity is
-// executed by badges.test.js, which runs THIS function against
-// passageBadges over the same nodes.
-function nodeMark(data) {
-  const p = data.properties || {};
-  if (typeof p.danger_level === 'number' && p.danger_level >= 7) return '#f05a5a';
-  if (p.condition === 'corrupted') return '#c88af0';
-  if (p.disturbed) return '#ff8a4a';
-  if (p.stabilized) return '#4af0c8';
-  if ((data.ripple_score || 0) >= 0.3) return '#a078ff';
-  if (p.locked) return '#8a93b0';
-  return null;
-}
-
 function renderTree(worldRoot) {
   root_g.selectAll('*').remove();
   nodeG   = null;
@@ -263,31 +225,6 @@ function renderTree(worldRoot) {
 // Backfill recent mutations into the event feed so a new arrival sees a
 // world already in motion — who solved what, which agents passed through,
 // where danger stirred — instead of an empty feed.
-// Hand-mirror of frontend/src/mutations.js (this file is served raw, no
-// build step). mutations.test.js executes both copies over every event
-// type and fails on any drift — do not edit one without the other.
-
-function describeMutation(m) {
-  const when = (m.at || '').slice(0, 10);
-  const who = m.player || (m.data && m.data.agent) || 'someone';
-  switch (m.type) {
-    case 'PUZZLE_SOLVED': return `${when} · ${who} solved a puzzle at ${m.node}`;
-    case 'PUZZLE_FAILED': return `${when} · a puzzle resisted ${who} at ${m.node}`;
-    case 'PLAYER_SPEAK':  return `${when} · ${who} spoke with ${m.node}`;
-    case 'PLAYER_CHAT':   return `${when} · ${who} said something at ${m.node}`;
-    case 'AGENT_VISIT':   return `${when} · ${who} passed through ${m.node}`;
-    case 'DANGER_ALERT':  return `${when} · danger stirred at ${m.node}`;
-    case 'SCALE_ACT':     return `${when} · ${who} chose to ${(m.data && m.data.verb) || 'act'} at ${m.node}`;
-    case 'AGENT_TALK':    return `${when} · ${(m.data && m.data.a) || 'someone'} and ${(m.data && m.data.b) || 'someone'} spoke at ${m.node}`;
-    case 'AGENT_VOICE':   return `${when} · ${who} spoke with ${(m.data && m.data.agent) || 'a wanderer'} at ${m.node}`;
-    case 'PLAYER_JOIN':   return `${when} · ${who} arrived in the world`;
-    case 'PLAYER_LEAVE':  return `${when} · ${who} departed from ${m.node}`;
-    case 'PLAYER_MOVE':   return `${when} · ${who} passed into ${m.node}`;
-    case 'PUZZLE_ATTEMPT':return `${when} · ${who} worked at a puzzle in ${m.node}`;
-    default:              return `${when} · something happened at ${m.node}`;
-  }
-}
-
 async function loadHistoryFeed(seed) {
   try {
     const res = await fetch(withKey(`/history?seed=${seed}`));
@@ -496,10 +433,6 @@ async function doAct() {
 
 let chronicleCursor = null;   // next_before id, null = start from newest
 let chronicleLastEra = null;  // last era header rendered, to group across pages
-
-function describeChronicleEntry(e) {
-  return describeMutation(e).replace(/^\S+ · /, ''); // strip the date prefix
-}
 
 async function loadChroniclePage(reset) {
   const box = document.getElementById('chronicle-entries');

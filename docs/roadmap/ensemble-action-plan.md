@@ -62,10 +62,11 @@ default surface.
 | 4.2 | `/app` mobile pass + depth parity + parity-harness completion | ADR-005 revisit trigger | §4.1 |
 | 4.3 | **World-speaks-first experiment**: one budgeted call/world/day — a node with fresh history composes an opening line for its next visitor | after a month of voice transcripts | §2.3, §3.3 |
 | 4.4 | Sonnet 5 A/B on live transcripts | ADR-005 §4 | §2.3 |
-| 4.5 | `server/handlers.py` split (~1,700 lines: routing / WS loop / co-op / constellations) | before the next multi-endpoint feature | §6.1 |
+| 4.5 | **Handler split underway:** WS ownership moved to `server/websocket.py`; constellation/entanglement/node-hydration mechanics moved to `server/world_mechanics.py` (1,740 → ~1,400 dispatch lines). Routing/co-op extraction remains before the next multi-endpoint feature | before the next multi-endpoint feature | §6.1 |
 | 4.6 | Constellation-style arcs at a third scale pair; numeric answer-tail rework | post-pivot, as evolution content (3.2 makes this possible for existing nodes) | §3.1, §3.2 |
 | 4.7 | Display-name treatment for deep-scale suffixes | post-pivot (a rename-grammar question — fold into 3.2's event design) | §2.1, §3.3 |
 | 4.8 | Publish the cost-engineering case study | whenever | §2.3 |
+| 4.9 | Generate hashed Python locks from `pyproject.toml`, layering the dev lock over the runtime lock instead of restating it | before or with the next Python dependency bump | PR #72 review — prevent declaration/lock and runtime/dev duplication drift |
 
 ## Explicitly deferred / declined
 

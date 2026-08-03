@@ -16,11 +16,10 @@ both depths by tests/test_world_store.py):
 - `world_tree(seed, max_depth)` ≡ `generate_node_hierarchy(seed, max_depth)`
   at birth: same names, levels, properties, and child order; a shallower
   depth is a true prefix view of the one stored full-depth world.
-- `resolve_node_by_name(seed, name)` ≡ the generator's resolver: returns
-  the node with its ancestor chain (parent links, no children), or None
-  for any forged name — bad suffix, zero digit, step beyond the parent's
-  born breadth (the row simply doesn't exist), or a base name that isn't
-  what the path was born as.
+- `resolve_node_by_name(seed, name)` resolves identity only from born rows:
+  the node carries its ancestor chain (parent links, no children), or None
+  for any forged name — bad suffix, zero digit, an un-born path, or a base
+  name that does not match the row stored at that path.
 
 Births are idempotent and race-safe (persistence.save_world_nodes refuses
 to overwrite; a lost birth race defers to the winner's rows). Generation
@@ -143,8 +142,7 @@ def root_name(seed: int) -> str:
 
 
 def resolve_node_by_name(seed: int, name: str) -> SpatialNode | None:
-    """Resolve a stored node from its name alone — the store's mirror of
-    the generator's resolver, same contract, same forgery refusals.
+    """Resolve a stored node from its name alone.
 
     Names encode their path as a digit suffix, so the ancestor chain is
     the set of path prefixes: one indexed query. Returns the node with
