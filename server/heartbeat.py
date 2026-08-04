@@ -37,7 +37,7 @@ from causality import CausalityBus, EventKind
 from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
 from multiverse import store
-from multiverse.generator import LEVELS
+from multiverse.generator import DEFAULT_WORLD_SEED, LEVELS
 from multiverse.node import SpatialNode
 from multiverse.utils import (
     apply_property_overrides, apply_ripple_scores, build_distance_map,
@@ -93,7 +93,7 @@ def _pick_seed(rng: random.Random) -> int:
     worlds = persistence.list_worlds()
     if worlds:
         return worlds[0]["seed"]
-    return 42
+    return DEFAULT_WORLD_SEED
 
 
 def _drop_in(root: SpatialNode, rng: random.Random,
@@ -428,10 +428,12 @@ def drain_matured_verbs(limit: int = 32, world_seed: int | None = None) -> int:
 
 def run_pump_loop(stop: threading.Event) -> None:
     from causality import staging
-    hosted_seed = guard.canonical_seed()
     _log.info("causal pump started (interval %.0fs, hop delay %.0fs)",
               _PUMP_INTERVAL, staging.hop_delay_seconds())
     while not stop.wait(_PUMP_INTERVAL):
+        # Match request-time guard semantics: an operator seed change re-aims
+        # both durable queue drains on their next tick, without a restart.
+        hosted_seed = guard.canonical_seed()
         try:
             staging.drain_due_hops(broadcaster=_pump_broadcaster,
                                    world_seed=hosted_seed)

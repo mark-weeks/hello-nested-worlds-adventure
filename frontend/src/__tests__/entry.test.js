@@ -1,7 +1,7 @@
 // Behavior tests for the canonical non-linear entry rules shared by both
 // browser clients.
 import { describe, expect, it } from "vitest";
-import { dropInNode, entryPath, findPath } from "../entry.js";
+import { dropInNode, entryPath, findPath, resumeDepth } from "../entry.js";
 
 function world() {
   // A small tree shaped like the real thing: names unique, mid nodes exist.
@@ -53,5 +53,19 @@ describe("entryPath", () => {
     const a = entryPath(world(), "Gone-77", "Ada").map(n => n.name);
     const b = entryPath(world(), null, "Ada").map(n => n.name);
     expect(a).toEqual(b);
+  });
+});
+
+describe("resumeDepth", () => {
+  it("restores a saved view depth within the launch window", () => {
+    expect(resumeDepth(8, "Still River Gallery-14322121")).toBe(8);
+  });
+
+  it("infers enough depth from a saved node when depth metadata is stale", () => {
+    expect(resumeDepth(6, "Still River Gallery-1432212121")).toBe(10);
+  });
+
+  it("clamps untrusted saved depth to the eleven-scale world", () => {
+    expect(resumeDepth(99, "Elder Reed Cosmos-1")).toBe(11);
   });
 });

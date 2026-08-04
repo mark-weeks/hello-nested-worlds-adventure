@@ -3,7 +3,7 @@ import SceneView from "./components/SceneView.jsx";
 import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
 import { withKey, urlName, betaKey } from "./auth.js";
-import { entryPath } from "./entry.js";
+import { entryPath, resumeDepth } from "./entry.js";
 import { describeMutation } from "./mutations.js";
 import { NodeAmbience } from "../../static/nodesound.js";
 
@@ -19,6 +19,7 @@ const MAX_TRANSIENTS = 12;
 const MAX_HISTORY   = 12;  // how much of the world's past backfills the feed
 const NAME_KEY      = "nw_player_name";
 const LAST_NODE_KEY = "nw_last_node";   // resume: the node the player last stood on
+const LAST_DEPTH_KEY = "nw_view_depth"; // resume: enough of the prefix to contain it
 const INTRO_SEEN    = "nw_seen_intro";  // shared with the D3 explorer
 
 // The world's recent past is rendered into the event feed on load (via the
@@ -39,8 +40,12 @@ async function hydratePositionFromServer() {
     if (!res.ok) return null;
     const { position } = await res.json();
     if (!position || !position.node) return null;
+    const depth = resumeDepth(
+      position.depth, position.node, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
+    );
     localStorage.setItem(LAST_NODE_KEY, position.node);
-    return position.node;
+    localStorage.setItem(LAST_DEPTH_KEY, String(depth));
+    return { ...position, depth };
   } catch (_) {
     return null;                    // offline / gate off — keep the local cache
   }
@@ -104,21 +109,24 @@ export default function App() {
     targetNode = null,
     preserveSession = false,
   } = {}) => {
+    const savedNode = targetNode || localStorage.getItem(LAST_NODE_KEY);
+    const requestedDepth = resumeDepth(
+      depth, savedNode, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
+    );
     setLoading(true);
     if (!preserveSession) {
       setPlayers([]);
       setEvents([]);
     }
     try {
-      const response = await fetch(withKey(`/world?depth=${depth}`));
+      const response = await fetch(withKey(`/world?depth=${requestedDepth}`));
       const data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || "world unavailable");
       setSeed(data.seed);
-      setWorldDepth(depth);
+      setWorldDepth(requestedDepth);
       // Non-linear entry: resume the last node if it's in this world, else
       // drop a first-time player in at a mid-world node. The returned path is
       // the nav stack, so "back" walks the real ancestry.
-      const savedNode = targetNode || localStorage.getItem(LAST_NODE_KEY);
       const name = localStorage.getItem(NAME_KEY) || urlName() || "";
       worldRootRef.current = data.world;
       setNodeStack(entryPath(data.world, savedNode, name));
@@ -263,9 +271,16 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await hydratePositionFromServer();
+      const position = await hydratePositionFromServer();
       if (cancelled) return;
-      loadWorld();
+      const targetNode = position?.node || localStorage.getItem(LAST_NODE_KEY);
+      const targetDepth = resumeDepth(
+        position?.depth ?? localStorage.getItem(LAST_DEPTH_KEY),
+        targetNode,
+        INITIAL_WORLD_DEPTH,
+        MAX_WORLD_DEPTH,
+      );
+      loadWorld({ depth: targetDepth, targetNode });
     })();
     return () => { cancelled = true; };
   }, [loadWorld]);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -283,6 +298,7 @@ export default function App() {
   useEffect(() => {
     if (currentNodeName) {
       localStorage.setItem(LAST_NODE_KEY, currentNodeName);
+      localStorage.setItem(LAST_DEPTH_KEY, String(worldDepth));
       savePositionToServer(currentNodeName, seed, worldDepth);
     }
   }, [currentNodeName, seed, worldDepth]);

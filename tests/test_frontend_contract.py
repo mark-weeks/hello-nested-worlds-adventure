@@ -142,9 +142,10 @@ class TestNonLinearEntry:
         assert 'id="seed"' not in html
         assert 'id="min_b"' not in html and 'id="max_b"' not in html
         assert "seedInput" not in app and "onLoadWorld" not in app
-        # Initial discovery omits seed; only the server response supplies it.
-        assert "/world?depth=" in app and "/world?seed=" not in app
-        assert "/world?depth=" in explorer and "/world?seed=" not in explorer
+        # Absence is the contract: neither shipped client may select a seed.
+        # Positive load/deepen behavior belongs to the Playwright suite.
+        assert "/world?seed=" not in app
+        assert "/world?seed=" not in explorer
 
     def test_both_clients_use_the_canonical_browser_rules(self):
         explorer = self._EXPLORER.read_text()
@@ -156,32 +157,6 @@ class TestNonLinearEntry:
                         reason="static/app not built; run: cd frontend && npm run build")
     def test_built_bundle_has_resume(self):
         assert "nw_last_node" in _all_text(_BUILT_APP, ".js")
-
-
-class TestAllScalesAreReachable:
-    """Depth-6 is a payload window, not the end of an eleven-scale world."""
-
-    def test_d3_explorer_can_progressively_deepen(self):
-        js = (_ROOT / "static" / "explorer.js").read_text()
-        html = (_ROOT / "static" / "index.html").read_text()
-        assert 'id="btn-deepen"' in html
-        assert "function deepenSelected" in js
-        assert "worldParams.depth + 1" in js
-        assert "data.level !== 'SubatomicParticle'" in js
-
-    def test_react_app_can_progressively_deepen(self):
-        app = (_FRONTEND_SRC / "App.jsx").read_text()
-        panel = (_FRONTEND_SRC / "components" / "TextPanel.jsx").read_text()
-        assert "MAX_WORLD_DEPTH = 11" in app
-        assert "worldDepth + 1" in app
-        assert "canDeepen=" in app
-        assert "Look within" in panel
-
-    @pytest.mark.skipif(not _BUILT_APP.exists(),
-                        reason="static/app not built; run: cd frontend && npm run build")
-    def test_built_app_contains_progressive_passage(self):
-        bundle = _all_text(_BUILT_APP, ".js")
-        assert "Look within" in bundle
 
 
 class TestCrossDeviceResume:

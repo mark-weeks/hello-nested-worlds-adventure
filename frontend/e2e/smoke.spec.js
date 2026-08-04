@@ -15,6 +15,15 @@ function collectErrors(page) {
 
 test("explorer (/) renders the world and the node sigil", async ({ page }) => {
   const errors = collectErrors(page);
+  let historyLoads = 0;
+  let socketOpens = 0;
+  page.on("request", request => {
+    const url = new URL(request.url());
+    if (url.pathname === "/history" && !url.searchParams.has("node_name")) {
+      historyLoads += 1;
+    }
+  });
+  page.on("websocket", () => { socketOpens += 1; });
   await page.goto("/");
 
   // Real first-run onboarding: intro → name → world.
@@ -47,12 +56,17 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
   });
   await expect(page.locator("#btn-deepen")).toBeVisible();
   const horizonName = await page.locator("#node-name").textContent();
+  await expect.poll(() => historyLoads).toBe(1);
+  await expect.poll(() => socketOpens).toBe(1);
   await page.click("#btn-deepen");
   await expect(page.locator("#status")).toContainText("depth 7");
   await expect(page.locator("#node-name")).toHaveText(horizonName);
   await expect(page.locator("#btn-deepen")).toBeHidden();
   await expect.poll(() => page.locator("#graph .node").count())
     .toBeGreaterThan(beforeDeepen);
+  // A prefix-only view change must not replay history or flap shared presence.
+  expect(historyLoads).toBe(1);
+  expect(socketOpens).toBe(1);
 
   // The generative-art sigil actually painted: opaque pixels on the canvas.
   await expect
@@ -170,5 +184,59 @@ test("/app crosses a depth horizon without losing the current node", async ({ pa
   await expect(page.getByText(horizon.name, { exact: true })).toBeVisible();
   await expect(page.getByText(/Passages \(/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Look within ↓" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+async function mockSavedPosition(page, position) {
+  await page.route("**/position?*", async route => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ position }),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+}
+
+async function deepSavedPosition(request, depth = 8) {
+  const response = await request.get(`/world?depth=${depth}`);
+  expect(response.ok()).toBeTruthy();
+  const data = await response.json();
+  let node = data.world;
+  while (node.children?.length) node = node.children[node.children.length - 1];
+  return { node: node.name, seed: data.seed, depth };
+}
+
+test("/app restores a server-saved node below the initial horizon", async ({ page, request }) => {
+  const position = await deepSavedPosition(request);
+  await mockSavedPosition(page, position);
+  await page.addInitScript(() => {
+    localStorage.setItem("nw_beta_key", "cross-device-app");
+    localStorage.setItem("nw_seen_intro", "1");
+    localStorage.setItem("nw_player_name", "DeepAppTraveler");
+  });
+
+  const errors = collectErrors(page);
+  await page.goto("/app");
+  await expect(page.getByText(position.node, { exact: true })).toBeVisible();
+  await expect(page.getByText("Object", { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("explorer restores server-saved depth across devices", async ({ page, request }) => {
+  const position = await deepSavedPosition(request);
+  await mockSavedPosition(page, position);
+  await page.addInitScript(() => {
+    localStorage.setItem("nw_beta_key", "cross-device-explorer");
+    localStorage.setItem("nw_seen_intro", "1");
+    localStorage.setItem("nw_player_name", "DeepExplorerTraveler");
+  });
+
+  const errors = collectErrors(page);
+  await page.goto("/");
+  await expect(page.locator("#status")).toContainText("depth 8");
+  await expect(page.locator("#node-name")).toHaveText(position.node);
   expect(errors).toEqual([]);
 });

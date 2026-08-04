@@ -69,6 +69,7 @@ const {
   dropInNode,
   findNodeByName,
   nodeMark,
+  resumeDepth,
 } = window.EnfoldedClient;
 
 function resolveEntryNode(root) {
@@ -94,7 +95,9 @@ async function hydrateFromServer() {
     if (!res.ok) return;
     const { position } = await res.json();
     if (!position || !position.node) return;
+    const depth = resumeDepth(position.depth, position.node);
     localStorage.setItem(LAST_NODE_KEY, position.node);
+    localStorage.setItem(LAST_DEPTH_KEY, String(depth));
   } catch (_) { /* offline or gate off — keep whatever this browser cached */ }
 }
 
@@ -128,6 +131,7 @@ function setMode(mode) {
 }
 
 async function loadWorld() {
+  const previousSeed = worldParams.seed;
   worldParams = {
     seed:  worldParams.seed,
     depth: +document.getElementById('depth').value,
@@ -143,10 +147,11 @@ async function loadWorld() {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     worldParams.seed = data.seed;
+    const sameWorld = previousSeed !== null && previousSeed === data.seed;
     setStatus(`${data.node_count} nodes · shared world · depth ${depth}`);
-    renderTree(data.world);
-    if (playerName) wsConnect(data.seed);
-    loadHistoryFeed(data.seed);
+    renderTree(data.world, { preservePresence: sameWorld });
+    if (playerName && !sameWorld) wsConnect(data.seed);
+    if (!sameWorld) loadHistoryFeed(data.seed);
     maybeOfferSound();
   } catch (e) {
     setStatus('Error: ' + e.message);
@@ -155,13 +160,14 @@ async function loadWorld() {
   }
 }
 
-function renderTree(worldRoot) {
+function renderTree(worldRoot, { preservePresence = false } = {}) {
   root_g.selectAll('*').remove();
   nodeG   = null;
-  players = {};
-  agents  = {};
+  if (!preservePresence) {
+    players = {};
+    agents = {};
+  }
   indexSuffixes(worldRoot);
-  renderPlayers();
 
   const hier   = d3.hierarchy(worldRoot, d => d.children?.length ? d.children : null);
   const leaves = hier.leaves().length;
@@ -214,6 +220,8 @@ function renderTree(worldRoot) {
   const entry = resolveEntryNode(worldRoot);
   selectNode(entry);
   if (entry.id !== worldRoot.id) centerOnNode(entry);
+  renderPlayers();
+  updatePresenceRings();
 }
 
 // ── The world's past, visible on arrival ───────────────────────────────────
@@ -1155,9 +1163,12 @@ const INTRO_SEEN = 'nw_seen_intro';
 
 function restoreWorldInputs() {
   // Remember only how much of the canonical world the player chose to render.
-  const saved = Number(localStorage.getItem(LAST_DEPTH_KEY));
+  const saved = resumeDepth(
+    localStorage.getItem(LAST_DEPTH_KEY),
+    localStorage.getItem(LAST_NODE_KEY),
+  );
   const depth = document.getElementById('depth');
-  if (depth && Number.isFinite(saved) && saved >= 2 && saved <= 11) {
+  if (depth) {
     depth.value = saved;
   }
 }

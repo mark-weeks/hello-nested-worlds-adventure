@@ -2,7 +2,7 @@
 """Audit or rank unborn worlds against the pre-launch quality gate.
 
 Examples:
-  python scripts/world_quality.py --seed 42
+  python scripts/world_quality.py --seed 382
   python scripts/world_quality.py --candidates 512 --top 10
   python scripts/world_quality.py --candidates 512 --top 10 --json
 """
@@ -15,14 +15,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from multiverse.generator import DEFAULT_WORLD_SEED  # noqa: E402
 from multiverse.quality import audit_world  # noqa: E402
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--seed", type=int, default=42,
-                      help="audit one seed (default: 42)")
+    mode.add_argument("--seed", type=int, default=DEFAULT_WORLD_SEED,
+                      help=f"audit one seed (default: {DEFAULT_WORLD_SEED})")
     mode.add_argument("--candidates", type=int,
                       help="rank seeds 1 through N")
     parser.add_argument("--top", type=int, default=10,
@@ -51,6 +52,8 @@ def main() -> int:
         if args.candidates < 1:
             raise SystemExit("--candidates must be at least 1")
         results = [audit_world(seed) for seed in range(1, args.candidates + 1)]
+        # Equal-quality worlds prefer the smaller payload: cheaper to birth,
+        # transmit, render, and keep active without sacrificing experience.
         results.sort(key=lambda item: (
             item["passed"], item["comparison_score"], -item["node_count"]
         ), reverse=True)

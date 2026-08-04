@@ -270,6 +270,42 @@ class TestCanonicalWorldBoundary:
         persistence.save_world(99, 1, 1, 1, 1)
         assert heartbeat._pick_seed(random.Random(1)) == 73
 
+    def test_fresh_local_heartbeat_uses_curated_default(self, monkeypatch):
+        from multiverse.generator import DEFAULT_WORLD_SEED
+        from server import heartbeat
+        monkeypatch.setenv(guard.CANONICAL_SEED_ENV, "")
+        assert persistence.list_worlds() == []
+        assert heartbeat._pick_seed(random.Random(1)) == DEFAULT_WORLD_SEED
+
+    def test_causal_pump_reloads_canonical_seed_each_tick(self, monkeypatch):
+        from causality import staging
+        from server import heartbeat
+
+        seeds = iter((73, 74))
+        drained = []
+        monkeypatch.setattr(guard, "canonical_seed", lambda: next(seeds))
+        monkeypatch.setattr(
+            staging, "drain_due_hops",
+            lambda *, broadcaster, world_seed: drained.append(("hops", world_seed)),
+        )
+        monkeypatch.setattr(
+            heartbeat, "drain_matured_verbs",
+            lambda *, world_seed: drained.append(("verbs", world_seed)),
+        )
+
+        class TwoTicks:
+            calls = 0
+
+            def wait(self, _interval):
+                self.calls += 1
+                return self.calls > 2
+
+        heartbeat.run_pump_loop(TwoTicks())
+        assert drained == [
+            ("hops", 73), ("verbs", 73),
+            ("hops", 74), ("verbs", 74),
+        ]
+
     def test_background_queues_claim_only_canonical_world(self):
         # Old dev-world work remains durable but paused; the hosted pump must
         # neither mutate it nor delete it while serving the canonical world.
