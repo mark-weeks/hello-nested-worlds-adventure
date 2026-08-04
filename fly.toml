@@ -17,6 +17,7 @@ primary_region = "iad"              # pick the region closest to your testers
 
 [env]
   HOME = "/data"
+  NESTED_WORLDS_CANONICAL_SEED = "382"    # curated pre-launch; one shared world
   NESTED_WORLDS_TRUST_PROXY = "1"          # safe only behind Fly's edge (see note above)
   NESTED_WORLDS_MAX_WS_CONNECTIONS = "96"  # under the proxy hard_limit; headroom on 1GB
   SENTRY_ENVIRONMENT = "beta"

@@ -3,17 +3,11 @@ import Chronicle from "./Chronicle.jsx";
 import Interact from "./Interact.jsx";
 import { passageBadges } from "../badges.js";
 
-export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onLoadWorld, onChat, onJump, onSolved, soundOn, onToggleSound }) {
-  const [seedInput, setSeedInput] = useState(String(seed));
+export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, canDeepen = false, onDeepen, onSolved, soundOn, onToggleSound }) {
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
 
   const here = players.filter(p => p.node === node.name);
-
-  const handleLoad = () => {
-    const s = parseInt(seedInput, 10);
-    if (!isNaN(s)) onLoadWorld(s);
-  };
 
   const handleChat = () => {
     const text = chatInput.trim();
@@ -24,20 +18,6 @@ export default function TextPanel({ node, players, agents = {}, connected, event
 
   return (
     <div style={s.panel}>
-
-      <div style={s.section}>
-        <div style={s.label}>World</div>
-        <div style={s.row}>
-          <input
-            style={s.seedInput}
-            type="number"
-            value={seedInput}
-            onChange={e => setSeedInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleLoad()}
-          />
-          <button style={s.btn} onClick={handleLoad}>Load</button>
-        </div>
-      </div>
 
       <div style={s.section}>
         <div style={s.label}>{node.level}</div>
@@ -77,6 +57,15 @@ export default function TextPanel({ node, players, agents = {}, connected, event
               ))}
             </div>
           ))}
+        </div>
+      )}
+
+      {canDeepen && (
+        <div style={s.section}>
+          <div style={s.label}>The world continues inward</div>
+          <button style={s.deepenBtn} onClick={onDeepen}>
+            Look within ↓
+          </button>
         </div>
       )}
 
@@ -206,9 +195,9 @@ const s = {
   travelerPersona: { color: "#5a6a8a" },
   travelerNode: { color: "#5a6a8a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   row:         { display: "flex", gap: "6px", flexShrink: 0 },
-  seedInput:   { flex: 1, background: "#10131f", border: "1px solid #2a3050", color: "#b0bcd0", padding: "4px 6px", fontFamily: "inherit", fontSize: "12px", minWidth: 0 },
   chatInput:   { flex: 1, background: "#10131f", border: "1px solid #2a3050", color: "#b0bcd0", padding: "4px 6px", fontFamily: "inherit", fontSize: "12px", minWidth: 0 },
   btn:         { background: "#0e1828", border: "1px solid #2a4060", color: "#3a8eff", padding: "4px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", flexShrink: 0 },
+  deepenBtn:   { background: "#111a30", border: "1px solid #5268a8", color: "#9aaee8", padding: "7px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", letterSpacing: "0.08em", textTransform: "uppercase" },
   feed:        { overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "3px" },
   empty:       { fontSize: "11px", color: "#2a3555" },
   status:      { fontSize: "11px", flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center" },

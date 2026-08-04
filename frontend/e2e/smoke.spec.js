@@ -26,14 +26,33 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
   await expect(page.locator("#graph svg")).toBeVisible();
   await expect(page.locator("#node-name")).not.toHaveText("Select a node");
 
-  // The engine room stays tucked away: world-generation controls are hidden
-  // until the ⚙ affordance opens them, and close again.
-  await expect(page.locator("#seed")).toBeHidden();
+  // The world itself is server-owned. The advanced affordance can change only
+  // view depth; neither seed nor breadth/world-generation controls exist.
+  await expect(page.locator("#seed")).toHaveCount(0);
+  await expect(page.locator("#min_b")).toHaveCount(0);
   await page.click("#btn-advanced");
-  await expect(page.locator("#seed")).toBeVisible();
+  await expect(page.locator("#depth")).toBeVisible();
   await expect(page.locator("#gen-btn")).toBeVisible();
   await page.click("#btn-advanced");
-  await expect(page.locator("#seed")).toBeHidden();
+  await expect(page.locator("#depth")).toBeHidden();
+
+  // Depth six is only the initial payload window. Select a rendered horizon
+  // node and cross it in fiction; the same node stays selected while its Room
+  // children arrive in the next canonical prefix.
+  const beforeDeepen = await page.locator("#graph .node").count();
+  await page.evaluate(() => {
+    const horizon = [...document.querySelectorAll("#graph .node")]
+      .findLast((el) => el.__data__?.data?.level === "Region");
+    horizon.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await expect(page.locator("#btn-deepen")).toBeVisible();
+  const horizonName = await page.locator("#node-name").textContent();
+  await page.click("#btn-deepen");
+  await expect(page.locator("#status")).toContainText("depth 7");
+  await expect(page.locator("#node-name")).toHaveText(horizonName);
+  await expect(page.locator("#btn-deepen")).toBeHidden();
+  await expect.poll(() => page.locator("#graph .node").count())
+    .toBeGreaterThan(beforeDeepen);
 
   // The generative-art sigil actually painted: opaque pixels on the canvas.
   await expect
@@ -125,5 +144,31 @@ test("/app mounts the Pixi scene under the production CSP", async ({ page }) => 
     "text=/Multiverse|Universe|Galaxy|Planetary System|Planet|Region|Room|Object|Molecule|Atom|SubatomicParticle/",
   ).first()).toBeVisible({ timeout: 10_000 });
 
+  expect(errors).toEqual([]);
+});
+
+test("/app crosses a depth horizon without losing the current node", async ({ page, request }) => {
+  const response = await request.get("/world?depth=6");
+  expect(response.ok()).toBeTruthy();
+  const data = await response.json();
+  let horizon = data.world;
+  while (horizon.children?.length) horizon = horizon.children[horizon.children.length - 1];
+  expect(horizon.level).toBe("Region");
+
+  await page.addInitScript((nodeName) => {
+    localStorage.setItem("nw_seen_intro", "1");
+    localStorage.setItem("nw_player_name", "DepthTester");
+    localStorage.setItem("nw_last_node", nodeName);
+  }, horizon.name);
+
+  const errors = collectErrors(page);
+  await page.goto("/app");
+  await expect(page.getByText(horizon.name, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Look within ↓" })).toBeVisible();
+  await page.getByRole("button", { name: "Look within ↓" }).click();
+
+  await expect(page.getByText(horizon.name, { exact: true })).toBeVisible();
+  await expect(page.getByText(/Passages \(/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Look within ↓" })).toHaveCount(0);
   expect(errors).toEqual([]);
 });

@@ -1,6 +1,7 @@
 import pytest
 from multiverse.generator import (
-    BREADTH_BY_LEVEL, MAX_GENERATOR_BREADTH, LEVELS, generate_node_hierarchy,
+    BREADTH_BY_LEVEL, DEFAULT_WORLD_SEED, LEVELS, MAX_GENERATOR_BREADTH,
+    NAME_VOCABULARY, generate_node_hierarchy,
 )
 from multiverse.node import SpatialNode
 
@@ -9,6 +10,13 @@ def test_deterministic():
     a = generate_node_hierarchy(seed=1, max_depth=4)
     b = generate_node_hierarchy(seed=1, max_depth=4)
     assert repr(a) == repr(b)
+
+
+def test_default_is_the_curated_launch_seed():
+    assert DEFAULT_WORLD_SEED == 382
+    assert repr(generate_node_hierarchy(max_depth=2)) == repr(
+        generate_node_hierarchy(seed=DEFAULT_WORLD_SEED, max_depth=2)
+    )
 
 
 def test_root_has_no_parent():
@@ -219,9 +227,7 @@ class TestGeneratorValidation:
 
 
 class TestNodeUniqueness:
-    """Each node is one of a kind: full names unique by construction, base
-    names synthesized from spaces large enough that repetition is rare, and
-    every node carries an `aspect` description belonging to it alone."""
+    """Each node is legible and one of a kind by construction."""
 
     def _walk(self, seed, depth=11):
         root = generate_node_hierarchy(seed=seed, max_depth=depth)
@@ -240,14 +246,21 @@ class TestNodeUniqueness:
         names = [n.name for n in nodes]
         assert len(names) == len(set(names))
 
-    def test_base_names_rarely_repeat(self):
-        nodes = self._walk(seed=13)
+    @pytest.mark.parametrize("seed", [1, 13, 42, 99])
+    def test_base_names_never_repeat(self, seed):
+        nodes = self._walk(seed=seed)
         bases = [n.name.rsplit("-", 1)[0] for n in nodes]
-        distinct = len(set(bases)) / len(bases)
-        assert distinct >= 0.95, (
-            f"only {distinct:.1%} of base names are distinct — the synthesis "
-            "space has collapsed and nodes no longer feel unique"
+        assert len(bases) == len(set(bases)), (
+            "semantic-name allocation collided — every base name must be "
+            "unique without relying on its path suffix"
         )
+
+    def test_base_names_use_only_curated_readable_words(self):
+        nodes = self._walk(seed=13)
+        for node in nodes:
+            words = node.name.rsplit("-", 1)[0].split()
+            assert len(words) == 3, node.name
+            assert all(word in NAME_VOCABULARY for word in words), node.name
 
     def test_every_node_has_a_unique_aspect(self):
         nodes = self._walk(seed=13)

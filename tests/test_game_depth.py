@@ -79,13 +79,13 @@ class TestLockPuzzles:
         return [n for n in _walk(root, [])
                 if n.properties.get("locked") and n.parent is not None]
 
-    def test_locked_rooms_usually_serve_their_lock(self):
+    def test_every_locked_room_serves_its_contextual_lock(self):
         from puzzles.types import PuzzleKind
         locked = self._locked(generate_node_hierarchy(seed=42, max_depth=8))
         assert locked, "the reference world must contain locked rooms"
         served = sum(1 for n in locked
                      if build_puzzle(n).kind is PuzzleKind.LOCK)
-        assert served / len(locked) >= 0.5
+        assert served == len(locked)
 
     def test_answer_is_readable_in_the_keeper_one_scale_up(self):
         from puzzles.generators import _LOCK_KEY_CANDIDATES, _answer_leaks

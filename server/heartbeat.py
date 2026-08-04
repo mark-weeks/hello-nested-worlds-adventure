@@ -42,7 +42,7 @@ from multiverse.node import SpatialNode
 from multiverse.utils import (
     apply_property_overrides, apply_ripple_scores, build_distance_map,
 )
-from server import rooms as _rooms_module
+from server import guard, rooms as _rooms_module
 from server.rooms import (
     agent_enter, agent_leave, agent_move, agent_persona, broadcast, get_room,
 )
@@ -81,8 +81,10 @@ def interval_seconds() -> float:
 
 
 def _pick_seed(rng: random.Random) -> int:
-    """Prefer a world with live players; otherwise a recently visited world;
-    otherwise the default seed 42."""
+    """Stay in the hosted world; local multi-world mode retains old routing."""
+    hosted = guard.canonical_seed()
+    if hosted is not None:
+        return hosted
     with _rooms_module._rooms_lock:
         inhabited = [seed for seed, room in _rooms_module._rooms.items()
                      if room.players]
@@ -393,7 +395,7 @@ def _pump_broadcaster(seed, node, event) -> None:
     })
 
 
-def drain_matured_verbs(limit: int = 32) -> int:
+def drain_matured_verbs(limit: int = 32, world_seed: int | None = None) -> int:
     """Land every planted cosmic-verb change whose time has come.
 
     Deep time's second half: the property delta finally applies, the
@@ -401,7 +403,7 @@ def drain_matured_verbs(limit: int = 32) -> int:
     the change arrive — often long after (and far from) whoever planted
     it. Returns maturations landed.
     """
-    rows = persistence.claim_due_verb_maturations(limit)
+    rows = persistence.claim_due_verb_maturations(limit, world_seed=world_seed)
     for row in rows:
         seed, node_name = row["world_seed"], row["node_name"]
         persistence.upsert_node_properties(seed, node_name, row["changed"])
@@ -426,15 +428,17 @@ def drain_matured_verbs(limit: int = 32) -> int:
 
 def run_pump_loop(stop: threading.Event) -> None:
     from causality import staging
+    hosted_seed = guard.canonical_seed()
     _log.info("causal pump started (interval %.0fs, hop delay %.0fs)",
               _PUMP_INTERVAL, staging.hop_delay_seconds())
     while not stop.wait(_PUMP_INTERVAL):
         try:
-            staging.drain_due_hops(broadcaster=_pump_broadcaster)
+            staging.drain_due_hops(broadcaster=_pump_broadcaster,
+                                   world_seed=hosted_seed)
         except Exception:  # noqa: BLE001 — cascades must keep traveling
             _log.exception("causal pump tick failed; continuing")
         try:
-            drain_matured_verbs()
+            drain_matured_verbs(world_seed=hosted_seed)
         except Exception:  # noqa: BLE001 — planted changes must still land
             _log.exception("verb maturation drain failed; continuing")
 

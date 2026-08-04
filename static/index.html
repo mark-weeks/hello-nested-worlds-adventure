@@ -34,9 +34,8 @@
       border-bottom: 1px solid #1a2038;
     }
     header h1 { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; color: #3a8eff; white-space: nowrap; }
-    /* The world-generation controls are the engine room, not the game —
-       hidden until the ⚙ affordance opens them (a first-time player should
-       meet the fiction, not Seed/Depth inputs). */
+    /* View depth is an advanced presentation control, not world creation —
+       hidden until the ⚙ affordance opens it. */
     .controls { display: none; gap: 10px; align-items: center; flex-wrap: wrap; }
     .controls.open { display: flex; flex: 1; }
     .ctrl-group { display: flex; align-items: center; gap: 6px; }
@@ -76,6 +75,8 @@
     .prop-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 10px; padding: 3px 0; border-bottom: 1px solid #111828; }
     .prop-key { color: #304060; flex-shrink: 0; }
     .prop-val { color: #8aaccc; text-align: right; word-break: break-word; }
+    #btn-deepen { width: 100%; margin-top: 10px; border-color: #5268a8; color: #9aaee8; }
+    #btn-deepen[hidden] { display: none; }
 
     /* ── Players panel ── */
     #players-panel { flex-shrink: 0; max-height: 140px; overflow-y: auto; }
@@ -260,18 +261,11 @@
 <header>
   <h1>Enfolded</h1>
   <div class="controls">
-    <div class="ctrl-group"><label>Seed</label><input type="number" id="seed" value="42" min="0"></div>
-    <div class="ctrl-group"><label>Depth</label><input type="number" id="depth" value="6" min="2" max="11"></div>
-    <div class="ctrl-group">
-      <label>Breadth</label>
-      <input type="number" id="min_b" value="1" min="1" max="5">
-      <span class="sep">–</span>
-      <input type="number" id="max_b" value="3" min="1" max="5">
-    </div>
-    <button class="primary" id="gen-btn">Generate</button>
+    <div class="ctrl-group"><label>View depth</label><input type="number" id="depth" value="6" min="2" max="11"></div>
+    <button class="primary" id="gen-btn">Apply view</button>
   </div>
   <div style="flex:1"></div>
-  <button id="btn-advanced" title="World controls — visit a different world or change the view depth"
+  <button id="btn-advanced" title="Change how deeply the shared world is shown"
           aria-expanded="false"
           style="font-size:10px;padding:3px 8px;letter-spacing:1px;white-space:nowrap">⚙</button>
   <button id="btn-sound" title="Ambient sound: every place hums its own deterministic tone"
@@ -291,6 +285,7 @@
       <div id="node-level" style="color:#3a8eff">—</div>
       <div id="node-name"  style="color:#3a8eff">Select a node</div>
       <div id="node-props"></div>
+      <button id="btn-deepen" hidden>Look within ↓</button>
     </div>
 
     <div class="panel" id="players-panel">

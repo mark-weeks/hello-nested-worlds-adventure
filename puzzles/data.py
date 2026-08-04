@@ -168,14 +168,6 @@ _ROOM_PUZZLES = [
         hints=["Each letter is shifted by 3.", "Shift each letter back by 3 positions."],
     ),
     Puzzle(
-        name="The Four-Digit Lock",
-        kind=PuzzleKind.LOCK,
-        prompt="The code is the sum of the first four primes.",
-        answer="17",
-        hints=["The first four primes are 2, 3, 5, 7.", "Add them together."],
-        max_attempts=5,
-    ),
-    Puzzle(
         name="The Silent Guardian",
         kind=PuzzleKind.RIDDLE,
         prompt="I speak without a mouth and hear without ears. I have no body, but I come alive with wind. What am I?",

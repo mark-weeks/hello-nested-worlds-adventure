@@ -12,14 +12,13 @@ import { NodeAmbience } from "../../static/nodesound.js";
 const REDUCED_MOTION = typeof window !== "undefined" && window.matchMedia
   && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-const DEFAULT_SEED  = 42;
-const WORLD_DEPTH   = 6;   // must match the depth used for /puzzle lookups
+const INITIAL_WORLD_DEPTH = 6;
+const MAX_WORLD_DEPTH = 11;
 const MAX_EVENTS    = 40;
 const MAX_TRANSIENTS = 12;
 const MAX_HISTORY   = 12;  // how much of the world's past backfills the feed
 const NAME_KEY      = "nw_player_name";
 const LAST_NODE_KEY = "nw_last_node";   // resume: the node the player last stood on
-const LAST_SEED_KEY = "nw_last_seed";   // resume: the world it belonged to
 const INTRO_SEEN    = "nw_seen_intro";  // shared with the D3 explorer
 
 // The world's recent past is rendered into the event feed on load (via the
@@ -41,30 +40,28 @@ async function hydratePositionFromServer() {
     const { position } = await res.json();
     if (!position || !position.node) return null;
     localStorage.setItem(LAST_NODE_KEY, position.node);
-    const s = Number.isFinite(position.seed) ? position.seed : null;
-    if (s != null) localStorage.setItem(LAST_SEED_KEY, String(s));
-    return s;                       // seed to load, so the saved node exists in it
+    return position.node;
   } catch (_) {
     return null;                    // offline / gate off — keep the local cache
   }
 }
 
-function savePositionToServer(node, seed) {
-  if (!betaKey() || !node) return;
+function savePositionToServer(node, seed, depth) {
+  if (!betaKey() || !node || !Number.isFinite(seed)) return;
   try {
     fetch(withKey("/position"), {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ node, seed, depth: WORLD_DEPTH }),
+      body:    JSON.stringify({ node, seed, depth }),
     }).catch(() => {});             // fire-and-forget; localStorage is the backstop
   } catch (_) {}
 }
 
 export default function App() {
-  const [seed, setSeed]           = useState(() => {
-    const saved = parseInt(localStorage.getItem(LAST_SEED_KEY), 10);
-    return Number.isFinite(saved) ? saved : DEFAULT_SEED;
-  });
+  // The server owns world selection. The seed arrives with /world and is then
+  // carried as canonical identity for WebSocket, persistence, art, and sound.
+  const [seed, setSeed]           = useState(null);
+  const [worldDepth, setWorldDepth] = useState(INITIAL_WORLD_DEPTH);
   const [nodeStack, setNodeStack] = useState([]);
   const [players, setPlayers]     = useState([]);
   const [agents, setAgents]       = useState({});  // name → { node, persona }
@@ -102,37 +99,46 @@ export default function App() {
     }, t.duration ?? 1500);
   }, []);
 
-  const loadWorld = useCallback((s) => {
+  const loadWorld = useCallback(async ({
+    depth = INITIAL_WORLD_DEPTH,
+    targetNode = null,
+    preserveSession = false,
+  } = {}) => {
     setLoading(true);
-    setPlayers([]);
-    setEvents([]);
-    localStorage.setItem(LAST_SEED_KEY, String(s));
-    fetch(withKey(`/world?seed=${s}&depth=${WORLD_DEPTH}`))
-      .then(r => r.json())
-      .then(data => {
-        // Non-linear entry: resume the last node if it's in this world, else
-        // drop a first-time player in at a mid-world node. The returned path is
-        // the nav stack, so "back" walks the real ancestry.
-        const savedNode = localStorage.getItem(LAST_NODE_KEY);
-        const name = localStorage.getItem(NAME_KEY) || urlName() || "";
-        worldRootRef.current = data.world;
-        setNodeStack(entryPath(data.world, savedNode, name));
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-    // Backfill the world's recent past into the feed. The feed renders
-    // newest-first and /history returns newest-first; history lines sit
-    // below any live events that arrived while the fetch was in flight.
-    fetch(withKey(`/history?seed=${s}`))
-      .then(r => r.json())
-      .then(data => {
-        const past = (data.mutations || []).slice(0, MAX_HISTORY)
-          .map(m => ({ type: "history", text: describeMutation(m) }));
-        if (past.length) {
-          setEvents(ev => [...ev, ...past].slice(0, MAX_EVENTS));
+    if (!preserveSession) {
+      setPlayers([]);
+      setEvents([]);
+    }
+    try {
+      const response = await fetch(withKey(`/world?depth=${depth}`));
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || "world unavailable");
+      setSeed(data.seed);
+      setWorldDepth(depth);
+      // Non-linear entry: resume the last node if it's in this world, else
+      // drop a first-time player in at a mid-world node. The returned path is
+      // the nav stack, so "back" walks the real ancestry.
+      const savedNode = targetNode || localStorage.getItem(LAST_NODE_KEY);
+      const name = localStorage.getItem(NAME_KEY) || urlName() || "";
+      worldRootRef.current = data.world;
+      setNodeStack(entryPath(data.world, savedNode, name));
+
+      // Backfill the canonical world's recent past into the feed.
+      if (!preserveSession) {
+        const historyResponse = await fetch(withKey(`/history?seed=${data.seed}`));
+        if (historyResponse.ok) {
+          const history = await historyResponse.json();
+          const past = (history.mutations || []).slice(0, MAX_HISTORY)
+            .map(m => ({ type: "history", text: describeMutation(m) }));
+          if (past.length) setEvents(ev => [...ev, ...past].slice(0, MAX_EVENTS));
         }
-      })
-      .catch(() => {});
+      }
+    } catch (_) {
+      // The loading shell remains the quiet failure surface; client-error
+      // forwarding records the underlying browser failure separately.
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
@@ -257,10 +263,9 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const s = await hydratePositionFromServer();
+      await hydratePositionFromServer();
       if (cancelled) return;
-      if (s != null && s !== seed) setSeed(s);
-      loadWorld(s != null ? s : seed);
+      loadWorld();
     })();
     return () => { cancelled = true; };
   }, [loadWorld]);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -278,18 +283,13 @@ export default function App() {
   useEffect(() => {
     if (currentNodeName) {
       localStorage.setItem(LAST_NODE_KEY, currentNodeName);
-      savePositionToServer(currentNodeName, seed);
+      savePositionToServer(currentNodeName, seed, worldDepth);
     }
-  }, [currentNodeName, seed]);
+  }, [currentNodeName, seed, worldDepth]);
 
   // Drop all transients when the player navigates — a leftover ripple from
   // the previous node is meaningless in the new scene.
   useEffect(() => { setTransients([]); }, [currentNodeName]);
-
-  const handleLoadWorld = useCallback((s) => {
-    setSeed(s);
-    loadWorld(s);
-  }, [loadWorld]);
 
   // A solve at the current node may have opened its seal — re-announce the
   // move so the server's position walks through the now-open door. (The
@@ -313,12 +313,18 @@ export default function App() {
   }, []);
 
   // Jump to a traveler: rebuild the real ancestry stack from the node name
-  // (names encode their path — "…-1121" lies under 1→1→2→1). A traveler
-  // below the fetched horizon lands us on their deepest fetched ancestor.
-  const jumpTo = useCallback((nodeName) => {
+  // (names encode their path — "…-1121" lies under 1→1→2→1). If the traveler
+  // is below the fetched horizon, progressively deepen the canonical view.
+  const jumpTo = useCallback(async (nodeName) => {
     const root = worldRootRef.current;
     const suffix = (nodeName || "").split("-").pop() || "";
     if (!root || !/^\d+$/.test(suffix)) return;
+    if (suffix.length > worldDepth) {
+      const targetDepth = Math.min(MAX_WORLD_DEPTH, suffix.length);
+      pushEvent({ type: "system", text: `… deepening the view toward ${nodeName}` });
+      await loadWorld({ depth: targetDepth, targetNode: nodeName, preserveSession: true });
+      return;
+    }
     const path = [root];
     let cur = root;
     for (const ch of suffix.slice(1)) {   // the leading 1 is the root itself
@@ -332,7 +338,17 @@ export default function App() {
                   text: `▼ ${nodeName} lies enfolded beneath ${cur.name}` });
     }
     setNodeStack(path);
-  }, [pushEvent]);
+  }, [loadWorld, pushEvent, worldDepth]);
+
+  const deepenWorld = useCallback(async () => {
+    if (!currentNodeName || worldDepth >= MAX_WORLD_DEPTH) return;
+    pushEvent({ type: "system", text: `↓ looking within ${currentNodeName}` });
+    await loadWorld({
+      depth: worldDepth + 1,
+      targetNode: currentNodeName,
+      preserveSession: true,
+    });
+  }, [currentNodeName, loadWorld, pushEvent, worldDepth]);
 
   const sendChat = useCallback((text) => {
     sendMessage({ type: "chat", text });
@@ -369,7 +385,7 @@ export default function App() {
   }
 
   if (loading || !currentNode) {
-    return <div style={s.loading}>Generating world…</div>;
+    return <div style={s.loading}>Opening the shared world…</div>;
   }
 
   return (
@@ -390,11 +406,12 @@ export default function App() {
         connected={connected}
         events={events}
         seed={seed}
-        depth={WORLD_DEPTH}
+        depth={worldDepth}
         playerName={playerName}
-        onLoadWorld={handleLoadWorld}
         onChat={sendChat}
         onJump={jumpTo}
+        canDeepen={worldDepth < MAX_WORLD_DEPTH && currentNode.children.length === 0}
+        onDeepen={deepenWorld}
         onSolved={setWalkThrough}
         soundOn={soundOn}
         onToggleSound={toggleSound}

@@ -90,7 +90,8 @@ Broadcaster = Callable[[int, SpatialNode, CausalEvent], None]
 
 
 def drain_due_hops(limit: int = 64,
-                   broadcaster: Broadcaster | None = None) -> int:
+                   broadcaster: Broadcaster | None = None,
+                   world_seed: int | None = None) -> int:
     """Fire every due hop through the standard wiring; schedule next rings.
 
     Each fired hop records a mutation, adds ripple pressure, applies material
@@ -98,7 +99,7 @@ def drain_due_hops(limit: int = 64,
     a synchronous cascade would have done at this node, just later. Returns
     the number of hops fired.
     """
-    rows = persistence.claim_due_causal_hops(limit)
+    rows = persistence.claim_due_causal_hops(limit, world_seed=world_seed)
     if not rows:
         return 0
 

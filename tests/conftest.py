@@ -11,6 +11,9 @@ Two pieces of test isolation:
 2. Rooms — clears the global `server.rooms._rooms` registry between tests.
    The puzzle-session co-op state lives there, and a previous test's
    solver would otherwise short-circuit the next test's attempt flow.
+
+3. World hosting — explicitly enables the local multi-world mode used by the
+   historical behavior suite. Canonical-world boundary tests override it.
 """
 from __future__ import annotations
 
@@ -18,6 +21,15 @@ import pytest
 
 import persistence
 from server import rooms as _rooms_module
+
+
+@pytest.fixture(autouse=True)
+def _local_multiworld_mode(monkeypatch):
+    # The runtime default is fail-closed to the launch world. Most unit tests
+    # intentionally exercise isolated worlds with distinct seeds, which is a
+    # supported CLI/local-development capability rather than a public-server
+    # capability.
+    monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "")
 
 
 @pytest.fixture(autouse=True)

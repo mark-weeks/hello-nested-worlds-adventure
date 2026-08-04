@@ -16,7 +16,7 @@ export default function useWorldSocket(seed, playerName, handlers) {
   handlersRef.current = handlers;
 
   useEffect(() => {
-    if (!playerName) {
+    if (!playerName || !Number.isFinite(seed)) {
       setConnected(false);
       return;
     }

@@ -32,13 +32,13 @@ import json
 import threading
 
 import persistence
-from multiverse.generator import LEVELS, generate_node_hierarchy
+from multiverse.generator import DEFAULT_WORLD_SEED, LEVELS, generate_node_hierarchy
 from multiverse.node import SpatialNode
 
 # Version stamp born into every row. Bump when the generator's content or
 # structure rules change meaningfully; already-born worlds are unaffected
 # (they keep the version they were born under, and are never re-born).
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 _MAX_DEPTH = len(LEVELS)
 
@@ -103,7 +103,8 @@ def _node_from_row(row: tuple[str, str, str, str, int]) -> SpatialNode:
     return node
 
 
-def world_tree(seed: int = 42, max_depth: int = _MAX_DEPTH) -> SpatialNode:
+def world_tree(seed: int = DEFAULT_WORLD_SEED,
+               max_depth: int = _MAX_DEPTH) -> SpatialNode:
     """The stored world for `seed`, assembled as a SpatialNode tree.
 
     Births the world on first visit. `max_depth` is a view: the top

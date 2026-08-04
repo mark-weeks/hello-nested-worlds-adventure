@@ -22,7 +22,7 @@ export default function Chronicle({ seed, onClose }) {
       const q = before ? `&before=${before}` : "";
       const r = await fetch(withKey(`/chronicle?seed=${seed}&limit=40${q}`));
       const data = await r.json();
-      setMeta(`seed ${data.seed} · ${data.total} recorded events` +
+      setMeta(`${data.total} recorded events` +
         (data.began ? ` since ${data.began.slice(0, 10)}` : "") +
         ` · now: ${data.era_now}`);
       setEntries(prev => before ? [...prev, ...(data.entries || [])] : (data.entries || []));

@@ -4,9 +4,9 @@ This guide walks through standing up Enfolded on Fly.io for
 the initial beta. It assumes you have shell access to a clone of this
 repository and an Anthropic key in hand.
 
-End state: one VM in one region, SQLite on a persistent volume, the
-React frontend baked into the image, Sentry wired in, and per-user
-invite keys distributed to your testers.
+End state: one VM in one region, one shared canonical world, SQLite on a
+persistent volume, the React frontend baked into the image, Sentry wired in,
+and per-user invite keys distributed to your testers.
 
 ---
 
@@ -114,6 +114,13 @@ block bounds connections at the Fly-proxy layer; the app additionally caps
 concurrent WebSockets via `NESTED_WORLDS_MAX_WS_CONNECTIONS` /
 `NESTED_WORLDS_MAX_WS_PER_IP`.
 
+`NESTED_WORLDS_CANONICAL_SEED=382` is the deliberately curated launch choice
+(`docs/evaluation/2026-08-03-launch-world-census.md`), not a player input.
+ADR-007 makes the first production birth permanent and shared; a heartbeat tick
+or `/world` request can materialize it once the server is running. Confirm the
+production volume is empty before that first start. Staging uses its own
+disposable volume, so its birth is rehearsal data, never production canon.
+
 ```toml
 app = "enfolded-beta"          # change to your unique app name
 primary_region = "iad"              # pick the region closest to your testers
@@ -123,6 +130,7 @@ primary_region = "iad"              # pick the region closest to your testers
 
 [env]
   HOME = "/data"
+  NESTED_WORLDS_CANONICAL_SEED = "382"    # curated pre-launch; one shared world
   NESTED_WORLDS_TRUST_PROXY = "1"          # safe only behind Fly's edge
   NESTED_WORLDS_MAX_WS_CONNECTIONS = "96"  # under the proxy hard_limit; headroom on 1GB
   SENTRY_ENVIRONMENT = "beta"
@@ -240,6 +248,11 @@ Fix what the rehearsal surfaces, then run §3 against the production app
 ```bash
 # Should return {"status": "ok"}; /health is exempt from the invite gate.
 curl https://enfolded-beta.fly.dev/health
+
+# With a valid invite key, the configured world works and a parallel seed is
+# refused before it can be materialized (ADR-007).
+curl "https://enfolded-beta.fly.dev/world?depth=2&key=nw_..."
+curl -i "https://enfolded-beta.fly.dev/world?seed=43&depth=2&key=nw_..." # 400
 
 # Open the bundled UI in a browser.
 open https://enfolded-beta.fly.dev/app

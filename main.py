@@ -5,7 +5,7 @@ from pathlib import Path
 import persistence
 from agents.agent import Agent
 from multiverse import store
-from multiverse.generator import BREADTH_ENVELOPE
+from multiverse.generator import BREADTH_ENVELOPE, DEFAULT_WORLD_SEED
 from multiverse.utils import count_nodes, find_node
 from puzzles.engine import PuzzleEngine
 
@@ -335,7 +335,7 @@ def _accept_seed(subparser: argparse.ArgumentParser) -> None:
     not only before it. SUPPRESS keeps the subcommand flag from clobbering a
     globally supplied value with its own default."""
     subparser.add_argument("--seed", type=int, default=argparse.SUPPRESS,
-                           help="RNG seed (default: 42)")
+                           help=f"RNG seed (default: {DEFAULT_WORLD_SEED})")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -343,7 +343,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="main.py",
         description="Enfolded: Nested World Adventure — shared persistent multiverse simulation",
     )
-    parser.add_argument("--seed", type=int, default=42, help="RNG seed (default: 42)")
+    parser.add_argument(
+        "--seed", type=int, default=DEFAULT_WORLD_SEED,
+        help=f"RNG seed (default: {DEFAULT_WORLD_SEED})",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_world = sub.add_parser("world", help="Generate and print the world hierarchy")

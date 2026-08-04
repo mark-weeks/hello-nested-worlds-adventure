@@ -60,6 +60,16 @@ class TestFlyToml:
         assert cfg["env"]["HOME"] == "/data"
         assert cfg["mounts"]["destination"] == "/data"
 
+    def test_launch_hosts_exactly_one_world(self, cfg):
+        from multiverse.generator import DEFAULT_WORLD_SEED
+
+        # Public world selection is an operator decision, never a player input.
+        # Keeping this in committed config makes an accidental multi-world
+        # launch a deploy-contract failure.
+        seed = cfg["env"].get("NESTED_WORLDS_CANONICAL_SEED")
+        assert seed is not None and str(seed).strip()
+        assert int(seed) == DEFAULT_WORLD_SEED
+
     def test_ws_connection_cap_within_proxy_hard_limit(self, cfg):
         # The app's WS cap must not exceed the Fly proxy connection hard_limit,
         # or the proxy would shed connections the app still thinks it can hold.
