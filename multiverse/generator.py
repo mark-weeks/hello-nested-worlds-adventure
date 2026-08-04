@@ -2,9 +2,9 @@
 #
 # Canonical world generation: every node is a pure function of
 # (world seed, path-from-root). Each node derives its own RNG from a
-# SHA-256 of (seed, path), and draws its name, properties, and child
-# count from that node-local RNG — never from a shared sequential
-# stream. Consequences:
+# SHA-256 of (seed, path, domain). Names, properties, and child counts use
+# independent deterministic domains — never a shared sequential stream.
+# Consequences:
 #
 #   * PREFIX STABILITY. A tree generated at max_depth=6 is exactly the
 #     top of the tree generated at max_depth=11 for the same seed and
@@ -12,7 +12,9 @@
 #     Every client and endpoint that regenerates "the world" therefore
 #     agrees on node identity, and persistence keyed on
 #     (seed, node_name) refers to the same place everywhere.
-#   * STABLE, UNIQUE NAMES. The name suffix encodes the node's path
+#   * STABLE, READABLE, UNIQUE NAMES. A curated semantic grammar makes the
+#     base phrase readable and assigns it injectively within each level. The
+#     suffix encodes the node's path
 #     (root is "1", its second child "12", that child's first child
 #     "121"), so names are unique within a world and identical across
 #     rebuilds at any depth. Breadth is capped at 9 so path digits are
@@ -20,9 +22,12 @@
 
 import hashlib
 import random
+from math import gcd
 from typing import Callable
 
 from multiverse.node import SpatialNode
+
+DEFAULT_WORLD_SEED = 382
 
 LEVELS = [
     "Multiverse",
@@ -82,111 +87,102 @@ def _pick(pool: list, rng: random.Random) -> str:
     return rng.choice(pool)
 
 
-# ── Name synthesis ──────────────────────────────────────────────────────────
-# Every node's name is synthesized from its own RNG rather than drawn from a
-# small pool, so base names essentially never repeat within a world (the
-# combinatorial space per level runs from tens of thousands to hundreds of
-# thousands). The path suffix stays — it is what makes names canonically
-# unique and resolvable in O(depth) — but the base in front of it now belongs
-# to that node alone. No bank word may contain "-" (the suffix separator).
+# ── Semantic names (generator v2) ──────────────────────────────────────────
+# A launch-world node must have a name a person can read, remember, and repeat.
+# Invented syllables failed that bar even when their path suffix made them
+# technically unique. V2 names are three curated English words:
 #
-# ── FROZEN AFTER FIRST PRODUCTION DEPLOY ────────────────────────────────────
-# Every bank below (and every property bank later in this file, and the
-# BREADTH_BY_LEVEL profile above) is a PERMANENT COMPATIBILITY SURFACE. Each node draws name → properties →
-# breadth from its own (seed, path)-keyed stream, so a bank edit corrupts
-# existing worlds two ways: (1) name-bank edits (syllables, level word
-# banks) rename surviving nodes outright — measured: +1 syllable renames
-# 77/83 reference nodes; (2) property-bank edits reshuffle the property
-# VALUES of every node at that level (the persisted overlay applies deltas
-# on top of these baselines) and can shift a node's breadth draw via
-# choice()'s rejection sampling, deleting and spawning whole subtrees —
-# measured: +1 biome replaces 2/83 names at depth 6 and ~170/3017 across
-# the full world. Node names key all durable history: the chronicle, saved
-# positions, property overlays, ripple scores, the art's activity counts.
-# tests/test_continuity_freeze.py pins the reference world and will fail
-# loudly on any drift. New content must arrive via NEW mechanisms (e.g.
-# new levels, suffix-keyed additions), never by editing these lists.
+#     <qualifier> <motif> <level form>-<path>
+#
+# There are 24 × 24 × 12 = 6,912 phrases per level. The widest possible level
+# under BREADTH_BY_LEVEL contains 6,144 nodes. `_path_ordinal` maps every path
+# at a level to a different integer, then a seed-and-level-specific affine
+# permutation assigns that integer a phrase. Because the multiplier is
+# coprime to the name-space size, the mapping is injective: base names are
+# guaranteed unique, not merely likely to be unique. Every level has disjoint
+# form words, so base names cannot collide across levels either.
+#
+# These banks govern births only (ADR-006). Editing them changes future births,
+# never a materialized world. Such an edit still requires a generator-version
+# bump, deliberate golden re-pin, and changelog entry.
 
-_SYL_ROOTS = [
-    "vel", "kar", "thal", "mor", "sel", "dra", "ny", "or", "az", "il",
-    "ul", "eth", "bel", "cal", "ser", "tor", "hal", "mir", "vor", "quel",
-    "ash", "sol", "keth", "yr", "ond", "fen", "gal", "isk", "lum", "ver",
-]
-_SYL_MIDS = [
-    "a", "e", "i", "o", "u", "ar", "en", "ir", "or", "un",
-    "al", "em", "is", "ov", "ur", "ae", "ol", "an", "eth", "am",
-    "ys", "ex", "ia", "au",
-]
-_SYL_ENDINGS: dict[str, list[str]] = {
-    "Multiverse":        ["on", "aeon", "um", "ael", "os", "yr", "is", "ex", "urne", "ith"],
-    "Universe":          ["vast", "ium", "or", "ane", "eth", "ar", "ul", "orne", "ax", "ese"],
-    "Galaxy":            ["a", "is", "ara", "eia", "ion", "ova", "yne", "ris", "ella", "ix"],
-    "Planetary System":  ["os", "eth", "ara", "ion", "ax", "ir", "one", "ese", "ala", "ur"],
-    "Planet":            ["a", "ia", "une", "eth", "ara", "is", "or", "ys", "aia", "en"],
-    "Molecule":          ["ine", "ol", "ide", "ane", "ate", "yl", "ose", "ene", "ium", "in"],
-    "Atom":              ["ium", "on", "ide", "ine", "um", "is", "yte", "ase", "or", "ite"],
-    "SubatomicParticle": ["ino", "on", "ette", "ule", "yon", "ion", "il", "ix", "is", "eon"],
-}
+NAME_QUALIFIERS = (
+    "Amber", "Ashen", "Azure", "Bright", "Broken", "Cedar", "Distant",
+    "Elder", "Emberlit", "Fallow", "Glass", "Golden", "Hidden", "Hollow",
+    "Iron", "Last", "Lucent", "Mossbound", "Pale", "Quiet", "Silver",
+    "Still", "Verdant", "Weathered",
+)
 
-# Constructed places (Region / Room / Object) read better as "<Word> <Noun>".
-# The first word is either a synthesized proper name (huge space) or a fused
-# material word; the noun is level-flavored.
-_FUSE_A = [
-    "ember", "salt", "iron", "ash", "moss", "frost", "night", "amber",
-    "hollow", "star", "bone", "rust", "dusk", "cinder", "glass", "storm",
-    "silver", "thorn", "wax", "shade", "tide", "root", "smoke", "pale",
-    "cold", "deep", "still", "bright", "murk", "loam",
-]
-_FUSE_B = [
-    "glass", "fall", "reach", "veil", "gate", "wark", "mere", "fell",
-    "light", "shard", "spire", "hold", "cross", "song", "bloom", "drift",
-    "brand", "coil", "marsh", "vane", "crest", "well", "moor", "grain",
-    "forge", "ridge", "haven", "lock", "quarry", "vault",
-]
-_PLACE_NOUNS: dict[str, list[str]] = {
-    "Region": [
-        "Fields", "Mire", "Peaks", "Hollow", "Expanse", "Wilds", "Barrens",
-        "Reaches", "Steppe", "Fens", "Highlands", "Wastes", "Terraces",
-        "Shallows", "Bluffs", "Warrens", "Downs", "Flats", "Verge", "Maze",
-        "Cradle", "Scar", "Basin", "Crossing",
-    ],
-    "Room": [
-        "Antechamber", "Vault", "Observatory", "Sanctum", "Archive", "Gallery",
-        "Cell", "Atrium", "Workshop", "Chapel", "Cistern", "Library", "Stair",
-        "Refectory", "Solar", "Oubliette", "Loft", "Passage", "Chamber",
-        "Undercroft", "Scriptorium", "Landing", "Alcove", "Rotunda",
-    ],
-    "Object": [
+NAME_MOTIFS = (
+    "Anchor", "Bell", "Bloom", "Cinder", "Compass", "Crown", "Dawn",
+    "Echo", "Ember", "Frost", "Garden", "Lantern", "Moon", "Orchard",
+    "Pilgrim", "Rain", "Reed", "River", "Salt", "Shadow", "Star", "Tide",
+    "Thorn", "Willow",
+)
+
+NAME_FORMS: dict[str, tuple[str, ...]] = {
+    "Multiverse": (
+        "Expanse", "Continuum", "Tapestry", "Totality", "Infinity",
+        "Manifold", "Firmament", "Cosmos", "Beyond", "Vastness", "Whole",
+        "Horizon",
+    ),
+    "Universe": (
+        "Realm", "Creation", "Sphere", "Dominion", "Province", "Vault",
+        "Testament", "Weave", "Dream", "Age", "Canopy", "Volume",
+    ),
+    "Galaxy": (
+        "Spiral", "Wheel", "Stream", "Halo", "Array", "Swarm", "Pinwheel",
+        "Cloud", "Riverway", "Archipelago", "Radiance", "Disc",
+    ),
+    "Planetary System": (
+        "Orrery", "Orbit", "Circuit", "Constellation", "Assembly",
+        "Choreography", "Clockwork", "Retinue", "Garland", "Procession",
+        "Gyre", "Accord",
+    ),
+    "Planet": (
+        "Haven", "Cradle", "Pasture", "Refuge", "Sanctuary", "Hearth",
+        "Isle", "Globe", "World", "Eden", "Bastion", "Anchorage",
+    ),
+    "Region": (
+        "Basin", "Reach", "Wilds", "Barrens", "Vale", "Steppe", "Fens",
+        "Highlands", "Wastes", "Terraces", "Shallows", "Verge",
+    ),
+    "Room": (
+        "Chamber", "Archive", "Gallery", "Chapel", "Library", "Stair",
+        "Undercroft", "Alcove", "Rotunda", "Cistern", "Workshop",
+        "Antechamber",
+    ),
+    "Object": (
         "Obelisk", "Terminal", "Chest", "Mirror", "Mechanism", "Conduit",
-        "Astrolabe", "Reliquary", "Lantern", "Loom", "Bell", "Tablet",
-        "Orrery", "Casket", "Prism", "Anchor", "Idol", "Compass", "Chalice",
-        "Engine", "Key", "Seal", "Hourglass", "Stone",
-    ],
+        "Astrolabe", "Reliquary", "Beacon", "Loom", "Tablet", "Instrument",
+    ),
+    "Molecule": (
+        "Lattice", "Chain", "Ring", "Helix", "Cluster", "Bond", "Fold",
+        "Matrix", "Polymer", "Crystal", "Compound", "Structure",
+    ),
+    "Atom": (
+        "Nucleus", "Shell", "Element", "Isotope", "Orbital", "Core", "Ion",
+        "Nuclide", "Kernel", "Center", "Measure", "Quantum",
+    ),
+    "SubatomicParticle": (
+        "Particle", "Wave", "Quark", "Lepton", "Boson", "Neutrino", "Photon",
+        "Gluon", "Fermion", "Pulse", "Spark", "Point",
+    ),
 }
 
+NAME_VOCABULARY = frozenset(
+    NAME_QUALIFIERS + NAME_MOTIFS
+    + tuple(word for forms in NAME_FORMS.values() for word in forms)
+)
 
-def _synth_proper(rng: random.Random, level: str) -> str:
-    """A synthesized proper name in the level's phonetic flavor.
+_NAME_SPACE = len(NAME_QUALIFIERS) * len(NAME_MOTIFS) * 12
 
-    Always at least one mid syllable: with zero mids the space collapses to
-    roots × endings (300 combos) and base names start colliding in a single
-    world. With 1–2 mids the space is ≈180k per level.
-    """
-    root = _pick(_SYL_ROOTS, rng)
-    mids = "".join(_pick(_SYL_MIDS, rng) for _ in range(rng.randint(1, 2)))
-    ending = _pick(_SYL_ENDINGS.get(level, _SYL_ENDINGS["Planet"]), rng)
-    return (root + mids + ending).capitalize()
-
-
-def _synth_base_name(level: str, rng: random.Random) -> str:
-    if level in _PLACE_NOUNS:
-        noun = _pick(_PLACE_NOUNS[level], rng)
-        if rng.random() < 0.55:
-            first = _synth_proper(rng, "Planet")
-        else:
-            first = (_pick(_FUSE_A, rng) + _pick(_FUSE_B, rng)).capitalize()
-        return f"{first} {noun}"
-    return _synth_proper(rng, level)
+assert set(NAME_FORMS) == set(LEVELS)
+assert all(len(forms) == 12 for forms in NAME_FORMS.values())
+assert len({word for forms in NAME_FORMS.values() for word in forms}) == 12 * len(LEVELS)
+assert not ({word for forms in NAME_FORMS.values() for word in forms}
+            & (set(NAME_QUALIFIERS) | set(NAME_MOTIFS)))
+assert all("-" not in word for word in NAME_VOCABULARY)
 
 
 # ── Aspect synthesis ────────────────────────────────────────────────────────
@@ -450,13 +446,63 @@ def _path_suffix(path: tuple[int, ...]) -> str:
     return "".join(str(i) for i in path)
 
 
-def _generate_name(level: str, path: tuple[int, ...], rng: random.Random) -> str:
-    return f"{_synth_base_name(level, rng)}-{_path_suffix(path)}"
+def _path_ordinal(level: str, path: tuple[int, ...]) -> int:
+    """Return this path's unique zero-based slot within its level.
+
+    Mixed-radix widths use each parent's maximum possible breadth, so paths
+    remain unique even when some earlier parent happened to birth fewer
+    children. The unused slots are intentional; they keep the mapping stable
+    across different realized shapes.
+    """
+    level_index = LEVELS.index(level)
+    if len(path) != level_index + 1 or not path or path[0] != 1:
+        raise ValueError(f"path {path!r} does not identify a {level}")
+
+    ordinal = 0
+    for parent_index, component in enumerate(path[1:]):
+        width = BREADTH_BY_LEVEL[LEVELS[parent_index]][1]
+        if not 1 <= component <= width:
+            raise ValueError(
+                f"path component {component} exceeds {LEVELS[parent_index]} "
+                f"maximum breadth {width}"
+            )
+        ordinal = ordinal * width + component - 1
+    if ordinal >= _NAME_SPACE:
+        raise ValueError(
+            f"name space exhausted at {level}: ordinal {ordinal} >= {_NAME_SPACE}"
+        )
+    return ordinal
 
 
-def _node_seed(seed: int, path: tuple[int, ...]) -> int:
+def _name_permutation(seed: int, level: str) -> tuple[int, int]:
+    """Return an affine-permutation offset and coprime step for this level."""
+    digest = hashlib.sha256(f"name-v2:{seed}:{level}".encode("utf-8")).digest()
+    offset = int.from_bytes(digest[:8], "big") % _NAME_SPACE
+    step = int.from_bytes(digest[8:16], "big") % _NAME_SPACE or 1
+    while gcd(step, _NAME_SPACE) != 1:
+        step = (step + 1) % _NAME_SPACE or 1
+    return offset, step
+
+
+def _generate_name(level: str, path: tuple[int, ...], seed: int) -> str:
+    ordinal = _path_ordinal(level, path)
+    offset, step = _name_permutation(seed, level)
+    code = (offset + step * ordinal) % _NAME_SPACE
+
+    forms = NAME_FORMS[level]
+    form_count = len(forms)
+    motif_stride = len(NAME_MOTIFS) * form_count
+    qualifier = NAME_QUALIFIERS[code // motif_stride]
+    remainder = code % motif_stride
+    motif = NAME_MOTIFS[remainder // form_count]
+    form = forms[remainder % form_count]
+    return f"{qualifier} {motif} {form}-{_path_suffix(path)}"
+
+
+def _node_seed(seed: int, path: tuple[int, ...], domain: str) -> int:
     digest = hashlib.sha256(
-        f"{seed}:{'.'.join(str(i) for i in path)}".encode("utf-8")
+        f"generator-v2:{domain}:{seed}:"
+        f"{'.'.join(str(i) for i in path)}".encode("utf-8")
     ).digest()
     return int.from_bytes(digest[:8], "big")
 
@@ -465,7 +511,8 @@ def _node_seed(seed: int, path: tuple[int, ...]) -> int:
 MAX_GENERATOR_BREADTH = 9
 
 
-def generate_node_hierarchy(seed: int = 42, max_depth: int = 11) -> SpatialNode:
+def generate_node_hierarchy(seed: int = DEFAULT_WORLD_SEED,
+                            max_depth: int = 11) -> SpatialNode:
     """Generate the canonical world for `seed` down to `max_depth`.
 
     The world's shape is not a caller input: every node draws its child
@@ -479,16 +526,18 @@ def generate_node_hierarchy(seed: int = 42, max_depth: int = 11) -> SpatialNode:
         raise ValueError(f"max_depth must be between 1 and {len(LEVELS)}, got {max_depth}")
 
     def generate(level_index: int, path: tuple[int, ...]) -> SpatialNode:
-        # A node-local RNG: nothing about this node depends on siblings,
-        # ancestors' subtrees, or the requested max_depth — only on
-        # (seed, path). Draw order (name, properties, breadth) is fixed.
-        rng = random.Random(_node_seed(seed, path))
+        # Domain-separated node-local RNGs: editing the name grammar cannot
+        # reshuffle properties or structure in a future generator revision,
+        # and editing a property bank cannot shift a breadth draw through
+        # random.choice() rejection sampling.
         level = LEVELS[level_index]
-        name = _generate_name(level, path, rng)
-        properties = generate_properties(level, rng)
+        name = _generate_name(level, path, seed)
+        property_rng = random.Random(_node_seed(seed, path, "properties"))
+        breadth_rng = random.Random(_node_seed(seed, path, "breadth"))
+        properties = generate_properties(level, property_rng)
         node = SpatialNode(name=name, level=level, properties=properties)
 
-        breadth = rng.randint(*BREADTH_BY_LEVEL[level])
+        breadth = breadth_rng.randint(*BREADTH_BY_LEVEL[level])
         if level_index + 1 < max_depth:
             for i in range(1, breadth + 1):
                 node.add_child(generate(level_index + 1, path + (i,)))

@@ -124,15 +124,28 @@ class TestNonLinearEntry:
         assert "export function entryPath" in entry and "dropInNode" in entry
         app = (_FRONTEND_SRC / "App.jsx").read_text()
         assert "entryPath" in app
-        # Resume + world are persisted for the next session.
-        assert "nw_last_node" in app and "nw_last_seed" in app
+        # Resume persists the node, while world identity remains server-owned.
+        assert "nw_last_node" in app
+        assert "nw_last_seed" not in app
 
     def test_d3_explorer_drops_in_and_resumes(self):
         js = self._EXPLORER.read_text()
         assert "resolveEntryNode" in js and "dropInNode" in js
-        assert "nw_last_node" in js and "nw_last_world" in js
+        assert "nw_last_node" in js and "nw_last_world" not in js
         # No longer hard-pins entry to the root.
         assert "selectNode(resolveEntryNode" in js or "resolveEntryNode(worldRoot)" in js
+
+    def test_browsers_cannot_select_or_create_worlds(self):
+        app = _all_text(_FRONTEND_SRC, ".jsx") + _all_text(_FRONTEND_SRC, ".js")
+        explorer = self._EXPLORER.read_text()
+        html = (_ROOT / "static" / "index.html").read_text()
+        assert 'id="seed"' not in html
+        assert 'id="min_b"' not in html and 'id="max_b"' not in html
+        assert "seedInput" not in app and "onLoadWorld" not in app
+        # Absence is the contract: neither shipped client may select a seed.
+        # Positive load/deepen behavior belongs to the Playwright suite.
+        assert "/world?seed=" not in app
+        assert "/world?seed=" not in explorer
 
     def test_both_clients_use_the_canonical_browser_rules(self):
         explorer = self._EXPLORER.read_text()

@@ -14,7 +14,7 @@ from http.server import HTTPServer
 from socketserver import ThreadingMixIn
 
 import persistence
-from server import observability
+from server import guard, observability
 from server.handlers import Handler as _Handler
 
 
@@ -26,6 +26,10 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     observability.setup()
+    # Validate the world boundary before accepting traffic or starting the
+    # heartbeat. A typo here must fail the deploy, not leave a healthy-looking
+    # process whose first player request returns 500.
+    hosted_seed = guard.canonical_seed()
     # Operator signal only — deliberately emitted here at server startup so
     # a CLI player speaking to a node never sees billing internals.
     try:
@@ -60,6 +64,10 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
 
     display = f"http://localhost:{port}" if host in ("0.0.0.0", "") else f"http://{host}:{port}"
     print(f"Enfolded  →  {display}")
+    if hosted_seed is None:
+        print("World hosting            →  local multi-world mode")
+    else:
+        print(f"Shared canonical world   →  seed {hosted_seed}")
     print(f"Multiplayer WebSocket   →  ws://localhost:{port}/ws")
     if host == "127.0.0.1":
         print("For network access: restart with --host 0.0.0.0")

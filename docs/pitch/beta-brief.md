@@ -147,11 +147,10 @@ exist. **Nothing in this table is aspirational.**
 the register this repo trades in:
 
 - The eleven scales are now mechanically distinct — each universe's declared
-  physics routes its cascades (seed 42: a solve reaches **6 nodes in a Newtonian
-  universe, 22 in an Inverted one** — CHANGELOG "Every universe's law of physics
-  is mechanically real"), cosmic acts mature on a slow clock, particles entangle
-  (**118 entangled particles at seed 42**). That is real depth the audit asked
-  for. But puzzle *content* is still anagrams / ciphers / sequences / lineage
+  physics routes its cascades (CHANGELOG "Every universe's law of physics is
+  mechanically real"), cosmic acts mature on a slow clock, and particles
+  entangle. That is real depth the audit asked for. But puzzle *content* is
+  still dominated by anagrams / ciphers / sequences / lineage
   locks; nobody should pitch this as a hard-puzzle game.
 - The magic of a live node voice needs an `ANTHROPIC_API_KEY`. Keyless, the world
   is deliberately *quiet*, not *broken* — a design choice, not a demo you can run
@@ -171,13 +170,15 @@ as a **deterministic pure function of `(seed, name, properties, history)`** with
 no `Math.random`, `Date.now`, or `performance.now` anywhere in the module
 (verified: zero occurrences), seeded by a mulberry32 PRNG over an FNV-1a hash of
 the node's identity. That has a useful consequence for a pitch: **any screenshot
-is reproducible.** A partner running seed 42 at depth 6 sees the same reference
-world you captured, pixel-family for pixel-family, so a screenshot or GIF is a
-faithful, checkable artifact rather than a marketing composite.
+is reproducible.** A partner running curated launch seed 382 sees the same
+materialized world, pixel-family for pixel-family, so a screenshot or GIF can be
+a faithful, checkable artifact rather than a marketing composite.
 
-The captures below are real, taken from a live `python main.py serve` on seed
-42 driven by headless Chromium (2026-07-19) — no compositing, no retouching.
-Rerun the same seed and check them.
+The captures below are real historical proof, taken from a live
+`python main.py serve` on generator v1 / seed 42 driven by headless Chromium
+(2026-07-19) — no compositing, no retouching. **They predate generator v2 and
+are not the launch-world reference:** their invented-syllable labels make that
+visible. Recapture this set from seed 382 before sending the brief externally.
 
 ![Drop-in — a mid-world node, art already painted](./assets/dropin.png)
 *Tour step 1: the explorer at a deterministic arrival node (Planet ·
@@ -191,8 +192,8 @@ System at `+0.25`, dampening visible in the numbers as each ring lands (~22s
 of real time; captured with `NESTED_WORLDS_HOP_DELAY=2`).*
 
 ![Eleven per-scale art families](./assets/artgrid.png)
-*The art layer: the first-child chain of seed 42, one node per scale, drawn
-live by `static/nodeart.js` — membrane folds, cosmic web, spiral arms,
+*Historical v1 art layer: the first-child chain of seed 42, one node per scale,
+drawn live by `static/nodeart.js` — membrane folds, cosmic web, spiral arms,
 orbits, a horizon, terrain ridges, room panels, an object sigil, a bond
 graph, electron shells, probability speckle.*
 

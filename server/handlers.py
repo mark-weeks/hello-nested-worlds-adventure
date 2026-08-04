@@ -69,7 +69,7 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int]:
     world for every participant, or persisted history fragments.
     """
     guard.validate_world_params(params)
-    seed  = int(params.get("seed",  42))
+    seed  = guard.world_seed(params.get("seed"))
     depth = int(params.get("depth",  6))
     root = store.world_tree(seed=seed, max_depth=depth)
     # Hydrate the world's durable evolution onto the stored tree:
@@ -478,20 +478,24 @@ class Handler(BaseHTTPRequestHandler):
             self._resp_len = 0
 
         elif path == "/worlds":
-            self._send_json(persistence.list_worlds())
+            worlds = persistence.list_worlds()
+            hosted = guard.canonical_seed()
+            if hosted is not None:
+                worlds = [world for world in worlds if world["seed"] == hosted]
+            self._send_json(worlds)
 
         elif path == "/players":
             try:
-                seed = int(param("seed", "42"))
-            except ValueError:
-                return self._send_error("invalid seed")
+                seed = guard.world_seed(param("seed"))
+            except ValueError as exc:
+                return self._send_error(str(exc))
             self._send_json({"players": snapshot(get_room(seed))})
 
         elif path == "/history":
             try:
-                seed = int(param("seed", "42"))
-            except ValueError:
-                return self._send_error("invalid seed")
+                seed = guard.world_seed(param("seed"))
+            except ValueError as exc:
+                return self._send_error(str(exc))
             node_name = param("node_name", "")[:128]
             if node_name:
                 # Node-scoped history: what happened HERE — the client uses
@@ -509,7 +513,7 @@ class Handler(BaseHTTPRequestHandler):
             # perceives everything every player and agent did before them.
             from multiverse.chronicle import annotate_eras, current_era
             try:
-                seed = int(param("seed", "42"))
+                seed = guard.world_seed(param("seed"))
                 limit = int(param("limit", "50"))
                 before_raw = param("before", "")
                 before = int(before_raw) if before_raw else None
@@ -527,7 +531,11 @@ class Handler(BaseHTTPRequestHandler):
             # dev) session, which falls back to the client's own localStorage
             # cache.
             key = guard.supplied_key(self.headers, qs)
-            self._send_json({"position": persistence.get_player_position(key)})
+            position = persistence.get_player_position(key)
+            hosted = guard.canonical_seed()
+            if position and hosted is not None and position.get("seed") != hosted:
+                position = None
+            self._send_json({"position": position})
 
         elif path == "/world":
             try:
@@ -542,7 +550,7 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/agent":
             try:
-                seed      = int(param("seed",      "42"))
+                seed      = guard.world_seed(param("seed"))
                 name      = param("name",           "Scout")
                 threshold = int(param("threshold",  "6"))
                 # Clamped: this drives a per-request FSM walk over the full
@@ -654,9 +662,9 @@ class Handler(BaseHTTPRequestHandler):
                 "Describe yourself to a traveler who has just arrived.",
             ))[:1024]
             try:
-                seed = int(body.get("seed", 42))
-            except (ValueError, TypeError):
-                seed = 42
+                seed = guard.world_seed(body.get("seed"))
+            except ValueError as exc:
+                return self._send_error(str(exc))
             player_name = _display_name(user_key, body.get("player_name"))
             # The speaker's durable conversation identity: the per-user
             # invite credential (hashed) when one was presented, else the
@@ -779,9 +787,9 @@ class Handler(BaseHTTPRequestHandler):
 
         node_name = str(body.get("node_name", ""))[:128]
         try:
-            seed_int = int(body.get("seed", 42))
-        except (ValueError, TypeError):
-            seed_int = 42
+            seed_int = guard.world_seed(body.get("seed"))
+        except ValueError as exc:
+            return self._send_error(str(exc))
 
         # Node identity — level, properties, evolution — is server-derived;
         # the client cannot style-inject via forged properties.
@@ -873,9 +881,9 @@ class Handler(BaseHTTPRequestHandler):
             "message", "Where are you, and what do you see?",
         ))[:1024]
         try:
-            seed = int(body.get("seed", 42))
-        except (ValueError, TypeError):
-            seed = 42
+            seed = guard.world_seed(body.get("seed"))
+        except ValueError as exc:
+            return self._send_error(str(exc))
         persona_arg = str(body.get("persona", ""))[:32]
         persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
 
@@ -1010,7 +1018,10 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 return default
 
-        seed  = _int("seed", 0)
+        try:
+            seed = guard.world_seed(body.get("seed"))
+        except ValueError as exc:
+            return self._send_error(str(exc))
         depth = _int("depth", 6)
         min_b = _int("min_breadth", 1)
         max_b = _int("max_breadth", 3)

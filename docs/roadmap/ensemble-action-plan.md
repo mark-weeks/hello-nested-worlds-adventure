@@ -19,6 +19,8 @@ formerly gated on it (⚑) are unblocked.
 | 0.1 | ~~Ratify ADR-006~~ | **Option A ratified by the owner, 2026-07-19** |
 | 0.2 | ~~Re-word the freeze covenant~~ | **Shipped** — CLAUDE.md's permanent-world section and the freeze-suite docstring now describe the materialized world (banks govern births only) |
 | 0.3 | ~~Materialize the world~~ | **Shipped as the full Option A pivot** (`multiverse/store.py`, migration 0013, all read paths swapped; equivalence + bank-edit immunity pinned; suite 800 green, E2E 3/3). See CHANGELOG "The world is data now" |
+| 0.4 | ~~Make the hosted launch one shared canonical world~~ | **Shipped 2026-08-03** — ADR-007; one configured seed enforced before every HTTP/WS birth or lookup; heartbeat confined; both browser seed pickers retired; CLI/local curation stays flexible |
+| 0.5 | ~~Curate the launch world: readable unique names, variation census, final seed, all-scale traversal~~ | **Shipped 2026-08-03** — generator v2 semantic names; executable 512-seed census selects seed 382; both clients progressively expose all 11 scales; golden birth deliberately re-pinned. See `docs/evaluation/2026-08-03-launch-world-census.md` |
 
 ## Track 1 — Pre-launch gates (blockers; order matters)
 
@@ -41,7 +43,8 @@ default surface.
 | 2.1 | ~~Hero-size the explorer's sigil~~ | **Shipped 2026-07-19** — sidebar 300→340px, sigil 268×140→308×232, the art leads the location panel | §4.1 |
 | 2.2 | ~~Sound invitation + guide sound section~~ | **Shipped 2026-07-19** — once-per-session in-fiction offer ("The world hums, softly, in every place. Listen?"), click = the WebAudio gesture, e2e-verified; `/guide` gains "The world hums — listen" | §4.2 |
 | 2.3 | ~~Capture the four pitch assets~~ | **Shipped 2026-07-19** — all four captured live from seed 42 in headless Chromium (`docs/pitch/assets/`), brief updated; the cascade GIF shows dampening in the feed numbers (+0.50 → +0.25) | §2.2 |
-| 2.4 | ~~Tuck the engine-room header~~ | **Shipped 2026-07-19** — Seed/Depth/Breadth/Generate hidden behind a ⚙ affordance, e2e-verified | §5.1 |
+| 2.5 | **Recapture the four pitch assets from generator v2 / launch seed 382** | Required before external pitch use — the honest v1 captures remain labeled as historical proof, but their retired syllable names are not launch-world evidence | 2026-08-03 launch census |
+| 2.4 | ~~Tuck the engine-room header~~ | **Superseded 2026-08-03 by ADR-007** — seed/breadth/world-generation controls retired; only canonical-world view depth remains behind ⚙, e2e-verified | §5.1 |
 
 ## Track 3 — Early post-launch (first month)
 

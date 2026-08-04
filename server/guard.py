@@ -14,9 +14,9 @@ Six pieces wired into `server/handlers.py`:
   5. `ai_disabled`        — env kill switch for `/speak` and `/agent/voice`.
   6. `images_disabled`    — env kill switch for `/image`.
 
-Plus `validate_world_params`, which clamps the four generator inputs the
-server accepts from request bodies / query strings so a bad client can't
-ask for a 100k-deep tree.
+Plus `world_seed` and `validate_world_params`, which confine the public server
+to one operator-selected world and clamp the remaining view-depth input so a
+bad client can't ask for a 100k-deep tree.
 
 Everything here is read at request time (no caching), so toggling an env
 var on the host is immediate. Counters are stored UTC-day-keyed in
@@ -32,6 +32,7 @@ import time
 from typing import Any, Mapping
 
 import persistence
+from multiverse.generator import DEFAULT_WORLD_SEED
 
 
 # ── Env vars ────────────────────────────────────────────────────────────────
@@ -52,6 +53,7 @@ DISABLE_AI_ENV       = "NESTED_WORLDS_DISABLE_AI"
 DISABLE_IMAGES_ENV   = "NESTED_WORLDS_DISABLE_IMAGES"
 TRUST_PROXY_ENV      = "NESTED_WORLDS_TRUST_PROXY"
 CLIENT_IP_HEADER_ENV = "NESTED_WORLDS_CLIENT_IP_HEADER"
+CANONICAL_SEED_ENV    = "NESTED_WORLDS_CANONICAL_SEED"
 # Fly (and most edge proxies) set a dedicated, non-spoofable header with the
 # real connecting IP. On Fly that's `Fly-Client-IP`. Prefer it over
 # X-Forwarded-For, whose leftmost value is client-controlled.
@@ -64,6 +66,7 @@ _DEFAULT_FAL_DAILY       = 200
 _DEFAULT_ANTHROPIC_PER_USER = 150
 _DEFAULT_FAL_PER_USER       = 60
 _DEFAULT_RATE_PER_MIN    = 20
+DEFAULT_CANONICAL_SEED   = DEFAULT_WORLD_SEED
 
 ANTHROPIC_BUCKET  = "anthropic"
 FAL_BUCKET        = "fal_ai"
@@ -88,6 +91,50 @@ _DEFAULT_MODERATION_DAILY = 2000
 # for URL compatibility and ignored.
 MAX_DEPTH        = 11
 MIN_DEPTH        = 1
+
+
+def canonical_seed() -> int | None:
+    """Return the one world hosted by this server.
+
+    Production fails closed to the curated launch seed 382 when the setting is
+    absent. An empty
+    value (or ``off``/``none``) explicitly enables multi-world mode for local
+    development and tests; the browser never exposes that mode. Choosing a
+    different launch world is therefore an operator action, not a player
+    input.
+    """
+    raw = os.environ.get(CANONICAL_SEED_ENV)
+    if raw is None:
+        return DEFAULT_CANONICAL_SEED
+    raw = raw.strip()
+    if raw.lower() in {"", "off", "none"}:
+        return None
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ValueError(f"invalid {CANONICAL_SEED_ENV}: {raw!r}") from exc
+
+
+def world_seed(raw: Any = None) -> int:
+    """Resolve a request seed without allowing a parallel public world.
+
+    A missing seed selects the configured canonical world. Supplying that
+    same seed remains accepted for compatibility with older clients. Any
+    other seed is rejected before a world can be materialized, queried, or
+    joined. In explicitly enabled local multi-world mode, the historical
+    default and arbitrary integer seeds remain available.
+    """
+    configured = canonical_seed()
+    if raw is None or str(raw).strip() == "":
+        return configured if configured is not None else DEFAULT_CANONICAL_SEED
+    try:
+        requested = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid seed: {raw!r}") from exc
+    if configured is not None and requested != configured:
+        raise ValueError(
+            f"this server hosts one shared world (seed {configured})")
+    return requested
 
 
 # ── Node-properties clamp (token-cost guard) ────────────────────────────────

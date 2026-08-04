@@ -56,6 +56,16 @@
     return findPath(rootNode, target.name) || [rootNode];
   }
 
+  function resumeDepth(savedDepth, savedNodeName, minDepth = 6, maxDepth = 11) {
+    const numericDepth = Number(savedDepth);
+    const requested = Number.isFinite(numericDepth)
+      ? Math.trunc(numericDepth)
+      : minDepth;
+    const suffix = String(savedNodeName || "").split("-").pop() || "";
+    const nodeDepth = /^\d+$/.test(suffix) ? suffix.length : minDepth;
+    return Math.min(maxDepth, Math.max(minDepth, requested, nodeDepth));
+  }
+
   const BADGE_RULES = [
     { key: "danger",     color: 0xf05a5a, css: "#f05a5a" },
     { key: "corrupted",  color: 0xc88af0, css: "#c88af0" },
@@ -126,5 +136,6 @@
     mutationLine,
     nodeMark,
     passageBadges,
+    resumeDepth,
   });
 })(globalThis);

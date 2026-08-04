@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import random
 import socket
 import threading
 import urllib.error
@@ -224,6 +225,103 @@ class TestWorldBounds:
             layer *= BREADTH_BY_LEVEL[level][1]
             worst += layer
         assert worst < 20_000
+
+
+class TestCanonicalWorldBoundary:
+    """The hosted launch is one shared place, not a seed picker.
+
+    Rejection is checked before materialization: a hostile seed must not leave
+    even an empty parallel-world footprint in the append-only store.
+    """
+
+    def test_runtime_defaults_to_curated_launch_seed(self, monkeypatch):
+        monkeypatch.delenv(guard.CANONICAL_SEED_ENV, raising=False)
+        assert guard.canonical_seed() == 382
+        assert guard.world_seed(None) == 382
+
+    def test_matching_and_missing_seed_select_canonical(self, monkeypatch):
+        monkeypatch.setenv(guard.CANONICAL_SEED_ENV, "73")
+        assert guard.world_seed(None) == 73
+        assert guard.world_seed("73") == 73
+
+    def test_mismatched_world_request_is_rejected_before_birth(
+            self, srv, monkeypatch):
+        monkeypatch.setenv(guard.CANONICAL_SEED_ENV, "42")
+        base, _ = srv
+        assert _get_status(f"{base}/world?seed=43&depth=2") == 400
+        assert not persistence.world_is_born(43)
+        data = _get_json(f"{base}/world?depth=2")
+        assert data["seed"] == 42
+        assert persistence.world_is_born(42)
+
+    def test_read_and_write_routes_reject_parallel_seed(
+            self, srv, monkeypatch):
+        monkeypatch.setenv(guard.CANONICAL_SEED_ENV, "42")
+        base, _ = srv
+        assert _get_status(f"{base}/history?seed=43") == 400
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            _post(f"{base}/position", {"seed": 43, "node": "forged-1"})
+        assert exc.value.code == 400
+        assert not persistence.world_is_born(43)
+
+    def test_heartbeat_never_falls_back_to_an_old_world(self, monkeypatch):
+        from server import heartbeat
+        monkeypatch.setenv(guard.CANONICAL_SEED_ENV, "73")
+        persistence.save_world(99, 1, 1, 1, 1)
+        assert heartbeat._pick_seed(random.Random(1)) == 73
+
+    def test_fresh_local_heartbeat_uses_curated_default(self, monkeypatch):
+        from multiverse.generator import DEFAULT_WORLD_SEED
+        from server import heartbeat
+        monkeypatch.setenv(guard.CANONICAL_SEED_ENV, "")
+        assert persistence.list_worlds() == []
+        assert heartbeat._pick_seed(random.Random(1)) == DEFAULT_WORLD_SEED
+
+    def test_causal_pump_reloads_canonical_seed_each_tick(self, monkeypatch):
+        from causality import staging
+        from server import heartbeat
+
+        seeds = iter((73, 74))
+        drained = []
+        monkeypatch.setattr(guard, "canonical_seed", lambda: next(seeds))
+        monkeypatch.setattr(
+            staging, "drain_due_hops",
+            lambda *, broadcaster, world_seed: drained.append(("hops", world_seed)),
+        )
+        monkeypatch.setattr(
+            heartbeat, "drain_matured_verbs",
+            lambda *, world_seed: drained.append(("verbs", world_seed)),
+        )
+
+        class TwoTicks:
+            calls = 0
+
+            def wait(self, _interval):
+                self.calls += 1
+                return self.calls > 2
+
+        heartbeat.run_pump_loop(TwoTicks())
+        assert drained == [
+            ("hops", 73), ("verbs", 73),
+            ("hops", 74), ("verbs", 74),
+        ]
+
+    def test_background_queues_claim_only_canonical_world(self):
+        # Old dev-world work remains durable but paused; the hosted pump must
+        # neither mutate it nor delete it while serving the canonical world.
+        for seed in (42, 43):
+            persistence.enqueue_causal_hop(
+                seed, f"node-{seed}", "DANGER_ALERT", 1.0, "up", {}, 0)
+            persistence.enqueue_verb_maturation(
+                seed, f"node-{seed}", "align", {"condition": "changed"},
+                "Ada", 0)
+
+        hops = persistence.claim_due_causal_hops(world_seed=42)
+        verbs = persistence.claim_due_verb_maturations(world_seed=42)
+        assert [row["world_seed"] for row in hops] == [42]
+        assert [row["world_seed"] for row in verbs] == [42]
+        assert persistence.pending_causal_hops(43) == 1
+        assert persistence.pending_verb_maturations(43) == 1
 
 
 # ── AI kill switch ──────────────────────────────────────────────────────────
@@ -584,6 +682,14 @@ def _ws_upgrade(port: int, path: str, hold: bool = False):
         return code, s
     s.close()
     return code, None
+
+
+def test_websocket_rejects_parallel_world_before_upgrade(srv, monkeypatch):
+    monkeypatch.setenv(guard.CANONICAL_SEED_ENV, "42")
+    _, port = srv
+    code, _ = _ws_upgrade(port, "/ws?seed=43&name=Ada")
+    assert code == 400
+    assert not persistence.world_is_born(43)
 
 
 class TestStaticAssetGate:

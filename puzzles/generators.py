@@ -749,7 +749,6 @@ _FAMILY_FN: dict[str, Callable[[SpatialNode, random.Random, int], Puzzle | None]
     "cipher":   _make_cipher,
     "sequence": _make_sequence,
     "riddle":   _make_riddle,
-    "lock":     _make_lock,
     "enfold":   _make_enfold,
     "lineage":  _make_lineage,
     "bond":     _make_bond,
@@ -773,11 +772,16 @@ def build_puzzle(node: SpatialNode, epoch: int = 0) -> Puzzle:
         "big"))
     difficulty = node_difficulty(node)
     families = list(_FAMILY_WEIGHTS.get(difficulty, _FAMILY_WEIGHTS[2]))
-    # A locked node usually serves its LOCK — the travel-key mechanic that
-    # makes the trait real. Heavy weight, not certainty: _make_lock still
-    # declines when there's no suitable keeper property.
+    # A locked Room has one coherent meaning: its puzzle IS the contextual
+    # travel key written in the Region that holds it. The earlier weighted
+    # selection left some locked doors serving generic word puzzles, and the
+    # legacy static "four-digit lock" could impersonate this upgraded family.
+    # The static duplicate is retired; when a keeper key exists, this path is
+    # authoritative at every renewal epoch.
     if node.properties.get("locked") and node.parent is not None:
-        families.append(("lock", 12))
+        lock = _make_lock(node, rng, difficulty)
+        if lock is not None and not _answer_leaks(lock, node):
+            return _finish(lock, node, rng, epoch)
     # Cosmic scales often serve an ENFOLD — the nesting itself as content
     # (the mirror of the LOCK: look into the fold instead of up out of it).
     if node.level in _ENFOLD_LEVELS:

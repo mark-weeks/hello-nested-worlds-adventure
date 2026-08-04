@@ -18,3 +18,7 @@ export function dropInNode(root, key) {
 export function entryPath(root, savedNodeName, playerKey) {
   return shared.entryPath(root, savedNodeName, playerKey);
 }
+
+export function resumeDepth(savedDepth, savedNodeName, minDepth, maxDepth) {
+  return shared.resumeDepth(savedDepth, savedNodeName, minDepth, maxDepth);
+}

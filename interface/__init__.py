@@ -7,6 +7,7 @@ import persistence
 from causality import CausalityBus, EventKind
 from causality.wiring import wire_world_handlers
 from multiverse import store
+from multiverse.generator import DEFAULT_WORLD_SEED
 from multiverse.node import SpatialNode
 from multiverse.utils import apply_property_overrides, apply_ripple_scores
 from puzzles.engine import PuzzleEngine
@@ -283,7 +284,7 @@ _HELP = f"""
 """
 
 
-def run_session(seed: int = 42, depth: int = 6,
+def run_session(seed: int = DEFAULT_WORLD_SEED, depth: int = 6,
                 player_name: str | None = None) -> None:
     """Launch an interactive terminal session in the nested worlds."""
     print(f"\n{_BOLD}Enfolded: Nested World Adventure{_RESET}")

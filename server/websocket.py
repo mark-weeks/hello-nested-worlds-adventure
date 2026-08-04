@@ -45,9 +45,9 @@ def handle_websocket(
         return
 
     try:
-        seed = int(qs.get("seed", ["42"])[0])
-    except (ValueError, IndexError):
-        request._send_error("invalid params", 400)
+        seed = guard.world_seed(qs.get("seed", [""])[0])
+    except (ValueError, IndexError) as exc:
+        request._send_error(str(exc), 400)
         return
 
     ws_key = guard.supplied_key(request.headers, qs)

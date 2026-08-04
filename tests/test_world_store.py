@@ -150,7 +150,10 @@ class TestBankEditImmunity:
         # Sabotage the banks the way the freeze docstrings warn about —
         # PREPENDED so every index-based pick shifts and regeneration
         # would rename essentially every node...
-        monkeypatch.setattr(gen, "_SYL_ROOTS", ["zzyx"] + gen._SYL_ROOTS)
+        changed_names = tuple(
+            f"Changed{i}" for i, _ in enumerate(gen.NAME_QUALIFIERS)
+        )
+        monkeypatch.setattr(gen, "NAME_QUALIFIERS", changed_names)
         # ...and make sure the store's in-process birth cache can't mask
         # the edit — a re-birth attempt would now use the edited banks.
         store._birth_rows_cache.clear()
@@ -166,7 +169,10 @@ class TestBankEditImmunity:
         unborn = SEED + 3
         reference = generate_node_hierarchy(seed=unborn, max_depth=4)
 
-        monkeypatch.setattr(gen, "_SYL_ROOTS", ["zzyx"] + gen._SYL_ROOTS)
+        changed_names = tuple(
+            f"Changed{i}" for i, _ in enumerate(gen.NAME_QUALIFIERS)
+        )
+        monkeypatch.setattr(gen, "NAME_QUALIFIERS", changed_names)
         store._birth_rows_cache.clear()
         try:
             born_after_edit = store.world_tree(seed=unborn, max_depth=4)

@@ -20,18 +20,13 @@ The original stakes, kept for history (they describe the pre-pivot world
 where the banks WERE the storage medium):
 
 Node names key ALL durable history — world_mutations, saved positions,
-property overlays, ripple scores, the art's activity counts. Each node
-draws name → properties → breadth from its own (seed, path)-keyed RNG
-stream over the content banks in multiverse/generator.py, so a bank edit
-corrupts existing worlds two ways. Name-bank edits rename surviving nodes
-outright (measured on seed 42: +1 syllable in _SYL_ROOTS renames 77 of 83
-reference nodes). Property-bank edits reshuffle the property VALUES of
-every node at that level — the baselines the persisted overlay applies its
-deltas to — and can shift breadth draws via choice()'s rejection sampling,
-deleting and spawning whole subtrees (measured: +1 biome replaces 2 of 83
-names at depth 6, ~170 of 3017 across the full world). After the first
-production deploy either failure orphans chronicle history and breaks
-saved positions.
+property overlays, ripple scores, the art's activity counts. Generator v2
+domain-separates name, property, and breadth determinism, so one bank can no
+longer shift another surface's random stream. Before materialization and
+domain separation, a name-bank edit renamed surviving nodes outright and a
+property-bank edit could even shift breadth via choice() rejection sampling.
+After production birth, any regeneration-based rewrite would orphan chronicle
+history and break saved positions; the materialized store prevents it.
 
 Era names are worse: they are recomputed from the banks at READ time, so a
 bank edit retroactively rewrites the displayed history of every era that
@@ -66,19 +61,16 @@ def _walk(node: SpatialNode, out: list) -> list:
     return out
 
 
-# The canonical reference world: default seed, depth 6 (the default the
-# clients load). Pinned 2026-07-05, before first production deploy;
-# re-pinned 2026-07-06 for the world reshape (level-shaped BREADTH_BY_LEVEL
-# replacing uniform 1-3 — the surviving paths kept byte-identical names and
-# properties; the root, first universe, every first-child-chain landmark,
-# and the root aspect are unchanged).
-_REF_SEED = 42
-_REF_NODE_COUNT = 293
+# The curated launch world: seed 382 at the clients' initial depth-6 payload
+# window. Generator v2 and this seed were consciously selected and pinned on
+# 2026-08-03, before first production birth, after the 512-seed launch census.
+_REF_SEED = 382
+_REF_NODE_COUNT = 279
 _REF_NAMES_DIGEST = (
-    "f6044332ea2055ce7b27a177d7793179a7374fe946fdad42c39e70017df29af4"
+    "f4599db11c7d63eee140752131ce773c042caa906fa5991f82be83b23cc429d9"
 )
 _REF_WORLD_DIGEST = (
-    "1e514afa5464483212310a11ea6f4f3d6195f3841a8945da49376f7698f2a930"
+    "8dcbf080140908d064950b5db32eceed0a91a93da0844db7479ab0ca74789680"
 )
 
 # The world's shape itself: one rng.randint draw per node over these exact
@@ -107,15 +99,15 @@ _REF_BREADTH_PROFILE = {
 # nodes and silently changing 19 surviving nodes' property baselines).
 # These pins close that blind spot. Pinned 2026-07-05, pre-launch.
 _REF_FULL_DEPTH = 11
-_REF_FULL_NODE_COUNT = 4439
+_REF_FULL_NODE_COUNT = 4208
 _REF_FULL_NAMES_DIGEST = (
-    "06d672c624f88f6df41fa2ad1dd3e6d68736f5ec0e52ac2036cb4014598257e5"
+    "8df05af32f51a62679419e193e771258298e166af31e6b684ab3f02b593347a8"
 )
 _REF_FULL_WORLD_DIGEST = (
-    "b02c167b0d2280f558e69fa60e0400d9ff3d42b8054519a061d2bd753990c414"
+    "d22fd32b6cab71fc8e597ffb0bc1774dc4a6cef61e254725d529ccd46518fcb1"
 )
 _REF_FULL_PUZZLES_DIGEST = (
-    "32b922f74bcab9b4bba7eb10e7c80962eeeeec20e9502a3d82436bc909ba3bc4"
+    "5fcd8a17cc46fdbc423ce2062b7fd3597e994e90635751b1498ee88d5699ac3d"
 )
 
 
@@ -154,10 +146,10 @@ class TestGeneratedWorldIsFrozen:
     def test_landmark_names_are_pinned(self):
         # Human-readable canaries so a digest failure is diagnosable.
         names = [n.name for n in self._nodes()]
-        assert names[0] == "Fenolos-1"
-        assert names[1] == "Solaorne-11"
-        assert names[10] == "Caloeth-1112"
-        assert names[-1] == "Rustmarsh Fens-144322"
+        assert names[0] == "Elder Reed Cosmos-1"
+        assert names[1] == "Ashen Ember Sphere-11"
+        assert names[10] == "Mossbound Reed Assembly-1112"
+        assert names[-1] == "Still Pilgrim Vale-144322"
 
     def test_breadth_profile_is_pinned(self):
         from multiverse.generator import BREADTH_BY_LEVEL
@@ -171,8 +163,8 @@ class TestGeneratedWorldIsFrozen:
     def test_root_aspect_is_pinned(self):
         root = self._nodes()[0]
         assert root.properties["aspect"] == (
-            "its edges are stitched with ash; a slow tide moves under its "
-            "surface, and it wears its age like a medal."
+            "a wash of light pools in its hollows; it counts something, "
+            "patiently, and it is patient the way stone is patient."
         )
 
 
@@ -230,12 +222,12 @@ class TestFullDepthWorldIsFrozen:
         first_of = {}
         for n in nodes:
             first_of.setdefault(n.level, n.name)
-        assert first_of["Room"] == "Deepvane Workshop-1111111"
-        assert first_of["Object"] == "Haleisara Conduit-11111111"
-        assert first_of["Molecule"] == "Ulauide-111111111"
-        assert first_of["Atom"] == "Velanoride-1111111111"
-        assert first_of["SubatomicParticle"] == "Veriunon-11111111111"
-        assert nodes[-1].name == "Moramarette-14432222222"
+        assert first_of["Room"] == "Broken Ember Gallery-1111111"
+        assert first_of["Object"] == "Elder River Instrument-11111111"
+        assert first_of["Molecule"] == "Distant River Chain-111111111"
+        assert first_of["Atom"] == "Distant Tide Nuclide-1111111111"
+        assert first_of["SubatomicParticle"] == "Cedar Anchor Quark-11111111111"
+        assert nodes[-1].name == "Weathered Willow Wave-14432222222"
 
 
 class TestPuzzleLayerIsFrozen:
@@ -251,7 +243,7 @@ class TestPuzzleLayerIsFrozen:
             for n in nodes)
         digest = hashlib.sha256(blob.encode()).hexdigest()
         assert digest == (
-            "79518fa8321a421b990008a4384a1ffe044d28af236a6993a2278eeacc30362a"
+            "a6812b4374922a2301b2404a36048f5805877fa396236c85bfdb109573fc38b3"
         ), (
             "Epoch-0 puzzle generation changed for the reference world. "
             "Post-launch this resets every solved puzzle. Revert, or "
@@ -292,8 +284,8 @@ class TestRenewalEpochPuzzlesArePinned:
         from puzzles.engine import build_puzzle
         nodes = _walk(generate_node_hierarchy(seed=_REF_SEED, max_depth=6), [])
         pinned = {
-            1: "dcda8be3c59211403eff5afddc15fabe1a9d7ac53991efbce776304b28362cf9",
-            2: "a71072e573b6d0ac4ea982b7155fa3ed9715d0bf53e6cd88f2c6248a8c0fdeaa",
+            1: "2255f67bd7e302cf2e6046826ea74667228a7bd3c747a6607091f785d9b65975",
+            2: "f11b25909bcb58ba1fdadab5db2cbb493d3402ff408305440ebfbf76f1bd2643",
         }
         for epoch, expected in pinned.items():
             blob = "\n".join(

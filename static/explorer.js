@@ -50,7 +50,7 @@ const LEVEL_R = {
 };
 
 let selected    = null;
-let worldParams = { seed: 42, depth: 6, min_b: 1, max_b: 3 };
+let worldParams = { seed: null, depth: 6 };
 let puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
 let observeES   = null;
 let nodeG       = null;
@@ -62,13 +62,14 @@ let hierLayout  = null;   // the laid-out d3 hierarchy, for centring on a node
 // their name so it's stable; a returning player resumes their last node. Both
 // persist across sessions via localStorage.
 const LAST_NODE_KEY  = 'nw_last_node';
-const LAST_WORLD_KEY = 'nw_last_world';
+const LAST_DEPTH_KEY = 'nw_view_depth';
 const {
   describeChronicleEntry,
   describeMutation,
   dropInNode,
   findNodeByName,
   nodeMark,
+  resumeDepth,
 } = window.EnfoldedClient;
 
 function resolveEntryNode(root) {
@@ -94,23 +95,21 @@ async function hydrateFromServer() {
     if (!res.ok) return;
     const { position } = await res.json();
     if (!position || !position.node) return;
+    const depth = resumeDepth(position.depth, position.node);
     localStorage.setItem(LAST_NODE_KEY, position.node);
-    localStorage.setItem(LAST_WORLD_KEY, JSON.stringify({
-      seed:  position.seed,        depth: position.depth,
-      min_b: position.min_breadth, max_b: position.max_breadth,
-    }));
+    localStorage.setItem(LAST_DEPTH_KEY, String(depth));
   } catch (_) { /* offline or gate off — keep whatever this browser cached */ }
 }
 
 function savePositionToServer(name) {
   if (!betaKey()) return;
-  const { seed, depth, min_b, max_b } = worldParams;
+  const { seed, depth } = worldParams;
+  if (!Number.isFinite(seed)) return;
   try {
     fetch(withKey('/position'), {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ node: name, seed, depth,
-                                min_breadth: min_b, max_breadth: max_b }),
+      body:    JSON.stringify({ node: name, seed, depth }),
     }).catch(() => {});           // fire-and-forget; localStorage is the backstop
   } catch (_) {}
 }
@@ -132,26 +131,27 @@ function setMode(mode) {
 }
 
 async function loadWorld() {
+  const previousSeed = worldParams.seed;
   worldParams = {
-    seed:  +document.getElementById('seed').value,
+    seed:  worldParams.seed,
     depth: +document.getElementById('depth').value,
-    min_b: +document.getElementById('min_b').value,
-    max_b: +document.getElementById('max_b').value,
   };
-  // Remember the world so a returning player resumes in the same one (their
-  // saved node only exists here).
-  try { localStorage.setItem(LAST_WORLD_KEY, JSON.stringify(worldParams)); } catch (_) {}
+  try { localStorage.setItem(LAST_DEPTH_KEY, String(worldParams.depth)); } catch (_) {}
   document.getElementById('gen-btn').disabled = true;
-  setStatus('Generating world…');
+  setStatus('Opening the shared world…');
   try {
-    const { seed, depth, min_b, max_b } = worldParams;
-    const res  = await fetch(withKey(`/world?seed=${seed}&depth=${depth}&min_breadth=${min_b}&max_breadth=${max_b}`));
+    const { depth } = worldParams;
+    // The server chooses the world. Its returned seed is carried only as the
+    // identity needed by subsequent requests and deterministic senses.
+    const res  = await fetch(withKey(`/world?depth=${depth}`));
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    setStatus(`${data.node_count} nodes · seed ${seed} · depth ${depth}`);
-    renderTree(data.world);
-    if (playerName) wsConnect(seed);
-    loadHistoryFeed(seed);
+    worldParams.seed = data.seed;
+    const sameWorld = previousSeed !== null && previousSeed === data.seed;
+    setStatus(`${data.node_count} nodes · shared world · depth ${depth}`);
+    renderTree(data.world, { preservePresence: sameWorld });
+    if (playerName && !sameWorld) wsConnect(data.seed);
+    if (!sameWorld) loadHistoryFeed(data.seed);
     maybeOfferSound();
   } catch (e) {
     setStatus('Error: ' + e.message);
@@ -160,13 +160,14 @@ async function loadWorld() {
   }
 }
 
-function renderTree(worldRoot) {
+function renderTree(worldRoot, { preservePresence = false } = {}) {
   root_g.selectAll('*').remove();
   nodeG   = null;
-  players = {};
-  agents  = {};
+  if (!preservePresence) {
+    players = {};
+    agents = {};
+  }
   indexSuffixes(worldRoot);
-  renderPlayers();
 
   const hier   = d3.hierarchy(worldRoot, d => d.children?.length ? d.children : null);
   const leaves = hier.leaves().length;
@@ -219,6 +220,8 @@ function renderTree(worldRoot) {
   const entry = resolveEntryNode(worldRoot);
   selectNode(entry);
   if (entry.id !== worldRoot.id) centerOnNode(entry);
+  renderPlayers();
+  updatePresenceRings();
 }
 
 // ── The world's past, visible on arrival ───────────────────────────────────
@@ -303,6 +306,16 @@ function selectNode(data) {
       `<span class="prop-val"${hot}>${bars} ${data.ripple_score.toFixed(2)}</span></div>`;
   }
   document.getElementById('node-props').innerHTML = propsHtml;
+  // A depth-limited response makes its last rendered scale look like a dead
+  // end even though the canonical world continues five levels further. Make
+  // the boundary an in-fiction passage: one click deepens the view and keeps
+  // the player standing on this same materialized node.
+  const deepen = document.getElementById('btn-deepen');
+  deepen.hidden = !(
+    worldParams.depth < 11
+    && data.level !== 'SubatomicParticle'
+    && !(data.children || []).length
+  );
 
   // The node's own generative art: deterministic in (seed, name), shaped by
   // properties, marked by history (pressure, effects, activity etchings).
@@ -404,7 +417,6 @@ async function doAct() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         seed: worldParams.seed, depth: worldParams.depth,
-        min_breadth: worldParams.min_b, max_breadth: worldParams.max_b,
         node_name: selected.name, verb: selected.verb.name,
         player_name: playerName || undefined,
       }),
@@ -443,7 +455,7 @@ async function loadChroniclePage(reset) {
     const res = await fetch(withKey(
       `/chronicle?seed=${worldParams.seed}&limit=40${cursor}`));
     const data = await res.json();
-    meta.textContent = `seed ${data.seed} · ${data.total} recorded events` +
+    meta.textContent = `${data.total} recorded events` +
       (data.began ? ` since ${data.began.slice(0, 10)}` : '') +
       ` · now: ${data.era_now}`;
     for (const e of data.entries || []) {
@@ -563,8 +575,8 @@ function observe() {
   if (observeES) { observeES.close(); observeES = null; }
 
   document.getElementById('observe-rows').innerHTML = '';
-  const { seed, depth, min_b, max_b } = worldParams;
-  const url = `/observe?seed=${seed}&depth=${depth}&min_breadth=${min_b}&max_breadth=${max_b}&node_name=${encodeURIComponent(selected.name)}`;
+  const { seed, depth } = worldParams;
+  const url = `/observe?seed=${seed}&depth=${depth}&node_name=${encodeURIComponent(selected.name)}`;
 
   setStatus('Agent traversing…');
   observeES = new EventSource(withKey(url));
@@ -604,8 +616,8 @@ function appendObserveRow({ node, level, kind, strength }) {
 
 async function fetchPuzzle() {
   if (!selected) { setStatus('Select a node first.'); return; }
-  const { seed, depth, min_b, max_b } = worldParams;
-  const url = `/puzzle?seed=${seed}&depth=${depth}&min_breadth=${min_b}&max_breadth=${max_b}&node_name=${encodeURIComponent(selected.name)}`;
+  const { seed, depth } = worldParams;
+  const url = `/puzzle?seed=${seed}&depth=${depth}&node_name=${encodeURIComponent(selected.name)}`;
   setStatus('Searching for puzzle…');
   try {
     const res  = await fetch(withKey(url));
@@ -670,12 +682,12 @@ async function submitAnswer() {
   const answer = (document.getElementById('puzzle-answer')?.value || '').trim();
   if (!answer) return;
 
-  const { seed, depth, min_b, max_b } = worldParams;
+  const { seed, depth } = worldParams;
   try {
     const res  = await fetch(withKey('/puzzle/attempt'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seed, depth, min_breadth: min_b, max_breadth: max_b,
+      body: JSON.stringify({ seed, depth,
                              node_name: selected.name, answer,
                              player_name: playerName }),
     });
@@ -775,6 +787,16 @@ async function jumpTo(nodeName) {
       pushFeed(`▼ ${nodeName} lies enfolded beneath ${anc.name}`);
     }
   }
+}
+
+async function deepenSelected() {
+  if (!selected || worldParams.depth >= 11) return;
+  const target = selected.name;
+  document.getElementById('depth').value = worldParams.depth + 1;
+  pushFeed(`↓ looking within ${target}`);
+  await loadWorld();
+  // renderTree resolves LAST_NODE_KEY, which selectNode wrote before the
+  // reload, so the same node remains selected with its children now visible.
 }
 
 function showJoinModal() {
@@ -1045,7 +1067,7 @@ function sendChat() {
   const text = input.value.trim();
   if (!text) return;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
-    pushFeed('Not connected — generate a world first.');
+    pushFeed('Not connected to the shared world.');
     return;
   }
   wsSend({ type: 'chat', text });
@@ -1098,6 +1120,7 @@ document.getElementById('player-name-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') joinModal();
 });
 document.getElementById('gen-btn').addEventListener('click', loadWorld);
+document.getElementById('btn-deepen').addEventListener('click', deepenSelected);
 document.getElementById('chat-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') sendChat();
 });
@@ -1116,7 +1139,7 @@ document.getElementById('sound-invite-yes').addEventListener('click', toggleSoun
 document.getElementById('sound-invite-no').addEventListener('click',
   () => document.getElementById('sound-invite').classList.remove('visible'));
 document.getElementById('btn-advanced').addEventListener('click', () => {
-  // The engine room, on request: seed / depth / breadth + Generate.
+  // An optional presentation control: the world itself never changes here.
   const controls = document.querySelector('.controls');
   const open = controls.classList.toggle('open');
   document.getElementById('btn-advanced').setAttribute('aria-expanded', String(open));
@@ -1139,15 +1162,15 @@ document.getElementById('message').addEventListener('keydown', e => {
 const INTRO_SEEN = 'nw_seen_intro';
 
 function restoreWorldInputs() {
-  // A returning player resumes in the world they left off in, so pre-fill the
-  // generator inputs from the last one before the first load. First-timers keep
-  // the defaults.
-  let saved;
-  try { saved = JSON.parse(localStorage.getItem(LAST_WORLD_KEY)); } catch (_) { saved = null; }
-  if (!saved) return;
-  const set = (id, v) => { const el = document.getElementById(id); if (el && Number.isFinite(+v)) el.value = v; };
-  set('seed', saved.seed); set('depth', saved.depth);
-  set('min_b', saved.min_b); set('max_b', saved.max_b);
+  // Remember only how much of the canonical world the player chose to render.
+  const saved = resumeDepth(
+    localStorage.getItem(LAST_DEPTH_KEY),
+    localStorage.getItem(LAST_NODE_KEY),
+  );
+  const depth = document.getElementById('depth');
+  if (depth) {
+    depth.value = saved;
+  }
 }
 
 async function boot() {

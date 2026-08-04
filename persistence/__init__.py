@@ -255,21 +255,33 @@ def enqueue_causal_hop(world_seed: int, node_name: str, kind: str,
 
 
 @_with_db
-def claim_due_causal_hops(limit: int = 64) -> list[dict[str, Any]]:
+def claim_due_causal_hops(limit: int = 64,
+                          world_seed: int | None = None) -> list[dict[str, Any]]:
     """Atomically remove and return hops whose due time has arrived.
 
     DELETE … RETURNING makes the claim atomic, so a hop fires exactly once
     even if multiple pumps ever run.
     """
     with _connect() as conn:
-        rows = conn.execute(
-            """DELETE FROM causal_queue
-               WHERE id IN (SELECT id FROM causal_queue
-                            WHERE due_at <= datetime('now')
-                            ORDER BY due_at, id LIMIT ?)
-               RETURNING world_seed, node_name, kind, strength, direction, payload""",
-            (limit,),
-        ).fetchall()
+        if world_seed is None:
+            rows = conn.execute(
+                """DELETE FROM causal_queue
+                   WHERE id IN (SELECT id FROM causal_queue
+                                WHERE due_at <= datetime('now')
+                                ORDER BY due_at, id LIMIT ?)
+                   RETURNING world_seed, node_name, kind, strength, direction, payload""",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """DELETE FROM causal_queue
+                   WHERE id IN (SELECT id FROM causal_queue
+                                WHERE world_seed = ?
+                                  AND due_at <= datetime('now')
+                                ORDER BY due_at, id LIMIT ?)
+                   RETURNING world_seed, node_name, kind, strength, direction, payload""",
+                (world_seed, limit),
+            ).fetchall()
         return [{"world_seed": r[0], "node_name": r[1], "kind": r[2],
                  "strength": r[3], "direction": r[4],
                  "payload": json.loads(r[5]) if r[5] else {}} for r in rows]
@@ -295,17 +307,29 @@ def enqueue_verb_maturation(world_seed: int, node_name: str, verb: str,
 
 
 @_with_db
-def claim_due_verb_maturations(limit: int = 32) -> list[dict[str, Any]]:
+def claim_due_verb_maturations(
+        limit: int = 32, world_seed: int | None = None) -> list[dict[str, Any]]:
     """Atomically remove and return maturations whose time has come."""
     with _connect() as conn:
-        rows = conn.execute(
-            """DELETE FROM verb_maturation
-               WHERE id IN (SELECT id FROM verb_maturation
-                            WHERE due_at <= datetime('now')
-                            ORDER BY due_at, id LIMIT ?)
-               RETURNING world_seed, node_name, verb, changed, actor""",
-            (limit,),
-        ).fetchall()
+        if world_seed is None:
+            rows = conn.execute(
+                """DELETE FROM verb_maturation
+                   WHERE id IN (SELECT id FROM verb_maturation
+                                WHERE due_at <= datetime('now')
+                                ORDER BY due_at, id LIMIT ?)
+                   RETURNING world_seed, node_name, verb, changed, actor""",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """DELETE FROM verb_maturation
+                   WHERE id IN (SELECT id FROM verb_maturation
+                                WHERE world_seed = ?
+                                  AND due_at <= datetime('now')
+                                ORDER BY due_at, id LIMIT ?)
+                   RETURNING world_seed, node_name, verb, changed, actor""",
+                (world_seed, limit),
+            ).fetchall()
         return [{"world_seed": r[0], "node_name": r[1], "verb": r[2],
                  "changed": json.loads(r[3]) if r[3] else {}, "actor": r[4]}
                 for r in rows]

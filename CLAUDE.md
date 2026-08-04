@@ -75,6 +75,15 @@ the node's identity**. Node names still key all durable history (mutations,
 saved positions, property overlays, ripple scores, art activity counts) —
 but those names now live in the store, not in the banks.
 
+**The hosted launch is one shared canonical world** (ADR-007, ratified
+2026-08-03). `NESTED_WORLDS_CANONICAL_SEED` is an operator-owned deployment
+choice; every HTTP, SSE, WebSocket, position, and heartbeat path must stay
+behind `server.guard.world_seed`, and browser clients must not expose seed
+selection. The CLI and explicit local multi-world mode remain available for
+curation and tests. Never turn a player-controlled integer into a new durable
+world: under the materialized store, that is a permanent parallel history, not
+a harmless view option.
+
 - **A born world is never re-born.** `birth_world` is idempotent and
   `persistence.save_world_nodes` refuses to overwrite — nothing in
   application code may regenerate or rewrite `world_nodes` rows for a seed
@@ -90,7 +99,7 @@ but those names now live in the store, not in the banks.
   re-pin the golden digests, recording why in the CHANGELOG.
 - **The golden pins now describe births.** `tests/test_continuity_freeze.py`
   (both depths — the depth-6 reference world AND the full 11-level world;
-  five scales exist only below depth 6) pins what generator v1 births. A
+  five scales exist only below depth 6) pins what generator v2 births. A
   failing pin no longer means "you are rewriting the permanent world" — the
   store forbids that — it means "you changed what new worlds are born as":
   stop, confirm it's intended, bump the version, re-pin deliberately.
@@ -111,8 +120,8 @@ but those names now live in the store, not in the banks.
 ## Determinism contract
 
 **At birth**, every node is a pure function of `(seed, path)` under the
-current `GENERATOR_VERSION`: name → properties → breadth all draw from that
-node's own keyed RNG stream, so a fresh install birthing a reference seed
+current `GENERATOR_VERSION`: the semantic name allocation, properties, and
+breadth use separate keyed deterministic domains, so a fresh install birthing a reference seed
 reproduces it exactly, and any depth view is a true prefix of the one stored
 full-depth world. **After birth**, the stored row is authoritative, and
 art/sound/puzzles derive deterministically from the node *as served* — so
@@ -200,9 +209,9 @@ evolution when it exists. Consequences:
   persistence backend, the day-one data policy (permanence, redaction,
   continuity, identity, write-path scope), the launch-window operations
   policy (backup cadence, staging rehearsal, beta client posture, voice
-  model), and the evolving-world decision (the world materialized as data;
-  banks govern births only — Option A, ratified), each with its "Revisit
-  when…" triggers.
+  model), the evolving-world decision (the world materialized as data; banks
+  govern births only — Option A, ratified), and the one-shared-launch-world
+  boundary, each with its "Revisit when…" triggers.
 - `docs/roadmap/phase-2-scale.md` — the continuity policy and the phase-2b/2c
   trigger list (living document — edit in place as triggers fire).
 - `docs/infrastructure/fly-deployment.md` — the deploy runbook and §8 launch
