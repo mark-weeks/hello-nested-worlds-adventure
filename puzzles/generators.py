@@ -496,6 +496,134 @@ def _clean_pool_puzzles(level: str, node: SpatialNode) -> list[Puzzle]:
 _LOCK_KEY_CANDIDATES = ("weather", "terrain", "faction_control")
 
 
+# Generated categorical readings that the property overlay never rewrites.
+# The two world-reading families below deliberately use only this allow-list:
+# their answers must remain stable after players act on a node.  Mutable keys
+# such as stability, condition, danger_level, and stabilized do not belong
+# here, even when their birth values are strings.
+_ANCESTRAL_READING_KEYS: dict[str, tuple[str, ...]] = {
+    "Multiverse": ("theme", "membrane"),
+    "Universe": ("laws_of_physics", "dominant_faction", "light_temper"),
+    "Galaxy": ("shape", "dust"),
+    "Planetary System": ("star_type",),
+    "Planet": ("biome", "sky"),
+    "Region": ("terrain", "faction_control", "weather"),
+    "Room": ("lighting", "air"),
+    "Object": ("material", "surface"),
+    "Molecule": ("compound_type", "geometry"),
+    "Atom": ("element", "glow"),
+}
+
+
+def _ancestors(node: SpatialNode) -> list[SpatialNode]:
+    """The node's enclosing places, ordered outermost to innermost."""
+    out: list[SpatialNode] = []
+    current = node.parent
+    while current is not None:
+        out.append(current)
+        current = current.parent
+    out.reverse()
+    return out
+
+
+def _living_name(node: SpatialNode) -> str:
+    """A node's human-readable name without its path-identity suffix."""
+    base, separator, suffix = node.name.rpartition("-")
+    if separator and suffix.isdigit():
+        return base.strip().lower()
+    return node.name.strip().lower()
+
+
+def _edge_marks(value: str) -> str:
+    """First and last alphanumeric marks of a categorical reading."""
+    letters = re.findall(r"[a-z0-9]", value.lower())
+    return "" if not letters else letters[0] + letters[-1]
+
+
+# ── KEEPER WITNESS: readable names become gameplay ──────────────────────────
+# A node's three-word living name is not decorative filler: it is a memorable
+# landmark.  The witness asks the player to climb one to three folds, locate a
+# named scale, and bring its name back.  It uses only the ancestor chain, which
+# the materialized-store resolver reconstructs for every node, so a full tree
+# and a directly resolved node always grow the same puzzle.
+
+def _make_keeper_witness(node: SpatialNode, rng: random.Random,
+                         difficulty: int) -> Puzzle | None:
+    ancestors = _ancestors(node)
+    if not ancestors:
+        return None
+    nearby = ancestors[-min(3, len(ancestors)):]
+    keeper = nearby[rng.randrange(len(nearby))]
+    answer = _living_name(keeper)
+    if not answer:
+        return None
+    folds = len(ancestors) - ancestors.index(keeper)
+    fold_word = "fold" if folds == 1 else "folds"
+    return Puzzle(
+        name=f"The Keeper Witness of the {node.level}",
+        kind=PuzzleKind.NAVIGATION,
+        prompt=(f"{node.name} remembers a place that holds it. Climb "
+                f"{folds} {fold_word} to its enclosing {keeper.level}. "
+                "Return with that place's living name — the words "
+                "before its lineage mark."),
+        answer=answer,
+        hints=[
+            f"Travel outward until the scale reads {keeper.level}.",
+            "Its living name is everything before the dash and digits.",
+            f"The first word begins with '{answer[0]}'.",
+        ],
+        max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
+        difficulty=difficulty,
+    )
+
+
+# ── ANCESTRAL COMPASS: two scales held in mind ──────────────────────────────
+# The compass is a small piece of multi-hop reasoning: read one immutable
+# categorical at each of two enclosing scales, take the edge letters of each,
+# and keep them in outer-to-inner order.  The four-letter result is compact to
+# enter but can only be derived by engaging with this particular world's
+# properties; it is not a reusable answer-key word.
+
+def _make_ancestral_compass(node: SpatialNode, rng: random.Random,
+                            difficulty: int) -> Puzzle | None:
+    candidates: list[tuple[SpatialNode, str, str]] = []
+    for holder in _ancestors(node):
+        keys = [
+            key for key in _ANCESTRAL_READING_KEYS.get(holder.level, ())
+            if isinstance(holder.properties.get(key), str)
+            and len(_edge_marks(holder.properties[key])) == 2
+        ]
+        if keys:
+            key = keys[rng.randrange(len(keys))]
+            candidates.append((holder, key, holder.properties[key]))
+    if len(candidates) < 2:
+        return None
+    left_index, right_index = sorted(rng.sample(range(len(candidates)), 2))
+    outer, outer_key, outer_value = candidates[left_index]
+    inner, inner_key, inner_value = candidates[right_index]
+    answer = _edge_marks(outer_value) + _edge_marks(inner_value)
+    return Puzzle(
+        name=f"The Ancestral Compass of the {node.level}",
+        kind=PuzzleKind.LOGIC,
+        prompt=(f"Two enclosing scales set the compass at {node.name}. At "
+                f"the {outer.level}, read its {outer_key.replace('_', ' ')}; "
+                "keep that reading's first and last letter. Then, at the "
+                f"{inner.level}, do the same with its "
+                f"{inner_key.replace('_', ' ')}. Join the four marks in "
+                "that outer-to-inner order."),
+        answer=answer,
+        hints=[
+            f"The first pair comes from the {outer.level}; the second from "
+            f"the {inner.level}.",
+            "Ignore spaces and punctuation; each reading contributes only "
+            "its two edge letters.",
+            f"The first mark is '{answer[0]}'.",
+        ],
+        max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
+        difficulty=difficulty,
+    )
+
+
 # ── ENFOLD: the nesting itself as puzzle content ─────────────────────────────
 # The cosmic scales get the mirror of the LOCK. A LOCK makes you look UP
 # ("the key is written in the place that holds you"); an ENFOLD makes you
@@ -735,13 +863,19 @@ def _make_riddle(node: SpatialNode, rng: random.Random, difficulty: int) -> Puzz
 # ── Selector ─────────────────────────────────────────────────────────────────
 
 # Which families each difficulty tier draws from, and their relative weights.
-# Ciphers only appear once there's a little depth; deeper scales lean on the
-# harder transforms. Riddles are offered everywhere they exist.
+# Ciphers only appear beyond the gentlest tier.  World-reading families are
+# deliberately prominent at every difficulty: transform complexity and the
+# attempt budget vary, but whether the world matters does not. Riddles are
+# offered everywhere a clean hand-written example exists.
 _FAMILY_WEIGHTS: dict[int, list[tuple[str, int]]] = {
-    1: [("anagram", 3), ("sequence", 2), ("riddle", 3)],
-    2: [("anagram", 3), ("cipher", 2), ("sequence", 2), ("riddle", 3)],
-    3: [("anagram", 2), ("cipher", 3), ("sequence", 3), ("riddle", 2)],
-    4: [("anagram", 2), ("cipher", 4), ("sequence", 3), ("riddle", 2)],
+    1: [("anagram", 3), ("sequence", 2), ("riddle", 3),
+        ("keeper", 4), ("compass", 4)],
+    2: [("anagram", 3), ("cipher", 2), ("sequence", 2), ("riddle", 3),
+        ("keeper", 4), ("compass", 4)],
+    3: [("anagram", 2), ("cipher", 3), ("sequence", 3), ("riddle", 2),
+        ("keeper", 4), ("compass", 4)],
+    4: [("anagram", 2), ("cipher", 4), ("sequence", 3), ("riddle", 2),
+        ("keeper", 4), ("compass", 4)],
 }
 
 _FAMILY_FN: dict[str, Callable[[SpatialNode, random.Random, int], Puzzle | None]] = {
@@ -752,6 +886,8 @@ _FAMILY_FN: dict[str, Callable[[SpatialNode, random.Random, int], Puzzle | None]
     "enfold":   _make_enfold,
     "lineage":  _make_lineage,
     "bond":     _make_bond,
+    "keeper":   _make_keeper_witness,
+    "compass":  _make_ancestral_compass,
 }
 
 

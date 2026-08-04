@@ -6,7 +6,7 @@ questions a skeptical engineer will raise before they raise them. Everything
 here is grounded in the shipped code — every claim names the file, the CHANGELOG
 batch, and the test that guards it, so you can check any of it.*
 
-*Last re-verified against the code: 2026-07-19.*
+*Last re-verified against the code and canonical launch captures: 2026-08-04.*
 
 ---
 
@@ -15,16 +15,18 @@ batch, and the test that guards it, so you can check any of it.*
 **Enfolded is a persistent multiverse — eleven nested scales (Multiverse →
 Universe → Galaxy → Planetary System → Planet → Region → Room → Object →
 Molecule → Atom → SubatomicParticle) inhabited simultaneously by human players
-and Claude-powered agents.** You don't start it; it's already running. You drop
-in somewhere in the middle, and the world carries forward every word, act, and
-solved puzzle anyone leaves in it — one continuous chronicle across every cohort,
-never wiped.
+and Claude-powered agents.** At launch, you won't start a private copy; you will
+enter the one shared world already in progress. You drop in somewhere in the
+middle, and the world carries forward every word, act, and solved puzzle anyone
+leaves in it — one continuous chronicle across every cohort, never wiped.
 
 The title is from David Bohm's *implicate order*: every part enfolds the whole.
 That's the literal architecture — every node is a pure function of `(seed,
-path)`, so any depth-6 view is exactly the top of the depth-11 world.
+path)` at birth, then its materialized row is authoritative; any depth-6 view
+is exactly the top of that same stored depth-11 world.
 
-**Live:** [enfolded.world](https://enfolded.world)
+**Launch target (pre-release; production is not deployed):**
+[enfolded.world](https://enfolded.world)
 
 **How to enter.** You'll get a one-click invite URL of the form
 `https://enfolded.world/?key=nw_…&name=<you>` — minted per person with
@@ -47,7 +49,7 @@ an `ANTHROPIC_API_KEY` or works **keyless** — because the design guarantee is
 that the world never breaks the fiction with an error, so almost everything
 below works with no key at all.
 
-> **One-time setup for a local run:** `pip install -e ".[dev]" && python main.py serve`
+> **One-time setup for a local run:** `./setup.sh && .venv/bin/python main.py serve`
 > opens `http://127.0.0.1:8080`. Set `ANTHROPIC_API_KEY` in `.env` for live
 > voices (step 2); leave it unset to experience the authored quiet the world
 > falls back to. `FAL_KEY` is optional (it only blends imagery *over* the
@@ -59,8 +61,8 @@ not at a menu — at a node with places to go both up and down, picked from a ha
 of your name. Type the same name on a fresh browser and you land on the exact
 same node; this is determinism you can feel in the first three seconds
 (`frontend/src/entry.js`; CHANGELOG "Non-linear entry" / "One canonical world
-per seed"). The node's art is already painted (step in *The art is the place*,
-below).
+per seed"). The node's art is already painted (step in *The art and sound are
+the place*, below).
 
 **2. Speak to a place, and come back — it remembers.** *(needs `ANTHROPIC_API_KEY`
 for the live voice; degrades in character without one)*
@@ -75,16 +77,20 @@ gaps closed"). Without a key, it doesn't 503 — it answers with an authored lin
 of silence in its own scale's voice and flags `ai: false` (see skeptic Q6).
 
 **3. Solve a puzzle — and notice you're not solving it alone.** *(keyless)*
-Every node carries a puzzle seeded from its own identity — an anagram, a Caesar
-cipher, an inferred sequence, or a "lock" whose answer is a property of the scale
-one step *up* ("speak its weather, and the way opens"). Arriving at a node joins
+Every node carries a puzzle seeded from its own identity. Some decode an
+inscription or infer a pattern; most now ask you to read the world — a sealed
+door listens for its keeper's weather, a Keeper Witness asks for an enclosing
+place's human-readable name, and an Ancestral Compass combines readings from
+two scales you must visit. Arriving at a node joins
 its **pooled co-op session**: attempts are shared across everyone standing there,
 and one correct answer counts for all (`server/rooms.py`, CHANGELOG "Co-op puzzle
 sessions" / "travelers panel"). Difficulty is a per-node ★ rating spread across
 the full 1–4 range at *every* scale — never a depth curve — so you pick your
 challenge, not your altitude. The answer is validated server-side and never
-appears in the prompt, hints, or the node's shipped properties (CHANGELOG
-"Puzzles redesigned": measured **0 answers in prompt / hints / properties**).
+appears in the prompt, hints, or the node's shipped properties. The full
+seed-382 ecology is release-gated: decode families are **37.79%**, world-reading
+families **61.57%**, and no single family exceeds **21.93%**
+(`scripts/puzzle_quality.py`; CHANGELOG "The world becomes the puzzle").
 
 **4. Watch a consequence travel — ring by ring, at world speed.** *(keyless)*
 When you solve that puzzle, the origin changes instantly — but the cascade does
@@ -107,13 +113,15 @@ talking. This is the ambient heartbeat: a daemon loop (default every 180s,
 the world runs unattended and costs nothing to keep alive. Returning players find
 it changed (README world-heartbeat row; CHANGELOG "The world runs unattended").
 
-**The art is the place** *(keyless, ambient throughout).* Every node paints its
-own canvas art — one of eleven per-scale form families — as a pure function of
-`(seed, name, properties, history)`. Causal pressure saturates and jitters it, a
-stabilized place wears a halo, corruption glitches it, danger vignettes the
-edges, and every recorded interaction etches an activity mark. It's always
-present at zero API spend; the fal.ai image, when a key is set, is a translucent
-wash *over* it (`static/nodeart.js`; CHANGELOG "Per-node generative art").
+**The art and sound are the place** *(keyless, ambient throughout).* Every node
+paints one of eleven per-scale canvas families and composes its own WebAudio
+soundscape from `(seed, name, properties, history)`. Causal pressure, danger,
+condition, atmosphere, and activity bend both senses; seed 382 has **4,208
+distinct sound parameter fingerprints across 4,208 nodes**, and all 1,524
+sibling pairs differ. Art is always present; sound is offered once, then stays
+opt-in because the browser requires an activation gesture. Both cost zero API
+spend; a fal.ai image, when enabled, is only a translucent wash over the
+generative base (`static/{nodeart,nodesound}.js`; launch-world census).
 
 ---
 
@@ -130,7 +138,7 @@ expert reads only one internal doc, hand them the evaluation *and* this table.
 
 | # | The old verdict (2026-07-04, verbatim thrust) | What shipped | CHANGELOG batch | Guarding test |
 |---|---|---|---|---|
-| 1 | **"The same seed is not the same world."** Depth-6 shared only 6 of 16 node names with depth-11; agent traces landed on nodes players couldn't see. | **One canonical world per seed.** Every node is a pure function of `(seed, path)`; any depth prefix is byte-identical to the full world; names resolve in O(depth) via `resolve_node_by_name`. | "One canonical world per seed"; addendum rec 3 | `tests/test_continuity_freeze.py` (pins both the depth-6 reference world *and* the full 11-level world) |
+| 1 | **"The same seed is not the same world."** Depth-6 shared only 6 of 16 node names with depth-11; agent traces landed on nodes players couldn't see. | **One canonical materialized world.** Birth is deterministic in `(seed, path)`; every depth prefix is from the same stored world, and names resolve against born rows in O(depth). | "One canonical world per seed"; "The world is data now" | `tests/test_world_store.py` + `tests/test_continuity_freeze.py` |
 | 2 | **"The strengths players see are fabricated"** — every display recomputed `0.6^depth` while the engine cascaded at 0.5, and upward events showed at 1.0 regardless of distance. | **Broadcast strengths are the engine's truth.** WS/CLI events now carry `event.strength` — the actual propagated, dampened value — using a full bidirectional distance map. | "Broadcast strengths are the engine's truth" | `tests/test_causal_delay.py` (staged cascade reaches exactly the nodes at exactly the strengths the synchronous propagation did) |
 | 3 | **"Node identity is client-asserted / forgeable"** — `/speak` built the node from POST body fields and wrote history under a client-supplied name. | **Node identity is server-derived.** `/speak`, `/image`, `/agent/voice` resolve the named node against the canonical world and **404 on a forged name** (`_resolve_node` → `resolve_node_by_name`); ignored body fields removed. | "Node identity is server-derived"; addendum rec 7 | `tests/test_resolution_and_voice.py` |
 | 4 | **"Nothing runs unattended. Anywhere."** With zero players connected, zero state changed. | **The ambient heartbeat.** A daemon loop sends the twelve-agent cast on paced traversals that persist history/ripple/effects and broadcast live — FSM-driven, zero API spend. | "The world runs unattended — ambient heartbeat"; addendum rec 6 | `tests/test_heartbeat.py` (persistent traces, live broadcast frames, memory accretion across ticks) |
@@ -146,12 +154,11 @@ exist. **Nothing in this table is aspirational.**
 *experiential* critique was not fully answered by infrastructure, and honesty is
 the register this repo trades in:
 
-- The eleven scales are now mechanically distinct — each universe's declared
-  physics routes its cascades (CHANGELOG "Every universe's law of physics is
-  mechanically real"), cosmic acts mature on a slow clock, and particles
-  entangle. That is real depth the audit asked for. But puzzle *content* is
-  still dominated by anagrams / ciphers / sequences / lineage
-  locks; nobody should pitch this as a hard-puzzle game.
+- The eleven scales are mechanically distinct — each universe's declared
+  physics routes its cascades, cosmic acts mature on a slow clock, and particles
+  entangle. Puzzle ecology now passes a measured variation gate and mostly asks
+  players to read the world, but this remains a contemplative exploration
+  experience; nobody should pitch it as a hard-puzzle game.
 - The magic of a live node voice needs an `ANTHROPIC_API_KEY`. Keyless, the world
   is deliberately *quiet*, not *broken* — a design choice, not a demo you can run
   at full volume without a key.
@@ -174,46 +181,47 @@ is reproducible.** A partner running curated launch seed 382 sees the same
 materialized world, pixel-family for pixel-family, so a screenshot or GIF can be
 a faithful, checkable artifact rather than a marketing composite.
 
-The captures below are real historical proof, taken from a live
-`python main.py serve` on generator v1 / seed 42 driven by headless Chromium
-(2026-07-19) — no compositing, no retouching. **They predate generator v2 and
-are not the launch-world reference:** their invented-syllable labels make that
-visible. Recapture this set from seed 382 before sending the brief externally.
+The captures below are current launch-world proof: generator v2, seed 382,
+captured 2026-08-04 by headless Chromium against a real isolated server and
+temporary materialized database — no production state, no retouching. Run
+`npm --prefix frontend run capture:pitch` to reproduce them; exact nodes,
+puzzle, agent, and observed feed lines are recorded in
+`assets/capture-metadata.json`.
 
 ![Drop-in — a mid-world node, art already painted](./assets/dropin.png)
-*Tour step 1: the explorer at a deterministic arrival node (Planet ·
-Ondunalara-14122) — the hero sigil is already painted, expressing the node's
-own properties: a rust-red sky in bands, a jungle-green horizon, four moons.*
+*Tour step 1: Archivist's deterministic arrival at Planet · Golden Pilgrim
+Eden-12321 — a readable landmark whose volcanic surface, sodium-orange sky,
+and own aspect already shape the hero sigil.*
 
 ![A cascade arriving ring by ring in the feed](./assets/cascade.gif)
-*Tour step 4: a Region cipher solved at Stillcrest Wastes-111111 — then the
-feed reads the consequence traveling: the Planet settles at `+0.50`, the
-System at `+0.25`, dampening visible in the numbers as each ring lands (~22s
-of real time; captured with `NESTED_WORLDS_HOP_DELAY=2`).*
+*Tour step 4: a Keeper Witness solved at Emberlit Orchard Terraces-111111 —
+then the feed records the consequence traveling from `×1.00` through its
+enclosing scales to `×0.13`, with the universe law's repeated strengths and
+dampening visible rather than cosmetically recomputed.*
 
 ![Eleven per-scale art families](./assets/artgrid.png)
-*Historical v1 art layer: the first-child chain of seed 42, one node per scale,
+*The generator-v2 first-child chain of seed 382, one readable node per scale,
 drawn live by `static/nodeart.js` — membrane folds, cosmic web, spiral arms,
-orbits, a horizon, terrain ridges, room panels, an object sigil, a bond
-graph, electron shells, probability speckle.*
+orbits, horizon, terrain ridges, room panels, object sigil, bond graph,
+electron shells, and probability speckle.*
 
 ![A wanderer moving through the feed unattended](./assets/heartbeat.png)
-*Tour step 5: Tessera and Petrichor abroad with no human prompting — the
-travelers panel persona-tags them, agent visits tick into the feed, and
-Petrichor leaves a line of banter ("Somewhere a door just opened.").*
+*Tour step 5: Tessera, tagged as a tender, moves from Amber Reed Workshop into
+Distant Lantern Mirror with no human prompting; both live agent-visit lines
+arrive in the same feed that still remembers the earlier player solve.*
 
 ---
 
 ## For the partner, in one paragraph
 
-Enfolded is a running, persistent, eleven-scale multiverse you enter by
+Enfolded is a pre-launch, persistent, eleven-scale multiverse you enter by
 invite link and drop into mid-world by name. You can talk to places that remember
 you, solve puzzles cooperatively, watch your consequences travel outward ring by
 ring at world speed, and see a cast of Claude-adjacent agents keep the world
 moving while you stand still — most of it with no API key at all, and none of it
 breaking character when a key or a budget runs out. It is deliberately quiet,
 contemplative, and honest about what it is: the infrastructure is real and
-tested (**792 passing Python tests**, `pytest tests/ -q`, plus 77 Vitest
+tested (**828 passing Python tests**, `pytest tests/ -q`, plus 77 Vitest
 cross-client parity tests), the world is a genuine append-only
 chronicle, and the hardest engineering questions — canonical worlds, truthful
 cascade physics, server-derived identity, unattended life, durable agent memory,

@@ -43,7 +43,7 @@ default surface.
 | 2.1 | ~~Hero-size the explorer's sigil~~ | **Shipped 2026-07-19** — sidebar 300→340px, sigil 268×140→308×232, the art leads the location panel | §4.1 |
 | 2.2 | ~~Sound invitation + guide sound section~~ | **Shipped 2026-07-19** — once-per-session in-fiction offer ("The world hums, softly, in every place. Listen?"), click = the WebAudio gesture, e2e-verified; `/guide` gains "The world hums — listen" | §4.2 |
 | 2.3 | ~~Capture the four pitch assets~~ | **Shipped 2026-07-19** — all four captured live from seed 42 in headless Chromium (`docs/pitch/assets/`), brief updated; the cascade GIF shows dampening in the feed numbers (+0.50 → +0.25) | §2.2 |
-| 2.5 | **Recapture the four pitch assets from generator v2 / launch seed 382** | Required before external pitch use — the honest v1 captures remain labeled as historical proof, but their retired syllable names are not launch-world evidence | 2026-08-03 launch census |
+| 2.5 | ~~Recapture the four pitch assets from generator v2 / launch seed 382~~ | **Shipped 2026-08-04** — isolated temp DB + real Chromium capture harness; drop-in, solved-puzzle cascade, all-scale art grid, and deterministic Tessera heartbeat recaptured; machine-readable provenance stored beside the assets | 2026-08-03 launch census |
 | 2.4 | ~~Tuck the engine-room header~~ | **Superseded 2026-08-03 by ADR-007** — seed/breadth/world-generation controls retired; only canonical-world view depth remains behind ⚙, e2e-verified | §5.1 |
 
 ## Track 3 — Early post-launch (first month)

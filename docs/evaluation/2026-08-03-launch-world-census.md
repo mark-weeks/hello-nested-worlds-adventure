@@ -86,10 +86,15 @@ of its key. The verification pass exposed a legacy static “four-digit lock”
 still competing with the upgraded keeper-key mechanic. That duplicate is now
 retired, and every `locked` Room deterministically serves the contextual LOCK
 whose answer is readable in its parent Region. The epoch-0/full-world plus
-renewal-1/renewal-2 digests were consciously re-pinned. This census does **not**
-declare the puzzle system complete: decode-family dominance remains a systemic
-content issue that seed selection cannot solve and is the next content-system
-launch gate.
+renewal-1/renewal-2 digests were consciously re-pinned.
+
+**2026-08-04 follow-up:** the systemic content gate identified here is now
+closed. `scripts/puzzle_quality.py` measures the full unborn world; Keeper
+Witness and Ancestral Compass families make readable ancestor names and
+multi-scale properties playable. Decode families fell from 70.68% to 37.79%,
+world-reading families reached 61.57%, and no mechanic family exceeds 21.93%.
+The measured design and pre-launch re-pin are recorded in
+`2026-08-04-prelaunch-puzzle-ecology.md`.
 
 ## Traversal reachability
 
