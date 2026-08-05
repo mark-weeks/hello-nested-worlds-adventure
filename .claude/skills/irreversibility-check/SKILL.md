@@ -11,8 +11,12 @@ request. The human is quizzed only when a one-way door actually trips.
 
 ## Procedure
 
-1. Get the real diff surface: `git diff main...HEAD --stat`, then read any
-   file that touches the areas below.
+1. Get the real diff surface **against the PR's actual base** — a local
+   `main` can be stale or carry unrelated merged work, either of which
+   falsely trips (or hides) a door:
+   `git fetch origin main && git diff origin/main...HEAD --stat`,
+   then read every hunk that touches the areas below. (If the PR targets a
+   different base branch, fetch and diff that branch instead.)
 
 2. Answer each question **from the diff, with the file that proves it**:
 

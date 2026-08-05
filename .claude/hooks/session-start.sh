@@ -34,15 +34,27 @@ if ! node_is_pinned node; then
 fi
 
 # Re-running setup.sh is safe but slow (npm ci rebuilds node_modules from
-# scratch), so skip it when every pinned input is unchanged and both
-# installs exist. The stamp lives untracked in .claude/ (gitignored).
+# scratch), so skip it when every pinned input is unchanged AND the
+# environment still answers as installed — bare directory existence is not
+# enough, since node_modules survives an interrupted npm ci and .venv
+# survives a failed manual setup. The stamp lives untracked in .claude/
+# (gitignored).
+env_is_healthy() {
+  [ -x .venv/bin/python ] \
+    && .venv/bin/ruff --version >/dev/null 2>&1 \
+    && .venv/bin/python -m pytest --version >/dev/null 2>&1 \
+    && npm ls --prefix frontend --all >/dev/null 2>&1
+}
+
 stamp_file=".claude/.session-setup-stamp"
 stamp="$(cksum pyproject.toml requirements.lock requirements-dev.lock frontend/package-lock.json .python-version .nvmrc setup.sh | cksum)"
-if [ -x .venv/bin/python ] && [ -d frontend/node_modules ] \
-    && [ "$(cat "$stamp_file" 2>/dev/null)" = "$stamp" ]; then
-  echo "Enfolded environment already bootstrapped; locked inputs unchanged."
+if [ "$(cat "$stamp_file" 2>/dev/null)" = "$stamp" ] && env_is_healthy; then
+  echo "Enfolded environment already bootstrapped; locked inputs unchanged and toolchain healthy."
   exit 0
 fi
 
+# Drop the stamp before (re)installing so an interrupted run can never
+# leave a stale stamp behind; it is rewritten only after setup succeeds.
+rm -f "$stamp_file"
 ./setup.sh
 echo "$stamp" > "$stamp_file"
