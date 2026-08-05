@@ -91,8 +91,10 @@ renewal-1/renewal-2 digests were consciously re-pinned.
 **2026-08-04 follow-up:** the systemic content gate identified here is now
 closed. `scripts/puzzle_quality.py` measures the full unborn world; Keeper
 Witness and Ancestral Compass families make readable ancestor names and
-multi-scale properties playable. Decode families fell from 70.68% to 37.79%,
-world-reading families reached 61.57%, and no mechanic family exceeds 21.93%.
+multi-scale properties playable. Review hardening keeps names visible as
+landmarks while making 3–4★ Keepers compose new answers across two or three
+ancestors. Decode families fell from 70.68% to 37.81%, world-reading families
+reached 61.50%, and no mechanic family exceeds 21.91%.
 The measured design and pre-launch re-pin are recorded in
 `2026-08-04-prelaunch-puzzle-ecology.md`.
 

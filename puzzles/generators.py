@@ -330,12 +330,24 @@ def _answer_leaks(puzzle: Puzzle, node: SpatialNode) -> bool:
     """True if the answer is recoverable without solving — as a standalone token
     in the prompt or any hint (e.g. the node name happened to contain it, or a
     numeric answer collided with the name's index), or as a shipped property."""
-    ans = puzzle.answer.lower()
+    ans = " ".join(puzzle.answer.lower().split())
 
     def toks(s: str) -> set[str]:
         return set(re.findall(r"[a-z0-9.]+", s.lower()))
 
+    def contains_phrase(s: str) -> bool:
+        return ans in " ".join(s.lower().split())
+
     if ans in _property_values(node):
+        return True
+    # Token membership is correct for single-mark answers, but a living name
+    # is deliberately a multi-word phrase. Keep that crown-jewel invariant
+    # mechanical too: future fiction must not be able to print a Keeper answer
+    # verbatim merely because no individual token equals the whole phrase.
+    if " " in ans and (
+        contains_phrase(puzzle.prompt)
+        or any(contains_phrase(hint) for hint in puzzle.hints)
+    ):
         return True
     if ans in toks(puzzle.prompt):
         return True
@@ -542,10 +554,31 @@ def _edge_marks(value: str) -> str:
 
 # ── KEEPER WITNESS: readable names become gameplay ──────────────────────────
 # A node's three-word living name is not decorative filler: it is a memorable
-# landmark.  The witness asks the player to climb one to three folds, locate a
-# named scale, and bring its name back.  It uses only the ancestor chain, which
-# the materialized-store resolver reconstructs for every node, so a full tree
-# and a directly resolved node always grow the same puzzle.
+# landmark. Ancestor names deliberately remain visible in both clients so the
+# world stays orientable. Gentle witnesses reward recognizing one landmark;
+# hard witnesses preserve that visibility but compose a new phrase from two or
+# three of them, so a 3- or 4-star answer is never UI text that can be copied
+# whole. The family uses only the ancestor chain, which the materialized-store
+# resolver reconstructs for every node, so a full tree and a directly resolved
+# node always grow the same puzzle.
+
+_NAME_WORD_ORDINALS = ("first", "second", "third", "fourth", "fifth")
+
+
+def _keeper_mark(node: SpatialNode, rng: random.Random) -> tuple[str, str] | None:
+    """Return one living-name word and its human-readable ordinal."""
+    words = _living_name(node).split()
+    if not words:
+        return None
+    index = rng.randrange(len(words))
+    if len(words) == 1:
+        ordinal = "only"
+    elif index < len(_NAME_WORD_ORDINALS):
+        ordinal = _NAME_WORD_ORDINALS[index]
+    else:
+        ordinal = f"word {index + 1}"
+    return words[index], ordinal
+
 
 def _make_keeper_witness(node: SpatialNode, rng: random.Random,
                          difficulty: int) -> Puzzle | None:
@@ -553,25 +586,69 @@ def _make_keeper_witness(node: SpatialNode, rng: random.Random,
     if not ancestors:
         return None
     nearby = ancestors[-min(3, len(ancestors)):]
-    keeper = nearby[rng.randrange(len(nearby))]
-    answer = _living_name(keeper)
-    if not answer:
-        return None
-    folds = len(ancestors) - ancestors.index(keeper)
-    fold_word = "fold" if folds == 1 else "folds"
-    return Puzzle(
-        name=f"The Keeper Witness of the {node.level}",
-        kind=PuzzleKind.NAVIGATION,
-        prompt=(f"{node.name} remembers a place that holds it. Climb "
-                f"{folds} {fold_word} to its enclosing {keeper.level}. "
-                "Return with that place's living name — the words "
-                "before its lineage mark."),
-        answer=answer,
-        hints=[
+
+    if difficulty <= 2:
+        # One-star witnesses use the nearest enclosure; two-star witnesses can
+        # ask the player to read as many as three folds outward.
+        keeper = nearby[-1] if difficulty == 1 else nearby[
+            rng.randrange(len(nearby))
+        ]
+        answer = _living_name(keeper)
+        if not answer:
+            return None
+        folds = len(ancestors) - ancestors.index(keeper)
+        fold_word = "fold" if folds == 1 else "folds"
+        prompt = (
+            f"{node.name} remembers a place that holds it. Climb "
+            f"{folds} {fold_word} to its enclosing {keeper.level}. "
+            "Return with that place's living name — the words "
+            "before its lineage mark."
+        )
+        hints = [
             f"Travel outward until the scale reads {keeper.level}.",
             "Its living name is everything before the dash and digits.",
             f"The first word begins with '{answer[0]}'.",
-        ],
+        ]
+    else:
+        mark_count = 2 if difficulty == 3 else 3
+        if len(nearby) < mark_count:
+            return None
+        keepers = sorted(
+            rng.sample(nearby, mark_count),
+            key=ancestors.index,
+        )
+        marks: list[str] = []
+        readings: list[str] = []
+        for keeper in keepers:
+            mark = _keeper_mark(keeper, rng)
+            if mark is None:
+                return None
+            word, ordinal = mark
+            marks.append(word)
+            readings.append(
+                f"at the {keeper.level}, keep the {ordinal} word of its "
+                "living name"
+            )
+        answer = " ".join(marks)
+        route = "; then ".join(readings)
+        prompt = (
+            f"{node.name} is held by a constellation of keepers. Read "
+            f"outward in outer-to-inner order: {route}. Speak those "
+            f"{mark_count} words as one phrase."
+        )
+        hints = [
+            "The ancestor tree keeps every landmark visible; read the named "
+            "scales in the order given.",
+            "Strip each dash and lineage digits before counting its words.",
+            f"The first gathered word begins with '{answer[0]}'.",
+        ]
+
+    return Puzzle(
+        name=f"The Keeper Witness of the {node.level}",
+        kind=PuzzleKind.NAVIGATION,
+        prompt=prompt,
+        answer=answer,
+        hints=hints,
         max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
         difficulty=difficulty,
     )

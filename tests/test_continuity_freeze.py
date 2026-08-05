@@ -107,7 +107,7 @@ _REF_FULL_WORLD_DIGEST = (
     "d22fd32b6cab71fc8e597ffb0bc1774dc4a6cef61e254725d529ccd46518fcb1"
 )
 _REF_FULL_PUZZLES_DIGEST = (
-    "a57a0cf12275b66329037551ad9695bcd830142930a5494aac80f7618215359d"
+    "6733ea1faa3f98479593d78c0ebb3979669710ba1222e96a3395b42fe12259f3"
 )
 
 
@@ -243,7 +243,7 @@ class TestPuzzleLayerIsFrozen:
             for n in nodes)
         digest = hashlib.sha256(blob.encode()).hexdigest()
         assert digest == (
-            "79d23434bfe1c2633c8036051fe085f4a3930bfede7face2ae55f365f4efe001"
+            "75ecbcd527400bc4edc23f8eed634315e2961e9d97c673abec676a5c9f772d38"
         ), (
             "Epoch-0 puzzle generation changed for the reference world. "
             "Post-launch this resets every solved puzzle. Revert, or "
@@ -284,8 +284,8 @@ class TestRenewalEpochPuzzlesArePinned:
         from puzzles.engine import build_puzzle
         nodes = _walk(generate_node_hierarchy(seed=_REF_SEED, max_depth=6), [])
         pinned = {
-            1: "cd3e99ca722c52a58607f0dde3c3caee1d7e2d034a208b8dec21c52f6ae2917e",
-            2: "8ac5b02222dded4763fc106463d7a26a63aad5ecb3a6a120a7cc3e2d703b9702",
+            1: "44fae902f5760a6a507fa3f775487798c4e9c88c19cbccb804a9dce2b87ae261",
+            2: "7e407313403a695f1cbddd10eb5e1061c9b28733ca409470e73002b26b7e874f",
         }
         for epoch, expected in pinned.items():
             blob = "\n".join(

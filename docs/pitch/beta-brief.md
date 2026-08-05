@@ -80,16 +80,17 @@ of silence in its own scale's voice and flags `ai: false` (see skeptic Q6).
 Every node carries a puzzle seeded from its own identity. Some decode an
 inscription or infer a pattern; most now ask you to read the world — a sealed
 door listens for its keeper's weather, a Keeper Witness asks for an enclosing
-place's human-readable name, and an Ancestral Compass combines readings from
-two scales you must visit. Arriving at a node joins
+place's human-readable name at gentle tiers and composes two or three named
+landmarks at harder tiers, and an Ancestral Compass combines readings from two
+scales you must visit. Arriving at a node joins
 its **pooled co-op session**: attempts are shared across everyone standing there,
 and one correct answer counts for all (`server/rooms.py`, CHANGELOG "Co-op puzzle
 sessions" / "travelers panel"). Difficulty is a per-node ★ rating spread across
 the full 1–4 range at *every* scale — never a depth curve — so you pick your
 challenge, not your altitude. The answer is validated server-side and never
 appears in the prompt, hints, or the node's shipped properties. The full
-seed-382 ecology is release-gated: decode families are **37.79%**, world-reading
-families **61.57%**, and no single family exceeds **21.93%**
+seed-382 ecology is release-gated: decode families are **37.81%**, world-reading
+families **61.50%**, and no single family exceeds **21.91%**
 (`scripts/puzzle_quality.py`; CHANGELOG "The world becomes the puzzle").
 
 **4. Watch a consequence travel — ring by ring, at world speed.** *(keyless)*

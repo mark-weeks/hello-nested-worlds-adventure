@@ -47,6 +47,7 @@ def _write_manifest(path: Path, seed: int) -> None:
         "cascade_level": node.level,
         "cascade_puzzle": puzzle.name,
         "cascade_puzzle_kind": puzzle.kind.name,
+        "cascade_puzzle_difficulty": puzzle.difficulty,
         "cascade_answer": puzzle.answer,
     }, indent=2) + "\n", encoding="utf-8")
 

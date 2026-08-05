@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-08-04T20:00:06.792Z",
+  "captured_at": "2026-08-05T02:52:52.154Z",
   "source": "scripts/capture_pitch_assets.mjs",
   "seed": 382,
   "generator_version": 2,
@@ -13,20 +13,21 @@
     "level": "Region",
     "puzzle": "The Keeper Witness of the Region",
     "puzzle_kind": "NAVIGATION",
+    "puzzle_difficulty": 3,
     "observed_feed": [
-      "12:59:38 PM↯ puzzle solved · Elder Reed Cosmos-1 ×0.13",
-      "12:59:38 PM↯ puzzle solved · Ashen Ember Sphere-11 ×0.25",
-      "12:59:37 PM↯ puzzle solved · Mossbound Bell Disc-111 ×0.25",
-      "12:59:37 PM↯ puzzle solved · Golden Anchor Accord-1111 ×0.50",
-      "12:59:36 PM↯ puzzle solved · Quiet Salt Anchorage-11111 ×0.50",
-      "12:59:36 PM↯ puzzle solved · Emberlit Orchard Terraces-111111 ×1.00",
-      "12:59:36 PMPuzzle solved: The Keeper Witness of the Region @ Emberlit Orchard Terraces-111111 by Signalkeeper",
-      "12:59:36 PM◦ 2026-08-04 · Cartographer departed from Amber Pilgrim Anchorage-13111",
-      "12:59:36 PM◦ 2026-08-04 · Cartographer passed into Amber Pilgrim Anchorage-13111",
-      "12:59:36 PM◦ 2026-08-04 · Cartographer arrived in the world",
-      "12:59:36 PM◦ 2026-08-04 · Archivist departed from Golden Pilgrim Eden-12321",
-      "12:59:36 PM◦ 2026-08-04 · Archivist passed into Golden Pilgrim Eden-12321",
-      "12:59:36 PM◦ 2026-08-04 · Archivist arrived in the world"
+      "07:52:24 PM↯ puzzle solved · Elder Reed Cosmos-1 ×0.13",
+      "07:52:23 PM↯ puzzle solved · Ashen Ember Sphere-11 ×0.25",
+      "07:52:23 PM↯ puzzle solved · Mossbound Bell Disc-111 ×0.25",
+      "07:52:22 PM↯ puzzle solved · Golden Anchor Accord-1111 ×0.50",
+      "07:52:22 PM↯ puzzle solved · Quiet Salt Anchorage-11111 ×0.50",
+      "07:52:21 PM↯ puzzle solved · Emberlit Orchard Terraces-111111 ×1.00",
+      "07:52:21 PMPuzzle solved: The Keeper Witness of the Region @ Emberlit Orchard Terraces-111111 by Signalkeeper",
+      "07:52:21 PM◦ 2026-08-05 · Cartographer departed from Amber Pilgrim Anchorage-13111",
+      "07:52:21 PM◦ 2026-08-05 · Cartographer passed into Amber Pilgrim Anchorage-13111",
+      "07:52:21 PM◦ 2026-08-05 · Cartographer arrived in the world",
+      "07:52:21 PM◦ 2026-08-05 · Archivist departed from Golden Pilgrim Eden-12321",
+      "07:52:21 PM◦ 2026-08-05 · Archivist passed into Golden Pilgrim Eden-12321",
+      "07:52:21 PM◦ 2026-08-05 · Archivist arrived in the world"
     ]
   },
   "artgrid": [
@@ -87,20 +88,20 @@
       "Distant Lantern Mirror-13231111"
     ],
     "observed_feed": [
-      "12:59:59 PM↯ agent visit · Distant Lantern Mirror-13231111 ×1.00",
-      "12:59:58 PM↯ agent visit · Amber Reed Workshop-1323111 ×1.00",
-      "12:59:49 PM◦ 2026-08-04 · Signalkeeper departed from Emberlit Orchard Terraces-111111",
-      "12:59:49 PM◦ 2026-08-04 · someone solved a puzzle at Elder Reed Cosmos-1",
-      "12:59:49 PM◦ 2026-08-04 · someone solved a puzzle at Ashen Ember Sphere-11",
-      "12:59:49 PM◦ 2026-08-04 · someone solved a puzzle at Mossbound Bell Disc-111",
-      "12:59:49 PM◦ 2026-08-04 · someone solved a puzzle at Golden Anchor Accord-1111",
-      "12:59:49 PM◦ 2026-08-04 · someone solved a puzzle at Quiet Salt Anchorage-11111",
-      "12:59:49 PM◦ 2026-08-04 · Signalkeeper passed into Emberlit Orchard Terraces-111111",
-      "12:59:49 PM◦ 2026-08-04 · Signalkeeper solved a puzzle at Emberlit Orchard Terraces-111111",
-      "12:59:49 PM◦ 2026-08-04 · Signalkeeper worked at a puzzle in Emberlit Orchard Terraces-111111",
-      "12:59:49 PM◦ 2026-08-04 · Signalkeeper passed into Emberlit Orchard Terraces-111111",
-      "12:59:49 PM◦ 2026-08-04 · Signalkeeper passed into Azure Tide Isle-11232",
-      "12:59:49 PM◦ 2026-08-04 · Signalkeeper arrived in the world"
+      "07:52:44 PM↯ agent visit · Distant Lantern Mirror-13231111 ×1.00",
+      "07:52:44 PM↯ agent visit · Amber Reed Workshop-1323111 ×1.00",
+      "07:52:34 PM◦ 2026-08-05 · Signalkeeper departed from Emberlit Orchard Terraces-111111",
+      "07:52:34 PM◦ 2026-08-05 · someone solved a puzzle at Elder Reed Cosmos-1",
+      "07:52:34 PM◦ 2026-08-05 · someone solved a puzzle at Ashen Ember Sphere-11",
+      "07:52:34 PM◦ 2026-08-05 · someone solved a puzzle at Mossbound Bell Disc-111",
+      "07:52:34 PM◦ 2026-08-05 · someone solved a puzzle at Golden Anchor Accord-1111",
+      "07:52:34 PM◦ 2026-08-05 · someone solved a puzzle at Quiet Salt Anchorage-11111",
+      "07:52:34 PM◦ 2026-08-05 · Signalkeeper passed into Emberlit Orchard Terraces-111111",
+      "07:52:34 PM◦ 2026-08-05 · Signalkeeper solved a puzzle at Emberlit Orchard Terraces-111111",
+      "07:52:34 PM◦ 2026-08-05 · Signalkeeper worked at a puzzle in Emberlit Orchard Terraces-111111",
+      "07:52:34 PM◦ 2026-08-05 · Signalkeeper passed into Emberlit Orchard Terraces-111111",
+      "07:52:34 PM◦ 2026-08-05 · Signalkeeper passed into Azure Tide Isle-11232",
+      "07:52:34 PM◦ 2026-08-05 · Signalkeeper arrived in the world"
     ]
   }
 }

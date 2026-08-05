@@ -9,9 +9,11 @@ puzzles are technically solvable.
 from __future__ import annotations
 
 from collections import Counter
+import re
 
 from multiverse.generator import DEFAULT_WORLD_SEED, LEVELS, generate_node_hierarchy
 from multiverse.node import SpatialNode
+from puzzles.data import LEVEL_POOLS
 from puzzles.generators import build_puzzle
 from puzzles.types import Puzzle, PuzzleKind
 
@@ -44,10 +46,25 @@ MAXIMUMS = {
     "largest_family_ratio": 0.25,
 }
 
+_HANDWRITTEN_NAMES = frozenset(
+    puzzle.name
+    for pool in LEVEL_POOLS.values()
+    for puzzle in pool
+)
+_RENEWAL_SUFFIX = re.compile(r" · Renewal \d+$")
+
 
 def puzzle_family(puzzle: Puzzle) -> str:
-    """Return the stable mechanic family represented by a puzzle."""
-    name = puzzle.name
+    """Return the stable mechanic family, including at renewal epochs.
+
+    Static authored puzzles are identified explicitly before generated naming
+    conventions are inspected. An unknown name is a census maintenance error,
+    not an implicit new ``handwritten`` family: adding a generator must update
+    this classifier so the launch gate cannot silently lose track of it.
+    """
+    name = _RENEWAL_SUFFIX.sub("", puzzle.name)
+    if name in _HANDWRITTEN_NAMES:
+        return "handwritten"
     if name.startswith("The Keeper Witness"):
         return "keeper_witness"
     if name.startswith("The Ancestral Compass"):
@@ -66,7 +83,7 @@ def puzzle_family(puzzle: Puzzle) -> str:
         return "cipher"
     if name.endswith(" Progression"):
         return "numeric_pattern"
-    return "handwritten"
+    raise ValueError(f"unclassified generated puzzle family: {puzzle.name!r}")
 
 
 def _walk(root: SpatialNode) -> list[SpatialNode]:
@@ -79,17 +96,15 @@ def _walk(root: SpatialNode) -> list[SpatialNode]:
     return nodes
 
 
-def audit_puzzles(seed: int = DEFAULT_WORLD_SEED) -> dict:
-    """Return mechanic-balance metrics and pass/fail findings for ``seed``."""
-    root = generate_node_hierarchy(seed=seed, max_depth=len(LEVELS))
-    puzzles = [build_puzzle(node) for node in _walk(root)]
+def summarize_puzzles(puzzles: list[Puzzle], *, seed: int, epoch: int = 0) -> dict:
+    """Return mechanic-balance metrics for an already-built puzzle census."""
     total = len(puzzles)
-    family_counts = Counter(puzzle_family(puzzle) for puzzle in puzzles)
+    families = [puzzle_family(puzzle) for puzzle in puzzles]
+    family_counts = Counter(families)
     kind_counts = Counter(puzzle.kind.name for puzzle in puzzles)
     decode_count = sum(puzzle.kind in DECODE_KINDS for puzzle in puzzles)
     world_reading_count = sum(
-        puzzle_family(puzzle) in WORLD_READING_FAMILIES
-        for puzzle in puzzles
+        family in WORLD_READING_FAMILIES for family in families
     )
 
     metrics: dict[str, float | int] = {
@@ -114,6 +129,7 @@ def audit_puzzles(seed: int = DEFAULT_WORLD_SEED) -> dict:
 
     return {
         "seed": seed,
+        "epoch": epoch,
         "passed": not failures,
         "failures": failures,
         "puzzle_count": total,
@@ -124,3 +140,10 @@ def audit_puzzles(seed: int = DEFAULT_WORLD_SEED) -> dict:
             for key, value in metrics.items()
         },
     }
+
+
+def audit_puzzles(seed: int = DEFAULT_WORLD_SEED, *, epoch: int = 0) -> dict:
+    """Build and audit one deterministic puzzle epoch for ``seed``."""
+    root = generate_node_hierarchy(seed=seed, max_depth=len(LEVELS))
+    puzzles = [build_puzzle(node, epoch=epoch) for node in _walk(root)]
+    return summarize_puzzles(puzzles, seed=seed, epoch=epoch)

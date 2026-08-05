@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:net";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoDir = resolve(scriptDir, "..");
@@ -21,7 +22,25 @@ const databasePath = join(scratch, "capture.db");
 mkdirSync(framesDir, { recursive: true });
 mkdirSync(assetsDir, { recursive: true });
 
-const port = 8299;
+async function availableLoopbackPort() {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const listener = createServer();
+    listener.once("error", rejectPromise);
+    listener.listen(0, "127.0.0.1", () => {
+      const address = listener.address();
+      const selectedPort = typeof address === "object" && address
+        ? address.port
+        : null;
+      listener.close(error => {
+        if (error) rejectPromise(error);
+        else if (selectedPort === null) rejectPromise(new Error("no capture port assigned"));
+        else resolvePromise(selectedPort);
+      });
+    });
+  });
+}
+
+const port = await availableLoopbackPort();
 const baseURL = `http://127.0.0.1:${port}`;
 const python = process.env.ENFOLDED_PYTHON || join(repoDir, ".venv", "bin", "python");
 const server = spawn(python, [
@@ -47,10 +66,30 @@ const server = spawn(python, [
 async function waitForServer() {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
+    if (server.exitCode !== null) {
+      throw new Error(`pitch capture server exited ${server.exitCode} before becoming healthy`);
+    }
     try {
       const response = await fetch(`${baseURL}/health`);
-      if (response.ok) return;
-    } catch (_) { /* server is still birthing */ }
+      if (response.ok) {
+        const worldResponse = await fetch(`${baseURL}/world?depth=1`);
+        if (!worldResponse.ok) {
+          throw new Error(`capture endpoint rejected /world (${worldResponse.status})`);
+        }
+        const world = await worldResponse.json();
+        if (world.seed !== 382) {
+          throw new Error(
+            `capture endpoint served seed ${world.seed ?? "unknown"}, expected 382`,
+          );
+        }
+        return;
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("capture endpoint")) {
+        throw error;
+      }
+      // Connection refusal is expected while the isolated world is birthing.
+    }
     await new Promise(resolvePromise => setTimeout(resolvePromise, 200));
   }
   throw new Error("pitch capture server did not become healthy");
@@ -106,6 +145,9 @@ let browser;
 try {
   await waitForServer();
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  if (manifest.seed !== 382) {
+    throw new Error(`capture manifest used seed ${manifest.seed}, expected 382`);
+  }
   browser = await chromium.launch({ headless: true });
 
   // 1. A real name-derived middle-world arrival in the canonical world.
@@ -223,6 +265,7 @@ try {
       level: manifest.cascade_level,
       puzzle: manifest.cascade_puzzle,
       puzzle_kind: manifest.cascade_puzzle_kind,
+      puzzle_difficulty: manifest.cascade_puzzle_difficulty,
       observed_feed: cascadeFeed.split("\n").filter(Boolean),
     },
     artgrid: artNodes,
@@ -237,10 +280,25 @@ try {
   console.log(`Captured launch-world pitch assets in ${assetsDir}`);
 } finally {
   if (browser) await browser.close();
-  server.kill("SIGTERM");
-  await new Promise(resolvePromise => {
-    server.once("exit", resolvePromise);
-    setTimeout(resolvePromise, 3000);
-  });
+  if (server.exitCode === null) {
+    server.kill("SIGTERM");
+    await new Promise(resolvePromise => {
+      let settled = false;
+      let timeout;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        server.off("exit", done);
+        resolvePromise();
+      };
+      server.once("exit", done);
+      timeout = setTimeout(done, 3000);
+      timeout.unref();
+      // Close the small race where the child exits after the outer check but
+      // before this listener is installed.
+      if (server.exitCode !== null) done();
+    });
+  }
   rmSync(scratch, { recursive: true, force: true });
 }

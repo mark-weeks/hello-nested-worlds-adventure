@@ -31,10 +31,14 @@ another number. A different seed would only reshuffle that same grammar.
 
 ### Keeper Witness
 
-A player climbs one to three enclosing folds, finds the named scale, and
-returns with its three-word living name (the readable words before its path
-suffix). The answer space is the world map itself. This turns the generator-v2
-name investment into navigation and memory rather than decoration.
+Ancestor names intentionally remain visible in both clients: they are shared
+landmarks, not secrets. At one and two stars a player reads one enclosing place
+and returns with its three-word living name (the readable words before its path
+suffix). At three stars the witness composes a new two-word phrase from named
+positions in two ancestors; at four stars it composes three words from three
+ancestors. The harder answers therefore cannot be copied whole from the tree,
+while the world remains orientable. This turns the generator-v2 name investment
+into navigation, observation, and memory rather than decoration.
 
 ### Ancestral Compass
 
@@ -62,11 +66,11 @@ The hard gate is intentionally systemic:
 
 | Measure | Gate | Seed 382 |
 |---|---:|---:|
-| Decode-family share | ≤50% | **37.79%** |
-| World-reading-family share | ≥55% | **61.57%** |
-| Largest single family | ≤25% | **21.93%** |
+| Decode-family share | ≤50% | **37.81%** |
+| World-reading-family share | ≥55% | **61.50%** |
+| Largest single family | ≤25% | **21.91%** |
 | Unique prompts | ≥99% | **99.86%** |
-| Unique answers | ≥45% | **50.97%** |
+| Unique answers | ≥45% | **54.42%** |
 | Mechanic families represented | ≥9 | **10** |
 | Puzzle kinds represented | ≥7 | **8** |
 
@@ -74,20 +78,22 @@ Final family counts:
 
 | Family | Count |
 |---|---:|
-| Keeper Witness | 923 |
+| Keeper Witness | 922 |
 | Ancestral Compass | 903 |
-| Numeric pattern | 556 |
+| Numeric pattern | 557 |
 | Anagram | 556 |
 | Cipher | 456 |
 | Lineage | 332 |
-| Bond | 283 |
+| Bond | 281 |
 | Sealed lock | 140 |
-| Hand-written | 49 |
+| Hand-written | 51 |
 | Enfold | 10 |
 
 The thresholds prevent a future vocabulary expansion from being mistaken for
 mechanic diversity, and prevent either new family from simply becoming the new
-monoculture.
+monoculture. The family classifier strips renewal suffixes, identifies the
+static authored pool before generated naming conventions, and fails loudly on
+an unregistered future family instead of silently counting it as hand-written.
 
 ## Launch evidence
 
@@ -95,7 +101,9 @@ The four pitch captures were also rebuilt from generator v2 / seed 382. The
 capture command births an isolated temporary database, drives the real explorer
 in Chromium, solves a real Keeper Witness, observes its durable staged cascade,
 runs a deterministic Tessera heartbeat in the same live room, and draws the
-eleven NodeArt families. It never opens the user's normal world database.
+eleven NodeArt families. It chooses an ephemeral loopback port, verifies both
+the served seed and capture manifest are 382, and never opens the user's normal
+world database.
 
 ```bash
 npm --prefix frontend run capture:pitch
