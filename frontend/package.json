@@ -12,7 +12,8 @@
     "postbuild": "node scripts/normalize-build.mjs",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "capture:pitch": "node ../scripts/capture_pitch_assets.mjs"
   },
   "dependencies": {
     "pixi.js": "^8.0.0",
