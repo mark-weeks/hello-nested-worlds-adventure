@@ -10,3 +10,5 @@ build/
 .env
 test-results/
 .DS_Store
+.claude/.session-setup-stamp
+.claude/settings.local.json
