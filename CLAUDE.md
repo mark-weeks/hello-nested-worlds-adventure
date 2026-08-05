@@ -199,6 +199,16 @@ evolution when it exists. Consequences:
   the matching launch-runbook §8 scenario), hardest first, and fold any missed
   answer into that PR's CHANGELOG entry. The human is the last un-automated gate
   on *irreversible* decisions — spend their attention there, not everywhere.
+- **The harness carries part of this file now.** `.claude/settings.json`
+  registers a SessionStart hook (`.claude/hooks/session-start.sh`) that
+  bootstraps remote web sessions onto the pinned toolchain — it selects the
+  container's Node 20 and runs `./setup.sh` behind a locked-inputs stamp —
+  and pre-allows the canonical verification commands. Three project skills
+  mechanize the rituals above: `irreversibility-check` (the merge gate),
+  `changelog-entry` (the house format), `repin-goldens` (the conscious
+  re-pin procedure); `.github/pull_request_template.md` gives the check its
+  slot in every PR body. When a working rule changes, update the matching
+  skill in the same PR — a skill that contradicts this file is drift.
 
 ---
 
