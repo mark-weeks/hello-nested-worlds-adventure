@@ -50,8 +50,8 @@ integration risk, and re-scopeable without breaking any architecture.
 
 ### Batch 1 — Chronicled deltas (ADR-009) · must precede any deploy · SHIPPED
 
-Shipped 2026-08-10 (see the CHANGELOG's batch entry for the measured
-record); ADR-009 ratified Accepted at its merge gate. As built: one
+Shipped 2026-08-10, PR #77 (see the CHANGELOG's batch entry for the
+measured record); ADR-009 ratified Accepted at its merge gate. As built: one
 atomic write API (`persistence.record_substance_change`) with the six
 writers routed through it, `EVENT_EFFECT` rows chronicling material
 consequences of producer-owned origin events, strength on every fired
