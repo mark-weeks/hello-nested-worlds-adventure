@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from multiverse.node import SpatialNode
-    from causality import CausalEvent
+    from causality import CausalEvent, EventKind
 
 EFFECT_THRESHOLD: float = 0.3
 
@@ -52,24 +52,27 @@ MAX_DANGER = 10
 MIN_DANGER = 1
 
 
-def apply_event_effects(node: "SpatialNode", event: "CausalEvent") -> dict[str, Any] | None:
-    """Apply `event`'s material consequence to `node`. Returns the changed
-    properties (to persist), or None if nothing changed."""
+def compute_event_effects(props: dict[str, Any], kind: "EventKind",
+                          strength: float) -> dict[str, Any] | None:
+    """The pure transition: the material consequence an event of `kind` at
+    `strength` has against the property state `props`. Returns the changed
+    properties, or None if nothing changes. Pure over its inputs — the
+    atomic write API calls this under its serialization lock against the
+    LIVE overlay (ADR-009), so it must not read anything else."""
     from causality import EventKind
 
-    if event.strength < EFFECT_THRESHOLD:
+    if strength < EFFECT_THRESHOLD:
         return None
 
-    props = node.properties
     changed: dict[str, Any] = {}
 
-    if event.kind == EventKind.PUZZLE_SOLVED:
+    if kind == EventKind.PUZZLE_SOLVED:
         if not props.get("stabilized"):
             changed["stabilized"] = True
         if isinstance(props.get("danger_level"), int) and props["danger_level"] > MIN_DANGER:
             changed["danger_level"] = props["danger_level"] - 1
 
-    elif event.kind == EventKind.DANGER_ALERT:
+    elif kind == EventKind.DANGER_ALERT:
         if isinstance(props.get("danger_level"), int):
             if props["danger_level"] < MAX_DANGER:
                 changed["danger_level"] = props["danger_level"] + 1
@@ -79,7 +82,7 @@ def apply_event_effects(node: "SpatialNode", event: "CausalEvent") -> dict[str, 
         if props.get("stabilized"):
             changed["stabilized"] = False
 
-    elif event.kind == EventKind.STRUCTURAL_CHANGE:
+    elif kind == EventKind.STRUCTURAL_CHANGE:
         condition = props.get("condition")
         if condition in _CONDITION_DECAY:
             nxt = _CONDITION_DECAY[condition]
@@ -90,5 +93,16 @@ def apply_event_effects(node: "SpatialNode", event: "CausalEvent") -> dict[str, 
 
     if not changed:
         return None
-    props.update(changed)
+    return changed
+
+
+def apply_event_effects(node: "SpatialNode", event: "CausalEvent") -> dict[str, Any] | None:
+    """Apply `event`'s material consequence to `node` IN MEMORY. Returns the
+    changed properties, or None if nothing changed. Persistence goes through
+    the atomic write API, which recomputes the transition against the live
+    overlay under its lock — this in-place form only keeps a request-local
+    tree coherent (and serves the effects unit tests)."""
+    changed = compute_event_effects(node.properties, event.kind, event.strength)
+    if changed:
+        node.properties.update(changed)
     return changed

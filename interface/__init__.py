@@ -5,7 +5,9 @@ import time
 import causality
 import persistence
 from causality import CausalityBus, EventKind
-from causality.wiring import wire_world_handlers
+from causality.wiring import (
+    record_origin_event, record_verb_act, wire_world_handlers,
+)
 from multiverse import store
 from multiverse.generator import DEFAULT_WORLD_SEED
 from multiverse.node import SpatialNode
@@ -165,13 +167,13 @@ def _play_puzzle(node: SpatialNode, seed: int,
     if result == PuzzleResult.SOLVED:
         from causality.staging import stage_cascade
         persistence.save_puzzle_result(seed, puzzle.name, result.name, puzzle.attempts)
-        # record=False below: this row is the canonical origin record, and
-        # carries the origin event's strength (its only strength-bearing
-        # chronicle trace).
-        persistence.record_mutation(
-            seed, node.name, "PUZZLE_SOLVED", player_name,
-            {"puzzle": puzzle.name}, actor_identity=player_name,
-            strength=causality.ORIGIN_STRENGTH)
+        # record=False below: this row is the canonical origin record. It
+        # carries the origin event's strength and its material consequence,
+        # computed against the live overlay under the write lock — row,
+        # delta, and overlay change commit as one transaction.
+        record_origin_event(
+            seed, node, EventKind.PUZZLE_SOLVED, {"puzzle": puzzle.name},
+            player_name=player_name, actor_identity=player_name)
         bus = wire_world_handlers(CausalityBus(), seed, record=False)
         bus.emit(node, EventKind.PUZZLE_SOLVED, {"puzzle": puzzle.name})
         staged = stage_cascade(seed, node, EventKind.PUZZLE_SOLVED,
@@ -195,6 +197,7 @@ def _do_scale_verb(node: SpatialNode, seed: int,
         print("  Nothing can be done at this scale.")
         return
     token = f"{player_name or 'traveler'}:{node.name}"
+    base_props = dict(node.properties)
     changed, flavor = apply_verb(node, verb, token)
     matures = 0.0
     if changed:
@@ -208,24 +211,24 @@ def _do_scale_verb(node: SpatialNode, seed: int,
     # Local play has no credential; the display name is the identity.
     # record=False below: this row is the canonical origin record and
     # carries the origin event's strength.
-    act_data = {"verb": verb.name, "changed": changed}
     if matures > 0:
         # Deep time: the change is planted, not applied — it rides the
         # maturation queue and its delta is chronicled when it lands.
         persistence.enqueue_verb_maturation(
             seed, node.name, verb.name, changed, player_name, matures)
-        act_data["matures_in"] = int(matures)
         persistence.record_mutation(
-            seed, node.name, "SCALE_ACT", player_name, act_data,
+            seed, node.name, "SCALE_ACT", player_name,
+            {"verb": verb.name, "changed": changed,
+             "matures_in": int(matures)},
             actor_identity=player_name,
             strength=causality.ORIGIN_STRENGTH)
     else:
-        # One atomic write: the SCALE_ACT row (delta + strength + per-node
-        # version) and the overlay change land together (ADR-009).
-        persistence.record_substance_change(
-            seed, node.name, "SCALE_ACT", player_name, act_data, changed,
-            strength=causality.ORIGIN_STRENGTH,
-            actor_identity=player_name)
+        # One transaction: the attributed SCALE_ACT row + overlay change,
+        # the verb's transition re-derived against the live overlay under
+        # the lock (the delta column carries what changed).
+        record_verb_act(
+            seed, node, verb, token, base_props, {"verb": verb.name},
+            player_name=player_name, actor_identity=player_name)
     payload = {"verb": verb.name}
     if player_name:
         payload["actor"] = player_name

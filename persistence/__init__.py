@@ -107,12 +107,36 @@ def _list_migrations() -> list[tuple[int, Path]]:
     return out
 
 
+def _sql_statements(sql: str) -> list[str]:
+    """Split a migration file into individual statements.
+
+    `executescript` runs each statement in autocommit, which is exactly
+    what the runner must avoid (an interruption mid-file strands committed
+    DDL without its schema_version marker). Splitting on complete
+    statements lets the runner execute them inside ONE transaction.
+    Comment-only fragments are dropped.
+    """
+    out: list[str] = []
+    buf = ""
+    for piece in sql.split(";"):
+        buf += piece + ";"
+        if sqlite3.complete_statement(buf):
+            stmt, buf = buf.strip(), ""
+            has_sql = any(line.strip() and not line.strip().startswith("--")
+                          for line in stmt.rstrip(";").splitlines())
+            if has_sql:
+                out.append(stmt)
+    return out
+
+
 def _run_migrations(conn: sqlite3.Connection) -> list[int]:
     """Apply any migrations not yet recorded in `schema_version`.
 
     Returns the versions applied in this call (empty if up-to-date).
-    Each migration runs in its own transaction so a failure leaves the
-    DB at the last successfully-applied version.
+    Each migration's statements AND its schema_version marker commit in
+    one transaction, so an interruption leaves the DB exactly at the last
+    fully-applied version — never a half-applied file whose committed
+    ALTERs make the retry fail with "duplicate column name".
     """
     conn.executescript(_SCHEMA_VERSION_DDL)
     applied = {r[0] for r in conn.execute("SELECT version FROM schema_version")}
@@ -122,7 +146,9 @@ def _run_migrations(conn: sqlite3.Connection) -> list[int]:
             continue
         sql = path.read_text()
         try:
-            conn.executescript(sql)
+            conn.execute("BEGIN IMMEDIATE")
+            for stmt in _sql_statements(sql):
+                conn.execute(stmt)
             conn.execute(
                 "INSERT INTO schema_version (version) VALUES (?)", (version,)
             )
@@ -846,6 +872,34 @@ def _apply_overlay_patch(conn: sqlite3.Connection, world_seed: int,
     )
 
 
+def _insert_substance_row(conn: sqlite3.Connection, world_seed: int,
+                          node_name: str, mutation_type: str,
+                          player_name: str | None, data: dict, delta: dict,
+                          strength: float | None,
+                          actor_identity: str | None) -> int:
+    """The atomic core, on an already-locked connection: allocate the
+    per-node version, append the delta-bearing chronicle row, apply the
+    overlay patch. Returns the allocated version."""
+    version = conn.execute(
+        """SELECT COALESCE(MAX(node_version), 0) + 1
+           FROM world_mutations
+           WHERE world_seed = ? AND node_name = ?""",
+        (world_seed, node_name),
+    ).fetchone()[0]
+    conn.execute(
+        """INSERT INTO world_mutations
+           (world_seed, node_name, mutation_type, player_name, data,
+            actor_identity, strength, delta, node_version)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (world_seed, node_name, mutation_type, player_name,
+         json.dumps(data), actor_identity,
+         None if strength is None else float(strength),
+         json.dumps(delta), version),
+    )
+    _apply_overlay_patch(conn, world_seed, node_name, delta)
+    return version
+
+
 @_with_db
 def record_substance_change(world_seed: int, node_name: str,
                             mutation_type: str, player_name: str | None,
@@ -854,13 +908,20 @@ def record_substance_change(world_seed: int, node_name: str,
                             actor_identity: str | None = None) -> int:
     """Chronicle a substance change and apply it — one transaction (ADR-009).
 
-    Appends the chronicle row (the changed-properties merge patch in
+    For deltas that are ABSOLUTE facts (a planted maturation landing, a
+    constellation lighting): appends the chronicle row (the merge patch in
     `delta`, the triggering event's kind as `mutation_type`, and its
     `strength` when this row is the event's strength-bearing trace),
     applies the same patch to the node_runtime_state overlay, and allocates
     the per-node monotonic `node_version` that defines the fold order.
     A crash mid-write leaves neither half; concurrent writers on one node
     serialize into distinct versions. Returns the allocated version.
+
+    Deltas that are TRANSITIONS of current state (danger rises by one,
+    the inscription count increments) must use
+    `record_substance_transition` instead, which recomputes the delta
+    under the serialization lock — a transition computed from a
+    request-local snapshot chronicles a stale change when writers race.
     """
     if not delta:
         raise ValueError("record_substance_change requires a non-empty delta")
@@ -869,24 +930,57 @@ def record_substance_change(world_seed: int, node_name: str,
         # transaction would let two writers allocate the same version from
         # the same read snapshot and fail non-retryably on upgrade.
         conn.execute("BEGIN IMMEDIATE")
-        version = conn.execute(
-            """SELECT COALESCE(MAX(node_version), 0) + 1
-               FROM world_mutations
+        return _insert_substance_row(
+            conn, world_seed, node_name, mutation_type, player_name, data,
+            delta, strength, actor_identity)
+
+
+@_with_db
+def record_substance_transition(world_seed: int, node_name: str,
+                                mutation_type: str, player_name: str | None,
+                                data: dict,
+                                compute: Callable[[dict], dict | None], *,
+                                strength: float | None = None,
+                                actor_identity: str | None = None
+                                ) -> dict | None:
+    """Chronicle an event whose material delta depends on current state.
+
+    Holds the write lock, reads the node's LIVE overlay, and calls
+    `compute(live_overlay) -> delta | None` — so the transition is derived
+    from the state it will actually apply to, never from a request-local
+    snapshot that a concurrent writer may have outrun (two danger alerts
+    from danger 5 land 6 then 7, not 6 twice). The event row is appended
+    either way (a fired event always chronicles); when `compute` yields a
+    delta the same row carries it (+ node_version) and the overlay change
+    commits in the same transaction. `compute` must be pure and fast — it
+    runs inside the transaction and must not touch the database. Returns
+    the applied delta, or None when the event had no material consequence
+    against live state.
+    """
+    with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            """SELECT properties FROM node_runtime_state
                WHERE world_seed = ? AND node_name = ?""",
             (world_seed, node_name),
-        ).fetchone()[0]
+        ).fetchone()
+        live_overlay = json.loads(row[0]) if row and row[0] else {}
+        delta = compute(live_overlay)
+        if delta:
+            _insert_substance_row(
+                conn, world_seed, node_name, mutation_type, player_name,
+                data, delta, strength, actor_identity)
+            return delta
         conn.execute(
             """INSERT INTO world_mutations
                (world_seed, node_name, mutation_type, player_name, data,
-                actor_identity, strength, delta, node_version)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                actor_identity, strength)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (world_seed, node_name, mutation_type, player_name,
              json.dumps(data), actor_identity,
-             None if strength is None else float(strength),
-             json.dumps(delta), version),
+             None if strength is None else float(strength)),
         )
-        _apply_overlay_patch(conn, world_seed, node_name, delta)
-        return version
+        return None
 
 
 def json_merge_patch(target: Any, patch: Any) -> Any:

@@ -35,7 +35,7 @@ from agents.personas import for_name as persona_for_name
 from agents.roster import profile_for
 from causality import ORIGIN_STRENGTH, CausalityBus, EventKind
 from causality.staging import stage_cascade
-from causality.wiring import wire_world_handlers
+from causality.wiring import record_verb_act, wire_world_handlers
 from multiverse import store
 from multiverse.generator import DEFAULT_WORLD_SEED, LEVELS
 from multiverse.node import SpatialNode
@@ -176,32 +176,34 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
             verb = verb_for_level(node.level)
             if verb is None or (allowed and verb.name not in allowed):
                 continue
-            changed, flavor = apply_verb(node, verb,
-                                         token=f"{agent_name}:{node.name}")
+            token = f"{agent_name}:{node.name}"
+            base_props = dict(node.properties)
+            changed, flavor = apply_verb(node, verb, token=token)
             if not changed:
                 continue
             # Deep time binds the cast too: a cosmic verb an agent
             # performs is planted, not instant — the same clock players
             # live under.
             matures = maturation_seconds(node.level)
-            act_data = {"verb": verb.name, "changed": changed, **payload}
             if matures > 0:
                 persistence.enqueue_verb_maturation(
                     seed, node.name, verb.name, changed, agent_name, matures)
-                act_data["matures_in"] = int(matures)
                 flavor += maturation_note(matures)
                 # The delta rides the maturation queue and is chronicled
                 # when it lands; this row carries the origin strength.
                 persistence.record_mutation(
-                    seed, node.name, "SCALE_ACT", None, act_data,
+                    seed, node.name, "SCALE_ACT", None,
+                    {"verb": verb.name, "changed": changed,
+                     "matures_in": int(matures), **payload},
                     actor_identity=agent_name,
                     strength=ORIGIN_STRENGTH)
             else:
-                # One atomic write: SCALE_ACT row + overlay change together
-                # (ADR-009), stamped with the origin event's strength.
-                persistence.record_substance_change(
-                    seed, node.name, "SCALE_ACT", None, act_data, changed,
-                    strength=ORIGIN_STRENGTH,
+                # One transaction: the attributed SCALE_ACT row + overlay
+                # change, the verb's transition re-derived against the
+                # live overlay under the lock (ADR-009).
+                changed = record_verb_act(
+                    seed, node, verb, token, base_props,
+                    {"verb": verb.name, **payload},
                     actor_identity=agent_name)
             broadcast(room, {
                 "type": "scale_act", "node": node.name, "level": node.level,

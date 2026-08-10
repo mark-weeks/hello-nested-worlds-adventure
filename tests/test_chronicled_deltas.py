@@ -28,7 +28,9 @@ import pytest
 
 import persistence
 from causality import ORIGIN_STRENGTH, CausalityBus, EventKind
-from causality.wiring import wire_world_handlers
+from causality.wiring import (
+    record_origin_event, record_verb_act, wire_world_handlers,
+)
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from multiverse.verbs import maturation_seconds, verb_for_level
@@ -109,6 +111,34 @@ class TestInjectedFailure:
         assert persistence.record_substance_change(
             seed, "N", "SCALE_ACT", None, {}, {"after": True}) == 2
 
+    def test_producer_owned_solve_is_all_or_nothing(self):
+        # The canonical attributed origin row and its material effect
+        # commit together: a crash in the window leaves NO solve row (so
+        # restart cannot rehydrate a solve whose delta was lost) and no
+        # overlay change.
+        seed = 7111
+        _, room = _tree()
+
+        def _boom(conn, world_seed, node_name, changed):
+            raise RuntimeError("injected: crash inside the origin write")
+
+        mp = pytest.MonkeyPatch()
+        mp.setattr(persistence, "_apply_overlay_patch", _boom)
+        try:
+            with pytest.raises(RuntimeError):
+                record_origin_event(
+                    seed, room, EventKind.PUZZLE_SOLVED,
+                    {"puzzle": "The Lock"}, player_name="Ada",
+                    actor_identity="ada-key")
+        finally:
+            mp.undo()
+
+        assert persistence.get_node_history(seed, room.name, limit=5) == []
+        assert persistence.get_puzzle_solve(seed, room.name, "The Lock") \
+            is None
+        assert persistence.load_node_property_overrides(seed) == {}
+        assert persistence.get_substance_deltas(seed, room.name) == []
+
 
 class TestConcurrentWriters:
     def test_writers_on_one_node_serialize_into_distinct_versions(self):
@@ -145,6 +175,84 @@ class TestConcurrentWriters:
         assert overlay == {f"k{i}": i for i in range(writers)}
 
 
+class TestSameKeyConcurrency:
+    def test_concurrent_danger_transitions_compound_not_clobber(self):
+        # Two DANGER_ALERTs from danger 5 must land 6 then 7 — never 6
+        # twice. Each writer works from its own request-local snapshot
+        # (as real requests do); the transition is recomputed against the
+        # live overlay under the write lock.
+        seed, writers = 7160, 4
+        persistence.init_db()
+        barrier = threading.Barrier(writers)
+        errors: list[Exception] = []
+
+        def alert(i: int) -> None:
+            try:
+                node = SpatialNode("Contested-R", "Region",
+                                   properties={"danger_level": 5})
+                bus = wire_world_handlers(CausalityBus(), seed)
+                barrier.wait()
+                bus.emit(node, EventKind.DANGER_ALERT)
+            except Exception as exc:  # noqa: BLE001 — collected to assert
+                errors.append(exc)
+
+        threads = [threading.Thread(target=alert, args=(i,))
+                   for i in range(writers)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        overlay = persistence.load_node_property_overrides(seed)
+        assert overlay["Contested-R"]["danger_level"] == 5 + writers
+        rows = persistence.get_substance_deltas(seed, "Contested-R")
+        assert [r["version"] for r in rows] == list(range(1, writers + 1))
+        assert [r["delta"]["danger_level"] for r in rows] == \
+            [6, 7, 8, 9][:writers]
+        assert persistence.fold_node_properties(seed, "Contested-R") == \
+            overlay["Contested-R"]
+        rebuilt = persistence.rebuild_ripple_scores(seed)
+        assert rebuilt["Contested-R"] == pytest.approx(
+            persistence.get_ripple_score(seed, "Contested-R"))
+
+    def test_concurrent_verb_acts_serialize_their_counter(self):
+        # The Room verb increments the inscription count — a transition.
+        # Two concurrent actors must chronicle 1 then 2, not 1 twice.
+        seed, writers = 7161, 3
+        persistence.init_db()
+        verb = verb_for_level("Room")
+        barrier = threading.Barrier(writers)
+        errors: list[Exception] = []
+
+        def act(i: int) -> None:
+            try:
+                node = SpatialNode("Scriptorium", "Room", properties={})
+                barrier.wait()
+                record_verb_act(
+                    seed, node, verb, f"actor{i}:Scriptorium",
+                    dict(node.properties), {"verb": verb.name},
+                    player_name=f"actor{i}")
+            except Exception as exc:  # noqa: BLE001 — collected to assert
+                errors.append(exc)
+
+        threads = [threading.Thread(target=act, args=(i,))
+                   for i in range(writers)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        overlay = persistence.load_node_property_overrides(seed)
+        assert overlay["Scriptorium"]["inscriptions"] == writers
+        rows = persistence.get_substance_deltas(seed, "Scriptorium")
+        assert [r["delta"]["inscriptions"] for r in rows] == \
+            list(range(1, writers + 1))
+        assert persistence.fold_node_properties(seed, "Scriptorium") == \
+            overlay["Scriptorium"]
+
+
 class TestFoldEqualsOverlay:
     def test_recorded_cascade_folds_to_overlay(self):
         # record=True: the event's chronicle row carries its delta and
@@ -165,30 +273,36 @@ class TestFoldEqualsOverlay:
                                            "danger_level": 4}
         assert region_rows[0]["strength"] == pytest.approx(0.5)
 
-    def test_producer_owned_origin_chronicles_its_effect(self):
-        # record=False: the producer's attributed row carries the strength;
-        # the material consequence lands as an EVENT_EFFECT delta row —
-        # atomic with the overlay, carrying no strength of its own.
+    def test_producer_owned_origin_carries_its_effect_on_one_row(self):
+        # record=False: the producer's ONE attributed row carries the
+        # strength AND the material delta, atomic with the overlay — and
+        # the in-memory node folds the applied delta.
         seed = 7131
         _, room = _tree()
-        persistence.record_mutation(
-            seed, room.name, "PUZZLE_SOLVED", "Ada", {"puzzle": "The Lock"},
-            actor_identity="ada-key", strength=ORIGIN_STRENGTH)
+        applied = record_origin_event(
+            seed, room, EventKind.PUZZLE_SOLVED, {"puzzle": "The Lock"},
+            player_name="Ada", actor_identity="ada-key")
         bus = wire_world_handlers(CausalityBus(), seed, record=False)
         bus.emit(room, EventKind.PUZZLE_SOLVED, {"puzzle": "The Lock"})
 
+        assert applied == {"stabilized": True}
+        assert room.properties["stabilized"] is True
         rows = persistence.get_substance_deltas(seed, room.name)
         assert len(rows) == 1
-        assert rows[0]["type"] == "EVENT_EFFECT"
+        assert rows[0]["type"] == "PUZZLE_SOLVED"
         assert rows[0]["delta"] == {"stabilized": True}
-        assert rows[0]["strength"] is None
+        assert rows[0]["strength"] == pytest.approx(ORIGIN_STRENGTH)
         assert rows[0]["version"] == 1
         overlay = persistence.load_node_property_overrides(seed)
         assert persistence.fold_node_properties(seed, room.name) == \
             overlay[room.name]
-        # Exactly one chronicle row carries the fired event's strength.
+        # Exactly one chronicle row total: attributed, solver preserved —
+        # no second anonymous copy to shadow co-op rehydration.
         history = persistence.get_node_history(seed, room.name, limit=10)
-        assert len(history) == 2  # attributed solve + its EVENT_EFFECT
+        assert len(history) == 1
+        assert history[0]["player"] == "Ada"
+        assert persistence.get_puzzle_solve(
+            seed, room.name, "The Lock")["solver"] == "Ada"
 
     def test_maturation_drain_chronicles_the_landing_delta(self):
         seed = 7132
@@ -297,13 +411,12 @@ class TestRippleEqualsFold:
 
     def test_producer_attributed_strength_keeps_the_fold_exact(self):
         # A record=False origin: its ripple increment must be derivable
-        # from the producer's attributed row — and only counted once,
-        # even though the event also left an EVENT_EFFECT delta row.
+        # from the producer's one attributed row — counted exactly once.
         seed = 7141
         _, room = _tree()
-        persistence.record_mutation(
-            seed, room.name, "PUZZLE_SOLVED", "Ada", {"puzzle": "The Lock"},
-            actor_identity="ada-key", strength=ORIGIN_STRENGTH)
+        record_origin_event(
+            seed, room, EventKind.PUZZLE_SOLVED, {"puzzle": "The Lock"},
+            player_name="Ada", actor_identity="ada-key")
         bus = wire_world_handlers(CausalityBus(), seed, record=False)
         bus.emit(room, EventKind.PUZZLE_SOLVED, {"puzzle": "The Lock"})
 
@@ -362,3 +475,49 @@ class TestFoldSemantics:
         assert persistence.fold_node_properties(7151, "Untouched-1") == {}
         assert persistence.fold_node_properties(
             7151, "Untouched-1", upto_version=0) == {}
+
+
+class TestInterruptedMigrationRecovery:
+    def test_failed_migration_commits_nothing_and_retries_cleanly(
+            self, tmp_path, monkeypatch):
+        # A migration's statements and its schema_version marker must
+        # commit as one transaction: an interruption mid-file must not
+        # strand committed ALTERs that make the retry die with
+        # "duplicate column name".
+        import sqlite3
+        db = tmp_path / "recovery.db"
+        migs = tmp_path / "migs"
+        migs.mkdir()
+        (migs / "0001_base.sql").write_text(
+            "CREATE TABLE t (a INTEGER);\n")
+        (migs / "0002_widen.sql").write_text(
+            "-- widens t, then hits a bad statement\n"
+            "ALTER TABLE t ADD COLUMN b INTEGER;\n"
+            "ALTER TABLE missing ADD COLUMN c INTEGER;\n")
+        monkeypatch.setattr(persistence, "_DB_PATH", db)
+        monkeypatch.setattr(persistence, "_MIGRATIONS_DIR", migs)
+        persistence._initialized.discard(db)
+
+        with pytest.raises(sqlite3.OperationalError):
+            persistence.init_db()
+
+        conn = sqlite3.connect(db)
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(t)")]
+        versions = [r[0] for r in conn.execute(
+            "SELECT version FROM schema_version ORDER BY version")]
+        conn.close()
+        assert cols == ["a"]        # the first ALTER did not survive alone
+        assert versions == [1]      # 0002 is not marked applied
+
+        # The corrected file applies on retry — no duplicate-column death.
+        (migs / "0002_widen.sql").write_text(
+            "ALTER TABLE t ADD COLUMN b INTEGER;\n"
+            "ALTER TABLE t ADD COLUMN c INTEGER;\n")
+        persistence.init_db()
+        conn = sqlite3.connect(db)
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(t)")]
+        versions = [r[0] for r in conn.execute(
+            "SELECT version FROM schema_version ORDER BY version")]
+        conn.close()
+        assert cols == ["a", "b", "c"]
+        assert versions == [1, 2]
