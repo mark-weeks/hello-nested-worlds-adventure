@@ -33,7 +33,7 @@ import persistence
 from agents.agent import Agent
 from agents.personas import for_name as persona_for_name
 from agents.roster import profile_for
-from causality import CausalityBus, EventKind
+from causality import ORIGIN_STRENGTH, CausalityBus, EventKind
 from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
 from multiverse import store
@@ -190,11 +190,19 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                     seed, node.name, verb.name, changed, agent_name, matures)
                 act_data["matures_in"] = int(matures)
                 flavor += maturation_note(matures)
+                # The delta rides the maturation queue and is chronicled
+                # when it lands; this row carries the origin strength.
+                persistence.record_mutation(
+                    seed, node.name, "SCALE_ACT", None, act_data,
+                    actor_identity=agent_name,
+                    strength=ORIGIN_STRENGTH)
             else:
-                persistence.upsert_node_properties(seed, node.name, changed)
-            persistence.record_mutation(
-                seed, node.name, "SCALE_ACT", None, act_data,
-                actor_identity=agent_name)
+                # One atomic write: SCALE_ACT row + overlay change together
+                # (ADR-009), stamped with the origin event's strength.
+                persistence.record_substance_change(
+                    seed, node.name, "SCALE_ACT", None, act_data, changed,
+                    strength=ORIGIN_STRENGTH,
+                    actor_identity=agent_name)
             broadcast(room, {
                 "type": "scale_act", "node": node.name, "level": node.level,
                 "verb": verb.name, "actor": agent_name,
@@ -406,11 +414,13 @@ def drain_matured_verbs(limit: int = 32, world_seed: int | None = None) -> int:
     rows = persistence.claim_due_verb_maturations(limit, world_seed=world_seed)
     for row in rows:
         seed, node_name = row["world_seed"], row["node_name"]
-        persistence.upsert_node_properties(seed, node_name, row["changed"])
-        persistence.record_mutation(
+        # One atomic write: the SCALE_ACT_MATURED row and the landing delta
+        # commit together (ADR-009). No strength — landing fires no causal
+        # event; the origin SCALE_ACT row already carries the act's.
+        persistence.record_substance_change(
             seed, node_name, "SCALE_ACT_MATURED", row["actor"],
             {"verb": row["verb"], "changed": row["changed"]},
-            actor_identity=row["actor"])
+            row["changed"], actor_identity=row["actor"])
         resolved = store.resolve_node_by_name(seed, node_name)
         broadcast(get_room(seed), {
             "type":    "scale_act",

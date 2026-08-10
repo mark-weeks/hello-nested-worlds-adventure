@@ -1203,26 +1203,31 @@ class Handler(BaseHTTPRequestHandler):
         matures = maturation_seconds(target.level) if changed else 0.0
 
         if changed:
+            # The one canonical chronicle row for this act — attributed by
+            # durable identity, stamped with the origin event's strength
+            # (the bus below is wired record=False, so this row is the
+            # event's only strength-bearing trace).
+            act_data = {"verb": verb.name, "changed": changed}
             if matures > 0:
                 # Deep time: the cosmic scales answer on cosmic clocks. The
                 # act is chronicled now; the property change rides the
-                # maturation queue and lands when the pump says it's time.
+                # maturation queue and its delta is chronicled when it lands.
                 persistence.enqueue_verb_maturation(
                     seed, target.name, verb.name, changed, player_name,
                     matures)
                 flavor += maturation_note(matures)
-            else:
-                persistence.upsert_node_properties(seed, target.name, changed)
-            # The one canonical chronicle row for this act — attributed by
-            # durable identity. The origin bus below is wired record=False
-            # so it doesn't write a second, anonymous copy.
-            act_data = {"verb": verb.name, "changed": changed}
-            if matures > 0:
                 act_data["matures_in"] = int(matures)
-            persistence.record_mutation(
-                seed, target.name, "SCALE_ACT", player_name, act_data,
-                actor_identity=_actor_identity(user_key, player_name),
-            )
+                persistence.record_mutation(
+                    seed, target.name, "SCALE_ACT", player_name, act_data,
+                    actor_identity=_actor_identity(user_key, player_name),
+                    strength=causality.ORIGIN_STRENGTH,
+                )
+            else:
+                persistence.record_substance_change(
+                    seed, target.name, "SCALE_ACT", player_name, act_data,
+                    changed, strength=causality.ORIGIN_STRENGTH,
+                    actor_identity=_actor_identity(user_key, player_name),
+                )
 
             room = get_room(seed)
             broadcast(room, {
@@ -1345,11 +1350,15 @@ class Handler(BaseHTTPRequestHandler):
             # The one canonical chronicle row for this solve — the origin
             # bus below is wired record=False so it doesn't write a second,
             # anonymous copy (which also double-counted the art's activity).
+            # It carries the origin event's strength: the solve's material
+            # consequence lands separately (EVENT_EFFECT, via the substance
+            # handler), but the strength rides only here.
             persistence.record_mutation(
                 seed, effective_node, "PUZZLE_SOLVED",
                 session.solver if session.solver != "anonymous" else None,
                 {"puzzle": p.name, "contributors": contributors},
                 actor_identity=_actor_identity(user_key, player_name),
+                strength=causality.ORIGIN_STRENGTH,
             )
             broadcast(room, {"type": "puzzle_solved", "node": effective_node,
                              "puzzle": p.name, "solver": session.solver,

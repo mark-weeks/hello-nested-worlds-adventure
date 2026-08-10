@@ -165,10 +165,13 @@ def _play_puzzle(node: SpatialNode, seed: int,
     if result == PuzzleResult.SOLVED:
         from causality.staging import stage_cascade
         persistence.save_puzzle_result(seed, puzzle.name, result.name, puzzle.attempts)
-        # record=False below: this row is the canonical origin record.
+        # record=False below: this row is the canonical origin record, and
+        # carries the origin event's strength (its only strength-bearing
+        # chronicle trace).
         persistence.record_mutation(
             seed, node.name, "PUZZLE_SOLVED", player_name,
-            {"puzzle": puzzle.name}, actor_identity=player_name)
+            {"puzzle": puzzle.name}, actor_identity=player_name,
+            strength=causality.ORIGIN_STRENGTH)
         bus = wire_world_handlers(CausalityBus(), seed, record=False)
         bus.emit(node, EventKind.PUZZLE_SOLVED, {"puzzle": puzzle.name})
         staged = stage_cascade(seed, node, EventKind.PUZZLE_SOLVED,
@@ -202,20 +205,27 @@ def _do_scale_verb(node: SpatialNode, seed: int,
     print(f"\n  {_BOLD}{verb.name}{_RESET} — {flavor}\n")
     if not changed:
         return
+    # Local play has no credential; the display name is the identity.
+    # record=False below: this row is the canonical origin record and
+    # carries the origin event's strength.
     act_data = {"verb": verb.name, "changed": changed}
     if matures > 0:
         # Deep time: the change is planted, not applied — it rides the
-        # maturation queue and lands when the pump says it's time.
+        # maturation queue and its delta is chronicled when it lands.
         persistence.enqueue_verb_maturation(
             seed, node.name, verb.name, changed, player_name, matures)
         act_data["matures_in"] = int(matures)
+        persistence.record_mutation(
+            seed, node.name, "SCALE_ACT", player_name, act_data,
+            actor_identity=player_name,
+            strength=causality.ORIGIN_STRENGTH)
     else:
-        persistence.upsert_node_properties(seed, node.name, changed)
-    # Local play has no credential; the display name is the identity.
-    # record=False below: this row is the canonical origin record.
-    persistence.record_mutation(
-        seed, node.name, "SCALE_ACT", player_name, act_data,
-        actor_identity=player_name)
+        # One atomic write: the SCALE_ACT row (delta + strength + per-node
+        # version) and the overlay change land together (ADR-009).
+        persistence.record_substance_change(
+            seed, node.name, "SCALE_ACT", player_name, act_data, changed,
+            strength=causality.ORIGIN_STRENGTH,
+            actor_identity=player_name)
     payload = {"verb": verb.name}
     if player_name:
         payload["actor"] = player_name
