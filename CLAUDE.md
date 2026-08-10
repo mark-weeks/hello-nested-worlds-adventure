@@ -215,13 +215,18 @@ evolution when it exists. Consequences:
 ## Pointers
 
 - `docs/CHANGELOG.md` — the batch-by-batch record; read it to learn what shipped.
-- `docs/decisions/ADR-00{1,2,3,4,5,6}-*.md` — stack, image generation,
+- `docs/decisions/ADR-00{1..9}-*.md` — stack, image generation,
   persistence backend, the day-one data policy (permanence, redaction,
   continuity, identity, write-path scope), the launch-window operations
   policy (backup cadence, staging rehearsal, beta client posture, voice
   model), the evolving-world decision (the world materialized as data; banks
-  govern births only — Option A, ratified), and the one-shared-launch-world
-  boundary, each with its "Revisit when…" triggers.
+  govern births only — Option A, ratified), the one-shared-launch-world
+  boundary, the wrap passage (the hierarchy closes into a traversal-layer
+  loop; containment stays a tree, causality does not wrap), and chronicled
+  deltas (every substance change records its delta; state-at-T is born row
+  + fold, never replay), each with its "Revisit when…" triggers.
+- `docs/roadmap/pre-launch-window.md` — the pre-launch decision list and
+  batch sequence (living; governs until first production history exists).
 - `docs/roadmap/phase-2-scale.md` — the continuity policy and the phase-2b/2c
   trigger list (living document — edit in place as triggers fire).
 - `docs/infrastructure/fly-deployment.md` — the deploy runbook and §8 launch
