@@ -4,6 +4,9 @@
 thread (`docs/evaluation/2026-08-10-recursion-and-time.md`), owner-directed.
 The topology choice below follows the thread's recommendation; owner
 ratification lands at the merge gate of the implementing PR.
+Revised 2026-08-10 after the owner's PR #76 review: the hinge is pinned
+immutably at first selection, its lineage carries a liveness invariant,
+and the loop's topology claim is stated honestly.
 
 ---
 
@@ -19,10 +22,17 @@ edges are the last place the hierarchy still behaves like a ladder.
 
 The title's thesis — Bohm's implicate order, *every part enfolds the
 whole* — has so far lived in fiction and lore. A particle that opens onto
-the Multiverse makes it mechanical: a strange loop in Hofstadter's exact
-construction, where moving consistently in one direction through a
-hierarchy returns you to your origin, while every local step remains
-ordinary. The loop lives in the *path*; containment stays a hierarchy.
+the Multiverse makes it mechanical: a strange loop in Hofstadter's
+spirit, where moving consistently in one direction through a hierarchy
+returns you somewhere the hierarchy says you cannot be, while every
+local step remains ordinary. Stated precisely: the closed traversal
+graph returns every consistent descent to the *whole* — not, in general,
+to the traveler's origin. Repeated ascent cycles through the hinge's
+ancestor chain, so an off-hinge origin is never re-entered from above,
+and descent below the root branches rather than retracing. The loop is a
+cyclic traversal graph closing through the root, not an origin-return
+guarantee — and the fiction must not promise one. The loop lives in the
+*path*; containment stays a hierarchy.
 
 One alternative was considered and dismissed during design: landing wrap
 traversal in an *alternate* multiverse tree. Beyond taste, ADR-007 forbids
@@ -36,11 +46,27 @@ The hierarchy closes into a loop **at the traversal layer only**:
 - **Descending below ANY SubatomicParticle surfaces at the Multiverse
   root.** Many-to-one: every part enfolds the whole, uniformly — this is
   a property of matter, not of one special place.
-- **Ascending beyond the Multiverse root lands at ONE hinge particle**,
-  chosen as a pure function of the world seed — the same monument for
-  every participant, discoverable and shareable in the single canonical
-  world. The selection rule lives in code and is deterministic; it may be
-  tuned before launch so seed 382's hinge lands on a worthy node.
+- **Ascending beyond the Multiverse root lands at ONE hinge particle** —
+  the same monument for every participant, discoverable and shareable in
+  the single canonical world. The selector (a pure function of the world
+  seed) runs **once**: the chosen hinge is persisted as an explicit
+  first-selection record in immutable world metadata, and from then on
+  **the stored hinge is the hinge** — mirroring the store's
+  born-row-is-identity rule. Permanent world identity must not depend on
+  mutable code: once crossings, lore, puzzle state, and player memory
+  attach to the hinge, an edited selector would silently move the
+  monument. Changing a pinned hinge is an ADR-level continuity decision.
+  Selector tuning (so seed 382's hinge lands on a worthy node) happens
+  before the first pinning, never after.
+- **The hinge must sit on a fully unsealed lineage** — no seal-capable
+  locked Room among its ancestors — pinned as a **liveness invariant**
+  by a behavior test in the implementing PR. This is not a playtest
+  refinement: a root-side traveler arrives from *outside* every seal on
+  the hinge's lineage, so the transit seal gate would refuse the
+  crossing and the loop would ship dead in one direction. On seed 382,
+  **706 of 1,505 particles (46.9%)** sit beneath a generated locked Room
+  (owner-measured, PR #76 review) — near coin-flip odds of a dead loop
+  without the constraint.
 - **The wrap is a passage affordance**, wired through the same movement
   rules as every other transit — including the seal gate
   (`puzzles/gates.py`). A hinge inside a sealed subtree must not become a
@@ -78,21 +104,22 @@ The hierarchy closes into a loop **at the traversal layer only**:
 - **Traversal-only at first.** The loop is experientially a passage, not
   a causal fact — a cascade does not chase a traveler around the loop.
   Accepted so v1 carries no convergence-analysis burden.
-- **The hinge concentrates attention.** One particle's puzzle, seal
-  state, and voice carry more weight than an average leaf's. The
-  selection rule bears that curation load.
+- **The hinge concentrates attention.** One particle's puzzle and voice
+  carry more weight than an average leaf's. The selector bears that
+  curation load — once, before the pin.
+- **The liveness constraint narrows the candidate pool.** Excluding
+  sealed lineages leaves 799 of 1,505 particles (53.1%) eligible on
+  seed 382 — ample, and permanent for any pinned hinge.
 
 ## Revisit when…
 
 - **Wrapped causality is wanted** → require a convergence argument per
   law profile (Fractal and Recursive especially: full-strength hops must
   provably decay across the wrap) before any cascade may cross it.
-- **The evolution grammar ships breadth growth** → confirm the hinge
-  rule remains stable as leaves are added: it must depend only on born
-  structure, or be pinned at first selection.
-- **Playtests show the hinge's seal interaction confusing** (hinge born
-  inside, or later enclosed by, a sealed subtree) → consider constraining
-  hinge selection to unsealed lineage.
+- **The evolution grammar ships** → the pinned hinge cannot move by
+  construction (it is stored, not recomputed), but confirm no evolution
+  write path can make one of its ancestors newly seal-capable without
+  revisiting the liveness invariant.
 - **A second communal realm is ever designed** (ADR-007's revisit
   clause) → decide whether realms share one loop or each closes its own.
 
@@ -111,3 +138,8 @@ The hierarchy closes into a loop **at the traversal layer only**:
 - **One-hinge-only, both directions.** Weaker metaphysics: only one part
   would enfold the whole, demoting the loop from a property of matter to
   a single secret.
+- **A code-derived, tunable hinge (the pre-review draft).** Permanent
+  world identity depending on mutable code — a selector edit would
+  silently relocate the monument after crossings, lore, and player
+  memory attached to it; the same trap the materialized store closed for
+  node identity (ADR-006).

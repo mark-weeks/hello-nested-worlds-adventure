@@ -6,9 +6,9 @@ a bounded window in which certain decisions are cheap that will be
 impossible or expensive forever after. **The window closes the moment the
 first production history exists.**
 
-This document records what was decided in the window, sequences the
-development batches before launch, and lists what was deliberately
-declined so future sessions don't relitigate it. Like
+This document records what was proposed and affirmed in the window,
+sequences the development batches before launch, and lists what was
+deliberately declined so future sessions don't relitigate it. Like
 `phase-2-scale.md`, it is a living document — edit in place; when a batch
 ships, fold its description into the CHANGELOG entry and mark it here.
 When the window closes, this document is history and
@@ -19,12 +19,18 @@ synthesis in `docs/evaluation/2026-08-10-recursion-and-time.md`.
 
 ---
 
-## Decisions settled in the window (2026-08-10)
+## Decisions proposed in the window (2026-08-10)
+
+Direction affirmed in the owner's PR #76 review; each ADR's **formal
+ratification lands at its implementing PR's merge gate**. Until that
+gate these are commitments of plan, not walked-through doors — a future
+session may reopen one, but must do so against the ADR's argument and
+the review record, not from a cold start.
 
 | Decision | Where recorded |
 |---|---|
-| The hierarchy closes into a traversal-layer loop: every particle descends to the Multiverse root; the root ascends to one seed-chosen hinge particle. Causality does not wrap in v1. | ADR-008 |
-| Every material change to node substance chronicles its delta (with event strength) at write time; state-at-T is born row + fold of deltas. Must land before any history exists. | ADR-009 |
+| The hierarchy closes into a traversal-layer loop: every particle descends to the Multiverse root; the root ascends to one hinge particle — selected once by a seed-pure rule constrained to an unsealed lineage, then pinned immutably in world metadata. Causality does not wrap in v1. | ADR-008 |
+| Every material change to node substance chronicles its delta (with event strength) through one atomic, per-node-versioned write API; state-at-T is born row + ordered fold of deltas. Must land before any history exists. | ADR-009 |
 | The launch world stays **seed 382** as born. No ratified decision requires re-birth — the loop needs nothing from generation, delta-fidelity is write-path only — so the census and ecology audits remain valid. | ADR-007 unchanged; this doc |
 | Evolution mechanics stay parked on ADR-006's "evolution mechanics are wanted" trigger. ADR-009 lays the event stream they will ride; the grammar (drift kinds, breadth growth, cadence) is designed when the trigger fires. | ADR-006 unchanged; this doc |
 | No second dimensional scale (see "Declined" below). | This doc |
@@ -33,23 +39,41 @@ synthesis in `docs/evaluation/2026-08-10-recursion-and-time.md`.
 
 ## The pre-launch sequence (one batch per session/PR)
 
+Only batch 1 is architecturally forced into the window: faithful
+recording cannot be retrofitted once history exists. Batches 2–4 carry
+no such dependency — the loop and the prediction family could ship
+after launch, and the wayback surface reads history whenever recording
+began. Sequencing them before launch is a **product decision** — open
+with the loop closed, the laws teachable, and the archive running from
+the world's first moment — accepted with its cost in launch delay and
+integration risk, and re-scopeable without breaking any architecture.
+
 ### Batch 1 — Chronicled deltas (ADR-009) · must precede any deploy
 
-Record property deltas + event strength in the chronicle at every
-substance-writing site (`causality/wiring.py` effects handler, the verb
-producer path, constellation lighting, entanglement resolution). Add the
-fold-equals-overlay invariant test. Small diff, one conscious touch of
-the chronicle write surface. Everything later in the sequence — and the
-completeness of the world's remembered past — depends on this landing
-while the chronicle is still empty.
+One atomic write API: a single transaction chronicles the delta + event
+strength, applies the overlay merge patch, and allocates a per-node
+monotonic version (additive migration if columns). The verified writer
+inventory routes through it: the causal effects handler
+(`causality/wiring.py:70`), the scale-verb immediate branch on three
+surfaces (`server/handlers.py:1215`, `interface/__init__.py:213`,
+`server/heartbeat.py:194`), the maturation drain
+(`server/heartbeat.py:409`), and constellation lighting
+(`server/world_mechanics.py:60`); entanglement resolution writes no
+properties. Tests: injected-failure, concurrent-writer, and the
+fold-equals-overlay invariant. Everything later in the sequence — and
+the completeness of the world's remembered past — depends on this
+landing while the chronicle is still empty.
 
 ### Batch 2 — The wrap passage (ADR-008)
 
-The loop, traversal layer only: leaf-descend → root, root-ascend → hinge
-(pure function of seed; rule tuned so 382's hinge is a worthy node).
-Transit runs through the standard seal gate. Both clients gain the
-passage affordance; the hinge particle's lore knows what it is; first
-crossings get an authored line. Parent links and causality untouched.
+The loop, traversal layer only: leaf-descend → root, root-ascend →
+hinge. The hinge is selected once by a seed-pure rule constrained to a
+fully unsealed lineage (the liveness invariant — on seed 382, 46.9% of
+particles sit beneath a locked Room and are ineligible), tuned so 382's
+hinge is a worthy node, then pinned immutably in world metadata. Transit
+runs through the standard seal gate. Both clients gain the passage
+affordance; the hinge particle's lore knows what it is; first crossings
+get an authored line. Parent links and causality untouched.
 
 ### Batch 3 — Causal-prediction puzzle family
 

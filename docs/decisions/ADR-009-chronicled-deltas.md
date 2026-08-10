@@ -5,6 +5,10 @@ thread (`docs/evaluation/2026-08-10-recursion-and-time.md`), owner-directed.
 Owner ratification lands at the merge gate of the implementing PR. This is
 the **first batch of the pre-launch sequence**: it must land before any
 production history exists.
+Revised 2026-08-10 after the owner's PR #76 review: the decision now
+specifies one atomic, totally ordered persistence contract, a versioned
+fold cursor, the corrected writer inventory, and honest wayback
+rendering semantics.
 
 ---
 
@@ -50,21 +54,59 @@ leaves a permanent dark age at the beginning of the world's time.
 **Every write that materially changes a node's substance also chronicles
 its delta at write time.**
 
-- The effects handler records the changed-properties dict, together with
-  the triggering event's kind and **strength**, in the chronicle.
+- **One atomic write API.** A single transaction appends the chronicle
+  row (the changed-properties merge patch, the triggering event's kind,
+  and its **strength**), applies the same patch to the overlay, and
+  allocates a **per-node monotonic version** in mutation order.
+  Chronicling and applying are never separate transactions: a crash
+  leaves neither half, and concurrent writers on one node serialize into
+  distinct versions. `upsert_node_properties` becomes internal to this
+  API — no substance writer may call it directly, so future compliance
+  is structural, not a prose checklist.
+- **The exact current writers, all routed through the API** (inventory
+  verified 2026-08-10): the causal effects handler
+  (`causality/wiring.py:70` — today the full gap: neither delta nor
+  strength reaches the chronicle); the scale-verb immediate branch on
+  its three surfaces (`server/handlers.py:1215`,
+  `interface/__init__.py:213`, `server/heartbeat.py:194` — these already
+  chronicle `changed` in their `SCALE_ACT` rows, but in a separate
+  transaction with no ordering version); the maturation drain
+  (`server/heartbeat.py:409`, `SCALE_ACT_MATURED` — same
+  separate-transaction shape); and constellation lighting
+  (`server/world_mechanics.py:60` — records `CONSTELLATION_COMPLETE`
+  without its `{"constellated": true}` delta). Entanglement resolution
+  writes no properties and needs nothing. The rule is total: *no
+  substance change without a chronicled delta.*
 - Event rows carry strength generally, so ripple-at-T is also derivable
-  from the record.
-- Every other `upsert_node_properties` call site — the scale-verb
-  producer path, constellation lighting, entanglement resolution, and any
-  future site — chronicles its delta the same way. The rule is total:
-  *no substance change without a chronicled delta.*
+  from the record. The version and strength ride the mutation row
+  (additive migration if columns).
+- **Delta semantics are the overlay's own:** RFC 7396-style JSON merge
+  patches — the same merge `json_patch` already applies, where a `null`
+  value deletes a key — folded by sequential merge.
 - **State-at-T is defined as:** the born row (`world_nodes`, immutable)
-  plus a fold of chronicled deltas with `recorded_at <= T`. Effect logic
-  is never replayed to answer a historical question.
-- An invariant behavior test pins the two paths together: folding all
-  chronicled deltas must reproduce the current overlay exactly. A write
-  path that changes substance without a delta row is a bug this test
-  catches.
+  plus a fold of chronicled deltas in **per-node version order**, up to
+  the cursor `(recorded_at, node_version)` that T resolves to — the
+  greatest version recorded at or before T. `recorded_at` alone is
+  second-precision and cannot order non-commutative patches sharing a
+  timestamp; the version defines the reproducible fold order and the
+  exact scrub boundary. Effect logic is never replayed to answer a
+  historical question.
+- **Three test families enforce the contract:** injected-failure (a
+  crash mid-write leaves neither the chronicle row nor the overlay
+  change), concurrent-writer (two writers on one node serialize into
+  distinct versions and the fold reproduces the final overlay), and the
+  continuous fold-equals-overlay invariant. The invariant test is the
+  net, not the guarantee — it detects divergence; only the atomic API
+  prevents it.
+- **Wayback shows past state through present senses.** State is
+  historical; rendering is presentational. The archive stores what a
+  node *was*; how that state looks and sounds is derived at view time by
+  the current deterministic art/sound code — which is deliberately
+  tunable, so a renderer edit changes the past's appearance exactly as
+  it changes the present's. The surface must say so honestly ("the node
+  as it was, seen with today's eyes"); it remains identical for every
+  player at any given deploy. Versioning the renderers is rejected for
+  now (below).
 - The wayback surface itself is read-only and ships in a later batch;
   this ADR is the recording discipline it (and evolution) stand on.
 - Redaction compatibility: deltas are mechanical fields and survive
@@ -80,10 +122,16 @@ its delta at write time.**
 - **Rows grow modestly, forever.** The append-only covenant already
   committed to unbounded history; deltas widen rows, they do not add a
   new growth dimension.
-- **A standing discipline.** Every future substance-writing path must
-  chronicle its delta or the archive silently forks from reality. The
-  fold-equals-overlay invariant test is the enforcement, not reviewer
-  vigilance.
+- **A wider refactor than "also chronicle."** Six call sites across five
+  surfaces (HTTP, CLI, heartbeat agents, the maturation drain,
+  constellation mechanics) route through one API in the implementing
+  batch — accepted, because a prose rule over scattered writers is
+  exactly what the review showed cannot hold.
+- **A standing discipline, enforced structurally.** Every future
+  substance-writing path must chronicle its delta or the archive
+  silently forks from reality. The atomic API is the enforcement — there
+  is no other door to the overlay; the fold-equals-overlay invariant is
+  the net beneath it, not the guarantee.
 
 ## Revisit when…
 
@@ -95,6 +143,10 @@ its delta at write time.**
 - **A substance write without a delta row is discovered** → treat as a
   P0-class defect against the archive; fix the path and backfill only if
   the delta is derivable from surviving records.
+- **Faithful period rendering becomes a product goal** (wayback must
+  show how a node *actually* rendered then, not today's
+  reinterpretation) → version the renderers or store rendered parameters
+  at write time; until then the surface's honesty line carries it.
 
 ## Rejected alternatives
 
@@ -106,3 +158,13 @@ its delta at write time.**
 - **Defer until the wayback surface ships.** The record cannot be
   completed retroactively; deferral converts a cheap pre-launch write
   into a permanent gap.
+- **Chronicle-then-apply as separate transactions** (the pre-review
+  draft's implicit shape). A crash between the halves leaves a
+  half-event; concurrent writers can chronicle A→B while the overlay's
+  last commit is A. The owner's PR #76 review blocked this: a
+  fold-equals-overlay test detects that divergence but cannot prevent
+  it.
+- **Versioning the art/sound renderers now.** Real, permanent cost —
+  every renderer edit becomes an archival event — bought for a surface
+  that can be honest instead; revisit if faithful period rendering
+  becomes a goal.
