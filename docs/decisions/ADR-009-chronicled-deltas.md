@@ -34,10 +34,13 @@ Two wanted capabilities depend on reconstruction:
 
 1. **The wayback surface** — observing a node's past states and how it
    evolved. Because art and sound are deterministic functions of node
-   state (`nodeart.js`, `nodesound.js`), past *appearances* need no
-   storage: reconstruct state-at-T and derive how the node looked and
-   sounded then. Evolution animation is that derivation scrubbed across
-   a timeline — reproducible identically for every player.
+   state (`nodeart.js`, `nodesound.js`), the archive stores no
+   appearances: reconstruct state-at-T and render it through the
+   *current* senses — the node as it was, seen with today's eyes. The
+   mappings are deliberately tunable, so this is reinterpretation, not
+   playback (see Decision). Evolution animation is that derivation
+   scrubbed across a timeline — reproducible identically for every
+   player at any given deploy.
 2. **The future evolution grammar** (ADR-006's gated write path) — any
    deliberate change to a born node should be an event in a legible
    change stream. Event-sourcing the substance now means evolution later
@@ -77,9 +80,21 @@ its delta at write time.**
   without its `{"constellated": true}` delta). Entanglement resolution
   writes no properties and needs nothing. The rule is total: *no
   substance change without a chronicled delta.*
-- Event rows carry strength generally, so ripple-at-T is also derivable
-  from the record. The version and strength ride the mutation row
-  (additive migration if columns).
+- Event rows carry strength generally — including producer-attributed
+  origin rows (the `record=False` paths), which are their event's only
+  chronicle trace — so ripple-at-T is also derivable from the record.
+  The version and strength ride the mutation row (additive migration if
+  columns).
+- **The persisted `ripple_score` is a derived cache, never
+  authoritative.** Its live increment (the ripple handler in
+  `causality/wiring.py`) is monotonic, non-negative, capped at 1.0, and
+  has no decay path — a pure fold of chronicled strengths — so it stays
+  *outside* the atomic transaction by design, including for events that
+  carry no property patch. The implementing batch ships a rebuild
+  function and a ripple-equals-fold invariant test beside
+  fold-equals-overlay: cache drift is repairable by rebuild; only the
+  chronicle is the record. (`upsert_ripple_score` is legacy/test-only
+  and gains no new callers.)
 - **Delta semantics are the overlay's own:** RFC 7396-style JSON merge
   patches — the same merge `json_patch` already applies, where a `null`
   value deletes a key — folded by sequential merge.

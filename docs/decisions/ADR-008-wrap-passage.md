@@ -89,8 +89,12 @@ The hierarchy closes into a loop **at the traversal layer only**:
   an authored line — the world's voice, never mechanism-speak, per the
   fiction covenant.
 - **No generation change.** The world needs nothing at birth for this:
-  no new rows, no `GENERATOR_VERSION` bump, no golden re-pin, no
-  migration. Seed 382 remains the launch world as born.
+  no `world_nodes` change, no re-birth, no `GENERATOR_VERSION` bump, no
+  golden re-pin — seed 382 remains the launch world as born. The hinge
+  pin itself IS new durable storage: one first-selection record in world
+  metadata (an additive migration unless an existing metadata surface
+  fits), written once at selection time — traversal-layer metadata
+  beside the world, never a rewrite of it.
 
 ## Trade-offs accepted
 

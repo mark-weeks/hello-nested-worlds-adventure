@@ -59,10 +59,13 @@ surfaces (`server/handlers.py:1215`, `interface/__init__.py:213`,
 `server/heartbeat.py:194`), the maturation drain
 (`server/heartbeat.py:409`), and constellation lighting
 (`server/world_mechanics.py:60`); entanglement resolution writes no
-properties. Tests: injected-failure, concurrent-writer, and the
-fold-equals-overlay invariant. Everything later in the sequence — and
-the completeness of the world's remembered past — depends on this
-landing while the chronicle is still empty.
+properties. The persisted `ripple_score` is declared a derived,
+rebuildable cache (ripple-equals-fold invariant), staying outside the
+transaction. Tests: injected-failure, concurrent-writer,
+fold-equals-overlay, ripple-equals-fold. Historical completeness — and
+the wayback surface (batch 4) that reads it — depends on this landing
+while the chronicle is still empty; batches 2–3 do not depend on it,
+only on the sequence's product scope.
 
 ### Batch 2 — The wrap passage (ADR-008)
 
@@ -90,8 +93,10 @@ flavors, never a depth curve.
 
 Read-only. State-at-T API (fold of chronicled deltas), a time-scrub in
 the clients, and evolution animation by feeding reconstructed states to
-the existing deterministic art/sound functions — past appearances are
-derived, not stored, and render identically for every player.
+the *current* deterministic art/sound functions — past state through
+present senses (reinterpretation, not playback: a renderer edit changes
+how the past appears, exactly as it changes the present), derived
+rather than stored, identical for every player at any given deploy.
 First-witness display derives from each node's earliest chronicled
 interaction (no new write path). Open sub-decision for this batch:
 whether pure arrival without interaction should chronicle — default no.
