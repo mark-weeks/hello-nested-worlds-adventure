@@ -38,7 +38,7 @@ _PRUNE_OVERRIDE_ENV = "NESTED_WORLDS_ALLOW_HISTORY_PRUNE"
 # Not yet abstracted (deliberate — kept as-is to avoid churn before the
 # switchover triggers; translation is mechanical at port time):
 #   * `INSERT OR REPLACE INTO node_images ...`  — cache_image
-#   * `json_patch(...)`   — upsert_node_properties (PG: `properties || ?`)
+#   * `json_patch(...)`   — _apply_overlay_patch (PG: `properties || ?`)
 #   * `json_extract(...)` — get_player_exchanges (PG: `data->>'identity'`)
 #   * `_SCHEMA_VERSION_DDL` `DEFAULT (datetime('now'))` — per-backend DDL
 #   * `migrations/*.sql` — schema files are per-backend; a Postgres port
@@ -107,12 +107,36 @@ def _list_migrations() -> list[tuple[int, Path]]:
     return out
 
 
+def _sql_statements(sql: str) -> list[str]:
+    """Split a migration file into individual statements.
+
+    `executescript` runs each statement in autocommit, which is exactly
+    what the runner must avoid (an interruption mid-file strands committed
+    DDL without its schema_version marker). Splitting on complete
+    statements lets the runner execute them inside ONE transaction.
+    Comment-only fragments are dropped.
+    """
+    out: list[str] = []
+    buf = ""
+    for piece in sql.split(";"):
+        buf += piece + ";"
+        if sqlite3.complete_statement(buf):
+            stmt, buf = buf.strip(), ""
+            has_sql = any(line.strip() and not line.strip().startswith("--")
+                          for line in stmt.rstrip(";").splitlines())
+            if has_sql:
+                out.append(stmt)
+    return out
+
+
 def _run_migrations(conn: sqlite3.Connection) -> list[int]:
     """Apply any migrations not yet recorded in `schema_version`.
 
     Returns the versions applied in this call (empty if up-to-date).
-    Each migration runs in its own transaction so a failure leaves the
-    DB at the last successfully-applied version.
+    Each migration's statements AND its schema_version marker commit in
+    one transaction, so an interruption leaves the DB exactly at the last
+    fully-applied version — never a half-applied file whose committed
+    ALTERs make the retry fail with "duplicate column name".
     """
     conn.executescript(_SCHEMA_VERSION_DDL)
     applied = {r[0] for r in conn.execute("SELECT version FROM schema_version")}
@@ -122,7 +146,9 @@ def _run_migrations(conn: sqlite3.Connection) -> list[int]:
             continue
         sql = path.read_text()
         try:
-            conn.executescript(sql)
+            conn.execute("BEGIN IMMEDIATE")
+            for stmt in _sql_statements(sql):
+                conn.execute(stmt)
             conn.execute(
                 "INSERT INTO schema_version (version) VALUES (?)", (version,)
             )
@@ -469,22 +495,31 @@ def get_player_exchanges(world_seed: int, node_name: str, identity: str,
 @_with_db
 def record_mutation(world_seed: int, node_name: str, mutation_type: str,
                     player_name: str | None, data: dict,
-                    actor_identity: str | None = None) -> None:
+                    actor_identity: str | None = None,
+                    strength: float | None = None) -> None:
     """Append one chronicle row.
 
     `player_name` is the mutable display label; `actor_identity` is the
     durable key for WHO — the credential hash (sha256(key)[:16]) when the
     request carried a per-user invite key, else the display name, else
     None. Callers on human paths should always pass it.
+
+    `strength` is the traced causal event's strength (ADR-009). A row that
+    is a fired event's chronicle trace must carry it — including the
+    producer-attributed origin rows on record=False buses, which are their
+    event's only trace — and every other row must leave it None: ripple is
+    rebuilt as a fold over exactly the strength-bearing rows, so a fired
+    event must carry strength on exactly one row.
     """
     with _connect() as conn:
         conn.execute(
             """INSERT INTO world_mutations
                (world_seed, node_name, mutation_type, player_name, data,
-                actor_identity)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+                actor_identity, strength)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (world_seed, node_name, mutation_type, player_name,
-             json.dumps(data), actor_identity),
+             json.dumps(data), actor_identity,
+             None if strength is None else float(strength)),
         )
 
 
@@ -801,24 +836,266 @@ def increment_ripple_score(world_seed: int, node_name: str, delta: float) -> Non
         )
 
 
-@_with_db
-def upsert_node_properties(world_seed: int, node_name: str, changed: dict) -> None:
-    """Merge `changed` into the node's persisted property overlay.
+# ── Chronicled deltas (ADR-009): the one atomic substance-write API ────────
+# Every write that materially changes a node's substance chronicles its
+# delta at write time, in the same transaction that applies it. The overlay
+# writer below is module-internal: record_substance_change is the only door
+# to node properties, so future compliance is structural, not a checklist.
+
+# The live ripple increment adds strength × this per fired event (matching
+# the in-memory accumulation in CausalityBus._fire); rebuild_ripple_scores
+# folds chronicled strengths through the same constant.
+# causality.wiring re-exports it for the bus handlers.
+RIPPLE_INCREMENT_PER_STRENGTH = 0.1
+
+
+def _apply_overlay_patch(conn: sqlite3.Connection, world_seed: int,
+                         node_name: str, changed: dict) -> None:
+    """Merge `changed` into the node's persisted property overlay, on an
+    already-open connection — always inside record_substance_change's
+    transaction, never on its own.
 
     The overlay is applied on top of deterministic generation at every world
     rebuild (`load_node_property_overrides` + `apply_property_overrides`), so
     a causal event's material consequence outlives the request that fired it.
-    `json_patch` merges atomically at the DB level.
+    `json_patch` merges RFC 7396-style at the DB level (a null value deletes
+    its key) — `json_merge_patch` below is the same semantics in Python, so
+    the fold reproduces exactly what this applied.
+    """
+    conn.execute(
+        f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, properties, updated_at, created_at)
+           VALUES (?, ?, 0.0, ?, {_NOW}, {_NOW})
+           ON CONFLICT(world_seed, node_name) DO UPDATE SET
+             properties = json_patch(COALESCE(node_runtime_state.properties, '{{}}'), excluded.properties),
+             updated_at = excluded.updated_at""",
+        (world_seed, node_name, json.dumps(changed)),
+    )
+
+
+def _insert_substance_row(conn: sqlite3.Connection, world_seed: int,
+                          node_name: str, mutation_type: str,
+                          player_name: str | None, data: dict, delta: dict,
+                          strength: float | None,
+                          actor_identity: str | None) -> int:
+    """The atomic core, on an already-locked connection: allocate the
+    per-node version, append the delta-bearing chronicle row, apply the
+    overlay patch. Returns the allocated version."""
+    version = conn.execute(
+        """SELECT COALESCE(MAX(node_version), 0) + 1
+           FROM world_mutations
+           WHERE world_seed = ? AND node_name = ?""",
+        (world_seed, node_name),
+    ).fetchone()[0]
+    conn.execute(
+        """INSERT INTO world_mutations
+           (world_seed, node_name, mutation_type, player_name, data,
+            actor_identity, strength, delta, node_version)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (world_seed, node_name, mutation_type, player_name,
+         json.dumps(data), actor_identity,
+         None if strength is None else float(strength),
+         json.dumps(delta), version),
+    )
+    _apply_overlay_patch(conn, world_seed, node_name, delta)
+    return version
+
+
+@_with_db
+def record_substance_change(world_seed: int, node_name: str,
+                            mutation_type: str, player_name: str | None,
+                            data: dict, delta: dict, *,
+                            strength: float | None = None,
+                            actor_identity: str | None = None) -> int:
+    """Chronicle a substance change and apply it — one transaction (ADR-009).
+
+    For deltas that are ABSOLUTE facts (a planted maturation landing, a
+    constellation lighting): appends the chronicle row (the merge patch in
+    `delta`, the triggering event's kind as `mutation_type`, and its
+    `strength` when this row is the event's strength-bearing trace),
+    applies the same patch to the node_runtime_state overlay, and allocates
+    the per-node monotonic `node_version` that defines the fold order.
+    A crash mid-write leaves neither half; concurrent writers on one node
+    serialize into distinct versions. Returns the allocated version.
+
+    Deltas that are TRANSITIONS of current state (danger rises by one,
+    the inscription count increments) must use
+    `record_substance_transition` instead, which recomputes the delta
+    under the serialization lock — a transition computed from a
+    request-local snapshot chronicles a stale change when writers race.
+    """
+    if not delta:
+        raise ValueError("record_substance_change requires a non-empty delta")
+    with _connect() as conn:
+        # Take the write lock before reading MAX(node_version): a deferred
+        # transaction would let two writers allocate the same version from
+        # the same read snapshot and fail non-retryably on upgrade.
+        conn.execute("BEGIN IMMEDIATE")
+        return _insert_substance_row(
+            conn, world_seed, node_name, mutation_type, player_name, data,
+            delta, strength, actor_identity)
+
+
+@_with_db
+def record_substance_transition(world_seed: int, node_name: str,
+                                mutation_type: str, player_name: str | None,
+                                data: dict,
+                                compute: Callable[[dict], dict | None], *,
+                                strength: float | None = None,
+                                actor_identity: str | None = None
+                                ) -> dict | None:
+    """Chronicle an event whose material delta depends on current state.
+
+    Holds the write lock, reads the node's LIVE overlay, and calls
+    `compute(live_overlay) -> delta | None` — so the transition is derived
+    from the state it will actually apply to, never from a request-local
+    snapshot that a concurrent writer may have outrun (two danger alerts
+    from danger 5 land 6 then 7, not 6 twice). The event row is appended
+    either way (a fired event always chronicles); when `compute` yields a
+    delta the same row carries it (+ node_version) and the overlay change
+    commits in the same transaction. `compute` must be pure and fast — it
+    runs inside the transaction and must not touch the database. Returns
+    the applied delta, or None when the event had no material consequence
+    against live state.
     """
     with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            """SELECT properties FROM node_runtime_state
+               WHERE world_seed = ? AND node_name = ?""",
+            (world_seed, node_name),
+        ).fetchone()
+        live_overlay = json.loads(row[0]) if row and row[0] else {}
+        delta = compute(live_overlay)
+        if delta:
+            _insert_substance_row(
+                conn, world_seed, node_name, mutation_type, player_name,
+                data, delta, strength, actor_identity)
+            return delta
         conn.execute(
-            f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, properties, updated_at, created_at)
-               VALUES (?, ?, 0.0, ?, {_NOW}, {_NOW})
-               ON CONFLICT(world_seed, node_name) DO UPDATE SET
-                 properties = json_patch(COALESCE(node_runtime_state.properties, '{{}}'), excluded.properties),
-                 updated_at = excluded.updated_at""",
-            (world_seed, node_name, json.dumps(changed)),
+            """INSERT INTO world_mutations
+               (world_seed, node_name, mutation_type, player_name, data,
+                actor_identity, strength)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (world_seed, node_name, mutation_type, player_name,
+             json.dumps(data), actor_identity,
+             None if strength is None else float(strength)),
         )
+        return None
+
+
+def json_merge_patch(target: Any, patch: Any) -> Any:
+    """Apply one RFC 7396 merge patch — SQLite's json_patch, in Python.
+
+    A dict patch merges key-by-key (None deletes, nested dicts recurse,
+    everything else replaces); a non-dict patch replaces the target
+    wholesale. Pure function; the fold below reduces a node's chronicled
+    deltas through it.
+    """
+    if not isinstance(patch, dict):
+        return patch
+    out = dict(target) if isinstance(target, dict) else {}
+    for key, value in patch.items():
+        if value is None:
+            out.pop(key, None)
+        elif isinstance(value, dict):
+            out[key] = json_merge_patch(out.get(key), value)
+        else:
+            out[key] = value
+    return out
+
+
+@_with_db
+def fold_node_properties(world_seed: int, node_name: str,
+                         upto_version: int | None = None) -> dict:
+    """The node's overlay at a point in its history, folded from the record.
+
+    State-at-T is the born row (world_nodes, immutable) plus this fold:
+    every chronicled delta for the node, merged in per-node version order,
+    up to and including `upto_version` (None folds everything — which must
+    equal the live overlay). recorded_at is second-precision and cannot
+    order non-commutative patches sharing a timestamp, so the version is
+    the cursor; the wayback surface (batch 4) resolves a wall-clock T to
+    the greatest version recorded at or before it, then calls this.
+    """
+    with _connect() as conn:
+        if upto_version is None:
+            rows = conn.execute(
+                """SELECT delta FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND delta IS NOT NULL
+                   ORDER BY node_version""",
+                (world_seed, node_name),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT delta FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND delta IS NOT NULL AND node_version <= ?
+                   ORDER BY node_version""",
+                (world_seed, node_name, upto_version),
+            ).fetchall()
+    state: dict = {}
+    for (blob,) in rows:
+        state = json_merge_patch(state, json.loads(blob))
+    return state
+
+
+@_with_db
+def get_substance_deltas(world_seed: int,
+                         node_name: str) -> list[dict[str, Any]]:
+    """The node's chronicled delta rows in fold order — the change stream
+    the fold and the invariant tests read."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT node_version, mutation_type, delta, strength,
+                      recorded_at
+               FROM world_mutations
+               WHERE world_seed = ? AND node_name = ? AND delta IS NOT NULL
+               ORDER BY node_version""",
+            (world_seed, node_name),
+        ).fetchall()
+    return [{"version": r[0], "type": r[1], "delta": json.loads(r[2]),
+             "strength": r[3], "at": r[4]} for r in rows]
+
+
+@_with_db
+def rebuild_ripple_scores(world_seed: int) -> dict[str, float]:
+    """Recompute every node's ripple_score from the chronicle (ADR-009).
+
+    The persisted score is a derived cache, never authoritative: each fired
+    causal event carries its strength on exactly one chronicle row, and the
+    live increment is monotonic, non-negative, and capped at 1.0 — a pure
+    fold of chronicled strengths × RIPPLE_INCREMENT_PER_STRENGTH. Cache
+    drift is repaired by calling this; only the chronicle is the record.
+    Returns the rebuilt {node_name: score} map.
+    """
+    with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        sums = conn.execute(
+            """SELECT node_name, SUM(strength) FROM world_mutations
+               WHERE world_seed = ? AND strength IS NOT NULL
+               GROUP BY node_name""",
+            (world_seed,),
+        ).fetchall()
+        rebuilt = {name: min(1.0, total * RIPPLE_INCREMENT_PER_STRENGTH)
+                   for name, total in sums}
+        conn.execute(
+            f"""UPDATE node_runtime_state
+                SET ripple_score = 0.0, updated_at = {_NOW}
+                WHERE world_seed = ?""",
+            (world_seed,),
+        )
+        for name, score in rebuilt.items():
+            conn.execute(
+                f"""INSERT INTO node_runtime_state
+                    (world_seed, node_name, ripple_score, updated_at, created_at)
+                   VALUES (?, ?, ?, {_NOW}, {_NOW})
+                   ON CONFLICT(world_seed, node_name) DO UPDATE SET
+                     ripple_score = excluded.ripple_score,
+                     updated_at   = excluded.updated_at""",
+                (world_seed, name, score),
+            )
+    return rebuilt
 
 
 @_with_db

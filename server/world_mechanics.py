@@ -7,7 +7,7 @@ testable without changing their public behavior.
 from __future__ import annotations
 
 import persistence
-from causality import CausalityBus, EventKind
+from causality import ORIGIN_STRENGTH, CausalityBus, EventKind
 from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
 from multiverse import store
@@ -49,15 +49,20 @@ def check_constellation(
         return
     display = solver if solver != "anonymous" else None
     word = CONSTELLATION_LEVELS[container.level]
-    persistence.record_mutation(
+    # One atomic write (ADR-009): the CONSTELLATION_COMPLETE row now carries
+    # its {"constellated": true} delta and commits together with the overlay
+    # change, stamped with the origin event's strength (the bus below is
+    # wired record=False, so this row is the event's only trace).
+    persistence.record_substance_change(
         seed,
         container.name,
         "CONSTELLATION_COMPLETE",
         display,
         {"children": total, "of": word},
+        {"constellated": True},
+        strength=ORIGIN_STRENGTH,
         actor_identity=actor_identity,
     )
-    persistence.upsert_node_properties(seed, container.name, {"constellated": True})
     broadcast(
         room,
         {

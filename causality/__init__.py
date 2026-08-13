@@ -42,6 +42,11 @@ Handler = Callable[["SpatialNode", CausalEvent], None]
 
 MIN_STRENGTH: float = 0.05
 DAMPENING: float = 0.6   # default per-depth attenuation factor
+# Every origin event fires at this strength (emit/propagate below build it
+# in). Producers that write their own attributed origin row (the
+# record=False paths) stamp it on that row, since the row is the fired
+# event's only strength-bearing chronicle trace (ADR-009).
+ORIGIN_STRENGTH: float = 1.0
 
 
 class CausalityBus:
@@ -76,7 +81,7 @@ class CausalityBus:
             kind=kind,
             origin_id=node.id,
             origin_level=node.level,
-            strength=1.0,
+            strength=ORIGIN_STRENGTH,
             payload=payload or {},
         )
         self._fire(node, event)
@@ -121,7 +126,7 @@ class CausalityBus:
             kind=kind,
             origin_id=origin.id,
             origin_level=origin.level,
-            strength=1.0,
+            strength=ORIGIN_STRENGTH,
             payload=payload or {},
         )
         self._fire(origin, event)

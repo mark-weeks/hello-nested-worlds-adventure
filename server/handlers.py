@@ -15,7 +15,9 @@ import causality
 import persistence
 from causality import CausalityBus, EventKind
 from causality.staging import stage_cascade
-from causality.wiring import wire_world_handlers
+from causality.wiring import (
+    record_origin_event, record_verb_act, wire_world_handlers,
+)
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
 from multiverse import store
@@ -1199,30 +1201,40 @@ class Handler(BaseHTTPRequestHandler):
                 f"here you can only {verb.name}", 400)
 
         token = f"{player_name or 'traveler'}:{target.name}"
+        base_props = dict(target.properties)
         changed, flavor = apply_verb(target, verb, token)
         matures = maturation_seconds(target.level) if changed else 0.0
 
         if changed:
+            # The one canonical chronicle row for this act — attributed by
+            # durable identity, stamped with the origin event's strength
+            # (the bus below is wired record=False, so this row is the
+            # event's only strength-bearing trace).
             if matures > 0:
                 # Deep time: the cosmic scales answer on cosmic clocks. The
                 # act is chronicled now; the property change rides the
-                # maturation queue and lands when the pump says it's time.
+                # maturation queue and its delta is chronicled when it lands.
                 persistence.enqueue_verb_maturation(
                     seed, target.name, verb.name, changed, player_name,
                     matures)
                 flavor += maturation_note(matures)
+                persistence.record_mutation(
+                    seed, target.name, "SCALE_ACT", player_name,
+                    {"verb": verb.name, "changed": changed,
+                     "matures_in": int(matures)},
+                    actor_identity=_actor_identity(user_key, player_name),
+                    strength=causality.ORIGIN_STRENGTH,
+                )
             else:
-                persistence.upsert_node_properties(seed, target.name, changed)
-            # The one canonical chronicle row for this act — attributed by
-            # durable identity. The origin bus below is wired record=False
-            # so it doesn't write a second, anonymous copy.
-            act_data = {"verb": verb.name, "changed": changed}
-            if matures > 0:
-                act_data["matures_in"] = int(matures)
-            persistence.record_mutation(
-                seed, target.name, "SCALE_ACT", player_name, act_data,
-                actor_identity=_actor_identity(user_key, player_name),
-            )
+                # One transaction: the attributed SCALE_ACT row + overlay
+                # change, with the verb's transition re-derived against
+                # the live overlay under the lock (the delta column is the
+                # canonical record of what changed).
+                changed = record_verb_act(
+                    seed, target, verb, token, base_props,
+                    {"verb": verb.name}, player_name=player_name,
+                    actor_identity=_actor_identity(user_key, player_name),
+                )
 
             room = get_room(seed)
             broadcast(room, {
@@ -1345,10 +1357,16 @@ class Handler(BaseHTTPRequestHandler):
             # The one canonical chronicle row for this solve — the origin
             # bus below is wired record=False so it doesn't write a second,
             # anonymous copy (which also double-counted the art's activity).
-            persistence.record_mutation(
-                seed, effective_node, "PUZZLE_SOLVED",
-                session.solver if session.solver != "anonymous" else None,
+            # It carries the origin event's strength AND its material
+            # consequence: the delta is computed against the live overlay
+            # under the write lock and commits with the row and the overlay
+            # in one transaction, so a canonical solve can never outlive a
+            # lost delta.
+            record_origin_event(
+                seed, target, EventKind.PUZZLE_SOLVED,
                 {"puzzle": p.name, "contributors": contributors},
+                player_name=(session.solver
+                             if session.solver != "anonymous" else None),
                 actor_identity=_actor_identity(user_key, player_name),
             )
             broadcast(room, {"type": "puzzle_solved", "node": effective_node,

@@ -1,8 +1,9 @@
 # ADR-009: Chronicled Deltas — event-sourced node substance
 
-**Status:** Proposed 2026-08-10 — drafted from the recursion-and-time design
-thread (`docs/evaluation/2026-08-10-recursion-and-time.md`), owner-directed.
-Owner ratification lands at the merge gate of the implementing PR. This is
+**Status:** Accepted 2026-08-10 — ratified by the owner at the merge gate of
+the implementing PR (pre-launch batch 1), whose merge enacts this decision.
+Drafted the same day from the recursion-and-time design thread
+(`docs/evaluation/2026-08-10-recursion-and-time.md`), owner-directed. This is
 the **first batch of the pre-launch sequence**: it must land before any
 production history exists.
 Revised 2026-08-10 after the owner's PR #76 review: the decision now

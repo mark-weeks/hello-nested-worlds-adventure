@@ -48,7 +48,20 @@ with the loop closed, the laws teachable, and the archive running from
 the world's first moment — accepted with its cost in launch delay and
 integration risk, and re-scopeable without breaking any architecture.
 
-### Batch 1 — Chronicled deltas (ADR-009) · must precede any deploy
+### Batch 1 — Chronicled deltas (ADR-009) · must precede any deploy · SHIPPED
+
+Shipped 2026-08-10, PR #77 (see the CHANGELOG's batch entry for the
+measured record and the review-hardening round); ADR-009 ratified Accepted
+at its merge gate. As built: one atomic write API
+(`persistence.record_substance_change` for absolute deltas,
+`record_substance_transition` computing transition deltas under the
+serialization lock) with the six writers routed through it; producer-owned
+origin events land their one attributed row + delta + overlay change in a
+single transaction (`causality.wiring.record_origin_event` /
+`record_verb_act`); strength on every fired event's single trace row; the
+fold helpers and the ripple rebuild; the migration runner made atomic per
+file — all four test families landed, plus same-key concurrency and
+interrupted-migration recovery probes. The plan, as it stood:
 
 One atomic write API: a single transaction chronicles the delta + event
 strength, applies the overlay merge patch, and allocates a per-node
