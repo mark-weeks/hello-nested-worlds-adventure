@@ -149,7 +149,7 @@
   // display layer shows the phrase and keeps the address one gesture away
   // (hover / a dedicated field); the canonical full name remains the sole
   // identity everywhere data is keyed or sent. Mirrors the puzzle layer's
-  // own reading (puzzles/generators.py `_base_name`): answers were already
+  // own reading (puzzles/generators.py `_living_name`): answers were already
   // the phrase, never the address.
 
   function nodeAddress(name) {
@@ -163,6 +163,24 @@
   function displayName(name) {
     const s = String(name || "");
     return nodeAddress(s) === null ? s : s.slice(0, s.lastIndexOf("-"));
+  }
+
+  // Live narration builders, shared so both clients' feeds and observation
+  // tables speak the same display-layer language (and so the behavior is
+  // testable once, here, rather than per presentation shell).
+
+  function causalFeedLine(kind, node, strength) {
+    const kindFmt = String(kind || "").replace(/_/g, " ").toLowerCase();
+    const shown = Number.isFinite(strength) ? ` ×${strength.toFixed(2)}` : "";
+    return `↯ ${kindFmt} · ${displayName(node)}${shown}`;
+  }
+
+  function observationRow({ node, kind, strength }) {
+    return {
+      name: displayName(node),
+      event: String(kind || "").replace(/_/g, " ").toLowerCase(),
+      pct: Math.round((strength || 0) * 100),
+    };
   }
 
   function mutationLine(mutation) {
@@ -197,6 +215,7 @@
 
   root.EnfoldedClient = Object.freeze({
     BADGE_RULES,
+    causalFeedLine,
     describeChronicleEntry,
     describeMutation,
     displayName,
@@ -208,6 +227,7 @@
     mutationLine,
     nodeAddress,
     nodeMark,
+    observationRow,
     passageBadges,
     resumeDepth,
     wrapAffordance,

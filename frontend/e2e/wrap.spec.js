@@ -97,5 +97,18 @@ test("explorer crosses the wrap in both directions", async ({ page, request }) =
   await expect(page.locator("#node-name")).toHaveText(hingePhrase);
   await expect(page.locator("#event-feed")).toContainText("beyond the last membrane");
 
+  // The live observer flow also speaks display names: watch an agent
+  // traverse from here and check the first row — the phrase shown, no
+  // address riding it, the canonical name kept on hover.
+  await page.click("#btn-observe");
+  // The sidebar's dense layout can occlude the panel button at the test
+  // viewport; dispatch the click straight to its listener — the SSE flow
+  // and row rendering under test are unaffected by pointer physics.
+  await page.locator("#btn-do-observe").dispatchEvent("click");
+  const obsName = page.locator(".obs-row .obs-name").first();
+  await expect(obsName).toBeVisible({ timeout: 10_000 });
+  await expect(obsName).not.toHaveText(/-\d+$/);
+  await expect(obsName).toHaveAttribute("title", /-\d+$/);
+
   expect(errors).toEqual([]);
 });

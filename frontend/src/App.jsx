@@ -363,7 +363,7 @@ export default function App() {
 
   const deepenWorld = useCallback(async () => {
     if (!currentNodeName || worldDepth >= MAX_WORLD_DEPTH) return;
-    pushEvent({ type: "system", text: `↓ looking within ${currentNodeName}` });
+    pushEvent({ type: "system", text: `↓ looking within ${displayName(currentNodeName)}` });
     await loadWorld({
       depth: worldDepth + 1,
       targetNode: currentNodeName,

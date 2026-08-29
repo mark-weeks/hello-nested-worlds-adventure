@@ -2,7 +2,7 @@ import { useState } from "react";
 import Chronicle from "./Chronicle.jsx";
 import Interact from "./Interact.jsx";
 import { passageBadges } from "../badges.js";
-import { displayName, nodeAddress } from "../names.js";
+import { causalFeedLine, displayName, nodeAddress } from "../names.js";
 
 export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, canDeepen = false, onDeepen, wrapPassage = null, onWrapCross, onSolved, soundOn, onToggleSound }) {
   const [chatInput, setChatInput] = useState("");
@@ -188,7 +188,7 @@ function EventRow({ ev }) {
   if (ev.type === "chat")
     return <div style={er.chat}><span style={er.name}>{ev.name}</span> {ev.text}</div>;
   if (ev.type === "causal")
-    return <div style={er.causal}>↯ {ev.kind.replace(/_/g, " ").toLowerCase()} · {ev.node} ×{ev.strength?.toFixed(2)}</div>;
+    return <div style={er.causal}>{causalFeedLine(ev.kind, ev.node, ev.strength)}</div>;
   if (ev.type === "puzzle")
     return <div style={er.puzzle}>{ev.text}</div>;
   if (ev.type === "history")

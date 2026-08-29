@@ -64,6 +64,7 @@ let hierLayout  = null;   // the laid-out d3 hierarchy, for centring on a node
 const LAST_NODE_KEY  = 'nw_last_node';
 const LAST_DEPTH_KEY = 'nw_view_depth';
 const {
+  causalFeedLine,
   describeChronicleEntry,
   describeMutation,
   displayName,
@@ -72,6 +73,7 @@ const {
   firstWrapCrossing,
   nodeAddress,
   nodeMark,
+  observationRow,
   resumeDepth,
   wrapAffordance,
 } = window.EnfoldedClient;
@@ -626,15 +628,16 @@ function observe() {
 }
 
 function appendObserveRow({ node, level, kind, strength }) {
-  const color   = LEVEL_COLORS[level] || '#666';
-  const pct     = Math.round(strength * 100);
-  const kindFmt = kind.replace(/_/g, ' ').toLowerCase();
-  const row     = document.createElement('div');
+  const color = LEVEL_COLORS[level] || '#666';
+  // Shared display-layer row: the observer's table speaks display names
+  // like every other narration surface (clientlogic.observationRow).
+  const obs = observationRow({ node, kind, strength });
+  const row = document.createElement('div');
   row.className = 'obs-row';
   row.innerHTML = `
-    <span class="obs-name"  style="color:${color}">${escHtml(node)}</span>
-    <span class="obs-event">${escHtml(kindFmt)}</span>
-    <span class="bar-track"><span class="bar-fill" style="width:${pct}%;background:${color}"></span></span>
+    <span class="obs-name"  style="color:${color}" title="${escHtml(node)}">${escHtml(obs.name)}</span>
+    <span class="obs-event">${escHtml(obs.event)}</span>
+    <span class="bar-track"><span class="bar-fill" style="width:${obs.pct}%;background:${color}"></span></span>
     <span class="obs-strength">${strength.toFixed(2)}</span>`;
   const log = document.getElementById('observe-rows');
   log.appendChild(row);
@@ -931,7 +934,7 @@ function handleWsMsg(msg) {
         // its puzzle panel is attemptable — the key is spoken from the
         // threshold, and solving re-sends the move (the way opens).
         pushFeed(`▦ ${escHtml(displayName(msg.node))} is sealed — its key is written in ` +
-                 `${escHtml(msg.keeper || 'the scale above')}`);
+                 `${escHtml(msg.keeper ? displayName(msg.keeper) : 'the scale above')}`);
         if (msg.prompt) pushFeed(`   ${escHtml(msg.prompt)}`);
       } else {
         pushFeed(`✕ no way to ${escHtml(displayName(msg.node))} — ${escHtml(msg.reason)}`);
@@ -988,8 +991,7 @@ function handleWsMsg(msg) {
       pushFeed(`✕ ${escHtml(msg.text)}`);
       break;
     case 'causal_event': {
-      const kindFmt = msg.kind.replace(/_/g, ' ').toLowerCase();
-      pushFeed(`↯ ${kindFmt} · ${displayName(msg.node)} ×${msg.strength.toFixed(2)}`);
+      pushFeed(causalFeedLine(msg.kind, msg.node, msg.strength));
       flashNode(msg.node, msg.strength);
       break;
     }

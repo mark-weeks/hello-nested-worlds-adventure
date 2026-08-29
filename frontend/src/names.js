@@ -12,3 +12,11 @@ export function displayName(name) {
 export function nodeAddress(name) {
   return shared.nodeAddress(name);
 }
+
+export function causalFeedLine(kind, node, strength) {
+  return shared.causalFeedLine(kind, node, strength);
+}
+
+export function observationRow(event) {
+  return shared.observationRow(event);
+}

@@ -20,7 +20,7 @@ def display_name(name: str) -> str:
     everywhere data is keyed, sent, or chronicled; this exists so player-
     facing chrome can show "Hidden Thorn Quark" while the address stays one
     gesture away. Mirrors clientlogic.js `displayName` and the puzzle
-    layer's `_base_name` reading.
+    layer's `_living_name` reading.
     """
     address = node_address(name)
     if address is None:
