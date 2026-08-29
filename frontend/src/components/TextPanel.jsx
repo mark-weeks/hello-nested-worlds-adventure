@@ -2,6 +2,7 @@ import { useState } from "react";
 import Chronicle from "./Chronicle.jsx";
 import Interact from "./Interact.jsx";
 import { passageBadges } from "../badges.js";
+import { causalFeedLine, displayName, nodeAddress } from "../names.js";
 
 export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, canDeepen = false, onDeepen, wrapPassage = null, onWrapCross, onSolved, soundOn, onToggleSound }) {
   const [chatInput, setChatInput] = useState("");
@@ -21,7 +22,16 @@ export default function TextPanel({ node, players, agents = {}, connected, event
 
       <div style={s.section}>
         <div style={s.label}>{node.level}</div>
-        <div style={s.name}>{node.name}</div>
+        {/* Display layer: the readable phrase carries the identity a player
+            speaks; the address (path digits) sits beneath as its own field,
+            and hovering the name reveals the full canonical form. */}
+        <div style={s.name} title={node.name}>{displayName(node.name)}</div>
+        {nodeAddress(node.name) && (
+          <div style={s.address}
+               title="this place's address — its path from the root of the multiverse">
+            ⌖ {nodeAddress(node.name)}
+          </div>
+        )}
       </div>
 
       {Object.keys(node.properties).length > 0 && (
@@ -50,8 +60,8 @@ export default function TextPanel({ node, players, agents = {}, connected, event
         <div style={s.section}>
           <div style={s.label}>Passages ({node.children.length})</div>
           {node.children.map(c => (
-            <div key={c.id} style={s.passage}>
-              → {c.name} <span style={s.passageLevel}>({c.level})</span>
+            <div key={c.id} style={s.passage} title={c.name}>
+              → {displayName(c.name)} <span style={s.passageLevel}>({c.level})</span>
               {passageBadges(c).map(b => (
                 <span key={b.key} style={{ ...s.badge, color: b.css, borderColor: b.css + "55" }}>{b.label}</span>
               ))}
@@ -101,7 +111,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
               onClick={() => p.node && onJump?.(p.node)}
             >
               <span style={s.travelerName}>◈ {p.name}</span>
-              <span style={s.travelerNode}>{p.node || "—"}</span>
+              <span style={s.travelerNode} title={p.node}>{p.node ? displayName(p.node) : "—"}</span>
             </div>
           ))}
           {Object.entries(agents).map(([name, a]) => (
@@ -114,7 +124,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
               <span style={{ ...s.travelerName, color: "#f0c878" }}>
                 ✦ {name}{a.persona ? <span style={s.travelerPersona}> · {a.persona}</span> : null}
               </span>
-              <span style={s.travelerNode}>{a.node || "…arriving"}</span>
+              <span style={s.travelerNode} title={a.node}>{a.node ? displayName(a.node) : "…arriving"}</span>
             </div>
           ))}
         </div>
@@ -178,7 +188,7 @@ function EventRow({ ev }) {
   if (ev.type === "chat")
     return <div style={er.chat}><span style={er.name}>{ev.name}</span> {ev.text}</div>;
   if (ev.type === "causal")
-    return <div style={er.causal}>↯ {ev.kind.replace(/_/g, " ").toLowerCase()} · {ev.node} ×{ev.strength?.toFixed(2)}</div>;
+    return <div style={er.causal}>{causalFeedLine(ev.kind, ev.node, ev.strength)}</div>;
   if (ev.type === "puzzle")
     return <div style={er.puzzle}>{ev.text}</div>;
   if (ev.type === "history")
@@ -197,6 +207,7 @@ const s = {
   chronicleBtn:{ background: "none", border: "1px solid #1e2235", color: "#4a5580", padding: "1px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase" },
   label:       { fontSize: "10px", color: "#4a5580", textTransform: "uppercase", letterSpacing: "0.12em" },
   name:        { fontSize: "18px", color: "#d0daf0", fontWeight: "bold", lineHeight: 1.2 },
+  address:     { fontSize: "10px", color: "#4a5580", letterSpacing: "0.08em" },
   prop:        { display: "flex", justifyContent: "space-between", fontSize: "12px", gap: "8px" },
   propKey:     { color: "#6878a8" },
   propVal:     { color: "#9aaac8", textAlign: "right", wordBreak: "break-all" },

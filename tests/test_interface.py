@@ -39,10 +39,13 @@ def _reset_causality():
 
 class TestFormatting:
     def test_fmt_includes_level_and_name(self):
+        # Display layer: the readable phrase is shown; the address (path
+        # digits) lives in its own `look` field, not in the shown name.
         node = SpatialNode("Vault-1", "Room")
         result = _fmt(node)
         assert "Room" in result
-        assert "Vault-1" in result
+        assert "Vault" in result
+        assert "Vault-1" not in result
 
     def test_fmt_applies_ansi_reset(self):
         node = SpatialNode("X", "Planet")
@@ -52,7 +55,7 @@ class TestFormatting:
         root = make_tree()
         _print_look(root)
         out = capsys.readouterr().out
-        assert "Vela-2" in out
+        assert "Vela" in out
         assert "[1]" in out
 
     def test_print_look_leaf_node(self, capsys):
@@ -64,6 +67,27 @@ class TestFormatting:
         _print_look(leaf)
         out = capsys.readouterr().out
         assert "leaf node" in out
+
+    def test_print_look_shows_the_address_as_its_own_field(self, capsys):
+        # The display name drops the path suffix, but the address stays
+        # visible: a dedicated field, not clutter riding the name.
+        node = SpatialNode("Pale Bell Beacon-11431112", "Object")
+        _print_look(node)
+        out = capsys.readouterr().out
+        assert "Pale Bell Beacon" in out
+        assert "Pale Bell Beacon-11431112" not in out
+        assert "address" in out and "11431112" in out
+
+    def test_hand_built_names_without_addresses_display_whole(self, capsys):
+        from multiverse.utils import display_name, node_address
+        assert display_name("Hidden Thorn Quark-11431112111") == "Hidden Thorn Quark"
+        assert node_address("Hidden Thorn Quark-11431112111") == "11431112111"
+        # No suffix → nothing stripped, nothing shown as an address.
+        assert display_name("Aethon") == "Aethon"
+        assert node_address("Aethon") is None
+        node = SpatialNode("Aethon", "Multiverse")
+        _print_look(node)
+        assert "address" not in capsys.readouterr().out
 
     def test_print_look_shows_properties(self, capsys):
         node = SpatialNode("X", "Planet", properties={"biome": "jungle", "gravity": 1.5})
@@ -77,17 +101,18 @@ class TestFormatting:
         stack = [root, root.children[0]]
         _print_breadcrumb(stack)
         out = capsys.readouterr().out
-        assert "Aethon-1" in out
-        assert "Vela-2" in out
+        assert "Aethon" in out
+        assert "Vela" in out
+        assert "Vela-2" not in out  # the address stays off the breadcrumb
         assert "→" in out
 
     def test_print_map_renders_tree(self, capsys):
         root = make_tree()
         _print_map(root)
         out = capsys.readouterr().out
-        assert "Aethon-1" in out
-        assert "Vela-2" in out
-        assert "Kethara-3" in out
+        assert "Aethon" in out
+        assert "Vela" in out
+        assert "Kethara" in out
 
     def test_print_map_truncates_at_max_depth(self, capsys):
         root = make_tree()
@@ -162,10 +187,11 @@ class TestAmbientMode:
             with patch("time.sleep"):
                 _ambient_mode(root, seed=777)
         out = capsys.readouterr().out
-        # Every tree node should appear as the agent visits it
-        assert "Aethon-1" in out
-        assert "Vela-2" in out
-        assert "Kethara-3" in out
+        # Every tree node should appear as the agent visits it — by its
+        # display name (the address stays off player-facing chrome).
+        assert "Aethon" in out
+        assert "Vela" in out
+        assert "Kethara" in out
 
     def test_ambient_clears_log_on_exit(self):
         root = make_tree()

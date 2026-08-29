@@ -3,6 +3,31 @@ from __future__ import annotations
 from multiverse.node import SpatialNode
 
 
+def node_address(name: str) -> str | None:
+    """The path-digit suffix a canonical node name carries ("Hidden Thorn
+    Quark-11431112111" → "11431112111") — the node's address, its path from
+    the root. None when the name carries no address."""
+    base, separator, suffix = (name or "").rpartition("-")
+    if separator and base and suffix.isdigit():
+        return suffix
+    return None
+
+
+def display_name(name: str) -> str:
+    """The readable phrase without its address — the DISPLAY layer only.
+
+    The canonical full name (phrase + address) stays the sole identity
+    everywhere data is keyed, sent, or chronicled; this exists so player-
+    facing chrome can show "Hidden Thorn Quark" while the address stays one
+    gesture away. Mirrors clientlogic.js `displayName` and the puzzle
+    layer's `_living_name` reading.
+    """
+    address = node_address(name)
+    if address is None:
+        return name or ""
+    return name[:-(len(address) + 1)]
+
+
 def count_nodes(node: SpatialNode) -> int:
     return 1 + sum(count_nodes(c) for c in node.children)
 

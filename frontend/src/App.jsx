@@ -6,6 +6,7 @@ import { withKey, urlName, betaKey } from "./auth.js";
 import { entryPath, resumeDepth } from "./entry.js";
 import { describeMutation } from "./mutations.js";
 import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
+import { displayName } from "./names.js";
 import { NodeAmbience } from "../../static/nodesound.js";
 
 // Honor the OS-level motion preference: transient overlays (ripples,
@@ -184,10 +185,10 @@ export default function App() {
         // the server keeps your true position outside until the key is
         // spoken (solving the room's puzzle re-sends the move).
         pushEvent({ type: "system",
-                    text: `▦ ${msg.node} is sealed — its key is written in ${msg.keeper || "the scale above"}` });
+                    text: `▦ ${displayName(msg.node)} is sealed — its key is written in ${displayName(msg.keeper) || "the scale above"}` });
         if (msg.prompt) pushEvent({ type: "system", text: msg.prompt });
       } else {
-        pushEvent({ type: "system", text: `✕ no way to ${msg.node} — ${msg.reason}` });
+        pushEvent({ type: "system", text: `✕ no way to ${displayName(msg.node)} — ${msg.reason}` });
       }
     },
     onPlayerJoin: (msg) => {
@@ -225,8 +226,8 @@ export default function App() {
       const by = msg.solver ? ` by ${msg.solver}${credit}` : "";
       pushEvent({ type: "puzzle",
                   text: msg.entangled_with
-                    ? `⇄ ${msg.node} resolves — entangled with ${msg.entangled_with}`
-                    : `Puzzle solved: ${msg.puzzle} @ ${msg.node}${by}` });
+                    ? `⇄ ${displayName(msg.node)} resolves — entangled with ${displayName(msg.entangled_with)}`
+                    : `Puzzle solved: ${msg.puzzle} @ ${displayName(msg.node)}${by}` });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "solve", duration: 2000 });
         // If we were standing at a sealed threshold, the solve is the key —
@@ -236,16 +237,16 @@ export default function App() {
     },
     onConstellation: (msg) => {
       pushEvent({ type: "puzzle",
-                  text: `✦✦ CONSTELLATION — every one of ${msg.node}'s ` +
+                  text: `✦✦ CONSTELLATION — every one of ${displayName(msg.node)}'s ` +
                         `${msg.children} ${msg.of || "children"} is resolved` +
                         (msg.by ? ` (completed by ${msg.by})` : "") });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "solve", duration: 2500 });
       }
     },
-    onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${msg.node}` }),
+    onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${displayName(msg.node)}` }),
     onScaleAct: (msg) => {
-      pushEvent({ type: "system", text: `✦ ${msg.actor} ${msg.verb}s ${msg.node} — ${msg.flavor}` });
+      pushEvent({ type: "system", text: `✦ ${msg.actor} ${msg.verb}s ${displayName(msg.node)} — ${msg.flavor}` });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "ripple", strength: 0.8,
                         eventKind: "SCALE_ACT", duration: 1500 });
@@ -260,7 +261,7 @@ export default function App() {
       }
     },
     onAgentEncounter: (msg) => {
-      pushEvent({ type: "system", text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${msg.node}` });
+      pushEvent({ type: "system", text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${displayName(msg.node)}` });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "encounter",
                         agent1: msg.agent1, agent2: msg.agent2,
@@ -341,7 +342,7 @@ export default function App() {
     if (!root || !/^\d+$/.test(suffix)) return;
     if (suffix.length > worldDepth) {
       const targetDepth = Math.min(MAX_WORLD_DEPTH, suffix.length);
-      pushEvent({ type: "system", text: `… deepening the view toward ${nodeName}` });
+      pushEvent({ type: "system", text: `… deepening the view toward ${displayName(nodeName)}` });
       await loadWorld({ depth: targetDepth, targetNode: nodeName, preserveSession: true });
       return;
     }
@@ -355,14 +356,14 @@ export default function App() {
     }
     if (cur.name !== nodeName) {
       pushEvent({ type: "system",
-                  text: `▼ ${nodeName} lies enfolded beneath ${cur.name}` });
+                  text: `▼ ${displayName(nodeName)} lies enfolded beneath ${displayName(cur.name)}` });
     }
     setNodeStack(path);
   }, [loadWorld, pushEvent, worldDepth]);
 
   const deepenWorld = useCallback(async () => {
     if (!currentNodeName || worldDepth >= MAX_WORLD_DEPTH) return;
-    pushEvent({ type: "system", text: `↓ looking within ${currentNodeName}` });
+    pushEvent({ type: "system", text: `↓ looking within ${displayName(currentNodeName)}` });
     await loadWorld({
       depth: worldDepth + 1,
       targetNode: currentNodeName,

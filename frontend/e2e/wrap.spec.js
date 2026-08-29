@@ -33,16 +33,22 @@ test("/app crosses the wrap in both directions", async ({ page, request }) => {
     localStorage.setItem("nw_last_node", nodeName);
   }, wrap.hinge);
 
+  // The display layer shows the phrase; the address gets its own field.
+  const hingePhrase = wrap.hinge.replace(/-\d+$/, "");
+  const hingeAddress = wrap.hinge.split("-").pop();
+  const rootPhrase = wrap.root.replace(/-\d+$/, "");
+
   const errors = collectErrors(page);
   await page.goto("/app");
-  await expect(page.getByText(wrap.hinge, { exact: true })).toBeVisible();
+  await expect(page.getByText(hingePhrase, { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(`⌖ ${hingeAddress}`, { exact: true })).toBeVisible();
 
   // Descend below the particle: surface at the Multiverse root, with the
   // authored line spoken (first crossing in this browser).
   const descend = page.getByRole("button", { name: "Descend into the whole ↓" });
   await expect(descend).toBeVisible();
   await descend.click();
-  await expect(page.getByText(wrap.root, { exact: true })).toBeVisible();
+  await expect(page.getByText(rootPhrase, { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Multiverse", { exact: true })).toBeVisible();
   await expect(page.getByText(/the particle does not end/)).toBeVisible();
 
@@ -50,7 +56,7 @@ test("/app crosses the wrap in both directions", async ({ page, request }) => {
   const ascend = page.getByRole("button", { name: "Ascend beyond ↑" });
   await expect(ascend).toBeVisible();
   await ascend.click();
-  await expect(page.getByText(wrap.hinge, { exact: true })).toBeVisible();
+  await expect(page.getByText(hingePhrase, { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/beyond the last membrane/)).toBeVisible();
 
   expect(errors).toEqual([]);
@@ -65,24 +71,44 @@ test("explorer crosses the wrap in both directions", async ({ page, request }) =
     localStorage.setItem("nw_last_node", nodeName);
   }, wrap.hinge);
 
+  const hingePhrase = wrap.hinge.replace(/-\d+$/, "");
+  const rootPhrase = wrap.root.replace(/-\d+$/, "");
+
   const errors = collectErrors(page);
   await page.goto("/");
   await expect(page.locator("#status")).toContainText("depth 11");
-  await expect(page.locator("#node-name")).toHaveText(wrap.hinge);
+  // Display name in the sidebar; the canonical name survives as hover
+  // title and the address as its own property row.
+  await expect(page.locator("#node-name")).toHaveText(hingePhrase);
+  await expect(page.locator("#node-name")).toHaveAttribute("title", wrap.hinge);
+  await expect(page.locator("#node-props")).toContainText("address");
 
   // The particle offers the descent — and only the descent.
   await expect(page.locator("#btn-wrap-down")).toBeVisible();
   await expect(page.locator("#btn-wrap-up")).toBeHidden();
   await page.click("#btn-wrap-down");
-  await expect(page.locator("#node-name")).toHaveText(wrap.root);
+  await expect(page.locator("#node-name")).toHaveText(rootPhrase);
   await expect(page.locator("#event-feed")).toContainText("the particle does not end");
 
   // The root offers the ascent — and only the ascent.
   await expect(page.locator("#btn-wrap-up")).toBeVisible();
   await expect(page.locator("#btn-wrap-down")).toBeHidden();
   await page.click("#btn-wrap-up");
-  await expect(page.locator("#node-name")).toHaveText(wrap.hinge);
+  await expect(page.locator("#node-name")).toHaveText(hingePhrase);
   await expect(page.locator("#event-feed")).toContainText("beyond the last membrane");
+
+  // The live observer flow also speaks display names: watch an agent
+  // traverse from here and check the first row — the phrase shown, no
+  // address riding it, the canonical name kept on hover.
+  await page.click("#btn-observe");
+  // The sidebar's dense layout can occlude the panel button at the test
+  // viewport; dispatch the click straight to its listener — the SSE flow
+  // and row rendering under test are unaffected by pointer physics.
+  await page.locator("#btn-do-observe").dispatchEvent("click");
+  const obsName = page.locator(".obs-row .obs-name").first();
+  await expect(obsName).toBeVisible({ timeout: 10_000 });
+  await expect(obsName).not.toHaveText(/-\d+$/);
+  await expect(obsName).toHaveAttribute("title", /-\d+$/);
 
   expect(errors).toEqual([]);
 });

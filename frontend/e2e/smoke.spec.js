@@ -177,11 +177,12 @@ test("/app crosses a depth horizon without losing the current node", async ({ pa
 
   const errors = collectErrors(page);
   await page.goto("/app");
-  await expect(page.getByText(horizon.name, { exact: true })).toBeVisible();
+  const horizonPhrase = horizon.name.replace(/-\d+$/, "");
+  await expect(page.getByText(horizonPhrase, { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Look within ↓" })).toBeVisible();
   await page.getByRole("button", { name: "Look within ↓" }).click();
 
-  await expect(page.getByText(horizon.name, { exact: true })).toBeVisible();
+  await expect(page.getByText(horizonPhrase, { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/Passages \(/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Look within ↓" })).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -220,7 +221,7 @@ test("/app restores a server-saved node below the initial horizon", async ({ pag
 
   const errors = collectErrors(page);
   await page.goto("/app");
-  await expect(page.getByText(position.node, { exact: true })).toBeVisible();
+  await expect(page.getByText(position.node.replace(/-\d+$/, ""), { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Object", { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -237,6 +238,7 @@ test("explorer restores server-saved depth across devices", async ({ page, reque
   const errors = collectErrors(page);
   await page.goto("/");
   await expect(page.locator("#status")).toContainText("depth 8");
-  await expect(page.locator("#node-name")).toHaveText(position.node);
+  await expect(page.locator("#node-name")).toHaveText(position.node.replace(/-\d+$/, ""));
+  await expect(page.locator("#node-name")).toHaveAttribute("title", position.node);
   expect(errors).toEqual([]);
 });

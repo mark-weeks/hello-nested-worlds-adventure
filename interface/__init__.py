@@ -11,7 +11,9 @@ from causality.wiring import (
 from multiverse import store, wrap
 from multiverse.generator import DEFAULT_WORLD_SEED
 from multiverse.node import SpatialNode
-from multiverse.utils import apply_property_overrides, apply_ripple_scores
+from multiverse.utils import (
+    apply_property_overrides, apply_ripple_scores, display_name, node_address,
+)
 from puzzles.engine import PuzzleEngine
 from puzzles.types import PuzzleResult
 from agents.agent import Agent
@@ -40,7 +42,10 @@ def _style(node: SpatialNode) -> str:
 
 
 def _fmt(node: SpatialNode) -> str:
-    return f"{_style(node)}{node.level}: {node.name}{_RESET}"
+    # Display layer: the readable phrase is what a player sees; the node's
+    # address (its path digits) gets its own line in `look`, and the full
+    # canonical name stays the identity everywhere data is keyed.
+    return f"{_style(node)}{node.level}: {display_name(node.name)}{_RESET}"
 
 
 def _divider(width: int = 60) -> str:
@@ -48,7 +53,7 @@ def _divider(width: int = 60) -> str:
 
 
 def _print_breadcrumb(stack: list[SpatialNode]) -> None:
-    path = " → ".join(f"{_style(n)}{n.name}{_RESET}" for n in stack)
+    path = " → ".join(f"{_style(n)}{display_name(n.name)}{_RESET}" for n in stack)
     print(f"\n{_divider()}")
     print(f"  {path}")
     print(_divider())
@@ -83,6 +88,11 @@ def _print_look(node: SpatialNode) -> None:
     from multiverse.verbs import verb_for_level
 
     print(f"\n{_fmt(node)}")
+    address = node_address(node.name)
+    if address is not None:
+        # The address field: the node's path from the root, kept visible
+        # without riding the display name.
+        print(f"  {_DIM}address{_RESET}  ⌖ {address}")
     if node.properties:
         for k, v in node.properties.items():
             print(f"  {_DIM}{k}{_RESET}  {v}")
@@ -134,7 +144,7 @@ def _ambient_mode(node: SpatialNode, seed: int) -> None:
         strength = event.strength
         filled = max(1, round(strength * 20))
         bar = "█" * filled + _DIM + "░" * (20 - filled) + _RESET
-        print(f"  {style}{n.name:<30}{_RESET}  {kind:<22}  {bar}  {strength:.2f}")
+        print(f"  {style}{display_name(n.name):<30}{_RESET}  {kind:<22}  {bar}  {strength:.2f}")
         time.sleep(0.04)
 
     # Ambient observation is part of the shared world: the observer's
@@ -325,7 +335,7 @@ def run_session(seed: int = DEFAULT_WORLD_SEED, depth: int = 6,
 
     while True:
         try:
-            raw = input(f"\n{_style(stack[-1])}{stack[-1].name}>{_RESET} ").strip()
+            raw = input(f"\n{_style(stack[-1])}{display_name(stack[-1].name)}>{_RESET} ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nFarewell.")
             break
@@ -505,7 +515,7 @@ def _descend(stack: list[SpatialNode], n: int, seed: int,
     from puzzles.gates import seal_check
     seal = seal_check(seed, child, current_name=node.name)
     if seal is not None:
-        print(f"  {_style(child)}{child.name}{_RESET} is sealed.")
+        print(f"  {_style(child)}{display_name(child.name)}{_RESET} is sealed.")
         print(f"  {seal['prompt']}")
         print("  You may speak the key from the threshold:")
         _play_puzzle(child, seed, player_name=player_name)
