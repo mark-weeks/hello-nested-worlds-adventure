@@ -1,12 +1,17 @@
 # ADR-008: The Wrap Passage — the hierarchy closes into a loop
 
-**Status:** Proposed 2026-08-10 — drafted from the recursion-and-time design
-thread (`docs/evaluation/2026-08-10-recursion-and-time.md`), owner-directed.
-The topology choice below follows the thread's recommendation; owner
-ratification lands at the merge gate of the implementing PR.
+**Status:** Accepted 2026-08-29 — ratified by the owner's merge of the
+implementing PR (pre-launch batch 2), exactly as PR #77 ratified ADR-009.
+Originally Proposed 2026-08-10, drafted from the recursion-and-time design
+thread (`docs/evaluation/2026-08-10-recursion-and-time.md`), owner-directed;
+the topology choice below follows the thread's recommendation.
 Revised 2026-08-10 after the owner's PR #76 review: the hinge is pinned
 immutably at first selection, its lineage carries a liveness invariant,
 and the loop's topology claim is stated honestly.
+As built: the selector (`multiverse/wrap.py`) lands on **Hidden Thorn
+Quark-11431112111** for seed 382 — entangled, superposed, coherence
+0.988, its lineage's one Room born unlocked — pinned in `world_meta`
+(additive migration 0015) at first ask.
 
 ---
 

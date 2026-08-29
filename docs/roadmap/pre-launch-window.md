@@ -80,7 +80,16 @@ the wayback surface (batch 4) that reads it — depends on this landing
 while the chronicle is still empty; batches 2–3 do not depend on it,
 only on the sequence's product scope.
 
-### Batch 2 — The wrap passage (ADR-008)
+### Batch 2 — The wrap passage (ADR-008) · SHIPPED
+
+Shipped 2026-08-29 (see the CHANGELOG's batch entry for the measured
+record); ADR-008 ratified Accepted at its merge gate. As built: the
+selector (`multiverse/wrap.py`) is a pure function of (seed, world as
+born) constrained to a fully unsealed lineage — the census reproduced
+the review's numbers exactly (1,505 particles, 706 ineligible = 46.9%,
+799 eligible) — and lands on **Hidden Thorn Quark-11431112111** for
+seed 382, pinned write-once in `world_meta` (additive migration 0015;
+selector-edit immunity pinned by test). The plan, as it stood:
 
 The loop, traversal layer only: leaf-descend → root, root-ascend →
 hinge. The hinge is selected once by a seed-pure rule constrained to a
