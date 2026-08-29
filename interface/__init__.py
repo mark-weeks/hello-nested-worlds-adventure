@@ -420,6 +420,11 @@ def _wrap_descend(stack: list[SpatialNode], seed: int,
         print("  The way holds shut.")  # unreachable while nothing seals the root
         return
     del stack[1:]
+    # A crossing is a move like any other in the chronicle (ADR-008):
+    # recorded only after the gate passes and the landing succeeds, so
+    # CLI crossings leave the same permanent trace browser crossings do.
+    persistence.record_mutation(seed, root.name, "PLAYER_MOVE", player_name,
+                                {}, actor_identity=player_name)
     _announce_crossing("inward", wrap.DESCENT_LINE)
     _print_breadcrumb(stack)
     _print_look(stack[-1])
@@ -471,6 +476,10 @@ def _wrap_ascend(stack: list[SpatialNode], seed: int,
             print("  The way beyond is closed.")
             return
     stack[:] = chain
+    # Recorded only after the gate passed and the landing succeeded —
+    # a refused or unresolvable crossing leaves no trace (ADR-008).
+    persistence.record_mutation(seed, hinge, "PLAYER_MOVE", player_name,
+                                {}, actor_identity=player_name)
     _announce_crossing("outward", wrap.ASCENT_LINE)
     _print_breadcrumb(stack)
     _print_look(stack[-1])

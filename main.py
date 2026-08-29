@@ -4,7 +4,7 @@ from pathlib import Path
 
 import persistence
 from agents.agent import Agent
-from multiverse import store
+from multiverse import store, wrap
 from multiverse.generator import BREADTH_ENVELOPE, DEFAULT_WORLD_SEED
 from multiverse.utils import count_nodes, find_node
 from puzzles.engine import PuzzleEngine
@@ -316,6 +316,7 @@ def cmd_speak(args):
         response = consciousness.speak(
             target, args.message, history=history,
             ripple_score=persistence.get_ripple_score(args.seed, target.name),
+            hinge=wrap.is_hinge(args.seed, target.name),
         )
         print(response)
         # Symmetry with every other surface: speaking leaves a trace, and

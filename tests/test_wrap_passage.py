@@ -273,6 +273,23 @@ class TestCliLoop:
         assert stack[0].level == "Multiverse"
         assert wrap.DESCENT_LINE in out
 
+    def test_cli_crossings_enter_the_chronicle(self, capsys):
+        # A crossing is a move like any other in the chronicle (ADR-008):
+        # a main.py play crossing leaves the same permanent PLAYER_MOVE
+        # trace a browser crossing does — at the landing, attributed.
+        from interface import _descend, _wrap_ascend
+        stack = self._fresh_session_stack()
+        _wrap_ascend(stack, SEED, player_name="Pilgrim")
+        hinge = wrap.hinge_name(SEED)
+        moves = [h for h in persistence.get_node_history(SEED, hinge)
+                 if h["type"] == "PLAYER_MOVE"]
+        assert moves and moves[0]["player"] == "Pilgrim"
+        _descend(stack, 1, SEED, player_name="Pilgrim")
+        root_name = store.root_name(SEED)
+        moves = [h for h in persistence.get_node_history(SEED, root_name)
+                 if h["type"] == "PLAYER_MOVE"]
+        assert moves and moves[0]["player"] == "Pilgrim"
+
     def test_the_authored_line_speaks_once_per_session(self, capsys):
         from interface import _descend, _wrap_ascend
         stack = self._fresh_session_stack()
@@ -304,6 +321,10 @@ class TestCliLoop:
             _wrap_ascend(stack, SEED)
             assert len(stack) == 1  # the threshold held: no crossing
             assert "sealed" in capsys.readouterr().out
+            # A refused crossing leaves no trace in the chronicle.
+            assert not [h for h in persistence.get_node_history(
+                            SEED, wrap.hinge_name(SEED))
+                        if h["type"] == "PLAYER_MOVE"]
         finally:
             sealed.undo()
 
@@ -407,6 +428,27 @@ class TestHingeLore:
                 f"http://127.0.0.1:{srv}/speak", data=body,
                 headers={"Content-Type": "application/json"})
             urllib.request.urlopen(req).read()
+        assert seen[hinge] is True
+        assert seen[root_name] is False
+
+    def test_standalone_speak_command_knows_the_hinge(self, monkeypatch):
+        # Every surface that speaks for a node passes the hinge flag —
+        # including the documented standalone `main.py speak` path.
+        import main
+        seen = {}
+
+        def fake_speak(node, message, history=None, transcript=None,
+                       ripple_score=0.0, speaker=None, hinge=False):
+            seen[node.name] = hinge
+            return "spoken"
+
+        monkeypatch.setattr(consciousness, "speak", fake_speak)
+        hinge = wrap.hinge_name(SEED)
+        root_name = store.root_name(SEED)
+        for target in (hinge, root_name):
+            args = type("Args", (), {"seed": SEED, "node": target,
+                                     "message": "who are you?"})()
+            main.cmd_speak(args)
         assert seen[hinge] is True
         assert seen[root_name] is False
 
