@@ -937,6 +937,166 @@ def _make_riddle(node: SpatialNode, rng: random.Random, difficulty: int) -> Puzz
     return chosen
 
 
+# ── CAUSAL AUGURY (ADR-010): the world's dynamics as puzzle content ─────────
+# The world-reading families teach structure; the Augury teaches DYNAMICS:
+# predict how a disturbance rising from this node carries through its
+# enclosing scales, under the law of the sky it climbs. The answer is the
+# engine's own forecast (causality/forecast.py — pinned equivalent to the
+# live bus), so solving one is a real act of understanding the physics.
+#
+# Election is a seed-pure hash BEFORE the weighted draw (the lock branch's
+# pattern): elected nodes serve the Augury; everyone else falls through
+# byte-identically to the puzzle they serve today. Every decline path runs
+# before any rng consumption, so an elected node the family cannot serve
+# (no law, Inverted flip, a cry that never sounds, no valid form) also
+# falls through byte-identically.
+
+_AUGURY_LEVELS = ("Region", "Room", "Object", "Molecule", "Atom",
+                  "SubatomicParticle")
+# ~10% of the inhabited scales; tuned against the ecology gate (ADR-010).
+_AUGURY_ELECTION_RATE = 0.10
+
+# Authored temperament lines — hint 1 teaches the law's character in the
+# world's voice. Inverted is deliberately absent: the family declines there
+# (flip sends the live act into children the ancestor chain cannot see, and
+# on the staged both-arm path flip is a no-op — nothing Inverted to teach).
+_LAW_TEMPERAMENT: dict[str, str] = {
+    "Newtonian":     "Newtonian skies are strict: every step dims the cry "
+                     "hard, and it dies young.",
+    "Quantum":       "Quantum skies may let the cry pass a scale in "
+                     "silence, undimmed, and sound beyond it.",
+    "Fractal":       "Fractal skies are self-similar: every second step "
+                     "keeps the cry's full voice.",
+    "Probabilistic": "Probabilistic skies draw their own dimming — but the "
+                     "same cry always draws the same.",
+    "Recursive":     "Recursive skies echo: every third step returns the "
+                     "cry at full voice.",
+    "Viscous":       "Viscous skies carry the cry far, but slowly.",
+    "Crystalline":   "Crystalline skies favor the climb: the lattice "
+                     "transmits upward well.",
+    "Tidal":         "Tidal skies surge and ebb: the dimming alternates "
+                     "strong and weak.",
+    "Threadbare":    "Threadbare skies are lossy: a step may simply fray, "
+                     "and the cry ends there.",
+    "Palindromic":   "Palindromic skies keep a mirrored rhythm: the "
+                     "dimming reads the same forwards and back.",
+    "Slow light":    "Slow-light skies dim the cry steadily; only the news "
+                     "of it travels at a crawl.",
+}
+
+
+def _augury_elected(node: SpatialNode) -> bool:
+    digest = hashlib.sha256(
+        f"augury-election:{node.level}:{node.name}".encode("utf-8")).digest()
+    return (int.from_bytes(digest[:8], "big") / 2**64) < _AUGURY_ELECTION_RATE
+
+
+def _make_causal_augury(node: SpatialNode, rng: random.Random,
+                        difficulty: int) -> Puzzle | None:
+    from causality.forecast import up_arm_forecast
+    from causality.laws import law_for
+
+    law = law_for(node)
+    if law is None or law.flip or law.name not in _LAW_TEMPERAMENT:
+        return None
+    forecast = up_arm_forecast(node)
+    terminus = forecast.terminus
+    if terminus is None:
+        return None  # the cry never sounds — nothing to predict here
+
+    universe = next((a for a in _ancestors(node) if a.level == "Universe"),
+                    None)
+    if universe is None:
+        return None
+
+    # The first scale where the cry rings undimmed — as loud as at the
+    # step before (a factor-1.0 hop; the Fractal sky's signature).
+    rung = forecast.rung
+    echo = next((rung[i] for i in range(1, len(rung))
+                 if rung[i].strength == rung[i - 1].strength), None)
+
+    # Valid question forms for THIS node's forecast, difficulty-shaped:
+    # gentle auguries count the reach; harder ones name the terminus; the
+    # hardest read the echo where one exists. All decline paths are above —
+    # from here on rng consumption is safe. The rng-chosen form is tried
+    # FIRST, then the remaining valid forms in deterministic order: a form
+    # whose answer happens to leak (a reach count colliding with a shipped
+    # danger figure, say) must not cost the node its Augury — form validity
+    # is epoch-independent, so a node that can serve cleanly serves at
+    # EVERY renewal epoch, and the family survives renewal by contract.
+    forms = ["reach"] if difficulty == 1 else (
+        ["reach", "terminus"] if difficulty == 2 else (
+            ["terminus", "echo"] if echo is not None else ["terminus"]))
+    preferred = forms.pop(rng.randrange(len(forms)))
+    for form in [preferred, *forms]:
+        temperament = _LAW_TEMPERAMENT[law.name]
+        if difficulty <= 2:
+            sky = f"This sky keeps {law.name} law."
+        else:
+            sky = (f"The sky over everything here is "
+                   f"{_living_name(universe)}; its law is written on it, "
+                   "for those who climb and read.")
+
+        if form == "reach":
+            answer = str(len(rung))
+            prompt = (
+                f"A cry rises from {node.name}, climbing the fold. {sky} "
+                "Judge how far it carries: count the enclosing scales in "
+                "which it still sounds before it fades, and answer with "
+                "that count."
+            )
+            hints = [
+                temperament,
+                "Each enclosing scale dims the cry by its sky's law; "
+                "below a twentieth of its birth voice, it is silence.",
+                f"The count has {len(answer)} digit(s).",
+            ]
+        elif form == "terminus":
+            if terminus.node.level == "Universe":
+                # Naming the universe in the prompt would print the answer.
+                sky = f"This sky keeps {law.name} law."
+            answer = _living_name(terminus.node)
+            prompt = (
+                f"A cry rises from {node.name}, climbing the fold toward "
+                f"the whole. {sky} Judge where it dies: return with the "
+                "living name of the LAST enclosing scale in which it "
+                "sounds."
+            )
+            hints = [
+                temperament,
+                f"The last scale it sounds in is a {terminus.node.level}; "
+                "its living name is the words before its lineage mark.",
+                f"The first word begins with '{answer[0]}'.",
+            ]
+        else:
+            answer = _living_name(echo.node)
+            prompt = (
+                f"A cry rises from {node.name}, climbing the fold. {sky} "
+                "Somewhere above, the cry rings UNDIMMED — exactly as "
+                "loud as at the step before. Return with the living name "
+                "of the first such scale."
+            )
+            hints = [
+                temperament,
+                f"The undimmed ring sounds at a {echo.node.level}; its "
+                "living name is the words before its lineage mark.",
+                f"The first word begins with '{answer[0]}'.",
+            ]
+
+        puzzle = Puzzle(
+            name=f"The Causal Augury of the {node.level}",
+            kind=PuzzleKind.PREDICTION,
+            prompt=prompt,
+            answer=answer,
+            hints=hints,
+            max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
+            difficulty=difficulty,
+        )
+        if not _answer_leaks(puzzle, node):
+            return puzzle
+    return None  # every form leaks for this node — another family serves
+
+
 # ── Selector ─────────────────────────────────────────────────────────────────
 
 # Which families each difficulty tier draws from, and their relative weights.
@@ -995,6 +1155,20 @@ def build_puzzle(node: SpatialNode, epoch: int = 0) -> Puzzle:
         lock = _make_lock(node, rng, difficulty)
         if lock is not None and not _answer_leaks(lock, node):
             return _finish(lock, node, rng, epoch)
+    # The Causal Augury (ADR-010): a seed-pure hash elects ~10% of the
+    # inhabited scales to serve the dynamics-prediction family. The whole
+    # augury path runs in its own deterministic RNG domain (the generator's
+    # domain-separation idiom), so EVERY rejection — a decline, or the
+    # leak screen — leaves the shared draw untouched and the node falls
+    # through byte-identically: the re-pin's blast radius is exactly the
+    # nodes that serve the family.
+    if node.level in _AUGURY_LEVELS and _augury_elected(node):
+        augury_rng = random.Random(int.from_bytes(hashlib.sha256(
+            f"augury-content:{node.level}:{node.name}:{epoch}".encode(
+            )).digest()[:8], "big"))
+        augury = _make_causal_augury(node, augury_rng, difficulty)
+        if augury is not None and not _answer_leaks(augury, node):
+            return _finish(augury, node, augury_rng, epoch)
     # Cosmic scales often serve an ENFOLD — the nesting itself as content
     # (the mirror of the LOCK: look into the fold instead of up out of it).
     if node.level in _ENFOLD_LEVELS:

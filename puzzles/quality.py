@@ -27,6 +27,10 @@ DECODE_KINDS = {
 WORLD_READING_FAMILIES = {
     "ancestral_compass",
     "bond",
+    # The Augury reads this world's DYNAMICS — its lineage plus its sky's
+    # law made mechanical — the same epistemics as the structure families
+    # (ADR-010, gate class ratified by the owner 2026-08-29).
+    "causal_augury",
     "enfold",
     "keeper_witness",
     "lineage",
@@ -37,8 +41,8 @@ MINIMUMS = {
     "world_reading_family_ratio": 0.55,
     "unique_prompt_ratio": 0.99,
     "unique_answer_ratio": 0.45,
-    "family_count": 9,
-    "kind_count": 7,
+    "family_count": 10,
+    "kind_count": 8,
 }
 
 MAXIMUMS = {
@@ -65,6 +69,8 @@ def puzzle_family(puzzle: Puzzle) -> str:
     name = _RENEWAL_SUFFIX.sub("", puzzle.name)
     if name in _HANDWRITTEN_NAMES:
         return "handwritten"
+    if name.startswith("The Causal Augury"):
+        return "causal_augury"
     if name.startswith("The Keeper Witness"):
         return "keeper_witness"
     if name.startswith("The Ancestral Compass"):
