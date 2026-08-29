@@ -14,6 +14,7 @@ class PuzzleKind(Enum):
     LOGIC = auto()        # Deductive or lateral thinking puzzle
     ANAGRAM = auto()      # Unscramble letters to form a word or phrase
     NAVIGATION = auto()   # Follow spatial instructions and determine a result
+    PREDICTION = auto()   # Forecast the deterministic engine's behavior
 
 
 class PuzzleResult(Enum):
