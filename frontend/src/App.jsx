@@ -5,6 +5,7 @@ import useWorldSocket from "./ws.js";
 import { withKey, urlName, betaKey } from "./auth.js";
 import { entryPath, resumeDepth } from "./entry.js";
 import { describeMutation } from "./mutations.js";
+import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
 import { NodeAmbience } from "../../static/nodesound.js";
 
 // Honor the OS-level motion preference: transient overlays (ripples,
@@ -67,6 +68,8 @@ export default function App() {
   // carried as canonical identity for WebSocket, persistence, art, and sound.
   const [seed, setSeed]           = useState(null);
   const [worldDepth, setWorldDepth] = useState(INITIAL_WORLD_DEPTH);
+  // The wrap passage's landings and authored lines (server-owned, /world).
+  const [wrapInfo, setWrapInfo]   = useState(null);
   const [nodeStack, setNodeStack] = useState([]);
   const [players, setPlayers]     = useState([]);
   const [agents, setAgents]       = useState({});  // name → { node, persona }
@@ -124,6 +127,7 @@ export default function App() {
       if (!response.ok || data.error) throw new Error(data.error || "world unavailable");
       setSeed(data.seed);
       setWorldDepth(requestedDepth);
+      setWrapInfo(data.wrap || null);
       // Non-linear entry: resume the last node if it's in this world, else
       // drop a first-time player in at a mid-world node. The returned path is
       // the nav stack, so "back" walks the real ancestry.
@@ -370,6 +374,18 @@ export default function App() {
     sendMessage({ type: "chat", text });
   }, [sendMessage]);
 
+  // Cross the wrap: the loop's landing is a real node, so the crossing IS
+  // a jump to it (jumpTo rebuilds the true ancestry stack, deepening the
+  // view when the hinge lies below the fetched horizon). The first
+  // crossing in each direction speaks its authored line.
+  const crossWrap = useCallback((affordance) => {
+    if (!affordance?.target) return;
+    if (affordance.line && firstWrapCrossing(affordance.direction)) {
+      pushEvent({ type: "system", text: affordance.line });
+    }
+    jumpTo(affordance.target);
+  }, [jumpTo, pushEvent]);
+
   const currentNode = nodeStack[nodeStack.length - 1] ?? null;
 
   // Ambient sound: each place hums its own deterministic tone
@@ -428,6 +444,8 @@ export default function App() {
         onJump={jumpTo}
         canDeepen={worldDepth < MAX_WORLD_DEPTH && currentNode.children.length === 0}
         onDeepen={deepenWorld}
+        wrapPassage={wrapAffordance(currentNode, wrapInfo)}
+        onWrapCross={crossWrap}
         onSolved={setWalkThrough}
         soundOn={soundOn}
         onToggleSound={toggleSound}

@@ -1202,6 +1202,48 @@ def get_world_node_chain(world_seed: int,
         return rows
 
 
+# ── Immutable world metadata (ADR-008) ──
+# First-selection records: written once, then the stored value IS the fact.
+# There is deliberately no update or delete here — pinning is the only door,
+# and it refuses to overwrite (the same one-way discipline as world_nodes).
+
+
+@_with_db
+def get_world_meta(world_seed: int, key: str) -> str | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT value FROM world_meta WHERE world_seed = ? AND key = ?",
+            (world_seed, key),
+        ).fetchone()
+        return row[0] if row else None
+
+
+@_with_db
+def pin_world_meta(world_seed: int, key: str, value: str) -> str:
+    """Pin `value` under (world_seed, key) — write-once.
+
+    Returns the durable value: the one just written, or the one already
+    pinned (including by a concurrent pinner racing this call — the PK
+    raises IntegrityError and the winner's value stands). A pinned value
+    is never overwritten.
+    """
+    with _connect() as conn:
+        try:
+            conn.execute(
+                f"""INSERT INTO world_meta (world_seed, key, value, recorded_at)
+                    VALUES (?, ?, ?, {_NOW})""",
+                (world_seed, key, value),
+            )
+            return value
+        except sqlite3.IntegrityError:
+            conn.rollback()  # already pinned — the standing value is the fact
+            row = conn.execute(
+                "SELECT value FROM world_meta WHERE world_seed = ? AND key = ?",
+                (world_seed, key),
+            ).fetchone()
+            return row[0]
+
+
 @_with_db
 def get_ripple_score(world_seed: int, node_name: str) -> float:
     with _connect() as conn:

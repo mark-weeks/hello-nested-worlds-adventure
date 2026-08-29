@@ -114,7 +114,7 @@ class TestSpeakResolution:
         seen = {}
 
         def fake_speak(node, message, history=None, transcript=None,
-                       ripple_score=0.0, speaker=None):
+                       ripple_score=0.0, speaker=None, hinge=False):
             seen["transcript"] = list(transcript or [])
             seen["speaker"] = speaker
             return f"I heard: {message}"
@@ -147,7 +147,7 @@ class TestSpeakResolution:
         long_msg = "the vault keeps a very long secret and wants it recorded " * 4
 
         def fake_speak(node, message, history=None, transcript=None,
-                       ripple_score=0.0, speaker=None):
+                       ripple_score=0.0, speaker=None, hinge=False):
             return "a reply comfortably longer than the old two-hundred-char cap " * 4
 
         monkeypatch.setattr(consciousness, "speak", fake_speak)
@@ -361,7 +361,7 @@ class TestTranscriptIdentityOverHTTP:
         seen = {}
 
         def fake_speak(node, message, history=None, transcript=None,
-                       ripple_score=0.0, speaker=None):
+                       ripple_score=0.0, speaker=None, hinge=False):
             seen["transcript"] = list(transcript or [])
             return "reply"
 

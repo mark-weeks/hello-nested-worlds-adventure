@@ -56,7 +56,11 @@ class TestFormatting:
         assert "[1]" in out
 
     def test_print_look_leaf_node(self, capsys):
-        leaf = SpatialNode("Leaf", "SubatomicParticle", properties={"spin": "up"})
+        # A childless node at a mid scale is a view horizon and reads as a
+        # dead end; a SubatomicParticle no longer does — the wrap passage
+        # (ADR-008) opens onto the whole there. Both ends of the loop are
+        # covered in tests/test_wrap_passage.py.
+        leaf = SpatialNode("Leaf", "Atom", properties={"element": "Fe"})
         _print_look(leaf)
         out = capsys.readouterr().out
         assert "leaf node" in out
@@ -108,7 +112,10 @@ class TestNavigation:
         assert len(stack) == 1
 
     def test_descend_leaf_node(self, capsys):
-        leaf = SpatialNode("Leaf", "SubatomicParticle")
+        # A mid-scale leaf (view horizon) still refuses descent; below a
+        # SubatomicParticle the wrap passage opens instead (ADR-008 —
+        # covered in tests/test_wrap_passage.py).
+        leaf = SpatialNode("Leaf", "Atom")
         stack = [leaf]
         _descend(stack, 1, seed=42)
         out = capsys.readouterr().out

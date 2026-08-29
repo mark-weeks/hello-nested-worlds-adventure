@@ -8,7 +8,7 @@ from causality import CausalityBus, EventKind
 from causality.wiring import (
     record_origin_event, record_verb_act, wire_world_handlers,
 )
-from multiverse import store
+from multiverse import store, wrap
 from multiverse.generator import DEFAULT_WORLD_SEED
 from multiverse.node import SpatialNode
 from multiverse.utils import apply_property_overrides, apply_ripple_scores
@@ -96,8 +96,14 @@ def _print_look(node: SpatialNode) -> None:
             tags = _passage_tags(child)
             suffix = f"  {_DIM}— {' · '.join(tags)}{_RESET}" if tags else ""
             print(f"  [{i}] {_fmt(child)}{suffix}")
+    elif wrap.wraps_inward(node):
+        # The wrap passage (ADR-008): below the particle is the whole.
+        print("\n  1 path(s) deeper:")
+        print(f"  [1] {_DIM}{wrap.DESCENT_PASSAGE}{_RESET}")
     else:
         print(f"\n  {_DIM}(leaf node — no deeper paths){_RESET}")
+    if wrap.wraps_outward(node) and node.parent is None:
+        print(f"\n  {_DIM}Above, {wrap.ASCENT_PASSAGE} (type 'up').{_RESET}")
 
 
 def _print_map(node: SpatialNode, prefix: str = "", is_last: bool = True,
@@ -256,6 +262,7 @@ def _speak_to(node: SpatialNode, message: str, seed: int = 0,
             history=history,
             transcript=transcript,
             ripple_score=persistence.get_ripple_score(seed, node.name),
+            hinge=wrap.is_hinge(seed, node.name),
         )
         print(f"  {response}\n")
         # Local sessions have no invite credential; the display name IS the
@@ -312,6 +319,7 @@ def run_session(seed: int = DEFAULT_WORLD_SEED, depth: int = 6,
     print("done.\n")
     print(f"Type {_BOLD}help{_RESET} to see available commands.\n")
 
+    _session_crossings.clear()  # each session's first crossing gets the line
     stack: list[SpatialNode] = [root]
     _print_look(stack[-1])
 
@@ -346,7 +354,9 @@ def run_session(seed: int = DEFAULT_WORLD_SEED, depth: int = 6,
                 _print_breadcrumb(stack)
                 _print_look(stack[-1])
             else:
-                print("  You are at the root of the multiverse.")
+                # The wrap passage (ADR-008): ascending beyond the root
+                # lands at the world's one hinge particle.
+                _wrap_ascend(stack, seed, player_name=player_name)
 
         elif cmd in ("map", "m"):
             print()
@@ -385,10 +395,94 @@ def run_session(seed: int = DEFAULT_WORLD_SEED, depth: int = 6,
                 _speak_to(stack[-1], raw, seed=seed, player_name=player_name)
 
 
+# The authored crossing lines are spoken once per session per direction —
+# after the first crossing, the passage is simply a way you know.
+_session_crossings: set[str] = set()
+
+
+def _announce_crossing(direction: str, line: str) -> None:
+    if direction not in _session_crossings:
+        _session_crossings.add(direction)
+        print(f"\n  {line}")
+
+
+def _wrap_descend(stack: list[SpatialNode], seed: int,
+                  player_name: str | None = None) -> None:
+    """Cross the wrap inward: below this particle is the whole.
+
+    The transit runs through the standard seal gate like every other
+    move (trivially open — nothing seals the root — but the routing is
+    the rule, not an optimization).
+    """
+    from puzzles.gates import seal_check
+    root = stack[0]
+    if seal_check(seed, root, current_name=stack[-1].name) is not None:
+        print("  The way holds shut.")  # unreachable while nothing seals the root
+        return
+    del stack[1:]
+    _announce_crossing("inward", wrap.DESCENT_LINE)
+    _print_breadcrumb(stack)
+    _print_look(stack[-1])
+
+
+def _wrap_ascend(stack: list[SpatialNode], seed: int,
+                 player_name: str | None = None) -> None:
+    """Cross the wrap outward: beyond the root is the hinge particle.
+
+    The hinge's lineage is unsealed by the liveness invariant (its
+    selection excludes any lineage under a locked Room), but the transit
+    still runs through the standard seal gate — a hinge must never
+    become a wormhole past a lock, whatever the world becomes.
+    """
+    from puzzles.gates import seal_check
+    hinge = wrap.hinge_name(seed)
+    target = store.resolve_node_by_name(seed, hinge)
+    if target is None:  # pragma: no cover — the pin names a born node
+        print("  The way beyond is closed.")
+        return
+    seal = seal_check(seed, target, current_name=stack[-1].name)
+    if seal is not None:
+        print("  The way beyond is sealed.")
+        print(f"  {seal['prompt']}")
+        return
+    # The hinge lives at full depth; deepen the session's view if it
+    # doesn't reach that far yet (a deeper view of the same one world).
+    digits = hinge.rpartition("-")[2]
+    root = stack[0]
+
+    def _walk_to_hinge(from_root: SpatialNode) -> list[SpatialNode] | None:
+        chain = [from_root]
+        for d in digits[1:]:
+            children = chain[-1].children
+            idx = int(d) - 1
+            if not 0 <= idx < len(children):
+                return None
+            chain.append(children[idx])
+        return chain
+
+    chain = _walk_to_hinge(root)
+    if chain is None:
+        root = store.world_tree(seed=seed, max_depth=len(digits))
+        apply_ripple_scores(root, persistence.load_ripple_scores(seed))
+        apply_property_overrides(root,
+                                 persistence.load_node_property_overrides(seed))
+        chain = _walk_to_hinge(root)
+        if chain is None:  # pragma: no cover — the pin names a born node
+            print("  The way beyond is closed.")
+            return
+    stack[:] = chain
+    _announce_crossing("outward", wrap.ASCENT_LINE)
+    _print_breadcrumb(stack)
+    _print_look(stack[-1])
+
+
 def _descend(stack: list[SpatialNode], n: int, seed: int,
              player_name: str | None = None) -> None:
     node = stack[-1]
     if not node.children:
+        if wrap.wraps_inward(node) and n == 1:
+            _wrap_descend(stack, seed, player_name=player_name)
+            return
         print("  No deeper paths from here.")
         return
     idx = n - 1
