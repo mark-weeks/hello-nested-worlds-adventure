@@ -65,8 +65,11 @@ A new puzzle family, **the Causal Augury**, serving Region and deeper:
   chain — per-hop dampening under the law of the landing scale, the 0.5
   fallback above universes, Threadbare frays, Quantum tunnels, the
   MIN_STRENGTH floor. A behavior test pins forecast ≡ live bus across
-  all twelve laws on synthetic trees and across sampled launch-world
-  nodes; the family does not ship without that equivalence.
+  all eleven walkable laws on synthetic trees and across sampled
+  launch-world nodes (Inverted is not equivalence-tested — its up-arm
+  flips into children, which is exactly why the family declines there;
+  that decline is pinned as its own contract); the family does not ship
+  without that equivalence.
 - **Three question forms**, drawn per node from the forms its forecast
   makes valid, difficulty-shaped per the covenant (difficulty stays the
   node's own 1–4 draw; scale sets flavour only):
