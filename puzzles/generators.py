@@ -1018,73 +1018,83 @@ def _make_causal_augury(node: SpatialNode, rng: random.Random,
     # Valid question forms for THIS node's forecast, difficulty-shaped:
     # gentle auguries count the reach; harder ones name the terminus; the
     # hardest read the echo where one exists. All decline paths are above —
-    # from here on rng consumption is safe.
+    # from here on rng consumption is safe. The rng-chosen form is tried
+    # FIRST, then the remaining valid forms in deterministic order: a form
+    # whose answer happens to leak (a reach count colliding with a shipped
+    # danger figure, say) must not cost the node its Augury — form validity
+    # is epoch-independent, so a node that can serve cleanly serves at
+    # EVERY renewal epoch, and the family survives renewal by contract.
     forms = ["reach"] if difficulty == 1 else (
         ["reach", "terminus"] if difficulty == 2 else (
             ["terminus", "echo"] if echo is not None else ["terminus"]))
-    form = forms[rng.randrange(len(forms))]
-
-    temperament = _LAW_TEMPERAMENT[law.name]
-    if difficulty <= 2:
-        sky = f"This sky keeps {law.name} law."
-    else:
-        sky = (f"The sky over everything here is {_living_name(universe)}; "
-               "its law is written on it, for those who climb and read.")
-
-    if form == "reach":
-        answer = str(len(rung))
-        prompt = (
-            f"A cry rises from {node.name}, climbing the fold. {sky} "
-            "Judge how far it carries: count the enclosing scales in "
-            "which it still sounds before it fades, and answer with that "
-            "count."
-        )
-        hints = [
-            temperament,
-            "Each enclosing scale dims the cry by its sky's law; below a "
-            "twentieth of its birth voice, it is silence.",
-            f"The count has {len(answer)} digit(s).",
-        ]
-    elif form == "terminus":
-        if terminus.node.level == "Universe":
-            # Naming the universe in the prompt would print the answer.
+    preferred = forms.pop(rng.randrange(len(forms)))
+    for form in [preferred, *forms]:
+        temperament = _LAW_TEMPERAMENT[law.name]
+        if difficulty <= 2:
             sky = f"This sky keeps {law.name} law."
-        answer = _living_name(terminus.node)
-        prompt = (
-            f"A cry rises from {node.name}, climbing the fold toward the "
-            f"whole. {sky} Judge where it dies: return with the living "
-            "name of the LAST enclosing scale in which it sounds."
-        )
-        hints = [
-            temperament,
-            f"The last scale it sounds in is a {terminus.node.level}; its "
-            "living name is the words before its lineage mark.",
-            f"The first word begins with '{answer[0]}'.",
-        ]
-    else:
-        answer = _living_name(echo.node)
-        prompt = (
-            f"A cry rises from {node.name}, climbing the fold. {sky} "
-            "Somewhere above, the cry rings UNDIMMED — exactly as loud "
-            "as at the step before. Return with the living name of the "
-            "first such scale."
-        )
-        hints = [
-            temperament,
-            f"The undimmed ring sounds at a {echo.node.level}; its living "
-            "name is the words before its lineage mark.",
-            f"The first word begins with '{answer[0]}'.",
-        ]
+        else:
+            sky = (f"The sky over everything here is "
+                   f"{_living_name(universe)}; its law is written on it, "
+                   "for those who climb and read.")
 
-    return Puzzle(
-        name=f"The Causal Augury of the {node.level}",
-        kind=PuzzleKind.PREDICTION,
-        prompt=prompt,
-        answer=answer,
-        hints=hints,
-        max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
-        difficulty=difficulty,
-    )
+        if form == "reach":
+            answer = str(len(rung))
+            prompt = (
+                f"A cry rises from {node.name}, climbing the fold. {sky} "
+                "Judge how far it carries: count the enclosing scales in "
+                "which it still sounds before it fades, and answer with "
+                "that count."
+            )
+            hints = [
+                temperament,
+                "Each enclosing scale dims the cry by its sky's law; "
+                "below a twentieth of its birth voice, it is silence.",
+                f"The count has {len(answer)} digit(s).",
+            ]
+        elif form == "terminus":
+            if terminus.node.level == "Universe":
+                # Naming the universe in the prompt would print the answer.
+                sky = f"This sky keeps {law.name} law."
+            answer = _living_name(terminus.node)
+            prompt = (
+                f"A cry rises from {node.name}, climbing the fold toward "
+                f"the whole. {sky} Judge where it dies: return with the "
+                "living name of the LAST enclosing scale in which it "
+                "sounds."
+            )
+            hints = [
+                temperament,
+                f"The last scale it sounds in is a {terminus.node.level}; "
+                "its living name is the words before its lineage mark.",
+                f"The first word begins with '{answer[0]}'.",
+            ]
+        else:
+            answer = _living_name(echo.node)
+            prompt = (
+                f"A cry rises from {node.name}, climbing the fold. {sky} "
+                "Somewhere above, the cry rings UNDIMMED — exactly as "
+                "loud as at the step before. Return with the living name "
+                "of the first such scale."
+            )
+            hints = [
+                temperament,
+                f"The undimmed ring sounds at a {echo.node.level}; its "
+                "living name is the words before its lineage mark.",
+                f"The first word begins with '{answer[0]}'.",
+            ]
+
+        puzzle = Puzzle(
+            name=f"The Causal Augury of the {node.level}",
+            kind=PuzzleKind.PREDICTION,
+            prompt=prompt,
+            answer=answer,
+            hints=hints,
+            max_attempts=_ATTEMPTS_BY_DIFFICULTY[difficulty],
+            difficulty=difficulty,
+        )
+        if not _answer_leaks(puzzle, node):
+            return puzzle
+    return None  # every form leaks for this node — another family serves
 
 
 # ── Selector ─────────────────────────────────────────────────────────────────

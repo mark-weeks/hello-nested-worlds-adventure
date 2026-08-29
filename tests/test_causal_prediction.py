@@ -9,7 +9,7 @@ Pinned here, as behavior:
 - ANSWERS ARE THE ENGINE'S: every served Augury's answer re-derives from
   the forecast (reach count, terminus living name, echo living name).
 - THE ELECTION IS SEED-PURE AND SURGICAL: ~10% of Region-and-deeper serve
-  the family (exactly 394 on seed 382); the whole augury path runs in its
+  the family (exactly 396 on seed 382, at every epoch); the whole augury path runs in its
   own RNG domain, so every rejection — decline or leak screen — falls
   through byte-identically to the puzzle the node would otherwise serve.
 - THE COVENANTS HOLD: difficulty spans 1–4 within the family (per-node,
@@ -40,11 +40,12 @@ from puzzles.generators import (
 SEED = 382
 
 # The launch world's Augury census, pinned: 430 elected of 4,077 eligible
-# (10.55%) across the six inhabited scales, 394 served (9.36% of all 4,208
-# puzzles; 36 elected nodes declined — a Threadbare fray before the cry
-# sounds, or an answer-leak screen — and fall through byte-identically).
-# Ratified with the conscious puzzle-identity re-pin this batch carries.
-LAUNCH_AUGURY_SERVED = 394
+# (10.55%) across the six inhabited scales, 396 served at EVERY epoch
+# (9.41% of all 4,208 puzzles; 34 elected nodes declined structurally — a
+# Threadbare fray before the cry sounds, or every form leaking — and fall
+# through byte-identically). Ratified with the conscious puzzle-identity
+# re-pin this batch carries.
+LAUNCH_AUGURY_SERVED = 396
 
 
 def _walk(root: SpatialNode) -> list[SpatialNode]:
@@ -135,18 +136,20 @@ class TestForecastIsThePhysics:
                        for h in forecast.hops)
 
 
+@pytest.fixture(scope="module")
+def launch_auguries():
+    root = generate_node_hierarchy(seed=SEED, max_depth=11)
+    served = []
+    for node in _walk(root):
+        if node.level not in _AUGURY_LEVELS or not _augury_elected(node):
+            continue
+        puzzle = build_puzzle(node)
+        if puzzle.name.startswith("The Causal Augury"):
+            served.append((node, puzzle))
+    return served
+
+
 class TestAuguryFamily:
-    @pytest.fixture(scope="class")
-    def launch_auguries(self):
-        root = generate_node_hierarchy(seed=SEED, max_depth=11)
-        served = []
-        for node in _walk(root):
-            if node.level not in _AUGURY_LEVELS or not _augury_elected(node):
-                continue
-            puzzle = build_puzzle(node)
-            if puzzle.name.startswith("The Causal Augury"):
-                served.append((node, puzzle))
-        return served
 
     def test_launch_census_is_pinned(self, launch_auguries):
         assert len(launch_auguries) == LAUNCH_AUGURY_SERVED
@@ -184,12 +187,19 @@ class TestAuguryFamily:
             assert (rebuilt.name, rebuilt.prompt, rebuilt.answer) == (
                 puzzle.name, puzzle.prompt, puzzle.answer)
 
-    def test_renewal_keeps_the_family_and_renames(self, launch_auguries):
-        node, epoch0 = launch_auguries[0]
-        renewed = build_puzzle(node, epoch=1)
-        assert renewed.name.startswith("The Causal Augury")
-        assert renewed.name.endswith(" · Renewal 1")
-        assert renewed.name != epoch0.name
+    def test_renewal_keeps_the_family_for_every_augury(self, launch_auguries):
+        # Family continuity is a contract, not a tendency: form validity is
+        # epoch-independent (a leaking form is retried with another valid
+        # form), so EVERY node that serves an Augury at epoch 0 serves one
+        # at every pinned renewal epoch — renewal renames the puzzle, never
+        # its mechanics. (PR #80 review: the single-sample version of this
+        # test missed a census churn of 2 at epoch 1 and 4 at epoch 2.)
+        for epoch in (1, 2):
+            for node, _epoch0 in launch_auguries:
+                renewed = build_puzzle(node, epoch=epoch)
+                assert renewed.name.startswith("The Causal Augury"), (
+                    f"{node.name} lost its Augury at renewal epoch {epoch}")
+                assert renewed.name.endswith(f" · Renewal {epoch}")
 
     def test_the_family_declines_under_inverted_law(self):
         root = _chain_world("Inverted")

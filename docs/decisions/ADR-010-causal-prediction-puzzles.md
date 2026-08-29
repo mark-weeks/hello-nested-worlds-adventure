@@ -6,11 +6,14 @@ were. Drafted the same day from the recursion-and-time design thread
 (`docs/evaluation/2026-08-10-recursion-and-time.md` §4) and the owner's
 design interview (coverage, gate class, Inverted-law behavior, and the
 re-pin path each ratified in conversation before building).
-As built: 430 of 4,077 eligible nodes elected (10.55%), **394 served**
-(9.36% of all 4,208 puzzles; 36 elected nodes declined and fall through
-byte-identically); the ecology gate passes with world-reading at 65.6%
-(was 61.5%), decode at 33.7% (was 37.8%), largest family 19.9%, answers
-54.1% unique, 11 families, 9 kinds.
+As built: 430 of 4,077 eligible nodes elected (10.55%), **396 served at
+every epoch** (9.41% of all 4,208 puzzles; 34 elected nodes declined
+structurally and fall through byte-identically; a form whose answer
+leaks is retried with the node's other valid forms, so family identity
+survives every renewal — hardened in the PR #80 review round); the
+ecology gate passes with world-reading at 65.6% (was 61.5%), decode at
+33.7% (was 37.8%), largest family 19.9%, answers 54.1% unique, 11
+families, 9 kinds.
 
 ---
 

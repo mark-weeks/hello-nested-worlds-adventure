@@ -104,12 +104,13 @@ get an authored line. Parent links and causality untouched.
 
 Shipped 2026-08-29 (see the CHANGELOG's batch entry for the measured
 record); ADR-010 ratified Accepted at its merge gate. As built: the
-Causal Augury (`puzzles/generators.py`) serves **394 nodes** on seed 382
-(9.36% of the ecology), hash-elected from Region and deeper, its answers
+Causal Augury (`puzzles/generators.py`) serves **396 nodes** on seed 382
+(9.41% of the ecology, at every renewal epoch), hash-elected from Region
+and deeper, its answers
 computed by a pure engine forecast (`causality/forecast.py`) pinned
 equivalent to the live bus; the gate re-audit passed with world-reading
 at 65.6% and decode at 33.7%; the puzzle-identity re-pin was surgical
-(exactly the 394 served nodes changed; 3,814 byte-identical). The plan,
+(exactly the 396 served nodes changed; 3,812 byte-identical). The plan,
 as it stood:
 
 Puzzles that teach the world's *dynamics* the way the existing
