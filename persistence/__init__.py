@@ -38,7 +38,6 @@ _PRUNE_OVERRIDE_ENV = "NESTED_WORLDS_ALLOW_HISTORY_PRUNE"
 # Not yet abstracted (deliberate — kept as-is to avoid churn before the
 # switchover triggers; translation is mechanical at port time):
 #   * `INSERT OR REPLACE INTO node_images ...`  — cache_image
-#   * `json_patch(...)`   — _apply_overlay_patch (PG: `properties || ?`)
 #   * `json_extract(...)` — get_player_exchanges (PG: `data->>'identity'`)
 #   * `_SCHEMA_VERSION_DDL` `DEFAULT (datetime('now'))` — per-backend DDL
 #   * `migrations/*.sql` — schema files are per-backend; a Postgres port
@@ -851,24 +850,33 @@ RIPPLE_INCREMENT_PER_STRENGTH = 0.1
 
 def _apply_overlay_patch(conn: sqlite3.Connection, world_seed: int,
                          node_name: str, changed: dict) -> None:
-    """Merge `changed` into the node's persisted property overlay, on an
+    """Compose `changed` into the node's persisted property patch, on an
     already-open connection — always inside record_substance_change's
     transaction, never on its own.
 
     The overlay is applied on top of deterministic generation at every world
     rebuild (`load_node_property_overrides` + `apply_property_overrides`), so
     a causal event's material consequence outlives the request that fired it.
-    `json_patch` merges RFC 7396-style at the DB level (a null value deletes
-    its key) — `json_merge_patch` below is the same semantics in Python, so
-    the fold reproduces exactly what this applied.
+    This composes merge-patch DOCUMENTS rather than applying one patch to the
+    previous patch as ordinary JSON. The distinction preserves null
+    tombstones: ``{"theme": null}`` must still delete a property supplied by
+    the immutable born row when the overlay is hydrated later. SQLite's
+    ``json_patch('{}', '{"theme": null}')`` loses that information.
     """
+    row = conn.execute(
+        """SELECT properties FROM node_runtime_state
+           WHERE world_seed = ? AND node_name = ?""",
+        (world_seed, node_name),
+    ).fetchone()
+    existing = json.loads(row[0]) if row and row[0] else {}
+    composed = compose_json_merge_patches(existing, changed)
     conn.execute(
         f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, properties, updated_at, created_at)
            VALUES (?, ?, 0.0, ?, {_NOW}, {_NOW})
            ON CONFLICT(world_seed, node_name) DO UPDATE SET
-             properties = json_patch(COALESCE(node_runtime_state.properties, '{{}}'), excluded.properties),
+             properties = excluded.properties,
              updated_at = excluded.updated_at""",
-        (world_seed, node_name, json.dumps(changed)),
+        (world_seed, node_name, json.dumps(composed)),
     )
 
 
@@ -1004,6 +1012,25 @@ def json_merge_patch(target: Any, patch: Any) -> Any:
     return out
 
 
+def compose_json_merge_patches(existing: Any, incoming: Any) -> Any:
+    """Compose two RFC 7396 patch documents without losing tombstones.
+
+    Applying the returned patch once to a born document is equivalent to
+    applying ``existing`` and then ``incoming``. Unlike ``json_merge_patch``,
+    a null stays in the composed document because it may delete a key supplied
+    by the born node rather than by the earlier patch.
+    """
+    if not isinstance(incoming, dict):
+        return incoming
+    out = dict(existing) if isinstance(existing, dict) else {}
+    for key, value in incoming.items():
+        if isinstance(value, dict):
+            out[key] = compose_json_merge_patches(out.get(key), value)
+        else:
+            out[key] = value
+    return out
+
+
 @_with_db
 def fold_node_properties(world_seed: int, node_name: str,
                          upto_version: int | None = None) -> dict:
@@ -1056,6 +1083,113 @@ def get_substance_deltas(world_seed: int,
         ).fetchall()
     return [{"version": r[0], "type": r[1], "delta": json.loads(r[2]),
              "strength": r[3], "at": r[4]} for r in rows]
+
+
+@_with_db
+def get_wayback_state(world_seed: int, node_name: str,
+                      born_properties: dict[str, Any],
+                      at_step: int | None = None) -> dict[str, Any]:
+    """Reconstruct one node immediately after its Nth chronicled interaction.
+
+    ``at_step`` is a node-local event ordinal: 0 is the immutable born state,
+    N is immediately after the node's Nth ``world_mutations`` row, and None is
+    the latest step. The selected row id is the exact cross-table cursor;
+    timestamps are labels only because they have second precision. Material
+    deltas still fold in their per-node ``node_version`` order (ADR-009).
+
+    The fold begins with ``born_properties`` rather than an empty overlay so a
+    stored RFC 7396 null can remove a property that existed at birth. Ripple
+    and activity are derived through the same cursor. The returned moment is
+    deliberately actor-blind: the wayback surface shows a birth, trace,
+    ripple, or mechanical change — never a human/agent classification.
+
+    This function is read-only. An explicit transaction gives all queries one
+    SQLite snapshot if a heartbeat appends a new event during reconstruction.
+    """
+    with _connect() as conn:
+        conn.execute("BEGIN")
+        total = conn.execute(
+            """SELECT COUNT(*) FROM world_mutations
+               WHERE world_seed = ? AND node_name = ?""",
+            (world_seed, node_name),
+        ).fetchone()[0]
+        step = total if at_step is None else int(at_step)
+        if step < 0 or step > total:
+            raise ValueError(
+                f"wayback step must be between 0 and {total}, got {step}")
+
+        first = conn.execute(
+            """SELECT recorded_at FROM world_mutations
+               WHERE world_seed = ? AND node_name = ?
+               ORDER BY id LIMIT 1""",
+            (world_seed, node_name),
+        ).fetchone()
+
+        if step == 0:
+            cursor = 0
+            selected = None
+        else:
+            selected = conn.execute(
+                """SELECT id, recorded_at, delta, strength
+                   FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                   ORDER BY id LIMIT 1 OFFSET ?""",
+                (world_seed, node_name, step - 1),
+            ).fetchone()
+            # COUNT and SELECT share one transaction snapshot, so the ordinal
+            # must resolve unless the database is corrupt.
+            if selected is None:  # pragma: no cover - defensive invariant
+                raise RuntimeError("wayback cursor disappeared during read")
+            cursor = selected[0]
+
+        properties: Any = dict(born_properties)
+        if cursor:
+            deltas = conn.execute(
+                """SELECT delta FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND delta IS NOT NULL AND id <= ?
+                   ORDER BY node_version""",
+                (world_seed, node_name, cursor),
+            ).fetchall()
+            for (blob,) in deltas:
+                properties = json_merge_patch(properties, json.loads(blob))
+            strength_sum = conn.execute(
+                """SELECT COALESCE(SUM(strength), 0.0)
+                   FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND strength IS NOT NULL AND id <= ?""",
+                (world_seed, node_name, cursor),
+            ).fetchone()[0]
+        else:
+            strength_sum = 0.0
+
+    if not isinstance(properties, dict):  # merge-patch root replacement guard
+        properties = {}
+    if selected is None:
+        moment = {"at": None, "kind": "birth", "delta": {},
+                  "strength": None}
+    else:
+        delta = json.loads(selected[2]) if selected[2] else {}
+        strength = selected[3]
+        kind = "change" if delta else (
+            "ripple" if strength is not None else "trace")
+        moment = {"at": selected[1], "kind": kind, "delta": delta,
+                  "strength": strength}
+
+    return {
+        "properties": properties,
+        "ripple_score": round(min(
+            1.0, float(strength_sum) * RIPPLE_INCREMENT_PER_STRENGTH), 3),
+        "activity": step,
+        "timeline": {
+            "step": step,
+            "total": total,
+            "cursor": cursor,
+            "present": step == total,
+            "first_witness": ({"at": first[0]} if first else None),
+            "moment": moment,
+        },
+    }
 
 
 @_with_db

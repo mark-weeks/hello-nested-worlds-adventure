@@ -19,6 +19,7 @@ export default defineConfig({
       "/image":  "http://localhost:8080",
       "/speak":  "http://localhost:8080",
       "/puzzle": "http://localhost:8080",
+      "/wayback": "http://localhost:8080",
       "/agent":  "http://localhost:8080",
       "/health": "http://localhost:8080",
       "/ws":     { target: "ws://localhost:8080", ws: true },

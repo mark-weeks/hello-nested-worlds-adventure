@@ -122,7 +122,16 @@ the deterministic engine and never leak. Must pass the ecology gate
 answer uniqueness) and honor the per-node difficulty covenant — scale
 flavors, never a depth curve.
 
-### Batch 4 — The wayback surface
+### Batch 4 — The wayback surface · SHIPPED
+
+Shipped 2026-08-29 (see the CHANGELOG's batch entry for the measured
+record); ADR-011 ratified Accepted at its merge gate. As built: a read-only,
+node-local event-step cursor reconstructs born state plus chronicled deltas,
+pressure, and interaction wear; both clients scrub or animate those states
+through the current deterministic art and opt-in sound functions. The API and
+archive narration are actor-blind, first witness derives from the earliest
+existing row, archive reads add no row, and the UI states the interpretive
+lens plainly. The plan, as it stood:
 
 Read-only. State-at-T API (fold of chronicled deltas), a time-scrub in
 the clients, and evolution animation by feeding reconstructed states to

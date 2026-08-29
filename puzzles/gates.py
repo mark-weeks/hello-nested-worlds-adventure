@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import persistence
 from multiverse.node import SpatialNode
+from multiverse.utils import apply_property_patch
 from puzzles.generators import build_puzzle
 
 
@@ -59,7 +60,8 @@ def _overlaid(seed: int, node: SpatialNode) -> None:
     overrides = persistence.load_node_property_overrides(seed)
     for n in (node, node.parent):
         if n is not None and n.name in overrides:
-            n.properties.update(overrides[n.name])
+            n.properties = apply_property_patch(
+                n.properties, overrides[n.name])
 
 
 def seal_check(seed: int, target: SpatialNode,

@@ -80,9 +80,24 @@ def apply_property_overrides(root: SpatialNode, overrides: dict[str, dict]) -> N
         return
     changed = overrides.get(root.name)
     if changed:
-        root.properties.update(changed)
+        root.properties = apply_property_patch(root.properties, changed)
     for child in root.children:
         apply_property_overrides(child, overrides)
+
+
+def apply_property_patch(properties: dict, patch: dict) -> dict:
+    """Apply an RFC 7396 property patch, including born-key tombstones."""
+    result = dict(properties)
+    for key, value in patch.items():
+        if value is None:
+            result.pop(key, None)
+        elif isinstance(value, dict):
+            current = result.get(key)
+            result[key] = apply_property_patch(
+                current if isinstance(current, dict) else {}, value)
+        else:
+            result[key] = value
+    return result
 
 
 def apply_ripple_scores(root: SpatialNode, scores: dict[str, float]) -> None:

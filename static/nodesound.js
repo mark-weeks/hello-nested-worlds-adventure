@@ -54,6 +54,29 @@ const MODES = {
 
 const midiHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
+function _stableState(value) {
+  if (Array.isArray(value)) return `[${value.map(_stableState).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map(key =>
+      `${JSON.stringify(key)}:${_stableState(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+// Name alone was enough while ambience changed only on navigation. Wayback
+// scrubs multiple historical states of the SAME node, so the graph key must
+// include exactly the state the soundscape reads. Stable key ordering keeps
+// the result identical for every player receiving the same API response.
+export function soundscapeKey(seed, node) {
+  const state = _stableState({
+    level: node?.level || "",
+    properties: node?.properties || {},
+    ripple_score: Number(node?.ripple_score) || 0,
+    activity: Math.max(0, Number(node?.activity) || 0),
+  });
+  return `${seed}:${node?.name || ""}:${hashString(state)}`;
+}
+
 function _chooseMode(props, rng) {
   const danger = Number(props?.danger_level) || 0;
   if (props?.condition === "corrupted") return "insen";
@@ -187,7 +210,7 @@ export class NodeAmbience {
 
   setNode(seed, node) {
     if (!this.enabled || !this.ctx || !node) return;
-    const key = `${seed}:${node.name}`;
+    const key = soundscapeKey(seed, node);
     if (this.current === key) return;
     this.current = key;
     this._stop();

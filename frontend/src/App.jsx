@@ -389,6 +389,23 @@ export default function App() {
 
   const currentNode = nodeStack[nodeStack.length - 1] ?? null;
 
+  // Wayback never owns a second audio engine. A deliberate "listen" gesture
+  // enables (or retunes) the existing ambience with reconstructed state; when
+  // the archive closes, the same graph returns to the live node.
+  const previewWaybackSound = useCallback((historicalNode) => {
+    if (historicalNode) {
+      if (!ambienceRef.current) ambienceRef.current = new NodeAmbience();
+      const amb = ambienceRef.current;
+      if (amb.enabled) amb.setNode(seed, historicalNode);
+      else amb.enable(seed, historicalNode);
+      setSoundOn(amb.enabled);
+      return;
+    }
+    if (ambienceRef.current?.enabled && currentNode) {
+      ambienceRef.current.setNode(seed, currentNode);
+    }
+  }, [currentNode, seed]);
+
   // Ambient sound: each place hums its own deterministic tone
   // (static/nodesound.js). The toggle click is the activation gesture
   // browsers require for audio.
@@ -450,6 +467,7 @@ export default function App() {
         onSolved={setWalkThrough}
         soundOn={soundOn}
         onToggleSound={toggleSound}
+        onWaybackListen={previewWaybackSound}
       />
     </div>
   );

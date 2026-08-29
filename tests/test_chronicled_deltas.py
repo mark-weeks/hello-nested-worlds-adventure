@@ -469,7 +469,9 @@ class TestFoldSemantics:
             == {"a": {"b": 1, "c": 2}, "x": 1}
         final = persistence.fold_node_properties(seed, node)
         assert final == {"a": {"c": 2}}
-        assert final == persistence.load_node_property_overrides(seed)[node]
+        overlay = persistence.load_node_property_overrides(seed)[node]
+        assert overlay == {"a": {"b": None, "c": 2}, "x": None}
+        assert final == persistence.json_merge_patch({}, overlay)
 
     def test_fold_before_any_delta_is_the_born_state(self):
         assert persistence.fold_node_properties(7151, "Untouched-1") == {}
