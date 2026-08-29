@@ -142,24 +142,48 @@
     }
   }
 
+  // ── Display names ──────────────────────────────────────────────────────
+  // A node's canonical name is `<three-word phrase>-<path digits>`: the
+  // phrase is the readable identity, the digit suffix is its ADDRESS (the
+  // path from the root — deterministic coordinates, not randomness). The
+  // display layer shows the phrase and keeps the address one gesture away
+  // (hover / a dedicated field); the canonical full name remains the sole
+  // identity everywhere data is keyed or sent. Mirrors the puzzle layer's
+  // own reading (puzzles/generators.py `_base_name`): answers were already
+  // the phrase, never the address.
+
+  function nodeAddress(name) {
+    const s = String(name || "");
+    const cut = s.lastIndexOf("-");
+    if (cut <= 0) return null;   // no separator, or nothing before it
+    const suffix = s.slice(cut + 1);
+    return /^\d+$/.test(suffix) ? suffix : null;
+  }
+
+  function displayName(name) {
+    const s = String(name || "");
+    return nodeAddress(s) === null ? s : s.slice(0, s.lastIndexOf("-"));
+  }
+
   function mutationLine(mutation) {
     const data = mutation.data || {};
     const who = mutation.player || data.agent || "someone";
+    const place = displayName(mutation.node);
     switch (mutation.type) {
-      case "PUZZLE_SOLVED": return `${who} solved a puzzle at ${mutation.node}`;
-      case "PUZZLE_FAILED": return `a puzzle resisted ${who} at ${mutation.node}`;
-      case "PLAYER_SPEAK": return `${who} spoke with ${mutation.node}`;
-      case "PLAYER_CHAT": return `${who} said something at ${mutation.node}`;
-      case "AGENT_VISIT": return `${who} passed through ${mutation.node}`;
-      case "DANGER_ALERT": return `danger stirred at ${mutation.node}`;
-      case "SCALE_ACT": return `${who} chose to ${data.verb || "act"} at ${mutation.node}`;
-      case "AGENT_TALK": return `${data.a || "someone"} and ${data.b || "someone"} spoke at ${mutation.node}`;
-      case "AGENT_VOICE": return `${who} spoke with ${data.agent || "a wanderer"} at ${mutation.node}`;
+      case "PUZZLE_SOLVED": return `${who} solved a puzzle at ${place}`;
+      case "PUZZLE_FAILED": return `a puzzle resisted ${who} at ${place}`;
+      case "PLAYER_SPEAK": return `${who} spoke with ${place}`;
+      case "PLAYER_CHAT": return `${who} said something at ${place}`;
+      case "AGENT_VISIT": return `${who} passed through ${place}`;
+      case "DANGER_ALERT": return `danger stirred at ${place}`;
+      case "SCALE_ACT": return `${who} chose to ${data.verb || "act"} at ${place}`;
+      case "AGENT_TALK": return `${data.a || "someone"} and ${data.b || "someone"} spoke at ${place}`;
+      case "AGENT_VOICE": return `${who} spoke with ${data.agent || "a wanderer"} at ${place}`;
       case "PLAYER_JOIN": return `${who} arrived in the world`;
-      case "PLAYER_LEAVE": return `${who} departed from ${mutation.node}`;
-      case "PLAYER_MOVE": return `${who} passed into ${mutation.node}`;
-      case "PUZZLE_ATTEMPT": return `${who} worked at a puzzle in ${mutation.node}`;
-      default: return `something happened at ${mutation.node}`;
+      case "PLAYER_LEAVE": return `${who} departed from ${place}`;
+      case "PLAYER_MOVE": return `${who} passed into ${place}`;
+      case "PUZZLE_ATTEMPT": return `${who} worked at a puzzle in ${place}`;
+      default: return `something happened at ${place}`;
     }
   }
 
@@ -175,12 +199,14 @@
     BADGE_RULES,
     describeChronicleEntry,
     describeMutation,
+    displayName,
     dropInNode,
     entryPath,
     findNodeByName,
     findPath,
     firstWrapCrossing,
     mutationLine,
+    nodeAddress,
     nodeMark,
     passageBadges,
     resumeDepth,

@@ -66,9 +66,11 @@ const LAST_DEPTH_KEY = 'nw_view_depth';
 const {
   describeChronicleEntry,
   describeMutation,
+  displayName,
   dropInNode,
   findNodeByName,
   firstWrapCrossing,
+  nodeAddress,
   nodeMark,
   resumeDepth,
   wrapAffordance,
@@ -219,7 +221,9 @@ function renderTree(worldRoot, { preservePresence = false } = {}) {
     .attr('dx',               d => d.children ? '0' : '14px')
     .attr('text-anchor',      d => d.children ? 'middle' : 'start')
     .attr('dominant-baseline',d => d.children ? 'auto' : 'middle')
-    .text(d => d.data.name);
+    .text(d => displayName(d.data.name))
+    // Hover reveals the full canonical name — phrase plus address.
+    .append('title').text(d => d.data.name);
 
   fitView();
   // Non-linear entry: resume the player's last node, or drop a first-timer into
@@ -300,9 +304,17 @@ function selectNode(data) {
 
   document.getElementById('node-level').textContent = data.level;
   document.getElementById('node-level').style.color = color;
-  document.getElementById('node-name').textContent  = data.name;
+  // Display layer: the readable phrase is the shown name; hovering it
+  // reveals the full canonical form, and the address gets its own row.
+  document.getElementById('node-name').textContent  = displayName(data.name);
+  document.getElementById('node-name').title        = data.name;
   document.getElementById('node-name').style.color  = color;
-  let propsHtml = Object.entries(data.properties || {}).map(
+  const address = nodeAddress(data.name);
+  let propsHtml = address
+    ? `<div class="prop-row" title="this place's address — its path from the root of the multiverse">` +
+      `<span class="prop-key">address</span><span class="prop-val">⌖ ${escHtml(address)}</span></div>`
+    : '';
+  propsHtml += Object.entries(data.properties || {}).map(
     ([k, v]) => `<div class="prop-row"><span class="prop-key">${escHtml(String(k))}</span><span class="prop-val">${escHtml(String(v))}</span></div>`
   ).join('');
   if (data.ripple_score > 0) {
@@ -786,7 +798,7 @@ async function jumpTo(nodeName) {
     const suffix = nodeName.split('-').pop();
     if (/^\d+$/.test(suffix) && suffix.length > worldParams.depth) {
       document.getElementById('depth').value = Math.min(11, suffix.length);
-      pushFeed(`… deepening the view toward ${nodeName}`);
+      pushFeed(`… deepening the view toward ${displayName(nodeName)}`);
       await loadWorld();
       hit = findNodeByName(hierLayout && hierLayout.data, nodeName);
     }
@@ -799,7 +811,7 @@ async function jumpTo(nodeName) {
     if (anc) {
       selectNode(anc);
       centerOnNode(anc);
-      pushFeed(`▼ ${nodeName} lies enfolded beneath ${anc.name}`);
+      pushFeed(`▼ ${displayName(nodeName)} lies enfolded beneath ${displayName(anc.name)}`);
     }
   }
 }
@@ -820,7 +832,7 @@ async function deepenSelected() {
   if (!selected || worldParams.depth >= 11) return;
   const target = selected.name;
   document.getElementById('depth').value = worldParams.depth + 1;
-  pushFeed(`↓ looking within ${target}`);
+  pushFeed(`↓ looking within ${displayName(target)}`);
   await loadWorld();
   // renderTree resolves LAST_NODE_KEY, which selectNode wrote before the
   // reload, so the same node remains selected with its children now visible.
@@ -918,11 +930,11 @@ function handleWsMsg(msg) {
         // Position stays outside; SELECTION stays on the sealed node so
         // its puzzle panel is attemptable — the key is spoken from the
         // threshold, and solving re-sends the move (the way opens).
-        pushFeed(`▦ ${escHtml(msg.node)} is sealed — its key is written in ` +
+        pushFeed(`▦ ${escHtml(displayName(msg.node))} is sealed — its key is written in ` +
                  `${escHtml(msg.keeper || 'the scale above')}`);
         if (msg.prompt) pushFeed(`   ${escHtml(msg.prompt)}`);
       } else {
-        pushFeed(`✕ no way to ${escHtml(msg.node)} — ${escHtml(msg.reason)}`);
+        pushFeed(`✕ no way to ${escHtml(displayName(msg.node))} — ${escHtml(msg.reason)}`);
       }
       break;
     case 'player_join':
@@ -954,15 +966,15 @@ function handleWsMsg(msg) {
       const by = msg.solver ? ` by ${msg.solver}${credit}` : '';
       if (msg.entangled_with) {
         // Locality failed: this node resolved because its twin did.
-        pushFeed(`⇄ ${msg.node} resolves — entangled with ${msg.entangled_with}`);
+        pushFeed(`⇄ ${displayName(msg.node)} resolves — entangled with ${displayName(msg.entangled_with)}`);
         flashNode(msg.node, 1.0);
       } else {
-        pushFeed(`Puzzle solved: ${msg.puzzle} @ ${msg.node}${by}`);
+        pushFeed(`Puzzle solved: ${msg.puzzle} @ ${displayName(msg.node)}${by}`);
       }
       break;
     }
     case 'agent_done':
-      pushFeed(`Agent: ${msg.nodes_visited} nodes from ${msg.node}`);
+      pushFeed(`Agent: ${msg.nodes_visited} nodes from ${displayName(msg.node)}`);
       break;
     case 'chat': {
       const nameHtml = `<span class="chat-name">${escHtml(msg.name)}</span>`;
@@ -977,12 +989,12 @@ function handleWsMsg(msg) {
       break;
     case 'causal_event': {
       const kindFmt = msg.kind.replace(/_/g, ' ').toLowerCase();
-      pushFeed(`↯ ${kindFmt} · ${msg.node} ×${msg.strength.toFixed(2)}`);
+      pushFeed(`↯ ${kindFmt} · ${displayName(msg.node)} ×${msg.strength.toFixed(2)}`);
       flashNode(msg.node, msg.strength);
       break;
     }
     case 'scale_act': {
-      pushFeed(`✦ ${escHtml(msg.actor)} ${escHtml(msg.verb)}s ${escHtml(msg.node)}`);
+      pushFeed(`✦ ${escHtml(msg.actor)} ${escHtml(msg.verb)}s ${escHtml(displayName(msg.node))}`);
       flashNode(msg.node, 0.8);
       // Someone changed a place we may be looking at: fold in the delta.
       if (selected && selected.name === msg.node && msg.changed) {
@@ -992,13 +1004,13 @@ function handleWsMsg(msg) {
       break;
     }
     case 'constellation_complete':
-      pushFeed(`✦✦ CONSTELLATION — every one of ${escHtml(msg.node)}'s ` +
+      pushFeed(`✦✦ CONSTELLATION — every one of ${escHtml(displayName(msg.node))}'s ` +
                `${msg.children} ${escHtml(msg.of || 'children')} is resolved` +
                (msg.by ? ` (completed by ${escHtml(msg.by)})` : ''));
       flashNode(msg.node, 1.0);
       break;
     case 'agent_encounter':
-      pushFeed(`⚡ ${escHtml(msg.agent1)} meets ${escHtml(msg.agent2)} @ ${escHtml(msg.node)}`);
+      pushFeed(`⚡ ${escHtml(msg.agent1)} meets ${escHtml(msg.agent2)} @ ${escHtml(displayName(msg.node))}`);
       flashNode(msg.node, 0.9);
       break;
     case 'agent_talk':
@@ -1053,7 +1065,7 @@ function renderPlayers() {
       `title="go to ${escHtml(p.name)}">` +
       `<span class="player-dot" style="background:${p.color}"></span>` +
       `<span class="player-name">${escHtml(p.name)}</span>` +
-      `<span class="player-node">${escHtml(p.node || '—')}</span>` +
+      `<span class="player-node" title="${escHtml(p.node || '')}">${escHtml(p.node ? displayName(p.node) : '—')}</span>` +
       `</div>`);
   }
   for (const [name, a] of cast) {
@@ -1064,7 +1076,7 @@ function renderPlayers() {
       `<span class="player-name">${escHtml(name)}` +
       (a.persona ? ` <span style="color:#5a6a8a">· ${escHtml(a.persona)}</span>` : '') +
       `</span>` +
-      `<span class="player-node">${escHtml(a.node || '…arriving')}</span>` +
+      `<span class="player-node" title="${escHtml(a.node || '')}">${escHtml(a.node ? displayName(a.node) : '…arriving')}</span>` +
       `</div>`);
   }
   el.innerHTML = rows.join('');

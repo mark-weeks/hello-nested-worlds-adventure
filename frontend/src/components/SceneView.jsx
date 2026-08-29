@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Application, Assets, Container, Graphics, Sprite, Text, TextStyle, Texture } from "pixi.js";
 import { withKey } from "../auth.js";
 import { passageBadges } from "../badges.js";
+import { displayName } from "../names.js";
 import { drawNodeArt } from "../../../static/nodeart.js";
 
 export default function SceneView({
@@ -130,7 +131,7 @@ export default function SceneView({
         ref={containerRef}
         style={styles.canvas}
         role="img"
-        aria-label={`Scene of ${node?.name || "the world"}, a ${node?.level || "place"}. ${node?.properties?.aspect || ""}`}
+        aria-label={`Scene of ${node ? displayName(node.name) : "the world"}, a ${node?.level || "place"}. ${node?.properties?.aspect || ""}`}
       />
       {canGoUp && (
         <button style={styles.upBtn} onClick={onNavigateUp}>← back</button>
@@ -156,7 +157,7 @@ function renderScene(app, node, players, onNavigate, bgUrl, seed) {
 
   // Node name
   const label = new Text({
-    text: `${node.level}: ${node.name}`,
+    text: `${node.level}: ${displayName(node.name)}`,
     style: new TextStyle({ fill: 0xb0bcd0, fontSize: 18, fontFamily: "Courier New" }),
   });
   label.x = 24;
@@ -337,7 +338,7 @@ function makeHotspot(app, node, x, y, onNavigate) {
   group.addChild(border);
 
   const label = new Text({
-    text: node.name,
+    text: displayName(node.name),
     style: new TextStyle({ fill: _HOTSPOT.labelRest, fontSize: 12, fontFamily: "Courier New" }),
   });
   label.anchor.set(0.5);

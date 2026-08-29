@@ -31,20 +31,20 @@ const FIXTURES = [
 
 describe("mutationLine", () => {
   it("narrates the two event kinds the old React copy dropped", () => {
-    expect(mutationLine(FIXTURES[6])).toBe("Ada chose to ward at Mire-112");
+    expect(mutationLine(FIXTURES[6])).toBe("Ada chose to ward at Mire");
     expect(mutationLine(FIXTURES[8]))
-      .toBe("Tessera and Karst spoke at Mire-112");
+      .toBe("Tessera and Karst spoke at Mire");
   });
 
   it("falls back gracefully on missing actors, verbs, and speakers", () => {
-    expect(mutationLine(FIXTURES[7])).toBe("Ada chose to act at Mire-112");
+    expect(mutationLine(FIXTURES[7])).toBe("Ada chose to act at Mire");
     expect(mutationLine(FIXTURES[9]))
-      .toBe("someone and someone spoke at Mire-112");
-    expect(mutationLine(FIXTURES[17])).toBe("someone passed into Mire-112");
+      .toBe("someone and someone spoke at Mire");
+    expect(mutationLine(FIXTURES[17])).toBe("someone passed into Mire");
   });
 
   it("never renders an unknown event type as broken text", () => {
-    expect(mutationLine(FIXTURES[16])).toBe("something happened at Mire-112");
+    expect(mutationLine(FIXTURES[16])).toBe("something happened at Mire");
   });
 });
 
