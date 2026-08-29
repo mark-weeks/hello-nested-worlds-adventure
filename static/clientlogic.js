@@ -96,6 +96,52 @@
     return badges.length ? badges[0].css : null;
   }
 
+  // ── The wrap passage (ADR-008) ─────────────────────────────────────────
+  // The loop's affordance rule, shared so both browser clients offer the
+  // same passage: below any particle is the whole; beyond the root is the
+  // world's one hinge particle. `wrapInfo` is the /world response's `wrap`
+  // block (landings + authored lines) — the server owns the hinge.
+
+  function wrapAffordance(node, wrapInfo) {
+    if (!node || !wrapInfo) return null;
+    if (node.level === "SubatomicParticle") {
+      return {
+        direction: "inward",
+        target: wrapInfo.root,
+        passage: wrapInfo.descent_passage,
+        line: wrapInfo.descent_line,
+      };
+    }
+    if (node.level === "Multiverse") {
+      return {
+        direction: "outward",
+        target: wrapInfo.hinge,
+        passage: wrapInfo.ascent_passage,
+        line: wrapInfo.ascent_line,
+      };
+    }
+    return null;
+  }
+
+  const WRAP_CROSSED_KEY = "nw_wrap_crossed";
+
+  function firstWrapCrossing(direction, storage) {
+    // True exactly once per browser per direction — the first crossing
+    // gets the authored line; after that the passage is a way you know.
+    // Storage failures (private mode, disabled) err toward speaking it.
+    const store = storage || (typeof localStorage !== "undefined" ? localStorage : null);
+    if (!store) return true;
+    try {
+      const seen = (store.getItem(WRAP_CROSSED_KEY) || "").split(",").filter(Boolean);
+      if (seen.includes(direction)) return false;
+      seen.push(direction);
+      store.setItem(WRAP_CROSSED_KEY, seen.join(","));
+      return true;
+    } catch (_) {
+      return true;
+    }
+  }
+
   function mutationLine(mutation) {
     const data = mutation.data || {};
     const who = mutation.player || data.agent || "someone";
@@ -133,9 +179,11 @@
     entryPath,
     findNodeByName,
     findPath,
+    firstWrapCrossing,
     mutationLine,
     nodeMark,
     passageBadges,
     resumeDepth,
+    wrapAffordance,
   });
 })(globalThis);

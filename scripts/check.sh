@@ -22,7 +22,11 @@ fi
 .venv/bin/python scripts/verify_wheel.py
 
 if [ "${ENFOLDED_E2E:-0}" = "1" ]; then
-  ENFOLDED_PYTHON=.venv/bin/python npm run test:e2e --prefix frontend
+  # Absolute path: Playwright launches the webServer from frontend/, where
+  # a repo-relative .venv/bin/python does not resolve (exit 127) — this
+  # line had never actually run before batch 2 (batch 1's containers had
+  # no Chromium, and CI installs the package into its runner python).
+  ENFOLDED_PYTHON="$repo_dir/.venv/bin/python" npm run test:e2e --prefix frontend
 else
   echo "Browser E2E skipped locally; set ENFOLDED_E2E=1 after installing Chromium."
 fi

@@ -91,6 +91,17 @@ a harmless view option.
   ADR-gated* write path (chronicled world events — see ADR-006 "Revisit
   when"); it does not exist yet, so today any code path that would mutate a
   stored node's name/level/base properties is a bug.
+- **The wrap hinge is pinned, not computed** (ADR-008, ratified at the
+  batch-2 merge gate). The traversal loop's one root-ascent landing is
+  selected once per world by a seed-pure rule (`multiverse/wrap.py`,
+  constrained to a fully unsealed lineage — the liveness invariant) and
+  pinned write-once in `world_meta` (migration 0015). From then on THE
+  STORED HINGE IS THE HINGE: editing the selector changes what future
+  worlds pin, never where an existing world's monument stands — enforced
+  by `persistence.pin_world_meta` (no update/delete exists) and pinned by
+  `tests/test_wrap_passage.py::TestSelectorEditImmunity`. Moving a pinned
+  hinge is an ADR-level continuity decision. The loop itself lives in the
+  traversal layer only: parent links stay a tree, causality does not wrap.
 - **Content banks govern births only.** Editing `multiverse/generator.py`
   banks cannot touch any world that already exists — pinned by
   `tests/test_world_store.py::TestBankEditImmunity`. A bank edit changes

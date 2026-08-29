@@ -3,7 +3,7 @@ import Chronicle from "./Chronicle.jsx";
 import Interact from "./Interact.jsx";
 import { passageBadges } from "../badges.js";
 
-export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, canDeepen = false, onDeepen, onSolved, soundOn, onToggleSound }) {
+export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, canDeepen = false, onDeepen, wrapPassage = null, onWrapCross, onSolved, soundOn, onToggleSound }) {
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
 
@@ -66,6 +66,20 @@ export default function TextPanel({ node, players, agents = {}, connected, event
           <button style={s.deepenBtn} onClick={onDeepen}>
             Look within ↓
           </button>
+        </div>
+      )}
+
+      {wrapPassage && (
+        <div style={s.section}>
+          <div style={s.label}>
+            {wrapPassage.direction === "inward"
+              ? "The world continues inward"
+              : "The world continues beyond"}
+          </div>
+          <button style={s.deepenBtn} onClick={() => onWrapCross?.(wrapPassage)}>
+            {wrapPassage.direction === "inward" ? "Descend into the whole ↓" : "Ascend beyond ↑"}
+          </button>
+          <div style={s.wrapHint}>{wrapPassage.passage}</div>
         </div>
       )}
 
@@ -198,6 +212,7 @@ const s = {
   chatInput:   { flex: 1, background: "#10131f", border: "1px solid #2a3050", color: "#b0bcd0", padding: "4px 6px", fontFamily: "inherit", fontSize: "12px", minWidth: 0 },
   btn:         { background: "#0e1828", border: "1px solid #2a4060", color: "#3a8eff", padding: "4px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", flexShrink: 0 },
   deepenBtn:   { background: "#111a30", border: "1px solid #5268a8", color: "#9aaee8", padding: "7px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", letterSpacing: "0.08em", textTransform: "uppercase" },
+  wrapHint:    { fontSize: "10px", color: "#56628a", fontStyle: "italic", lineHeight: 1.4 },
   feed:        { overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "3px" },
   empty:       { fontSize: "11px", color: "#2a3555" },
   status:      { fontSize: "11px", flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center" },

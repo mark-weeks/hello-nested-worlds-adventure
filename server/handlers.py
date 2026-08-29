@@ -20,7 +20,7 @@ from causality.wiring import (
 )
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
-from multiverse import store
+from multiverse import store, wrap
 from multiverse.generator import BREADTH_ENVELOPE
 from multiverse.node import SpatialNode
 from multiverse.utils import (
@@ -548,6 +548,18 @@ class Handler(BaseHTTPRequestHandler):
             persistence.save_world(seed, node_count, depth, *BREADTH_ENVELOPE)
             activity = persistence.count_mutations_by_node(seed)
             self._send_json({"seed": seed, "node_count": node_count,
+                             # The wrap passage (ADR-008): the loop's two
+                             # fixed landings and its authored lines, so
+                             # every client offers the same passage and
+                             # speaks the same fiction at the crossing.
+                             "wrap": {
+                                 "root": root.name,
+                                 "hinge": wrap.hinge_name(seed),
+                                 "descent_passage": wrap.DESCENT_PASSAGE,
+                                 "ascent_passage": wrap.ASCENT_PASSAGE,
+                                 "descent_line": wrap.DESCENT_LINE,
+                                 "ascent_line": wrap.ASCENT_LINE,
+                             },
                              "world": _node_to_dict(root, activity)})
 
         elif path == "/agent":
@@ -706,6 +718,7 @@ class Handler(BaseHTTPRequestHandler):
                     transcript=transcript,
                     ripple_score=node.ripple_score,
                     speaker=player_name,
+                    hinge=wrap.is_hinge(seed, node.name),
                 )
                 # The exchange — both sides of it — becomes node memory.
                 # Store the FULL message and reply: the chronicle keeps the

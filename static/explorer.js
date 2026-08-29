@@ -68,9 +68,15 @@ const {
   describeMutation,
   dropInNode,
   findNodeByName,
+  firstWrapCrossing,
   nodeMark,
   resumeDepth,
+  wrapAffordance,
 } = window.EnfoldedClient;
+
+// The wrap passage's landings and authored lines — server-owned, arriving
+// with /world (ADR-008).
+let wrapInfo = null;
 
 function resolveEntryNode(root) {
   const saved = localStorage.getItem(LAST_NODE_KEY);
@@ -147,6 +153,7 @@ async function loadWorld() {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     worldParams.seed = data.seed;
+    wrapInfo = data.wrap || null;
     const sameWorld = previousSeed !== null && previousSeed === data.seed;
     setStatus(`${data.node_count} nodes · shared world · depth ${depth}`);
     renderTree(data.world, { preservePresence: sameWorld });
@@ -316,6 +323,14 @@ function selectNode(data) {
     && data.level !== 'SubatomicParticle'
     && !(data.children || []).length
   );
+
+  // The wrap passage (ADR-008): below any particle, the whole; beyond the
+  // root, the world's one hinge particle.
+  const passage = wrapAffordance(data, wrapInfo);
+  document.getElementById('btn-wrap-down').hidden =
+    !(passage && passage.direction === 'inward');
+  document.getElementById('btn-wrap-up').hidden =
+    !(passage && passage.direction === 'outward');
 
   // The node's own generative art: deterministic in (seed, name), shaped by
   // properties, marked by history (pressure, effects, activity etchings).
@@ -789,6 +804,18 @@ async function jumpTo(nodeName) {
   }
 }
 
+// Cross the wrap: the landing is a real node, so the crossing is a jump to
+// it (jumpTo deepens the view when the hinge lies below the rendered
+// horizon). The first crossing in each direction speaks its authored line.
+async function crossWrap(direction) {
+  const passage = wrapAffordance(selected, wrapInfo);
+  if (!passage || passage.direction !== direction || !passage.target) return;
+  if (passage.line && firstWrapCrossing(direction)) {
+    pushFeed(passage.line);
+  }
+  await jumpTo(passage.target);
+}
+
 async function deepenSelected() {
   if (!selected || worldParams.depth >= 11) return;
   const target = selected.name;
@@ -1121,6 +1148,8 @@ document.getElementById('player-name-input').addEventListener('keydown', e => {
 });
 document.getElementById('gen-btn').addEventListener('click', loadWorld);
 document.getElementById('btn-deepen').addEventListener('click', deepenSelected);
+document.getElementById('btn-wrap-down').addEventListener('click', () => crossWrap('inward'));
+document.getElementById('btn-wrap-up').addEventListener('click', () => crossWrap('outward'));
 document.getElementById('chat-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') sendChat();
 });

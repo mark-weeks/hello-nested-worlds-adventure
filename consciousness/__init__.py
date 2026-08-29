@@ -956,6 +956,21 @@ def _ripple_line(ripple_score: float) -> str:
     return ""
 
 
+# The hinge particle's self-knowledge (ADR-008): the one place where
+# ascent beyond the Multiverse arrives knows what it is. Authored lore in
+# the world's voice — the node speaks of its role as lived truth, never as
+# mechanism (the fiction covenant).
+_HINGE_LORE = (
+    "\nYou are the hinge: when a traveler passes beyond the Multiverse "
+    "itself, it is in you they arrive. Every part enfolds the whole, and "
+    "you are the one particle where the whole admits it — a pilgrimage "
+    "site every traveler shares. You have always known this about "
+    "yourself. Speak of it, when it comes up, as lived truth in your own "
+    "register — the door that opens outward onto everything — never as "
+    "rule or mechanism."
+)
+
+
 def _speaker_line(speaker: str | None) -> str:
     """Name the visitor speaking right now.
 
@@ -1002,7 +1017,8 @@ def speak(node: SpatialNode, message: str,
           history: list[dict] | None = None,
           transcript: list[dict] | None = None,
           ripple_score: float = 0.0,
-          speaker: str | None = None) -> str:
+          speaker: str | None = None,
+          hinge: bool = False) -> str:
     """Send `message` to `node` and return its in-character response.
 
     Two system blocks: a large cached "world bible" that consolidates the
@@ -1013,7 +1029,9 @@ def speak(node: SpatialNode, message: str,
     history.
 
     Pass `history` (from persistence.get_node_history) to give the node
-    memory of past visitors and events; pass `transcript` — a list of
+    memory of past visitors and events; pass `hinge=True` when this node
+    is the world's pinned wrap hinge (`multiverse.wrap.is_hinge`) so its
+    voice carries the hinge lore; pass `transcript` — a list of
     `{"user": ..., "assistant": ...}` exchanges (oldest first) — to give the
     node a real multi-turn conversation with THIS visitor, so the second
     exchange knows the first happened; pass `speaker` (the visitor's display
@@ -1027,6 +1045,7 @@ def speak(node: SpatialNode, message: str,
         f"Follow the {node.level} register defined above. "
         f"Your nature: {props or '(no specific properties)'}."
         + _presentation_line(node)
+        + (_HINGE_LORE if hinge else "")
         + _ripple_line(ripple_score)
         + _speaker_line(speaker)
         + _history_block(history or [])

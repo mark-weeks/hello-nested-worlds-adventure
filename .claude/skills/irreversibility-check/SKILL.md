@@ -1,6 +1,6 @@
 ---
 name: irreversibility-check
-description: Write the merge-gate irreversibility check for the current diff. Use before proposing any merge or opening a PR in this repo — it scans the diff for one-way doors (golden re-pins, migrations, world_mutations write paths, era-bank edits, GENERATOR_VERSION changes) and produces the 2–3 line check CLAUDE.md requires in every merge request.
+description: Write the merge-gate irreversibility check for the current diff. Use before proposing any merge or opening a PR in this repo — it scans the diff for one-way doors (golden re-pins, migrations, world_mutations write paths, world_meta pins, era-bank edits, GENERATOR_VERSION changes) and produces the 2–3 line check CLAUDE.md requires in every merge request.
 ---
 
 # Irreversibility check
@@ -35,6 +35,15 @@ request. The human is quizzed only when a one-way door actually trips.
      `world_mutations`). The chronicle is append-only with exactly three
      sanctioned maintenance mechanisms (redaction, double-gated pruning,
      disaster restore) — a new write path is a covenant-level change.
+   - **World-meta pin touched?** `world_meta` rows are write-once
+     first-selection records (ADR-008: the wrap hinge) — the stored value
+     IS the fact from then on. Any new `persistence.pin_world_meta` call
+     site, any change to a pinning rule (e.g. the hinge selector in
+     `multiverse/wrap.py`) that runs before first production pin, or —
+     never acceptable without an ADR — any code path that would rewrite a
+     pinned row. Selector edits after a world is pinned cannot move it
+     (`TestSelectorEditImmunity`), so the danger window is pre-pin tuning
+     and new pin keys.
    - **Era display banks touched?** The two banks in
      `multiverse/chronicle.py` are read at render time and stay frozen
      (exact strings pinned) until eras are materialized (ADR-006).
