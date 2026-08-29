@@ -1,7 +1,7 @@
 # ADR-011: The Wayback Surface — past state through present senses
 
 **Status:** Accepted 2026-08-29 — ratified by the owner's merge of the
-implementing PR (pre-launch batch 4). This is the player-facing payoff of
+implementing PR #81 (pre-launch batch 4). This is the player-facing payoff of
 ADR-009's chronicled-delta discipline and the final product batch in the
 pre-launch window.
 
