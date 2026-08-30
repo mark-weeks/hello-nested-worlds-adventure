@@ -4,7 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "enfolded"
-version = "0.1.0"
+# Pre-launch builds carry a PEP 440 prerelease version so QA wheel metadata
+# can never be mistaken for (or shadow) the launch release. Bump to plain
+# "0.1.0" as part of cutting the launch build itself.
+version = "0.1.0rc1"
 description = "Enfolded: Nested World Adventure — a shared persistent multiverse inhabited by human players and AI agents"
 requires-python = ">=3.11,<3.12"
 dependencies = [

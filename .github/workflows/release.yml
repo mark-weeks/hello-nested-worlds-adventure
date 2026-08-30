@@ -1,0 +1,117 @@
+# Tag-triggered release builds (v0.1.0-qa.1 follow-up).
+#
+# qa.1's assets were built and uploaded by hand, so their provenance rested
+# on the operator's word. From qa.2 on, pushing a `v*` tag produces the
+# release here: the gate runs first (Ruff, the full Python suite, the
+# installed-wheel smoke), then the exact wheel that passed is checksummed
+# and attached with machine-generated provenance notes. Tags containing
+# `-qa.` or built from an `rc` version are marked prerelease.
+#
+# This publishes a downloadable QA artifact only — it creates no Fly
+# application, volume, or parallel persistent world (ADR-007).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    name: Build, verify, and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install package with dev extras
+        run: |
+          pip install "setuptools==82.0.0"
+          pip install --no-build-isolation -c requirements-dev.lock -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Run pytest
+        # The default runner shell has no pipefail — without it, tee's exit
+        # code would mask a failing suite and the release would still build.
+        run: |
+          set -o pipefail
+          python -m pytest tests/ -q | tee pytest-summary.txt
+
+      - name: Installed-wheel smoke
+        run: python scripts/verify_wheel.py
+
+      - name: Build the release wheel
+        run: |
+          mkdir -p dist
+          pip wheel --no-build-isolation --no-deps --wheel-dir dist .
+          cp requirements.lock dist/
+          cd dist
+          sha256sum enfolded-*.whl > SHA256SUMS
+
+      - name: Compose provenance notes
+        run: |
+          WHEEL=$(basename dist/enfolded-*.whl)
+          DIGEST=$(cut -d' ' -f1 dist/SHA256SUMS)
+          SIZE=$(stat -c%s "dist/$WHEEL")
+          PYTESTS=$(grep -Eo '[0-9]+ passed' pytest-summary.txt | tail -1)
+          cat > dist/QA_BUILD.md <<EOF
+          # Enfolded build $GITHUB_REF_NAME
+
+          This is a downloadable QA artifact, not a hosted environment. It
+          creates no Fly application, volume, or parallel persistent world.
+
+          ## Provenance
+
+          - Source: \`$GITHUB_REF_NAME\` at \`$GITHUB_SHA\`
+          - Built by: this repository's Release workflow, run $GITHUB_RUN_ID
+          - Artifact: \`$WHEEL\`
+          - Size: $SIZE bytes
+          - SHA-256: \`$DIGEST\`
+
+          ## Verification (this workflow run, before packaging)
+
+          - Ruff lint green.
+          - $PYTESTS (full Python suite).
+          - Installed-wheel smoke passed (packaging, migrations list,
+            frontend bundle, CLI entry point).
+
+          ## Install and run
+
+          Requires Python 3.11. The run command keeps the QA world in a
+          dedicated \`qa-home\` directory — your personal
+          \`~/.nested-worlds\` database is never touched. Delete \`qa-home\`
+          to reset the QA world; keep it to continue across runs.
+
+          \`\`\`bash
+          python3.11 -m venv .venv
+          source .venv/bin/activate
+          python -m pip install -c requirements.lock ./$WHEEL
+          mkdir -p qa-home
+          HOME="\$PWD/qa-home" python -m main serve --host 127.0.0.1 --port 8080
+          \`\`\`
+
+          Open \`http://127.0.0.1:8080/app\`.
+          EOF
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-qa.*|*rc*) FLAGS="--prerelease" ;;
+            *)           FLAGS="" ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" \
+            dist/enfolded-*.whl dist/SHA256SUMS dist/requirements.lock dist/QA_BUILD.md \
+            $FLAGS \
+            --title "Enfolded QA build $GITHUB_REF_NAME" \
+            --notes-file dist/QA_BUILD.md
