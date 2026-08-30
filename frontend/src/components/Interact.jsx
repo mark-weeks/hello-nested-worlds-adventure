@@ -7,7 +7,7 @@ import { displayName } from "../names.js";
 // (/puzzle + /puzzle/attempt). Kept in its own component so TextPanel stays
 // small; mirrors the request shapes the D3 explorer already uses.
 
-export default function Interact({ node, seed, depth, playerName, onSolved }) {
+export default function Interact({ node, seed, depth, playerName, onSolved, onNodeChanged }) {
   const [tab, setTab] = useState("speak");
 
   // Reset the sub-panels whenever the player moves to a different node.
@@ -37,7 +37,7 @@ export default function Interact({ node, seed, depth, playerName, onSolved }) {
       {tab === "puzzle" &&
         <Puzzle key={`pz-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} />}
       {tab === "act" && verb &&
-        <Act key={`act-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} />}
+        <Act key={`act-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} onChanged={onNodeChanged} />}
     </div>
   );
 }
@@ -47,7 +47,7 @@ export default function Interact({ node, seed, depth, playerName, onSolved }) {
 // object, ward a region, observe a particle. The server owns the effect;
 // the response's flavor line is the fiction of what happened.
 
-function Act({ node, seed, depth, playerName }) {
+function Act({ node, seed, depth, playerName, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [flavor, setFlavor] = useState("");
   const [changed, setChanged] = useState(null);
@@ -68,13 +68,17 @@ function Act({ node, seed, depth, playerName }) {
       });
       const data = await r.json();
       if (data.error) { setError(data.error); }
-      else { setFlavor(data.flavor || ""); setChanged(data.changed); }
+      else {
+        setFlavor(data.flavor || "");
+        setChanged(data.changed);
+        if (data.changed && !data.matures_in) onChanged?.();
+      }
     } catch (e) {
       setError("Network error: " + e.message);
     } finally {
       setBusy(false);
     }
-  }, [busy, seed, depth, node, verb, playerName]);
+  }, [busy, seed, depth, node, verb, playerName, onChanged]);
 
   return (
     <div style={s.panel}>
@@ -192,6 +196,7 @@ function Speak({ node, seed, playerName }) {
 // ── Puzzle (GET /puzzle, POST /puzzle/attempt) ──────────────────────────────
 
 function Puzzle({ node, seed, depth, playerName, onSolved }) {
+  const nodeName = node?.name;
   const [puzzle, setPuzzle] = useState(null);
   const [status, setStatus] = useState("");
   const [answer, setAnswer] = useState("");
@@ -199,18 +204,31 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
   const [result, setResult] = useState(null); // {correct,result,hint,correct_answer,solver}
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { setPuzzle(null); setStatus(""); setResult(null); setAnswer(""); setAttempt(0); }, [node?.name]);
-
   const find = useCallback(async () => {
     setStatus("Searching…"); setResult(null); setPuzzle(null);
     try {
-      const url = `/puzzle?seed=${seed}&depth=${depth}&node_name=${encodeURIComponent(node.name)}`;
+      const url = `/puzzle?seed=${seed}&depth=${depth}&node_name=${encodeURIComponent(nodeName)}`;
       const r = await fetch(withKey(url));
       const data = await r.json();
       if (!data.found) { setStatus("No puzzle at this node."); return; }
-      setPuzzle(data); setStatus("");
+      setPuzzle(data);
+      setAttempt(data.attempt ?? 0);
+      setResult(data.solved ? {
+        correct: true,
+        result: "SOLVED",
+        solver: data.solver,
+        contributors: data.contributors,
+        changed: null,
+        persisted: true,
+      } : null);
+      setStatus("");
     } catch (e) { setStatus("Error: " + e.message); }
-  }, [node, seed, depth]);
+  }, [nodeName, seed, depth]);
+
+  // The Puzzle tab is itself the player's request to see the puzzle. Because
+  // this component mounts only while that tab is active, loading on mount
+  // removes the redundant "Find puzzle here" gate.
+  useEffect(() => { find(); }, [find]);
 
   const submit = useCallback(async () => {
     const a = answer.trim();
@@ -233,7 +251,7 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
       // trigger the D3 explorer uses — instead of relying only on the WS
       // puzzle_solved broadcast, which an evicted or reconnecting socket
       // can miss. (A harmless re-move anywhere else.)
-      if (data.correct) onSolved?.(node.name);
+      if (data.correct) onSolved?.(node.name, data.changed);
     } catch (e) {
       setStatus("Error: " + e.message);
     } finally {
@@ -244,8 +262,7 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
   if (!puzzle) {
     return (
       <div style={s.panel}>
-        <button style={s.btn} onClick={find}>Find puzzle here</button>
-        {status && <div style={s.hint}>{status}</div>}
+        <div style={s.hint}>{status || "Searching…"}</div>
       </div>
     );
   }
@@ -275,7 +292,13 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
       {!done && <button style={s.btn} onClick={submit} disabled={busy}>Submit</button>}
       {result && result.correct && (
         <div style={s.correct}>
-          Correct{result.solver ? ` — solved by ${result.solver}` : ""}.
+          {result.persisted ? "Already resolved" : "Correct"}
+          {result.solver ? ` — solved by ${result.solver}` : ""}.
+          <div style={s.reward}>
+            {result.changed && Object.keys(result.changed).length
+              ? `Reward: ${Object.entries(result.changed).map(([k, v]) => `${k.replace(/_/g, " ")} → ${v}`).join(" · ")}`
+              : "Its change remains part of this world."}
+          </div>
         </div>
       )}
       {result && !result.correct && result.result === "FAILED" && (
@@ -312,6 +335,7 @@ const s = {
   pPrompt:  { fontSize: "12px", color: "#8aaccc", lineHeight: 1.5 },
   pHint:    { fontSize: "11px", color: "#4a8080", fontStyle: "italic", marginTop: "4px" },
   correct:  { fontSize: "12px", color: "#44cc88" },
+  reward:   { marginTop: "4px", color: "#8ac8aa", lineHeight: 1.4 },
   failed:   { fontSize: "12px", color: "#cc4444" },
   wrong:    { fontSize: "12px", color: "#cc8844" },
 };

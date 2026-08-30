@@ -1196,6 +1196,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"found": False})
 
         p = puzzles[0]
+        solve = persistence.get_puzzle_solve(seed, target.name, p.name)
+        attempt_state = persistence.get_puzzle_attempt_state(
+            seed, target.name, p.name,
+        )
         payload = {
             "found":        True,
             "name":         p.name,
@@ -1206,6 +1210,15 @@ class Handler(BaseHTTPRequestHandler):
             # Difficulty is a per-node property (1 gentle … 4 hard), surfaced so
             # a player can pick their own challenge while exploring.
             "difficulty":   p.difficulty,
+            # Solves and pooled attempts are permanent world state, not a
+            # client-session detail. Returning them here keeps revisiting a
+            # puzzle from presenting a fresh input for something the world
+            # already records as resolved.
+            "solved":       bool(solve),
+            "attempt":      attempt_state["attempts"],
+            "solver":       solve["solver"] if solve else None,
+            "contributors": (solve["contributors"] if solve else
+                             sorted(attempt_state["contributors"])),
         }
         # Constellation containers also report their nested progress: how
         # much of what they enfold is already resolved.
@@ -1404,6 +1417,7 @@ class Handler(BaseHTTPRequestHandler):
 
         contributors = sorted(session.contributors)
 
+        changed = None
         if just_solved:
             # The one canonical chronicle row for this solve — the origin
             # bus below is wired record=False so it doesn't write a second,
@@ -1413,7 +1427,7 @@ class Handler(BaseHTTPRequestHandler):
             # under the write lock and commits with the row and the overlay
             # in one transaction, so a canonical solve can never outlive a
             # lost delta.
-            record_origin_event(
+            changed = record_origin_event(
                 seed, target, EventKind.PUZZLE_SOLVED,
                 {"puzzle": p.name, "contributors": contributors},
                 player_name=(session.solver
@@ -1483,6 +1497,10 @@ class Handler(BaseHTTPRequestHandler):
             "max_attempts":   p.max_attempts,
             "solver":         session.solver,
             "contributors":   contributors,
+            # The material reward committed atomically with this solve. The
+            # client uses it for immediate feedback, then refreshes /world so
+            # the visible property panel comes from canonical state.
+            "changed":         changed,
             # Server-tracked attempt count means `failed` only flips at the
             # real last attempt; safe to release the answer there.
             "correct_answer": p.answer if failed else None,

@@ -161,6 +161,62 @@ test("/app mounts the Pixi scene under the production CSP", async ({ page }) => 
   expect(errors).toEqual([]);
 });
 
+test("/app puzzle tab loads immediately and preserves a solved result", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("nw_seen_intro", "1");
+    localStorage.setItem("nw_player_name", "PuzzleTester");
+  });
+  await page.route("**/puzzle?*", async route => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        found: true,
+        name: "The Remembered Door",
+        kind: "RIDDLE",
+        prompt: "What remains after the answer?",
+        max_attempts: 3,
+        difficulty: 2,
+        solved: true,
+        attempt: 1,
+        solver: "Ada",
+        contributors: ["Ada"],
+      }),
+    });
+  });
+
+  await page.goto("/app");
+  await page.getByRole("button", { name: "Puzzle" }).click();
+  await expect(page.getByText("The Remembered Door")).toBeVisible();
+  await expect(page.getByText("Already resolved — solved by Ada.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Find puzzle here" })).toHaveCount(0);
+  await expect(page.getByPlaceholder("Your answer…")).toBeDisabled();
+});
+
+test("/app refreshes canonical properties after an immediate node action", async ({ page, request }) => {
+  const response = await request.get("/world?depth=6");
+  const data = await response.json();
+  let region = data.world;
+  while (region.children?.length) region = region.children[0];
+  expect(region.level).toBe("Region");
+
+  await page.addInitScript((nodeName) => {
+    localStorage.setItem("nw_seen_intro", "1");
+    localStorage.setItem("nw_player_name", "ActionTester");
+    localStorage.setItem("nw_last_node", nodeName);
+  }, region.name);
+  let worldLoads = 0;
+  page.on("request", req => {
+    if (new URL(req.url()).pathname === "/world") worldLoads += 1;
+  });
+
+  await page.goto("/app");
+  await page.getByRole("button", { name: "Ward" }).click();
+  await page.getByRole("button", { name: "Ward this Region" }).click();
+
+  await expect(page.getByText("warded", { exact: true })).toBeVisible();
+  await expect.poll(() => worldLoads).toBeGreaterThanOrEqual(2);
+});
+
 test("/app crosses a depth horizon without losing the current node", async ({ page, request }) => {
   const response = await request.get("/world?depth=6");
   expect(response.ok()).toBeTruthy();

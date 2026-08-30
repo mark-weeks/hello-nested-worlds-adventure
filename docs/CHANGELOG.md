@@ -1,5 +1,7 @@
 # Changelog
 
+- **QA core state is visible where players act** (`/app`, `/puzzle`). Opening the Puzzle tab now loads its puzzle immediately; revisiting a human-solved puzzle shows its durable solver, contributors, and pooled attempt state instead of resetting; a fresh solve names its material reward; and successful puzzle/verb mutations quietly refresh the canonical `/world` node so its Properties panel changes with the chronicle. Other players' live solve and immediate/matured action broadcasts trigger the same refresh. +1 HTTP integration test and +1 browser behavior test. No golden re-pin, migration, or new `world_mutations` write path.
+
 All notable changes to this project are documented here.
 
 ---
