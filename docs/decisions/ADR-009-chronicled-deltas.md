@@ -22,6 +22,14 @@ in a side table while keeping the property blob a backward-compatible JSON
 object; the invariant now covers born properties, JSON type changes, and
 overlay-only keys.
 
+Pruning dependency, 2026-08-30: the rollback repair fold depends on every
+material delta since `legacy_baseline`. The double-gated prune therefore folds
+the material prefix it removes into that baseline and rewrites the cache marker
+atomically with deletion. It refuses a timestamp-disordered, non-prefix prune:
+one baseline cannot honestly preserve deleted deltas interleaved with surviving
+versions. This protects present-state repair; pruning still violates chronicle
+continuity and does not recreate erased Wayback steps.
+
 ---
 
 ## Context

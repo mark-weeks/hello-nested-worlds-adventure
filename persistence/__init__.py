@@ -22,6 +22,8 @@ import threading
 from pathlib import Path
 from typing import Any, Callable
 
+from merge_patch import json_merge_patch
+
 _DB_PATH = Path.home() / ".nested-worlds" / "worlds.db"
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 _TTL_ENV_VAR = "NESTED_WORLDS_MUTATION_TTL_DAYS"
@@ -32,8 +34,9 @@ _PRUNE_OVERRIDE_ENV = "NESTED_WORLDS_ALLOW_HISTORY_PRUNE"
 # See docs/decisions/ADR-003-persistence-backend.md.
 #
 # Abstracted:
-#   _NOW                — current-timestamp expression
-#   _delete_older_than  — relative-interval DELETE used by prune_mutations
+#   _NOW                 — current-timestamp expression
+#   _older_than_cutoff   — fixed relative-age cutoff for maintenance
+#   _delete_older_than   — cutoff-based DELETE used by prune_mutations
 #
 # Not yet abstracted (deliberate — kept as-is to avoid churn before the
 # switchover triggers; translation is mechanical at port time):
@@ -46,18 +49,25 @@ _PRUNE_OVERRIDE_ENV = "NESTED_WORLDS_ALLOW_HISTORY_PRUNE"
 _NOW = "datetime('now')"  # PG: CURRENT_TIMESTAMP
 
 
+def _older_than_cutoff(conn: sqlite3.Connection, days: int) -> str:
+    """Return the fixed timestamp used by one age-based maintenance pass."""
+    return str(conn.execute(
+        "SELECT datetime('now', ?)", (f"-{int(days)} days",)
+    ).fetchone()[0])
+
+
 def _delete_older_than(conn: sqlite3.Connection, table: str,
-                       column: str, days: int) -> int:
+                       column: str, days: int, *,
+                       cutoff: str | None = None) -> int:
     """Delete rows from `table` where `column` is older than `days` days.
 
-    SQLite-specific because the relative-interval syntax differs. On
-    Postgres this becomes:
-        DELETE FROM {table} WHERE {column} < NOW() - %s * INTERVAL '1 day'
+    The dialect-specific relative interval is resolved once by
+    `_older_than_cutoff`; the fixed cutoff keeps checkpoint selection and
+    deletion on exactly the same boundary.
     """
+    cutoff = cutoff or _older_than_cutoff(conn, days)
     cur = conn.execute(
-        f"DELETE FROM {table} WHERE {column} < datetime('now', ?)",
-        (f"-{int(days)} days",),
-    )
+        f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
     return cur.rowcount
 
 
@@ -906,12 +916,7 @@ def _insert_substance_row(conn: sqlite3.Connection, world_seed: int,
     # Upgrade a legacy cache before appending. Otherwise a replay after the
     # insert has no source for cache-only, pre-chronicle fields.
     cached_overlay = _prepare_property_cache(conn, world_seed, node_name)
-    version = conn.execute(
-        """SELECT COALESCE(MAX(node_version), 0) + 1
-           FROM world_mutations
-           WHERE world_seed = ? AND node_name = ?""",
-        (world_seed, node_name),
-    ).fetchone()[0]
+    version = _property_delta_head(conn, world_seed, node_name) + 1
     conn.execute(
         """INSERT INTO world_mutations
            (world_seed, node_name, mutation_type, player_name, data,
@@ -1005,27 +1010,6 @@ def record_substance_transition(world_seed: int, node_name: str,
              None if strength is None else float(strength)),
         )
         return None
-
-
-def json_merge_patch(target: Any, patch: Any) -> Any:
-    """Apply one RFC 7396 merge patch — SQLite's json_patch, in Python.
-
-    A dict patch merges key-by-key (None deletes, nested dicts recurse,
-    everything else replaces); a non-dict patch replaces the target
-    wholesale. Pure function; the fold below reduces a node's chronicled
-    deltas through it.
-    """
-    if not isinstance(patch, dict):
-        return patch
-    out = dict(target) if isinstance(target, dict) else {}
-    for key, value in patch.items():
-        if value is None:
-            out.pop(key, None)
-        elif isinstance(value, dict):
-            out[key] = json_merge_patch(out.get(key), value)
-        else:
-            out[key] = value
-    return out
 
 
 def json_merge_diff(source: Any, target: Any) -> Any:
@@ -1153,12 +1137,20 @@ def _store_property_overlay(conn: sqlite3.Connection, world_seed: int,
 
 def _property_delta_head(conn: sqlite3.Connection, world_seed: int,
                          node_name: str) -> int:
-    """Latest material version, index-backed and stable under the write lock."""
+    """Latest allocated material version, including a pruned checkpoint."""
     return int(conn.execute(
-        """SELECT COALESCE(MAX(node_version), 0)
-           FROM world_mutations
-           WHERE world_seed = ? AND node_name = ? AND delta IS NOT NULL""",
-        (world_seed, node_name),
+        """SELECT MAX(
+               COALESCE((
+                   SELECT MAX(node_version) FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND delta IS NOT NULL
+               ), 0),
+               COALESCE((
+                   SELECT delta_version FROM node_property_cache_meta
+                   WHERE world_seed = ? AND node_name = ?
+               ), 0)
+           )""",
+        (world_seed, node_name, world_seed, node_name),
     ).fetchone()[0])
 
 
@@ -1206,13 +1198,14 @@ def _property_cache_snapshot(conn: sqlite3.Connection, world_seed: int,
     row = conn.execute(
         """SELECT state.properties, meta.cache_format,
                   meta.properties_blob, meta.delta_version,
-                  COALESCE((
+                  MAX(COALESCE((
                       SELECT MAX(mutation.node_version)
                       FROM world_mutations AS mutation
                       WHERE mutation.world_seed = state.world_seed
                         AND mutation.node_name = state.node_name
                         AND mutation.delta IS NOT NULL
-                  ), 0), meta.legacy_baseline
+                  ), 0), COALESCE(meta.delta_version, 0)),
+                  meta.legacy_baseline
            FROM node_runtime_state AS state
            LEFT JOIN node_property_cache_meta AS meta
              ON meta.world_seed = state.world_seed
@@ -1524,10 +1517,13 @@ def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
         for (name, blob, cache_format, marked_blob, marked_version,
              baseline_blob) in rows:
             cached_names.add(name)
+            expected_version = max(
+                delta_versions.get(name, 0), int(marked_version or 0))
             cached, current_format, baseline = _property_cache_values(
                 blob, cache_format, marked_blob, marked_version,
-                delta_versions.get(name, 0), baseline_blob)
-            if current_format or name not in delta_versions:
+                expected_version, baseline_blob)
+            if current_format or (
+                    name not in delta_versions and marked_version is None):
                 overrides[name] = cached
                 continue
             needs_repair = True
@@ -1735,17 +1731,82 @@ def list_agent_memories() -> list[dict[str, Any]]:
 
 @_with_db
 def prune_mutations(days: int) -> int:
-    """Delete `world_mutations` rows older than *days*. Returns rows removed.
+    """Checkpoint then delete `world_mutations` rows older than *days*.
 
     Off by default — `init_db` only invokes this when
     `NESTED_WORLDS_MUTATION_TTL_DAYS` is set to a positive integer. Operators
     can also call directly from a maintenance script. `days <= 0` is a no-op
-    so callers don't need to guard the threshold themselves.
+    so callers don't need to guard the threshold themselves. Any material
+    delta prefix being removed is folded into the rollback-readable baseline
+    in the same transaction, so later cache repair cannot revert live state.
+    A timestamp-disordered, non-prefix deletion is refused because one
+    baseline cannot preserve deltas interleaved with surviving history.
     """
     if days <= 0:
         return 0
     with _connect() as conn:
-        return _delete_older_than(conn, "world_mutations", "recorded_at", days)
+        conn.execute("BEGIN IMMEDIATE")
+        cutoff = _older_than_cutoff(conn, days)
+        affected = conn.execute(
+            """SELECT world_seed, node_name, MAX(node_version)
+               FROM world_mutations
+               WHERE recorded_at < ? AND delta IS NOT NULL
+               GROUP BY world_seed, node_name""",
+            (cutoff,),
+        ).fetchall()
+
+        for world_seed, node_name, deleted_head in affected:
+            interleaved = conn.execute(
+                """SELECT 1 FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND delta IS NOT NULL AND recorded_at >= ?
+                     AND node_version <= ? LIMIT 1""",
+                (world_seed, node_name, cutoff, deleted_head),
+            ).fetchone()
+            if interleaved:
+                raise RuntimeError(
+                    "refusing non-prefix mutation prune for "
+                    f"world {world_seed}, node {node_name!r}")
+
+            # Repair first if a rollback binary changed the cache. The durable
+            # baseline remains the pre-chronicle starting point.
+            _prepare_property_cache(conn, world_seed, node_name)
+            _cached, _current, baseline = _property_cache_snapshot(
+                conn, world_seed, node_name)
+            born = _load_born_properties(conn, world_seed, node_name)
+            checkpoint: Any = json_merge_patch(born, baseline)
+            pruned_deltas = conn.execute(
+                """SELECT delta FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND recorded_at < ? AND delta IS NOT NULL
+                   ORDER BY node_version""",
+                (world_seed, node_name, cutoff),
+            ).fetchall()
+            for (blob,) in pruned_deltas:
+                checkpoint = json_merge_patch(checkpoint, json.loads(blob))
+            if not isinstance(checkpoint, dict):
+                checkpoint = {}
+            new_baseline = json_merge_diff(born, checkpoint)
+            if not isinstance(new_baseline, dict):
+                new_baseline = {}
+            conn.execute(
+                """UPDATE node_property_cache_meta SET legacy_baseline = ?
+                   WHERE world_seed = ? AND node_name = ?""",
+                (json.dumps(new_baseline), world_seed, node_name),
+            )
+
+        removed = _delete_older_than(
+            conn, "world_mutations", "recorded_at", days, cutoff=cutoff)
+
+        for world_seed, node_name, _deleted_head in affected:
+            _cached, _current, baseline = _property_cache_snapshot(
+                conn, world_seed, node_name)
+            rebuilt = _rebuild_property_overlay(
+                conn, world_seed, node_name, baseline)
+            _store_property_overlay(
+                conn, world_seed, node_name, rebuilt,
+                legacy_baseline=baseline)
+        return removed
 
 
 @_with_db

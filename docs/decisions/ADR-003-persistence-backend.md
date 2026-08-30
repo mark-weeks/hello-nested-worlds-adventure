@@ -42,7 +42,8 @@ The persistence module is shaped so the swap is a localized refactor, not a rewr
 - **Tests redirect via `_DB_PATH`.** `tests/conftest.py` monkeypatches a single attribute. For a Postgres test path, a sibling fixture can rebind `_connect()` to a per-test schema or wrap each test in a transaction with rollback.
 - **Dialect-specific SQL is consolidated.** The Python module concentrates its SQLite-isms in one labelled section near the top of `persistence/__init__.py` — search for `--- SQL dialect seam ---`. At time of writing, that section holds:
   - `_NOW` — the current-timestamp expression (`datetime('now')` → `CURRENT_TIMESTAMP`).
-  - `_delete_older_than(...)` — the relative-interval `DELETE`, used by `prune_mutations`.
+  - `_older_than_cutoff(...)` + `_delete_older_than(...)` — one fixed
+    relative-age boundary shared by prune checkpoint selection and deletion.
   - A line-referenced inventory of the remaining SQLite-isms that are *not* yet abstracted (two `INSERT OR REPLACE` statements). Translation is mechanical (see table below).
 
 ---
@@ -116,5 +117,6 @@ These are the invariants that make this ADR's plan executable. If a future chang
 1. No source file outside `persistence/` imports `sqlite3` or otherwise opens the database directly. *(2026-07-18: `scripts/` is carved out of this criterion — `scripts/beta_metrics.py` imports `sqlite3` by design, as a read-only ops script that must run against off-host backup files, not just the live module path. The criterion continues to bind all application source.)*
 2. Every connection in `persistence/__init__.py` goes through `_connect()`.
 3. Every `datetime('now')` in Python (not in the `.sql` migration files) is sourced from `_NOW`.
-4. Every relative-interval `DELETE` goes through `_delete_older_than(...)`.
+4. Every relative-age delete resolves its boundary through
+   `_older_than_cutoff(...)` and executes through `_delete_older_than(...)`.
 5. New SQL added to the module that is *not* portable to Postgres must be listed in the dialect-seam comment block — so the translation work is visible.

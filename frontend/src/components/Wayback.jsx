@@ -55,7 +55,15 @@ export default function Wayback({ seed, node, onClose, onListen }) {
     } catch (err) {
       if (err?.name !== "AbortError") {
         setError("The archive is unreadable right now.");
+        setSnapshot(null);
+        setRequestedStep(null);
         setPlaying(false);
+        if (listeningRef.current) {
+          listeningRef.current = false;
+          setListening(false);
+          listenedSnapshotRef.current = null;
+          onListenRef.current?.(null);
+        }
       }
     } finally {
       if (requestRef.current === controller) setLoading(false);

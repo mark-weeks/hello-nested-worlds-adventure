@@ -538,6 +538,100 @@ class TestFoldSemantics:
         assert properties == marked
         assert marked_version == 1
 
+    def test_prune_checkpoints_material_prefix_before_cache_repair(self):
+        seed, node = 7154, "Pruned-1"
+        born = {"theme": "warm", "nested": {"a": 1}}
+        persistence.save_world_nodes(
+            seed, [("1", node, "World", json.dumps(born), 0)], 2)
+        persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {},
+            {"theme": None, "nested": {"a": 2}})
+        persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"nested": {"b": 3}})
+
+        with persistence._connect() as conn:
+            conn.execute(
+                """UPDATE world_mutations
+                   SET recorded_at = datetime('now', '-90 days')
+                   WHERE world_seed = ? AND node_name = ?
+                     AND node_version = 1""",
+                (seed, node),
+            )
+            # A rollback writer invalidates the exact-blob marker before the
+            # prune. The maintenance transaction must repair, checkpoint, and
+            # delete without losing the pruned tombstone or nested change.
+            conn.execute(
+                """UPDATE node_runtime_state SET properties = '{"stale":true}'
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            )
+
+        assert persistence.prune_mutations(30) == 1
+        assert [row["version"] for row in
+                persistence.get_substance_deltas(seed, node)] == [2]
+        with persistence._connect() as conn:
+            baseline = json.loads(conn.execute(
+                """SELECT legacy_baseline FROM node_property_cache_meta
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            ).fetchone()[0])
+            assert baseline == {"theme": None, "nested": {"a": 2}}
+            # Prove a later rollback invalidation repairs from the checkpoint,
+            # rather than silently reverting the deleted material history.
+            conn.execute(
+                """UPDATE node_runtime_state SET properties = '{"bad":true}'
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            )
+
+        expected = {"theme": None, "nested": {"a": 2, "b": 3}}
+        assert persistence.load_node_property_overrides(seed)[node] == expected
+        assert persistence.fold_node_properties(seed, node) == expected
+        assert persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"after": True}) == 3
+
+        # Pruning every remaining delta still leaves a repairable checkpoint
+        # and a version high-water mark; the next write must be 4, never 1.
+        with persistence._connect() as conn:
+            conn.execute(
+                """UPDATE world_mutations
+                   SET recorded_at = datetime('now', '-90 days')
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            )
+        assert persistence.prune_mutations(30) == 2
+        with persistence._connect() as conn:
+            conn.execute(
+                """UPDATE node_runtime_state SET properties = '{"bad":true}'
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            )
+        checkpointed = {**expected, "after": True}
+        assert persistence.load_node_property_overrides(seed)[node] == \
+            checkpointed
+        assert persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"last": True}) == 4
+
+    def test_prune_refuses_timestamp_disordered_material_history(self):
+        seed, node = 7155, "Clock-skewed-1"
+        persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"first": 1})
+        persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"second": 2})
+        with persistence._connect() as conn:
+            conn.execute(
+                """UPDATE world_mutations
+                   SET recorded_at = datetime('now', '-90 days')
+                   WHERE world_seed = ? AND node_name = ?
+                     AND node_version = 2""",
+                (seed, node),
+            )
+
+        with pytest.raises(RuntimeError, match="non-prefix mutation prune"):
+            persistence.prune_mutations(30)
+        assert [row["version"] for row in
+                persistence.get_substance_deltas(seed, node)] == [1, 2]
+
     def test_current_caches_avoid_replay_and_point_reads(
             self, monkeypatch):
         seed = 7149

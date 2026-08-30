@@ -118,6 +118,21 @@ test("/app scrubs a node from present to birth", async ({ page }) => {
   });
   await expect(range).toBeEnabled();
   await expect.poll(() => waybackRequests).toBe(beforeScrubBurst + 1);
+
+  const listen = dialog.getByRole("button", { name: "listen to this moment" });
+  await listen.click();
+  await expect(dialog.getByRole("button", { name: "return to present sound" }))
+    .toBeEnabled();
+  await page.route(/\/wayback\?/, route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "archive unavailable" }),
+  }));
+  await range.fill("0");
+  await expect(dialog).toContainText("The archive is unreadable right now.");
+  await expect(dialog.getByRole("button", { name: "listen to this moment" }))
+    .toBeDisabled();
+
   await dialog.getByRole("button", { name: "Close wayback" }).focus();
   await page.keyboard.press("Shift+Tab");
   await expect(dialog.locator(":focus")).toHaveCount(1);
