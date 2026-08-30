@@ -113,12 +113,13 @@ export default function App() {
     depth = INITIAL_WORLD_DEPTH,
     targetNode = null,
     preserveSession = false,
+    background = false,
   } = {}) => {
     const savedNode = targetNode || localStorage.getItem(LAST_NODE_KEY);
     const requestedDepth = resumeDepth(
       depth, savedNode, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
     );
-    setLoading(true);
+    if (!background) setLoading(true);
     if (!preserveSession) {
       setPlayers([]);
       setEvents([]);
@@ -151,11 +152,24 @@ export default function App() {
       // The loading shell remains the quiet failure surface; client-error
       // forwarding records the underlying browser failure separately.
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, []);
 
   const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
+
+  // Mutations are committed by the server against the permanent world. Pull
+  // the canonical node back quietly after a solve or act so the properties
+  // beside the scene cannot lag behind the chronicle entry that changed them.
+  const refreshCurrentNode = useCallback(() => {
+    if (!currentNodeName) return Promise.resolve();
+    return loadWorld({
+      depth: worldDepth,
+      targetNode: currentNodeName,
+      preserveSession: true,
+      background: true,
+    });
+  }, [currentNodeName, loadWorld, worldDepth]);
 
   const { connected, sendMessage } = useWorldSocket(seed, playerName, {
     // The welcome roster: everyone already present when we connect. Without
@@ -231,6 +245,7 @@ export default function App() {
                     : `Puzzle solved: ${msg.puzzle} @ ${displayName(msg.node)}${by}` });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "solve", duration: 2000 });
+        refreshCurrentNode();
         // If we were standing at a sealed threshold, the solve is the key —
         // walk through (the effect below re-sends the move once connected).
         setWalkThrough(msg.node);
@@ -251,6 +266,7 @@ export default function App() {
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "ripple", strength: 0.8,
                         eventKind: "SCALE_ACT", duration: 1500 });
+        if (msg.changed) refreshCurrentNode();
       }
     },
     onAgentTalk: (msg) => {
@@ -390,6 +406,11 @@ export default function App() {
 
   const currentNode = nodeStack[nodeStack.length - 1] ?? null;
 
+  const handleSolved = useCallback((nodeName) => {
+    setWalkThrough(nodeName);
+    refreshCurrentNode();
+  }, [refreshCurrentNode]);
+
   // Wayback never owns a second audio engine. A deliberate "listen" gesture
   // enables (or retunes) the existing ambience with reconstructed state; when
   // the archive closes, the same graph returns to the live node.
@@ -467,7 +488,8 @@ export default function App() {
         onDeepen={deepenWorld}
         wrapPassage={wrapAffordance(currentNode, wrapInfo)}
         onWrapCross={crossWrap}
-        onSolved={setWalkThrough}
+        onSolved={handleSolved}
+        onNodeChanged={refreshCurrentNode}
         soundOn={soundOn}
         onToggleSound={toggleSound}
         onWaybackListen={previewWaybackSound}

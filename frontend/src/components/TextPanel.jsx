@@ -5,7 +5,7 @@ import Wayback from "./Wayback.jsx";
 import { passageBadges } from "../badges.js";
 import { causalFeedLine, displayName, nodeAddress } from "../names.js";
 
-export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, canDeepen = false, onDeepen, wrapPassage = null, onWrapCross, onSolved, soundOn, onToggleSound, onWaybackListen }) {
+export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, canDeepen = false, onDeepen, wrapPassage = null, onWrapCross, onSolved, onNodeChanged, soundOn, onToggleSound, onWaybackListen }) {
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
   const [waybackOpen, setWaybackOpen] = useState(false);
@@ -61,7 +61,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
         </div>
       )}
 
-      <Interact node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} />
+      <Interact node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} onNodeChanged={onNodeChanged} />
 
       {node.children.length > 0 && (
         <div style={s.section}>

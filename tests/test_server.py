@@ -5,11 +5,14 @@ import http.client
 import json
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import pytest
 
 import persistence
+from multiverse.generator import generate_node_hierarchy
+from puzzles.engine import build_puzzle
 from server import _Handler, _ThreadedServer
 
 
@@ -84,6 +87,34 @@ class TestServerHTTP:
             },
         )
         assert data.get("correct_answer") is None
+
+    def test_puzzle_get_returns_durable_solved_state_and_reward(self, srv):
+        """Revisiting a solve must show the permanent result, not reset it."""
+        base, _ = srv
+        seed = 420042
+        root = generate_node_hierarchy(seed=seed, max_depth=6)
+        puzzle = build_puzzle(root)
+        solved, _ = _post(
+            f"{base}/puzzle/attempt",
+            {
+                "seed": seed,
+                "depth": 6,
+                "node_name": root.name,
+                "answer": puzzle.answer,
+                "player_name": "Ada",
+            },
+        )
+        assert solved["correct"] is True
+        assert solved["changed"]["stabilized"] is True
+
+        data, *_ = _get(
+            f"{base}/puzzle?seed={seed}&depth=6&node_name="
+            f"{urllib.parse.quote(root.name)}")
+        assert data["solved"] is True
+        assert data["solver"] == "Ada"
+        assert data["contributors"] == ["Ada"]
+        assert data["attempt"] == 1
+        assert "answer" not in data
 
     def test_body_too_large(self, srv):
         """H-1: Content-Length > 64 KB must return 413."""
