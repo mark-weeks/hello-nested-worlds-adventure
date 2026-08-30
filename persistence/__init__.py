@@ -22,6 +22,8 @@ import threading
 from pathlib import Path
 from typing import Any, Callable
 
+from merge_patch import json_merge_patch
+
 _DB_PATH = Path.home() / ".nested-worlds" / "worlds.db"
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 _TTL_ENV_VAR = "NESTED_WORLDS_MUTATION_TTL_DAYS"
@@ -32,13 +34,13 @@ _PRUNE_OVERRIDE_ENV = "NESTED_WORLDS_ALLOW_HISTORY_PRUNE"
 # See docs/decisions/ADR-003-persistence-backend.md.
 #
 # Abstracted:
-#   _NOW                — current-timestamp expression
-#   _delete_older_than  — relative-interval DELETE used by prune_mutations
+#   _NOW                 — current-timestamp expression
+#   _older_than_cutoff   — fixed relative-age cutoff for maintenance
+#   _delete_older_than   — cutoff-based DELETE used by prune_mutations
 #
 # Not yet abstracted (deliberate — kept as-is to avoid churn before the
 # switchover triggers; translation is mechanical at port time):
 #   * `INSERT OR REPLACE INTO node_images ...`  — cache_image
-#   * `json_patch(...)`   — _apply_overlay_patch (PG: `properties || ?`)
 #   * `json_extract(...)` — get_player_exchanges (PG: `data->>'identity'`)
 #   * `_SCHEMA_VERSION_DDL` `DEFAULT (datetime('now'))` — per-backend DDL
 #   * `migrations/*.sql` — schema files are per-backend; a Postgres port
@@ -47,18 +49,25 @@ _PRUNE_OVERRIDE_ENV = "NESTED_WORLDS_ALLOW_HISTORY_PRUNE"
 _NOW = "datetime('now')"  # PG: CURRENT_TIMESTAMP
 
 
+def _older_than_cutoff(conn: sqlite3.Connection, days: int) -> str:
+    """Return the fixed timestamp used by one age-based maintenance pass."""
+    return str(conn.execute(
+        "SELECT datetime('now', ?)", (f"-{int(days)} days",)
+    ).fetchone()[0])
+
+
 def _delete_older_than(conn: sqlite3.Connection, table: str,
-                       column: str, days: int) -> int:
+                       column: str, days: int, *,
+                       cutoff: str | None = None) -> int:
     """Delete rows from `table` where `column` is older than `days` days.
 
-    SQLite-specific because the relative-interval syntax differs. On
-    Postgres this becomes:
-        DELETE FROM {table} WHERE {column} < NOW() - %s * INTERVAL '1 day'
+    The dialect-specific relative interval is resolved once by
+    `_older_than_cutoff`; the fixed cutoff keeps checkpoint selection and
+    deletion on exactly the same boundary.
     """
+    cutoff = cutoff or _older_than_cutoff(conn, days)
     cur = conn.execute(
-        f"DELETE FROM {table} WHERE {column} < datetime('now', ?)",
-        (f"-{int(days)} days",),
-    )
+        f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
     return cur.rowcount
 
 
@@ -848,28 +857,52 @@ def increment_ripple_score(world_seed: int, node_name: str, delta: float) -> Non
 # causality.wiring re-exports it for the bus handlers.
 RIPPLE_INCREMENT_PER_STRENGTH = 0.1
 
+# Cache rows written before Wayback were bare merge-patch documents. They stay
+# that way so a rollback binary can continue to hydrate them. The additive
+# node_property_cache_meta table carries the format marker, an exact copy of
+# the marked blob (so writes by a rollback binary invalidate the marker), and
+# the marked chronicle head (for tombstones that leave the blob unchanged),
+# plus pre-chronicle state that cannot be recovered from world_mutations.
+_PROPERTY_CACHE_FORMAT = 1
+
 
 def _apply_overlay_patch(conn: sqlite3.Connection, world_seed: int,
-                         node_name: str, changed: dict) -> None:
-    """Merge `changed` into the node's persisted property overlay, on an
+                         node_name: str, changed: dict, *,
+                         cached_overlay: dict | None = None) -> None:
+    """Apply `changed` to the node's persisted property cache, on an
     already-open connection — always inside record_substance_change's
     transaction, never on its own.
 
     The overlay is applied on top of deterministic generation at every world
     rebuild (`load_node_property_overrides` + `apply_property_overrides`), so
     a causal event's material consequence outlives the request that fired it.
-    `json_patch` merges RFC 7396-style at the DB level (a null value deletes
-    its key) — `json_merge_patch` below is the same semantics in Python, so
-    the fold reproduces exactly what this applied.
+    RFC 7396 patch documents are not closed under target-independent
+    composition: deleting an object and then adding one nested key must not
+    resurrect siblings from the immutable born row. The chronicle is the
+    record. Current-format caches materialize the previous effective state in
+    O(1), apply this delta once, then derive one exact born-relative patch.
+    Only a legacy or missing cache pays for a full chronicle replay; that path
+    also repairs tombstones an older cache writer may have discarded.
     """
-    conn.execute(
-        f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, properties, updated_at, created_at)
-           VALUES (?, ?, 0.0, ?, {_NOW}, {_NOW})
-           ON CONFLICT(world_seed, node_name) DO UPDATE SET
-             properties = json_patch(COALESCE(node_runtime_state.properties, '{{}}'), excluded.properties),
-             updated_at = excluded.updated_at""",
-        (world_seed, node_name, json.dumps(changed)),
-    )
+    if cached_overlay is None:
+        cached, current_format, _baseline = _property_cache_snapshot(
+            conn, world_seed, node_name)
+    else:
+        # The atomic writer prepared this exact cache under the same lock
+        # immediately before appending the delta.
+        cached, current_format = cached_overlay, True
+    if current_format:
+        born = _load_born_properties(conn, world_seed, node_name)
+        current_state = json_merge_patch(born, cached)
+        next_state = json_merge_patch(current_state, changed)
+        rebuilt = json_merge_diff(born, next_state)
+        if not isinstance(rebuilt, dict):  # property roots stay objects
+            rebuilt = {}
+    else:
+        # Defensive fallback for callers outside the atomic writer: the
+        # canonical stream already contains `changed`, so repair includes it.
+        rebuilt = _prepare_property_cache(conn, world_seed, node_name)
+    _store_property_overlay(conn, world_seed, node_name, rebuilt)
 
 
 def _insert_substance_row(conn: sqlite3.Connection, world_seed: int,
@@ -880,12 +913,10 @@ def _insert_substance_row(conn: sqlite3.Connection, world_seed: int,
     """The atomic core, on an already-locked connection: allocate the
     per-node version, append the delta-bearing chronicle row, apply the
     overlay patch. Returns the allocated version."""
-    version = conn.execute(
-        """SELECT COALESCE(MAX(node_version), 0) + 1
-           FROM world_mutations
-           WHERE world_seed = ? AND node_name = ?""",
-        (world_seed, node_name),
-    ).fetchone()[0]
+    # Upgrade a legacy cache before appending. Otherwise a replay after the
+    # insert has no source for cache-only, pre-chronicle fields.
+    cached_overlay = _prepare_property_cache(conn, world_seed, node_name)
+    version = _property_delta_head(conn, world_seed, node_name) + 1
     conn.execute(
         """INSERT INTO world_mutations
            (world_seed, node_name, mutation_type, player_name, data,
@@ -896,7 +927,9 @@ def _insert_substance_row(conn: sqlite3.Connection, world_seed: int,
          None if strength is None else float(strength),
          json.dumps(delta), version),
     )
-    _apply_overlay_patch(conn, world_seed, node_name, delta)
+    _apply_overlay_patch(
+        conn, world_seed, node_name, delta,
+        cached_overlay=cached_overlay)
     return version
 
 
@@ -959,12 +992,8 @@ def record_substance_transition(world_seed: int, node_name: str,
     """
     with _connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute(
-            """SELECT properties FROM node_runtime_state
-               WHERE world_seed = ? AND node_name = ?""",
-            (world_seed, node_name),
-        ).fetchone()
-        live_overlay = json.loads(row[0]) if row and row[0] else {}
+        live_overlay = _current_property_overlay(
+            conn, world_seed, node_name, repair=True)
         delta = compute(live_overlay)
         if delta:
             _insert_substance_row(
@@ -983,25 +1012,250 @@ def record_substance_transition(world_seed: int, node_name: str,
         return None
 
 
-def json_merge_patch(target: Any, patch: Any) -> Any:
-    """Apply one RFC 7396 merge patch — SQLite's json_patch, in Python.
+def json_merge_diff(source: Any, target: Any) -> Any:
+    """Return an RFC 7396 patch that transforms ``source`` into ``target``.
 
-    A dict patch merges key-by-key (None deletes, nested dicts recurse,
-    everything else replaces); a non-dict patch replaces the target
-    wholesale. Pure function; the fold below reduces a node's chronicled
-    deltas through it.
+    The persisted overlay cache is always relative to a node's immutable born
+    properties. Deriving it from the fully folded state avoids the impossible
+    task of composing arbitrary merge-patch documents without their target.
     """
-    if not isinstance(patch, dict):
-        return patch
-    out = dict(target) if isinstance(target, dict) else {}
-    for key, value in patch.items():
-        if value is None:
-            out.pop(key, None)
-        elif isinstance(value, dict):
-            out[key] = json_merge_patch(out.get(key), value)
-        else:
-            out[key] = value
-    return out
+    if _json_equal(source, target):
+        return {}
+    if not isinstance(source, dict) or not isinstance(target, dict):
+        return target
+
+    patch: dict[str, Any] = {
+        key: None for key in source.keys() - target.keys()
+    }
+    for key, value in target.items():
+        if key not in source:
+            patch[key] = value
+        elif not _json_equal(source[key], value):
+            patch[key] = json_merge_diff(source[key], value)
+    return patch
+
+
+def _json_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values without Python's bool/number coercion."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return left == right
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return (left.keys() == right.keys()
+                and all(_json_equal(value, right[key])
+                        for key, value in left.items()))
+    if isinstance(left, list):
+        return (len(left) == len(right)
+                and all(_json_equal(a, b) for a, b in zip(left, right)))
+    return left == right
+
+
+def _rebuild_property_overlay(conn: sqlite3.Connection, world_seed: int,
+                              node_name: str,
+                              legacy_baseline: dict | None = None) -> dict:
+    """Fold canonical history and return the exact born-relative cache patch."""
+
+    born = _load_born_properties(conn, world_seed, node_name)
+    state: Any = json_merge_patch(born, legacy_baseline or {})
+    rows = conn.execute(
+        """SELECT delta FROM world_mutations
+           WHERE world_seed = ? AND node_name = ? AND delta IS NOT NULL
+           ORDER BY node_version""",
+        (world_seed, node_name),
+    ).fetchall()
+    for (blob,) in rows:
+        state = json_merge_patch(state, json.loads(blob))
+    if not isinstance(state, dict):
+        state = {}
+    rebuilt = json_merge_diff(born, state)
+    return rebuilt if isinstance(rebuilt, dict) else {}
+
+
+def _load_born_properties(conn: sqlite3.Connection, world_seed: int,
+                          node_name: str) -> dict:
+    """Load one immutable born property object; synthetic test nodes use {}."""
+    born_row = conn.execute(
+        """SELECT properties FROM world_nodes
+           WHERE world_seed = ? AND name = ?""",
+        (world_seed, node_name),
+    ).fetchone()
+    value = json.loads(born_row[0]) if born_row and born_row[0] else {}
+    return value if isinstance(value, dict) else {}
+
+
+def _store_property_overlay(conn: sqlite3.Connection, world_seed: int,
+                            node_name: str, overlay: dict, *,
+                            legacy_baseline: dict | None = None) -> None:
+    """Write one rollback-readable cache and its validation metadata."""
+    blob = json.dumps(overlay)
+    delta_version = _property_delta_head(conn, world_seed, node_name)
+    conn.execute(
+        f"""INSERT INTO node_runtime_state
+            (world_seed, node_name, ripple_score, properties, updated_at, created_at)
+           VALUES (?, ?, 0.0, ?, {_NOW}, {_NOW})
+           ON CONFLICT(world_seed, node_name) DO UPDATE SET
+             properties = excluded.properties,
+             updated_at = excluded.updated_at""",
+        (world_seed, node_name, blob),
+    )
+    baseline_blob = json.dumps(legacy_baseline or {})
+    if legacy_baseline is None:
+        conn.execute(
+            f"""INSERT INTO node_property_cache_meta
+                (world_seed, node_name, cache_format, properties_blob,
+                 delta_version, legacy_baseline, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, {_NOW})
+               ON CONFLICT(world_seed, node_name) DO UPDATE SET
+                 cache_format = excluded.cache_format,
+                 properties_blob = excluded.properties_blob,
+                 delta_version = excluded.delta_version,
+                 updated_at = excluded.updated_at""",
+            (world_seed, node_name, _PROPERTY_CACHE_FORMAT, blob,
+             delta_version,
+             baseline_blob),
+        )
+    else:
+        conn.execute(
+            f"""INSERT INTO node_property_cache_meta
+                (world_seed, node_name, cache_format, properties_blob,
+                 delta_version, legacy_baseline, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, {_NOW})
+               ON CONFLICT(world_seed, node_name) DO UPDATE SET
+                 cache_format = excluded.cache_format,
+                 properties_blob = excluded.properties_blob,
+                 delta_version = excluded.delta_version,
+                 legacy_baseline = excluded.legacy_baseline,
+                 updated_at = excluded.updated_at""",
+            (world_seed, node_name, _PROPERTY_CACHE_FORMAT, blob,
+             delta_version,
+             baseline_blob),
+        )
+
+
+def _property_delta_head(conn: sqlite3.Connection, world_seed: int,
+                         node_name: str) -> int:
+    """Latest allocated material version, including a pruned checkpoint."""
+    return int(conn.execute(
+        """SELECT MAX(
+               COALESCE((
+                   SELECT MAX(node_version) FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND delta IS NOT NULL
+               ), 0),
+               COALESCE((
+                   SELECT delta_version FROM node_property_cache_meta
+                   WHERE world_seed = ? AND node_name = ?
+               ), 0)
+           )""",
+        (world_seed, node_name, world_seed, node_name),
+    ).fetchone()[0])
+
+
+def _decode_property_blob(blob: str | None) -> tuple[dict, bool]:
+    """Return a patch and whether its persisted representation is a dict."""
+    if not blob:
+        return {}, True
+    value = json.loads(blob)
+    if isinstance(value, dict):
+        return value, True
+    # Development builds before the rollback-safe metadata table briefly
+    # wrote [format, patch]. Read and repair those rows, but never write one.
+    if (isinstance(value, list) and len(value) == 2
+            and value[0] == _PROPERTY_CACHE_FORMAT
+            and isinstance(value[1], dict)):
+        return value[1], False
+    return {}, False
+
+
+def _property_cache_values(
+        blob: str | None, cache_format: int | None,
+        marked_blob: str | None, marked_version: int | None,
+        delta_version: int,
+        baseline_blob: str | None) -> tuple[dict, bool, dict]:
+    """Decode one joined cache row and validate its side-table marker."""
+    cached, plain_object = _decode_property_blob(blob)
+    current_format = (
+        plain_object
+        and cache_format == _PROPERTY_CACHE_FORMAT
+        and marked_blob == blob
+        and marked_version == delta_version
+    )
+    if baseline_blob:
+        baseline, baseline_is_object = _decode_property_blob(baseline_blob)
+        if not baseline_is_object:
+            baseline = {}
+    else:
+        # With no marker this is the last observable pre-chronicle state.
+        baseline = cached
+    return cached, current_format, baseline
+
+
+def _property_cache_snapshot(conn: sqlite3.Connection, world_seed: int,
+                             node_name: str) -> tuple[dict, bool, dict]:
+    row = conn.execute(
+        """SELECT state.properties, meta.cache_format,
+                  meta.properties_blob, meta.delta_version,
+                  MAX(COALESCE((
+                      SELECT MAX(mutation.node_version)
+                      FROM world_mutations AS mutation
+                      WHERE mutation.world_seed = state.world_seed
+                        AND mutation.node_name = state.node_name
+                        AND mutation.delta IS NOT NULL
+                  ), 0), COALESCE(meta.delta_version, 0)),
+                  meta.legacy_baseline
+           FROM node_runtime_state AS state
+           LEFT JOIN node_property_cache_meta AS meta
+             ON meta.world_seed = state.world_seed
+            AND meta.node_name = state.node_name
+           WHERE state.world_seed = ? AND state.node_name = ?""",
+        (world_seed, node_name),
+    ).fetchone()
+    return _property_cache_values(
+        *(row or (None, None, None, None, 0, None)))
+
+
+def _prepare_property_cache(conn: sqlite3.Connection, world_seed: int,
+                            node_name: str) -> dict:
+    """Upgrade or repair one cache while the caller holds a write lock."""
+    cached, current_format, baseline = _property_cache_snapshot(
+        conn, world_seed, node_name)
+    if current_format:
+        return cached
+    rebuilt = _rebuild_property_overlay(
+        conn, world_seed, node_name, baseline)
+    _store_property_overlay(
+        conn, world_seed, node_name, rebuilt,
+        legacy_baseline=baseline)
+    return rebuilt
+
+
+def _current_property_overlay(conn: sqlite3.Connection, world_seed: int,
+                              node_name: str, *, repair: bool) -> dict:
+    """Read a cache, rebuilding it when canonical deltas exist.
+
+    Read-only callers leave cache-only legacy rows untouched. A writer asking
+    for repair first captures that row as the pre-chronicle baseline. Once a
+    node has canonical deltas, baseline + born + chronicle repairs historical
+    tombstone loss and future cache drift.
+    """
+    cached, current_format, baseline = _property_cache_snapshot(
+        conn, world_seed, node_name)
+    if current_format:
+        return cached
+    has_deltas = conn.execute(
+        """SELECT 1 FROM world_mutations
+           WHERE world_seed = ? AND node_name = ? AND delta IS NOT NULL
+           LIMIT 1""",
+        (world_seed, node_name),
+    ).fetchone()
+    if repair:
+        return _prepare_property_cache(conn, world_seed, node_name)
+    if not has_deltas:
+        return cached
+    return _rebuild_property_overlay(conn, world_seed, node_name, baseline)
 
 
 @_with_db
@@ -1018,6 +1272,9 @@ def fold_node_properties(world_seed: int, node_name: str,
     the greatest version recorded at or before it, then calls this.
     """
     with _connect() as conn:
+        born = _load_born_properties(conn, world_seed, node_name)
+        _cached, _current, baseline = _property_cache_snapshot(
+            conn, world_seed, node_name)
         if upto_version is None:
             rows = conn.execute(
                 """SELECT delta FROM world_mutations
@@ -1034,10 +1291,17 @@ def fold_node_properties(world_seed: int, node_name: str,
                    ORDER BY node_version""",
                 (world_seed, node_name, upto_version),
             ).fetchall()
-    state: dict = {}
+    # Step/version zero remains born. A captured legacy baseline is
+    # pre-chronicle state and participates once the fold advances.
+    state: Any = dict(born)
+    if upto_version is None or upto_version > 0:
+        state = json_merge_patch(state, baseline)
     for (blob,) in rows:
         state = json_merge_patch(state, json.loads(blob))
-    return state
+    if not isinstance(state, dict):
+        state = {}
+    overlay = json_merge_diff(born, state)
+    return overlay if isinstance(overlay, dict) else {}
 
 
 @_with_db
@@ -1056,6 +1320,123 @@ def get_substance_deltas(world_seed: int,
         ).fetchall()
     return [{"version": r[0], "type": r[1], "delta": json.loads(r[2]),
              "strength": r[3], "at": r[4]} for r in rows]
+
+
+@_with_db
+def get_wayback_state(world_seed: int, node_name: str,
+                      born_properties: dict[str, Any],
+                      at_step: int | None = None) -> dict[str, Any]:
+    """Reconstruct one node immediately after its Nth chronicled interaction.
+
+    ``at_step`` is a node-local event ordinal: 0 is the immutable born state,
+    N is immediately after the node's Nth ``world_mutations`` row, and None is
+    the latest step. The selected row id is the exact cross-table cursor;
+    timestamps are labels only because they have second precision. Material
+    deltas still fold in their per-node ``node_version`` order (ADR-009).
+
+    The fold begins with ``born_properties`` rather than an empty overlay so a
+    stored RFC 7396 null can remove a property that existed at birth. Ripple
+    and activity are derived through the same cursor. The returned moment is
+    deliberately actor-blind: the wayback surface shows a birth, trace,
+    ripple, or mechanical change — never a human/agent classification.
+
+    This function is read-only. An explicit transaction gives all queries one
+    SQLite snapshot if a heartbeat appends a new event during reconstruction.
+    """
+    with _connect() as conn:
+        conn.execute("BEGIN")
+        total = conn.execute(
+            """SELECT COUNT(*) FROM world_mutations
+               WHERE world_seed = ? AND node_name = ?""",
+            (world_seed, node_name),
+        ).fetchone()[0]
+        step = total if at_step is None else int(at_step)
+        if step < 0 or step > total:
+            raise ValueError(
+                f"wayback step must be between 0 and {total}, got {step}")
+
+        first = conn.execute(
+            """SELECT recorded_at FROM world_mutations
+               WHERE world_seed = ? AND node_name = ?
+               ORDER BY id LIMIT 1""",
+            (world_seed, node_name),
+        ).fetchone()
+
+        if step == 0:
+            cursor = 0
+            selected = None
+        else:
+            selected = conn.execute(
+                """SELECT id, recorded_at, delta, strength
+                   FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                   ORDER BY id LIMIT 1 OFFSET ?""",
+                (world_seed, node_name, step - 1),
+            ).fetchone()
+            # COUNT and SELECT share one transaction snapshot, so the ordinal
+            # must resolve unless the database is corrupt.
+            if selected is None:  # pragma: no cover - defensive invariant
+                raise RuntimeError("wayback cursor disappeared during read")
+            cursor = selected[0]
+
+        properties: Any = dict(born_properties)
+        if cursor:
+            baseline_row = conn.execute(
+                """SELECT legacy_baseline
+                   FROM node_property_cache_meta
+                   WHERE world_seed = ? AND node_name = ?""",
+                (world_seed, node_name),
+            ).fetchone()
+            if baseline_row and baseline_row[0]:
+                baseline, is_object = _decode_property_blob(baseline_row[0])
+                if is_object:
+                    properties = json_merge_patch(properties, baseline)
+            deltas = conn.execute(
+                """SELECT delta FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND delta IS NOT NULL AND id <= ?
+                   ORDER BY node_version""",
+                (world_seed, node_name, cursor),
+            ).fetchall()
+            for (blob,) in deltas:
+                properties = json_merge_patch(properties, json.loads(blob))
+            strength_sum = conn.execute(
+                """SELECT COALESCE(SUM(strength), 0.0)
+                   FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND strength IS NOT NULL AND id <= ?""",
+                (world_seed, node_name, cursor),
+            ).fetchone()[0]
+        else:
+            strength_sum = 0.0
+
+    if not isinstance(properties, dict):  # merge-patch root replacement guard
+        properties = {}
+    if selected is None:
+        moment = {"at": None, "kind": "birth", "delta": {},
+                  "strength": None}
+    else:
+        delta = json.loads(selected[2]) if selected[2] else {}
+        strength = selected[3]
+        kind = "change" if delta else (
+            "ripple" if strength is not None else "trace")
+        moment = {"at": selected[1], "kind": kind, "delta": delta,
+                  "strength": strength}
+
+    return {
+        "properties": properties,
+        "ripple_score": round(min(
+            1.0, float(strength_sum) * RIPPLE_INCREMENT_PER_STRENGTH), 3),
+        "activity": step,
+        "timeline": {
+            "step": step,
+            "total": total,
+            "cursor": cursor,
+            "present": step == total,
+            "first_witness": ({"at": first[0]} if first else None),
+            "moment": moment,
+        },
+    }
 
 
 @_with_db
@@ -1100,14 +1481,84 @@ def rebuild_ripple_scores(world_seed: int) -> dict[str, float]:
 
 @_with_db
 def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
-    """All persisted property overlays for a world, keyed by node name."""
-    with _connect() as conn:
+    """All property overlays, lazily repaired from born rows + chronicle.
+
+    The cache is derived. Nodes with canonical deltas are rebuilt before
+    hydration so upgrades cannot revive born values whose old cached
+    tombstones were discarded; legacy cache-only rows remain intact.
+    """
+    def read_rows(conn: sqlite3.Connection) -> tuple[
+            list[tuple], dict[str, int]]:
         rows = conn.execute(
-            """SELECT node_name, properties FROM node_runtime_state
-               WHERE world_seed = ? AND properties IS NOT NULL""",
+            """SELECT state.node_name, state.properties, meta.cache_format,
+                      meta.properties_blob, meta.delta_version,
+                      meta.legacy_baseline
+               FROM node_runtime_state AS state
+               LEFT JOIN node_property_cache_meta AS meta
+                 ON meta.world_seed = state.world_seed
+                AND meta.node_name = state.node_name
+               WHERE state.world_seed = ? AND state.properties IS NOT NULL""",
             (world_seed,),
         ).fetchall()
-        return {name: json.loads(blob) for name, blob in rows if blob}
+        delta_versions = {name: int(version) for name, version in conn.execute(
+            """SELECT node_name, MAX(node_version) FROM world_mutations
+               WHERE world_seed = ? AND delta IS NOT NULL
+               GROUP BY node_name""",
+            (world_seed,),
+        ).fetchall()}
+        return rows, delta_versions
+
+    def hydrate(conn: sqlite3.Connection, rows: list[tuple],
+                delta_versions: dict[str, int], *,
+                repair: bool) -> tuple[dict, bool]:
+        overrides: dict[str, dict] = {}
+        cached_names: set[str] = set()
+        needs_repair = False
+        for (name, blob, cache_format, marked_blob, marked_version,
+             baseline_blob) in rows:
+            cached_names.add(name)
+            expected_version = max(
+                delta_versions.get(name, 0), int(marked_version or 0))
+            cached, current_format, baseline = _property_cache_values(
+                blob, cache_format, marked_blob, marked_version,
+                expected_version, baseline_blob)
+            if current_format or (
+                    name not in delta_versions and marked_version is None):
+                overrides[name] = cached
+                continue
+            needs_repair = True
+            if repair:
+                rebuilt = _rebuild_property_overlay(
+                    conn, world_seed, name, baseline)
+                _store_property_overlay(
+                    conn, world_seed, name, rebuilt,
+                    legacy_baseline=baseline)
+                overrides[name] = rebuilt
+        for name in delta_versions.keys() - cached_names:
+            needs_repair = True
+            if repair:
+                rebuilt = _rebuild_property_overlay(
+                    conn, world_seed, name, {})
+                _store_property_overlay(
+                    conn, world_seed, name, rebuilt,
+                    legacy_baseline={})
+                overrides[name] = rebuilt
+        return overrides, needs_repair
+
+    with _connect() as conn:
+        rows, delta_versions = read_rows(conn)
+        overrides, needs_repair = hydrate(
+            conn, rows, delta_versions, repair=False)
+        if not needs_repair:
+            return overrides
+
+        # Re-read and repair under one write lock. A concurrent canonical
+        # writer cannot land between replay and the cache marker write.
+        conn.execute("BEGIN IMMEDIATE")
+        rows, delta_versions = read_rows(conn)
+        repaired, _ = hydrate(
+            conn, rows, delta_versions, repair=True)
+        return repaired
 
 
 # ── The materialized world (ADR-006 Option A) ──
@@ -1280,17 +1731,82 @@ def list_agent_memories() -> list[dict[str, Any]]:
 
 @_with_db
 def prune_mutations(days: int) -> int:
-    """Delete `world_mutations` rows older than *days*. Returns rows removed.
+    """Checkpoint then delete `world_mutations` rows older than *days*.
 
     Off by default — `init_db` only invokes this when
     `NESTED_WORLDS_MUTATION_TTL_DAYS` is set to a positive integer. Operators
     can also call directly from a maintenance script. `days <= 0` is a no-op
-    so callers don't need to guard the threshold themselves.
+    so callers don't need to guard the threshold themselves. Any material
+    delta prefix being removed is folded into the rollback-readable baseline
+    in the same transaction, so later cache repair cannot revert live state.
+    A timestamp-disordered, non-prefix deletion is refused because one
+    baseline cannot preserve deltas interleaved with surviving history.
     """
     if days <= 0:
         return 0
     with _connect() as conn:
-        return _delete_older_than(conn, "world_mutations", "recorded_at", days)
+        conn.execute("BEGIN IMMEDIATE")
+        cutoff = _older_than_cutoff(conn, days)
+        affected = conn.execute(
+            """SELECT world_seed, node_name, MAX(node_version)
+               FROM world_mutations
+               WHERE recorded_at < ? AND delta IS NOT NULL
+               GROUP BY world_seed, node_name""",
+            (cutoff,),
+        ).fetchall()
+
+        for world_seed, node_name, deleted_head in affected:
+            interleaved = conn.execute(
+                """SELECT 1 FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND delta IS NOT NULL AND recorded_at >= ?
+                     AND node_version <= ? LIMIT 1""",
+                (world_seed, node_name, cutoff, deleted_head),
+            ).fetchone()
+            if interleaved:
+                raise RuntimeError(
+                    "refusing non-prefix mutation prune for "
+                    f"world {world_seed}, node {node_name!r}")
+
+            # Repair first if a rollback binary changed the cache. The durable
+            # baseline remains the pre-chronicle starting point.
+            _prepare_property_cache(conn, world_seed, node_name)
+            _cached, _current, baseline = _property_cache_snapshot(
+                conn, world_seed, node_name)
+            born = _load_born_properties(conn, world_seed, node_name)
+            checkpoint: Any = json_merge_patch(born, baseline)
+            pruned_deltas = conn.execute(
+                """SELECT delta FROM world_mutations
+                   WHERE world_seed = ? AND node_name = ?
+                     AND recorded_at < ? AND delta IS NOT NULL
+                   ORDER BY node_version""",
+                (world_seed, node_name, cutoff),
+            ).fetchall()
+            for (blob,) in pruned_deltas:
+                checkpoint = json_merge_patch(checkpoint, json.loads(blob))
+            if not isinstance(checkpoint, dict):
+                checkpoint = {}
+            new_baseline = json_merge_diff(born, checkpoint)
+            if not isinstance(new_baseline, dict):
+                new_baseline = {}
+            conn.execute(
+                """UPDATE node_property_cache_meta SET legacy_baseline = ?
+                   WHERE world_seed = ? AND node_name = ?""",
+                (json.dumps(new_baseline), world_seed, node_name),
+            )
+
+        removed = _delete_older_than(
+            conn, "world_mutations", "recorded_at", days, cutoff=cutoff)
+
+        for world_seed, node_name, _deleted_head in affected:
+            _cached, _current, baseline = _property_cache_snapshot(
+                conn, world_seed, node_name)
+            rebuilt = _rebuild_property_overlay(
+                conn, world_seed, node_name, baseline)
+            _store_property_overlay(
+                conn, world_seed, node_name, rebuilt,
+                legacy_baseline=baseline)
+        return removed
 
 
 @_with_db

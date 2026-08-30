@@ -520,6 +520,222 @@ function openChronicle() {
   loadChroniclePage(true);
 }
 
+// ── Wayback (ADR-011) ─────────────────────────────────────────────────────
+// A node-local event step is the exact cursor: 0 is birth, N is immediately
+// after its Nth recorded interaction. Each selected state is fed to the SAME
+// art and sound functions as the present. Viewing leaves no trace.
+
+const waybackReducedMotion = window.matchMedia
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let waybackSnapshot = null;
+let waybackController = null;
+let waybackPlaying = false;
+let waybackTimer = null;
+let waybackScrubTimer = null;
+let waybackListening = false;
+let waybackReturnFocus = null;
+
+function _waybackHistoricalNode() {
+  return waybackSnapshot && selected
+    ? EnfoldedClient.waybackNode(selected, waybackSnapshot.node)
+    : null;
+}
+
+function _scheduleWayback() {
+  clearTimeout(waybackTimer);
+  waybackTimer = null;
+  if (!waybackPlaying || !waybackSnapshot || waybackReducedMotion) return;
+  const { step, total } = waybackSnapshot.timeline;
+  if (!total) { waybackPlaying = false; return; }
+  waybackTimer = setTimeout(
+    () => loadWaybackStep(step >= total ? 0 : step + 1), 850);
+}
+
+function _resetWaybackView() {
+  waybackSnapshot = null;
+  const canvas = document.getElementById('wayback-preview');
+  canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+  canvas.removeAttribute('aria-label');
+  document.getElementById('wayback-title').textContent = selected
+    ? `Wayback · ${displayName(selected.name)}` : 'Wayback';
+  document.getElementById('wayback-meta').textContent = '';
+  document.getElementById('wayback-lens').textContent =
+    "the node as it was, seen with today's eyes";
+  document.getElementById('wayback-moment').textContent =
+    'Opening the remembered fold…';
+  document.getElementById('wayback-properties').replaceChildren();
+  const range = document.getElementById('wayback-range');
+  range.max = '0';
+  range.value = '0';
+  range.disabled = true;
+  document.getElementById('wayback-play').disabled = true;
+  document.getElementById('wayback-listen').disabled = true;
+}
+
+function renderWayback(data) {
+  waybackSnapshot = data;
+  const historical = _waybackHistoricalNode();
+  const timeline = data.timeline;
+  const canvas = document.getElementById('wayback-preview');
+  try { window.NodeArt?.drawNodeArt(canvas, worldParams.seed, historical); } catch (_) {}
+  canvas.setAttribute('aria-label',
+    `${displayName(historical.name)} at ${timeline.step === 0 ? 'birth' :
+      timeline.present ? 'present' : `trace ${timeline.step}`}`);
+
+  document.getElementById('wayback-title').textContent =
+    `Wayback · ${displayName(historical.name)}`;
+  const witness = timeline.first_witness?.at
+    ? `first witnessed ${timeline.first_witness.at.slice(0, 10)}`
+    : 'not yet witnessed';
+  const stepLabel = timeline.step === 0 ? 'birth'
+    : timeline.present ? 'present' : `trace ${timeline.step} of ${timeline.total}`;
+  document.getElementById('wayback-meta').textContent = `${witness} · ${stepLabel}`;
+  document.getElementById('wayback-lens').textContent = data.lens;
+  document.getElementById('wayback-moment').textContent =
+    EnfoldedClient.waybackMomentLine(timeline);
+
+  const range = document.getElementById('wayback-range');
+  range.max = String(timeline.total);
+  range.value = String(timeline.step);
+  range.disabled = timeline.total === 0;
+
+  const rows = Object.entries(historical.properties || {}).map(([key, value]) =>
+    `<div class="prop-row"><span class="prop-key">${escHtml(key.replace(/_/g, ' '))}</span>` +
+    `<span class="prop-val">${escHtml(String(value))}</span></div>`);
+  rows.push(`<div class="prop-row"><span class="prop-key">causal pressure</span>` +
+    `<span class="prop-val">${historical.ripple_score.toFixed(2)}</span></div>`);
+  rows.push(`<div class="prop-row"><span class="prop-key">recorded traces</span>` +
+    `<span class="prop-val">${historical.activity}</span></div>`);
+  document.getElementById('wayback-properties').innerHTML = rows.join('');
+
+  if (waybackListening && window._nwAmbience?.enabled) {
+    window._nwAmbience.setNode(worldParams.seed, historical);
+  }
+  document.getElementById('wayback-play').textContent =
+    waybackPlaying ? 'pause' : 'play evolution';
+  document.getElementById('wayback-play').disabled = timeline.total === 0;
+  document.getElementById('wayback-listen').disabled = false;
+  _scheduleWayback();
+}
+
+async function loadWaybackStep(at = null) {
+  if (!selected) return;
+  const requestedNode = selected.name;
+  waybackController?.abort();
+  const controller = new AbortController();
+  waybackController = controller;
+  const cursor = at === null ? '' : `&at=${at}`;
+  try {
+    const response = await fetch(withKey(
+      `/wayback?seed=${worldParams.seed}&node_name=${encodeURIComponent(requestedNode)}${cursor}`),
+    { signal: controller.signal });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || 'archive unavailable');
+    if (controller !== waybackController
+        || selected?.name !== requestedNode
+        || !document.getElementById('wayback-modal').classList.contains('visible')) return;
+    renderWayback(data);
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      waybackPlaying = false;
+      document.getElementById('wayback-play').textContent = 'play evolution';
+      document.getElementById('wayback-moment').textContent =
+        'The archive is unreadable right now.';
+    }
+  }
+}
+
+function queueWaybackStep(at) {
+  if (!waybackSnapshot) return;
+  clearTimeout(waybackScrubTimer);
+  waybackController?.abort();
+  waybackPlaying = false;
+  document.getElementById('wayback-play').textContent = 'play evolution';
+  waybackScrubTimer = setTimeout(() => loadWaybackStep(at), 150);
+}
+
+function openWayback() {
+  if (!selected) return;
+  waybackController?.abort();
+  clearTimeout(waybackScrubTimer);
+  waybackReturnFocus = document.activeElement;
+  _resetWaybackView();
+  document.getElementById('wayback-modal').classList.add('visible');
+  document.getElementById('wayback-x').focus();
+  loadWaybackStep(null);
+}
+
+function closeWayback() {
+  waybackController?.abort();
+  clearTimeout(waybackTimer);
+  clearTimeout(waybackScrubTimer);
+  waybackPlaying = false;
+  if (waybackListening && window._nwAmbience?.enabled && selected) {
+    window._nwAmbience.setNode(worldParams.seed, selected);
+  }
+  waybackListening = false;
+  waybackSnapshot = null;
+  document.getElementById('wayback-listen').textContent = 'listen to this moment';
+  document.getElementById('wayback-modal').classList.remove('visible');
+  if (waybackReturnFocus?.isConnected) waybackReturnFocus.focus();
+  waybackReturnFocus = null;
+}
+
+function handleWaybackKeydown(event) {
+  const modal = document.getElementById('wayback-modal');
+  if (!modal.classList.contains('visible')) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeWayback();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [...document.getElementById('wayback-dialog').querySelectorAll(
+    'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter(element => element.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function toggleWaybackPlay() {
+  if (waybackReducedMotion || !waybackSnapshot) return;
+  waybackPlaying = !waybackPlaying;
+  document.getElementById('wayback-play').textContent =
+    waybackPlaying ? 'pause' : 'play evolution';
+  if (waybackPlaying && waybackSnapshot.timeline.present) loadWaybackStep(0);
+  else _scheduleWayback();
+}
+
+function toggleWaybackListen() {
+  const historical = _waybackHistoricalNode();
+  if (!historical || !window.NodeSound) return;
+  if (waybackListening) {
+    waybackListening = false;
+    if (window._nwAmbience?.enabled && selected) {
+      window._nwAmbience.setNode(worldParams.seed, selected);
+    }
+    document.getElementById('wayback-listen').textContent = 'listen to this moment';
+    return;
+  }
+  if (!window._nwAmbience) window._nwAmbience = new window.NodeSound.NodeAmbience();
+  const ambience = window._nwAmbience;
+  if (ambience.enabled) ambience.setNode(worldParams.seed, historical);
+  else ambience.enable(worldParams.seed, historical);
+  waybackListening = true;
+  document.getElementById('wayback-listen').textContent = 'return to present sound';
+  document.getElementById('btn-sound').textContent = '♪ on';
+  document.getElementById('btn-sound').setAttribute('aria-pressed', 'true');
+  document.getElementById('sound-invite')?.classList.remove('visible');
+}
+
 // ── Addressable presences ───────────────────────────────────────────────────
 // Agents whose traces sit in the selected node's history can be spoken to —
 // "the Tessera who passed through here" — via /agent/voice, which grounds
@@ -1177,6 +1393,7 @@ document.getElementById('btn-do-observe').addEventListener('click', observe);
 document.getElementById('btn-do-puzzle' ).addEventListener('click', fetchPuzzle);
 document.getElementById('btn-do-act'    ).addEventListener('click', doAct);
 document.getElementById('btn-chronicle' ).addEventListener('click', openChronicle);
+document.getElementById('btn-wayback'   ).addEventListener('click', openWayback);
 document.getElementById('btn-sound'     ).addEventListener('click', toggleSound);
 document.getElementById('sound-invite-yes').addEventListener('click', toggleSound);
 document.getElementById('sound-invite-no').addEventListener('click',
@@ -1194,6 +1411,17 @@ document.getElementById('chronicle-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('chronicle-modal'))
     document.getElementById('chronicle-modal').classList.remove('visible');
 });
+document.getElementById('wayback-range').addEventListener('input', e =>
+  queueWaybackStep(Number(e.target.value)));
+document.getElementById('wayback-play').addEventListener('click', toggleWaybackPlay);
+document.getElementById('wayback-listen').addEventListener('click', toggleWaybackListen);
+document.getElementById('wayback-close').addEventListener('click', closeWayback);
+document.getElementById('wayback-x').addEventListener('click', closeWayback);
+document.getElementById('wayback-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('wayback-modal')) closeWayback();
+});
+document.addEventListener('keydown', handleWaybackKeydown);
+if (waybackReducedMotion) document.getElementById('wayback-play').style.display = 'none';
 document.getElementById('message').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); speak(); }
 });

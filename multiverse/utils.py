@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from merge_patch import json_merge_patch as apply_property_patch
 from multiverse.node import SpatialNode
 
 
@@ -80,7 +81,7 @@ def apply_property_overrides(root: SpatialNode, overrides: dict[str, dict]) -> N
         return
     changed = overrides.get(root.name)
     if changed:
-        root.properties.update(changed)
+        root.properties = apply_property_patch(root.properties, changed)
     for child in root.children:
         apply_property_overrides(child, overrides)
 

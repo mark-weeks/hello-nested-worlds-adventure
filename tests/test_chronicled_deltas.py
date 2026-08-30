@@ -85,7 +85,7 @@ class TestInjectedFailure:
         persistence.record_substance_change(
             seed, "N", "SCALE_ACT", None, {}, {"before": True})
 
-        def _boom(conn, world_seed, node_name, changed):
+        def _boom(conn, world_seed, node_name, changed, **_kwargs):
             raise RuntimeError("injected: crash between chronicle and overlay")
 
         # A dedicated MonkeyPatch instance: pytest's function-scoped
@@ -119,7 +119,7 @@ class TestInjectedFailure:
         seed = 7111
         _, room = _tree()
 
-        def _boom(conn, world_seed, node_name, changed):
+        def _boom(conn, world_seed, node_name, changed, **_kwargs):
             raise RuntimeError("injected: crash inside the origin write")
 
         mp = pytest.MonkeyPatch()
@@ -451,10 +451,270 @@ class TestRippleEqualsFold:
 
 
 class TestFoldSemantics:
+    def test_legacy_cache_survives_first_absolute_and_transition_writes(self):
+        seed = 7147
+        persistence.init_db()
+        with persistence._connect() as conn:
+            for name, properties in (
+                    ("Legacy-absolute", {"legacy": True}),
+                    ("Legacy-transition", {"legacy": True, "count": 4})):
+                conn.execute(
+                    """INSERT INTO node_runtime_state
+                       (world_seed, node_name, ripple_score, properties,
+                        updated_at, created_at)
+                       VALUES (?, ?, 0.0, ?, datetime('now'), datetime('now'))""",
+                    (seed, name, json.dumps(properties)),
+                )
+
+        persistence.record_substance_change(
+            seed, "Legacy-absolute", "SCALE_ACT", None, {}, {"fresh": True})
+        applied = persistence.record_substance_transition(
+            seed, "Legacy-transition", "DANGER_ALERT", None, {},
+            lambda live: {"count": live["count"] + 1})
+
+        assert applied == {"count": 5}
+        assert persistence.load_node_property_overrides(seed) == {
+            "Legacy-absolute": {"legacy": True, "fresh": True},
+            "Legacy-transition": {"legacy": True, "count": 5},
+        }
+        assert persistence.get_wayback_state(
+            seed, "Legacy-absolute", {}, at_step=0)["properties"] == {}
+        assert persistence.get_wayback_state(
+            seed, "Legacy-absolute", {})["properties"] == {
+                "legacy": True, "fresh": True}
+
+    def test_plain_object_cache_survives_rollback_and_repairs_old_writes(self):
+        seed, node = 7148, "Rollback-1"
+        born = {"theme": "warm"}
+        persistence.save_world_nodes(
+            seed, [("1", node, "World", json.dumps(born), 0)], 2)
+        # Capture a marked empty cache without adding a material version.
+        assert persistence.record_substance_transition(
+            seed, node, "AGENT_VISIT", None, {}, lambda _live: None) is None
+
+        with persistence._connect() as conn:
+            blob = conn.execute(
+                """SELECT properties FROM node_runtime_state
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            ).fetchone()[0]
+            assert json.loads(blob) == {}  # old loader accepts it
+
+            # Simulate the prior binary: it chronicles and json_patch-es the
+            # plain object but knows nothing about the side-table marker. A
+            # born-key tombstone leaves the bare patch blob unchanged.
+            conn.execute(
+                """INSERT INTO world_mutations
+                   (world_seed, node_name, mutation_type, data, delta,
+                    node_version)
+                   VALUES (?, ?, 'SCALE_ACT', '{}', ?, 1)""",
+                (seed, node, json.dumps({"theme": None})),
+            )
+            conn.execute(
+                """UPDATE node_runtime_state
+                   SET properties = json_patch(properties, ?)
+                   WHERE world_seed = ? AND node_name = ?""",
+                (json.dumps({"theme": None}), seed, node),
+            )
+            assert conn.execute(
+                """SELECT properties FROM node_runtime_state
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            ).fetchone()[0] == blob
+
+        assert persistence.load_node_property_overrides(seed)[node] == {
+            "theme": None}
+        with persistence._connect() as conn:
+            properties, marked, marked_version = conn.execute(
+                """SELECT state.properties, meta.properties_blob,
+                          meta.delta_version
+                   FROM node_runtime_state AS state
+                   JOIN node_property_cache_meta AS meta
+                     ON meta.world_seed = state.world_seed
+                    AND meta.node_name = state.node_name
+                   WHERE state.world_seed = ? AND state.node_name = ?""",
+                (seed, node),
+            ).fetchone()
+        assert properties == marked
+        assert marked_version == 1
+
+    def test_prune_checkpoints_material_prefix_before_cache_repair(self):
+        seed, node = 7154, "Pruned-1"
+        born = {"theme": "warm", "nested": {"a": 1}}
+        persistence.save_world_nodes(
+            seed, [("1", node, "World", json.dumps(born), 0)], 2)
+        persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {},
+            {"theme": None, "nested": {"a": 2}})
+        persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"nested": {"b": 3}})
+
+        with persistence._connect() as conn:
+            conn.execute(
+                """UPDATE world_mutations
+                   SET recorded_at = datetime('now', '-90 days')
+                   WHERE world_seed = ? AND node_name = ?
+                     AND node_version = 1""",
+                (seed, node),
+            )
+            # A rollback writer invalidates the exact-blob marker before the
+            # prune. The maintenance transaction must repair, checkpoint, and
+            # delete without losing the pruned tombstone or nested change.
+            conn.execute(
+                """UPDATE node_runtime_state SET properties = '{"stale":true}'
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            )
+
+        assert persistence.prune_mutations(30) == 1
+        assert [row["version"] for row in
+                persistence.get_substance_deltas(seed, node)] == [2]
+        with persistence._connect() as conn:
+            baseline = json.loads(conn.execute(
+                """SELECT legacy_baseline FROM node_property_cache_meta
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            ).fetchone()[0])
+            assert baseline == {"theme": None, "nested": {"a": 2}}
+            # Prove a later rollback invalidation repairs from the checkpoint,
+            # rather than silently reverting the deleted material history.
+            conn.execute(
+                """UPDATE node_runtime_state SET properties = '{"bad":true}'
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            )
+
+        expected = {"theme": None, "nested": {"a": 2, "b": 3}}
+        assert persistence.load_node_property_overrides(seed)[node] == expected
+        assert persistence.fold_node_properties(seed, node) == expected
+        assert persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"after": True}) == 3
+
+        # Pruning every remaining delta still leaves a repairable checkpoint
+        # and a version high-water mark; the next write must be 4, never 1.
+        with persistence._connect() as conn:
+            conn.execute(
+                """UPDATE world_mutations
+                   SET recorded_at = datetime('now', '-90 days')
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            )
+        assert persistence.prune_mutations(30) == 2
+        with persistence._connect() as conn:
+            conn.execute(
+                """UPDATE node_runtime_state SET properties = '{"bad":true}'
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            )
+        checkpointed = {**expected, "after": True}
+        assert persistence.load_node_property_overrides(seed)[node] == \
+            checkpointed
+        assert persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"last": True}) == 4
+
+    def test_prune_refuses_timestamp_disordered_material_history(self):
+        seed, node = 7155, "Clock-skewed-1"
+        persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"first": 1})
+        persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"second": 2})
+        with persistence._connect() as conn:
+            conn.execute(
+                """UPDATE world_mutations
+                   SET recorded_at = datetime('now', '-90 days')
+                   WHERE world_seed = ? AND node_name = ?
+                     AND node_version = 2""",
+                (seed, node),
+            )
+
+        with pytest.raises(RuntimeError, match="non-prefix mutation prune"):
+            persistence.prune_mutations(30)
+        assert [row["version"] for row in
+                persistence.get_substance_deltas(seed, node)] == [1, 2]
+
+    def test_current_caches_avoid_replay_and_point_reads(
+            self, monkeypatch):
+        seed = 7149
+        persistence.record_substance_change(
+            seed, "Hot-1", "SCALE_ACT", None, {}, {"count": 1})
+        persistence.record_substance_change(
+            seed, "Warm-2", "SCALE_ACT", None, {}, {"ready": True})
+
+        def no_replay(*_args, **_kwargs):
+            raise AssertionError("current-format cache replayed its chronicle")
+
+        monkeypatch.setattr(
+            persistence, "_rebuild_property_overlay", no_replay)
+        persistence.record_substance_change(
+            seed, "Hot-1", "SCALE_ACT", None, {}, {"count": 2})
+
+        def no_point_read(*_args, **_kwargs):
+            raise AssertionError("bulk hydration used a point cache read")
+
+        monkeypatch.setattr(
+            persistence, "_current_property_overlay", no_point_read)
+        assert persistence.load_node_property_overrides(seed) == {
+            "Hot-1": {"count": 2},
+            "Warm-2": {"ready": True},
+        }
+
+    def test_lazy_repair_serializes_with_a_concurrent_writer(self, monkeypatch):
+        seed, node = 7152, "Repair-race"
+        persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"first": 1})
+        with persistence._connect() as conn:
+            conn.execute(
+                """DELETE FROM node_property_cache_meta
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            )
+
+        entered = threading.Event()
+        release = threading.Event()
+        original = persistence._rebuild_property_overlay
+
+        def paused_rebuild(*args, **kwargs):
+            entered.set()
+            assert release.wait(5)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            persistence, "_rebuild_property_overlay", paused_rebuild)
+        errors: list[Exception] = []
+
+        def repair() -> None:
+            try:
+                persistence.load_node_property_overrides(seed)
+            except Exception as exc:  # noqa: BLE001 - asserted below
+                errors.append(exc)
+
+        def write() -> None:
+            try:
+                persistence.record_substance_change(
+                    seed, node, "SCALE_ACT", None, {}, {"second": 2})
+            except Exception as exc:  # noqa: BLE001 - asserted below
+                errors.append(exc)
+
+        repair_thread = threading.Thread(target=repair)
+        repair_thread.start()
+        assert entered.wait(5)
+        writer_thread = threading.Thread(target=write)
+        writer_thread.start()
+        release.set()
+        repair_thread.join(5)
+        writer_thread.join(5)
+
+        assert not repair_thread.is_alive()
+        assert not writer_thread.is_alive()
+        assert not errors
+        assert persistence.load_node_property_overrides(seed)[node] == {
+            "first": 1, "second": 2}
+
     def test_null_deletes_and_nested_merge_match_the_overlay(self):
         # RFC 7396 through the whole stack: the Python fold must reproduce
-        # exactly what SQLite's json_patch applied, including nested merge
-        # and null-deletes, at every cursor position.
+        # the hydrated cache result, including nested merge and null-deletes,
+        # at every cursor position. The cache itself is a minimal patch
+        # relative to the born state (empty here), not a composed patch log.
         seed, node = 7150, "Patchwork-1"
         persistence.record_substance_change(
             seed, node, "SCALE_ACT", None, {}, {"a": {"b": 1}, "x": 1})
@@ -469,12 +729,38 @@ class TestFoldSemantics:
             == {"a": {"b": 1, "c": 2}, "x": 1}
         final = persistence.fold_node_properties(seed, node)
         assert final == {"a": {"c": 2}}
-        assert final == persistence.load_node_property_overrides(seed)[node]
+        overlay = persistence.load_node_property_overrides(seed)[node]
+        assert overlay == {"a": {"c": 2}}
+        assert final == persistence.json_merge_patch({}, overlay)
 
     def test_fold_before_any_delta_is_the_born_state(self):
         assert persistence.fold_node_properties(7151, "Untouched-1") == {}
         assert persistence.fold_node_properties(
             7151, "Untouched-1", upto_version=0) == {}
+
+    def test_fold_is_born_aware_and_json_type_exact(self):
+        seed, name = 7153, "Typed-1"
+        born = {
+            "theme": "warm",
+            "flag": True,
+            "nested": {"value": True},
+        }
+        persistence.save_world_nodes(
+            seed, [("1", name, "World", json.dumps(born), 0)], 2)
+        persistence.record_substance_change(
+            seed, name, "SCALE_ACT", None, {},
+            {"theme": None, "flag": 1, "nested": {"value": 1}})
+
+        overlay = persistence.load_node_property_overrides(seed)[name]
+        assert persistence.fold_node_properties(seed, name) == overlay == {
+            "theme": None,
+            "flag": 1,
+            "nested": {"value": 1},
+        }
+        assert persistence.json_merge_patch(born, overlay) == {
+            "flag": 1,
+            "nested": {"value": 1},
+        }
 
 
 class TestInterruptedMigrationRecovery:

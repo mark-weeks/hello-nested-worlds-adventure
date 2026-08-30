@@ -28,7 +28,7 @@ dev = [
 ]
 
 [tool.setuptools]
-py-modules = ["main"]
+py-modules = ["main", "merge_patch"]
 packages = [
     "agents",
     "causality",

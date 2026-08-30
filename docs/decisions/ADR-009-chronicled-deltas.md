@@ -11,6 +11,25 @@ specifies one atomic, totally ordered persistence contract, a versioned
 fold cursor, the corrected writer inventory, and honest wayback
 rendering semantics.
 
+Implementation note, 2026-08-29 (Batch 4): the overlay cache materializes
+current state and derives a born-relative merge patch that retains null
+tombstones. Applying SQLite `json_patch` to the previous PATCH DOCUMENT had
+discarded a tombstone for any key supplied only by the born row, making
+reconstructed present state disagree with served present state. The chronicle
+is unchanged. Additive migrations 0016–0017 store cache format, exact-blob
+plus chronicle-head rollback-write validation, and any pre-chronicle baseline
+in a side table while keeping the property blob a backward-compatible JSON
+object; the invariant now covers born properties, JSON type changes, and
+overlay-only keys.
+
+Pruning dependency, 2026-08-30: the rollback repair fold depends on every
+material delta since `legacy_baseline`. The double-gated prune therefore folds
+the material prefix it removes into that baseline and rewrites the cache marker
+atomically with deletion. It refuses a timestamp-disordered, non-prefix prune:
+one baseline cannot honestly preserve deleted deltas interleaved with surviving
+versions. This protects present-state repair; pruning still violates chronicle
+continuity and does not recreate erased Wayback steps.
+
 ---
 
 ## Context
@@ -96,9 +115,10 @@ its delta at write time.**
   fold-equals-overlay: cache drift is repairable by rebuild; only the
   chronicle is the record. (`upsert_ripple_score` is legacy/test-only
   and gains no new callers.)
-- **Delta semantics are the overlay's own:** RFC 7396-style JSON merge
-  patches — the same merge `json_patch` already applies, where a `null`
-  value deletes a key — folded by sequential merge.
+- **Delta semantics are RFC 7396-style JSON merge patches.** A `null` value
+  deletes a key. The live overlay is itself a composed patch document, not an
+  already-applied JSON value, so tombstones survive until the patch is applied
+  to the immutable born properties.
 - **State-at-T is defined as:** the born row (`world_nodes`, immutable)
   plus a fold of chronicled deltas in **per-node version order**, up to
   the cursor `(recorded_at, node_version)` that T resolves to — the
@@ -110,8 +130,8 @@ its delta at write time.**
 - **Three test families enforce the contract:** injected-failure (a
   crash mid-write leaves neither the chronicle row nor the overlay
   change), concurrent-writer (two writers on one node serialize into
-  distinct versions and the fold reproduces the final overlay), and the
-  continuous fold-equals-overlay invariant. The invariant test is the
+  distinct versions and the fold reproduces the final state), and the
+  continuous born-plus-fold-equals-born-plus-overlay invariant. The test is the
   net, not the guarantee — it detects divergence; only the atomic API
   prevents it.
 - **Wayback shows past state through present senses.** State is

@@ -1,12 +1,14 @@
 import { useState } from "react";
 import Chronicle from "./Chronicle.jsx";
 import Interact from "./Interact.jsx";
+import Wayback from "./Wayback.jsx";
 import { passageBadges } from "../badges.js";
 import { causalFeedLine, displayName, nodeAddress } from "../names.js";
 
-export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, canDeepen = false, onDeepen, wrapPassage = null, onWrapCross, onSolved, soundOn, onToggleSound }) {
+export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, canDeepen = false, onDeepen, wrapPassage = null, onWrapCross, onSolved, soundOn, onToggleSound, onWaybackListen }) {
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
+  const [waybackOpen, setWaybackOpen] = useState(false);
 
   const here = players.filter(p => p.node === node.name);
 
@@ -32,6 +34,11 @@ export default function TextPanel({ node, players, agents = {}, connected, event
             ⌖ {nodeAddress(node.name)}
           </div>
         )}
+        <button
+          style={s.waybackBtn}
+          title="See this node as it was, through today's art and sound"
+          onClick={() => setWaybackOpen(true)}
+        >wayback</button>
       </div>
 
       {Object.keys(node.properties).length > 0 && (
@@ -148,6 +155,14 @@ export default function TextPanel({ node, players, agents = {}, connected, event
       </div>
 
       {chronicleOpen && <Chronicle seed={seed} onClose={() => setChronicleOpen(false)} />}
+      {waybackOpen && (
+        <Wayback
+          seed={seed}
+          node={node}
+          onListen={onWaybackListen}
+          onClose={() => setWaybackOpen(false)}
+        />
+      )}
 
       <div style={s.row}>
         <input
@@ -205,6 +220,7 @@ const s = {
   soundBtn:    { background: "none", border: "1px solid #1e2235", color: "#4a5580", padding: "1px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em" },
   guideLink:   { color: "#2a4060", fontSize: "9px", letterSpacing: "0.1em", textDecoration: "none" },
   chronicleBtn:{ background: "none", border: "1px solid #1e2235", color: "#4a5580", padding: "1px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase" },
+  waybackBtn:  { alignSelf: "flex-start", background: "#111a30", border: "1px solid #5268a8", color: "#9aaee8", padding: "3px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase", marginTop: "3px" },
   label:       { fontSize: "10px", color: "#4a5580", textTransform: "uppercase", letterSpacing: "0.12em" },
   name:        { fontSize: "18px", color: "#d0daf0", fontWeight: "bold", lineHeight: 1.2 },
   address:     { fontSize: "10px", color: "#4a5580", letterSpacing: "0.08em" },

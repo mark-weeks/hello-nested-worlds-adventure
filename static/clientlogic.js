@@ -213,6 +213,47 @@
     return mutationLine(mutation);
   }
 
+  // ── Wayback (ADR-011) ─────────────────────────────────────────────────
+  // The API returns only the historical sensory inputs. Keep the live node's
+  // navigation identity/children/verb while replacing properties, pressure,
+  // and activity with the selected state so either client can feed the result
+  // directly to today's deterministic art and sound functions.
+
+  function waybackNode(liveNode, snapshotNode) {
+    if (!liveNode || !snapshotNode) return liveNode;
+    return {
+      ...liveNode,
+      name: snapshotNode.name || liveNode.name,
+      level: snapshotNode.level || liveNode.level,
+      properties: { ...(snapshotNode.properties || {}) },
+      ripple_score: Number(snapshotNode.ripple_score) || 0,
+      activity: Math.max(0, Number(snapshotNode.activity) || 0),
+    };
+  }
+
+  function _waybackValue(value) {
+    if (value === null) return "fell away";
+    if (typeof value === "object") return `became ${JSON.stringify(value)}`;
+    return `became ${String(value)}`;
+  }
+
+  function waybackMomentLine(timeline) {
+    const moment = (timeline && timeline.moment) || { kind: "birth" };
+    if (moment.kind === "birth") return "the node rests in its born state";
+    if (moment.kind === "trace") return "a trace entered the record; its substance held";
+    if (moment.kind === "ripple") {
+      const strength = Number(moment.strength);
+      return Number.isFinite(strength)
+        ? `a ripple reached this place at strength ${strength.toFixed(2)}`
+        : "a ripple reached this place";
+    }
+    const changes = Object.entries(moment.delta || {}).map(([key, value]) =>
+      `${key.replace(/_/g, " ")} ${_waybackValue(value)}`);
+    return changes.length
+      ? changes.join(" · ")
+      : "the node changed, though no visible property survived the fold";
+  }
+
   root.EnfoldedClient = Object.freeze({
     BADGE_RULES,
     causalFeedLine,
@@ -230,6 +271,8 @@
     observationRow,
     passageBadges,
     resumeDepth,
+    waybackMomentLine,
+    waybackNode,
     wrapAffordance,
   });
 })(globalThis);

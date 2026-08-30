@@ -143,6 +143,12 @@ evolution when it exists. Consequences:
   in generation, art, sound, or puzzle-selection code paths.
 - Worlds must generate identically under the pinned interpreter — **Python
   3.11** (Dockerfile and CI both pin it; the freeze pins police this).
+- **Wayback reconstructs state; it never replays effects.** Historical
+  properties are the born row plus stored RFC 7396 deltas in node-version
+  order; pressure and wear fold through the same event cursor. The state is
+  historical, but art and sound are today's deterministic interpretation —
+  renderer changes reinterpret the past and must never be presented as
+  period playback. `docs/decisions/ADR-011-wayback-surface.md`.
 
 ---
 
@@ -226,7 +232,7 @@ evolution when it exists. Consequences:
 ## Pointers
 
 - `docs/CHANGELOG.md` — the batch-by-batch record; read it to learn what shipped.
-- `docs/decisions/ADR-0{01..10}-*.md` — stack, image generation,
+- `docs/decisions/ADR-0{01..11}-*.md` — stack, image generation,
   persistence backend, the day-one data policy (permanence, redaction,
   continuity, identity, write-path scope), the launch-window operations
   policy (backup cadence, staging rehearsal, beta client posture, voice
@@ -238,7 +244,9 @@ evolution when it exists. Consequences:
   + fold, never replay), and the causal-prediction family (the Causal
   Augury: puzzle answers are the engine's own forecast, pinned equivalent
   to the live bus; hash-elected, ancestor-chain-pure, declines under
-  Inverted law), each with its "Revisit when…" triggers.
+  Inverted law), and the Wayback surface (read-only state-at-T through
+  present deterministic senses; node-local event cursors; actor-blind), each
+  with its "Revisit when…" triggers.
 - `docs/roadmap/pre-launch-window.md` — the pre-launch decision list and
   batch sequence (living; governs until first production history exists).
 - `docs/roadmap/phase-2-scale.md` — the continuity policy and the phase-2b/2c

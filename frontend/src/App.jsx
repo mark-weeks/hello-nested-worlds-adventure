@@ -85,6 +85,7 @@ export default function App() {
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || urlName() || "");
   const [introSeen, setIntroSeen] = useState(() => !!localStorage.getItem(INTRO_SEEN));
   const [soundOn, setSoundOn] = useState(false);
+  const [waybackSoundPreview, setWaybackSoundPreview] = useState(false);
   const ambienceRef = useRef(null);
 
   const pushEvent = useCallback((evt) => {
@@ -389,6 +390,25 @@ export default function App() {
 
   const currentNode = nodeStack[nodeStack.length - 1] ?? null;
 
+  // Wayback never owns a second audio engine. A deliberate "listen" gesture
+  // enables (or retunes) the existing ambience with reconstructed state; when
+  // the archive closes, the same graph returns to the live node.
+  const previewWaybackSound = useCallback((historicalNode) => {
+    if (historicalNode) {
+      setWaybackSoundPreview(true);
+      if (!ambienceRef.current) ambienceRef.current = new NodeAmbience();
+      const amb = ambienceRef.current;
+      if (amb.enabled) amb.setNode(seed, historicalNode);
+      else amb.enable(seed, historicalNode);
+      setSoundOn(amb.enabled);
+      return;
+    }
+    setWaybackSoundPreview(false);
+    if (ambienceRef.current?.enabled && currentNode) {
+      ambienceRef.current.setNode(seed, currentNode);
+    }
+  }, [currentNode, seed]);
+
   // Ambient sound: each place hums its own deterministic tone
   // (static/nodesound.js). The toggle click is the activation gesture
   // browsers require for audio.
@@ -401,10 +421,10 @@ export default function App() {
   }, [seed, nodeStack]);
 
   useEffect(() => {
-    if (soundOn && ambienceRef.current && currentNode) {
+    if (soundOn && !waybackSoundPreview && ambienceRef.current && currentNode) {
       ambienceRef.current.setNode(seed, currentNode);
     }
-  }, [soundOn, seed, currentNode]);
+  }, [soundOn, waybackSoundPreview, seed, currentNode]);
 
   if (!introSeen) {
     return <Intro onBegin={() => {
@@ -450,6 +470,7 @@ export default function App() {
         onSolved={setWalkThrough}
         soundOn={soundOn}
         onToggleSound={toggleSound}
+        onWaybackListen={previewWaybackSound}
       />
     </div>
   );

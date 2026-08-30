@@ -12,6 +12,7 @@ from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
 from multiverse import store
 from multiverse.node import SpatialNode
+from multiverse.utils import apply_property_patch
 from puzzles.engine import build_puzzle
 from server.rooms import broadcast, get_puzzle_session
 
@@ -163,5 +164,5 @@ def resolve_node(seed: int, node_name: str) -> SpatialNode | None:
     node.ripple_score = persistence.get_ripple_score(seed, node.name)
     overlay = persistence.load_node_property_overrides(seed).get(node.name)
     if overlay:
-        node.properties.update(overlay)
+        node.properties = apply_property_patch(node.properties, overlay)
     return node

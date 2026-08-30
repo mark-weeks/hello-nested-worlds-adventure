@@ -176,6 +176,7 @@ _RATE_LIMITED_PATHS = frozenset({
 # never trips it.
 _READ_LIMITED_PATHS = frozenset({
     "/world", "/agent", "/observe", "/puzzle", "/chronicle", "/history",
+    "/wayback",
 })
 
 # The player-facing pace line (429). Rate limiting is a mechanical guard, but
@@ -243,7 +244,7 @@ class Handler(BaseHTTPRequestHandler):
         so platform load balancers can probe without the key. Every
         data-bearing or paid endpoint (`/world`, `/ws`, `/agent`, `/observe`,
         `/puzzle*`, `/speak`, `/image`, `/agent/voice`, `/players`,
-        `/history`, `/worlds`) stays gated.
+        `/history`, `/wayback`, `/worlds`) stays gated.
         """
         if self._is_public_asset(urlparse(self.path).path):
             return True
@@ -526,6 +527,43 @@ class Handler(BaseHTTPRequestHandler):
             page["seed"] = seed
             page["era_now"] = current_era(seed)
             self._send_json(page)
+
+        elif path == "/wayback":
+            # ADR-011: one node as it was immediately after its Nth recorded
+            # interaction. The response is derived entirely from the born row
+            # + immutable chronicle and deliberately carries no actor fields.
+            # A GET must never leave a trace of its own.
+            try:
+                seed = guard.world_seed(param("seed"))
+                node_name = param("node_name", "")
+                at_raw = param("at", "")
+                at_step = int(at_raw) if at_raw else None
+            except ValueError:
+                return self._send_error("invalid wayback params")
+            if not node_name or len(node_name) > 128:
+                return self._send_error("invalid wayback params")
+            born = store.resolve_node_by_name(seed, node_name)
+            if born is None:
+                return self._send_error("that place is not in this world", 404)
+            try:
+                state = persistence.get_wayback_state(
+                    seed, born.name, born.properties, at_step=at_step)
+            except ValueError as exc:
+                return self._send_error(str(exc))
+            self._send_json({
+                "seed": seed,
+                "node": {
+                    "name": born.name,
+                    "level": born.level,
+                    "properties": state["properties"],
+                    "ripple_score": state["ripple_score"],
+                    "activity": state["activity"],
+                },
+                "timeline": state["timeline"],
+                # Required honesty line from ADR-009/011: state is historical,
+                # but the deterministic renderer is today's interpretation.
+                "lens": "the node as it was, seen with today's eyes",
+            })
 
         elif path == "/position":
             # Cross-device resume: the caller's last position, keyed on their
