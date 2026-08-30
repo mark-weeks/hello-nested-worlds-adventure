@@ -85,6 +85,7 @@ export default function App() {
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || urlName() || "");
   const [introSeen, setIntroSeen] = useState(() => !!localStorage.getItem(INTRO_SEEN));
   const [soundOn, setSoundOn] = useState(false);
+  const [waybackSoundPreview, setWaybackSoundPreview] = useState(false);
   const ambienceRef = useRef(null);
 
   const pushEvent = useCallback((evt) => {
@@ -394,6 +395,7 @@ export default function App() {
   // the archive closes, the same graph returns to the live node.
   const previewWaybackSound = useCallback((historicalNode) => {
     if (historicalNode) {
+      setWaybackSoundPreview(true);
       if (!ambienceRef.current) ambienceRef.current = new NodeAmbience();
       const amb = ambienceRef.current;
       if (amb.enabled) amb.setNode(seed, historicalNode);
@@ -401,6 +403,7 @@ export default function App() {
       setSoundOn(amb.enabled);
       return;
     }
+    setWaybackSoundPreview(false);
     if (ambienceRef.current?.enabled && currentNode) {
       ambienceRef.current.setNode(seed, currentNode);
     }
@@ -418,10 +421,10 @@ export default function App() {
   }, [seed, nodeStack]);
 
   useEffect(() => {
-    if (soundOn && ambienceRef.current && currentNode) {
+    if (soundOn && !waybackSoundPreview && ambienceRef.current && currentNode) {
       ambienceRef.current.setNode(seed, currentNode);
     }
-  }, [soundOn, seed, currentNode]);
+  }, [soundOn, waybackSoundPreview, seed, currentNode]);
 
   if (!introSeen) {
     return <Intro onBegin={() => {

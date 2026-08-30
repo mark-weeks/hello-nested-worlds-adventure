@@ -453,8 +453,9 @@ class TestRippleEqualsFold:
 class TestFoldSemantics:
     def test_null_deletes_and_nested_merge_match_the_overlay(self):
         # RFC 7396 through the whole stack: the Python fold must reproduce
-        # exactly what SQLite's json_patch applied, including nested merge
-        # and null-deletes, at every cursor position.
+        # the hydrated cache result, including nested merge and null-deletes,
+        # at every cursor position. The cache itself is a minimal patch
+        # relative to the born state (empty here), not a composed patch log.
         seed, node = 7150, "Patchwork-1"
         persistence.record_substance_change(
             seed, node, "SCALE_ACT", None, {}, {"a": {"b": 1}, "x": 1})
@@ -470,7 +471,7 @@ class TestFoldSemantics:
         final = persistence.fold_node_properties(seed, node)
         assert final == {"a": {"c": 2}}
         overlay = persistence.load_node_property_overrides(seed)[node]
-        assert overlay == {"a": {"b": None, "c": 2}, "x": None}
+        assert overlay == {"a": {"c": 2}}
         assert final == persistence.json_merge_patch({}, overlay)
 
     def test_fold_before_any_delta_is_the_born_state(self):

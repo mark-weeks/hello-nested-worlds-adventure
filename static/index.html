@@ -393,7 +393,9 @@
 
 <!-- Wayback (ADR-011): read-only state-at-T, never a new chronicle row. -->
 <div class="modal-overlay" id="wayback-modal">
-  <div class="modal-box" style="max-width:720px;width:calc(100vw - 48px);max-height:88vh;overflow-y:auto">
+  <div class="modal-box" id="wayback-dialog" role="dialog" aria-modal="true"
+       aria-labelledby="wayback-title"
+       style="max-width:720px;width:calc(100vw - 48px);max-height:88vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">
       <div>
         <div class="modal-title" id="wayback-title">Wayback</div>

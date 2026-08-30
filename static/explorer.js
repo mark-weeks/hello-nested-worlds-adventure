@@ -531,7 +531,9 @@ let waybackSnapshot = null;
 let waybackController = null;
 let waybackPlaying = false;
 let waybackTimer = null;
+let waybackScrubTimer = null;
 let waybackListening = false;
+let waybackReturnFocus = null;
 
 function _waybackHistoricalNode() {
   return waybackSnapshot && selected
@@ -547,6 +549,27 @@ function _scheduleWayback() {
   if (!total) { waybackPlaying = false; return; }
   waybackTimer = setTimeout(
     () => loadWaybackStep(step >= total ? 0 : step + 1), 850);
+}
+
+function _resetWaybackView() {
+  waybackSnapshot = null;
+  const canvas = document.getElementById('wayback-preview');
+  canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+  canvas.removeAttribute('aria-label');
+  document.getElementById('wayback-title').textContent = selected
+    ? `Wayback · ${displayName(selected.name)}` : 'Wayback';
+  document.getElementById('wayback-meta').textContent = '';
+  document.getElementById('wayback-lens').textContent =
+    "the node as it was, seen with today's eyes";
+  document.getElementById('wayback-moment').textContent =
+    'Opening the remembered fold…';
+  document.getElementById('wayback-properties').replaceChildren();
+  const range = document.getElementById('wayback-range');
+  range.max = '0';
+  range.value = '0';
+  range.disabled = true;
+  document.getElementById('wayback-play').disabled = true;
+  document.getElementById('wayback-listen').disabled = true;
 }
 
 function renderWayback(data) {
@@ -590,22 +613,27 @@ function renderWayback(data) {
   }
   document.getElementById('wayback-play').textContent =
     waybackPlaying ? 'pause' : 'play evolution';
+  document.getElementById('wayback-play').disabled = timeline.total === 0;
   document.getElementById('wayback-listen').disabled = false;
   _scheduleWayback();
 }
 
 async function loadWaybackStep(at = null) {
   if (!selected) return;
+  const requestedNode = selected.name;
   waybackController?.abort();
   const controller = new AbortController();
   waybackController = controller;
   const cursor = at === null ? '' : `&at=${at}`;
   try {
     const response = await fetch(withKey(
-      `/wayback?seed=${worldParams.seed}&node_name=${encodeURIComponent(selected.name)}${cursor}`),
+      `/wayback?seed=${worldParams.seed}&node_name=${encodeURIComponent(requestedNode)}${cursor}`),
     { signal: controller.signal });
     const data = await response.json();
     if (!response.ok || data.error) throw new Error(data.error || 'archive unavailable');
+    if (controller !== waybackController
+        || selected?.name !== requestedNode
+        || !document.getElementById('wayback-modal').classList.contains('visible')) return;
     renderWayback(data);
   } catch (error) {
     if (error.name !== 'AbortError') {
@@ -616,25 +644,64 @@ async function loadWaybackStep(at = null) {
   }
 }
 
+function queueWaybackStep(at) {
+  if (!waybackSnapshot) return;
+  clearTimeout(waybackScrubTimer);
+  waybackController?.abort();
+  waybackPlaying = false;
+  document.getElementById('wayback-play').textContent = 'play evolution';
+  waybackScrubTimer = setTimeout(() => loadWaybackStep(at), 150);
+}
+
 function openWayback() {
   if (!selected) return;
+  waybackController?.abort();
+  clearTimeout(waybackScrubTimer);
+  waybackReturnFocus = document.activeElement;
+  _resetWaybackView();
   document.getElementById('wayback-modal').classList.add('visible');
-  document.getElementById('wayback-moment').textContent =
-    'Opening the remembered fold…';
-  document.getElementById('wayback-listen').disabled = true;
+  document.getElementById('wayback-x').focus();
   loadWaybackStep(null);
 }
 
 function closeWayback() {
   waybackController?.abort();
   clearTimeout(waybackTimer);
+  clearTimeout(waybackScrubTimer);
   waybackPlaying = false;
   if (waybackListening && window._nwAmbience?.enabled && selected) {
     window._nwAmbience.setNode(worldParams.seed, selected);
   }
   waybackListening = false;
+  waybackSnapshot = null;
   document.getElementById('wayback-listen').textContent = 'listen to this moment';
   document.getElementById('wayback-modal').classList.remove('visible');
+  if (waybackReturnFocus?.isConnected) waybackReturnFocus.focus();
+  waybackReturnFocus = null;
+}
+
+function handleWaybackKeydown(event) {
+  const modal = document.getElementById('wayback-modal');
+  if (!modal.classList.contains('visible')) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeWayback();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [...document.getElementById('wayback-dialog').querySelectorAll(
+    'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter(element => element.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 function toggleWaybackPlay() {
@@ -1344,7 +1411,7 @@ document.getElementById('chronicle-modal').addEventListener('click', e => {
     document.getElementById('chronicle-modal').classList.remove('visible');
 });
 document.getElementById('wayback-range').addEventListener('input', e =>
-  loadWaybackStep(Number(e.target.value)));
+  queueWaybackStep(Number(e.target.value)));
 document.getElementById('wayback-play').addEventListener('click', toggleWaybackPlay);
 document.getElementById('wayback-listen').addEventListener('click', toggleWaybackListen);
 document.getElementById('wayback-close').addEventListener('click', closeWayback);
@@ -1352,6 +1419,7 @@ document.getElementById('wayback-x').addEventListener('click', closeWayback);
 document.getElementById('wayback-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('wayback-modal')) closeWayback();
 });
+document.addEventListener('keydown', handleWaybackKeydown);
 if (waybackReducedMotion) document.getElementById('wayback-play').style.display = 'none';
 document.getElementById('message').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); speak(); }

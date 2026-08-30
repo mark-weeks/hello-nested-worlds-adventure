@@ -14,8 +14,26 @@ export default function Wayback({ seed, node, onClose, onListen }) {
   const [playing, setPlaying] = useState(false);
   const [listening, setListening] = useState(false);
   const canvasRef = useRef(null);
+  const dialogRef = useRef(null);
+  const closeButtonRef = useRef(null);
   const requestRef = useRef(null);
   const listenedSnapshotRef = useRef(null);
+  const listeningRef = useRef(false);
+  const onCloseRef = useRef(onClose);
+  const onListenRef = useRef(onListen);
+  onCloseRef.current = onClose;
+  onListenRef.current = onListen;
+
+  const close = useCallback(() => {
+    setPlaying(false);
+    if (listeningRef.current) {
+      listeningRef.current = false;
+      setListening(false);
+      listenedSnapshotRef.current = null;
+      onListenRef.current?.(null);
+    }
+    onCloseRef.current();
+  }, []);
 
   const loadStep = useCallback(async (at = null) => {
     requestRef.current?.abort();
@@ -41,9 +59,57 @@ export default function Wayback({ seed, node, onClose, onListen }) {
   }, [node.name, seed]);
 
   useEffect(() => {
+    setSnapshot(null);
+    setError("");
+    setPlaying(false);
+    if (listeningRef.current) {
+      listeningRef.current = false;
+      setListening(false);
+      listenedSnapshotRef.current = null;
+      onListenRef.current?.(null);
+    }
     loadStep(null);
     return () => requestRef.current?.abort();
   }, [loadStep]);
+
+  useEffect(() => {
+    const returnFocus = document.activeElement;
+    closeButtonRef.current?.focus();
+
+    const handleKeyDown = event => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [...dialogRef.current.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )].filter(element => element.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!dialogRef.current.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      if (listeningRef.current) {
+        listeningRef.current = false;
+        onListenRef.current?.(null);
+      }
+      if (returnFocus?.isConnected) returnFocus.focus();
+    };
+  }, [close]);
 
   useEffect(() => {
     if (!snapshot || !canvasRef.current) return;
@@ -57,9 +123,9 @@ export default function Wayback({ seed, node, onClose, onListen }) {
   useEffect(() => {
     if (listening && snapshot && listenedSnapshotRef.current !== snapshot) {
       listenedSnapshotRef.current = snapshot;
-      onListen?.(waybackNode(node, snapshot.node));
+      onListenRef.current?.(waybackNode(node, snapshot.node));
     }
-  }, [listening, node, onListen, snapshot]);
+  }, [listening, node, snapshot]);
 
   useEffect(() => {
     if (!playing || !snapshot || REDUCED_MOTION) return undefined;
@@ -72,26 +138,19 @@ export default function Wayback({ seed, node, onClose, onListen }) {
     return () => clearTimeout(timer);
   }, [loadStep, playing, snapshot]);
 
-  const close = () => {
-    setPlaying(false);
-    if (listening) {
-      listenedSnapshotRef.current = null;
-      onListen?.(null);
-    }
-    onClose();
-  };
-
   const toggleListen = () => {
     if (listening) {
       setListening(false);
+      listeningRef.current = false;
       listenedSnapshotRef.current = null;
-      onListen?.(null);
+      onListenRef.current?.(null);
     } else if (snapshot) {
       // Retune inside the click itself so browsers treat AudioContext startup
       // as a user gesture. The effect above handles later scrubbed snapshots.
       listenedSnapshotRef.current = snapshot;
+      listeningRef.current = true;
       setListening(true);
-      onListen?.(waybackNode(node, snapshot.node));
+      onListenRef.current?.(waybackNode(node, snapshot.node));
     }
   };
 
@@ -108,13 +167,20 @@ export default function Wayback({ seed, node, onClose, onListen }) {
     <div style={w.overlay} onClick={event => {
       if (event.target === event.currentTarget) close();
     }}>
-      <div style={w.box} role="dialog" aria-modal="true" aria-label={`Wayback for ${displayName(node.name)}`}>
+      <div
+        ref={dialogRef}
+        style={w.box}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="wayback-title-react"
+        tabIndex={-1}
+      >
         <div style={w.headingRow}>
           <div>
-            <div style={w.title}>Wayback · {displayName(node.name)}</div>
+            <div id="wayback-title-react" style={w.title}>Wayback · {displayName(node.name)}</div>
             <div style={w.meta}>{firstWitness} · {stepLabel}</div>
           </div>
-          <button style={w.close} onClick={close} aria-label="Close wayback">×</button>
+          <button ref={closeButtonRef} style={w.close} onClick={close} aria-label="Close wayback">×</button>
         </div>
 
         <canvas

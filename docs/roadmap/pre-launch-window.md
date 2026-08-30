@@ -82,7 +82,7 @@ only on the sequence's product scope.
 
 ### Batch 2 — The wrap passage (ADR-008) · SHIPPED
 
-Shipped 2026-08-29, PR #81 (see the CHANGELOG's batch entry for the measured
+Shipped 2026-08-29, PR #78 (see the CHANGELOG's batch entry for the measured
 record); ADR-008 ratified Accepted at its merge gate. As built: the
 selector (`multiverse/wrap.py`) is a pure function of (seed, world as
 born) constrained to a fully unsealed lineage — the census reproduced
@@ -102,7 +102,7 @@ get an authored line. Parent links and causality untouched.
 
 ### Batch 3 — Causal-prediction puzzle family (ADR-010) · SHIPPED
 
-Shipped 2026-08-29 (see the CHANGELOG's batch entry for the measured
+Shipped 2026-08-29, PR #80 (see the CHANGELOG's batch entry for the measured
 record); ADR-010 ratified Accepted at its merge gate. As built: the
 Causal Augury (`puzzles/generators.py`) serves **396 nodes** on seed 382
 (9.41% of the ecology, at every renewal epoch), hash-elected from Region
@@ -124,7 +124,7 @@ flavors, never a depth curve.
 
 ### Batch 4 — The wayback surface · SHIPPED
 
-Shipped 2026-08-29 (see the CHANGELOG's batch entry for the measured
+Shipped 2026-08-29, PR #81 (see the CHANGELOG's batch entry for the measured
 record); ADR-011 ratified Accepted at its merge gate. As built: a read-only,
 node-local event-step cursor reconstructs born state plus chronicled deltas,
 pressure, and interaction wear; both clients scrub or animate those states

@@ -111,6 +111,54 @@ class TestStateAtStep:
             persistence.get_wayback_state(
                 seed, node.name, node.properties, at_step=1)
 
+    def test_delete_then_nested_add_does_not_resurrect_born_siblings(self):
+        seed, name = 8116, "Archive-1"
+        born = {"a": {"old": 1}, "theme": "warm"}
+        persistence.save_world_nodes(
+            seed, [("1", name, "World", json.dumps(born), 0)], 2)
+
+        persistence.record_substance_change(
+            seed, name, "SCALE_ACT", None, {}, {"a": None})
+        persistence.record_substance_change(
+            seed, name, "SCALE_ACT", None, {}, {"a": {"new": 2}})
+
+        present = persistence.get_wayback_state(seed, name, born)
+        overlay = persistence.load_node_property_overrides(seed)[name]
+        assert present["properties"] == {"a": {"new": 2}, "theme": "warm"}
+        assert persistence.json_merge_patch(born, overlay) == \
+            present["properties"]
+        assert "old" not in present["properties"]["a"]
+
+    def test_hydration_repairs_a_tombstone_dropped_by_an_old_cache(self):
+        seed, name = 8117, "Archive-1"
+        born = {"theme": "warm", "nested": {"kept": True}}
+        persistence.save_world_nodes(
+            seed, [("1", name, "World", json.dumps(born), 0)], 2)
+        persistence.record_substance_change(
+            seed, name, "SCALE_ACT", None, {}, {"theme": None})
+
+        # Reproduce the pre-fix cache: SQLite json_patch({}, tombstone)
+        # discarded the deletion even though the chronicle retained it.
+        with persistence._connect() as conn:
+            conn.execute(
+                """UPDATE node_runtime_state SET properties = '{}'
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, name),
+            )
+
+        overlay = persistence.load_node_property_overrides(seed)[name]
+        assert overlay == {"theme": None}
+        assert persistence.json_merge_patch(born, overlay) == {
+            "nested": {"kept": True}}
+        with persistence._connect() as conn:
+            cached = conn.execute(
+                """SELECT properties FROM node_runtime_state
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, name),
+            ).fetchone()[0]
+        assert json.loads(cached) == [
+            persistence._PROPERTY_CACHE_FORMAT, {"theme": None}]
+
 
 @pytest.fixture()
 def srv():
