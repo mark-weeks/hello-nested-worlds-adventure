@@ -217,7 +217,33 @@ test("/app refreshes canonical properties after an immediate node action", async
   await expect.poll(() => worldLoads).toBeGreaterThanOrEqual(2);
 });
 
-test("/app crosses a depth horizon without losing the current node", async ({ page, request }) => {
+test("/app defaults sound on and remembers an explicit mute", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("nw_seen_intro", "1");
+    localStorage.setItem("nw_player_name", "SoundTester");
+    if (!sessionStorage.getItem("sound-test-started")) {
+      localStorage.removeItem("nw_sound_preference");
+      sessionStorage.setItem("sound-test-started", "1");
+    }
+  });
+  await page.goto("/app");
+
+  const sound = page.locator("#btn-sound");
+  await expect(sound).toHaveText("♪ on");
+  await sound.click();
+  await expect(sound).toHaveText("♪ off");
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("nw_sound_preference")))
+    .toBe("off");
+
+  await page.reload();
+  await expect(sound).toHaveText("♪ off");
+  await sound.click();
+  await expect(sound).toHaveText("♪ on");
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("nw_sound_preference")))
+    .toBe("on");
+});
+
+test("/app opens a depth horizon automatically without losing the current node", async ({ page, request }) => {
   const response = await request.get("/world?depth=6");
   expect(response.ok()).toBeTruthy();
   const data = await response.json();
@@ -235,12 +261,15 @@ test("/app crosses a depth horizon without losing the current node", async ({ pa
   await page.goto("/app");
   const horizonPhrase = horizon.name.replace(/-\d+$/, "");
   await expect(page.getByText(horizonPhrase, { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "Look within ↓" })).toBeVisible();
-  await page.getByRole("button", { name: "Look within ↓" }).click();
-
-  await expect(page.getByText(horizonPhrase, { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/Passages \(/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Look within ↓" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "View full chronicle" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Player's Guide ↗" })).toBeVisible();
+
+  // The list is an accessible fallback for the canvas hotspots, not passive
+  // duplicate copy: either surface can move into the same child.
+  await page.getByRole("button", { name: /\(Room\)/ }).first().click();
+  await expect(page.getByText("Room", { exact: true }).first()).toBeVisible();
   expect(errors).toEqual([]);
 });
 

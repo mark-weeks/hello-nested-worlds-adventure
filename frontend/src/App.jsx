@@ -23,6 +23,7 @@ const NAME_KEY      = "nw_player_name";
 const LAST_NODE_KEY = "nw_last_node";   // resume: the node the player last stood on
 const LAST_DEPTH_KEY = "nw_view_depth"; // resume: enough of the prefix to contain it
 const INTRO_SEEN    = "nw_seen_intro";  // shared with the D3 explorer
+const SOUND_KEY     = "nw_sound_preference";
 
 // The world's recent past is rendered into the event feed on load (via the
 // shared mutations.js) so a new arrival sees a world already in motion —
@@ -85,7 +86,15 @@ export default function App() {
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || urlName() || "");
   const [introSeen, setIntroSeen] = useState(() => !!localStorage.getItem(INTRO_SEEN));
   const [soundOn, setSoundOn] = useState(false);
+  // Sound is the intended default. Browsers still require a user gesture
+  // before WebAudio can start; the first gesture activates this preference.
+  // Only an explicit mute opts out, and that choice survives reloads.
+  const [soundPreferred, setSoundPreferred] = useState(
+    () => localStorage.getItem(SOUND_KEY) !== "off",
+  );
   const [waybackSoundPreview, setWaybackSoundPreview] = useState(false);
+  const [passageLoadStatus, setPassageLoadStatus] = useState("idle");
+  const [passageRetry, setPassageRetry] = useState(0);
   const ambienceRef = useRef(null);
 
   const pushEvent = useCallback((evt) => {
@@ -151,9 +160,11 @@ export default function App() {
     } catch (_) {
       // The loading shell remains the quiet failure surface; client-error
       // forwarding records the underlying browser failure separately.
+      return false;
     } finally {
       if (!background) setLoading(false);
     }
+    return true;
   }, []);
 
   const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
@@ -378,15 +389,28 @@ export default function App() {
     setNodeStack(path);
   }, [loadWorld, pushEvent, worldDepth]);
 
-  const deepenWorld = useCallback(async () => {
-    if (!currentNodeName || worldDepth >= MAX_WORLD_DEPTH) return;
-    pushEvent({ type: "system", text: `↓ looking within ${displayName(currentNodeName)}` });
-    await loadWorld({
+  // A rendered horizon is a payload boundary, not a game mechanic. As soon as
+  // the player stands there, extend the canonical prefix automatically. A
+  // failed network read leaves a retry affordance; normal play needs no extra
+  // "look within" click.
+  const horizonChildren = nodeStack[nodeStack.length - 1]?.children?.length ?? 0;
+  useEffect(() => {
+    if (!currentNodeName || horizonChildren > 0 || worldDepth >= MAX_WORLD_DEPTH) {
+      setPassageLoadStatus("idle");
+      return undefined;
+    }
+    let active = true;
+    setPassageLoadStatus("loading");
+    loadWorld({
       depth: worldDepth + 1,
       targetNode: currentNodeName,
       preserveSession: true,
+      background: true,
+    }).then(ok => {
+      if (active) setPassageLoadStatus(ok ? "idle" : "error");
     });
-  }, [currentNodeName, loadWorld, pushEvent, worldDepth]);
+    return () => { active = false; };
+  }, [currentNodeName, horizonChildren, loadWorld, passageRetry, worldDepth]);
 
   const sendChat = useCallback((text) => {
     sendMessage({ type: "chat", text });
@@ -411,6 +435,27 @@ export default function App() {
     refreshCurrentNode();
   }, [refreshCurrentNode]);
 
+  const enablePreferredSound = useCallback(() => {
+    if (!soundPreferred || !currentNode) return;
+    if (!ambienceRef.current) ambienceRef.current = new NodeAmbience();
+    const amb = ambienceRef.current;
+    if (!amb.enabled) amb.enable(seed, currentNode);
+    setSoundOn(amb.enabled);
+  }, [currentNode, seed, soundPreferred]);
+
+  // A returning player may bypass both onboarding buttons. Their first click
+  // or keypress in the app is the browser-approved activation gesture.
+  useEffect(() => {
+    if (!soundPreferred || soundOn || !currentNode) return undefined;
+    const activate = () => enablePreferredSound();
+    document.addEventListener("pointerdown", activate, { capture: true, once: true });
+    document.addEventListener("keydown", activate, { capture: true, once: true });
+    return () => {
+      document.removeEventListener("pointerdown", activate, true);
+      document.removeEventListener("keydown", activate, true);
+    };
+  }, [currentNode, enablePreferredSound, soundOn, soundPreferred]);
+
   // Wayback never owns a second audio engine. A deliberate "listen" gesture
   // enables (or retunes) the existing ambience with reconstructed state; when
   // the archive closes, the same graph returns to the live node.
@@ -425,10 +470,13 @@ export default function App() {
       return;
     }
     setWaybackSoundPreview(false);
-    if (ambienceRef.current?.enabled && currentNode) {
+    if (!soundPreferred && ambienceRef.current?.enabled) {
+      ambienceRef.current.disable();
+      setSoundOn(false);
+    } else if (ambienceRef.current?.enabled && currentNode) {
       ambienceRef.current.setNode(seed, currentNode);
     }
-  }, [currentNode, seed]);
+  }, [currentNode, seed, soundPreferred]);
 
   // Ambient sound: each place hums its own deterministic tone
   // (static/nodesound.js). The toggle click is the activation gesture
@@ -437,8 +485,17 @@ export default function App() {
     if (!ambienceRef.current) ambienceRef.current = new NodeAmbience();
     const amb = ambienceRef.current;
     const node = nodeStack[nodeStack.length - 1];
-    if (amb.enabled) { amb.disable(); setSoundOn(false); }
-    else { amb.enable(seed, node); setSoundOn(true); }
+    if (amb.enabled) {
+      amb.disable();
+      localStorage.setItem(SOUND_KEY, "off");
+      setSoundPreferred(false);
+      setSoundOn(false);
+    } else {
+      amb.enable(seed, node);
+      localStorage.setItem(SOUND_KEY, "on");
+      setSoundPreferred(true);
+      setSoundOn(amb.enabled);
+    }
   }, [seed, nodeStack]);
 
   useEffect(() => {
@@ -449,13 +506,18 @@ export default function App() {
 
   if (!introSeen) {
     return <Intro onBegin={() => {
+      enablePreferredSound();
       localStorage.setItem(INTRO_SEEN, "1");
       setIntroSeen(true);
     }} />;
   }
 
   if (!playerName) {
-    return <NameEntry onSubmit={(name) => { localStorage.setItem(NAME_KEY, name); setPlayerName(name); }} />;
+    return <NameEntry onSubmit={(name) => {
+      enablePreferredSound();
+      localStorage.setItem(NAME_KEY, name);
+      setPlayerName(name);
+    }} />;
   }
 
   if (loading || !currentNode) {
@@ -484,13 +546,13 @@ export default function App() {
         playerName={playerName}
         onChat={sendChat}
         onJump={jumpTo}
-        canDeepen={worldDepth < MAX_WORLD_DEPTH && currentNode.children.length === 0}
-        onDeepen={deepenWorld}
+        passageLoadStatus={passageLoadStatus}
+        onPassageRetry={() => setPassageRetry(n => n + 1)}
         wrapPassage={wrapAffordance(currentNode, wrapInfo)}
         onWrapCross={crossWrap}
         onSolved={handleSolved}
         onNodeChanged={refreshCurrentNode}
-        soundOn={soundOn}
+        soundOn={soundPreferred}
         onToggleSound={toggleSound}
         onWaybackListen={previewWaybackSound}
       />

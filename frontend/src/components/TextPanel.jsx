@@ -5,7 +5,7 @@ import Wayback from "./Wayback.jsx";
 import { passageBadges } from "../badges.js";
 import { causalFeedLine, displayName, nodeAddress } from "../names.js";
 
-export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, canDeepen = false, onDeepen, wrapPassage = null, onWrapCross, onSolved, onNodeChanged, soundOn, onToggleSound, onWaybackListen }) {
+export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, passageLoadStatus = "idle", onPassageRetry, wrapPassage = null, onWrapCross, onSolved, onNodeChanged, soundOn, onToggleSound, onWaybackListen }) {
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
   const [waybackOpen, setWaybackOpen] = useState(false);
@@ -34,11 +34,16 @@ export default function TextPanel({ node, players, agents = {}, connected, event
             ⌖ {nodeAddress(node.name)}
           </div>
         )}
-        <button
-          style={s.waybackBtn}
-          title="See this node as it was, through today's art and sound"
-          onClick={() => setWaybackOpen(true)}
-        >wayback</button>
+        <div style={s.nodeActions}>
+          <button
+            style={s.waybackBtn}
+            title="Replay this node from its first recorded state to now"
+            onClick={() => setWaybackOpen(true)}
+          >Replay History</button>
+          <a href="/guide" style={s.guideLink} title="How to play Enfolded">
+            Player's Guide ↗
+          </a>
+        </div>
       </div>
 
       {Object.keys(node.properties).length > 0 && (
@@ -67,21 +72,33 @@ export default function TextPanel({ node, players, agents = {}, connected, event
         <div style={s.section}>
           <div style={s.label}>Passages ({node.children.length})</div>
           {node.children.map(c => (
-            <div key={c.id} style={s.passage} title={c.name}>
+            <button
+              key={c.id}
+              type="button"
+              style={s.passage}
+              title={`Travel to ${c.name}`}
+              onClick={() => onJump?.(c.name)}
+            >
               → {displayName(c.name)} <span style={s.passageLevel}>({c.level})</span>
               {passageBadges(c).map(b => (
                 <span key={b.key} style={{ ...s.badge, color: b.css, borderColor: b.css + "55" }}>{b.label}</span>
               ))}
-            </div>
+            </button>
           ))}
         </div>
       )}
 
-      {canDeepen && (
+      {passageLoadStatus === "loading" && (
         <div style={s.section}>
-          <div style={s.label}>The world continues inward</div>
-          <button style={s.deepenBtn} onClick={onDeepen}>
-            Look within ↓
+          <div style={s.passageStatus}>Opening the passages within…</div>
+        </div>
+      )}
+
+      {passageLoadStatus === "error" && (
+        <div style={s.section}>
+          <div style={s.passageStatus}>The inner passages did not open.</div>
+          <button style={s.deepenBtn} onClick={onPassageRetry}>
+            Retry passages
           </button>
         </div>
       )}
@@ -139,12 +156,12 @@ export default function TextPanel({ node, players, agents = {}, connected, event
 
       <div style={s.feedSection}>
         <div style={s.labelRow}>
-          <span style={s.label}>Events</span>
+          <span style={s.label}>Recent events</span>
           <button
             style={s.chronicleBtn}
             title="The world's full history — everything every player and agent has done here"
             onClick={() => setChronicleOpen(true)}
-          >chronicle</button>
+          >View full chronicle</button>
         </div>
         <div style={s.feed}>
           {events.length === 0
@@ -185,13 +202,13 @@ export default function TextPanel({ node, players, agents = {}, connected, event
         <span style={s.statusRight}>
           {onToggleSound && (
             <button
+              id="btn-sound"
               style={s.soundBtn}
               aria-pressed={!!soundOn}
               title="Ambient sound: every place hums its own deterministic tone"
               onClick={onToggleSound}
             >♪ {soundOn ? "on" : "off"}</button>
           )}
-          <a href="/guide" style={s.guideLink} title="How to play">guide ↗</a>
         </span>
       </div>
 
@@ -216,18 +233,19 @@ const s = {
   section:     { display: "flex", flexDirection: "column", gap: "5px", flexShrink: 0 },
   feedSection: { display: "flex", flexDirection: "column", gap: "5px", flex: 1, minHeight: 0 },
   labelRow:    { display: "flex", justifyContent: "space-between", alignItems: "center" },
+  nodeActions: { display: "flex", gap: "7px", alignItems: "stretch", flexWrap: "wrap", marginTop: "3px" },
   statusRight: { display: "flex", gap: "10px", alignItems: "center" },
   soundBtn:    { background: "none", border: "1px solid #1e2235", color: "#4a5580", padding: "1px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em" },
-  guideLink:   { color: "#2a4060", fontSize: "9px", letterSpacing: "0.1em", textDecoration: "none" },
-  chronicleBtn:{ background: "none", border: "1px solid #1e2235", color: "#4a5580", padding: "1px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase" },
+  guideLink:   { display: "inline-flex", alignItems: "center", color: "#83a9d8", border: "1px solid #2a4060", padding: "4px 8px", fontSize: "10px", letterSpacing: "0.04em", textDecoration: "none" },
+  chronicleBtn:{ background: "#0e1828", border: "1px solid #5268a8", color: "#9aaee8", padding: "4px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "10px", letterSpacing: "0.04em" },
   waybackBtn:  { alignSelf: "flex-start", background: "#111a30", border: "1px solid #5268a8", color: "#9aaee8", padding: "3px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase", marginTop: "3px" },
   label:       { fontSize: "10px", color: "#4a5580", textTransform: "uppercase", letterSpacing: "0.12em" },
   name:        { fontSize: "18px", color: "#d0daf0", fontWeight: "bold", lineHeight: 1.2 },
   address:     { fontSize: "10px", color: "#4a5580", letterSpacing: "0.08em" },
   prop:        { display: "flex", justifyContent: "space-between", fontSize: "12px", gap: "8px" },
   propKey:     { color: "#6878a8" },
-  propVal:     { color: "#9aaac8", textAlign: "right", wordBreak: "break-all" },
-  passage:     { fontSize: "12px", color: "#7888b0" },
+  propVal:     { color: "#9aaac8", textAlign: "right", wordBreak: "normal", overflowWrap: "break-word", hyphens: "auto", maxWidth: "58%" },
+  passage:     { appearance: "none", background: "none", border: 0, padding: "2px 0", textAlign: "left", fontFamily: "inherit", fontSize: "12px", color: "#91a4d0", cursor: "pointer" },
   passageLevel:{ color: "#4a5580" },
   badge:       { fontSize: "9px", border: "1px solid", borderRadius: "3px", padding: "0 4px", marginLeft: "5px", letterSpacing: "0.06em", whiteSpace: "nowrap" },
   player:      { fontSize: "12px", color: "#4af0c8" },
@@ -239,6 +257,7 @@ const s = {
   chatInput:   { flex: 1, background: "#10131f", border: "1px solid #2a3050", color: "#b0bcd0", padding: "4px 6px", fontFamily: "inherit", fontSize: "12px", minWidth: 0 },
   btn:         { background: "#0e1828", border: "1px solid #2a4060", color: "#3a8eff", padding: "4px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", flexShrink: 0 },
   deepenBtn:   { background: "#111a30", border: "1px solid #5268a8", color: "#9aaee8", padding: "7px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", letterSpacing: "0.08em", textTransform: "uppercase" },
+  passageStatus:{ fontSize: "11px", color: "#6f82ad", fontStyle: "italic" },
   wrapHint:    { fontSize: "10px", color: "#56628a", fontStyle: "italic", lineHeight: 1.4 },
   feed:        { overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "3px" },
   empty:       { fontSize: "11px", color: "#2a3555" },

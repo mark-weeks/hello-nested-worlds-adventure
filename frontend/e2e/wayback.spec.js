@@ -88,15 +88,15 @@ test("/app scrubs a node from present to birth", async ({ page }) => {
   await page.goto("/app");
   await expect(page.getByText("● connected")).toBeVisible({ timeout: 10_000 });
 
-  const trigger = page.getByRole("button", { name: "wayback" });
+  const trigger = page.getByRole("button", { name: "Replay History" });
   await trigger.click();
-  const dialog = page.getByRole("dialog", { name: /Wayback/ });
+  const dialog = page.getByRole("dialog", { name: /Replay History/ });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Close wayback" })).toBeFocused();
+  await expect(dialog.getByRole("button", { name: "Close history replay" })).toBeFocused();
   await expect(dialog).toContainText("first witnessed");
   await expect(dialog).toContainText("the node as it was, seen with today's eyes");
 
-  const range = dialog.getByRole("slider", { name: "Wayback time" });
+  const range = dialog.getByRole("slider", { name: "History replay time" });
   await expect.poll(async () => Number(await range.getAttribute("max")))
     .toBeGreaterThan(0);
   await setRangeToBirth(range);
@@ -133,7 +133,7 @@ test("/app scrubs a node from present to birth", async ({ page }) => {
   await expect(dialog.getByRole("button", { name: "listen to this moment" }))
     .toBeDisabled();
 
-  await dialog.getByRole("button", { name: "Close wayback" }).focus();
+  await dialog.getByRole("button", { name: "Close history replay" }).focus();
   await page.keyboard.press("Shift+Tab");
   await expect(dialog.locator(":focus")).toHaveCount(1);
   await page.keyboard.press("Escape");
