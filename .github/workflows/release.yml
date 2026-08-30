@@ -1,16 +1,21 @@
 # Tag-triggered release builds (v0.1.0-qa.1 follow-up).
 #
 # qa.1's assets were built and uploaded by hand, so their provenance rested
-# on the operator's word. From qa.2 on, pushing a `v*` tag produces the
-# release here: the gate runs first (Ruff, the full Python suite), then ONE
-# wheel is built and that exact artifact is smoke-tested, checksummed, and
-# attached with machine-generated provenance notes — the published bytes and
-# the verified bytes can never diverge.
+# on the operator's word. From the next build on, pushing a release tag
+# produces the release here: the FULL gate runs first (Ruff, the Python
+# suite, Vitest, the production frontend build + committed-bundle freshness
+# check, and the Playwright browser smoke — a tag can point at any commit,
+# so this workflow cannot assume branch CI ever saw it), then ONE wheel is
+# built and that exact artifact is smoke-tested, checksummed, and attached
+# with machine-generated provenance notes — the published bytes and the
+# verified bytes can never diverge.
 #
-# Release metadata follows the PACKAGE version, not just the tag text:
-# a `-qa.` tag requires a prerelease package version, a stable tag must
-# match the package version exactly, and any rc version publishes as a
-# prerelease. A mismatch fails the run instead of shipping wrong metadata.
+# Version identity is one-to-one: a QA tag `v<base>-qa.<n>` requires the
+# package version `<base>rc<n>` exactly (each QA build gets its own rc, no
+# two tags can share a package identity), and a stable tag `v<x>` requires
+# the stable package version `<x>` exactly. Anything else fails the run
+# instead of shipping wrong metadata. The 0.1.x line starts at 0.1.1rc1:
+# the hand-built qa.1 wheel already consumed 0.1.0 (see pyproject.toml).
 #
 # This publishes a downloadable artifact only — it creates no Fly
 # application, volume, or parallel persistent world (ADR-007).
@@ -25,7 +30,7 @@ permissions:
 
 jobs:
   build-and-publish:
-    name: Build, verify, and publish
+    name: Gate, build, verify, and publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +40,13 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install package with dev extras
         run: |
@@ -50,6 +62,36 @@ jobs:
         run: |
           set -o pipefail
           python -m pytest tests/ -q | tee pytest-summary.txt
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run JS tests
+        run: npm test
+        working-directory: frontend
+
+      - name: Build the production bundle
+        run: npm run build
+        working-directory: frontend
+
+      - name: Committed bundle is fresh
+        # The wheel packages the committed static/app — a stale bundle here
+        # would ship stale frontend bytes no matter what the build produced.
+        run: |
+          if [ -n "$(git status --porcelain -- static/app)" ]; then
+            git status --porcelain -- static/app
+            echo "::error::static/app is stale — run 'cd frontend && npm run build' and commit the result before tagging."
+            exit 1
+          fi
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run browser smoke tests
+        run: npm run test:e2e
+        working-directory: frontend
 
       - name: Build the release wheel
         run: |
@@ -72,28 +114,30 @@ jobs:
           WHEEL=$(basename dist/enfolded-*.whl)
           VERSION=$(echo "$WHEEL" | cut -d- -f2)
           TAG="$GITHUB_REF_NAME"
-          case "$VERSION" in
-            *rc*|*a*|*b*|*.dev*) PRE_VERSION=1 ;;
-            *)                   PRE_VERSION=0 ;;
-          esac
-          if [ "${TAG#v}" != "$TAG" ] && [ -z "${TAG##*-qa.*}" ]; then
-            # QA tag: the package version must say prerelease too, or the
-            # wheel would shadow the launch release on version alone.
-            if [ "$PRE_VERSION" != 1 ]; then
-              echo "::error::QA tag $TAG built from stable package version $VERSION — bump pyproject to a prerelease version or cut a stable tag."
+          if [ -z "${TAG##v*-qa.*}" ]; then
+            # QA tag: v<base>-qa.<n> must carry package version <base>rc<n>
+            # exactly — one tag, one package identity, never reused.
+            BASE="${TAG#v}"; BASE="${BASE%%-qa.*}"
+            SEQ="${TAG##*-qa.}"
+            case "$SEQ" in
+              ''|*[!0-9]*)
+                echo "::error::QA tag $TAG must end in a numeric sequence (v<base>-qa.<n>)."
+                exit 1 ;;
+            esac
+            if [ "$VERSION" != "${BASE}rc${SEQ}" ]; then
+              echo "::error::QA tag $TAG requires package version ${BASE}rc${SEQ}, but the wheel is $VERSION — align pyproject.toml before tagging."
               exit 1
             fi
             KIND="QA build"; FLAGS="--prerelease"
-          elif [ "$PRE_VERSION" = 1 ]; then
-            # rc-style tag (e.g. v0.1.0rc1): tag and version must agree.
-            if [ "v$VERSION" != "$TAG" ]; then
-              echo "::error::tag $TAG does not match prerelease package version $VERSION."
-              exit 1
-            fi
-            KIND="release candidate"; FLAGS="--prerelease"
           else
-            # Stable tag: exact match required — catches tagging v0.1.0
-            # while pyproject still carries 0.1.0rc1.
+            # Stable tag: the package version must be stable and match the
+            # tag exactly — catches tagging v0.1.1 while pyproject still
+            # carries 0.1.1rcN. rc versions publish only through QA tags.
+            case "$VERSION" in
+              *rc*|*.dev*)
+                echo "::error::tag $TAG built from prerelease package version $VERSION — prerelease wheels publish only via v<base>-qa.<n> tags."
+                exit 1 ;;
+            esac
             if [ "v$VERSION" != "$TAG" ]; then
               echo "::error::stable tag $TAG does not match package version $VERSION — align pyproject.toml before tagging."
               exit 1
@@ -132,6 +176,9 @@ jobs:
 
           - Ruff lint green.
           - $PYTESTS (full Python suite).
+          - Vitest suite green; production bundle built and byte-fresh
+            against the committed static/app the wheel packages.
+          - Playwright browser smoke green under the production CSP.
           - The exact attached wheel passed the installed-wheel smoke
             (packaging, migrations, frontend bundle, CLI entry point) —
             verified bytes and published bytes are the same file.
