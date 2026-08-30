@@ -451,6 +451,81 @@ class TestRippleEqualsFold:
 
 
 class TestFoldSemantics:
+    def test_legacy_cache_survives_first_absolute_and_transition_writes(self):
+        seed = 7147
+        persistence.init_db()
+        with persistence._connect() as conn:
+            for name, properties in (
+                    ("Legacy-absolute", {"legacy": True}),
+                    ("Legacy-transition", {"legacy": True, "count": 4})):
+                conn.execute(
+                    """INSERT INTO node_runtime_state
+                       (world_seed, node_name, ripple_score, properties,
+                        updated_at, created_at)
+                       VALUES (?, ?, 0.0, ?, datetime('now'), datetime('now'))""",
+                    (seed, name, json.dumps(properties)),
+                )
+
+        persistence.record_substance_change(
+            seed, "Legacy-absolute", "SCALE_ACT", None, {}, {"fresh": True})
+        applied = persistence.record_substance_transition(
+            seed, "Legacy-transition", "DANGER_ALERT", None, {},
+            lambda live: {"count": live["count"] + 1})
+
+        assert applied == {"count": 5}
+        assert persistence.load_node_property_overrides(seed) == {
+            "Legacy-absolute": {"legacy": True, "fresh": True},
+            "Legacy-transition": {"legacy": True, "count": 5},
+        }
+        assert persistence.get_wayback_state(
+            seed, "Legacy-absolute", {}, at_step=0)["properties"] == {}
+        assert persistence.get_wayback_state(
+            seed, "Legacy-absolute", {})["properties"] == {
+                "legacy": True, "fresh": True}
+
+    def test_plain_object_cache_survives_rollback_and_repairs_old_writes(self):
+        seed, node = 7148, "Rollback-1"
+        persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"first": 1})
+
+        with persistence._connect() as conn:
+            blob = conn.execute(
+                """SELECT properties FROM node_runtime_state
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            ).fetchone()[0]
+            assert json.loads(blob) == {"first": 1}  # old loader accepts it
+
+            # Simulate the prior binary: it chronicles and json_patch-es the
+            # plain object but knows nothing about the side-table marker.
+            conn.execute(
+                """INSERT INTO world_mutations
+                   (world_seed, node_name, mutation_type, data, delta,
+                    node_version)
+                   VALUES (?, ?, 'SCALE_ACT', '{}', ?, 2)""",
+                (seed, node, json.dumps({"second": 2})),
+            )
+            conn.execute(
+                """UPDATE node_runtime_state
+                   SET properties = json_patch(properties, ?)
+                   WHERE world_seed = ? AND node_name = ?""",
+                (json.dumps({"second": 2}), seed, node),
+            )
+
+        assert persistence.load_node_property_overrides(seed)[node] == {
+            "first": 1, "second": 2}
+        with persistence._connect() as conn:
+            properties, marked = conn.execute(
+                """SELECT state.properties, meta.properties_blob
+                   FROM node_runtime_state AS state
+                   JOIN node_property_cache_meta AS meta
+                     ON meta.world_seed = state.world_seed
+                    AND meta.node_name = state.node_name
+                   WHERE state.world_seed = ? AND state.node_name = ?""",
+                (seed, node),
+            ).fetchone()
+        assert properties == marked
+
     def test_current_caches_avoid_replay_and_point_reads(
             self, monkeypatch):
         seed = 7149
@@ -476,6 +551,58 @@ class TestFoldSemantics:
             "Hot-1": {"count": 2},
             "Warm-2": {"ready": True},
         }
+
+    def test_lazy_repair_serializes_with_a_concurrent_writer(self, monkeypatch):
+        seed, node = 7152, "Repair-race"
+        persistence.record_substance_change(
+            seed, node, "SCALE_ACT", None, {}, {"first": 1})
+        with persistence._connect() as conn:
+            conn.execute(
+                """DELETE FROM node_property_cache_meta
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            )
+
+        entered = threading.Event()
+        release = threading.Event()
+        original = persistence._rebuild_property_overlay
+
+        def paused_rebuild(*args, **kwargs):
+            entered.set()
+            assert release.wait(5)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            persistence, "_rebuild_property_overlay", paused_rebuild)
+        errors: list[Exception] = []
+
+        def repair() -> None:
+            try:
+                persistence.load_node_property_overrides(seed)
+            except Exception as exc:  # noqa: BLE001 - asserted below
+                errors.append(exc)
+
+        def write() -> None:
+            try:
+                persistence.record_substance_change(
+                    seed, node, "SCALE_ACT", None, {}, {"second": 2})
+            except Exception as exc:  # noqa: BLE001 - asserted below
+                errors.append(exc)
+
+        repair_thread = threading.Thread(target=repair)
+        repair_thread.start()
+        assert entered.wait(5)
+        writer_thread = threading.Thread(target=write)
+        writer_thread.start()
+        release.set()
+        repair_thread.join(5)
+        writer_thread.join(5)
+
+        assert not repair_thread.is_alive()
+        assert not writer_thread.is_alive()
+        assert not errors
+        assert persistence.load_node_property_overrides(seed)[node] == {
+            "first": 1, "second": 2}
 
     def test_null_deletes_and_nested_merge_match_the_overlay(self):
         # RFC 7396 through the whole stack: the Python fold must reproduce
@@ -504,6 +631,30 @@ class TestFoldSemantics:
         assert persistence.fold_node_properties(7151, "Untouched-1") == {}
         assert persistence.fold_node_properties(
             7151, "Untouched-1", upto_version=0) == {}
+
+    def test_fold_is_born_aware_and_json_type_exact(self):
+        seed, name = 7153, "Typed-1"
+        born = {
+            "theme": "warm",
+            "flag": True,
+            "nested": {"value": True},
+        }
+        persistence.save_world_nodes(
+            seed, [("1", name, "World", json.dumps(born), 0)], 2)
+        persistence.record_substance_change(
+            seed, name, "SCALE_ACT", None, {},
+            {"theme": None, "flag": 1, "nested": {"value": 1}})
+
+        overlay = persistence.load_node_property_overrides(seed)[name]
+        assert persistence.fold_node_properties(seed, name) == overlay == {
+            "theme": None,
+            "flag": 1,
+            "nested": {"value": 1},
+        }
+        assert persistence.json_merge_patch(born, overlay) == {
+            "flag": 1,
+            "nested": {"value": 1},
+        }
 
 
 class TestInterruptedMigrationRecovery:

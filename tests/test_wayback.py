@@ -151,13 +151,17 @@ class TestStateAtStep:
         assert persistence.json_merge_patch(born, overlay) == {
             "nested": {"kept": True}}
         with persistence._connect() as conn:
-            cached = conn.execute(
-                """SELECT properties FROM node_runtime_state
-                   WHERE world_seed = ? AND node_name = ?""",
+            cached, marked = conn.execute(
+                """SELECT state.properties, meta.properties_blob
+                   FROM node_runtime_state AS state
+                   JOIN node_property_cache_meta AS meta
+                     ON meta.world_seed = state.world_seed
+                    AND meta.node_name = state.node_name
+                   WHERE state.world_seed = ? AND state.node_name = ?""",
                 (seed, name),
-            ).fetchone()[0]
-        assert json.loads(cached) == [
-            persistence._PROPERTY_CACHE_FORMAT, {"theme": None}]
+            ).fetchone()
+        assert json.loads(cached) == {"theme": None}
+        assert marked == cached
 
 
 @pytest.fixture()

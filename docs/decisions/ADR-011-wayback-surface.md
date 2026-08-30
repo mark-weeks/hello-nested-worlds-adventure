@@ -71,8 +71,9 @@ Ship a **read-only, node-scoped wayback surface**.
   Nothing visual or audible is stored by this batch.
 - **The endpoint stays inside existing boundaries.** It honors the canonical
   world guard, resolves node identity from born rows, is read-rate-limited,
-  and rejects forged nodes or out-of-range steps. It adds no migration and no
-  `world_mutations` write path.
+  and rejects forged nodes or out-of-range steps. It adds only the additive,
+  rollback-compatible cache-metadata migration 0016 and no `world_mutations`
+  write path.
 
 ## Trade-offs accepted
 
@@ -89,8 +90,10 @@ Ship a **read-only, node-scoped wayback surface**.
   contract, not invented archive state.
 - **The archive starts where faithful recording starts.** Pre-launch Batch 1
   landed before production, so the hosted world has no dark age. Local or
-  imported databases with pre-ADR-009 history can show the recorded trace but
-  cannot manufacture a missing delta.
+  imported databases with pre-ADR-009 history preserve their last observable
+  legacy baseline, but cannot manufacture a missing delta or timestamp. That
+  untimeable baseline is treated as pre-chronicle state: birth remains born,
+  and the baseline first participates at the first recorded step.
 
 ## Revisit when…
 

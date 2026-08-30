@@ -11,12 +11,15 @@ specifies one atomic, totally ordered persistence contract, a versioned
 fold cursor, the corrected writer inventory, and honest wayback
 rendering semantics.
 
-Implementation note, 2026-08-29 (Batch 4): the overlay cache composes merge
-PATCH DOCUMENTS and retains null tombstones. Applying SQLite `json_patch` to
-the previous patch had discarded a tombstone for any key supplied only by the
-born row, making reconstructed present state disagree with served present
-state. The schema and chronicle are unchanged; the invariant now covers born
-properties as well as overlay-only keys.
+Implementation note, 2026-08-29 (Batch 4): the overlay cache materializes
+current state and derives a born-relative merge patch that retains null
+tombstones. Applying SQLite `json_patch` to the previous PATCH DOCUMENT had
+discarded a tombstone for any key supplied only by the born row, making
+reconstructed present state disagree with served present state. The chronicle
+is unchanged. Additive migration 0016 stores cache format, rollback-write
+validation, and any pre-chronicle baseline in a side table while keeping the
+property blob a backward-compatible JSON object; the invariant now covers
+born properties, JSON type changes, and overlay-only keys.
 
 ---
 
