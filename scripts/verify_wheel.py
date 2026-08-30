@@ -2,6 +2,11 @@
 
 Dependencies come from the ambient environment by design: this verifies
 packaging, not dependency resolution; the lock files own that contract.
+
+With no argument, builds a throwaway wheel and verifies it (the CI and
+check.sh gate). Given a wheel path, verifies that exact file instead — the
+Release workflow passes the artifact it is about to publish, so the smoke
+result and the published bytes can never describe different wheels.
 """
 from __future__ import annotations
 
@@ -22,25 +27,31 @@ def _run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None)
 
 
 def main() -> None:
+    supplied = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else None
+    if supplied is not None and not supplied.is_file():
+        raise RuntimeError(f"no wheel at {supplied}")
     with tempfile.TemporaryDirectory(prefix="enfolded-wheel-") as raw_tmp:
         tmp = Path(raw_tmp)
-        wheel_dir = tmp / "dist"
-        wheel_dir.mkdir()
-        _run(
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-build-isolation",
-            "--no-deps",
-            "--wheel-dir",
-            str(wheel_dir),
-            str(ROOT),
-        )
-        wheels = list(wheel_dir.glob("enfolded-*.whl"))
-        if len(wheels) != 1:
-            raise RuntimeError(f"expected one Enfolded wheel, found {wheels}")
-        wheel = wheels[0]
+        if supplied is not None:
+            wheel = supplied
+        else:
+            wheel_dir = tmp / "dist"
+            wheel_dir.mkdir()
+            _run(
+                sys.executable,
+                "-m",
+                "pip",
+                "wheel",
+                "--no-build-isolation",
+                "--no-deps",
+                "--wheel-dir",
+                str(wheel_dir),
+                str(ROOT),
+            )
+            wheels = list(wheel_dir.glob("enfolded-*.whl"))
+            if len(wheels) != 1:
+                raise RuntimeError(f"expected one Enfolded wheel, found {wheels}")
+            wheel = wheels[0]
 
         with zipfile.ZipFile(wheel) as archive:
             names = set(archive.namelist())
