@@ -16,10 +16,11 @@ current state and derives a born-relative merge patch that retains null
 tombstones. Applying SQLite `json_patch` to the previous PATCH DOCUMENT had
 discarded a tombstone for any key supplied only by the born row, making
 reconstructed present state disagree with served present state. The chronicle
-is unchanged. Additive migration 0016 stores cache format, rollback-write
-validation, and any pre-chronicle baseline in a side table while keeping the
-property blob a backward-compatible JSON object; the invariant now covers
-born properties, JSON type changes, and overlay-only keys.
+is unchanged. Additive migrations 0016–0017 store cache format, exact-blob
+plus chronicle-head rollback-write validation, and any pre-chronicle baseline
+in a side table while keeping the property blob a backward-compatible JSON
+object; the invariant now covers born properties, JSON type changes, and
+overlay-only keys.
 
 ---
 

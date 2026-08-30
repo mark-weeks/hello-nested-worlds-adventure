@@ -851,12 +851,14 @@ RIPPLE_INCREMENT_PER_STRENGTH = 0.1
 # that way so a rollback binary can continue to hydrate them. The additive
 # node_property_cache_meta table carries the format marker, an exact copy of
 # the marked blob (so writes by a rollback binary invalidate the marker), and
-# any pre-chronicle baseline that cannot be recovered from world_mutations.
+# the marked chronicle head (for tombstones that leave the blob unchanged),
+# plus pre-chronicle state that cannot be recovered from world_mutations.
 _PROPERTY_CACHE_FORMAT = 1
 
 
 def _apply_overlay_patch(conn: sqlite3.Connection, world_seed: int,
-                         node_name: str, changed: dict) -> None:
+                         node_name: str, changed: dict, *,
+                         cached_overlay: dict | None = None) -> None:
     """Apply `changed` to the node's persisted property cache, on an
     already-open connection — always inside record_substance_change's
     transaction, never on its own.
@@ -872,8 +874,13 @@ def _apply_overlay_patch(conn: sqlite3.Connection, world_seed: int,
     Only a legacy or missing cache pays for a full chronicle replay; that path
     also repairs tombstones an older cache writer may have discarded.
     """
-    cached, current_format, _baseline = _property_cache_snapshot(
-        conn, world_seed, node_name)
+    if cached_overlay is None:
+        cached, current_format, _baseline = _property_cache_snapshot(
+            conn, world_seed, node_name)
+    else:
+        # The atomic writer prepared this exact cache under the same lock
+        # immediately before appending the delta.
+        cached, current_format = cached_overlay, True
     if current_format:
         born = _load_born_properties(conn, world_seed, node_name)
         current_state = json_merge_patch(born, cached)
@@ -898,7 +905,7 @@ def _insert_substance_row(conn: sqlite3.Connection, world_seed: int,
     overlay patch. Returns the allocated version."""
     # Upgrade a legacy cache before appending. Otherwise a replay after the
     # insert has no source for cache-only, pre-chronicle fields.
-    _prepare_property_cache(conn, world_seed, node_name)
+    cached_overlay = _prepare_property_cache(conn, world_seed, node_name)
     version = conn.execute(
         """SELECT COALESCE(MAX(node_version), 0) + 1
            FROM world_mutations
@@ -915,7 +922,9 @@ def _insert_substance_row(conn: sqlite3.Connection, world_seed: int,
          None if strength is None else float(strength),
          json.dumps(delta), version),
     )
-    _apply_overlay_patch(conn, world_seed, node_name, delta)
+    _apply_overlay_patch(
+        conn, world_seed, node_name, delta,
+        cached_overlay=cached_overlay)
     return version
 
 
@@ -1098,6 +1107,7 @@ def _store_property_overlay(conn: sqlite3.Connection, world_seed: int,
                             legacy_baseline: dict | None = None) -> None:
     """Write one rollback-readable cache and its validation metadata."""
     blob = json.dumps(overlay)
+    delta_version = _property_delta_head(conn, world_seed, node_name)
     conn.execute(
         f"""INSERT INTO node_runtime_state
             (world_seed, node_name, ripple_score, properties, updated_at, created_at)
@@ -1112,29 +1122,44 @@ def _store_property_overlay(conn: sqlite3.Connection, world_seed: int,
         conn.execute(
             f"""INSERT INTO node_property_cache_meta
                 (world_seed, node_name, cache_format, properties_blob,
-                 legacy_baseline, updated_at)
-               VALUES (?, ?, ?, ?, ?, {_NOW})
+                 delta_version, legacy_baseline, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, {_NOW})
                ON CONFLICT(world_seed, node_name) DO UPDATE SET
                  cache_format = excluded.cache_format,
                  properties_blob = excluded.properties_blob,
+                 delta_version = excluded.delta_version,
                  updated_at = excluded.updated_at""",
             (world_seed, node_name, _PROPERTY_CACHE_FORMAT, blob,
+             delta_version,
              baseline_blob),
         )
     else:
         conn.execute(
             f"""INSERT INTO node_property_cache_meta
                 (world_seed, node_name, cache_format, properties_blob,
-                 legacy_baseline, updated_at)
-               VALUES (?, ?, ?, ?, ?, {_NOW})
+                 delta_version, legacy_baseline, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, {_NOW})
                ON CONFLICT(world_seed, node_name) DO UPDATE SET
                  cache_format = excluded.cache_format,
                  properties_blob = excluded.properties_blob,
+                 delta_version = excluded.delta_version,
                  legacy_baseline = excluded.legacy_baseline,
                  updated_at = excluded.updated_at""",
             (world_seed, node_name, _PROPERTY_CACHE_FORMAT, blob,
+             delta_version,
              baseline_blob),
         )
+
+
+def _property_delta_head(conn: sqlite3.Connection, world_seed: int,
+                         node_name: str) -> int:
+    """Latest material version, index-backed and stable under the write lock."""
+    return int(conn.execute(
+        """SELECT COALESCE(MAX(node_version), 0)
+           FROM world_mutations
+           WHERE world_seed = ? AND node_name = ? AND delta IS NOT NULL""",
+        (world_seed, node_name),
+    ).fetchone()[0])
 
 
 def _decode_property_blob(blob: str | None) -> tuple[dict, bool]:
@@ -1155,7 +1180,8 @@ def _decode_property_blob(blob: str | None) -> tuple[dict, bool]:
 
 def _property_cache_values(
         blob: str | None, cache_format: int | None,
-        marked_blob: str | None,
+        marked_blob: str | None, marked_version: int | None,
+        delta_version: int,
         baseline_blob: str | None) -> tuple[dict, bool, dict]:
     """Decode one joined cache row and validate its side-table marker."""
     cached, plain_object = _decode_property_blob(blob)
@@ -1163,6 +1189,7 @@ def _property_cache_values(
         plain_object
         and cache_format == _PROPERTY_CACHE_FORMAT
         and marked_blob == blob
+        and marked_version == delta_version
     )
     if baseline_blob:
         baseline, baseline_is_object = _decode_property_blob(baseline_blob)
@@ -1178,7 +1205,14 @@ def _property_cache_snapshot(conn: sqlite3.Connection, world_seed: int,
                              node_name: str) -> tuple[dict, bool, dict]:
     row = conn.execute(
         """SELECT state.properties, meta.cache_format,
-                  meta.properties_blob, meta.legacy_baseline
+                  meta.properties_blob, meta.delta_version,
+                  COALESCE((
+                      SELECT MAX(mutation.node_version)
+                      FROM world_mutations AS mutation
+                      WHERE mutation.world_seed = state.world_seed
+                        AND mutation.node_name = state.node_name
+                        AND mutation.delta IS NOT NULL
+                  ), 0), meta.legacy_baseline
            FROM node_runtime_state AS state
            LEFT JOIN node_property_cache_meta AS meta
              ON meta.world_seed = state.world_seed
@@ -1186,7 +1220,8 @@ def _property_cache_snapshot(conn: sqlite3.Connection, world_seed: int,
            WHERE state.world_seed = ? AND state.node_name = ?""",
         (world_seed, node_name),
     ).fetchone()
-    return _property_cache_values(*(row or (None, None, None, None)))
+    return _property_cache_values(
+        *(row or (None, None, None, None, 0, None)))
 
 
 def _prepare_property_cache(conn: sqlite3.Connection, world_seed: int,
@@ -1459,10 +1494,12 @@ def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
     hydration so upgrades cannot revive born values whose old cached
     tombstones were discarded; legacy cache-only rows remain intact.
     """
-    def read_rows(conn: sqlite3.Connection) -> tuple[list[tuple], set[str]]:
+    def read_rows(conn: sqlite3.Connection) -> tuple[
+            list[tuple], dict[str, int]]:
         rows = conn.execute(
             """SELECT state.node_name, state.properties, meta.cache_format,
-                      meta.properties_blob, meta.legacy_baseline
+                      meta.properties_blob, meta.delta_version,
+                      meta.legacy_baseline
                FROM node_runtime_state AS state
                LEFT JOIN node_property_cache_meta AS meta
                  ON meta.world_seed = state.world_seed
@@ -1470,23 +1507,27 @@ def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
                WHERE state.world_seed = ? AND state.properties IS NOT NULL""",
             (world_seed,),
         ).fetchall()
-        delta_names = {name for (name,) in conn.execute(
-            """SELECT DISTINCT node_name FROM world_mutations
-               WHERE world_seed = ? AND delta IS NOT NULL""",
+        delta_versions = {name: int(version) for name, version in conn.execute(
+            """SELECT node_name, MAX(node_version) FROM world_mutations
+               WHERE world_seed = ? AND delta IS NOT NULL
+               GROUP BY node_name""",
             (world_seed,),
         ).fetchall()}
-        return rows, delta_names
+        return rows, delta_versions
 
     def hydrate(conn: sqlite3.Connection, rows: list[tuple],
-                delta_names: set[str], *, repair: bool) -> tuple[dict, bool]:
+                delta_versions: dict[str, int], *,
+                repair: bool) -> tuple[dict, bool]:
         overrides: dict[str, dict] = {}
         cached_names: set[str] = set()
         needs_repair = False
-        for name, blob, cache_format, marked_blob, baseline_blob in rows:
+        for (name, blob, cache_format, marked_blob, marked_version,
+             baseline_blob) in rows:
             cached_names.add(name)
             cached, current_format, baseline = _property_cache_values(
-                blob, cache_format, marked_blob, baseline_blob)
-            if current_format or name not in delta_names:
+                blob, cache_format, marked_blob, marked_version,
+                delta_versions.get(name, 0), baseline_blob)
+            if current_format or name not in delta_versions:
                 overrides[name] = cached
                 continue
             needs_repair = True
@@ -1497,7 +1538,7 @@ def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
                     conn, world_seed, name, rebuilt,
                     legacy_baseline=baseline)
                 overrides[name] = rebuilt
-        for name in delta_names - cached_names:
+        for name in delta_versions.keys() - cached_names:
             needs_repair = True
             if repair:
                 rebuilt = _rebuild_property_overlay(
@@ -1509,17 +1550,18 @@ def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
         return overrides, needs_repair
 
     with _connect() as conn:
-        rows, delta_names = read_rows(conn)
+        rows, delta_versions = read_rows(conn)
         overrides, needs_repair = hydrate(
-            conn, rows, delta_names, repair=False)
+            conn, rows, delta_versions, repair=False)
         if not needs_repair:
             return overrides
 
         # Re-read and repair under one write lock. A concurrent canonical
         # writer cannot land between replay and the cache marker write.
         conn.execute("BEGIN IMMEDIATE")
-        rows, delta_names = read_rows(conn)
-        repaired, _ = hydrate(conn, rows, delta_names, repair=True)
+        rows, delta_versions = read_rows(conn)
+        repaired, _ = hydrate(
+            conn, rows, delta_versions, repair=True)
         return repaired
 
 

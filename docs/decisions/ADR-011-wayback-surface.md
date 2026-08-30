@@ -72,8 +72,8 @@ Ship a **read-only, node-scoped wayback surface**.
 - **The endpoint stays inside existing boundaries.** It honors the canonical
   world guard, resolves node identity from born rows, is read-rate-limited,
   and rejects forged nodes or out-of-range steps. It adds only the additive,
-  rollback-compatible cache-metadata migration 0016 and no `world_mutations`
-  write path.
+  rollback-compatible cache-metadata migrations 0016–0017 and no
+  `world_mutations` write path.
 
 ## Trade-offs accepted
 

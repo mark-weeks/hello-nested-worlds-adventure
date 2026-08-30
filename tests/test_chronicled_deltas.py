@@ -85,7 +85,7 @@ class TestInjectedFailure:
         persistence.record_substance_change(
             seed, "N", "SCALE_ACT", None, {}, {"before": True})
 
-        def _boom(conn, world_seed, node_name, changed):
+        def _boom(conn, world_seed, node_name, changed, **_kwargs):
             raise RuntimeError("injected: crash between chronicle and overlay")
 
         # A dedicated MonkeyPatch instance: pytest's function-scoped
@@ -119,7 +119,7 @@ class TestInjectedFailure:
         seed = 7111
         _, room = _tree()
 
-        def _boom(conn, world_seed, node_name, changed):
+        def _boom(conn, world_seed, node_name, changed, **_kwargs):
             raise RuntimeError("injected: crash inside the origin write")
 
         mp = pytest.MonkeyPatch()
@@ -485,8 +485,12 @@ class TestFoldSemantics:
 
     def test_plain_object_cache_survives_rollback_and_repairs_old_writes(self):
         seed, node = 7148, "Rollback-1"
-        persistence.record_substance_change(
-            seed, node, "SCALE_ACT", None, {}, {"first": 1})
+        born = {"theme": "warm"}
+        persistence.save_world_nodes(
+            seed, [("1", node, "World", json.dumps(born), 0)], 2)
+        # Capture a marked empty cache without adding a material version.
+        assert persistence.record_substance_transition(
+            seed, node, "AGENT_VISIT", None, {}, lambda _live: None) is None
 
         with persistence._connect() as conn:
             blob = conn.execute(
@@ -494,29 +498,36 @@ class TestFoldSemantics:
                    WHERE world_seed = ? AND node_name = ?""",
                 (seed, node),
             ).fetchone()[0]
-            assert json.loads(blob) == {"first": 1}  # old loader accepts it
+            assert json.loads(blob) == {}  # old loader accepts it
 
             # Simulate the prior binary: it chronicles and json_patch-es the
-            # plain object but knows nothing about the side-table marker.
+            # plain object but knows nothing about the side-table marker. A
+            # born-key tombstone leaves the bare patch blob unchanged.
             conn.execute(
                 """INSERT INTO world_mutations
                    (world_seed, node_name, mutation_type, data, delta,
                     node_version)
-                   VALUES (?, ?, 'SCALE_ACT', '{}', ?, 2)""",
-                (seed, node, json.dumps({"second": 2})),
+                   VALUES (?, ?, 'SCALE_ACT', '{}', ?, 1)""",
+                (seed, node, json.dumps({"theme": None})),
             )
             conn.execute(
                 """UPDATE node_runtime_state
                    SET properties = json_patch(properties, ?)
                    WHERE world_seed = ? AND node_name = ?""",
-                (json.dumps({"second": 2}), seed, node),
+                (json.dumps({"theme": None}), seed, node),
             )
+            assert conn.execute(
+                """SELECT properties FROM node_runtime_state
+                   WHERE world_seed = ? AND node_name = ?""",
+                (seed, node),
+            ).fetchone()[0] == blob
 
         assert persistence.load_node_property_overrides(seed)[node] == {
-            "first": 1, "second": 2}
+            "theme": None}
         with persistence._connect() as conn:
-            properties, marked = conn.execute(
-                """SELECT state.properties, meta.properties_blob
+            properties, marked, marked_version = conn.execute(
+                """SELECT state.properties, meta.properties_blob,
+                          meta.delta_version
                    FROM node_runtime_state AS state
                    JOIN node_property_cache_meta AS meta
                      ON meta.world_seed = state.world_seed
@@ -525,6 +536,7 @@ class TestFoldSemantics:
                 (seed, node),
             ).fetchone()
         assert properties == marked
+        assert marked_version == 1
 
     def test_current_caches_avoid_replay_and_point_reads(
             self, monkeypatch):

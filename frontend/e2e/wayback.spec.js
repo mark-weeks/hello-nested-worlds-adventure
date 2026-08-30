@@ -54,6 +54,16 @@ test("explorer scrubs a node from present to birth", async ({ page }) => {
     }
   });
   await expect.poll(() => waybackRequests).toBe(beforeScrubBurst + 1);
+
+  await page.route(/\/wayback\?/, route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "archive unavailable" }),
+  }));
+  await page.click("#wayback-play");
+  await expect(page.locator("#wayback-moment"))
+    .toHaveText("The archive is unreadable right now.");
+  await expect(page.locator("#wayback-play")).toHaveText("play evolution");
   await page.locator("#wayback-x").focus();
   await page.keyboard.press("Shift+Tab");
   await expect(page.locator("#wayback-close")).toBeFocused();

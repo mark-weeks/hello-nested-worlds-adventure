@@ -638,6 +638,7 @@ async function loadWaybackStep(at = null) {
   } catch (error) {
     if (error.name !== 'AbortError') {
       waybackPlaying = false;
+      document.getElementById('wayback-play').textContent = 'play evolution';
       document.getElementById('wayback-moment').textContent =
         'The archive is unreadable right now.';
     }
