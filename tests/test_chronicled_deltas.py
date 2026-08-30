@@ -451,6 +451,32 @@ class TestRippleEqualsFold:
 
 
 class TestFoldSemantics:
+    def test_current_caches_avoid_replay_and_point_reads(
+            self, monkeypatch):
+        seed = 7149
+        persistence.record_substance_change(
+            seed, "Hot-1", "SCALE_ACT", None, {}, {"count": 1})
+        persistence.record_substance_change(
+            seed, "Warm-2", "SCALE_ACT", None, {}, {"ready": True})
+
+        def no_replay(*_args, **_kwargs):
+            raise AssertionError("current-format cache replayed its chronicle")
+
+        monkeypatch.setattr(
+            persistence, "_rebuild_property_overlay", no_replay)
+        persistence.record_substance_change(
+            seed, "Hot-1", "SCALE_ACT", None, {}, {"count": 2})
+
+        def no_point_read(*_args, **_kwargs):
+            raise AssertionError("bulk hydration used a point cache read")
+
+        monkeypatch.setattr(
+            persistence, "_current_property_overlay", no_point_read)
+        assert persistence.load_node_property_overrides(seed) == {
+            "Hot-1": {"count": 2},
+            "Warm-2": {"ready": True},
+        }
+
     def test_null_deletes_and_nested_merge_match_the_overlay(self):
         # RFC 7396 through the whole stack: the Python fold must reproduce
         # the hydrated cache result, including nested merge and null-deletes,

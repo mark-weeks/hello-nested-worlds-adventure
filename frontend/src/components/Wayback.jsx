@@ -13,10 +13,12 @@ export default function Wayback({ seed, node, onClose, onListen }) {
   const [loading, setLoading] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [listening, setListening] = useState(false);
+  const [requestedStep, setRequestedStep] = useState(null);
   const canvasRef = useRef(null);
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const requestRef = useRef(null);
+  const scrubTimerRef = useRef(null);
   const listenedSnapshotRef = useRef(null);
   const listeningRef = useRef(false);
   const onCloseRef = useRef(onClose);
@@ -47,7 +49,9 @@ export default function Wayback({ seed, node, onClose, onListen }) {
       const response = await fetch(withKey(url), { signal: controller.signal });
       const data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || "archive unavailable");
+      if (requestRef.current !== controller) return;
       setSnapshot(data);
+      setRequestedStep(data.timeline.step);
     } catch (err) {
       if (err?.name !== "AbortError") {
         setError("The archive is unreadable right now.");
@@ -59,7 +63,9 @@ export default function Wayback({ seed, node, onClose, onListen }) {
   }, [node.name, seed]);
 
   useEffect(() => {
+    clearTimeout(scrubTimerRef.current);
     setSnapshot(null);
+    setRequestedStep(null);
     setError("");
     setPlaying(false);
     if (listeningRef.current) {
@@ -69,7 +75,10 @@ export default function Wayback({ seed, node, onClose, onListen }) {
       onListenRef.current?.(null);
     }
     loadStep(null);
-    return () => requestRef.current?.abort();
+    return () => {
+      clearTimeout(scrubTimerRef.current);
+      requestRef.current?.abort();
+    };
   }, [loadStep]);
 
   useEffect(() => {
@@ -138,6 +147,14 @@ export default function Wayback({ seed, node, onClose, onListen }) {
     return () => clearTimeout(timer);
   }, [loadStep, playing, snapshot]);
 
+  const queueStep = useCallback(step => {
+    setRequestedStep(step);
+    setPlaying(false);
+    requestRef.current?.abort();
+    clearTimeout(scrubTimerRef.current);
+    scrubTimerRef.current = setTimeout(() => loadStep(step), 150);
+  }, [loadStep]);
+
   const toggleListen = () => {
     if (listening) {
       setListening(false);
@@ -173,6 +190,7 @@ export default function Wayback({ seed, node, onClose, onListen }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="wayback-title-react"
+        aria-busy={loading}
         tabIndex={-1}
       >
         <div style={w.headingRow}>
@@ -200,9 +218,9 @@ export default function Wayback({ seed, node, onClose, onListen }) {
               type="range"
               min="0"
               max={timeline.total}
-              value={timeline.step}
-              disabled={loading || timeline.total === 0}
-              onChange={event => loadStep(Number(event.target.value))}
+              value={requestedStep ?? timeline.step}
+              disabled={timeline.total === 0}
+              onChange={event => queueStep(Number(event.target.value))}
               aria-label="Wayback time"
               style={w.range}
             />

@@ -71,6 +71,10 @@ test("/app scrubs a node from present to birth", async ({ page }) => {
     localStorage.setItem("nw_player_name", "WaybackViewer");
   });
   const errors = collectErrors(page);
+  let waybackRequests = 0;
+  page.on("request", request => {
+    if (new URL(request.url()).pathname === "/wayback") waybackRequests += 1;
+  });
   await page.goto("/app");
   await expect(page.getByText("● connected")).toBeVisible({ timeout: 10_000 });
 
@@ -88,6 +92,22 @@ test("/app scrubs a node from present to birth", async ({ page }) => {
   await setRangeToBirth(range);
   await expect(dialog).toContainText("the node rests in its born state");
   await expect(dialog).toContainText("birth");
+
+  const beforeScrubBurst = waybackRequests;
+  await range.evaluate(element => {
+    const max = Number(element.max);
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype, "value",
+    ).set;
+    for (let i = 0; i < 12; i += 1) {
+      // Call the native prototype setter so React's controlled-input value
+      // tracker observes each synthetic drag position.
+      setValue.call(element, String(i % 2 ? max : 0));
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+  await expect(range).toBeEnabled();
+  await expect.poll(() => waybackRequests).toBe(beforeScrubBurst + 1);
   await dialog.getByRole("button", { name: "Close wayback" }).focus();
   await page.keyboard.press("Shift+Tab");
   await expect(dialog.locator(":focus")).toHaveCount(1);

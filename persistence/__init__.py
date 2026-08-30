@@ -856,7 +856,7 @@ _PROPERTY_CACHE_FORMAT = 1
 
 def _apply_overlay_patch(conn: sqlite3.Connection, world_seed: int,
                          node_name: str, changed: dict) -> None:
-    """Rebuild the node's persisted property patch after `changed`, on an
+    """Apply `changed` to the node's persisted property cache, on an
     already-open connection — always inside record_substance_change's
     transaction, never on its own.
 
@@ -866,12 +866,29 @@ def _apply_overlay_patch(conn: sqlite3.Connection, world_seed: int,
     RFC 7396 patch documents are not closed under target-independent
     composition: deleting an object and then adding one nested key must not
     resurrect siblings from the immutable born row. The chronicle is the
-    record, so rebuild the effective state from born + every stored delta,
-    then derive one exact born-relative cache patch. This also repairs a
-    tombstone that an older cache writer may have discarded.
+    record. Current-format caches materialize the previous effective state in
+    O(1), apply this delta once, then derive one exact born-relative patch.
+    Only a legacy or missing cache pays for a full chronicle replay; that path
+    also repairs tombstones an older cache writer may have discarded.
     """
-    del changed  # the just-inserted chronicle row is the authoritative input
-    rebuilt = _rebuild_property_overlay(conn, world_seed, node_name)
+    row = conn.execute(
+        """SELECT properties FROM node_runtime_state
+           WHERE world_seed = ? AND node_name = ?""",
+        (world_seed, node_name),
+    ).fetchone()
+    cached, current_format = _decode_property_cache(
+        row[0] if row else None)
+    if current_format:
+        born = _load_born_properties(conn, world_seed, node_name)
+        current_state = json_merge_patch(born, cached)
+        next_state = json_merge_patch(current_state, changed)
+        rebuilt = json_merge_diff(born, next_state)
+        if not isinstance(rebuilt, dict):  # property roots stay objects
+            rebuilt = {}
+    else:
+        # The just-inserted row already carries `changed`, so replaying the
+        # canonical stream includes it exactly once.
+        rebuilt = _rebuild_property_overlay(conn, world_seed, node_name)
     _store_property_overlay(conn, world_seed, node_name, rebuilt)
 
 
@@ -1029,12 +1046,8 @@ def json_merge_diff(source: Any, target: Any) -> Any:
 def _rebuild_property_overlay(conn: sqlite3.Connection, world_seed: int,
                               node_name: str) -> dict:
     """Fold canonical history and return the exact born-relative cache patch."""
-    born_row = conn.execute(
-        """SELECT properties FROM world_nodes
-           WHERE world_seed = ? AND name = ?""",
-        (world_seed, node_name),
-    ).fetchone()
-    born = json.loads(born_row[0]) if born_row and born_row[0] else {}
+
+    born = _load_born_properties(conn, world_seed, node_name)
     state: Any = dict(born)
     rows = conn.execute(
         """SELECT delta FROM world_mutations
@@ -1048,6 +1061,18 @@ def _rebuild_property_overlay(conn: sqlite3.Connection, world_seed: int,
         state = {}
     rebuilt = json_merge_diff(born, state)
     return rebuilt if isinstance(rebuilt, dict) else {}
+
+
+def _load_born_properties(conn: sqlite3.Connection, world_seed: int,
+                          node_name: str) -> dict:
+    """Load one immutable born property object; synthetic test nodes use {}."""
+    born_row = conn.execute(
+        """SELECT properties FROM world_nodes
+           WHERE world_seed = ? AND name = ?""",
+        (world_seed, node_name),
+    ).fetchone()
+    value = json.loads(born_row[0]) if born_row and born_row[0] else {}
+    return value if isinstance(value, dict) else {}
 
 
 def _store_property_overlay(conn: sqlite3.Connection, world_seed: int,
@@ -1323,17 +1348,27 @@ def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
                WHERE world_seed = ? AND properties IS NOT NULL""",
             (world_seed,),
         ).fetchall()
-        names = {name for name, _blob in rows}
-        names.update(name for (name,) in conn.execute(
+        delta_names = {name for (name,) in conn.execute(
             """SELECT DISTINCT node_name FROM world_mutations
                WHERE world_seed = ? AND delta IS NOT NULL""",
             (world_seed,),
-        ).fetchall())
-        return {
-            name: _current_property_overlay(
-                conn, world_seed, name, repair=True)
-            for name in names
-        }
+        ).fetchall()}
+        overrides: dict[str, dict] = {}
+        cached_names: set[str] = set()
+        for name, blob in rows:
+            cached_names.add(name)
+            cached, current_format = _decode_property_cache(blob)
+            if current_format or name not in delta_names:
+                overrides[name] = cached
+                continue
+            rebuilt = _rebuild_property_overlay(conn, world_seed, name)
+            _store_property_overlay(conn, world_seed, name, rebuilt)
+            overrides[name] = rebuilt
+        for name in delta_names - cached_names:
+            rebuilt = _rebuild_property_overlay(conn, world_seed, name)
+            _store_property_overlay(conn, world_seed, name, rebuilt)
+            overrides[name] = rebuilt
+        return overrides
 
 
 # ── The materialized world (ADR-006 Option A) ──
