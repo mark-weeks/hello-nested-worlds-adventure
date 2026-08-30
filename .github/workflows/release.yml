@@ -2,12 +2,17 @@
 #
 # qa.1's assets were built and uploaded by hand, so their provenance rested
 # on the operator's word. From qa.2 on, pushing a `v*` tag produces the
-# release here: the gate runs first (Ruff, the full Python suite, the
-# installed-wheel smoke), then the exact wheel that passed is checksummed
-# and attached with machine-generated provenance notes. Tags containing
-# `-qa.` or built from an `rc` version are marked prerelease.
+# release here: the gate runs first (Ruff, the full Python suite), then ONE
+# wheel is built and that exact artifact is smoke-tested, checksummed, and
+# attached with machine-generated provenance notes — the published bytes and
+# the verified bytes can never diverge.
 #
-# This publishes a downloadable QA artifact only — it creates no Fly
+# Release metadata follows the PACKAGE version, not just the tag text:
+# a `-qa.` tag requires a prerelease package version, a stable tag must
+# match the package version exactly, and any rc version publishes as a
+# prerelease. A mismatch fails the run instead of shipping wrong metadata.
+#
+# This publishes a downloadable artifact only — it creates no Fly
 # application, volume, or parallel persistent world (ADR-007).
 name: Release
 
@@ -46,27 +51,73 @@ jobs:
           set -o pipefail
           python -m pytest tests/ -q | tee pytest-summary.txt
 
-      - name: Installed-wheel smoke
-        run: python scripts/verify_wheel.py
-
       - name: Build the release wheel
         run: |
           mkdir -p dist
           pip wheel --no-build-isolation --no-deps --wheel-dir dist .
+          test "$(ls dist/enfolded-*.whl | wc -l)" = 1
+
+      - name: Smoke-test the exact release artifact
+        run: python scripts/verify_wheel.py dist/enfolded-*.whl
+
+      - name: Checksum and stage assets
+        run: |
           cp requirements.lock dist/
           cd dist
           sha256sum enfolded-*.whl > SHA256SUMS
 
-      - name: Compose provenance notes
+      - name: Resolve release kind from tag and package version
+        id: kind
         run: |
           WHEEL=$(basename dist/enfolded-*.whl)
+          VERSION=$(echo "$WHEEL" | cut -d- -f2)
+          TAG="$GITHUB_REF_NAME"
+          case "$VERSION" in
+            *rc*|*a*|*b*|*.dev*) PRE_VERSION=1 ;;
+            *)                   PRE_VERSION=0 ;;
+          esac
+          if [ "${TAG#v}" != "$TAG" ] && [ -z "${TAG##*-qa.*}" ]; then
+            # QA tag: the package version must say prerelease too, or the
+            # wheel would shadow the launch release on version alone.
+            if [ "$PRE_VERSION" != 1 ]; then
+              echo "::error::QA tag $TAG built from stable package version $VERSION — bump pyproject to a prerelease version or cut a stable tag."
+              exit 1
+            fi
+            KIND="QA build"; FLAGS="--prerelease"
+          elif [ "$PRE_VERSION" = 1 ]; then
+            # rc-style tag (e.g. v0.1.0rc1): tag and version must agree.
+            if [ "v$VERSION" != "$TAG" ]; then
+              echo "::error::tag $TAG does not match prerelease package version $VERSION."
+              exit 1
+            fi
+            KIND="release candidate"; FLAGS="--prerelease"
+          else
+            # Stable tag: exact match required — catches tagging v0.1.0
+            # while pyproject still carries 0.1.0rc1.
+            if [ "v$VERSION" != "$TAG" ]; then
+              echo "::error::stable tag $TAG does not match package version $VERSION — align pyproject.toml before tagging."
+              exit 1
+            fi
+            KIND="release"; FLAGS=""
+          fi
+          {
+            echo "wheel=$WHEEL"
+            echo "kind=$KIND"
+            echo "flags=$FLAGS"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compose provenance notes
+        env:
+          WHEEL: ${{ steps.kind.outputs.wheel }}
+          KIND: ${{ steps.kind.outputs.kind }}
+        run: |
           DIGEST=$(cut -d' ' -f1 dist/SHA256SUMS)
           SIZE=$(stat -c%s "dist/$WHEEL")
           PYTESTS=$(grep -Eo '[0-9]+ passed' pytest-summary.txt | tail -1)
-          cat > dist/QA_BUILD.md <<EOF
-          # Enfolded build $GITHUB_REF_NAME
+          cat > dist/BUILD_NOTES.md <<EOF
+          # Enfolded $KIND $GITHUB_REF_NAME
 
-          This is a downloadable QA artifact, not a hosted environment. It
+          This is a downloadable artifact, not a hosted environment. It
           creates no Fly application, volume, or parallel persistent world.
 
           ## Provenance
@@ -77,19 +128,20 @@ jobs:
           - Size: $SIZE bytes
           - SHA-256: \`$DIGEST\`
 
-          ## Verification (this workflow run, before packaging)
+          ## Verification (this workflow run)
 
           - Ruff lint green.
           - $PYTESTS (full Python suite).
-          - Installed-wheel smoke passed (packaging, migrations list,
-            frontend bundle, CLI entry point).
+          - The exact attached wheel passed the installed-wheel smoke
+            (packaging, migrations, frontend bundle, CLI entry point) —
+            verified bytes and published bytes are the same file.
 
           ## Install and run
 
-          Requires Python 3.11. The run command keeps the QA world in a
+          Requires Python 3.11. The run command keeps the local world in a
           dedicated \`qa-home\` directory — your personal
           \`~/.nested-worlds\` database is never touched. Delete \`qa-home\`
-          to reset the QA world; keep it to continue across runs.
+          to reset that world; keep it to continue across runs.
 
           \`\`\`bash
           python3.11 -m venv .venv
@@ -105,13 +157,11 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          KIND: ${{ steps.kind.outputs.kind }}
+          FLAGS: ${{ steps.kind.outputs.flags }}
         run: |
-          case "$GITHUB_REF_NAME" in
-            *-qa.*|*rc*) FLAGS="--prerelease" ;;
-            *)           FLAGS="" ;;
-          esac
           gh release create "$GITHUB_REF_NAME" \
-            dist/enfolded-*.whl dist/SHA256SUMS dist/requirements.lock dist/QA_BUILD.md \
+            dist/enfolded-*.whl dist/SHA256SUMS dist/requirements.lock dist/BUILD_NOTES.md \
             $FLAGS \
-            --title "Enfolded QA build $GITHUB_REF_NAME" \
-            --notes-file dist/QA_BUILD.md
+            --title "Enfolded $KIND $GITHUB_REF_NAME" \
+            --notes-file dist/BUILD_NOTES.md
