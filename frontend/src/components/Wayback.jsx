@@ -203,10 +203,10 @@ export default function Wayback({ seed, node, onClose, onListen }) {
       >
         <div style={w.headingRow}>
           <div>
-            <div id="wayback-title-react" style={w.title}>Wayback · {displayName(node.name)}</div>
+            <div id="wayback-title-react" style={w.title}>Replay History · {displayName(node.name)}</div>
             <div style={w.meta}>{firstWitness} · {stepLabel}</div>
           </div>
-          <button ref={closeButtonRef} style={w.close} onClick={close} aria-label="Close wayback">×</button>
+          <button ref={closeButtonRef} style={w.close} onClick={close} aria-label="Close history replay">×</button>
         </div>
 
         <canvas
@@ -229,7 +229,7 @@ export default function Wayback({ seed, node, onClose, onListen }) {
               value={requestedStep ?? timeline.step}
               disabled={timeline.total === 0}
               onChange={event => queueStep(Number(event.target.value))}
-              aria-label="Wayback time"
+              aria-label="History replay time"
               style={w.range}
             />
             <div style={w.rangeLabels}><span>birth</span><span>present</span></div>

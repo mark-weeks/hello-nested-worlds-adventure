@@ -1,5 +1,7 @@
 # Changelog
 
+- **QA navigation and discovery use the click budget on play, not UI ceremony** (`/app`). Horizon nodes now load their inner passages automatically (with retry only on failure); the sidebar passage list is a keyboard-accessible navigation fallback for the canvas; the full chronicle and Player's Guide are promoted to clearly named controls; “Wayback” is now player-facing “Replay History”; and property values preserve whole words with language-aware hyphenation. Ambient sound is the default preference, activates on the first browser-permitted gesture, and remembers an explicit mute. Browser behavior tests cover automatic depth loading, passage navigation, promoted controls, renamed history replay, and persisted sound preference. No golden re-pin, migration, or new `world_mutations` write path.
+
 - **QA core state is visible where players act** (`/app`, `/puzzle`). Opening the Puzzle tab now loads its puzzle immediately; revisiting a human-solved puzzle shows its durable solver, contributors, and pooled attempt state instead of resetting; a fresh solve names its material reward; and successful puzzle/verb mutations quietly refresh the canonical `/world` node so its Properties panel changes with the chronicle. Other players' live solve and immediate/matured action broadcasts trigger the same refresh. +1 HTTP integration test and +1 browser behavior test. No golden re-pin, migration, or new `world_mutations` write path.
 
 All notable changes to this project are documented here.
