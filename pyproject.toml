@@ -11,7 +11,7 @@ name = "enfolded"
 # advances to 0.1.1: QA build N ships 0.1.1rcN (tag v0.1.1-qa.N — the
 # release workflow enforces the one-to-one mapping), and the launch build
 # bumps to plain "0.1.1".
-version = "0.1.1rc1"
+version = "0.1.1rc2"
 description = "Enfolded: Nested World Adventure — a shared persistent multiverse inhabited by human players and AI agents"
 requires-python = ">=3.11,<3.12"
 dependencies = [
