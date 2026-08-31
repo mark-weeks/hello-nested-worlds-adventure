@@ -157,12 +157,24 @@ _CLOSERS = [
 ]
 
 
-def _detail(node: "SpatialNode", rng: random.Random) -> str:
+def _rotating_choice(options: list[str], key: str, ordinal: int) -> str:
+    """Choose deterministically while guaranteeing adjacent variety."""
+    start = random.Random(key).randrange(len(options))
+    return options[(start + ordinal) % len(options)]
+
+
+def _detail(node: "SpatialNode", key: str, ordinal: int) -> str:
     """One concrete, property-grounded observation about the node."""
     props = node.properties or {}
     candidates: list[str] = []
     if "aspect" in props:
-        candidates.append(str(props["aspect"]))
+        # Generated aspects often carry several observations separated by
+        # semicolons. Treat them as a bank instead of repeating the complete
+        # description every time two agents meet at this node.
+        candidates.extend(
+            part.strip() for part in str(props["aspect"]).split(";")
+            if part.strip()
+        )
     if isinstance(props.get("danger_level"), int) and props["danger_level"] >= 6:
         candidates.append(f"the danger here reads {props['danger_level']} of 10")
     if props.get("condition") in ("damaged", "corrupted"):
@@ -176,24 +188,26 @@ def _detail(node: "SpatialNode", rng: random.Random) -> str:
     if node.ripple_score >= 0.3:
         candidates.append("the causal pressure here hums under everything")
     if not candidates:
-        for key in ("weather", "lighting", "air", "sky", "glow", "membrane"):
-            if key in props:
-                candidates.append(f"the {key} is {props[key]}")
-                break
+        for prop_key in ("weather", "lighting", "air", "sky", "glow", "membrane"):
+            if prop_key in props:
+                candidates.append(f"the {prop_key} is {props[prop_key]}")
     if not candidates:
         candidates.append(f"this {node.level.lower()} is quieter than it should be")
-    return rng.choice(candidates)
+    return _rotating_choice(candidates, f"{key}:detail", ordinal)
 
 
-def _with_tic(line: str, speaker: str, rng: random.Random) -> str:
+def _with_tic(line: str, speaker: str, key: str, ordinal: int) -> str:
     """A cast regular's signature phrase occasionally rides their line.
 
     Individuation on top of the archetype banks: two tenders share openers,
     but only The Locksmith adds "Every seal remembers its key." Fires often
-    enough to be a recognizable habit, rarely enough to stay a tic.
+    enough to be a recognizable habit, rarely enough to stay a tic. Each
+    speaker gets a deterministic one-in-three cadence for this encounter,
+    which makes the tic recognizable without repeating in adjacent meetings.
     """
     profile = profile_for(speaker)
-    if profile is not None and profile.tic and rng.random() < 0.4:
+    phase = random.Random(f"{key}:tic:{speaker}").randrange(3)
+    if profile is not None and profile.tic and ordinal % 3 == phase:
         return f"{line} {profile.tic}"
     return line
 
@@ -210,20 +224,26 @@ def compose_exchange(seed: int, node: "SpatialNode",
     # Order-independent pair key: A meeting B is the same conversation as
     # B meeting A.
     pair = ":".join(sorted((agent_a, agent_b)))
-    rng = random.Random(f"talk:{seed}:{node.name}:{pair}:{ordinal}")
+    key = f"talk:{seed}:{node.name}:{pair}"
 
-    detail = _detail(node, rng)
+    detail = _detail(node, key, ordinal)
     fmt = {"detail": detail, "level_l": node.level.lower()}
 
-    opener = rng.choice(_OPENERS.get(persona_a, _OPENERS["wanderer"]))
-    response = rng.choice(_RESPONSES.get(persona_b, _RESPONSES["wanderer"]))
-    closer = rng.choice(_CLOSERS)
+    opener = _rotating_choice(
+        _OPENERS.get(persona_a, _OPENERS["wanderer"]),
+        f"{key}:opener:{persona_a}", ordinal,
+    )
+    response = _rotating_choice(
+        _RESPONSES.get(persona_b, _RESPONSES["wanderer"]),
+        f"{key}:response:{persona_b}", ordinal,
+    )
+    closer = _rotating_choice(_CLOSERS, f"{key}:closer", ordinal)
 
     return [
         {"speaker": agent_a, "persona": persona_a,
-         "line": _with_tic(opener.format(**fmt), agent_a, rng)},
+         "line": _with_tic(opener.format(**fmt), agent_a, key, ordinal)},
         {"speaker": agent_b, "persona": persona_b,
-         "line": _with_tic(response.format(**fmt), agent_b, rng)},
+         "line": _with_tic(response.format(**fmt), agent_b, key, ordinal)},
         {"speaker": "", "persona": "",
          "line": closer.format(**fmt)},
     ]
