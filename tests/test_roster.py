@@ -159,6 +159,20 @@ class TestBanterTics:
                     "Vex", "destabilizer", ordinal=ordinal)))
         assert 1 <= hits < 12
 
+    def test_regulars_tics_never_repeat_in_adjacent_meetings(self):
+        node = SpatialNode("Talk-11", "Room", properties={})
+        tic = profile_for("The Locksmith").tic
+        appearances = [
+            tic in " ".join(
+                ln["line"] for ln in compose_exchange(
+                    9, node, "The Locksmith", "tender",
+                    "Vex", "destabilizer", ordinal=ordinal,
+                )
+            )
+            for ordinal in range(12)
+        ]
+        assert not any(a and b for a, b in zip(appearances, appearances[1:]))
+
     def test_off_roster_speakers_never_gain_a_tic(self):
         node = SpatialNode("Talk-12", "Room", properties={})
         all_tics = [p.tic for p in PROFILES]

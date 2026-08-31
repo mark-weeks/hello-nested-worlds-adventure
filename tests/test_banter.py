@@ -32,6 +32,34 @@ class TestComposeExchange:
                                   "Brann", "tender", ordinal=1)
         assert first != second
 
+    def test_adjacent_meetings_rotate_aspect_fragments_and_spoken_lines(self):
+        node = _node(props={
+            "aspect": (
+                "it carries a dusting of lichen; it tightens when approached; "
+                "it distrusts sudden things"
+            ),
+        })
+        meetings = [
+            compose_exchange(
+                42, node, "The Locksmith", "tender",
+                "Vex", "destabilizer", ordinal=ordinal,
+            )
+            for ordinal in range(6)
+        ]
+
+        for prior, current in zip(meetings, meetings[1:]):
+            assert prior[0]["line"] != current[0]["line"]
+            assert prior[1]["line"] != current[1]["line"]
+            prior_detail = next(
+                detail for detail in node.properties["aspect"].split(";")
+                if detail.strip() in prior[0]["line"]
+            ).strip()
+            current_detail = next(
+                detail for detail in node.properties["aspect"].split(";")
+                if detail.strip() in current[0]["line"]
+            ).strip()
+            assert prior_detail != current_detail
+
     def test_shape_speakers_and_stage_direction(self):
         lines = compose_exchange(1, _node(), "A", "wanderer", "B", "destabilizer")
         assert len(lines) == 3
