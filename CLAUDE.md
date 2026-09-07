@@ -208,7 +208,10 @@ evolution when it exists. Consequences:
   2–3 line **irreversibility check** yourself and put it in the merge request:
   does this diff re-pin a golden world, add or alter a migration, or add a
   `world_mutations` write path / chronicle row? For most PRs the answer is
-  "none, and here's why" — verify that from the diff and merge on green. Don't
+  "none, and here's why" — verify that from the diff and prepare the PR for
+  development-team review. **Never auto-merge. Merge only when the owner
+  explicitly requests it for that PR; authorization for one PR does not carry
+  to later PRs.** Green checks alone are not merge authorization. Don't
   make the human answer what the diff already answers; comprehension checks the
   code makes for you are friction, not a gate. **Escalate to an actual quiz only
   when the check trips** a one-way door — then ask just the 1–2 questions that
@@ -231,6 +234,13 @@ evolution when it exists. Consequences:
 
 ## Pointers
 
+- `docs/roadmap/discovery-and-return.md` — the next product sequence after
+  assessment PR #92, with dependencies, acceptance gates, and separate puzzle
+  reference and spoken-interaction tracks. Planned capabilities are not shipped.
+- `docs/decisions/ADR-012-discovery-and-return.md` through ADR-016 — endorsed
+  discovery, identity/journal, referential-puzzle, and speech directions plus
+  ADR-013's proposed delivery/evolution contract. Respect each record's status
+  and preserve existing write-path and client-default gates.
 - `docs/CHANGELOG.md` — the batch-by-batch record; read it to learn what shipped.
 - `docs/decisions/ADR-0{01..11}-*.md` — stack, image generation,
   persistence backend, the day-one data policy (permanence, redaction,

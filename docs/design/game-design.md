@@ -2,9 +2,31 @@
 
 ---
 
+## Product direction and implementation status
+
+The next milestone is a compelling discovery-and-return experience in the same
+shared world, with a private journal and a separate public identity. The
+[delivery plan](../roadmap/discovery-and-return.md) sequences that work and
+records the distinction between accepted direction, proposed contracts, and
+candidate extensions. ADR-012 through ADR-016 cover discovery, continuity,
+identity, referential puzzles, and optional spoken interaction.
+
+The mechanics below describe the existing implementation unless labeled planned.
+The first situation and new identity/speech capabilities are not shipped.
+
 ## Core Interaction Model
 
-Point-and-click adventure. Players see an AI-generated scene of the current node. Clickable hotspots within the scene navigate to connected nodes (objects, doors, portals, passages). No character movement within a node. Optional left/right pan for wide-format scenes.
+The scene client (`/app`) presents the current place with local generative art,
+optional generated imagery, and clickable passages. The explorer (`/`) remains
+the default invite destination under ADR-005. Both access the same world; neither
+has character movement within a node.
+
+Planned under [ADR-012](../decisions/ADR-012-discovery-and-return.md): develop the
+next experience primarily in the scene client, emphasizing an active situation,
+presences, and legible interventions. Promote it to the default only after the
+specified device/accessibility checks and an explicit ADR-005 update. Curated
+entry must reflect current shared state, preserve per-node difficulty, and leave
+players free to explore, converse, or observe.
 
 ---
 
@@ -28,11 +50,18 @@ Each of the 11 levels has exactly one verb — an act that only works at that sc
 
 Design intent: every verb is the **restorative counterpart** to the decay events in `multiverse/effects.py` — STRUCTURAL_CHANGE corrodes, `mend` repairs; DANGER_ALERT roughens, `ward` calms. The world drifts toward entropy; players push back one scale at a time. The verb's material change applies exactly once at the origin (the producer owns the flavor line); the act then rides the standard causal rails — chronicle entry, ripple, staged cascade — so a mend is felt, faintly and later, by the room that holds the object and the molecules inside it.
 
+**Planned extension.** ADR-012 retains this scale vocabulary but adds contextual
+trade-offs through targets, sequence, and situation commitments. ADR-013 defines
+explicit contribution, one-time, and exclusive-action semantics; those changes
+are pending implementation and must preserve existing accepted work.
+
 **Implementation status.** Live in all three clients: `/app` gets a per-scale Act tab, the explorer an Act mode panel, the CLI an `act` command (typing the verb itself also works). Acts broadcast to the seed-room (`scale_act`), fold into watching clients' property panels and node art, and land in `/history` backfill.
 
 ---
 
 ## Node Hierarchy
+
+The full hierarchy has eleven scales; this is an illustrative aesthetic excerpt.
 
 ```
 Cosmic / Multiverse  →  abstract, luminous, vast
@@ -76,7 +105,7 @@ Node visual style is programmatically determined by a property matrix. Style dri
 
 - Nodes persist but evolve over time based on interaction history
 - Ripple effects from actions at one node propagate to connected nodes with dampening
-- The multiverse is conceptually infinite but rendered lazily — only discovered or reachable nodes are loaded
+- The canonical world is finite and materialized at birth; born identities stay fixed. Ongoing substance uses recorded overlays. The traversal loop closes the hierarchy without creating new geography. Deliberate new situations and active-work versioning are planned under ADR-013.
 - Players can return to previously visited nodes; those nodes may look different
 
 ---
@@ -89,3 +118,16 @@ The original Myst suffered from unclear navigation and opaque objectives. Four d
 2. **Agent visibility** — AI agents appear as visible presences in scenes, signaling activity worth investigating. *Implemented (in-scene v1)*: when two agents meet at the current node, the scene briefly shows a converging-glyph encounter mark. Persistent in-scene agent figures (between events) remain Phase 2.
 3. **Node memory** — fragments of prior player interactions surface in the text panel and create narrative pull. *Implemented* — the broader `record_mutation` coverage feeds `consciousness.speak()` via `get_node_history`.
 4. **Hotspot affordance** — interactive elements have a consistent subtle visual treatment (parallax depth, material quality) that players learn to read over time. *Implemented (in-scene v1)*: each hotspot in `frontend/src/components/SceneView.jsx` renders as a layered plate — soft cast shadow underneath, dark surface, single-pixel top-edge highlight (suggesting light from above), and an outlined border that brightens on hover while the shadow tightens, reading as a gentle press. The treatment is shared across every child level so the affordance generalizes.
+
+
+## Planned identity, puzzles, and speech
+
+- [ADR-014](../decisions/ADR-014-player-identity-and-journal.md): private journal
+  plus selective public bio/goals, home bookmark, and chosen avatar. Badges,
+  disposition facets, avatar creation/upload, and guilds are staged candidates.
+- [ADR-015](../decisions/ADR-015-referential-puzzles.md): occasional relevant
+  fictional/nonfictional references, initially optional, with verified sources,
+  explicit answers, and preserved puzzle ecology and active-instance identity.
+- [ADR-016](../decisions/ADR-016-optional-spoken-interaction.md): optional speech
+  input and playback alongside complete text interaction. Current generated
+  character text and ambient sound are not yet this speech capability.

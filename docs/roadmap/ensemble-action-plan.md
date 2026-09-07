@@ -10,6 +10,15 @@ Governing decision: **ADR-006 ratified 2026-07-19 — Option A (materialize
 before launch), and the pivot has shipped.** Track 0 is complete; items
 formerly gated on it (⚑) are unblocked.
 
+**Sequencing update, 2026-09-07:** the
+[discovery-and-return plan](discovery-and-return.md) now governs the next product
+milestone. Its M1–M7 supersede the older timing/size assumptions for evolution
+(3.2), return recap (3.4), agent renewal (3.5), and the scene-client validation
+(4.2). The remaining items here are a historical inventory or still-applicable
+operational commitments, not an instruction to implement all of them before
+the new experience. The explorer remains the invite default until the explicit
+ADR-005 change described in the new plan; no operational gate is waived.
+
 ---
 
 ## Track 0 — The evolution decision ✅ RESOLVED

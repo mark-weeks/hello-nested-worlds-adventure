@@ -19,6 +19,23 @@ synthesis in `docs/evaluation/2026-08-10-recursion-and-time.md`.
 
 ---
 
+## Current planning addendum (2026-09-07)
+
+The four historical batches below have shipped. Following assessment PR #92,
+the owner endorsed the [discovery-and-return plan](discovery-and-return.md) as
+the next product sequence, with journal/identity direction and separate
+referential-puzzle and spoken-interaction tracks. The original opening describes
+the 2026-08-10 window, not a fresh verification of deployment state today.
+
+ADR-006's evolution-mechanics trigger is now active: ADR-013 proposes the minimum
+versioned situation and delivery contract. This is not permission to rewrite
+born nodes or deploy unreviewed write paths. ADR-005's explorer-default policy
+and staging/restore requirements remain in force until explicitly revised.
+Product validation now precedes a launch decision; do not read the historical
+"launch prep resumes" transition below as skipping the new experience gates.
+
+---
+
 ## Decisions proposed in the window (2026-08-10)
 
 Direction affirmed in the owner's PR #76 review; each ADR's **formal
@@ -32,7 +49,7 @@ the review record, not from a cold start.
 | The hierarchy closes into a traversal-layer loop: every particle descends to the Multiverse root; the root ascends to one hinge particle — selected once by a seed-pure rule constrained to an unsealed lineage, then pinned immutably in world metadata. Causality does not wrap in v1. | ADR-008 |
 | Every material change to node substance chronicles its delta (with event strength) through one atomic, per-node-versioned write API; state-at-T is born row + ordered fold of deltas. Must land before any history exists. | ADR-009 |
 | The launch world stays **seed 382** as born. No ratified decision requires re-birth — the loop needs nothing from generation, delta-fidelity is write-path only — so the census and ecology audits remain valid. | ADR-007 unchanged; this doc |
-| Evolution mechanics stay parked on ADR-006's "evolution mechanics are wanted" trigger. ADR-009 lays the event stream they will ride; the grammar (drift kinds, breadth growth, cadence) is designed when the trigger fires. | ADR-006 unchanged; this doc |
+| Evolution mechanics were parked on ADR-006's "evolution mechanics are wanted" trigger. **2026-09-07:** that trigger is active; ADR-013 proposes bounded situation evolution and delivery semantics, with no birth-row rewrite or general frontier growth in the first implementation. | ADR-006; ADR-013 proposed; current addendum |
 | No second dimensional scale (see "Declined" below). | This doc |
 
 ---
@@ -145,7 +162,7 @@ whether pure arrival without interaction should chronicle — default no.
 The archive UI honors the chronicle-blurring covenant: it shows *that*
 and *how* a node changed, never taxonomizing human vs agent.
 
-### Then: launch prep resumes
+### Then: launch prep resumes (historical sequence; see current addendum)
 
 Fly setup per `docs/infrastructure/fly-deployment.md` (§8 checklist),
 backups, invite minting — and from first history onward,
