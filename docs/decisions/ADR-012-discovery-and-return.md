@@ -85,8 +85,10 @@ content, not a description of the seeded world's existing behavior.
 ## Rejected alternatives
 
 - A required linear campaign as the whole game: narrows non-linear participation.
-- A general RPG economy, levels, or leaderboard as the first retention fix:
-  changes incentives before proving the world's distinctive value.
+- A general RPG economy, levels, or single activity leaderboard as the first
+  retention fix: changes incentives before proving the world's distinctive value.
+  Multidimensional contribution boards are planned separately under ADR-017,
+  after the first experience establishes meaningful outcomes.
 - More scales, independent player worlds, or parallel client redesigns now:
   increase scope or fragment the shared experience.
 

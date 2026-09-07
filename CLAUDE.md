@@ -237,8 +237,9 @@ evolution when it exists. Consequences:
 - `docs/roadmap/discovery-and-return.md` — the next product sequence after
   assessment PR #92, with dependencies, acceptance gates, and separate puzzle
   reference and spoken-interaction tracks. Planned capabilities are not shipped.
-- `docs/decisions/ADR-012-discovery-and-return.md` through ADR-016 — endorsed
-  discovery, identity/journal, referential-puzzle, and speech directions plus
+- `docs/decisions/ADR-012-discovery-and-return.md` through ADR-017 — endorsed
+  discovery, identity/journal, referential-puzzle, speech, and multidimensional
+  leaderboard directions plus
   ADR-013's proposed delivery/evolution contract. Respect each record's status
   and preserve existing write-path and client-default gates.
 - `docs/CHANGELOG.md` — the batch-by-batch record; read it to learn what shipped.

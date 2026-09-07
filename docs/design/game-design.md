@@ -8,8 +8,9 @@ The next milestone is a compelling discovery-and-return experience in the same
 shared world, with a private journal and a separate public identity. The
 [delivery plan](../roadmap/discovery-and-return.md) sequences that work and
 records the distinction between accepted direction, proposed contracts, and
-candidate extensions. ADR-012 through ADR-016 cover discovery, continuity,
-identity, referential puzzles, and optional spoken interaction.
+candidate extensions. ADR-012 through ADR-017 cover discovery, continuity,
+identity, referential puzzles, optional spoken interaction, and multidimensional
+contribution leaderboards.
 
 The mechanics below describe the existing implementation unless labeled planned.
 The first situation and new identity/speech capabilities are not shipped.
@@ -131,3 +132,7 @@ The original Myst suffered from unclear navigation and opaque objectives. Four d
 - [ADR-016](../decisions/ADR-016-optional-spoken-interaction.md): optional speech
   input and playback alongside complete text interaction. Current generated
   character text and ambient sound are not yet this speech capability.
+- [ADR-017](../decisions/ADR-017-multidimensional-leaderboards.md): separate
+  contribution standings with comparable scoring opportunities for humans and
+  eligible agents. Begin with Stewardship and Cooperation after their evidence
+  exists; no flat engagement total or scoring of simulated agent puzzle solves.

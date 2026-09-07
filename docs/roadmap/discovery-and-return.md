@@ -27,6 +27,7 @@ identity, append-only historical facts, and additive change.
 | [ADR-014: player identity and journal](../decisions/ADR-014-player-identity-and-journal.md) | Identity/journal direction endorsed. First-release field defaults and staging are recommendations; badges, dispositions, guilds, and avatar creation/upload are recorded candidates rather than implied pilot requirements. |
 | [ADR-015: referential puzzles](../decisions/ADR-015-referential-puzzles.md) | Owner-requested content direction: occasional relevant fictional/nonfictional references. No live bank allocation or active answer change is approved by this plan. |
 | [ADR-016: optional spoken interaction](../decisions/ADR-016-optional-spoken-interaction.md) | Owner-requested capability direction: speech input and playback alongside text. The staged interaction is recommended; vendor, budget, and support choices need evidence. |
+| [ADR-017: multidimensional leaderboards](../decisions/ADR-017-multidimensional-leaderboards.md) | Owner-requested recognition direction: multiple contribution dimensions with humans and agents able to rank highly. Dimensions, caps, roster admission, and scoring windows are recommended experiments; a mixed result is a goal, not a hidden ranking quota. |
 
 The owner sets product direction; development-team review covers implementation
 and persistent contracts. Each implementing PR must identify its applicable
@@ -82,15 +83,44 @@ through play. It does not need a reputation economy or guild administration.
 
 1. **M6:** private journal; selective public bio/goals; optional home bookmark;
    chosen preset/simple configurable avatar. Publish only selected fields.
-2. **After M7:** a small set of evidence-backed contribution badges and selected
-   journal sharing if players need it. Define cooperative credit and versioned
-   award criteria before public display.
+2. **After M7:** evidence-backed contribution badges and an ADR-017 ranking
+   experiment, initially Stewardship and Cooperation, plus selected journal
+   sharing if players need it. Define cooperative credit, versioned award rules,
+   and comparable human/agent opportunities before public display.
 3. **Later experiments:** explainable, opt-in disposition facets; avatar creation
    and upload; guilds with explicit membership and projects. Confirm demand and
    define each contract separately. Do not infer alliance from a private journal.
 
-All ideas remain recorded in ADR-014 even when deferred. Disposition is a
+All ideas remain recorded in ADR-014/017 even when deferred. Disposition is a
 description of observable play, not a global rating of character or trust.
+Contribution standings do not collapse these identity dimensions into one score.
+
+### Ranking experiment after the first experience
+
+Build only the outcome evidence needed by the first two boards. Keep rank
+calculation outside permanent world facts and private journals. Before public
+standings, run a simulation/replay and then a bounded opt-in cohort experiment:
+
+- Compare intermittent human play with continuous agents, including human/agent
+  roster ratios such as 1:1 and 1:5 and periods with very few humans. These are
+  test scenarios, not predictions of the live population.
+- Test precommitted scored-opportunity caps, aggregate agent-roster limits,
+  retries, delayed outcomes across window boundaries, tied results, late entry,
+  and controller-linked repair/cooperation farming. Top-N results from unlimited
+  attempts are not a substitute for an opportunity budget.
+- Require evidence that both classes can attain high ranks on the mixed boards
+  under comparable constraints. Track top-group composition per dimension and
+  window together with entrant/opportunity denominators; do not guarantee or
+  secretly force a mix. Fix the top-group definition, minimum evidence, caps,
+  and evaluation duration before running the experiment.
+- Exclude simulated agent puzzle success and indirect credit from ineligible
+  acts. Preserve existing human puzzle-progress rules and historical actor
+  ambiguity.
+- Compare engagement and perceived fairness with the unranked experience. Pause
+  expansion if rankings encourage chores, farming, or withdrawal from discovery.
+
+Version prospective rule changes. If guaranteed mixed visibility is desired,
+use a separately labeled showcase instead of rearranging earned rank positions.
 
 ## Separate content and interaction tracks
 
@@ -125,7 +155,7 @@ canon; do not add a chronicle row for every page view or journal read.
 ## Deferred scope and reopening triggers
 
 Defer additional scales, broad frontier growth, a universal quest engine, global
-XP/rankings, land ownership, mandatory guilds, unbounded agent autonomy, bulk
+XP/composite rankings, land ownership, mandatory guilds, unbounded agent autonomy, bulk
 generated trivia, and an infrastructure rewrite. Reopen each only when measured
 experience, authoring effort, load, or participant demand identifies the need.
 

@@ -5,6 +5,8 @@ The owner requested a journal and ways for players to form and broadcast an
 identity. Bio, badges, home, disposition, guilds, and avatar creation/upload were
 raised as possibilities. Their staging and defaults below are recommendations
 for team review, not a claim that every possibility was approved for the pilot.
+The subsequent owner request for multidimensional leaderboards and competitive
+human/agent participation is recorded as product direction in ADR-017.
 
 ## Context
 
@@ -28,9 +30,11 @@ Establish four distinct surfaces:
    the shared world, separate from private notes and live location.
 3. **Shared world record:** actual contributions and consequences under the
    existing chronicle policy. Profile edits do not rewrite those facts.
-4. **Derived recognition:** optional badges and behavioral descriptions with
-   explicit evidence and rules, introduced only after useful contributions
-   have been demonstrated in play.
+4. **Derived recognition:** optional badges, behavioral descriptions, and
+   multidimensional contribution leaderboards with explicit evidence and rules,
+   introduced after useful contributions have been demonstrated in play.
+   [ADR-017](ADR-017-multidimensional-leaderboards.md) governs competitive
+   standings; they are distinct from personal disposition or alliance.
 
 ### Recommended first scope and later stages
 
@@ -42,6 +46,7 @@ Establish four distinct surfaces:
 | Chosen avatar | Select a preset or configure a simple in-world visual identity. Use consistent presentation in profiles and live presence without changing historical actor identity. | Basic profile. |
 | Created/uploaded avatar | Extend the same profile field with a creation tool and then controlled image upload; exact generation provider and upload implementation remain open. | After basic identity is useful; separate implementation. |
 | Contribution badges | Evidence-backed recognition for meaningful contributions, with player-selected public display. Preserve cooperative credit; no power advantages or global ranking by raw activity. | After pilot evidence defines meaningful achievement. |
+| Contribution leaderboards | Separate standings by contribution dimension, with comparable scored opportunities for eligible humans and agents. No overall engagement total or guaranteed rank allocation; see ADR-017. | Bounded ranking experiment after the first pilot, starting with Stewardship and Cooperation. |
 | Alliance/disposition | Self-declared affiliation is separate from opt-in, explainable observations of recent public play. Display facets rather than one moral/reputation score. | Experiment after the badge/evidence model is tested. |
 | Guilds | Voluntary associations around shared interests or projects, with explicit join/leave and shared goals. No private copy of the world or exclusive gate on the core experience. | Later, if recurring cooperation demonstrates demand. |
 
