@@ -31,7 +31,7 @@ Run from the repository root:
 .venv/bin/python docs/evaluation/2026-09-07-concept-and-implementation/probes.py
 ```
 
-The probes create and remove their own temporary databases, make no network calls, and print observations rather than asserting that the defects should persist. The baseline JSON is dated evidence, not a regression-test golden. Subsequent fixes should change the relevant observations; add regression tests for the desired behavior in their implementation PRs.
+The probes create and remove their own temporary databases, make no network calls, and print observations rather than asserting that the defects should persist. The baseline JSON is dated evidence, not a regression-test golden. A fix may change a probe's observations when it changes the layer being exercised; a handler-level guard can prevent the player-facing problem while leaving a direct queue probe unchanged. Implementation PRs should add regression tests at the layer where they enforce the desired behavior.
 
 ## Alignment with the vision
 
@@ -123,13 +123,15 @@ The probes enqueue one due item, inject a failure immediately after claim, then 
 
 Known nodes are traversed without re-acting or logging. `_persona_act` selects from that run's log, so revisiting familiar ground cannot produce tending or destabilization. State changes do not invalidate this skip. The agent's recent movement log is then overwritten with an empty run. [Traversal](https://github.com/mark-weeks/hello-nested-worlds-adventure/blob/87a7cf24bba67505c11aaf4c19a2f562db3d4289/agents/agent.py#L151), [persona acts](https://github.com/mark-weeks/hello-nested-worlds-adventure/blob/87a7cf24bba67505c11aaf4c19a2f562db3d4289/server/heartbeat.py#L130).
 
-With every recurring agent's memory populated with the 4,208 stored names, **12 heartbeat ticks produced zero fresh visits, zero persona acts, and zero new chronicle rows**. A separate known-but-corrupted subtree also produced no traversal or causal events. This is a constructed terminal-state test, not a prediction of the number of days until production reaches it. Saturation may happen locally before the entire world is known.
+With every recurring agent's memory populated with the 4,208 stored names, **12 heartbeat ticks produced zero fresh visits, zero persona acts, and zero new chronicle rows**. A known-but-corrupted subtree also produced no traversal or causal events, illustrating the same known-name skip mechanism: that branch does not inspect condition. This is not an independent test of change detection. The fully explored state is constructed, not a prediction of the number of days until production reaches it. Saturation may happen locally before the entire world is known.
 
 **Fix before relying on unattended life:** separate “has discovered” from “should revisit”; budget total actions as well as new discoveries; revisit changed, relevant, or personally important places. Model pending intentions independently of a fresh-visit log. Keep memory rather than clearing it to restore motion. Agent puzzle attempts should also use the current renewal epoch; `_attempt_puzzle` currently builds epoch zero.
 
 ### Material: delayed actions store stale absolute outcomes
 
 Two kindles scheduled against a galaxy with star density **418** both queue the absolute result **438**. Both later land, but the final density is **438**; sequentially applying the two intended increases would yield **459**. The queued data stores a destination state, not a composable operation. [Action scheduling](https://github.com/mark-weeks/hello-nested-worlds-adventure/blob/87a7cf24bba67505c11aaf4c19a2f562db3d4289/server/handlers.py#L1235), [landing](https://github.com/mark-weeks/hello-nested-worlds-adventure/blob/87a7cf24bba67505c11aaf4c19a2f562db3d4289/server/heartbeat.py#L408).
+
+The kindle probe enqueues those outcomes directly; it tests queue landing, bypassing the `/act` handler and its guards. Code inspection connects the result to the current handler's scheduling behavior. A future handler fix that refuses or coalesces overlapping requests could leave this direct probe at **438** while correcting the player-facing behavior; that fix needs endpoint regression coverage.
 
 **Decide and implement explicit semantics:** either each accepted intervention contributes at maturity, or pending work deliberately coalesces and the UI explains that. For contributing actions, store a versioned operation or contribution and compute its result atomically against current state when it lands. For coalescing actions, expose pending state and avoid promising an additional contribution. Historical landed deltas can remain intact under either choice.
 

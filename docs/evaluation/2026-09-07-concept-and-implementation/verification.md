@@ -40,15 +40,22 @@ standalone diagnostic process, not inside a running game server.
 [probes.json](probes.json) records baseline observations, not desired
 behavior. The script does not assert that known defects must keep occurring.
 Compare output to that record when reproducing the assessment; add tests for
-the corrected behavior in subsequent implementation PRs.
+the corrected behavior at the layer changed in subsequent implementation PRs.
+A fix outside the layer a probe exercises need not change that probe's output.
 
 The cast probe constructs a fully explored memory state. It establishes a
-terminal failure condition, not how often or how soon it occurs. Queue probes
-inject Python exceptions after claim; process termination, duplicate delivery,
-and recovery under concurrent workers remain follow-up validation. The kindle
-comparison evaluates two queued absolute outcomes against two sequential verb
-applications; the team must decide whether contributions should accumulate
-or deliberately coalesce.
+terminal failure condition, not how often or how soon it occurs. The
+known-but-corrupted subtree illustrates the same known-name skip branch, which
+does not inspect condition; it is not independent change-detection coverage.
+
+Queue failure probes inject Python exceptions after claim; process termination,
+duplicate delivery, and recovery under concurrent workers remain follow-up
+validation. The kindle probe directly enqueues two absolute outcomes and
+compares their landing with two sequential verb applications. It bypasses the
+`/act` handler and its guards. Refusing or coalescing overlapping requests in
+that handler could correctly leave this direct probe's density at 438; such a
+fix needs endpoint regression coverage. The team must decide whether accepted
+contributions should accumulate or deliberately coalesce.
 
 ## Assessment PR verification
 
@@ -59,9 +66,11 @@ worktree. No application files differed from the baseline.
 - `./scripts/check.sh` — **passed**: Ruff, **908 Python tests in 81.73s**,
   **95 Vitest tests**, production build with byte-fresh committed bundle,
   and installed-wheel smoke for `enfolded-0.1.1rc2-py3-none-any.whl`.
-- Browser E2E was skipped locally by the check script's default. The existing
-  GitHub CI workflow runs browser smoke tests on the PR; no result is claimed
-  here before that workflow completes.
+- Browser E2E was skipped locally by the check script's default. On assessment
+  commit `ea45cbd77f3e48cdbc42483b00861061875d5e48`, the PR's
+  [CI run 34145070129](https://github.com/mark-weeks/hello-nested-worlds-adventure/actions/runs/34145070129)
+  passed all three jobs: Python tests, frontend build, and browser E2E smoke
+  (**14 Playwright tests passed in 19.0s**).
 - The portable probe command, invoked by absolute path from `/tmp`, reproduced
   every field of the checked-in baseline JSON.
 - An import-and-run isolation check reproduced the same observations with an
@@ -73,6 +82,22 @@ worktree. No application files differed from the baseline.
   code references use immutable GitHub links to the reviewed baseline.
 - `git diff --check` — passed. Scope is five added/modified documentation and
   diagnostic files; no application or built-bundle changes.
+
+## Review follow-up verification
+
+The follow-up clarifies probe scope, removes an overwritten constructor
+argument, and standardizes the CHANGELOG entry and PR check text. It changes
+no application behavior or recorded baseline results.
+
+- The revised diagnostic, invoked by absolute path from `/tmp`, reproduced
+  `probes.json` byte-for-byte (`cmp` passed).
+- `.venv/bin/ruff check .` — passed.
+- All **23** assessment/verification links resolved to local artifacts,
+  immutable baseline code locations, or the completed CI run.
+- `git diff --check` passed; CHANGELOG placement and labels were checked, and
+  its irreversibility text matches the PR body exactly.
+- The full packaging and CI results above describe their recorded revision;
+  they are not a claim that the follow-up commit has already passed CI.
 
 ## Irreversibility
 

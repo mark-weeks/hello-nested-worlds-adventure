@@ -71,9 +71,11 @@ def run():
         }
         object_node = next(n for n in nodes if n.level == "Object")
         bus = CausalityBus()
-        agent = Agent("RevisitProbe", bus=bus, memory=[object_node.name])
+        agent = Agent("RevisitProbe", bus=bus)
         object_node.properties["condition"] = "corrupted"
-        # Keep the subtree known, with a nonzero fresh-visit budget.
+        # This illustrates the cast probe's same known-name skip branch:
+        # condition is not consulted there, so no change detector is tested.
+        # Keep the entire subtree known, with a nonzero fresh-visit budget.
         agent.memory = [n.name for n in walk(object_node)]
         agent.traverse(object_node, max_nodes=10)
         result["known_changed_subtree"] = {
@@ -114,6 +116,9 @@ def run():
                       and n.properties["star_density"] < 900)
         born_density = galaxy.properties["star_density"]
         verb = verb_for_level("Galaxy")
+        # Exercise queue landing directly, bypassing the /act handler and its
+        # guards. A handler fix that refuses/coalesces overlapping requests
+        # need not change this output; it needs its own endpoint regression test.
         for _ in range(2):
             snapshot = store.resolve_node_by_name(382, galaxy.name)
             changed, _ = apply_verb(snapshot, verb)
