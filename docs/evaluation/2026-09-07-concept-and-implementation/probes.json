@@ -1,0 +1,39 @@
+{
+  "fully_explored_cast": {
+    "world_nodes": 4208,
+    "cast_size": 12,
+    "ticks": 12,
+    "fresh_visits": 0,
+    "persona_acts": 0,
+    "chronicle_rows": 0
+  },
+  "known_changed_subtree": {
+    "traversal_events": 0,
+    "causal_events": 0
+  },
+  "causal_claim_failure": {
+    "queued_before": 1,
+    "queued_after_failure": 0,
+    "chronicle_rows_after_failure": 0,
+    "retry_fired": 0
+  },
+  "maturation_claim_failure": {
+    "queued_after_failure": 0,
+    "chronicle_rows_after_failure": 0,
+    "retry_landed": 0
+  },
+  "two_pending_kindles": {
+    "born_density": 418,
+    "maturations_landed": 2,
+    "final_density": 438,
+    "sequential_two_action_density": 459
+  },
+  "mend_consequences": {
+    "node": "Elder River Instrument-11111111",
+    "condition_before": "damaged",
+    "condition_after": "worn",
+    "propagated_events": 16,
+    "nodes_with_material_property_changes": 1,
+    "chronicle_rows": 17
+  }
+}
