@@ -28,7 +28,7 @@ from multiverse.utils import (
     count_nodes, find_node,
 )
 from multiverse.verbs import (
-    apply_verb, maturation_note, maturation_seconds, verb_for_level,
+    verb_for_level,
 )
 from puzzles import gates
 from puzzles.engine import PuzzleEngine
@@ -142,10 +142,11 @@ def _actor_identity(user_key: str, player_name: str | None) -> str | None:
     return player_name or None
 
 
-def _node_to_dict(node: SpatialNode, activity: dict | None = None) -> dict:
+def _node_to_dict(node: SpatialNode, activity: dict | None = None,
+                  pending: dict | None = None, *, children: bool = True) -> dict:
     verb = verb_for_level(node.level)
     return {
-        "id": node.id,
+        **({"id": node.id} if children else {}),
         "name": node.name,
         "level": node.level,
         "properties": node.properties,
@@ -158,7 +159,9 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None) -> dict:
         # The scale-native verb: the one act this level supports.
         "verb": ({"name": verb.name, "tagline": verb.tagline}
                  if verb else None),
-        "children": [_node_to_dict(c, activity) for c in node.children],
+        "pending_actions": (pending or {}).get(node.name, []),
+        **({"children": [_node_to_dict(c, activity, pending) for c in node.children]}
+           if children else {}),
     }
 
 
@@ -176,7 +179,7 @@ _RATE_LIMITED_PATHS = frozenset({
 # never trips it.
 _READ_LIMITED_PATHS = frozenset({
     "/world", "/agent", "/observe", "/puzzle", "/chronicle", "/history",
-    "/wayback",
+    "/wayback", "/node",
 })
 
 # The player-facing pace line (429). Rate limiting is a mechanical guard, but
@@ -577,6 +580,18 @@ class Handler(BaseHTTPRequestHandler):
                 position = None
             self._send_json({"position": position})
 
+        elif path == "/node":
+            try:
+                seed = guard.world_seed(param("seed"))
+                node = _resolve_node(seed, param("node_name", ""))
+            except ValueError as exc:
+                return self._send_error(str(exc))
+            if node is None:
+                return self._send_error("no such place in this world", 404)
+            self._send_json({"seed": seed, "node": _node_to_dict(
+                node, persistence.count_mutations_by_node(seed, node.name),
+                persistence.pending_verb_summaries(seed, node.name), children=False)})
+
         elif path == "/world":
             try:
                 root, seed, depth = _build_world(_flatten_qs(qs))
@@ -598,7 +613,8 @@ class Handler(BaseHTTPRequestHandler):
                                  "descent_line": wrap.DESCENT_LINE,
                                  "ascent_line": wrap.ASCENT_LINE,
                              },
-                             "world": _node_to_dict(root, activity)})
+                             "world": _node_to_dict(root, activity,
+                                                    persistence.pending_verb_summaries(seed))})
 
         elif path == "/agent":
             try:
@@ -1261,54 +1277,28 @@ class Handler(BaseHTTPRequestHandler):
                 f"here you can only {verb.name}", 400)
 
         token = f"{player_name or 'traveler'}:{target.name}"
-        base_props = dict(target.properties)
-        changed, flavor = apply_verb(target, verb, token)
-        matures = maturation_seconds(target.level) if changed else 0.0
-
-        if changed:
-            payload = {"verb": verb.name}
-            if player_name:
-                payload["actor"] = player_name
-            changed, _staged = accept_verb(
-                seed, target, verb, token, base_props, changed, matures,
-                {"verb": verb.name}, payload, player_name=player_name,
-                actor_identity=_actor_identity(user_key, player_name),
-                maturation_actor=player_name)
-            if matures > 0:
-                flavor += maturation_note(matures)
-
+        payload = {"verb": verb.name}
+        if player_name:
+            payload["actor"] = player_name
+        result, _staged = accept_verb(
+            seed, target, verb, token, {"verb": verb.name}, payload,
+            player_name=player_name, actor_identity=_actor_identity(user_key, player_name),
+            maturation_actor=player_name)
+        if result["action_status"] == "accepted":
             room = get_room(seed)
             broadcast(room, {
-                "type":    "scale_act",
-                "node":    target.name,
-                "level":   target.level,
-                "verb":    verb.name,
-                "actor":   player_name or "someone",
-                # A maturing change hasn't landed: clients must not fold
-                # the delta into the node they're looking at yet.
-                "changed": None if matures > 0 else changed,
-                "matures_in": int(matures) if matures > 0 else None,
-                "flavor":  flavor,
+                "type": "scale_act", "node": target.name, "level": target.level,
+                "verb": verb.name, "actor": player_name or "someone",
+                **{key: value for key, value in result.items() if key != "flavor"},
             })
-
-            # The act echoes outward: origin already changed materially
-            # (above); every ring beyond it carries ripple + history via
-            # the queue, arriving at world speed.
             broadcast(room, {
                 "type": "causal_event", "node": target.name,
                 "level": target.level, "kind": "SCALE_ACT",
                 "strength": causality.ORIGIN_STRENGTH, "depth": 0,
                 "origin": target.name,
             })
-
-        self._send_json({
-            "verb":    verb.name,
-            "level":   target.level,
-            "node":    target.name,
-            "changed": changed,
-            "matures_in": int(matures) if matures > 0 else None,
-            "flavor":  flavor,
-        })
+        self._send_json({"verb": verb.name, "level": target.level,
+                         "node": target.name, **result})
 
     def _do_puzzle_attempt(self, body: dict, user_key: str = "") -> None:
         try:

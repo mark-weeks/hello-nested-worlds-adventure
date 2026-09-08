@@ -1,8 +1,11 @@
 # Inspecting and recovering delayed work
 
-M1 retains causal and maturation work in SQLite. `pending` includes backed-off
+M1 retains causal and maturation work in SQLite; M2 adds versioned operations.
+`pending` includes backed-off
 failures; `completed` means an inspectable terminal outcome, which can be an
 applied effect, intentional physics stop/tunnel, missing node, or empty patch.
+M2 maturation also records `already_satisfied` and `precondition_changed` as
+completed no-ops with a `SCALE_ACT_MATURED` explanation and no material delta.
 The canonical pump still drains only its configured world. Other seeds' work
 remains durable and paused.
 
@@ -38,10 +41,12 @@ pump. Its pending row remains the recovery source. Notification failures require
 ## Upgrade and rollback
 
 Before any later authorized deployment, stop **all** application writers and
-take the runbook backup. Migration 0018 is additive, preserving existing inputs,
-IDs, due times, born rows, hinge, and history. Start only M1-compatible workers.
-Do not run an old worker beside them: old code ignores `status` and can consume
-completed rows again. There is no supported in-place binary downgrade.
+take the runbook backup. Migrations 0018 and 0019 are additive, preserving
+existing inputs, IDs, due times, born rows, hinge, and history. For M2 start only
+M2-compatible workers. M1 workers refuse v2 operations and can still accept new
+v1 patches; pre-M1 workers ignore `status` and can consume completed rows again.
+Neither mixed-version configuration is supported. There is no supported
+in-place binary downgrade.
 
 Rehearse the [launch runbook §7 restore](fly-deployment.md#7-backups) with pending
 work on disposable staging. Check queue counts/input IDs, a representative
@@ -49,12 +54,45 @@ origin/continuation chain, material state and Wayback before and after restore;
 restart workers so room caches match the restored database. Section 8's
 pre-launch restore rehearsal remains a deployment gate.
 
-For rollback to a pre-M1 binary, stop all writers and restore its matching
+For rollback to an M1 or pre-M1 binary, stop all writers and restore its matching
 pre-upgrade whole-database backup. This abandons history since the backup;
-prefer a forward repair after continued play. To recover on M1, restoring a
-v18 backup preserves pending inputs and completed duplicate-delivery fences.
-The M1 PR rehearses both backup formats only on disposable local databases;
-it does not perform or authorize a production restore or deployment.
+prefer a forward repair after continued play. M2 can restore and upgrade v18
+backups and recover mixed v1/v2 work from v19 backups, retaining completed
+duplicate-delivery fences. Rehearsals use disposable local databases only;
+they do not perform or authorize a production restore or deployment.
+
+## M2 accepted meaning
+
+`semantics_version=1` maturations still land their stored absolute `changed`
+patch; never translate them to operations or merge equal patches. V1 causal
+pre-law strengths and `_hop` law behavior remain unchanged. V2 maturation uses
+the frozen `multiverse/delayed_v2.py` interpreter and `operation` inputs; its
+`changed` column is empty, not an effect to apply. A newer effects function must
+not reinterpret that accepted operation. Keep the v1 and v2 interpreters until
+a separately reviewed retirement/drain plan preserves every accepted promise.
+
+Distinct contribution requests get separate work IDs. Mark-only requests can
+join pending v2 work with the same one-time flag; this is deliberate coalescing,
+not HTTP request deduplication. The response names the shared work and retains
+its due time. Joining creates no additional origin, pressure or participant
+credit. See [ADR-020's policy table](../decisions/ADR-020-m2-delayed-actions.md).
+
+When inspecting mixed pending versions, account for legacy patches that may
+overwrite later state: preserving that meaning is intentional. Never clear a
+completed fence or rewrite an accepted row to make versions look uniform.
+Unknown versions/operations remain pending with backoff and diagnostic errors;
+repair forward using compatible code. Queue rows can contain private actor
+identity. Public clients receive only aggregate pending summaries and their
+request's work reference; errors and raw inputs remain operator data. Mixed
+versions produce one public node/verb count, not duplicate version-labeled lines;
+inspect the durable rows to distinguish their preserved meanings.
+
+For client recovery, `/node?node_name=...&seed=...` is the bounded authoritative
+state read; `/world` remains the tree/return read. Neither is a delivery or queue
+reset. The existing origin `event_id` in acceptance responses/notices only lets
+clients avoid reading twice for the same HTTP response/socket echo. Maturation
+is a separate event, and this optimization adds no HTTP request idempotency.
+Do not use display-name matching to infer duplicate work or participant identity.
 
 Completed work and error details are retained indefinitely. No pruning is
 introduced. Revisit retention and transaction contention using measured storage

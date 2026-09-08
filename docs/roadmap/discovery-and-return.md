@@ -66,6 +66,16 @@ inform M1's design early so the two PRs do not introduce incompatible contracts.
 M5 must consume existing art, sound, history, puzzles, and navigation; it is not
 a renderer rewrite, an unrestricted agent platform, or a new world generator.
 
+Implementation evidence as of 2026-09-08: M1 merged in PR #94 at
+`09317c35c5d07beafe2bbe93b9233fd2fba9a8bf`; see its
+[recovery evaluation](../evaluation/2026-09-08-m1-delivery.md). The bounded M2
+implementation under review adopts only the existing delayed verbs' contribution,
+shared-flag and explicit no-op policies in
+[ADR-020](../decisions/ADR-020-m2-delayed-actions.md), with
+[endpoint/browser evidence](../evaluation/2026-09-08-m2-choices.md).
+Exclusive interventions remain a future M0/M5 contract; there is no current
+exclusive delayed verb and no situation engine in M2. ADR-013 remains Proposed.
+
 ## First-situation review checklist
 
 Before implementing its permanent transitions, specify:

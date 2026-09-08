@@ -65,6 +65,7 @@ const LAST_NODE_KEY  = 'nw_last_node';
 const LAST_DEPTH_KEY = 'nw_view_depth';
 const {
   causalFeedLine,
+  createNodeRefresher,
   describeChronicleEntry,
   describeMutation,
   displayName,
@@ -295,7 +296,7 @@ function drawSigil(data) {
   }
 }
 
-function selectNode(data) {
+function selectNode(data, { refresh = false } = {}) {
   selected = data;
   const color = LEVEL_COLORS[data.level] || '#3a8eff';
 
@@ -350,20 +351,22 @@ function selectNode(data) {
   // properties, marked by history (pressure, effects, activity etchings).
   drawSigil(data);
 
-  document.getElementById('speak-response').textContent = '';
-  document.getElementById('speak-response').className = 'response-box';
-  document.getElementById('observe-rows').innerHTML = '';
-  document.getElementById('puzzle-content').innerHTML = '';
-  refreshActPanel(data);
-  loadPresences(data.name);
-  puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
-  if (observeES) { observeES.close(); observeES = null; }
+  refreshActPanel(data, { clearResponse: !refresh });
+  if (!refresh) {
+    document.getElementById('speak-response').textContent = '';
+    document.getElementById('speak-response').className = 'response-box';
+    document.getElementById('observe-rows').innerHTML = '';
+    document.getElementById('puzzle-content').innerHTML = '';
+    loadPresences(data.name);
+    puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
+    if (observeES) { observeES.close(); observeES = null; }
 
-  // Remember where the player is so they resume here next session — locally for
-  // this browser, and on the server so it follows them to other devices.
-  localStorage.setItem(LAST_NODE_KEY, data.name);
-  savePositionToServer(data.name);
-  wsSend({ type: 'move', node: data.name });
+    // Remember where the player is so they resume here next session — locally for
+    // this browser, and on the server so it follows them to other devices.
+    localStorage.setItem(LAST_NODE_KEY, data.name);
+    savePositionToServer(data.name);
+    wsSend({ type: 'move', node: data.name });
+  }
 
   // If the ambience is on, the new place hums its own tone.
   if (window._nwAmbience && window._nwAmbience.enabled) {
@@ -417,13 +420,13 @@ function maybeOfferSound() {
 // object, ward a region, observe a particle. The server owns the effect;
 // the flavor line is the fiction of what happened.
 
-function refreshActPanel(data) {
+function refreshActPanel(data, { clearResponse = true } = {}) {
   const verb = data.verb;
   const btn = document.getElementById('btn-do-act');
   const tagline = document.getElementById('act-tagline');
   const resp = document.getElementById('act-response');
   if (!btn) return;
-  resp.textContent = '';
+  if (clearResponse) resp.textContent = '';
   if (!verb) {
     btn.disabled = true;
     btn.textContent = 'Nothing can be done here';
@@ -433,11 +436,13 @@ function refreshActPanel(data) {
   btn.disabled = false;
   btn.textContent = verb.name[0].toUpperCase() + verb.name.slice(1) +
                     ' this ' + data.level;
-  tagline.textContent = verb.tagline;
+  tagline.textContent = verb.tagline + (data.pending_actions || []).map(p =>
+    ` ${p.count} ${p.verb} ${p.count === 1 ? 'change is' : 'changes are'} still traveling.`).join('');
 }
 
 async function doAct() {
   if (!selected || !selected.verb) return;
+  const target = selected;
   const resp = document.getElementById('act-response');
   resp.textContent = '…';
   try {
@@ -446,25 +451,37 @@ async function doAct() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         seed: worldParams.seed, depth: worldParams.depth,
-        node_name: selected.name, verb: selected.verb.name,
+        node_name: target.name, verb: target.verb.name,
         player_name: playerName || undefined,
       }),
     });
     const data = await res.json();
+    if (selected?.name !== target.name) return;
     if (data.error) { resp.textContent = data.error; return; }
-    if (data.changed && data.matures_in == null) {
-      // The world changed under us: fold the delta into the selected node
-      // so the panel and the sigil show the act immediately. (selectNode
-      // clears the act panel, so write the flavor line after.)
-      Object.assign(selected.properties, data.changed);
-      selectNode(selected);
-      setStatus(`You ${data.verb} — the act is traveling outward.`);
-    }
+    await refreshPendingAct(target.name, data);
+    if (selected?.name !== target.name) return;
     document.getElementById('act-response').textContent =
       data.flavor || '(nothing happened)';
   } catch (e) {
-    resp.textContent = 'The act fizzles: ' + e.message;
+    if (selected?.name === target.name) resp.textContent = 'The act fizzles: ' + e.message;
   }
+}
+
+const refreshActNode = createNodeRefresher(async (seed, name) => {
+  const response = await fetch(withKey(`/node?seed=${seed}&node_name=${encodeURIComponent(name)}`));
+  if (!response.ok) throw new Error('Node read failed');
+  return (await response.json()).node;
+}, (current, seed, name) => {
+  if (current && worldParams.seed === seed && selected?.name === name) {
+    Object.assign(selected, current); // /node has no topology to replace.
+    selectNode(selected, { refresh: true });
+  }
+});
+
+function refreshPendingAct(name, notice) {
+  // Notifications refresh shared state, never the player's own response.
+  return refreshActNode(worldParams.seed, name, notice)
+    .catch(() => { /* A later reload recovers the committed result. */ });
 }
 
 // ── World chronicle ─────────────────────────────────────────────────────────
@@ -1212,13 +1229,11 @@ function handleWsMsg(msg) {
       break;
     }
     case 'scale_act': {
-      pushFeed(`✦ ${escHtml(msg.actor)} ${escHtml(msg.verb)}s ${escHtml(displayName(msg.node))}`);
+      pushFeed(msg.matured && msg.outcome
+        ? `✦ ${escHtml(displayName(msg.node))} — ${escHtml(msg.flavor)}`
+        : `✦ ${escHtml(msg.actor)} ${escHtml(msg.verb)}s ${escHtml(displayName(msg.node))}`);
       flashNode(msg.node, 0.8);
-      // Someone changed a place we may be looking at: fold in the delta.
-      if (selected && selected.name === msg.node && msg.changed) {
-        Object.assign(selected.properties, msg.changed);
-        selectNode(selected);
-      }
+      if (selected?.name === msg.node) refreshPendingAct(msg.node, msg);
       break;
     }
     case 'constellation_complete':

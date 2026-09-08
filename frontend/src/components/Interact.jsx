@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { withKey } from "../auth.js";
 import { displayName } from "../names.js";
 
@@ -53,6 +53,11 @@ function Act({ node, seed, depth, playerName, onChanged }) {
   const [changed, setChanged] = useState(null);
   const [error, setError] = useState("");
   const verb = node.verb;
+  const active = useRef(true);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
 
   const act = useCallback(async () => {
     if (busy) return;
@@ -67,22 +72,28 @@ function Act({ node, seed, depth, playerName, onChanged }) {
         }),
       });
       const data = await r.json();
+      if (!active.current) return;
       if (data.error) { setError(data.error); }
       else {
         setFlavor(data.flavor || "");
         setChanged(data.changed);
-        if (data.changed && !data.matures_in) onChanged?.();
+        onChanged?.(node.name, data);
       }
     } catch (e) {
-      setError("Network error: " + e.message);
+      if (active.current) setError("Network error: " + e.message);
     } finally {
-      setBusy(false);
+      if (active.current) setBusy(false);
     }
   }, [busy, seed, depth, node, verb, playerName, onChanged]);
 
   return (
     <div style={s.panel}>
       <div style={s.hint}>{verb.tagline}</div>
+      {node.pending_actions?.map(pending => (
+        <div style={s.hint} key={pending.verb}>
+          {pending.count} {pending.verb} {pending.count === 1 ? "change is" : "changes are"} still traveling.
+        </div>
+      ))}
       <button style={s.btn} onClick={act} disabled={busy}>
         {busy ? "…" : `${verb.name[0].toUpperCase() + verb.name.slice(1)} this ${node.level}`}
       </button>

@@ -363,16 +363,51 @@ def enqueue_causal_hop(world_seed: int, node_name: str, kind: str,
 def enqueue_verb_maturation(world_seed: int, node_name: str, verb: str,
                             changed: dict, actor: str | None,
                             delay_seconds: float, *,
-                            source_event_id: int | None = None) -> int:
-    """Plant the legacy absolute patch, without reinterpreting contributions."""
+                            source_event_id: int | None = None,
+                            operation: dict | None = None,
+                            actor_identity: str | None = None) -> int:
+    """Default to a v1 absolute patch; an explicit operation selects v2."""
     with _connection() as conn:
         cur = conn.execute(
             """INSERT INTO verb_maturation
-               (world_seed, node_name, verb, changed, actor, due_at, source_event_id)
-               VALUES (?, ?, ?, ?, ?, datetime('now', ?), ?)""",
+               (world_seed, node_name, verb, changed, actor, due_at, source_event_id,
+                semantics_version, operation, actor_identity)
+               VALUES (?, ?, ?, ?, ?, datetime('now', ?), ?, ?, ?, ?)""",
             (world_seed, node_name, verb, json.dumps(changed), actor,
-             f"+{int(delay_seconds)} seconds", source_event_id))
+             f"+{int(delay_seconds)} seconds", source_event_id,
+             1 if operation is None else 2,
+             None if operation is None else json.dumps(operation), actor_identity))
         return cur.lastrowid
+
+
+@_with_db
+def pending_verb_work(world_seed: int, node_name: str, verb: str) -> list[dict]:
+    """Read this verb's pending v2 work for the locked coalescing decision."""
+    with _connection() as conn:
+        cur = conn.execute(
+            """SELECT * FROM verb_maturation WHERE world_seed = ? AND node_name = ?
+                AND verb = ? AND status = 'pending' AND semantics_version = 2
+                ORDER BY due_at, id""", (world_seed, node_name, verb))
+        return [dict(zip([c[0] for c in cur.description], row)) for row in cur.fetchall()]
+
+
+@_with_db
+def pending_verb_summaries(world_seed: int, node_name: str | None = None) -> dict[str, list[dict]]:
+    """Public counts combine versions; durable work and its rules stay distinct."""
+    where = "world_seed = ? AND status = 'pending'"
+    params = [world_seed]
+    if node_name is not None:
+        where += " AND node_name = ?"
+        params.append(node_name)
+    with _connection() as conn:
+        rows = conn.execute(
+            f"""SELECT node_name, verb, COUNT(*), MIN(due_at)
+                FROM verb_maturation WHERE {where}
+                GROUP BY node_name, verb""", params).fetchall()
+    result = {}
+    for node, verb, count, due in rows:
+        result.setdefault(node, []).append({"verb": verb, "count": count, "due_at": due})
+    return result
 
 
 @_with_db
@@ -429,12 +464,15 @@ def deliver_work(queue: str, work_id: int, apply: Callable[[dict], str], *,
                 (work_id,)).fetchone()
             if not eligible:
                 return False
-            if row["semantics_version"] != 1:
+            supported = (1, 2) if queue == "verb_maturation" else (1,)
+            if row["semantics_version"] not in supported:
                 raise ValueError("unsupported delivery semantics version")
             field = "payload" if queue == "causal_queue" else "changed"
             row[field] = json.loads(row[field]) if row[field] else {}
             if not isinstance(row[field], dict):
                 raise ValueError(f"delivery {field} must be a JSON object")
+            if row["semantics_version"] == 2:
+                row["operation"] = json.loads(row["operation"])
             outcome = apply(row)
             conn.execute(
                 f"""UPDATE {queue} SET status = 'completed', outcome = ?,
@@ -837,14 +875,18 @@ def get_chronicle(world_seed: int, limit: int = 50,
 
 
 @_with_db
-def count_mutations_by_node(world_seed: int) -> dict[str, int]:
+def count_mutations_by_node(world_seed: int, node_name: str | None = None) -> dict[str, int]:
     """Recorded interactions per node — the world's lived history, in counts.
     Feeds the per-node generative art (trace etchings) via /world."""
-    with _connect() as conn:
+    where = "world_seed = ?"
+    params = [world_seed]
+    if node_name is not None:
+        where += " AND node_name = ?"
+        params.append(node_name)
+    with _connection() as conn:
         rows = conn.execute(
-            """SELECT node_name, COUNT(*) FROM world_mutations
-               WHERE world_seed = ? GROUP BY node_name""",
-            (world_seed,),
+            f"SELECT node_name, COUNT(*) FROM world_mutations WHERE {where} GROUP BY node_name",
+            params,
         ).fetchall()
         return {name: count for name, count in rows}
 

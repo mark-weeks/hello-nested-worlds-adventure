@@ -3,10 +3,11 @@ import SceneView from "./components/SceneView.jsx";
 import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
 import { withKey, urlName, betaKey } from "./auth.js";
-import { entryPath, resumeDepth } from "./entry.js";
+import { entryPath, findNodeByName, resumeDepth } from "./entry.js";
 import { describeMutation } from "./mutations.js";
 import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
 import { displayName } from "./names.js";
+import { createNodeRefresher } from "./nodeRefresh.js";
 import { NodeAmbience } from "../../static/nodesound.js";
 
 // Honor the OS-level motion preference: transient overlays (ripples,
@@ -169,18 +170,28 @@ export default function App() {
 
   const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
 
-  // Mutations are committed by the server against the permanent world. Pull
-  // the canonical node back quietly after a solve or act so the properties
-  // beside the scene cannot lag behind the chronicle entry that changed them.
-  const refreshCurrentNode = useCallback(() => {
-    if (!currentNodeName) return Promise.resolve();
-    return loadWorld({
-      depth: worldDepth,
-      targetNode: currentNodeName,
-      preserveSession: true,
-      background: true,
+  const seedRef = useRef(seed);
+  seedRef.current = seed;
+  const nodeRefresher = useRef(null);
+  if (!nodeRefresher.current) {
+    nodeRefresher.current = createNodeRefresher(async (worldSeed, name) => {
+      const response = await fetch(withKey(`/node?seed=${worldSeed}&node_name=${encodeURIComponent(name)}`));
+      if (!response.ok) throw new Error("Node read failed");
+      return (await response.json()).node;
+    }, (node, worldSeed, name) => {
+      if (!node || seedRef.current !== worldSeed) return;
+      // Refresh substance in the retained tree; preserve its passages and
+      // the current navigation path, including when a response arrives late.
+      const cached = findNodeByName(worldRootRef.current, name);
+      if (cached) Object.assign(cached, node);
+      setNodeStack(stack => stack.at(-1)?.name === name
+        ? [...stack.slice(0, -1), { ...stack.at(-1), ...node }] : stack);
     });
-  }, [currentNodeName, loadWorld, worldDepth]);
+  }
+  const refreshCurrentNode = useCallback((name = currentNodeName, notice) => {
+    if (!name) return Promise.resolve();
+    return nodeRefresher.current(seed, name, notice).catch(() => {});
+  }, [currentNodeName, seed]);
 
   const { connected, sendMessage } = useWorldSocket(seed, playerName, {
     // The welcome roster: everyone already present when we connect. Without
@@ -273,11 +284,13 @@ export default function App() {
     },
     onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${displayName(msg.node)}` }),
     onScaleAct: (msg) => {
-      pushEvent({ type: "system", text: `✦ ${msg.actor} ${msg.verb}s ${displayName(msg.node)} — ${msg.flavor}` });
+      pushEvent({ type: "system", text: msg.matured && msg.outcome
+        ? `✦ ${displayName(msg.node)} — ${msg.flavor}`
+        : `✦ ${msg.actor} ${msg.verb}s ${displayName(msg.node)}${msg.flavor ? ` — ${msg.flavor}` : ""}` });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "ripple", strength: 0.8,
                         eventKind: "SCALE_ACT", duration: 1500 });
-        if (msg.changed) refreshCurrentNode();
+        refreshCurrentNode(msg.node, msg);
       }
     },
     onAgentTalk: (msg) => {

@@ -20,6 +20,38 @@
     return path ? path[path.length - 1] : null;
   }
 
+  // HTTP acceptance and its socket echo describe one durable event. Read it
+  // once per viewer; a later landing is a different event. This cache never
+  // deduplicates requests to act, and carries no participant identity.
+  function createNodeRefresher(read, apply) {
+    const events = new Map();
+    const latest = new Map();
+    let serial = 0;
+    return function refresh(seed, name, notice = {}) {
+      const nodeKey = `${seed}:${name}`;
+      const event = notice.matured && notice.work_id != null
+        ? `landing:${notice.work_id}`
+        : notice.event_id != null ? `acceptance:${notice.event_id}` : null;
+      const key = event && `${nodeKey}:${event}`;
+      if (key && events.has(key)) return events.get(key);
+      const order = ++serial;
+      latest.set(nodeKey, order);
+      const request = Promise.resolve().then(() => read(seed, name)).then(node => {
+        if (latest.get(nodeKey) === order) apply(node, seed, name);
+      }).catch(error => {
+        if (key) events.delete(key); // A failed read must be retryable.
+        throw error;
+      }).finally(() => {
+        if (latest.get(nodeKey) === order) latest.delete(nodeKey);
+      });
+      if (key) {
+        events.set(key, request);
+        if (events.size > 128) events.delete(events.keys().next().value);
+      }
+      return request;
+    };
+  }
+
   function entryHash(value) {
     let hash = 2166136261;
     for (let i = 0; i < value.length; i++) {
@@ -195,6 +227,8 @@
       case "AGENT_VISIT": return `${who} passed through ${place}`;
       case "DANGER_ALERT": return `danger stirred at ${place}`;
       case "SCALE_ACT": return `${who} chose to ${data.verb || "act"} at ${place}`;
+      case "SCALE_ACT_MATURED": return data.semantics_version === 2 && data.flavor
+        ? `${place}: ${data.flavor}` : `something happened at ${place}`;
       case "AGENT_TALK": return `${data.a || "someone"} and ${data.b || "someone"} spoke at ${place}`;
       case "AGENT_VOICE": return `${who} spoke with ${data.agent || "a wanderer"} at ${place}`;
       case "PLAYER_JOIN": return `${who} arrived in the world`;
@@ -257,6 +291,7 @@
   root.EnfoldedClient = Object.freeze({
     BADGE_RULES,
     causalFeedLine,
+    createNodeRefresher,
     describeChronicleEntry,
     describeMutation,
     displayName,

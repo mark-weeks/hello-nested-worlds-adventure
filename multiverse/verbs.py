@@ -67,8 +67,7 @@ def maturation_note(seconds: float) -> str:
         span = f"{seconds / 60:.0f} minute(s)"
     else:
         span = f"{seconds:.0f} second(s)"
-    return (f" …but nothing at this scale is sudden: the change is still "
-            f"traveling, and will settle in about {span}.")
+    return (f" The wait is about {span}; it will settle against the state it finds.")
 
 _CONDITION_REPAIR = {
     "corrupted": "damaged",

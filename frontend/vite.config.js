@@ -16,6 +16,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/world":  "http://localhost:8080",
+      "/node":   "http://localhost:8080",
       "/image":  "http://localhost:8080",
       "/speak":  "http://localhost:8080",
       "/puzzle": "http://localhost:8080",

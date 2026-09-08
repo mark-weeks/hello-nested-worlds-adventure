@@ -1,0 +1,130 @@
+{
+  "before": {
+    "star_density": 418,
+    "shape": "tidal plume",
+    "black_hole_mass_solar": 8485083,
+    "dust": "burnt umber",
+    "drift_kmps": 230.4,
+    "aspect": "spurs of rust break its outline; something inside it keeps time, and it grieves something small."
+  },
+  "overlap_replies": [
+    {
+      "verb": "kindle",
+      "level": "Galaxy",
+      "node": "Mossbound Bell Disc-111",
+      "changed": {
+        "star_density": 438,
+        "kindled": true
+      },
+      "matures_in": 300,
+      "flavor": "New stars catch along the dust lanes \u2014 438 points of light where there were fewer. Spurs of rust break its outline. \u2026but nothing at this scale is sudden: the change is still traveling, and will settle in about 5 minute(s)."
+    },
+    {
+      "verb": "kindle",
+      "level": "Galaxy",
+      "node": "Mossbound Bell Disc-111",
+      "changed": {
+        "star_density": 438,
+        "kindled": true
+      },
+      "matures_in": 300,
+      "flavor": "New stars catch along the dust lanes \u2014 438 points of light where there were fewer. Spurs of rust break its outline. \u2026but nothing at this scale is sudden: the change is still traveling, and will settle in about 5 minute(s)."
+    }
+  ],
+  "after_acceptance": {
+    "star_density": 418,
+    "shape": "tidal plume",
+    "black_hole_mass_solar": 8485083,
+    "dust": "burnt umber",
+    "drift_kmps": 230.4,
+    "aspect": "spurs of rust break its outline; something inside it keeps time, and it grieves something small."
+  },
+  "after_landing": {
+    "star_density": 438,
+    "shape": "tidal plume",
+    "black_hole_mass_solar": 8485083,
+    "dust": "burnt umber",
+    "drift_kmps": 230.4,
+    "aspect": "spurs of rust break its outline; something inside it keeps time, and it grieves something small.",
+    "kindled": true
+  },
+  "mark_only_replies": [
+    {
+      "verb": "kindle",
+      "level": "Galaxy",
+      "node": "Mossbound Bell Disc-111",
+      "changed": {
+        "kindled": true
+      },
+      "matures_in": 300,
+      "flavor": "New stars catch along the dust lanes \u2014 999 points of light where there were fewer. Spurs of rust break its outline. \u2026but nothing at this scale is sudden: the change is still traveling, and will settle in about 5 minute(s)."
+    },
+    {
+      "verb": "kindle",
+      "level": "Galaxy",
+      "node": "Mossbound Bell Disc-111",
+      "changed": {
+        "kindled": true
+      },
+      "matures_in": 300,
+      "flavor": "New stars catch along the dust lanes \u2014 999 points of light where there were fewer. Spurs of rust break its outline. \u2026but nothing at this scale is sudden: the change is still traveling, and will settle in about 5 minute(s)."
+    }
+  ],
+  "saturated_reply": {
+    "verb": "kindle",
+    "level": "Galaxy",
+    "node": "Mossbound Bell Disc-111",
+    "changed": null,
+    "matures_in": null,
+    "flavor": "The galaxy is already burning as bright as it can."
+  },
+  "final": {
+    "star_density": 999,
+    "shape": "tidal plume",
+    "black_hole_mass_solar": 8485083,
+    "dust": "burnt umber",
+    "drift_kmps": 230.4,
+    "aspect": "spurs of rust break its outline; something inside it keeps time, and it grieves something small.",
+    "kindled": true
+  },
+  "work": [
+    [
+      1,
+      1,
+      "completed",
+      "applied"
+    ],
+    [
+      2,
+      1,
+      "completed",
+      "applied"
+    ],
+    [
+      3,
+      1,
+      "completed",
+      "applied"
+    ],
+    [
+      4,
+      1,
+      "completed",
+      "applied"
+    ]
+  ],
+  "landing_deltas": [
+    [
+      "{\"star_density\": 438, \"kindled\": true}"
+    ],
+    [
+      "{\"star_density\": 438, \"kindled\": true}"
+    ],
+    [
+      "{\"kindled\": true}"
+    ],
+    [
+      "{\"kindled\": true}"
+    ]
+  ]
+}

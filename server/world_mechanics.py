@@ -173,7 +173,7 @@ def resolve_node(seed: int, node_name: str) -> SpatialNode | None:
     if node is None:
         return None
     node.ripple_score = persistence.get_ripple_score(seed, node.name)
-    overlay = persistence.load_node_property_overrides(seed).get(node.name)
+    overlay = persistence.load_node_property_override(seed, node.name)
     if overlay:
         node.properties = apply_property_patch(node.properties, overlay)
     return node

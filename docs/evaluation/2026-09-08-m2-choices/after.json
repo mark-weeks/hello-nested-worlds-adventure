@@ -1,0 +1,153 @@
+{
+  "before": {
+    "star_density": 418,
+    "shape": "tidal plume",
+    "black_hole_mass_solar": 8485083,
+    "dust": "burnt umber",
+    "drift_kmps": 230.4,
+    "aspect": "spurs of rust break its outline; something inside it keeps time, and it grieves something small."
+  },
+  "overlap_replies": [
+    {
+      "verb": "kindle",
+      "level": "Galaxy",
+      "node": "Mossbound Bell Disc-111",
+      "changed": null,
+      "matures_in": 300,
+      "action_status": "accepted",
+      "outcome": null,
+      "work": {
+        "id": 2,
+        "verb": "kindle",
+        "policy": "contribution",
+        "semantics_version": 2,
+        "due_at": "2026-09-08 18:35:36"
+      },
+      "flavor": "Your kindle is planted: one contribution is still traveling. It will tend what it finds when it arrives; there may be nothing left to change. The wait is about 5 minute(s); it will settle against the state it finds.",
+      "event_id": 2
+    },
+    {
+      "verb": "kindle",
+      "level": "Galaxy",
+      "node": "Mossbound Bell Disc-111",
+      "changed": null,
+      "matures_in": 300,
+      "action_status": "accepted",
+      "outcome": null,
+      "work": {
+        "id": 1,
+        "verb": "kindle",
+        "policy": "contribution",
+        "semantics_version": 2,
+        "due_at": "2026-09-08 18:35:36"
+      },
+      "flavor": "Your kindle is planted: one contribution is still traveling. It will tend what it finds when it arrives; there may be nothing left to change. The wait is about 5 minute(s); it will settle against the state it finds.",
+      "event_id": 1
+    }
+  ],
+  "after_acceptance": {
+    "star_density": 418,
+    "shape": "tidal plume",
+    "black_hole_mass_solar": 8485083,
+    "dust": "burnt umber",
+    "drift_kmps": 230.4,
+    "aspect": "spurs of rust break its outline; something inside it keeps time, and it grieves something small."
+  },
+  "after_landing": {
+    "star_density": 459,
+    "shape": "tidal plume",
+    "black_hole_mass_solar": 8485083,
+    "dust": "burnt umber",
+    "drift_kmps": 230.4,
+    "aspect": "spurs of rust break its outline; something inside it keeps time, and it grieves something small.",
+    "kindled": true
+  },
+  "mark_only_replies": [
+    {
+      "verb": "kindle",
+      "level": "Galaxy",
+      "node": "Mossbound Bell Disc-111",
+      "changed": null,
+      "matures_in": 300,
+      "action_status": "accepted",
+      "outcome": null,
+      "work": {
+        "id": 3,
+        "verb": "kindle",
+        "policy": "transition",
+        "semantics_version": 2,
+        "due_at": "2026-09-08 18:35:36"
+      },
+      "flavor": "The kindle is planted: one shared change is still traveling. The wait is about 5 minute(s); it will settle against the state it finds.",
+      "event_id": 6
+    },
+    {
+      "verb": "kindle",
+      "level": "Galaxy",
+      "node": "Mossbound Bell Disc-111",
+      "changed": null,
+      "matures_in": 299,
+      "action_status": "shared",
+      "outcome": null,
+      "work": {
+        "id": 3,
+        "verb": "kindle",
+        "policy": "transition",
+        "semantics_version": 2,
+        "due_at": "2026-09-08 18:35:36"
+      },
+      "flavor": "The kindle already traveling here carries this same change. You join its wait; no additional change is planted. The wait is about 5 minute(s); it will settle against the state it finds."
+    }
+  ],
+  "saturated_reply": {
+    "verb": "kindle",
+    "level": "Galaxy",
+    "node": "Mossbound Bell Disc-111",
+    "changed": null,
+    "matures_in": null,
+    "action_status": "noop",
+    "outcome": "already_satisfied",
+    "work": null,
+    "flavor": "The kindle finds this work already fulfilled. Nothing more changes."
+  },
+  "final": {
+    "star_density": 999,
+    "shape": "tidal plume",
+    "black_hole_mass_solar": 8485083,
+    "dust": "burnt umber",
+    "drift_kmps": 230.4,
+    "aspect": "spurs of rust break its outline; something inside it keeps time, and it grieves something small.",
+    "kindled": true
+  },
+  "work": [
+    [
+      1,
+      2,
+      "completed",
+      "applied"
+    ],
+    [
+      2,
+      2,
+      "completed",
+      "applied"
+    ],
+    [
+      3,
+      2,
+      "completed",
+      "applied"
+    ]
+  ],
+  "landing_deltas": [
+    [
+      "{\"star_density\": 438, \"kindled\": true}"
+    ],
+    [
+      "{\"star_density\": 459}"
+    ],
+    [
+      "{\"kindled\": true}"
+    ]
+  ]
+}
