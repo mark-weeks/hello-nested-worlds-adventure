@@ -1,0 +1,83 @@
+{
+  "date": "2026-09-08",
+  "base_sha": "de45e98d4e4a3579e7eeb88df8fa290f8a5636a3",
+  "m1_ancestor": "09317c35c5d07beafe2bbe93b9233fd2fba9a8bf",
+  "m2_merge_utc": "2026-09-08T19:25:28Z",
+  "branch": "codex/m3-intelligible-history",
+  "python_version": "3.11.15",
+  "node_version": "20.19.0",
+  "canonical_command": "ENFOLDED_E2E=1 ./scripts/check.sh",
+  "canonical_status": "passed",
+  "ruff": "passed",
+  "python_passed": 1034,
+  "python_seconds": 118.9,
+  "vitest_passed": 110,
+  "production_bundle": "byte-fresh",
+  "installed_wheel_smoke": "passed",
+  "playwright_passed": 33,
+  "playwright_reported_duration": "2.2m",
+  "m3_python_cases": 38,
+  "retained_m1_recovery_cases": 47,
+  "retained_m2_cases": 41,
+  "m3_browser_cases": 4,
+  "retained_browser_cases": 29,
+  "disposable_endpoint_probe": {
+    "source_actions": 5,
+    "history_rows_before": 24,
+    "history_rows_after": 24,
+    "immediate_actions": 1,
+    "delayed_acceptances": 4,
+    "arriving_ripples": 15,
+    "delayed_outcomes": 4,
+    "recorded_facts_equal": true,
+    "excluded_from_raw_comparison": "wall-clock timestamps only",
+    "surfaces": [
+      "HTTP",
+      "CLI",
+      "cast",
+      "history",
+      "chronicle",
+      "live notices",
+      "speech context"
+    ]
+  },
+  "read_bounds": {
+    "projection_chunk_rows": 200,
+    "max_additional_selects_per_chunk": 3,
+    "mixed_history_page_total_selects": 4,
+    "browser_world_reads_added_by_notices": 0,
+    "browser_history_reads_added_by_notices": 0,
+    "production_projection_calls_per_seed_per_partial_batch": 1,
+    "notification_batch_commit_limit": 8,
+    "notification_batch_budget_ms": 50,
+    "notification_budget_is_hard_deadline": false,
+    "raw_count_style_history_selects": 1,
+    "raw_count_style_history_projection_calls": 0
+  },
+  "irreversibility": {
+    "migration": false,
+    "golden_repin": false,
+    "new_chronicle_write_path": false,
+    "history_rewrite": false,
+    "born_node_hinge_or_era_change": false
+  },
+  "deployment": "not performed",
+  "merge": "not performed",
+  "auto_merge": "not enabled",
+  "review_followup": {
+    "reviewed_sha": "321793b5852c9e61f778d038e8b2407d05c1f4fb",
+    "comments_addressed": [
+      3962067612,
+      3962322201,
+      3962322911,
+      3962323407,
+      3962324111,
+      3962324401
+    ],
+    "new_python_cases": 7,
+    "new_vitest_cases": 2,
+    "focused_python_passed": 198,
+    "initial_client_regression_failures": 2,
+    "endpoint_probe_rechecked": true
+  }
+}

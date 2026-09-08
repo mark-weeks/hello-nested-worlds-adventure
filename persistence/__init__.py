@@ -594,18 +594,19 @@ def list_worlds() -> list[dict[str, Any]]:
 
 
 @_with_db
-def get_node_history(world_seed: int, node_name: str, limit: int = 10) -> list[dict[str, Any]]:
+def get_node_history(world_seed: int, node_name: str, limit: int = 10, *,
+                     include_narration: bool = True) -> list[dict[str, Any]]:
+    """Recent rows; count/style consumers can omit provenance and prose."""
+    from persistence.history import FIELDS, decode, project
     with _connect() as conn:
         rows = conn.execute(
-            """SELECT mutation_type, player_name, data, recorded_at
+            f"""SELECT {FIELDS}
                FROM world_mutations WHERE world_seed = ? AND node_name = ?
                ORDER BY recorded_at DESC, id DESC LIMIT ?""",
-            (world_seed, node_name, limit),
+            (world_seed, node_name, max(1, min(int(limit), 1000))),
         ).fetchall()
-        return [
-            {"type": r[0], "player": r[1], "data": json.loads(r[2]) if r[2] else {}, "at": r[3]}
-            for r in rows
-        ]
+        entries = [decode(r) for r in rows]
+        return project(conn, world_seed, entries) if include_narration else entries
 
 
 @_with_db
@@ -676,16 +677,30 @@ def record_mutation(world_seed: int, node_name: str, mutation_type: str,
 
 @_with_db
 def get_mutations(world_seed: int, limit: int = 50) -> list[dict[str, Any]]:
+    from persistence.history import FIELDS, decode, project
     with _connect() as conn:
         rows = conn.execute(
-            """SELECT node_name, mutation_type, player_name, data, recorded_at
+            f"""SELECT {FIELDS}
                FROM world_mutations WHERE world_seed = ?
                ORDER BY recorded_at DESC, id DESC LIMIT ?""",
-            (world_seed, limit),
+            (world_seed, max(1, min(int(limit), 1000))),
         ).fetchall()
-        return [{"node": r[0], "type": r[1], "player": r[2],
-                 "data": json.loads(r[3]) if r[3] else {}, "at": r[4]}
-                for r in rows]
+        return project(conn, world_seed, [decode(r) for r in rows])
+
+
+@_with_db
+def presented_mutations(world_seed: int, event_ids: list[int]) -> list[dict]:
+    """Read committed events for a bounded live notification batch."""
+    from persistence.history import FIELDS, decode, positive_id, project
+    ids = list(dict.fromkeys(i for i in event_ids if positive_id(i)))[:200]
+    if not ids:
+        return []
+    with _connect() as conn:
+        placeholders = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"SELECT {FIELDS} FROM world_mutations WHERE world_seed=? "
+            f"AND id IN ({placeholders}) ORDER BY id", (world_seed, *ids)).fetchall()
+        return project(conn, world_seed, [decode(r) for r in rows])
 
 
 # ── Redaction: the sanctioned exception to append-only ─────────────────────
@@ -835,20 +850,19 @@ def get_chronicle(world_seed: int, limit: int = 50,
     world's full event count, `began` the timestamp of its first recorded
     event — the world's birth in lived history.
     """
+    from persistence.history import FIELDS, decode, project
     limit = max(1, min(int(limit), 200))
     with _connect() as conn:
         if before_id is not None:
             rows = conn.execute(
-                """SELECT id, node_name, mutation_type, player_name, data,
-                          recorded_at, actor_identity
+                f"""SELECT {FIELDS}, actor_identity
                    FROM world_mutations WHERE world_seed = ? AND id < ?
                    ORDER BY id DESC LIMIT ?""",
                 (world_seed, before_id, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                """SELECT id, node_name, mutation_type, player_name, data,
-                          recorded_at, actor_identity
+                f"""SELECT {FIELDS}, actor_identity
                    FROM world_mutations WHERE world_seed = ?
                    ORDER BY id DESC LIMIT ?""",
                 (world_seed, limit),
@@ -861,10 +875,7 @@ def get_chronicle(world_seed: int, limit: int = 50,
             "SELECT MIN(recorded_at) FROM world_mutations WHERE world_seed = ?",
             (world_seed,),
         ).fetchone()[0]
-    entries = [{"id": r[0], "node": r[1], "type": r[2], "player": r[3],
-                "data": json.loads(r[4]) if r[4] else {}, "at": r[5],
-                "actor": r[6]}
-               for r in rows]
+        entries = project(conn, world_seed, [dict(decode(r), actor=r[8]) for r in rows])
     exhausted = len(rows) < limit
     return {
         "entries": entries,

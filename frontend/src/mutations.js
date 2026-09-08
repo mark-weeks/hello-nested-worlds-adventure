@@ -2,6 +2,8 @@
 import "../../static/clientlogic.js";
 
 const shared = globalThis.EnfoldedClient;
+export const scaleActLine = shared.scaleActLine;
+export const causalNoticeLine = shared.causalNoticeLine;
 
 export function mutationLine(mutation) {
   return shared.mutationLine(mutation);

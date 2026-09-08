@@ -216,9 +216,23 @@
   }
 
   function mutationLine(mutation) {
+    // Authoritative read projection is shared with speech and live notices.
+    if (mutation.narration?.text) return mutation.narration.text;
     const data = mutation.data || {};
-    const who = mutation.player || data.agent || "someone";
+    const label = value => typeof value === "string" && value.trim() ? value : null;
+    const hasPatch = value => value && typeof value === "object" && !Array.isArray(value)
+      && Object.keys(value).length > 0;
+    const material = hasPatch(mutation.delta) || hasPatch(data.changed);
+    const delayed = typeof data.matures_in === "number" && Number.isFinite(data.matures_in)
+      && data.matures_in >= 0;
+    const who = label(mutation.player) || label(data.actor) || label(data.agent) || "someone";
     const place = displayName(mutation.node);
+    // Conservative compatibility with older servers/raw legacy rows. Never
+    // turn a hop into a second performance of the original verb.
+    if (data._origin || data._hop || data.delivery?.queue === "causal_queue") {
+      const origin = label(data._origin) ? ` at ${displayName(data._origin)}` : "";
+      return `A ripple from ${who}'s ${data.verb || "action"}${origin} reached ${place}. The exact original action is unrecorded.`;
+    }
     switch (mutation.type) {
       case "PUZZLE_SOLVED": return `${who} solved a puzzle at ${place}`;
       case "PUZZLE_FAILED": return `a puzzle resisted ${who} at ${place}`;
@@ -226,9 +240,14 @@
       case "PLAYER_CHAT": return `${who} said something at ${place}`;
       case "AGENT_VISIT": return `${who} passed through ${place}`;
       case "DANGER_ALERT": return `danger stirred at ${place}`;
-      case "SCALE_ACT": return `${who} chose to ${data.verb || "act"} at ${place}`;
+      case "SCALE_ACT": return delayed
+        ? `${who} chose to ${data.verb || "act"} at ${place}. A delayed outcome was accepted.`
+        : material
+          ? `${who} chose to ${data.verb || "act"} at ${place}. The recorded change took effect.`
+          : `A trace of ${data.verb || "act"} attributed to ${who} was recorded at ${place}. No material change is recorded.`;
       case "SCALE_ACT_MATURED": return data.semantics_version === 2 && data.flavor
-        ? `${place}: ${data.flavor}` : `something happened at ${place}`;
+        ? `${place}: ${data.flavor}`
+        : `A delayed ${data.verb || "act"} outcome was recorded at ${place}. The exact original action is unrecorded.`;
       case "AGENT_TALK": return `${data.a || "someone"} and ${data.b || "someone"} spoke at ${place}`;
       case "AGENT_VOICE": return `${who} spoke with ${data.agent || "a wanderer"} at ${place}`;
       case "PLAYER_JOIN": return `${who} arrived in the world`;
@@ -237,6 +256,21 @@
       case "PUZZLE_ATTEMPT": return `${who} worked at a puzzle in ${place}`;
       default: return `something happened at ${place}`;
     }
+  }
+
+  function scaleActLine(message) {
+    return mutationLine({ type: message.matured ? "SCALE_ACT_MATURED" : "SCALE_ACT",
+      node: message.node, player: message.actor, narration: message.narration,
+      data: { verb: message.verb, changed: message.changed, matures_in: message.matures_in,
+        semantics_version: message.outcome ? 2 : undefined,
+        flavor: message.flavor, outcome: message.outcome } });
+  }
+
+  function causalNoticeLine(message) {
+    // The producer already emits the attributed acceptance notice. Its origin
+    // pressure still animates, but must not appear to be a second action.
+    if (message.action_notice) return null;
+    return message.narration?.text || causalFeedLine(message.kind, message.node, message.strength);
   }
 
   function describeMutation(mutation) {
@@ -301,6 +335,8 @@
     findPath,
     firstWrapCrossing,
     mutationLine,
+    scaleActLine,
+    causalNoticeLine,
     nodeAddress,
     nodeMark,
     observationRow,
