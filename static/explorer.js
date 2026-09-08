@@ -68,6 +68,8 @@ const {
   createNodeRefresher,
   describeChronicleEntry,
   describeMutation,
+  scaleActLine,
+  causalNoticeLine,
   displayName,
   dropInNode,
   findNodeByName,
@@ -1224,14 +1226,13 @@ function handleWsMsg(msg) {
       pushFeed(`✕ ${escHtml(msg.text)}`);
       break;
     case 'causal_event': {
-      pushFeed(causalFeedLine(msg.kind, msg.node, msg.strength));
+      const line = causalNoticeLine(msg);
+      if (line) pushFeed(line);
       flashNode(msg.node, msg.strength);
       break;
     }
     case 'scale_act': {
-      pushFeed(msg.matured && msg.outcome
-        ? `✦ ${escHtml(displayName(msg.node))} — ${escHtml(msg.flavor)}`
-        : `✦ ${escHtml(msg.actor)} ${escHtml(msg.verb)}s ${escHtml(displayName(msg.node))}`);
+      pushFeed(`✦ ${scaleActLine(msg)}`);
       flashNode(msg.node, 0.8);
       if (selected?.name === msg.node) refreshPendingAct(msg.node, msg);
       break;

@@ -284,9 +284,13 @@ class TestCanonicalWorldBoundary:
         seeds = iter((73, 74))
         drained = []
         monkeypatch.setattr(guard, "canonical_seed", lambda: next(seeds))
+
+        def drain_hops(*, broadcaster, world_seed, broadcaster_batch):
+            assert broadcaster_batch is heartbeat._pump_broadcast_batch
+            drained.append(("hops", world_seed))
+
         monkeypatch.setattr(
-            staging, "drain_due_hops",
-            lambda *, broadcaster, world_seed: drained.append(("hops", world_seed)),
+            staging, "drain_due_hops", drain_hops,
         )
         monkeypatch.setattr(
             heartbeat, "drain_matured_verbs",

@@ -2,7 +2,7 @@
 // browser clients.
 import { describe, expect, it } from "vitest";
 import {
-  describeChronicleEntry, describeMutation, mutationLine,
+  describeChronicleEntry, describeMutation, mutationLine, scaleActLine, causalNoticeLine,
 } from "../mutations.js";
 
 // One fixture per event type the world records, plus the fallbacks: a
@@ -31,13 +31,13 @@ const FIXTURES = [
 
 describe("mutationLine", () => {
   it("narrates the two event kinds the old React copy dropped", () => {
-    expect(mutationLine(FIXTURES[6])).toBe("Ada chose to ward at Mire");
+    expect(mutationLine(FIXTURES[6])).toBe("A trace of ward attributed to Ada was recorded at Mire. Its source is unrecorded.");
     expect(mutationLine(FIXTURES[8]))
       .toBe("Tessera and Karst spoke at Mire");
   });
 
   it("falls back gracefully on missing actors, verbs, and speakers", () => {
-    expect(mutationLine(FIXTURES[7])).toBe("Ada chose to act at Mire");
+    expect(mutationLine(FIXTURES[7])).toBe("A trace of act attributed to Ada was recorded at Mire. Its source is unrecorded.");
     expect(mutationLine(FIXTURES[9]))
       .toBe("someone and someone spoke at Mire");
     expect(mutationLine(FIXTURES[17])).toBe("someone passed into Mire");
@@ -54,7 +54,38 @@ describe("mutationLine", () => {
     } };
     expect(mutationLine(landed)).toBe("Mire: The kindle finds this work already fulfilled. Nothing more changes.");
     expect(describeChronicleEntry(landed)).toBe(mutationLine(landed));
-    expect(mutationLine({ ...landed, data: { verb: "kindle" } })).toBe("something happened at Mire");
+    expect(mutationLine({ ...landed, data: { verb: "kindle" } })).toBe("A delayed kindle outcome was recorded at Mire. The exact original action is unrecorded.");
+  });
+});
+
+describe("M3 shared live/history narration", () => {
+  it.each(["accepted", "arrival", "outcome", "trace"])("preserves the authoritative %s projection across all surfaces", phase => {
+    const narration = { phase, text: `Recorded ${phase} from action #7 at Source [11].` };
+    const row = { type: "SCALE_ACT", player: "Unrelated live name", node: "Receiver-12", narration };
+    expect(mutationLine(row)).toBe(narration.text);
+    expect(describeChronicleEntry(row)).toBe(narration.text);
+    expect(describeMutation(row)).toContain(narration.text);
+    expect(scaleActLine({ ...row, actor: "Unrelated live name" })).toBe(narration.text);
+    expect(causalNoticeLine({ ...row, kind: "SCALE_ACT" })).toBe(narration.text);
+  });
+
+  it("does not narrate an origin pressure notice as another accepted act", () => {
+    expect(causalNoticeLine({ kind: "SCALE_ACT", action_notice: true })).toBeNull();
+  });
+
+  it.each(["actor", "agent"])("uses surviving %s labels on legacy ripples without repeating the verb", field => {
+    const row = { type: "SCALE_ACT", node: "Receiver-12", data: {
+      verb: "seed", _origin: "Source-11", [field]: "Ada" } };
+    expect(mutationLine(row)).toContain("A ripple from Ada's seed at Source reached Receiver");
+    expect(mutationLine(row)).not.toContain("chose");
+    expect(mutationLine(row)).toContain("exact original action is unrecorded");
+  });
+
+  it("keeps queued zero distinct from an immediate change", () => {
+    const message = { actor: "Ada", node: "Source-11", verb: "kindle", changed: null, matures_in: 0 };
+    expect(scaleActLine(message)).toContain("delayed outcome was accepted");
+    expect(scaleActLine({ ...message, changed: { kindled: true }, matures_in: null }))
+      .toContain("recorded change took effect");
   });
 });
 

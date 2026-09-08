@@ -158,6 +158,7 @@ def _apply_hop(row: dict, notifications: list, root: SpatialNode) -> str:
             strength=arrived,
             payload={**payload, "delivery": {"queue": "causal_queue", "id": row["id"]}})
         wire_world_handlers(CausalityBus(), seed).fire(node, event)
+        event.recorded_id = persistence.latest_event_id(kind.name)
         notifications.append((seed, node, event))
 
     if next_strength >= MIN_STRENGTH:
@@ -173,7 +174,7 @@ def _apply_hop(row: dict, notifications: list, root: SpatialNode) -> str:
 
 def drain_due_hops(limit: int = 64,
                    broadcaster: Broadcaster | None = None,
-                   world_seed: int | None = None) -> int:
+                   world_seed: int | None = None, *, broadcaster_batch=None) -> int:
     """Deliver a bounded candidate batch; each hop commits independently.
 
     Lost broadcasts do not retry committed effects. Reconnect/read APIs expose
@@ -189,4 +190,4 @@ def drain_due_hops(limit: int = 64,
     return deliver_due(
         "causal_queue", limit, world_seed,
         lambda row, notifications: _apply_hop(row, notifications, trees[row["world_seed"]]),
-        broadcaster, prepare=prepare)
+        broadcaster, prepare=prepare, notify_batch=broadcaster_batch)

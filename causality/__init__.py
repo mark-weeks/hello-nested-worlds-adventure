@@ -25,6 +25,8 @@ class CausalEvent:
     origin_level: str
     strength: float          # 0.0–1.0; attenuates with propagation depth
     payload: dict[str, Any] = field(default_factory=dict)
+    # Transient presentation reference, never part of the persisted payload.
+    recorded_id: int | None = None
 
     def dampen(self, factor: float) -> CausalEvent:
         """Return a copy with strength reduced by factor."""
@@ -217,4 +219,3 @@ def propagate(origin: SpatialNode, kind: EventKind,
               dampening: float = 0.5,
               direction: str = "both") -> CausalEvent:
     return _default.propagate(origin, kind, payload, dampening, direction)
-

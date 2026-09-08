@@ -44,6 +44,7 @@ from multiverse.utils import (
     apply_property_overrides, apply_ripple_scores, build_distance_map,
 )
 from server import guard, rooms as _rooms_module
+from server.history import narration_fields, broadcast_history_batch
 from server.rooms import (
     agent_enter, agent_leave, agent_move, agent_persona, broadcast, get_room,
 )
@@ -192,6 +193,7 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                 "type": "scale_act", "node": node.name, "level": node.level,
                 "verb": verb.name, "actor": agent_name,
                 **{key: value for key, value in result.items() if key != "flavor"},
+                **narration_fields(seed, result["event_id"]),
             })
             return f"{verb.name}ed {node.name}"
     return None
@@ -371,7 +373,11 @@ def pump_enabled() -> bool:
 
 
 def _pump_broadcaster(seed, node, event) -> None:
-    broadcast(get_room(seed), {
+    _pump_broadcast_batch([(seed, node, event)])
+
+
+def _pump_broadcast_batch(events) -> None:
+    broadcast_history_batch([(seed, {
         "type":     "causal_event",
         "node":     node.name,
         "level":    node.level,
@@ -379,7 +385,9 @@ def _pump_broadcaster(seed, node, event) -> None:
         "strength": round(event.strength, 4),
         "origin":   event.origin_id,
         "staged":   True,
-    })
+        "event_id": event.recorded_id,
+    }) for seed, node, event in events],
+        lambda seed, message: broadcast(get_room(seed), message))
 
 
 def drain_matured_verbs(limit: int = 32, world_seed: int | None = None) -> int:
@@ -391,8 +399,9 @@ def drain_matured_verbs(limit: int = 32, world_seed: int | None = None) -> int:
     it. Returns maturations landed.
     """
     return deliver_due(
-        "verb_maturation", limit, world_seed, _apply_maturation,
-        lambda seed, message: broadcast(get_room(seed), message))
+        "verb_maturation", limit, world_seed, _apply_maturation, None,
+        notify_batch=lambda messages: broadcast_history_batch(
+            messages, lambda seed, message: broadcast(get_room(seed), message)))
 
 
 def _apply_maturation(row, notifications):
@@ -424,6 +433,7 @@ def _apply_maturation(row, notifications):
             "verb": row["verb"], "actor": row["actor"] or "someone",
             "changed": changed, "matured": True, "outcome": outcome,
             "flavor": flavor, "work_id": row["id"],
+            "event_id": persistence.latest_event_id("SCALE_ACT_MATURED"),
         }))
         return outcome
     if not row["changed"]:
@@ -438,6 +448,8 @@ def _apply_maturation(row, notifications):
         "verb": row["verb"],
         "actor": row["actor"] or "the slow work of someone",
         "changed": row["changed"], "matured": True,
+        "work_id": row["id"],
+        "event_id": persistence.latest_event_id("SCALE_ACT_MATURED"),
         "flavor": (f"The {row['verb']} planted here settles at last — "
                    "the change arrives."),
     }))
@@ -454,7 +466,8 @@ def run_pump_loop(stop: threading.Event) -> None:
         hosted_seed = guard.canonical_seed()
         try:
             staging.drain_due_hops(broadcaster=_pump_broadcaster,
-                                   world_seed=hosted_seed)
+                                   world_seed=hosted_seed,
+                                   broadcaster_batch=_pump_broadcast_batch)
         except Exception:  # noqa: BLE001 — cascades must keep traveling
             _log.exception("causal pump tick failed; continuing")
         try:

@@ -4,7 +4,7 @@ import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
 import { withKey, urlName, betaKey } from "./auth.js";
 import { entryPath, findNodeByName, resumeDepth } from "./entry.js";
-import { describeMutation } from "./mutations.js";
+import { describeMutation, scaleActLine, causalNoticeLine } from "./mutations.js";
 import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
 import { displayName } from "./names.js";
 import { createNodeRefresher } from "./nodeRefresh.js";
@@ -250,7 +250,8 @@ export default function App() {
     // stored nowhere — surface the world's line so it doesn't silently vanish.
     onChatDeclined: (msg) => pushEvent({ type: "system", text: `✕ ${msg.text}` }),
     onCausalEvent:  (msg) => {
-      pushEvent({ type: "causal", kind: msg.kind, node: msg.node, strength: msg.strength });
+      const text = causalNoticeLine(msg);
+      if (text) pushEvent({ type: "causal", text, kind: msg.kind, node: msg.node, strength: msg.strength });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "ripple", strength: msg.strength ?? 1.0,
                         eventKind: msg.kind, duration: 1500 });
@@ -284,9 +285,7 @@ export default function App() {
     },
     onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${displayName(msg.node)}` }),
     onScaleAct: (msg) => {
-      pushEvent({ type: "system", text: msg.matured && msg.outcome
-        ? `✦ ${displayName(msg.node)} — ${msg.flavor}`
-        : `✦ ${msg.actor} ${msg.verb}s ${displayName(msg.node)}${msg.flavor ? ` — ${msg.flavor}` : ""}` });
+      pushEvent({ type: "system", text: `✦ ${scaleActLine(msg)}` });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "ripple", strength: 0.8,
                         eventKind: "SCALE_ACT", duration: 1500 });

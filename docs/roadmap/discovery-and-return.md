@@ -68,13 +68,18 @@ a renderer rewrite, an unrestricted agent platform, or a new world generator.
 
 Implementation evidence as of 2026-09-08: M1 merged in PR #94 at
 `09317c35c5d07beafe2bbe93b9233fd2fba9a8bf`; see its
-[recovery evaluation](../evaluation/2026-09-08-m1-delivery.md). The bounded M2
-implementation under review adopts only the existing delayed verbs' contribution,
+[recovery evaluation](../evaluation/2026-09-08-m1-delivery.md). M2 merged in PR #95 at
+`de45e98d4e4a3579e7eeb88df8fa290f8a5636a3`. Its bounded implementation
+adopts only the existing delayed verbs' contribution,
 shared-flag and explicit no-op policies in
 [ADR-020](../decisions/ADR-020-m2-delayed-actions.md), with
 [endpoint/browser evidence](../evaluation/2026-09-08-m2-choices.md).
 Exclusive interventions remain a future M0/M5 contract; there is no current
 exclusive delayed verb and no situation engine in M2. ADR-013 remains Proposed.
+These are repository merges, not deployment evidence. The bounded M3 correction
+is prepared for review with an [evidence-bound narration policy](../decisions/ADR-021-m3-history-narration.md)
+and [endpoint/browser evidence](../evaluation/2026-09-08-m3-history.md); it changes
+existing presentation and read projections, not historical facts or delivery semantics.
 
 ## First-situation review checklist
 

@@ -220,7 +220,7 @@ function EventRow({ ev }) {
   if (ev.type === "chat")
     return <div style={er.chat}><span style={er.name}>{ev.name}</span> {ev.text}</div>;
   if (ev.type === "causal")
-    return <div style={er.causal}>{causalFeedLine(ev.kind, ev.node, ev.strength)}</div>;
+    return <div style={er.causal}>{ev.text || causalFeedLine(ev.kind, ev.node, ev.strength)}</div>;
   if (ev.type === "puzzle")
     return <div style={er.puzzle}>{ev.text}</div>;
   if (ev.type === "history")

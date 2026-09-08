@@ -10,7 +10,7 @@ from causality.wiring import record_origin_event, record_verb_act, wire_world_ha
 from multiverse import store
 
 
-def deliver_due(queue, limit, world_seed, apply, notify, *, prepare=None):
+def deliver_due(queue, limit, world_seed, apply, notify, *, prepare=None, notify_batch=None):
     """Deliver each candidate independently; notify only after its commit.
 
     apply(row, notifications) returns a terminal outcome and collects callback
@@ -18,6 +18,7 @@ def deliver_due(queue, limit, world_seed, apply, notify, *, prepare=None):
     never turn committed work into a retry.
     """
     delivered = 0
+    committed_notifications = []
     for work_id in persistence.due_work(queue, limit, world_seed):
         notifications = []
         committed = persistence.deliver_work(
@@ -25,13 +26,20 @@ def deliver_due(queue, limit, world_seed, apply, notify, *, prepare=None):
             prepare=prepare or (lambda row: store.ensure_born(row["world_seed"])))
         if committed:
             delivered += len(notifications)
-            if notify is not None:
+            if notify_batch is not None:
+                committed_notifications.extend(notifications)
+            elif notify is not None:
                 for args in notifications:
                     try:
                         notify(*args)
                     except Exception:
                         logging.getLogger(__name__).exception(
                             "committed delivery %s:%s broadcast failed", queue, work_id)
+    if notify_batch is not None and committed_notifications:
+        try:
+            notify_batch(committed_notifications)
+        except Exception:
+            logging.getLogger(__name__).exception("committed %s notification batch failed", queue)
     return delivered
 
 

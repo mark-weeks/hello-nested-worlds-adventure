@@ -1285,17 +1285,21 @@ class Handler(BaseHTTPRequestHandler):
             player_name=player_name, actor_identity=_actor_identity(user_key, player_name),
             maturation_actor=player_name)
         if result["action_status"] == "accepted":
+            from server.history import narration_fields
+            narration = narration_fields(seed, result["event_id"])
             room = get_room(seed)
             broadcast(room, {
                 "type": "scale_act", "node": target.name, "level": target.level,
                 "verb": verb.name, "actor": player_name or "someone",
                 **{key: value for key, value in result.items() if key != "flavor"},
+                **narration,
             })
             broadcast(room, {
                 "type": "causal_event", "node": target.name,
                 "level": target.level, "kind": "SCALE_ACT",
                 "strength": causality.ORIGIN_STRENGTH, "depth": 0,
                 "origin": target.name,
+                "action_notice": True,
             })
         self._send_json({"verb": verb.name, "level": target.level,
                          "node": target.name, **result})
