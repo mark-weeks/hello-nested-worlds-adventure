@@ -218,6 +218,10 @@ The freeze was protecting real covenants, and they survive it:
   triggering at first, how a rename records lineage) — the store makes
   these *possible*; nothing ships until the grammar is decided. New
   chronicle write paths remain one-way doors under the merge gate.
+  **2026-09-07: trigger active.**
+  [ADR-013](ADR-013-versioned-situations-and-delivery.md) proposes a bounded
+  situation/evolution grammar for existing places; it remains pending review
+  and ratification. Renames and frontier growth remain outside that proposal.
 - **The generator's content or rules change meaningfully** → bump
   `GENERATOR_VERSION` (`multiverse/store.py`) and consciously re-pin the
   golden digests: they now describe what NEW worlds are born as, and a

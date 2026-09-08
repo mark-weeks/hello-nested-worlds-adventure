@@ -101,8 +101,13 @@ ring per **hop delay (default 12s, `NESTED_WORLDS_HOP_DELAY`)**, each arrival
 broadcast live as it lands. Solve in a Room and watch the Region settle ~12s
 later in the feed, then the Planet, then the Galaxy — a consequence rippling
 outward over a minute rather than blinking everywhere at once
-(`causality/staging.py`; CHANGELOG "Consequences travel at world speed"). A
-restart delays a ripple, never loses it.
+(`causality/staging.py`; CHANGELOG "Consequences travel at world speed"). Pending
+hops survive a restart while they remain queued, but the
+[assessment](../evaluation/2026-09-07-concept-and-implementation.md) reproduced
+a loss window after work is claimed and before its effect is applied. Recovery
+across that window is the first engineering milestone in the
+[discovery-and-return plan](../roadmap/discovery-and-return.md); it is not yet a
+delivery guarantee.
 
 **5. Stand still and watch the world move without you.** *(keyless)*
 Leave the tab open. Within a few minutes a named wanderer — **Tessera, Halden,
