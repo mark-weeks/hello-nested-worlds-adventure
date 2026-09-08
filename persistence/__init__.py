@@ -363,16 +363,47 @@ def enqueue_causal_hop(world_seed: int, node_name: str, kind: str,
 def enqueue_verb_maturation(world_seed: int, node_name: str, verb: str,
                             changed: dict, actor: str | None,
                             delay_seconds: float, *,
-                            source_event_id: int | None = None) -> int:
-    """Plant the legacy absolute patch, without reinterpreting contributions."""
+                            source_event_id: int | None = None,
+                            operation: dict | None = None,
+                            actor_identity: str | None = None) -> int:
+    """Default to a v1 absolute patch; an explicit operation selects v2."""
     with _connection() as conn:
         cur = conn.execute(
             """INSERT INTO verb_maturation
-               (world_seed, node_name, verb, changed, actor, due_at, source_event_id)
-               VALUES (?, ?, ?, ?, ?, datetime('now', ?), ?)""",
+               (world_seed, node_name, verb, changed, actor, due_at, source_event_id,
+                semantics_version, operation, actor_identity)
+               VALUES (?, ?, ?, ?, ?, datetime('now', ?), ?, ?, ?, ?)""",
             (world_seed, node_name, verb, json.dumps(changed), actor,
-             f"+{int(delay_seconds)} seconds", source_event_id))
+             f"+{int(delay_seconds)} seconds", source_event_id,
+             1 if operation is None else 2,
+             None if operation is None else json.dumps(operation), actor_identity))
         return cur.lastrowid
+
+
+@_with_db
+def pending_verb_work(world_seed: int, node_name: str, verb: str) -> list[dict]:
+    """Read this verb's pending v2 work for the locked coalescing decision."""
+    with _connection() as conn:
+        cur = conn.execute(
+            """SELECT * FROM verb_maturation WHERE world_seed = ? AND node_name = ?
+                AND verb = ? AND status = 'pending' AND semantics_version = 2
+                ORDER BY due_at, id""", (world_seed, node_name, verb))
+        return [dict(zip([c[0] for c in cur.description], row)) for row in cur.fetchall()]
+
+
+@_with_db
+def pending_verb_summaries(world_seed: int) -> dict[str, list[dict]]:
+    """Bound public output by node/verb/version, not number of contributors."""
+    with _connection() as conn:
+        rows = conn.execute(
+            """SELECT node_name, verb, semantics_version, COUNT(*), MIN(due_at)
+                FROM verb_maturation WHERE world_seed = ? AND status = 'pending'
+                GROUP BY node_name, verb, semantics_version""", (world_seed,)).fetchall()
+    result = {}
+    for node, verb, version, count, due in rows:
+        result.setdefault(node, []).append({"verb": verb, "semantics_version": version,
+                                          "count": count, "due_at": due})
+    return result
 
 
 @_with_db
@@ -429,12 +460,15 @@ def deliver_work(queue: str, work_id: int, apply: Callable[[dict], str], *,
                 (work_id,)).fetchone()
             if not eligible:
                 return False
-            if row["semantics_version"] != 1:
+            supported = (1, 2) if queue == "verb_maturation" else (1,)
+            if row["semantics_version"] not in supported:
                 raise ValueError("unsupported delivery semantics version")
             field = "payload" if queue == "causal_queue" else "changed"
             row[field] = json.loads(row[field]) if row[field] else {}
             if not isinstance(row[field], dict):
                 raise ValueError(f"delivery {field} must be a JSON object")
+            if row["semantics_version"] == 2:
+                row["operation"] = json.loads(row["operation"])
             outcome = apply(row)
             conn.execute(
                 f"""UPDATE {queue} SET status = 'completed', outcome = ?,

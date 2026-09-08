@@ -273,11 +273,13 @@ export default function App() {
     },
     onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${displayName(msg.node)}` }),
     onScaleAct: (msg) => {
-      pushEvent({ type: "system", text: `✦ ${msg.actor} ${msg.verb}s ${displayName(msg.node)} — ${msg.flavor}` });
+      pushEvent({ type: "system", text: msg.matured && msg.outcome
+        ? `✦ ${displayName(msg.node)} — ${msg.flavor}`
+        : `✦ ${msg.actor} ${msg.verb}s ${displayName(msg.node)} — ${msg.flavor}` });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "ripple", strength: 0.8,
                         eventKind: "SCALE_ACT", duration: 1500 });
-        if (msg.changed) refreshCurrentNode();
+        refreshCurrentNode();
       }
     },
     onAgentTalk: (msg) => {

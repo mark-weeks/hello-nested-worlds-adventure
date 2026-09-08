@@ -483,7 +483,7 @@ def test_effect_and_continuation_exception_commit_together(monkeypatch):
     assert drain_due_hops(limit=1) == 1
 
 
-def test_overlapping_http_acts_keep_two_legacy_absolute_outcomes(monkeypatch):
+def test_overlapping_http_acts_land_two_current_state_contributions(monkeypatch):
     import json
     import threading
     import urllib.request
@@ -508,10 +508,13 @@ def test_overlapping_http_acts_keep_two_legacy_absolute_outcomes(monkeypatch):
         with ThreadPoolExecutor(max_workers=2) as pool:
             replies = list(pool.map(post, ("Ada", "Bea")))
         assert replies[0]["changed"] == replies[1]["changed"]
+        assert replies[0]["changed"] is None
+        assert replies[0]["work"]["id"] != replies[1]["work"]["id"]
         assert persistence.pending_verb_maturations(382) == 2
         assert galaxy.name not in persistence.load_node_property_overrides(382)
         assert heartbeat.drain_matured_verbs() == 2
-        assert persistence.load_node_property_overrides(382)[galaxy.name] == replies[0]["changed"]
+        expected = {"star_density": 459, "kindled": True}
+        assert persistence.load_node_property_overrides(382)[galaxy.name] == expected
         assert len(persistence.get_substance_deltas(382, galaxy.name)) == 2
         # A fresh request sees the committed outcome despite missing broadcasts.
         with urllib.request.urlopen(
@@ -520,7 +523,7 @@ def test_overlapping_http_acts_keep_two_legacy_absolute_outcomes(monkeypatch):
             world = json.load(response)
         served = world["world"]["children"][0]["children"][0]
         assert served["name"] == galaxy.name
-        for key, value in replies[0]["changed"].items():
+        for key, value in expected.items():
             assert served["properties"][key] == value
     finally:
         server.shutdown()

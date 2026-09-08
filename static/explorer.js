@@ -433,11 +433,13 @@ function refreshActPanel(data) {
   btn.disabled = false;
   btn.textContent = verb.name[0].toUpperCase() + verb.name.slice(1) +
                     ' this ' + data.level;
-  tagline.textContent = verb.tagline;
+  tagline.textContent = verb.tagline + (data.pending_actions || []).map(p =>
+    ` ${p.count} ${p.verb} ${p.count === 1 ? 'change is' : 'changes are'} still traveling.`).join('');
 }
 
 async function doAct() {
   if (!selected || !selected.verb) return;
+  const target = selected;
   const resp = document.getElementById('act-response');
   resp.textContent = '…';
   try {
@@ -446,12 +448,17 @@ async function doAct() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         seed: worldParams.seed, depth: worldParams.depth,
-        node_name: selected.name, verb: selected.verb.name,
+        node_name: target.name, verb: target.verb.name,
         player_name: playerName || undefined,
       }),
     });
     const data = await res.json();
+    if (selected?.name !== target.name) return;
     if (data.error) { resp.textContent = data.error; return; }
+    if (data.matures_in != null || data.action_status === 'noop') {
+      await refreshPendingAct(target.name, data.flavor);
+    }
+    if (selected?.name !== target.name) return;
     if (data.changed && data.matures_in == null) {
       // The world changed under us: fold the delta into the selected node
       // so the panel and the sigil show the act immediately. (selectNode
@@ -465,6 +472,24 @@ async function doAct() {
   } catch (e) {
     resp.textContent = 'The act fizzles: ' + e.message;
   }
+}
+
+async function refreshPendingAct(name, flavor) {
+  // Pending/shared/no-op state is authoritative on read, including after a
+  // missed notification. Keep private queue inputs out of the client.
+  try {
+    const response = await fetch(withKey(`/world?depth=${worldParams.depth}`));
+    const data = await response.json();
+    const find = node => node.name === name ? node :
+      (node.children || []).map(find).find(Boolean);
+    const current = data.world && find(data.world);
+    if (current && selected?.name === name) {
+      selected.pending_actions = current.pending_actions;
+      selected.properties = current.properties;
+      selectNode(selected);
+      document.getElementById('act-response').textContent = flavor || '';
+    }
+  } catch (_) { /* A later reload recovers the committed result. */ }
 }
 
 // ── World chronicle ─────────────────────────────────────────────────────────
@@ -1212,12 +1237,17 @@ function handleWsMsg(msg) {
       break;
     }
     case 'scale_act': {
-      pushFeed(`✦ ${escHtml(msg.actor)} ${escHtml(msg.verb)}s ${escHtml(displayName(msg.node))}`);
+      pushFeed(msg.matured && msg.outcome
+        ? `✦ ${escHtml(displayName(msg.node))} — ${escHtml(msg.flavor)}`
+        : `✦ ${escHtml(msg.actor)} ${escHtml(msg.verb)}s ${escHtml(displayName(msg.node))}`);
       flashNode(msg.node, 0.8);
       // Someone changed a place we may be looking at: fold in the delta.
       if (selected && selected.name === msg.node && msg.changed) {
         Object.assign(selected.properties, msg.changed);
         selectNode(selected);
+      }
+      if (selected?.name === msg.node && (msg.matured || msg.matures_in != null)) {
+        refreshPendingAct(msg.node, msg.flavor);
       }
       break;
     }

@@ -142,7 +142,7 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
     causal rails with agent attribution. Returns a summary string or None.
     """
     from multiverse.utils import find_node
-    from multiverse.verbs import apply_verb, verb_for_level
+    from multiverse.verbs import verb_for_level
 
     if rng.random() > 0.6 or not visited_names:
         return None
@@ -175,7 +175,6 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
         return f"destabilized {min(2, len(nodes))} node(s)"
 
     if persona_name in ("tender", "scholar"):
-        from multiverse.verbs import maturation_note, maturation_seconds
         allowed = None if persona_name == "tender" else (
             "inscribe", "observe", "calibrate")
         for node in nodes:
@@ -183,27 +182,15 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
             if verb is None or (allowed and verb.name not in allowed):
                 continue
             token = f"{agent_name}:{node.name}"
-            base_props = dict(node.properties)
-            changed, flavor = apply_verb(node, verb, token=token)
-            if not changed:
-                continue
-            # Deep time binds the cast too: a cosmic verb an agent
-            # performs is planted, not instant — the same clock players
-            # live under.
-            matures = maturation_seconds(node.level)
             act_payload = {"verb": verb.name, **payload}
-            changed, _staged = accept_verb(
-                seed, node, verb, token, base_props, changed, matures,
-                act_payload, act_payload, actor_identity=agent_name,
-                maturation_actor=agent_name)
-            if matures > 0:
-                flavor += maturation_note(matures)
+            result, _staged = accept_verb(
+                seed, node, verb, token, act_payload, act_payload,
+                actor_identity=agent_name, maturation_actor=agent_name)
+            if result["action_status"] != "accepted":
+                continue
             broadcast(room, {
                 "type": "scale_act", "node": node.name, "level": node.level,
-                "verb": verb.name, "actor": agent_name,
-                "changed": None if matures > 0 else changed,
-                "matures_in": int(matures) if matures > 0 else None,
-                "flavor": flavor,
+                "verb": verb.name, "actor": agent_name, **result,
             })
             return f"{verb.name}ed {node.name}"
     return None
@@ -412,6 +399,32 @@ def _apply_maturation(row, notifications):
     resolved = store.resolve_node_by_name(seed, node_name)
     if resolved is None:
         return "missing_node"
+    if row["semantics_version"] == 2:
+        from multiverse import delayed_v2
+        current = persistence.json_merge_patch(
+            resolved.properties, persistence.load_node_property_override(seed, node_name))
+        changed, outcome = delayed_v2.apply(
+            row["verb"], resolved.level, current, row["operation"])
+        flavor = delayed_v2.outcome_flavor(row["verb"], outcome)
+        data = {"verb": row["verb"], "changed": changed, "outcome": outcome,
+                "flavor": flavor, "semantics_version": 2,
+                "source_event_id": row["source_event_id"],
+                "delivery": {"queue": "verb_maturation", "id": row["id"]}}
+        if changed:
+            persistence.record_substance_change(
+                seed, node_name, "SCALE_ACT_MATURED", row["actor"], data, changed,
+                actor_identity=row["actor_identity"])
+        else:
+            persistence.record_mutation(
+                seed, node_name, "SCALE_ACT_MATURED", row["actor"], data,
+                actor_identity=row["actor_identity"])
+        notifications.append((seed, {
+            "type": "scale_act", "node": node_name, "level": resolved.level,
+            "verb": row["verb"], "actor": row["actor"] or "someone",
+            "changed": changed, "matured": True, "outcome": outcome,
+            "flavor": flavor, "work_id": row["id"],
+        }))
+        return outcome
     if not row["changed"]:
         return "empty_patch"
     persistence.record_substance_change(

@@ -130,17 +130,17 @@ class TestFavoredVerb:
         # A Room (inscribe) and a Region (ward) both just visited: without
         # the bias the sample order decides; The Locksmith's sheet puts the
         # Room first every time.
-        root = SpatialNode("Plot-1", "Planet", properties={})
-        room = SpatialNode("Cell-11", "Room", properties={})
-        wild = SpatialNode("Wild-12", "Region", properties={"danger_level": 3})
-        root.add_child(room)
-        root.add_child(wild)
+        from multiverse import store
+        root = store.world_tree(902)
+        wild = root.children[0].children[0].children[0].children[0].children[0]
+        room = wild.children[0]
+        assert wild.level == "Region" and room.level == "Room"
         acts = set()
         for i in range(12):
             act = heartbeat._persona_act(
                 seed=902, room=get_room(902), root=root,
                 agent_name="The Locksmith", persona_name="tender",
-                visited_names=["Cell-11", "Wild-12"],
+                visited_names=[room.name, wild.name],
                 rng=random.Random(i))
             if act is not None:
                 acts.add(act.split()[0])

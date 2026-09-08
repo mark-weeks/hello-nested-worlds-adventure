@@ -46,6 +46,16 @@ describe("mutationLine", () => {
   it("never renders an unknown event type as broken text", () => {
     expect(mutationLine(FIXTURES[16])).toBe("something happened at Mire");
   });
+
+  it("explains M2 terminal no-ops from durable history without inventing a material success", () => {
+    const landed = { type: "SCALE_ACT_MATURED", node: "Mire-112", data: {
+      semantics_version: 2, outcome: "already_satisfied",
+      flavor: "The kindle finds this work already fulfilled. Nothing more changes.",
+    } };
+    expect(mutationLine(landed)).toBe("Mire: The kindle finds this work already fulfilled. Nothing more changes.");
+    expect(describeChronicleEntry(landed)).toBe(mutationLine(landed));
+    expect(mutationLine({ ...landed, data: { verb: "kindle" } })).toBe("something happened at Mire");
+  });
 });
 
 describe("describeMutation", () => {

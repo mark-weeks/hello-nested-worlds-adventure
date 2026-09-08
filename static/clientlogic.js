@@ -195,6 +195,8 @@
       case "AGENT_VISIT": return `${who} passed through ${place}`;
       case "DANGER_ALERT": return `danger stirred at ${place}`;
       case "SCALE_ACT": return `${who} chose to ${data.verb || "act"} at ${place}`;
+      case "SCALE_ACT_MATURED": return data.semantics_version === 2 && data.flavor
+        ? `${place}: ${data.flavor}` : `something happened at ${place}`;
       case "AGENT_TALK": return `${data.a || "someone"} and ${data.b || "someone"} spoke at ${place}`;
       case "AGENT_VOICE": return `${who} spoke with ${data.agent || "a wanderer"} at ${place}`;
       case "PLAYER_JOIN": return `${who} arrived in the world`;

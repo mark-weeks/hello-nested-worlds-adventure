@@ -71,7 +71,7 @@ function Act({ node, seed, depth, playerName, onChanged }) {
       else {
         setFlavor(data.flavor || "");
         setChanged(data.changed);
-        if (data.changed && !data.matures_in) onChanged?.();
+        onChanged?.(); // Reload pending/shared/no-op state as well as immediate deltas.
       }
     } catch (e) {
       setError("Network error: " + e.message);
@@ -83,6 +83,11 @@ function Act({ node, seed, depth, playerName, onChanged }) {
   return (
     <div style={s.panel}>
       <div style={s.hint}>{verb.tagline}</div>
+      {node.pending_actions?.map(pending => (
+        <div style={s.hint} key={`${pending.verb}-${pending.semantics_version}`}>
+          {pending.count} {pending.verb} {pending.count === 1 ? "change is" : "changes are"} still traveling.
+        </div>
+      ))}
       <button style={s.btn} onClick={act} disabled={busy}>
         {busy ? "…" : `${verb.name[0].toUpperCase() + verb.name.slice(1)} this ${node.level}`}
       </button>

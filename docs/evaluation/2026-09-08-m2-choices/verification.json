@@ -1,0 +1,30 @@
+{
+  "baseline": "09317c35c5d07beafe2bbe93b9233fd2fba9a8bf",
+  "command": "ENFOLDED_E2E=1 ./scripts/check.sh",
+  "python_version": "3.11.15",
+  "node_version": "20.19.0",
+  "ruff": "passed",
+  "python": {
+    "passed": 988,
+    "seconds": 106.38
+  },
+  "vitest": {
+    "files": 9,
+    "passed": 96
+  },
+  "frontend_build": "passed; committed bundle byte-fresh",
+  "installed_wheel_smoke": "passed",
+  "playwright": {
+    "passed": 24,
+    "reported_duration": "1.4m"
+  },
+  "focused_recovery_checkpoint": {
+    "passed": 80,
+    "m1_regressions": 47,
+    "m2_regressions": 33,
+    "seconds": 25.84
+  },
+  "diff_whitespace": "passed",
+  "local_documentation_links": 18,
+  "data_scope": "disposable databases only; no deployment, production restore, merge or auto-merge"
+}
