@@ -27,8 +27,9 @@ one compelling first session and one meaningful return to the same world, with
 a private journal, a player-controlled public identity, and planned contribution
 leaderboards across multiple dimensions with human/agent opportunity controls.
 It also records occasional referential puzzles and optional spoken interaction
-as separate planned tracks. These are decisions and staged recommendations, not shipped
-capabilities; the existing implementation is described below.
+as separate planned tracks, plus a proposed collection and assembly experiment.
+These are decisions and staged recommendations, not shipped capabilities; the
+existing implementation is described below.
 
 ---
 

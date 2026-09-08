@@ -41,6 +41,10 @@ outcome/evidence contracts exist. Add Discovery when meaningful findings can be
 verified fairly; Follow-through and Ingenuity need their own evaluators. These
 are proposed dimensions, not five engines to build before the first pilot.
 
+If the collection proposal in [ADR-018](ADR-018-collectibles-and-inventory.md)
+proceeds, recognize verified project outcomes under these same rules. Inventory
+size, item rarity, repeated harvesting, and collect/craft loops earn no credit.
+
 ### Relevant scope and time
 
 Show nearby/situation or regional standings first, with a world-wide view by

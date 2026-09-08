@@ -8,9 +8,9 @@ The next milestone is a compelling discovery-and-return experience in the same
 shared world, with a private journal and a separate public identity. The
 [delivery plan](../roadmap/discovery-and-return.md) sequences that work and
 records the distinction between accepted direction, proposed contracts, and
-candidate extensions. ADR-012 through ADR-017 cover discovery, continuity,
+candidate extensions. ADR-012 through ADR-018 cover discovery, continuity,
 identity, referential puzzles, optional spoken interaction, and multidimensional
-contribution leaderboards.
+contribution leaderboards, plus a proposed collection and assembly direction.
 
 The mechanics below describe the existing implementation unless labeled planned.
 The first situation and new identity/speech capabilities are not shipped.
@@ -121,7 +121,7 @@ The original Myst suffered from unclear navigation and opaque objectives. Four d
 4. **Hotspot affordance** — interactive elements have a consistent subtle visual treatment (parallax depth, material quality) that players learn to read over time. *Implemented (in-scene v1)*: each hotspot in `frontend/src/components/SceneView.jsx` renders as a layered plate — soft cast shadow underneath, dark surface, single-pixel top-edge highlight (suggesting light from above), and an outlined border that brightens on hover while the shadow tightens, reading as a gentle press. The treatment is shared across every child level so the affordance generalizes.
 
 
-## Planned identity, puzzles, and speech
+## Planned capabilities and collection proposal
 
 - [ADR-014](../decisions/ADR-014-player-identity-and-journal.md): private journal
   plus selective public bio/goals, home bookmark, and chosen avatar. Badges,
@@ -136,3 +136,8 @@ The original Myst suffered from unclear navigation and opaque objectives. Four d
   contribution standings with comparable scoring opportunities for humans and
   eligible agents. Begin with Stewardship and Cooperation after their evidence
   exists; no flat engagement total or scoring of simulated agent puzzle solves.
+- [ADR-018](../decisions/ADR-018-collectibles-and-inventory.md): proposed keepsakes,
+  components from different scales, and assembled artifacts with useful abilities.
+  Review one small assembly within the first mystery before adding inventory to
+  its scope. Travel abilities need a distinct benefit beyond existing jumps and
+  explicit movement rules; a broader crafting economy remains deferred.

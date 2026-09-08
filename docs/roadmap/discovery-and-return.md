@@ -28,6 +28,7 @@ identity, append-only historical facts, and additive change.
 | [ADR-015: referential puzzles](../decisions/ADR-015-referential-puzzles.md) | Owner-requested content direction: occasional relevant fictional/nonfictional references. No live bank allocation or active answer change is approved by this plan. |
 | [ADR-016: optional spoken interaction](../decisions/ADR-016-optional-spoken-interaction.md) | Owner-requested capability direction: speech input and playback alongside text. The staged interaction is recommended; vendor, budget, and support choices need evidence. |
 | [ADR-017: multidimensional leaderboards](../decisions/ADR-017-multidimensional-leaderboards.md) | Owner-requested recognition direction: multiple contribution dimensions with humans and agents able to rank highly. Dimensions, caps, roster admission, and scoring windows are recommended experiments; a mixed result is a goal, not a hidden ranking quota. |
+| [ADR-018: collectibles and inventory](../decisions/ADR-018-collectibles-and-inventory.md) | Exploratory proposal in response to the owner's collection idea: keepsakes, cross-scale components, and useful assembled artifacts. One small assembly is a candidate for M0 review, not an accepted M5 requirement; hyperleaping and shared projects are later candidates. |
 
 The owner sets product direction; development-team review covers implementation
 and persistent contracts. Each implementing PR must identify its applicable
@@ -75,6 +76,14 @@ Before implementing its permanent transitions, specify:
   question whose timing is a hypothesis to test.
 - What changes for a returning participant and a first-time late arrival;
   neither needs a private reset or a false first-solver claim.
+
+ADR-018 proposes a collection variation to review here: three discoveries from
+different scales assemble into one instrument that helps explain and affect the
+situation. Compare it with the simpler experience before adding it to M5. If it
+does not strengthen the mystery, defer it until after M7. Specify item ownership,
+late-entrant access, recipe continuity, and the artifact's actual benefit if chosen.
+This does not move a general inventory/crafting engine ahead of M1 or add a pilot
+gate. Travel abilities follow evidence of friction and review of existing jumps.
 
 ## Identity stages
 

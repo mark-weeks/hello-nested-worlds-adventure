@@ -74,6 +74,11 @@ as keys. Expose an opaque public profile identifier rather than invite credentia
 or authentication-derived identifiers. The implementation must preserve history
 when names or profile fields change and test authorization across two accounts.
 
+[ADR-018](ADR-018-collectibles-and-inventory.md) proposes a separate collection
+of keepsakes and usable items, with optional selected profile display. A private
+journal entry or published item image grants no inventory ownership or ability.
+The collection proposal does not change the home bookmark's access contract.
+
 ### Recognition, disposition, and relationships
 
 Badge criteria should identify a contribution and its effect, not reward repeated
