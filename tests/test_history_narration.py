@@ -186,7 +186,8 @@ def test_legacy_partial_evidence_never_fabricates_actor_or_unique_name(data, pha
     assert n["source_event_id"] is None
     assert "[12]" in n["text"] and "private-credential" not in n["text"]
     if phase in ("arrival", "trace"):
-        assert "unrecorded" in n["text"] and "chose" not in n["text"]
+        assert "chose" not in n["text"]
+        assert ("unrecorded" if phase == "arrival" else "No material change is recorded.") in n["text"]
     if origin and phase == "arrival":
         assert "[11]" in n["text"]  # equal display names retain distinct canonical addresses
     assert snapshot() == before
@@ -269,13 +270,15 @@ def test_failed_post_commit_projection_keeps_acceptance_and_delivery(client):
     assert client.get("/history")["mutations"][0]["narration"]["source_event_id"] == result["event_id"]
 
 
-def test_live_batch_resolves_once_and_send_failure_does_not_replay(client):
+def test_live_batches_bound_projection_and_send_failure_does_not_replay(client):
     for name in ("Ada", "Bea", "Cy"):
         client.post(client.node("Galaxy"), name)
-    with patch.object(persistence, "presented_mutations", wraps=persistence.presented_mutations) as project:
+    with patch.object(persistence, "presented_mutations", wraps=persistence.presented_mutations) as project, \
+            patch("causality.delivery.monotonic", return_value=0):
         drain_due_hops(64, world_seed=SEED, broadcaster_batch=heartbeat._pump_broadcast_batch)
-        assert project.call_count == 1
-        assert len(project.call_args.args[1]) > 3
+        sizes = [len(call.args[1]) for call in project.call_args_list]
+        assert sum(sizes) > 3
+        assert sizes == [8] * (sum(sizes) // 8) + ([sum(sizes) % 8] if sum(sizes) % 8 else [])
     calls = []
 
     def broken(room, message):
@@ -284,7 +287,8 @@ def test_live_batch_resolves_once_and_send_failure_does_not_replay(client):
             raise OSError("lost first send")
 
     with patch("server.heartbeat.broadcast", side_effect=broken), \
-            patch.object(persistence, "presented_mutations", wraps=persistence.presented_mutations) as project:
+            patch.object(persistence, "presented_mutations", wraps=persistence.presented_mutations) as project, \
+            patch("causality.delivery.monotonic", return_value=0):
         assert land() == 3
         assert project.call_count == 1
     assert len(calls) == 3
@@ -298,7 +302,131 @@ def test_malformed_legacy_metadata_keeps_history_readable(data):
     persistence.record_mutation(SEED, "Receiver-12", "SCALE_ACT", None, data)
     n = persistence.get_mutations(SEED)[0]["narration"]
     assert n["actor_label"] is None and n["origin"] is None
-    assert "unrecorded" in n["text"]
+    assert ("unrecorded" if n["phase"] == "arrival" else "No material change is recorded.") in n["text"]
+
+
+def test_legacy_first_hand_trace_reports_missing_change_in_reads_and_speech():
+    persistence.record_mutation(SEED, "Mire-112", "SCALE_ACT", "Ada", {"verb": "ward"})
+    rows = [persistence.get_node_history(SEED, "Mire-112")[0],
+            persistence.get_chronicle(SEED)["entries"][0]]
+    for row in rows:
+        text = row["narration"]["text"]
+        assert text == "A trace of ward attributed to Ada was recorded at Mire [112]. No material change is recorded."
+        assert text in consciousness._history_block([row])
+
+
+def test_count_style_history_read_is_one_query_and_keeps_bounded_window():
+    with persistence.transaction():
+        for index in range(1005):
+            persistence.record_mutation(SEED, "Mire-112", "SCALE_ACT", "Ada", {"verb": "ward", "index": index})
+    original_connect = persistence._connect
+    queries = []
+
+    @contextmanager
+    def traced():
+        with original_connect() as conn:
+            conn.set_trace_callback(queries.append)
+            yield conn
+
+    with patch.object(persistence, "_connect", traced), \
+            patch("persistence.history.project", side_effect=AssertionError("unused narration")):
+        rows = persistence.get_node_history(SEED, "Mire-112", 1000, include_narration=False)
+    assert len(rows) == 1000
+    assert rows[0]["data"]["index"] == 1004 and rows[-1]["data"]["index"] == 5
+    assert all("narration" not in row for row in rows)
+    assert len([q for q in queries if q.startswith("SELECT")]) == 1
+
+
+def test_image_and_banter_keep_style_and_ordinal_without_projection(client, monkeypatch):
+    from agents.banter import compose_exchange
+    from server import imageprompt
+
+    monkeypatch.delenv("NESTED_WORLDS_DISABLE_IMAGES", raising=False)
+    node = client.node("Galaxy")
+    for index in range(55):
+        persistence.record_mutation(SEED, node.name, "AGENT_TALK" if index % 10 == 0 else "PLAYER_CHAT",
+                                    "Ada" if index % 2 else "Bea", {})
+    history = persistence.get_node_history(SEED, node.name, 1000)
+    expected_key = f"{SEED}:{node.name}:{len(history) // 5}:{imageprompt.style_signature(node.level, node.properties, history)}"
+    ordinal = sum(h["type"] == "AGENT_TALK" for h in history[:50])
+    with patch("persistence.history.project", side_effect=AssertionError("unused narration")), \
+            patch.object(persistence, "get_cached_image", return_value="https://example.test/image.png") as cached, \
+            patch("agents.banter.compose_exchange", wraps=compose_exchange) as compose:
+        reply = client.post(node, endpoint="/image")
+        heartbeat._hold_conversation(SEED, get_room(SEED), node, "Tessera", "scholar", "Karst", "tender")
+    assert reply["url"] == "https://example.test/image.png"
+    cached.assert_called_once_with(expected_key)
+    assert compose.call_args.kwargs["ordinal"] == ordinal == 5
+
+
+@pytest.mark.parametrize("trigger", ["commits", "time"])
+def test_live_batch_flushes_before_the_rest_of_the_real_drain(client, trigger):
+    count = 9 if trigger == "commits" else 3
+    accepted = [client.post(client.node("Galaxy"), f"Visitor{index}") for index in range(count)]
+    work_ids = [a["work"]["id"] for a in accepted]
+    clock = [0.0]
+    sent = []
+    original_apply = heartbeat._apply_maturation
+    applied = 0
+
+    def apply(row, notifications):
+        nonlocal applied
+        # The next transaction starts only after the preceding partial batch
+        # has been published. Assertions are outside the callback error guard.
+        if applied == (8 if trigger == "commits" else 2):
+            assert [m["work_id"] for m in sent] == work_ids[:applied]
+        applied += 1
+        if trigger == "time" and applied == 2:
+            clock[0] = 0.06
+        return original_apply(row, notifications)
+
+    def capture(room, message):
+        assert persistence.inspect_work("verb_maturation", message["work_id"])["status"] == "completed"
+        sent.append(message)
+
+    with patch("causality.delivery.monotonic", side_effect=lambda: clock[0]), \
+            patch.object(heartbeat, "_apply_maturation", side_effect=apply), \
+            patch("server.heartbeat.broadcast", side_effect=capture), \
+            patch.object(persistence, "presented_mutations", wraps=persistence.presented_mutations) as project:
+        assert land() == count
+        assert project.call_count == 2
+    assert [m["work_id"] for m in sent] == work_ids
+    assert len({m["event_id"] for m in sent}) == count
+    assert land() == 0
+
+
+def test_partial_committed_notices_flush_if_later_delivery_aborts(client):
+    accepted = [client.post(client.node("Galaxy"), name) for name in ("Ada", "Bea", "Cy")]
+    original_deliver = persistence.deliver_work
+    calls = 0
+
+    def deliver(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise RuntimeError("drain interrupted")
+        return original_deliver(*args, **kwargs)
+
+    with patch.object(persistence, "deliver_work", side_effect=deliver), \
+            patch("causality.delivery.monotonic", return_value=0):
+        with pytest.raises(RuntimeError, match="drain interrupted"):
+            land()
+    matured = [m for m in client.notices if m.get("matured")]
+    assert [m["work_id"] for m in matured] == [a["work"]["id"] for a in accepted[:2]]
+    assert land() == 1
+    assert land() == 0
+
+
+def test_malformed_legacy_waits_and_patches_do_not_invent_acceptance_or_change():
+    for value in (None, "0", "later", {}, [], True, -1, float("inf"), float("nan")):
+        row = {"type": "SCALE_ACT", "node": "Mire-112", "data": {"matures_in": value}}
+        assert narrate(row)["phase"] == "trace"
+    for value in (None, {}, [], [1], "changed", True, 1):
+        for row in ({"delta": value}, {"data": {"changed": value}}):
+            assert narrate({"type": "SCALE_ACT", "node": "Mire-112", **row})["phase"] == "trace"
+    for changed in ({"count": 0}, {"active": False}, {"mark": None}):
+        row = {"type": "SCALE_ACT", "node": "Mire-112", "delta": {}, "data": {"changed": changed}}
+        assert narrate(row)["phase"] == "action"
 
 
 @pytest.mark.parametrize("kind", ["AGENT_VISIT", "PUZZLE_SOLVED", "PUZZLE_FAILED",

@@ -866,7 +866,8 @@ class Handler(BaseHTTPRequestHandler):
         if node is None:
             return self._send_error("no such place in this world", 404)
 
-        history = persistence.get_node_history(seed_int, node.name, limit=1000)
+        history = persistence.get_node_history(seed_int, node.name, limit=1000,
+                                               include_narration=False)
         ripple_score = node.ripple_score
 
         # Cache key folds in:

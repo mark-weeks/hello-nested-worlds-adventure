@@ -8,6 +8,10 @@ def label(value):
     return value if isinstance(value, str) and value.strip() else None
 
 
+def data_of(entry):
+    return entry["data"] if isinstance(entry.get("data"), dict) else {}
+
+
 def place(name):
     name = label(name)
     if not name:
@@ -17,14 +21,14 @@ def place(name):
 
 
 def actor(entry):
-    data = entry.get("data") if isinstance(entry.get("data"), dict) else {}
+    data = data_of(entry)
     # These are recorded labels only. Never render actor_identity/actor hashes,
     # infer a human/agent taxonomy, or equate matching names with identity.
     return label(entry.get("player")) or label(data.get("actor")) or label(data.get("agent"))
 
 
 def narrate(entry, source=None):
-    data = entry.get("data") if isinstance(entry.get("data"), dict) else {}
+    data = data_of(entry)
     kind = entry.get("type")
     ref = data.get("delivery") or {}
     arrival = bool(data.get("_origin") or data.get("_hop")
@@ -34,12 +38,12 @@ def narrate(entry, source=None):
     receiver = label(entry.get("node"))
     origin = source["node"] if source else label(data.get("_origin"))
     who = actor(source) if source else actor(entry)
-    original = source["data"] if source and isinstance(source.get("data"), dict) else data
+    original = data_of(source) if source else data
     verb = label(original.get("verb")) or "act"
     act = f"{who}'s {verb}" if who else f"the {verb}"
     source_id = source["id"] if source else None
-    delta = entry.get("delta") or data.get("changed")
-    delta = delta if isinstance(delta, dict) else None
+    delta = any(isinstance(value, dict) and value
+                for value in (entry.get("delta"), data.get("changed")))
     delay = data.get("matures_in")
     delayed = type(delay) in (int, float) and math.isfinite(delay) and delay >= 0
 
@@ -80,7 +84,7 @@ def narrate(entry, source=None):
     else:
         phase = "trace"
         text = f"A trace of {verb}" + (f" attributed to {who}" if who else "")
-        text += f" was recorded at {place(receiver)}. Its source is unrecorded."
+        text += f" was recorded at {place(receiver)}. No material change is recorded."
 
     if phase in ("arrival", "outcome"):
         text += (f" Source action #{source_id}." if source_id else

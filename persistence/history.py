@@ -1,14 +1,10 @@
 """Bounded, read-only provenance. Never search for a source by actor or time."""
 import json
 
-from multiverse.history import narrate
+from multiverse.history import data_of, narrate
 
 
 FIELDS = "id, node_name, mutation_type, player_name, data, recorded_at, delta, node_version"
-
-
-def data_of(entry):
-    return entry["data"] if isinstance(entry.get("data"), dict) else {}
 
 
 def decode(row):
@@ -22,8 +18,8 @@ def positive_id(value):
 
 
 def project(conn, seed, entries):
-    # Public endpoints page at <=200. Internal image history permits 1000;
-    # chunk that bounded read rather than exceeding SQLite's parameter limit.
+    # Public endpoints page at <=200. Chunk larger internal reads rather than
+    # exceeding SQLite's parameter limit. Count/style consumers skip projection.
     for offset in range(0, len(entries), 200):
         _project_page(conn, seed, entries[offset:offset + 200])
     return entries

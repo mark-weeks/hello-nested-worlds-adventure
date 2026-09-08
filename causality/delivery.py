@@ -3,6 +3,7 @@ import logging
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from time import monotonic
 
 import persistence
 from causality import CausalityBus, EventKind, ORIGIN_STRENGTH
@@ -10,36 +11,63 @@ from causality.wiring import record_origin_event, record_verb_act, wire_world_ha
 from multiverse import store
 
 
+_NOTIFY_BATCH_COMMITS = 8
+_NOTIFY_BATCH_SECONDS = 0.05
+
+
 def deliver_due(queue, limit, world_seed, apply, notify, *, prepare=None, notify_batch=None):
     """Deliver each candidate independently; notify only after its commit.
 
     apply(row, notifications) returns a terminal outcome and collects callback
     arguments. Preparation runs outside the writer lock. Broadcast failures
-    never turn committed work into a retry.
+    never turn committed work into a retry. Batch notices flush after eight
+    commits or a 50ms budget checked between deliveries; a single transaction
+    or preparation is never interrupted. Pending notices also flush on exit.
     """
     delivered = 0
     committed_notifications = []
-    for work_id in persistence.due_work(queue, limit, world_seed):
-        notifications = []
-        committed = persistence.deliver_work(
-            queue, work_id, lambda row: apply(row, notifications),
-            prepare=prepare or (lambda row: store.ensure_born(row["world_seed"])))
-        if committed:
-            delivered += len(notifications)
-            if notify_batch is not None:
-                committed_notifications.extend(notifications)
-            elif notify is not None:
-                for args in notifications:
-                    try:
-                        notify(*args)
-                    except Exception:
-                        logging.getLogger(__name__).exception(
-                            "committed delivery %s:%s broadcast failed", queue, work_id)
-    if notify_batch is not None and committed_notifications:
+    batch_started = None
+    batch_commits = 0
+
+    def flush():
+        nonlocal batch_started, batch_commits
+        if not committed_notifications:
+            return
+        batch = committed_notifications[:]
+        committed_notifications.clear()
+        batch_started, batch_commits = None, 0
         try:
-            notify_batch(committed_notifications)
+            notify_batch(batch)
         except Exception:
             logging.getLogger(__name__).exception("committed %s notification batch failed", queue)
+
+    try:
+        for work_id in persistence.due_work(queue, limit, world_seed):
+            notifications = []
+            committed = persistence.deliver_work(
+                queue, work_id, lambda row: apply(row, notifications),
+                prepare=prepare or (lambda row: store.ensure_born(row["world_seed"])))
+            if committed:
+                delivered += len(notifications)
+                if notify_batch is not None:
+                    if notifications and batch_started is None:
+                        batch_started = monotonic()
+                    committed_notifications.extend(notifications)
+                    if batch_started is not None:
+                        batch_commits += 1
+                elif notify is not None:
+                    for args in notifications:
+                        try:
+                            notify(*args)
+                        except Exception:
+                            logging.getLogger(__name__).exception(
+                                "committed delivery %s:%s broadcast failed", queue, work_id)
+            if batch_started is not None and (
+                    batch_commits >= _NOTIFY_BATCH_COMMITS
+                    or monotonic() - batch_started >= _NOTIFY_BATCH_SECONDS):
+                flush()
+    finally:
+        flush()
     return delivered
 
 

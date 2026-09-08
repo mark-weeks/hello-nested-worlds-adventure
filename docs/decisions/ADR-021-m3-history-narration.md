@@ -18,7 +18,8 @@ chronicle, live notices and existing node/inhabitant speech context.
 | Evidence | Narration |
 |---|---|
 | Original SCALE_ACT with recorded delta | An action at its original place; material completion is supported by the delta. |
-| Original SCALE_ACT with a recorded delay (including zero seconds) | Acceptance for a delayed outcome, never a completed change. This remains an acceptance fact after landing. |
+| Original SCALE_ACT with a finite, nonnegative numeric delay (including zero seconds) | Acceptance for a delayed outcome, never a completed change. This remains an acceptance fact after landing. |
+| SCALE_ACT without arrival, delay or material evidence | A recorded trace: “No material change is recorded.” Missing change evidence does not establish that the source is missing. Empty objects, arrays and scalar patches do not establish a change. |
 | Arrival with `_origin`, hop or causal delivery evidence | A ripple/effect reaching the receiving place, never the original verb being performed again. SCALE_ACT pressure does not change remote substance. |
 | SCALE_ACT_MATURED | A delayed outcome; claim material completion only with a stored delta/legacy changed patch. Preserve explicit terminal-no-op flavor. |
 | Shared pending outcome or admission no-op | Keep M2's personal response and shared counts. Joining creates no recorded action, actor credit or participant roster. |
@@ -35,6 +36,10 @@ chronicle cursor (`before=source+1&limit=1`).
 Use constant-count batched reads per bounded page, with no ancestry search,
 full-world hydration, per-row lookup or new persistence path. Broadcasts carry
 the same projection after commit, retaining existing IDs for M2 refresh deduplication.
+Count/style consumers omit narration. Pump notices project once per seed per
+partial batch, flushing after eight commits, at a 50ms budget checked between
+deliveries, or on drain exit. A single preparation/transaction can exceed that
+budget; this is not a hard latency guarantee. Send/read failures never retry work.
 Historical reload is authoritative when notices are missed. Wayback stays outside
 this projection: it remains actor-blind and folds stored deltas.
 

@@ -594,7 +594,9 @@ def list_worlds() -> list[dict[str, Any]]:
 
 
 @_with_db
-def get_node_history(world_seed: int, node_name: str, limit: int = 10) -> list[dict[str, Any]]:
+def get_node_history(world_seed: int, node_name: str, limit: int = 10, *,
+                     include_narration: bool = True) -> list[dict[str, Any]]:
+    """Recent rows; count/style consumers can omit provenance and prose."""
     from persistence.history import FIELDS, decode, project
     with _connect() as conn:
         rows = conn.execute(
@@ -603,7 +605,8 @@ def get_node_history(world_seed: int, node_name: str, limit: int = 10) -> list[d
                ORDER BY recorded_at DESC, id DESC LIMIT ?""",
             (world_seed, node_name, max(1, min(int(limit), 1000))),
         ).fetchall()
-        return project(conn, world_seed, [decode(r) for r in rows])
+        entries = [decode(r) for r in rows]
+        return project(conn, world_seed, entries) if include_narration else entries
 
 
 @_with_db

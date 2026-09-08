@@ -210,7 +210,8 @@ def _hold_conversation(seed: int, room, node: SpatialNode,
     """
     from agents.banter import compose_exchange
 
-    prior = [h for h in persistence.get_node_history(seed, node.name, limit=50)
+    prior = [h for h in persistence.get_node_history(seed, node.name, limit=50,
+                                                  include_narration=False)
              if h["type"] == "AGENT_TALK"]
     lines = compose_exchange(seed, node, agent_a, persona_a,
                              agent_b, persona_b, ordinal=len(prior))
@@ -465,8 +466,7 @@ def run_pump_loop(stop: threading.Event) -> None:
         # both durable queue drains on their next tick, without a restart.
         hosted_seed = guard.canonical_seed()
         try:
-            staging.drain_due_hops(broadcaster=_pump_broadcaster,
-                                   world_seed=hosted_seed,
+            staging.drain_due_hops(world_seed=hosted_seed,
                                    broadcaster_batch=_pump_broadcast_batch)
         except Exception:  # noqa: BLE001 — cascades must keep traveling
             _log.exception("causal pump tick failed; continuing")

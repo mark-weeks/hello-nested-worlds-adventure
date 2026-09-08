@@ -31,13 +31,13 @@ const FIXTURES = [
 
 describe("mutationLine", () => {
   it("narrates the two event kinds the old React copy dropped", () => {
-    expect(mutationLine(FIXTURES[6])).toBe("A trace of ward attributed to Ada was recorded at Mire. Its source is unrecorded.");
+    expect(mutationLine(FIXTURES[6])).toBe("A trace of ward attributed to Ada was recorded at Mire. No material change is recorded.");
     expect(mutationLine(FIXTURES[8]))
       .toBe("Tessera and Karst spoke at Mire");
   });
 
   it("falls back gracefully on missing actors, verbs, and speakers", () => {
-    expect(mutationLine(FIXTURES[7])).toBe("A trace of act attributed to Ada was recorded at Mire. Its source is unrecorded.");
+    expect(mutationLine(FIXTURES[7])).toBe("A trace of act attributed to Ada was recorded at Mire. No material change is recorded.");
     expect(mutationLine(FIXTURES[9]))
       .toBe("someone and someone spoke at Mire");
     expect(mutationLine(FIXTURES[17])).toBe("someone passed into Mire");
@@ -86,6 +86,33 @@ describe("M3 shared live/history narration", () => {
     expect(scaleActLine(message)).toContain("delayed outcome was accepted");
     expect(scaleActLine({ ...message, changed: { kindled: true }, matures_in: null }))
       .toContain("recorded change took effect");
+  });
+
+  it("does not treat malformed legacy waits as acceptance", () => {
+    for (const matures_in of ["0", "later", {}, [], true, -1, Infinity, NaN]) {
+      const row = { type: "SCALE_ACT", node: "Mire-112", data: { verb: "ward", matures_in } };
+      expect(mutationLine(row)).toContain("No material change is recorded.");
+      expect(describeChronicleEntry(row)).toBe(mutationLine(row));
+      expect(scaleActLine({ node: row.node, ...row.data })).toBe(mutationLine(row));
+    }
+  });
+
+  it("requires a nonempty object as legacy material evidence", () => {
+    for (const invalid of [null, {}, [], [1], "changed", true, 1]) {
+      for (const field of ["delta", "changed"]) {
+        const row = { type: "SCALE_ACT", node: "Mire-112", data: { verb: "ward" } };
+        if (field === "delta") row.delta = invalid;
+        else row.data.changed = invalid;
+        expect(mutationLine(row)).toContain("No material change is recorded.");
+        expect(describeChronicleEntry(row)).toBe(mutationLine(row));
+        expect(scaleActLine({ node: row.node, verb: "ward", changed: invalid }))
+          .toContain("No material change is recorded.");
+      }
+    }
+    for (const changed of [{ count: 0 }, { active: false }, { mark: null }]) {
+      expect(scaleActLine({ node: "Mire-112", verb: "ward", changed }))
+        .toContain("The recorded change took effect.");
+    }
   });
 });
 

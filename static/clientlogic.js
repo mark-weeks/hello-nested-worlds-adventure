@@ -220,6 +220,11 @@
     if (mutation.narration?.text) return mutation.narration.text;
     const data = mutation.data || {};
     const label = value => typeof value === "string" && value.trim() ? value : null;
+    const hasPatch = value => value && typeof value === "object" && !Array.isArray(value)
+      && Object.keys(value).length > 0;
+    const material = hasPatch(mutation.delta) || hasPatch(data.changed);
+    const delayed = typeof data.matures_in === "number" && Number.isFinite(data.matures_in)
+      && data.matures_in >= 0;
     const who = label(mutation.player) || label(data.actor) || label(data.agent) || "someone";
     const place = displayName(mutation.node);
     // Conservative compatibility with older servers/raw legacy rows. Never
@@ -235,11 +240,11 @@
       case "PLAYER_CHAT": return `${who} said something at ${place}`;
       case "AGENT_VISIT": return `${who} passed through ${place}`;
       case "DANGER_ALERT": return `danger stirred at ${place}`;
-      case "SCALE_ACT": return data.matures_in != null
+      case "SCALE_ACT": return delayed
         ? `${who} chose to ${data.verb || "act"} at ${place}. A delayed outcome was accepted.`
-        : mutation.delta || data.changed
+        : material
           ? `${who} chose to ${data.verb || "act"} at ${place}. The recorded change took effect.`
-          : `A trace of ${data.verb || "act"} attributed to ${who} was recorded at ${place}. Its source is unrecorded.`;
+          : `A trace of ${data.verb || "act"} attributed to ${who} was recorded at ${place}. No material change is recorded.`;
       case "SCALE_ACT_MATURED": return data.semantics_version === 2 && data.flavor
         ? `${place}: ${data.flavor}`
         : `A delayed ${data.verb || "act"} outcome was recorded at ${place}. The exact original action is unrecorded.`;
