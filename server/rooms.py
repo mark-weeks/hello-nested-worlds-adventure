@@ -119,7 +119,9 @@ class Room:
     active_agents: dict = field(default_factory=dict)  # agent_name → current_node
     agent_personas: dict = field(default_factory=dict)  # agent_name → persona name
     puzzle_sessions: dict = field(default_factory=dict)  # node_name → PuzzleSession
-    lock: threading.Lock = field(default_factory=threading.Lock, compare=False, repr=False)
+    # Acceptance owns the room lock across its DB transaction and calls the
+    # existing session helpers, which acquire the same lock themselves.
+    lock: threading.RLock = field(default_factory=threading.RLock, compare=False, repr=False)
 
 
 _rooms: dict[int, Room] = {}

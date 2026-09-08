@@ -33,9 +33,10 @@ import persistence
 from agents.agent import Agent
 from agents.personas import for_name as persona_for_name
 from agents.roster import profile_for
-from causality import ORIGIN_STRENGTH, CausalityBus, EventKind
+from causality import CausalityBus, EventKind
 from causality.staging import stage_cascade
-from causality.wiring import record_verb_act, wire_world_handlers
+from causality.delivery import accept_verb
+from causality.wiring import wire_world_handlers
 from multiverse import store
 from multiverse.generator import DEFAULT_WORLD_SEED, LEVELS
 from multiverse.node import SpatialNode
@@ -129,7 +130,7 @@ def _drop_in(root: SpatialNode, rng: random.Random,
 
 def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                  persona_name: str, visited_names: list[str],
-                 rng: random.Random, bus: CausalityBus) -> str | None:
+                 rng: random.Random, bus: CausalityBus, on_event=None) -> str | None:
     """After a traversal, the wanderer acts on the world by temperament.
 
     This is the world's living entropy loop: DESTABILIZERS emit real decay
@@ -164,8 +165,13 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
             kind = (EventKind.STRUCTURAL_CHANGE
                     if "condition" in (node.properties or {})
                     else EventKind.DANGER_ALERT)
-            bus.emit(node, kind, dict(payload))
-            stage_cascade(seed, node, kind, dict(payload))
+            with persistence.transaction():
+                event = wire_world_handlers(CausalityBus(), seed).emit(
+                    node, kind, dict(payload))
+                stage_cascade(seed, node, kind, dict(payload),
+                              source_event_id=persistence.latest_event_id(kind.name))
+            if on_event is not None:
+                on_event(node, event)
         return f"destabilized {min(2, len(nodes))} node(s)"
 
     if persona_name in ("tender", "scholar"):
@@ -185,26 +191,13 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
             # performs is planted, not instant — the same clock players
             # live under.
             matures = maturation_seconds(node.level)
+            act_payload = {"verb": verb.name, **payload}
+            changed, _staged = accept_verb(
+                seed, node, verb, token, base_props, changed, matures,
+                act_payload, act_payload, actor_identity=agent_name,
+                maturation_actor=agent_name)
             if matures > 0:
-                persistence.enqueue_verb_maturation(
-                    seed, node.name, verb.name, changed, agent_name, matures)
                 flavor += maturation_note(matures)
-                # The delta rides the maturation queue and is chronicled
-                # when it lands; this row carries the origin strength.
-                persistence.record_mutation(
-                    seed, node.name, "SCALE_ACT", None,
-                    {"verb": verb.name, "changed": changed,
-                     "matures_in": int(matures), **payload},
-                    actor_identity=agent_name,
-                    strength=ORIGIN_STRENGTH)
-            else:
-                # One transaction: the attributed SCALE_ACT row + overlay
-                # change, the verb's transition re-derived against the
-                # live overlay under the lock (ADR-009).
-                changed = record_verb_act(
-                    seed, node, verb, token, base_props,
-                    {"verb": verb.name, **payload},
-                    actor_identity=agent_name)
             broadcast(room, {
                 "type": "scale_act", "node": node.name, "level": node.level,
                 "verb": verb.name, "actor": agent_name,
@@ -212,10 +205,6 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                 "matures_in": int(matures) if matures > 0 else None,
                 "flavor": flavor,
             })
-            act_payload = {"verb": verb.name, **payload}
-            act_bus = wire_world_handlers(CausalityBus(), seed, record=False)
-            act_bus.emit(node, EventKind.SCALE_ACT, act_payload)
-            stage_cascade(seed, node, EventKind.SCALE_ACT, act_payload)
             return f"{verb.name}ed {node.name}"
     return None
 
@@ -345,7 +334,7 @@ def run_tick(seed: int | None = None, rng: random.Random | None = None,
         # live_handler, whose agent_move would otherwise re-register the
         # walker after departure and leave a ghost in room.active_agents.
         act = _persona_act(seed, room, root, agent_name, persona.name,
-                           [e["node"] for e in events], rng, bus)
+                           [e["node"] for e in events], rng, bus, on_event=live_handler)
     finally:
         agent_leave(room, agent_name)
         if companion is not None:
@@ -413,29 +402,43 @@ def drain_matured_verbs(limit: int = 32, world_seed: int | None = None) -> int:
     the change arrive — often long after (and far from) whoever planted
     it. Returns maturations landed.
     """
-    rows = persistence.claim_due_verb_maturations(limit, world_seed=world_seed)
-    for row in rows:
-        seed, node_name = row["world_seed"], row["node_name"]
-        # One atomic write: the SCALE_ACT_MATURED row and the landing delta
-        # commit together (ADR-009). No strength — landing fires no causal
-        # event; the origin SCALE_ACT row already carries the act's.
-        persistence.record_substance_change(
-            seed, node_name, "SCALE_ACT_MATURED", row["actor"],
-            {"verb": row["verb"], "changed": row["changed"]},
-            row["changed"], actor_identity=row["actor"])
-        resolved = store.resolve_node_by_name(seed, node_name)
-        broadcast(get_room(seed), {
-            "type":    "scale_act",
-            "node":    node_name,
-            "level":   resolved.level if resolved else "",
-            "verb":    row["verb"],
-            "actor":   row["actor"] or "the slow work of someone",
-            "changed": row["changed"],
-            "matured": True,
-            "flavor":  (f"The {row['verb']} planted here settles at last — "
-                        "the change arrives."),
-        })
-    return len(rows)
+    landed = 0
+    for work_id in persistence.due_work("verb_maturation", limit, world_seed):
+        notifications = []
+
+        def apply(row):
+            seed, node_name = row["world_seed"], row["node_name"]
+            resolved = store.resolve_node_by_name(seed, node_name)
+            if resolved is None:
+                return "missing_node"
+            if not row["changed"]:
+                return "empty_patch"
+            persistence.record_substance_change(
+                seed, node_name, "SCALE_ACT_MATURED", row["actor"],
+                {"verb": row["verb"], "changed": row["changed"],
+                 "delivery": {"queue": "verb_maturation", "id": row["id"]}},
+                row["changed"], actor_identity=row["actor"])
+            notifications.append((seed, {
+                "type": "scale_act", "node": node_name, "level": resolved.level,
+                "verb": row["verb"],
+                "actor": row["actor"] or "the slow work of someone",
+                "changed": row["changed"], "matured": True,
+                "flavor": (f"The {row['verb']} planted here settles at last — "
+                           "the change arrives."),
+            }))
+            return "applied"
+
+        committed = persistence.deliver_work(
+            "verb_maturation", work_id, apply,
+            prepare=lambda row: store.ensure_born(row["world_seed"]))
+        if committed:
+            landed += len(notifications)
+            for seed, message in notifications:
+                try:
+                    broadcast(get_room(seed), message)
+                except Exception:
+                    _log.exception("committed maturation %s broadcast failed", work_id)
+    return landed
 
 
 def run_pump_loop(stop: threading.Event) -> None:

@@ -14,9 +14,9 @@ from urllib.parse import parse_qs, quote, urlparse
 import causality
 import persistence
 from causality import CausalityBus, EventKind
-from causality.staging import stage_cascade
+from causality.delivery import accept_event, accept_verb
 from causality.wiring import (
-    record_origin_event, record_verb_act, wire_world_handlers,
+    wire_world_handlers,
 )
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
@@ -1270,35 +1270,16 @@ class Handler(BaseHTTPRequestHandler):
         matures = maturation_seconds(target.level) if changed else 0.0
 
         if changed:
-            # The one canonical chronicle row for this act — attributed by
-            # durable identity, stamped with the origin event's strength
-            # (the bus below is wired record=False, so this row is the
-            # event's only strength-bearing trace).
+            payload = {"verb": verb.name}
+            if player_name:
+                payload["actor"] = player_name
+            changed, _staged = accept_verb(
+                seed, target, verb, token, base_props, changed, matures,
+                {"verb": verb.name}, payload, player_name=player_name,
+                actor_identity=_actor_identity(user_key, player_name),
+                maturation_actor=player_name)
             if matures > 0:
-                # Deep time: the cosmic scales answer on cosmic clocks. The
-                # act is chronicled now; the property change rides the
-                # maturation queue and its delta is chronicled when it lands.
-                persistence.enqueue_verb_maturation(
-                    seed, target.name, verb.name, changed, player_name,
-                    matures)
                 flavor += maturation_note(matures)
-                persistence.record_mutation(
-                    seed, target.name, "SCALE_ACT", player_name,
-                    {"verb": verb.name, "changed": changed,
-                     "matures_in": int(matures)},
-                    actor_identity=_actor_identity(user_key, player_name),
-                    strength=causality.ORIGIN_STRENGTH,
-                )
-            else:
-                # One transaction: the attributed SCALE_ACT row + overlay
-                # change, with the verb's transition re-derived against
-                # the live overlay under the lock (the delta column is the
-                # canonical record of what changed).
-                changed = record_verb_act(
-                    seed, target, verb, token, base_props,
-                    {"verb": verb.name}, player_name=player_name,
-                    actor_identity=_actor_identity(user_key, player_name),
-                )
 
             room = get_room(seed)
             broadcast(room, {
@@ -1317,27 +1298,12 @@ class Handler(BaseHTTPRequestHandler):
             # The act echoes outward: origin already changed materially
             # (above); every ring beyond it carries ripple + history via
             # the queue, arriving at world speed.
-            act_bus = CausalityBus()
-
-            def _act_handler(n: SpatialNode, ev: causality.CausalEvent,
-                             _room=room, _origin=target.name) -> None:
-                broadcast(_room, {
-                    "type":     "causal_event",
-                    "node":     n.name,
-                    "level":    n.level,
-                    "kind":     ev.kind.name,
-                    "strength": round(ev.strength, 4),
-                    "depth":    0,
-                    "origin":   _origin,
-                })
-
-            act_bus.register_handler(_act_handler)
-            wire_world_handlers(act_bus, seed, record=False)
-            payload = {"verb": verb.name}
-            if player_name:
-                payload["actor"] = player_name
-            act_bus.emit(target, EventKind.SCALE_ACT, payload)
-            stage_cascade(seed, target, EventKind.SCALE_ACT, payload)
+            broadcast(room, {
+                "type": "causal_event", "node": target.name,
+                "level": target.level, "kind": "SCALE_ACT",
+                "strength": causality.ORIGIN_STRENGTH, "depth": 0,
+                "origin": target.name,
+            })
 
         self._send_json({
             "verb":    verb.name,
@@ -1377,23 +1343,50 @@ class Handler(BaseHTTPRequestHandler):
         room           = get_room(seed)
         correct        = answer.lower() == p.answer.lower()
 
-        # Co-op: attempts pool across all players in the room. record_attempt
-        # holds the room lock while incrementing, so concurrent solvers can't
-        # both flip `solver` from None.
-        session, just_solved = record_attempt(
-            room, effective_node, p.name, player_name, correct,
-        )
-
-        # Every counted guess is chronicle material: co-op contribution and
-        # difficulty tuning are reconstructable only if attempts persist
-        # (the pooled counter also rehydrates from these rows on restart).
-        if just_solved or session.solver is None:
-            persistence.record_mutation(
-                seed, effective_node, "PUZZLE_ATTEMPT", player_name,
-                {"puzzle": p.name, "correct": correct,
-                 "guess": answer[:32]},
-                actor_identity=_actor_identity(user_key, player_name),
-            )
+        # The room cache cannot acknowledge an uncommitted solve. Rehydrate
+        # from durable rows under the writer lock, including across processes;
+        # invalidate on rollback so a retry cannot see a phantom solver.
+        changed = None
+        secondary_notifications = []
+        with room.lock:
+            try:
+                with persistence.transaction():
+                    previous = room.puzzle_sessions.pop(effective_node, None)
+                    session, just_solved = record_attempt(
+                        room, effective_node, p.name, player_name, correct)
+                    if (previous is not None and previous.puzzle_name == p.name
+                            and previous.solver == session.solver
+                            and session.solver is not None and not just_solved):
+                        session.attempts = previous.attempts
+                        session.contributors |= previous.contributors
+                    if just_solved or session.solver is None:
+                        persistence.record_mutation(
+                            seed, effective_node, "PUZZLE_ATTEMPT", player_name,
+                            {"puzzle": p.name, "correct": correct,
+                             "guess": answer[:32]},
+                            actor_identity=_actor_identity(user_key, player_name))
+                    if just_solved:
+                        changed, _staged = accept_event(
+                            seed, target, EventKind.PUZZLE_SOLVED,
+                            {"puzzle": p.name,
+                             "contributors": sorted(session.contributors)},
+                            player_name=(session.solver
+                                         if session.solver != "anonymous" else None),
+                            actor_identity=_actor_identity(user_key, player_name))
+                        twin = _entangled_twin(target)
+                        if twin is not None:
+                            _resolve_entangled_twin(
+                                seed, room, twin, effective_node, session.solver,
+                                sorted(session.contributors),
+                                _actor_identity(user_key, player_name),
+                                notifications=secondary_notifications)
+                        _check_constellation(
+                            seed, room, target.parent, session.solver,
+                            _actor_identity(user_key, player_name),
+                            notifications=secondary_notifications)
+            except BaseException:
+                room.puzzle_sessions.pop(effective_node, None)
+                raise
 
         # If the puzzle was already solved by an earlier player, return that
         # state without re-firing broadcasts or mutations.
@@ -1417,23 +1410,7 @@ class Handler(BaseHTTPRequestHandler):
 
         contributors = sorted(session.contributors)
 
-        changed = None
         if just_solved:
-            # The one canonical chronicle row for this solve — the origin
-            # bus below is wired record=False so it doesn't write a second,
-            # anonymous copy (which also double-counted the art's activity).
-            # It carries the origin event's strength AND its material
-            # consequence: the delta is computed against the live overlay
-            # under the write lock and commits with the row and the overlay
-            # in one transaction, so a canonical solve can never outlive a
-            # lost delta.
-            changed = record_origin_event(
-                seed, target, EventKind.PUZZLE_SOLVED,
-                {"puzzle": p.name, "contributors": contributors},
-                player_name=(session.solver
-                             if session.solver != "anonymous" else None),
-                actor_identity=_actor_identity(user_key, player_name),
-            )
             broadcast(room, {"type": "puzzle_solved", "node": effective_node,
                              "puzzle": p.name, "solver": session.solver,
                              "contributors": contributors})
@@ -1444,40 +1421,15 @@ class Handler(BaseHTTPRequestHandler):
             # fires and broadcasts each one), so players watch the
             # consequence travel across scales instead of it completing
             # invisibly inside this request.
-            solve_bus = CausalityBus()
+            broadcast(room, {
+                "type": "causal_event", "node": target.name,
+                "level": target.level, "kind": "PUZZLE_SOLVED",
+                "strength": causality.ORIGIN_STRENGTH, "depth": 0,
+                "origin": effective_node,
+            })
 
-            def _causal_handler(n: SpatialNode, ev: causality.CausalEvent,
-                                 _room=room, _origin=effective_node) -> None:
-                broadcast(_room, {
-                    "type":     "causal_event",
-                    "node":     n.name,
-                    "level":    n.level,
-                    "kind":     ev.kind.name,
-                    "strength": round(ev.strength, 4),
-                    "depth":    0,
-                    "origin":   _origin,
-                })
-
-            solve_bus.register_handler(_causal_handler)
-            wire_world_handlers(solve_bus, seed, record=False)
-            solve_bus.emit(target, EventKind.PUZZLE_SOLVED,
-                           {"puzzle": p.name, "contributors": contributors})
-            stage_cascade(seed, target, EventKind.PUZZLE_SOLVED,
-                          {"puzzle": p.name, "contributors": contributors})
-
-            # Entanglement: at the smallest scale, locality fails. A
-            # particle paired with its sibling resolves the moment its
-            # twin does — a solve fires at a node nobody touched.
-            twin = _entangled_twin(target)
-            if twin is not None:
-                _resolve_entangled_twin(
-                    seed, room, twin, effective_node, session.solver,
-                    contributors, _actor_identity(user_key, player_name))
-
-            # Nested puzzles: did this solve light its container? (A
-            # Galaxy completes over its systems, a Region over its rooms.)
-            _check_constellation(seed, room, target.parent, session.solver,
-                                 _actor_identity(user_key, player_name))
+            for message in secondary_notifications:
+                broadcast(room, message)
 
         if failed:
             # The human who made the final attempt IS the actor — dropping

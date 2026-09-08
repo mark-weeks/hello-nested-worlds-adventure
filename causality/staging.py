@@ -17,6 +17,7 @@ arriving afterwards.
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Callable
 
@@ -49,7 +50,8 @@ def hop_delay_seconds() -> float:
 
 def stage_cascade(seed: int, origin: SpatialNode, kind: EventKind,
                   payload: dict | None = None,
-                  dampening: float = STAGED_DAMPENING) -> int:
+                  dampening: float = STAGED_DAMPENING, *,
+                  source_event_id: int | None = None) -> int:
     """Schedule the first ring of a cascade around an already-fired origin.
 
     The caller fires the origin itself (immediate feedback for whoever
@@ -70,18 +72,20 @@ def stage_cascade(seed: int, origin: SpatialNode, kind: EventKind,
     hop_payload["_hop"] = 1
     law = law_for(origin)
     delay = hop_delay_seconds() * (law.delay_scale if law else 1.0)
-    enqueued = 0
-    if origin.parent is not None:
-        persistence.enqueue_causal_hop(
-            seed, origin.parent.name, kind.name, 1.0, "up",
-            hop_payload, delay)
-        enqueued += 1
-    for child in origin.children:
-        persistence.enqueue_causal_hop(
-            seed, child.name, kind.name, 1.0, "down",
-            hop_payload, delay)
-        enqueued += 1
-    return enqueued
+    with persistence.transaction():
+        enqueued = 0
+        if origin.parent is not None:
+            persistence.enqueue_causal_hop(
+                seed, origin.parent.name, kind.name, 1.0, "up",
+                hop_payload, delay, source_event_id=source_event_id)
+            enqueued += 1
+        for child in origin.children:
+            persistence.enqueue_causal_hop(
+                seed, child.name, kind.name, 1.0, "down",
+                hop_payload, delay, source_event_id=source_event_id)
+            enqueued += 1
+        return enqueued
+
 
 
 # broadcaster: (seed, node, event) -> None — the server passes a room
@@ -89,89 +93,87 @@ def stage_cascade(seed: int, origin: SpatialNode, kind: EventKind,
 Broadcaster = Callable[[int, SpatialNode, CausalEvent], None]
 
 
+def _apply_hop(row: dict, notifications: list) -> str:
+    """v1 interpreter: same law physics, including pre-law legacy payloads."""
+    seed = row["world_seed"]
+    # A fresh object per attempt; failed in-memory changes are never reused.
+    root = store.world_tree(seed=seed)
+    apply_ripple_scores(root, persistence.load_ripple_scores(seed))
+    apply_property_overrides(root, persistence.load_node_property_overrides(seed))
+    node = find_node(root, row["node_name"])
+    if node is None:
+        return "missing_node"
+    if row["direction"] not in ("up", "down"):
+        raise ValueError("invalid causal direction")
+    kind = EventKind[row["kind"]]
+    payload = row["payload"]
+    hop = payload.get("_hop")
+    delay = hop_delay_seconds()
+    if hop is None:
+        arrived, tunneled, next_hop_payload = row["strength"], False, payload
+        next_strength = row["strength"] * STAGED_DAMPENING
+        next_delay = delay
+    else:
+        from causality.laws import hop_token, law_for
+        law = law_for(node)
+        origin_name = payload.get("_origin", node.name)
+        if law is None:
+            factor, tunneled = STAGED_DAMPENING, False
+        else:
+            token = hop_token(law, origin_name, node.name, hop)
+            if law.drops(token):
+                return "law_dropped"
+            tunneled = law.tunnels(token)
+            factor = 1.0 if tunneled else law.dampening(hop, row["direction"], token)
+        arrived = row["strength"] * factor
+        if arrived < MIN_STRENGTH:
+            return "below_threshold"
+        next_strength = arrived
+        next_hop_payload = dict(payload)
+        next_hop_payload["_hop"] = hop + 1
+        next_delay = delay * (law.delay_scale if law else 1.0)
+
+    if not tunneled:
+        event = CausalEvent(
+            kind=kind, origin_id=payload.get("_origin", node.name),
+            origin_level=payload.get("_origin_level", node.level),
+            strength=arrived,
+            payload={**payload, "delivery": {"queue": "causal_queue", "id": row["id"]}})
+        wire_world_handlers(CausalityBus(), seed).fire(node, event)
+        notifications.append((seed, node, event))
+
+    if next_strength >= MIN_STRENGTH:
+        neighbors = ([node.parent] if row["direction"] == "up" and node.parent
+                     else node.children if row["direction"] == "down" else [])
+        for neighbor in neighbors:
+            persistence.enqueue_causal_hop(
+                seed, neighbor.name, row["kind"], next_strength,
+                row["direction"], next_hop_payload, next_delay,
+                parent_id=row["id"], source_event_id=row["source_event_id"])
+    return "tunneled" if tunneled else "applied"
+
+
 def drain_due_hops(limit: int = 64,
                    broadcaster: Broadcaster | None = None,
                    world_seed: int | None = None) -> int:
-    """Fire every due hop through the standard wiring; schedule next rings.
+    """Deliver a bounded candidate batch; each hop commits independently.
 
-    Each fired hop records a mutation, adds ripple pressure, applies material
-    effects, and (via `broadcaster`) reaches connected players — exactly what
-    a synchronous cascade would have done at this node, just later. Returns
-    the number of hops fired.
+    Lost broadcasts do not retry committed effects. Reconnect/read APIs expose
+    the authoritative overlay and chronicle. One bad item cannot lose a batch.
     """
-    rows = persistence.claim_due_causal_hops(limit, world_seed=world_seed)
-    if not rows:
-        return 0
-
-    worlds: dict[int, SpatialNode] = {}
-    delay = hop_delay_seconds()
     fired = 0
-    for row in rows:
-        seed = row["world_seed"]
-        if seed not in worlds:
-            root = store.world_tree(seed=seed)
-            apply_ripple_scores(root, persistence.load_ripple_scores(seed))
-            apply_property_overrides(
-                root, persistence.load_node_property_overrides(seed))
-            worlds[seed] = root
-        node = find_node(worlds[seed], row["node_name"])
-        if node is None:
-            continue  # world params changed under an in-flight hop; drop it
-
-        payload = row["payload"]
-        hop = payload.get("_hop")
-        if hop is None:
-            # Legacy row (queued before per-hop law physics): its strength
-            # is already dampened — fire as-is, continue the old way.
-            arrived, tunneled, next_hop_payload = row["strength"], False, payload
-            next_strength = row["strength"] * STAGED_DAMPENING
-            next_delay = delay
-        else:
-            # The hop dampens itself on arrival, under the law of the
-            # universe it lands IN — staged physics match the live bus.
-            from causality.laws import hop_token, law_for
-            law = law_for(node)
-            origin_name = payload.get("_origin", node.name)
-            if law is None:
-                factor, tunneled = STAGED_DAMPENING, False
-            else:
-                token = hop_token(law, origin_name, node.name, hop)
-                if law.drops(token):
-                    continue  # the thread frays; this arm ends here
-                tunneled = law.tunnels(token)
-                factor = 1.0 if tunneled else law.dampening(
-                    hop, row["direction"], token)
-            arrived = row["strength"] * factor
-            if arrived < MIN_STRENGTH:
-                continue
-            next_strength = arrived
-            next_hop_payload = dict(payload)
-            next_hop_payload["_hop"] = hop + 1
-            next_delay = delay * (law.delay_scale if law else 1.0)
-
-        if not tunneled:
-            event = CausalEvent(
-                kind=EventKind[row["kind"]],
-                origin_id=payload.get("_origin", node.name),
-                origin_level=payload.get("_origin_level", node.level),
-                strength=arrived,
-                payload=payload,
-            )
-            bus = wire_world_handlers(CausalityBus(), seed)
-            bus.fire(node, event)
-            fired += 1
-            if broadcaster is not None:
-                broadcaster(seed, node, event)
-
-        # The cascade continues outward in its committed direction.
-        if next_strength >= MIN_STRENGTH:
-            if row["direction"] == "up" and node.parent is not None:
-                persistence.enqueue_causal_hop(
-                    seed, node.parent.name, row["kind"], next_strength,
-                    "up", next_hop_payload, next_delay)
-            elif row["direction"] == "down":
-                for child in node.children:
-                    persistence.enqueue_causal_hop(
-                        seed, child.name, row["kind"], next_strength,
-                        "down", next_hop_payload, next_delay)
+    for work_id in persistence.due_work("causal_queue", limit, world_seed):
+        notifications = []
+        committed = persistence.deliver_work(
+            "causal_queue", work_id, lambda row: _apply_hop(row, notifications),
+            prepare=lambda row: store.ensure_born(row["world_seed"]))
+        if committed:
+            fired += len(notifications)
+            for args in notifications:
+                if broadcaster is not None:
+                    try:
+                        broadcaster(*args)
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "committed hop %s broadcast failed", work_id)
     return fired

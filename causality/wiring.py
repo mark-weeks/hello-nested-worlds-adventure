@@ -15,8 +15,9 @@ bus should carry:
   2. ripple    — each fire adds its dampened pressure to the node's
                  persisted `ripple_score`, additively at the DB level so
                  concurrent participants compound rather than overwrite.
-                 Deliberately OUTSIDE the atomic transaction: the score is
-                 a derived cache, rebuildable from chronicled strengths
+                 Standalone bus calls use a separate atomic increment; M1
+                 acceptance/delivery scopes include it in their transaction.
+                 The cache remains rebuildable from chronicled strengths
                  (persistence.rebuild_ripple_scores).
 
 Producers that own their origin event's attributed chronicle row wire

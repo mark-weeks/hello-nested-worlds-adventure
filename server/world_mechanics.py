@@ -14,7 +14,7 @@ from multiverse import store
 from multiverse.node import SpatialNode
 from multiverse.utils import apply_property_patch
 from puzzles.engine import build_puzzle
-from server.rooms import broadcast, get_puzzle_session
+from server.rooms import broadcast
 
 
 CONSTELLATION_LEVELS = {"Galaxy": "systems", "Region": "rooms"}
@@ -37,52 +37,59 @@ def check_constellation(
     container: SpatialNode | None,
     solver: str | None,
     actor_identity: str | None,
+    notifications: list | None = None,
 ) -> None:
     """Light a container when all of its current child puzzles are solved."""
-    if container is None or container.level not in CONSTELLATION_LEVELS:
-        return
-    if not container.children:
-        return
-    if persistence.count_node_mutations(seed, container.name, "CONSTELLATION_COMPLETE"):
-        return
-    solved, total = constellation_progress(seed, container)
-    if solved < total:
-        return
-    display = solver if solver != "anonymous" else None
-    word = CONSTELLATION_LEVELS[container.level]
-    # One atomic write (ADR-009): the CONSTELLATION_COMPLETE row now carries
-    # its {"constellated": true} delta and commits together with the overlay
-    # change, stamped with the origin event's strength (the bus below is
-    # wired record=False, so this row is the event's only trace).
-    persistence.record_substance_change(
-        seed,
-        container.name,
-        "CONSTELLATION_COMPLETE",
-        display,
-        {"children": total, "of": word},
-        {"constellated": True},
-        strength=ORIGIN_STRENGTH,
-        actor_identity=actor_identity,
-    )
-    broadcast(
-        room,
-        {
-            "type": "constellation_complete",
-            "node": container.name,
-            "level": container.level,
-            "by": display,
-            "children": total,
-            "of": word,
-        },
-    )
-    bus = wire_world_handlers(CausalityBus(), seed, record=False)
-    bus.emit(container, EventKind.CONSTELLATION_COMPLETE, {"by": display})
-    stage_cascade(
-        seed,
-        container,
-        EventKind.CONSTELLATION_COMPLETE,
-        {"by": display},
-    )
+    messages = [] if notifications is None else notifications
+    with room.lock, persistence.transaction():
+        if container is None or container.level not in CONSTELLATION_LEVELS:
+            return
+        if not container.children:
+            return
+        if persistence.count_node_mutations(seed, container.name, "CONSTELLATION_COMPLETE"):
+            return
+        solved, total = constellation_progress(seed, container)
+        if solved < total:
+            return
+        display = solver if solver != "anonymous" else None
+        word = CONSTELLATION_LEVELS[container.level]
+        # One atomic write (ADR-009): the CONSTELLATION_COMPLETE row now carries
+        # its {"constellated": true} delta and commits together with the overlay
+        # change, stamped with the origin event's strength (the bus below is
+        # wired record=False, so this row is the event's only trace).
+        persistence.record_substance_change(
+            seed,
+            container.name,
+            "CONSTELLATION_COMPLETE",
+            display,
+            {"children": total, "of": word},
+            {"constellated": True},
+            strength=ORIGIN_STRENGTH,
+            actor_identity=actor_identity,
+        )
+        source = persistence.latest_event_id()
+        bus = wire_world_handlers(CausalityBus(), seed, record=False)
+        bus.emit(container, EventKind.CONSTELLATION_COMPLETE, {"by": display})
+        stage_cascade(
+            seed,
+            container,
+            EventKind.CONSTELLATION_COMPLETE,
+            {"by": display},
+            source_event_id=source,
+        )
+        messages.append(
+            {
+                "type": "constellation_complete",
+                "node": container.name,
+                "level": container.level,
+                "by": display,
+                "children": total,
+                "of": word,
+            },
+        )
+    if notifications is None:
+        for message in messages:
+            broadcast(room, message)
 
 
 def entangled_twin(node: SpatialNode) -> SpatialNode | None:
@@ -118,40 +125,44 @@ def resolve_entangled_twin(
     solver: str | None,
     contributors: list,
     actor_identity: str | None,
+    notifications: list | None = None,
 ) -> None:
     """Resolve an unsolved twin alongside its entangled partner."""
-    epoch = persistence.count_node_mutations(seed, twin.name, "PUZZLE_REARM")
-    twin_puzzle = build_puzzle(twin, epoch)
-    if persistence.get_puzzle_solve(seed, twin.name, twin_puzzle.name):
-        return
-    display = solver if solver != "anonymous" else None
-    persistence.record_mutation(
-        seed,
-        twin.name,
-        "PUZZLE_SOLVED",
-        display,
-        {
-            "puzzle": twin_puzzle.name,
-            "contributors": contributors,
-            "entangled_with": origin_name,
-        },
-        actor_identity=actor_identity,
-    )
-    twin_session = get_puzzle_session(room, twin.name, twin_puzzle.name)
-    with room.lock:
-        twin_session.solver = solver
-        twin_session.contributors |= set(contributors)
-    broadcast(
-        room,
-        {
-            "type": "puzzle_solved",
-            "node": twin.name,
-            "puzzle": twin_puzzle.name,
-            "solver": solver,
-            "contributors": contributors,
-            "entangled_with": origin_name,
-        },
-    )
+    messages = [] if notifications is None else notifications
+    with room.lock, persistence.transaction():
+        epoch = persistence.count_node_mutations(seed, twin.name, "PUZZLE_REARM")
+        twin_puzzle = build_puzzle(twin, epoch)
+        if persistence.get_puzzle_solve(seed, twin.name, twin_puzzle.name):
+            return
+        display = solver if solver != "anonymous" else None
+        persistence.record_mutation(
+            seed,
+            twin.name,
+            "PUZZLE_SOLVED",
+            display,
+            {
+                "puzzle": twin_puzzle.name,
+                "contributors": contributors,
+                "entangled_with": origin_name,
+            },
+            actor_identity=actor_identity,
+        )
+        # Drop the derived session; the next lookup hydrates the committed solve.
+        with room.lock:
+            room.puzzle_sessions.pop(twin.name, None)
+        messages.append(
+            {
+                "type": "puzzle_solved",
+                "node": twin.name,
+                "puzzle": twin_puzzle.name,
+                "solver": solver,
+                "contributors": contributors,
+                "entangled_with": origin_name,
+            },
+        )
+    if notifications is None:
+        for message in messages:
+            broadcast(room, message)
 
 
 def resolve_node(seed: int, node_name: str) -> SpatialNode | None:

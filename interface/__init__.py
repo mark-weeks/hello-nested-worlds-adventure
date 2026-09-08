@@ -6,7 +6,7 @@ import causality
 import persistence
 from causality import CausalityBus, EventKind
 from causality.wiring import (
-    record_origin_event, record_verb_act, wire_world_handlers,
+    wire_world_handlers,
 )
 from multiverse import store, wrap
 from multiverse.generator import DEFAULT_WORLD_SEED
@@ -181,19 +181,12 @@ def _play_puzzle(node: SpatialNode, seed: int,
     # a nameless PUZZLE_SOLVED row would open seals and count as human
     # progress while being attributable to no one.
     if result == PuzzleResult.SOLVED:
-        from causality.staging import stage_cascade
-        persistence.save_puzzle_result(seed, puzzle.name, result.name, puzzle.attempts)
-        # record=False below: this row is the canonical origin record. It
-        # carries the origin event's strength and its material consequence,
-        # computed against the live overlay under the write lock — row,
-        # delta, and overlay change commit as one transaction.
-        record_origin_event(
-            seed, node, EventKind.PUZZLE_SOLVED, {"puzzle": puzzle.name},
-            player_name=player_name, actor_identity=player_name)
-        bus = wire_world_handlers(CausalityBus(), seed, record=False)
-        bus.emit(node, EventKind.PUZZLE_SOLVED, {"puzzle": puzzle.name})
-        staged = stage_cascade(seed, node, EventKind.PUZZLE_SOLVED,
-                               {"puzzle": puzzle.name})
+        from causality.delivery import accept_event
+        with persistence.transaction():
+            persistence.save_puzzle_result(seed, puzzle.name, result.name, puzzle.attempts)
+            _changed, staged = accept_event(
+                seed, node, EventKind.PUZZLE_SOLVED, {"puzzle": puzzle.name},
+                player_name=player_name, actor_identity=player_name)
         print(f"  {_DIM}The place settles. {staged} consequence(s) are "
               f"already traveling outward.{_RESET}")
     elif result == PuzzleResult.FAILED:
@@ -205,7 +198,7 @@ def _play_puzzle(node: SpatialNode, seed: int,
 def _do_scale_verb(node: SpatialNode, seed: int,
                    player_name: str | None = None) -> None:
     """Perform this scale's native verb — the CLI mirror of POST /act."""
-    from causality.staging import stage_cascade
+    from causality.delivery import accept_verb
     from multiverse.verbs import apply_verb, verb_for_level
 
     verb = verb_for_level(node.level)
@@ -221,36 +214,17 @@ def _do_scale_verb(node: SpatialNode, seed: int,
         matures = maturation_seconds(node.level)
         if matures > 0:
             flavor += maturation_note(matures)
-    print(f"\n  {_BOLD}{verb.name}{_RESET} — {flavor}\n")
     if not changed:
+        print(f"\n  {_BOLD}{verb.name}{_RESET} — {flavor}\n")
         return
-    # Local play has no credential; the display name is the identity.
-    # record=False below: this row is the canonical origin record and
-    # carries the origin event's strength.
-    if matures > 0:
-        # Deep time: the change is planted, not applied — it rides the
-        # maturation queue and its delta is chronicled when it lands.
-        persistence.enqueue_verb_maturation(
-            seed, node.name, verb.name, changed, player_name, matures)
-        persistence.record_mutation(
-            seed, node.name, "SCALE_ACT", player_name,
-            {"verb": verb.name, "changed": changed,
-             "matures_in": int(matures)},
-            actor_identity=player_name,
-            strength=causality.ORIGIN_STRENGTH)
-    else:
-        # One transaction: the attributed SCALE_ACT row + overlay change,
-        # the verb's transition re-derived against the live overlay under
-        # the lock (the delta column carries what changed).
-        record_verb_act(
-            seed, node, verb, token, base_props, {"verb": verb.name},
-            player_name=player_name, actor_identity=player_name)
     payload = {"verb": verb.name}
     if player_name:
         payload["actor"] = player_name
-    bus = wire_world_handlers(CausalityBus(), seed, record=False)
-    bus.emit(node, EventKind.SCALE_ACT, payload)
-    staged = stage_cascade(seed, node, EventKind.SCALE_ACT, payload)
+    _changed, staged = accept_verb(
+        seed, node, verb, token, base_props, changed, matures,
+        {"verb": verb.name}, payload, player_name=player_name,
+        actor_identity=player_name, maturation_actor=player_name)
+    print(f"\n  {_BOLD}{verb.name}{_RESET} — {flavor}\n")
     if staged:
         print(f"  {_DIM}The act echoes — {staged} consequence(s) are "
               f"traveling outward.{_RESET}\n")

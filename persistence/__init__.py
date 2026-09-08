@@ -11,6 +11,7 @@ for the switchover plan and the full translation table.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import functools
 import hashlib
 import json
@@ -96,6 +97,64 @@ def _connect() -> sqlite3.Connection:
     # up in latency, but a trigger is not a defense.
     conn.execute("PRAGMA busy_timeout=5000")
     return conn
+
+
+# Only explicitly composable persistence helpers use this connection scope.
+# A delivery/acceptance transaction belongs to one synchronous request thread.
+_transaction_state = threading.local()
+
+
+@contextmanager
+def _connection():
+    current = getattr(_transaction_state, "connection", None)
+    if current is not None:
+        try:
+            yield current
+        except BaseException:
+            _transaction_state.failed = True
+            raise
+    else:
+        conn = _connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+
+
+@contextmanager
+def transaction():
+    """Compose local DB work into one BEGIN IMMEDIATE / commit boundary.
+
+    Nested calls join the transaction; no helper can commit it early. An
+    exception (even if a caller catches it) dooms the outer transaction.
+    Callers must keep external I/O and broadcasts outside this scope and
+    discard request-local objects on failure. SQLite releases the claim
+    and rolls back every write when a process dies before commit.
+    """
+    if _DB_PATH not in _initialized:
+        init_db()
+    if getattr(_transaction_state, "connection", None) is not None:
+        with _connection() as conn:
+            yield conn
+        return
+    conn = _connect()
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            _transaction_state.connection = conn
+            _transaction_state.failed = False
+            yield conn
+            if _transaction_state.failed:
+                raise RuntimeError("nested database operation failed")
+    finally:
+        _transaction_state.connection = None
+        conn.close()
+
+
+def _begin_write(conn):
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
 
 
 def _list_migrations() -> list[tuple[int, Path]]:
@@ -263,7 +322,7 @@ def save_agent_run(agent_name: str, world_seed: int, nodes_visited: int, events:
 
 @_with_db
 def save_puzzle_result(world_seed: int, puzzle_name: str, result: str, attempts: int) -> None:
-    with _connect() as conn:
+    with _connection() as conn:
         conn.execute(
             """INSERT INTO puzzle_results (world_seed, puzzle_name, result, attempts)
                VALUES (?, ?, ?, ?)""",
@@ -271,130 +330,168 @@ def save_puzzle_result(world_seed: int, puzzle_name: str, result: str, attempts:
         )
 
 
+# Queue ids are durable identities scoped by table; distinct requests retain
+# distinct work even if their legacy absolute outcomes happen to be equal.
+_DELIVERY_QUEUES = {"causal_queue", "verb_maturation"}
+
+
+def _delivery_queue(queue: str) -> str:
+    if queue not in _DELIVERY_QUEUES:
+        raise ValueError("unknown delivery queue")
+    return queue
+
+
 @_with_db
 def enqueue_causal_hop(world_seed: int, node_name: str, kind: str,
                        strength: float, direction: str, payload: dict,
-                       delay_seconds: float) -> None:
-    """Schedule one hop of a staged cascade to fire after `delay_seconds`.
-
-    (SQLite-ism: relative datetime modifier — PG: NOW() + make_interval().)
-    """
-    with _connect() as conn:
-        conn.execute(
+                       delay_seconds: float, *, parent_id: int | None = None,
+                       source_event_id: int | None = None) -> int:
+    """Schedule a v1 hop, joining its origin or predecessor transaction."""
+    with _connection() as conn:
+        cur = conn.execute(
             """INSERT INTO causal_queue
-               (world_seed, node_name, kind, strength, direction, payload, due_at)
-               VALUES (?, ?, ?, ?, ?, ?, datetime('now', ?))""",
+               (world_seed, node_name, kind, strength, direction, payload,
+                due_at, parent_id, source_event_id)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now', ?), ?, ?)""",
             (world_seed, node_name, kind, float(strength), direction,
-             json.dumps(payload), f"+{int(delay_seconds)} seconds"),
-        )
-
-
-@_with_db
-def claim_due_causal_hops(limit: int = 64,
-                          world_seed: int | None = None) -> list[dict[str, Any]]:
-    """Atomically remove and return hops whose due time has arrived.
-
-    DELETE … RETURNING makes the claim atomic, so a hop fires exactly once
-    even if multiple pumps ever run.
-    """
-    with _connect() as conn:
-        if world_seed is None:
-            rows = conn.execute(
-                """DELETE FROM causal_queue
-                   WHERE id IN (SELECT id FROM causal_queue
-                                WHERE due_at <= datetime('now')
-                                ORDER BY due_at, id LIMIT ?)
-                   RETURNING world_seed, node_name, kind, strength, direction, payload""",
-                (limit,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """DELETE FROM causal_queue
-                   WHERE id IN (SELECT id FROM causal_queue
-                                WHERE world_seed = ?
-                                  AND due_at <= datetime('now')
-                                ORDER BY due_at, id LIMIT ?)
-                   RETURNING world_seed, node_name, kind, strength, direction, payload""",
-                (world_seed, limit),
-            ).fetchall()
-        return [{"world_seed": r[0], "node_name": r[1], "kind": r[2],
-                 "strength": r[3], "direction": r[4],
-                 "payload": json.loads(r[5]) if r[5] else {}} for r in rows]
+             json.dumps(payload), f"+{int(delay_seconds)} seconds",
+             parent_id, source_event_id))
+        return cur.lastrowid
 
 
 @_with_db
 def enqueue_verb_maturation(world_seed: int, node_name: str, verb: str,
                             changed: dict, actor: str | None,
-                            delay_seconds: float) -> None:
-    """Plant a cosmic verb's property delta to land after `delay_seconds`.
-
-    Deep time made durable: the act is already in the chronicle; this row
-    is the change itself, still traveling. Drained by the causal pump.
-    """
-    with _connect() as conn:
-        conn.execute(
+                            delay_seconds: float, *,
+                            source_event_id: int | None = None) -> int:
+    """Plant the legacy absolute patch, without reinterpreting contributions."""
+    with _connection() as conn:
+        cur = conn.execute(
             """INSERT INTO verb_maturation
-               (world_seed, node_name, verb, changed, actor, due_at)
-               VALUES (?, ?, ?, ?, ?, datetime('now', ?))""",
+               (world_seed, node_name, verb, changed, actor, due_at, source_event_id)
+               VALUES (?, ?, ?, ?, ?, datetime('now', ?), ?)""",
             (world_seed, node_name, verb, json.dumps(changed), actor,
-             f"+{int(delay_seconds)} seconds"),
-        )
+             f"+{int(delay_seconds)} seconds", source_event_id))
+        return cur.lastrowid
 
 
 @_with_db
-def claim_due_verb_maturations(
-        limit: int = 32, world_seed: int | None = None) -> list[dict[str, Any]]:
-    """Atomically remove and return maturations whose time has come."""
-    with _connect() as conn:
-        if world_seed is None:
-            rows = conn.execute(
-                """DELETE FROM verb_maturation
-                   WHERE id IN (SELECT id FROM verb_maturation
-                                WHERE due_at <= datetime('now')
-                                ORDER BY due_at, id LIMIT ?)
-                   RETURNING world_seed, node_name, verb, changed, actor""",
-                (limit,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """DELETE FROM verb_maturation
-                   WHERE id IN (SELECT id FROM verb_maturation
-                                WHERE world_seed = ?
-                                  AND due_at <= datetime('now')
-                                ORDER BY due_at, id LIMIT ?)
-                   RETURNING world_seed, node_name, verb, changed, actor""",
-                (world_seed, limit),
-            ).fetchall()
-        return [{"world_seed": r[0], "node_name": r[1], "verb": r[2],
-                 "changed": json.loads(r[3]) if r[3] else {}, "actor": r[4]}
-                for r in rows]
+def due_work(queue: str, limit: int, world_seed: int | None = None) -> list[int]:
+    """Read bounded candidates, not claims. Delivery rechecks under the lock."""
+    queue = _delivery_queue(queue)
+    with _connection() as conn:
+        return [r[0] for r in conn.execute(
+            f"""SELECT id FROM {queue} WHERE status = 'pending'
+                AND due_at <= datetime('now')
+                AND (retry_at IS NULL OR retry_at <= datetime('now'))
+                AND (? IS NULL OR world_seed = ?)
+                ORDER BY due_at, id LIMIT ?""",
+            (world_seed, world_seed, max(0, limit))).fetchall()]
 
 
 @_with_db
+def inspect_work(queue: str, work_id: int) -> dict | None:
+    """Read the unchanged input, retries, linkage and terminal outcome."""
+    queue = _delivery_queue(queue)
+    with _connection() as conn:
+        cur = conn.execute(f"SELECT * FROM {queue} WHERE id = ?", (work_id,))
+        row = cur.fetchone()
+        return dict(zip([c[0] for c in cur.description], row)) if row else None
+
+
+@_with_db
+def deliver_work(queue: str, work_id: int, apply: Callable[[dict], str], *,
+                 prepare: Callable[[dict], None] | None = None) -> bool:
+    """Claim, apply and complete one local effect in the SAME transaction.
+
+    No committed in-progress state or lease is needed: SQLite's writer lock
+    is the claim. Duplicate candidates recheck status after acquiring it.
+    Exceptions roll back all writes and retain pending input with capped
+    exponential retry delay (1..300s); no retry limit silently discards work.
+    A process death before error recording also leaves the original pending
+    row eligible. The callback must perform only bounded local DB work.
+    """
+    queue = _delivery_queue(queue)
+    try:
+        if prepare is not None:
+            candidate = inspect_work(queue, work_id)
+            if candidate is None or candidate["status"] != "pending":
+                return False
+            prepare(candidate)
+        with transaction() as conn:
+            row = inspect_work(queue, work_id)
+            if row is None or row["status"] != "pending":
+                return False
+            eligible = conn.execute(
+                f"""SELECT 1 FROM {queue} WHERE id = ?
+                    AND due_at <= datetime('now')
+                    AND (retry_at IS NULL OR retry_at <= datetime('now'))""",
+                (work_id,)).fetchone()
+            if not eligible:
+                return False
+            if row["semantics_version"] != 1:
+                raise ValueError("unsupported delivery semantics version")
+            field = "payload" if queue == "causal_queue" else "changed"
+            row[field] = json.loads(row[field]) if row[field] else {}
+            if not isinstance(row[field], dict):
+                raise ValueError(f"delivery {field} must be a JSON object")
+            outcome = apply(row)
+            conn.execute(
+                f"""UPDATE {queue} SET status = 'completed', outcome = ?,
+                    completed_at = datetime('now'), attempts = attempts + 1,
+                    retry_at = NULL WHERE id = ?""", (outcome, work_id))
+        return True
+    except Exception as exc:
+        # Outside the failed transaction. If another worker completed in
+        # between, do not overwrite its terminal outcome with this failure.
+        with transaction() as conn:
+            conn.execute(
+                f"""UPDATE {queue} SET attempts = attempts + 1, last_error = ?,
+                    retry_at = datetime('now', '+' ||
+                        min(300, (1 << min(attempts, 9))) || ' seconds')
+                    WHERE id = ? AND status = 'pending'""",
+                (f"{type(exc).__name__}: {exc}"[:2000], work_id))
+        _log.exception("delivery failed: %s:%s; retained for retry", queue, work_id)
+        return False
+
+
+@_with_db
+def retry_work(queue: str, work_id: int) -> bool:
+    """Operator retry after inspection/repair; never resets a completed item."""
+    queue = _delivery_queue(queue)
+    with _connection() as conn:
+        return conn.execute(
+            f"UPDATE {queue} SET retry_at = NULL WHERE id = ? AND status = 'pending'",
+            (work_id,)).rowcount == 1
+
+
+@_with_db
+def latest_event_id(mutation_type: str | None = None) -> int:
+    """Link new work to the origin just written in the caller's transaction."""
+    if getattr(_transaction_state, "connection", None) is None:
+        raise RuntimeError("origin linkage requires a transaction")
+    with _connection() as conn:
+        return conn.execute(
+            "SELECT MAX(id) FROM world_mutations WHERE ? IS NULL OR mutation_type = ?",
+            (mutation_type, mutation_type)).fetchone()[0]
+
+
+@_with_db
+def _pending_work(queue: str, world_seed: int | None) -> int:
+    queue = _delivery_queue(queue)
+    with _connection() as conn:
+        return conn.execute(
+            f"""SELECT COUNT(*) FROM {queue} WHERE status = 'pending'
+                AND (? IS NULL OR world_seed = ?)""",
+            (world_seed, world_seed)).fetchone()[0]
+
+
 def pending_verb_maturations(world_seed: int | None = None) -> int:
-    """How many planted changes are still traveling (ops / test signal)."""
-    with _connect() as conn:
-        if world_seed is None:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM verb_maturation").fetchone()
-        else:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM verb_maturation WHERE world_seed = ?",
-                (world_seed,)).fetchone()
-        return int(row[0])
+    return _pending_work("verb_maturation", world_seed)
 
 
-@_with_db
 def pending_causal_hops(world_seed: int | None = None) -> int:
-    """How many cascade hops are still in flight (ops / test signal)."""
-    with _connect() as conn:
-        if world_seed is None:
-            row = conn.execute("SELECT COUNT(*) FROM causal_queue").fetchone()
-        else:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM causal_queue WHERE world_seed = ?",
-                (world_seed,)).fetchone()
-        return int(row[0])
+    return _pending_work("causal_queue", world_seed)
 
 
 @_with_db
@@ -408,7 +505,7 @@ def get_puzzle_solve(world_seed: int, node_name: str,
     excluded — ambient wanderers must not lock puzzles away from players.
     Returns {"solver": name-or-"anonymous", "contributors": [...]}.
     """
-    with _connect() as conn:
+    with _connection() as conn:
         rows = conn.execute(
             """SELECT player_name, data FROM world_mutations
                WHERE world_seed = ? AND node_name = ?
@@ -520,7 +617,7 @@ def record_mutation(world_seed: int, node_name: str, mutation_type: str,
     rebuilt as a fold over exactly the strength-bearing rows, so a fired
     event must carry strength on exactly one row.
     """
-    with _connect() as conn:
+    with _connection() as conn:
         conn.execute(
             """INSERT INTO world_mutations
                (world_seed, node_name, mutation_type, player_name, data,
@@ -635,7 +732,7 @@ def redact_mutation(mutation_id: int, scrub_name: bool = False,
 def count_node_mutations(world_seed: int, node_name: str,
                          mutation_type: str) -> int:
     """How many events of one type this node has accumulated."""
-    with _connect() as conn:
+    with _connection() as conn:
         return conn.execute(
             """SELECT COUNT(*) FROM world_mutations
                WHERE world_seed = ? AND node_name = ? AND mutation_type = ?""",
@@ -670,7 +767,7 @@ def get_puzzle_attempt_state(world_seed: int, node_name: str,
     deploy silently refunded a room's spent attempts. Every guess is now a
     PUZZLE_ATTEMPT chronicle row; this counts them back.
     """
-    with _connect() as conn:
+    with _connection() as conn:
         rows = conn.execute(
             """SELECT player_name FROM world_mutations
                WHERE world_seed = ? AND node_name = ?
@@ -834,7 +931,7 @@ def increment_ripple_score(world_seed: int, node_name: str, delta: float) -> Non
     to 1.0). Additive at the DB level so two simultaneous players' cascades
     compound instead of overwriting each other (the lost-update race that an
     absolute upsert from each request's private tree would create)."""
-    with _connect() as conn:
+    with _connection() as conn:
         conn.execute(
             f"""INSERT INTO node_runtime_state (world_seed, node_name, ripple_score, updated_at, created_at)
                VALUES (?, ?, ?, {_NOW}, {_NOW})
@@ -958,11 +1055,11 @@ def record_substance_change(world_seed: int, node_name: str,
     """
     if not delta:
         raise ValueError("record_substance_change requires a non-empty delta")
-    with _connect() as conn:
+    with _connection() as conn:
         # Take the write lock before reading MAX(node_version): a deferred
         # transaction would let two writers allocate the same version from
         # the same read snapshot and fail non-retryably on upgrade.
-        conn.execute("BEGIN IMMEDIATE")
+        _begin_write(conn)
         return _insert_substance_row(
             conn, world_seed, node_name, mutation_type, player_name, data,
             delta, strength, actor_identity)
@@ -990,8 +1087,8 @@ def record_substance_transition(world_seed: int, node_name: str,
     the applied delta, or None when the event had no material consequence
     against live state.
     """
-    with _connect() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with _connection() as conn:
+        _begin_write(conn)
         live_overlay = _current_property_overlay(
             conn, world_seed, node_name, repair=True)
         delta = compute(live_overlay)
@@ -1545,7 +1642,7 @@ def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
                 overrides[name] = rebuilt
         return overrides, needs_repair
 
-    with _connect() as conn:
+    with _connection() as conn:
         rows, delta_versions = read_rows(conn)
         overrides, needs_repair = hydrate(
             conn, rows, delta_versions, repair=False)
@@ -1554,7 +1651,7 @@ def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
 
         # Re-read and repair under one write lock. A concurrent canonical
         # writer cannot land between replay and the cache marker write.
-        conn.execute("BEGIN IMMEDIATE")
+        _begin_write(conn)
         rows, delta_versions = read_rows(conn)
         repaired, _ = hydrate(
             conn, rows, delta_versions, repair=True)
@@ -1569,7 +1666,7 @@ def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
 
 @_with_db
 def world_is_born(world_seed: int) -> bool:
-    with _connect() as conn:
+    with _connection() as conn:
         row = conn.execute(
             "SELECT 1 FROM world_nodes WHERE world_seed = ? LIMIT 1",
             (world_seed,),
@@ -1617,7 +1714,7 @@ def get_world_nodes(world_seed: int,
     """All born rows for a seed as (path, name, level, properties_json,
     breadth), ordered by path so parents precede children. `max_depth`
     limits path length in ordinals (a depth view of the stored world)."""
-    with _connect() as conn:
+    with _connection() as conn:
         if max_depth is None:
             rows = conn.execute(
                 """SELECT path, name, level, properties, breadth
@@ -1642,7 +1739,7 @@ def get_world_node_chain(world_seed: int,
     root-first. Missing paths are simply absent from the result."""
     if not paths:
         return []
-    with _connect() as conn:
+    with _connection() as conn:
         marks = ",".join("?" for _ in paths)
         rows = conn.execute(
             f"""SELECT path, name, level, properties, breadth
@@ -1707,7 +1804,7 @@ def get_ripple_score(world_seed: int, node_name: str) -> float:
 
 @_with_db
 def load_ripple_scores(world_seed: int) -> dict[str, float]:
-    with _connect() as conn:
+    with _connection() as conn:
         rows = conn.execute(
             "SELECT node_name, ripple_score FROM node_runtime_state WHERE world_seed = ?",
             (world_seed,),

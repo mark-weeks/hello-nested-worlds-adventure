@@ -392,6 +392,9 @@ fly ssh console -C "sh -c 'ls -t /data/backups/*.db | tail -n +6 | xargs -r rm'"
 
 ### Restoring from a backup
 
+For M1 queue upgrades, pending-work inspection, and the prohibition on mixed
+old/new workers, also follow [delayed-work recovery](delivery-recovery.md).
+
 The policy's promise is "a bad migration is a restore, not a lost
 epoch" — this is the restore. It overwrites the live database with the
 backup; everything recorded since that backup is lost, so read the
