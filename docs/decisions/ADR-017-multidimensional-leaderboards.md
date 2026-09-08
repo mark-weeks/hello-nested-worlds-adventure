@@ -5,6 +5,9 @@ The owner requested multiple dimensions of competitive recognition and a mix
 of human and AI participants ranking highly. The dimensions, scoring budgets,
 windows, and roster controls below are recommendations to validate, not already
 ratified formulas or a guarantee of a particular ranking composition.
+The owner's follow-up challenges orderly bias and proposes opposing disposition
+meters. This revision recommends legitimate disruptive achievements and separate
+ADR-014 disposition axes; the revised board pair and meters remain proposals.
 
 ## Context
 
@@ -20,6 +23,11 @@ table or ranking by clicks, messages, elapsed online time, or raw mutation volum
 remains outside the direction. Boards reinforce the discovery-and-return loop;
 they do not replace the need for a compelling situation.
 
+Beginning only with Stewardship and Cooperation privileged preserving the current
+arrangement and jointly helping it. That is too narrow for an open world. Chaotic,
+competitive, or antagonistic play needs mechanically supported goals with real
+consequences, rather than a cosmetic label on the same restorative actions.
+
 ## Decision
 
 ### Independent dimensions, not one overall winner
@@ -27,19 +35,55 @@ they do not replace the need for a compelling situation.
 Maintain separate standings for distinct kinds of contribution. Do not sum them
 into a composite score, overall rank, or hidden morality/disposition rating.
 Let a player choose which standings to follow and feature on their profile.
+Disposition sliders describe demonstrated tendencies under ADR-014. Rankings
+measure accomplishments; a position near either end of a slider earns no rank
+by itself. Strong achievement at opposing goals does not cancel into mediocrity.
 
 | Candidate dimension | What could earn credit | What must not earn credit |
 |---|---|---|
 | **Discovery** | A distinct, verified finding or causal relationship that advances a situation; later visitors can earn credit for independent understanding or useful follow-up under an explicit rule. | Raw visits, private journal volume, automatic archive views, or claiming every new visitor was the world's first discoverer. |
 | **Stewardship** | A meaningful restoration or stabilization addressing a real situation need, with its effect confirmed. | Repeated repair clicks, self-created damage/repair cycles, or counting a large numeric property change as inherently more valuable. |
+| **Disruption** | Fulfill an authored destabilizing or opposing objective: dismantle a mechanism, undermine an NPC faction's control, or trigger a bounded transformation, with its actual outcome confirmed. The objective can be self-interested or unwelcome to other inhabitants. | Raw damage, disruption volume, arbitrary interference with other players, or repeatedly breaking and restoring the same target for awards. |
 | **Cooperation** | A verified complementary contribution to a completed shared goal, including permitted human–agent cooperation. | Chat volume, reciprocal endorsements, duplicate accounts, or multiplying the same outcome by the number of team members. |
 | **Follow-through** | Fulfillment of a previously accepted, mechanically verifiable public commitment. | Arbitrary self-declared easy goals, private intentions, or a perfect one-action completion rate presented as sustained achievement. |
 | **Ingenuity** | A valid alternative approach under a situation's authored, inspectable criteria. | An opaque LLM judgment of creativity, unrestricted text generation, or damage rewarded merely for being unusual. |
 
-Start the ranking experiment with **Stewardship and Cooperation**, once their
-outcome/evidence contracts exist. Add Discovery when meaningful findings can be
-verified fairly; Follow-through and Ingenuity need their own evaluators. These
-are proposed dimensions, not five engines to build before the first pilot.
+Revise the first proposed pair to **Stewardship and Disruption**, once the first
+situation supports both with inspectable outcomes and comparable opportunities.
+This supersedes the earlier Stewardship/Cooperation starting pair. Cooperation,
+Discovery, Follow-through, and Ingenuity can recognize either preserving or
+disruptive goals once their own evidence contracts exist. For example, a group
+can cooperate to overthrow an NPC faction; an ingenious intervention can preserve
+a mechanism. These are six candidate dimensions, not six engines to build first.
+
+### Make disorder a real option
+
+The first situation must offer an intelligible preserving goal and a genuinely
+destabilizing or opposing goal, each with consequences and trade-offs. If its
+existing quiet/redirect branches do not provide that choice, revise the content
+before adding boards. Keeping an instrument stable might preserve a keeper's
+control; dismantling its regulator might release the signal while making its
+surroundings volatile. Neither route needs to be universally beneficial. These
+are candidate story consequences, not implemented actions or permission to alter
+world identity.
+
+Before admitting ranked attempts, define the affected arrangement, valid opposing
+objectives, stakes, bounds, acceptance/conflict rules, observable completion, and
+late-arrival opportunities. A disruptive objective may impose a real in-fiction
+loss; it must not require making every participant approve the outcome. Distinguish
+that designed conflict from harassment, resource exhaustion, arbitrary targeting,
+or overriding core access and continuity rules. No new authority to steal private
+holdings, trap players, alter born identities, or rewrite history follows from
+this direction. Broader direct player-versus-player conflict needs separate review.
+
+Specify mutual exclusion and prospective credit budgets before the situation
+opens. A contested transition cannot pay for endless destroy/repair reversals;
+retries, colluding controllers, and unranked agents cannot manufacture new scored
+opportunities. A participant may earn on both boards through distinct eligible
+outcomes, but incompatible choices in one instance retain ADR-013's conflict rules.
+Do not secretly penalize the disruptive route or make it available only after all
+preserving opportunities have been claimed. Rank success within each board;
+do not net destructive and restorative achievements into one alignment total.
 
 If the collection proposal in [ADR-018](ADR-018-collectibles-and-inventory.md)
 proceeds, recognize verified project outcomes under these same rules. Inventory
@@ -168,8 +212,10 @@ apply new versions prospectively and identify any corrected score projection.
   inspect the affected dimension and prospective limits before expanding it.
 - Humans sweep all boards and agents feel like decorative opponents: examine
   agent capabilities and accessible goals without gifting score or privileges.
-- A dimension rewards behavior that makes the shared world worse, or entry
-  into competitive play reduces discovery/cooperation: change or retire it.
+- A dimension rewards prohibited interference, exhausts others' opportunities,
+  or reduces meaningful participation: revise it. Fictional instability, an
+  inhabitant's loss, or reduced cooperation alone is not proof of failure;
+  assess whether the authored conflict remains understandable and playable.
 - Participation grows enough for additional local scopes or a newcomer board:
   define eligibility that cannot be reset by renaming, respawning, or rotating
   an existing agent/controller.
@@ -183,7 +229,9 @@ apply new versions prospectively and identify any corrected score projection.
 - Hidden handicaps, forced mixed rank slots, or score changes after results
   are known; use an honestly labeled showcase for guaranteed representation.
 - Scoring simulated agent puzzle solves as equivalent to human achievements,
-  rewarding deliberate damage, or mining private journals for evidence.
+  rewarding raw damage or harm/repair farming, or mining private journals.
+- Treating all deliberate fictional destruction as illegitimate, ranking only
+  prosocial outcomes, or substituting the extremity of disposition for achievement.
 
 Implementation is staged in the
 [discovery-and-return plan](../roadmap/discovery-and-return.md), alongside the

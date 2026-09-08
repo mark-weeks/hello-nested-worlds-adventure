@@ -24,10 +24,10 @@ identity, append-only historical facts, and additive change.
 |---|---|
 | [ADR-012: discovery and return](../decisions/ADR-012-discovery-and-return.md) | Owner-endorsed product direction: investigation in an open world, a bounded first situation, responsive inhabitants, and a meaningful return. The example story, pacing, and scene-interface performance are testable hypotheses. |
 | [ADR-013: versioned situations and delivery](../decisions/ADR-013-versioned-situations-and-delivery.md) | Proposed implementation contract: reliable accepted work, typed action semantics, preserved active instances, and changes to existing places through events. Exact persistence design and new write paths remain subject to implementing-PR review. |
-| [ADR-014: player identity and journal](../decisions/ADR-014-player-identity-and-journal.md) | Identity/journal direction endorsed. First-release field defaults and staging are recommendations; badges, dispositions, guilds, and avatar creation/upload are recorded candidates rather than implied pilot requirements. |
+| [ADR-014: player identity and journal](../decisions/ADR-014-player-identity-and-journal.md) | Identity/journal direction endorsed. First-release defaults and staging remain recommendations. The owner's opposing-meter idea is developed as a proposed multidimensional disposition model, distinct from achievement and faction relationships; badges, meters, guilds, and avatar creation/upload are not implied pilot requirements. |
 | [ADR-015: referential puzzles](../decisions/ADR-015-referential-puzzles.md) | Owner-requested content direction: occasional relevant fictional/nonfictional references. No live bank allocation or active answer change is approved by this plan. |
 | [ADR-016: optional spoken interaction](../decisions/ADR-016-optional-spoken-interaction.md) | Owner-requested capability direction: speech input and playback alongside text. The staged interaction is recommended; vendor, budget, and support choices need evidence. |
-| [ADR-017: multidimensional leaderboards](../decisions/ADR-017-multidimensional-leaderboards.md) | Owner-requested recognition direction: multiple contribution dimensions with humans and agents able to rank highly. Dimensions, caps, roster admission, and scoring windows are recommended experiments; a mixed result is a goal, not a hidden ranking quota. |
+| [ADR-017: multidimensional leaderboards](../decisions/ADR-017-multidimensional-leaderboards.md) | Owner-requested recognition direction: multiple dimensions with humans and agents able to rank highly. The revised proposal includes legitimate disruptive goals, starting with Stewardship and Disruption. Dimensions, caps, admission, and windows remain experiments; alignment extremity is not achievement and a mixed top group is not a hidden quota. |
 | [ADR-018: collectibles and inventory](../decisions/ADR-018-collectibles-and-inventory.md) | Exploratory proposal in response to the owner's collection idea: keepsakes, cross-scale components, and useful assembled artifacts. One small assembly is a candidate for M0 review, not an accepted M5 requirement; hyperleaping and shared projects are later candidates. |
 
 The owner sets product direction; development-team review covers implementation
@@ -77,6 +77,13 @@ Before implementing its permanent transitions, specify:
 - What changes for a returning participant and a first-time late arrival;
   neither needs a private reset or a false first-solver claim.
 
+Review the quiet/redirect brief for a real difference between preserving an
+arrangement and disrupting it. Give each route intelligible stakes, costs,
+affected inhabitants, and conflict handling; both cannot simply be equivalent
+ways to help the same keeper. Record enough contextual evidence to distinguish
+the choice and outcome without building disposition meters in M5. If the story
+cannot support legitimate opposing goals, revise it before any ranking experiment.
+
 ADR-018 proposes a collection variation to review here: three discoveries from
 different scales assemble into one instrument that helps explain and affect the
 situation. Compare it with the simpler experience before adding it to M5. If it
@@ -93,16 +100,19 @@ through play. It does not need a reputation economy or guild administration.
 1. **M6:** private journal; selective public bio/goals; optional home bookmark;
    chosen preset/simple configurable avatar. Publish only selected fields.
 2. **After M7:** evidence-backed contribution badges and an ADR-017 ranking
-   experiment, initially Stewardship and Cooperation, plus selected journal
-   sharing if players need it. Define cooperative credit, versioned award rules,
-   and comparable human/agent opportunities before public display.
-3. **Later experiments:** explainable, opt-in disposition facets; avatar creation
-   and upload; guilds with explicit membership and projects. Confirm demand and
-   define each contract separately. Do not infer alliance from a private journal.
+   experiment, with Stewardship and Disruption now proposed first, plus selected
+   journal sharing if players need it. Define credit for opposing/shared goals,
+   versioned award rules, and comparable human/agent opportunities before display.
+3. **Later experiments:** explainable, opt-in disposition meters under ADR-014;
+   avatar creation and upload; guilds with explicit membership and projects.
+   Confirm demand and define each contract separately. Do not infer alliance from a private journal.
 
 All ideas remain recorded in ADR-014/017 even when deferred. Disposition is a
 description of observable play, not a global rating of character or trust.
 Contribution standings do not collapse these identity dimensions into one score.
+Proposed meters are Preservation–Disruption, Coordination–Independence, and
+Caution–Daring. Retain evidence for both poles, distinguish mixed from unknown,
+and test the labels before choosing a numerical formula. Extremity earns no rank.
 
 ### Ranking experiment after the first experience
 
@@ -125,6 +135,13 @@ standings, run a simulation/replay and then a bounded opt-in cohort experiment:
 - Exclude simulated agent puzzle success and indirect credit from ineligible
   acts. Preserve existing human puzzle-progress rules and historical actor
   ambiguity.
+- Include preserving and disruptive goals, coordinated rebels, independent
+  caretakers, failed risky attempts, and mixed/insufficient disposition evidence.
+  Check comparable opportunity access for both routes, contested transitions,
+  late arrivals, and collusive destruction/repair. Neither fictional instability
+  nor a high disruptive tendency alone is a failure or an achievement. Assess
+  whether both styles produce legible, playable consequences without prohibited
+  interference; do not require an equal number of winners from each style.
 - Compare engagement and perceived fairness with the unranked experience. Pause
   expansion if rankings encourage chores, farming, or withdrawal from discovery.
 

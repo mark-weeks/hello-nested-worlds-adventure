@@ -7,6 +7,9 @@ raised as possibilities. Their staging and defaults below are recommendations
 for team review, not a claim that every possibility was approved for the pilot.
 The subsequent owner request for multidimensional leaderboards and competitive
 human/agent participation is recorded as product direction in ADR-017.
+The owner subsequently challenged the preference for orderly play and suggested
+dynamic meters between opposing dispositions. The axes and update rules below
+are a revised proposal for review, not an accepted morality or scoring formula.
 
 ## Context
 
@@ -46,8 +49,8 @@ Establish four distinct surfaces:
 | Chosen avatar | Select a preset or configure a simple in-world visual identity. Use consistent presentation in profiles and live presence without changing historical actor identity. | Basic profile. |
 | Created/uploaded avatar | Extend the same profile field with a creation tool and then controlled image upload; exact generation provider and upload implementation remain open. | After basic identity is useful; separate implementation. |
 | Contribution badges | Evidence-backed recognition for meaningful contributions, with player-selected public display. Preserve cooperative credit; no power advantages or global ranking by raw activity. | After pilot evidence defines meaningful achievement. |
-| Contribution leaderboards | Separate standings by contribution dimension, with comparable scored opportunities for eligible humans and agents. No overall engagement total or guaranteed rank allocation; see ADR-017. | Bounded ranking experiment after the first pilot, starting with Stewardship and Cooperation. |
-| Alliance/disposition | Self-declared affiliation is separate from opt-in, explainable observations of recent public play. Display facets rather than one moral/reputation score. | Experiment after the badge/evidence model is tested. |
+| Contribution leaderboards | Separate standings by accomplishment, with comparable scored opportunities for eligible humans and agents. Recognize legitimate preservation and disruption; no overall engagement total or ranking by alignment extremity. See ADR-017. | Bounded ranking experiment after the first pilot, with Stewardship and Disruption proposed first. |
+| Alliance/disposition | Self-declared affiliation is separate from opt-in, explainable observations of recent public play. Proposed bipolar meters describe independent tendencies, not achievement, morality, or faction allegiance. | Experiment after the action/evidence model is tested; axes and formula remain proposed. |
 | Guilds | Voluntary associations around shared interests or projects, with explicit join/leave and shared goals. No private copy of the world or exclusive gate on the core experience. | Later, if recurring cooperation demonstrates demand. |
 
 ### Private/public boundary
@@ -86,13 +89,63 @@ clicking. Derive awards from authorized evidence, version their rules, preserve
 cooperative credit, and define how corrections/redaction affect public evidence.
 Merely viewing Wayback must not gain a new chronicle write as a badge shortcut.
 
-For disposition, candidate facets include tending, investigating, and disrupting.
-Show the time/window and supporting public actions; suppress conclusions from
-insufficient evidence. These describe play, not a player's real personality,
-morality, or loyalty. Never infer them from private notes, conversation sentiment,
-or an opaque model score. A stated alliance, observed behavior, and actual guild
-membership must not be presented as interchangeable facts. Exact formulas and
-eligibility are intentionally deferred to an experiment.
+### Proposed dynamic disposition meters
+
+Keep **disposition** (the approaches a participant has demonstrated),
+**achievement** (verified accomplishments), and **relationships** (a particular
+inhabitant's or faction's response) distinct. Do not convert every leaderboard
+dimension into an alignment axis: ignorance is not a useful opposite of Discovery,
+and lack of ingenuity is not a play style to cultivate. Cooperation can serve
+both preservation and disruption; a group of rebels is still cooperating.
+
+| Candidate axis | One pole | Other pole |
+|---|---|---|
+| Change | Preservation: sustain or restore an existing arrangement. | Disruption: destabilize, dismantle, or replace an arrangement. |
+| Working with others | Coordination: pursue an objective through agreed joint action. | Independence: choose and pursue an objective autonomously, including explicit competing goals. |
+| Uncertainty | Caution: favor understood, predictable consequences. | Daring: choose an explicitly uncertain experiment or intervention. |
+
+These are proposed, independent descriptors; neither end is inherently better.
+Independence does not mean hostility, coordination does not imply order, and
+disruption need not be altruistic. An authored action can express several facets,
+one, or none. Do not force solo play, silence, absence, or an ambiguous action into
+a negative category. Only score a facet when the situation provides evidence for
+that distinction. No single axis claims to explain all kinds of chaos or rivalry.
+
+Recommend a readable slider for each supported axis, with the underlying evidence
+for **both** poles retained. A bounded balance derived from recent eligible choices
+is a candidate, not a committed formula. A participant who often preserves and
+often disrupts must be distinguishable from someone with no qualifying history.
+Show mixed evidence as mixed; show insufficient evidence as unknown. Do not label
+either automatically neutral, moderate, or morally balanced.
+
+Derive movement from authored, contextual classifications of executed public
+choices, with transparent explanations. A generic verb such as `mend` or `break`
+does not establish intent: dismantling a mechanism might preserve a larger
+system. The authoring rule must state the reference arrangement and perspective.
+Do not infer actual motives, personality, morality, or loyalty from a score,
+private notes, dialogue sentiment, or an opaque model judgment.
+
+Bound weight per eligible situation opportunity; deduplicate retries and propagated
+effects so repetition cannot push a meter to its extreme. Let subsequent meaningful
+choices change a disposition without wiping history. Specify the evidence window,
+minimum support, weighting, and classification version before testing. If evidence
+ages out, confidence can fall to unknown; inactivity must not manufacture movement
+toward the opposite pole or award achievements. Public display remains opt-in.
+Disposition need not wait for successful achievement: an executed risky attempt
+can evidence daring even when it fails, if its authored rule says so. Leaderboard
+credit still requires the qualifying outcome under ADR-017.
+
+Never reward a participant simply for being maximally aligned. For example, a
+profile might read **disruptive, coordinated, daring**, with strong Discovery and
+Ingenuity achievements. Another might show mixed preservation/disruption evidence
+and high achievement in both. Neither profile receives a global virtue score.
+
+Relationships can respond differently to the same event: a keeper may resent
+a mechanism's destruction while another inhabitant welcomes it. Any such response
+must use authorized events the character could know, with explicit authored
+consequences, not omniscient access to a private profile or journal. Self-declared
+alliance and actual guild membership remain separate. Mechanical access/power
+rewards for alignment extremes are outside the first experiment.
 
 Use a compatible vocabulary of names, homes, goals, and public contributions for
 humans and agents. Preserve existing live-presence addressability and the

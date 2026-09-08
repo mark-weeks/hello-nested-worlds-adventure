@@ -55,6 +55,9 @@ Design intent: every verb is the **restorative counterpart** to the decay events
 trade-offs through targets, sequence, and situation commitments. ADR-013 defines
 explicit contribution, one-time, and exclusive-action semantics; those changes
 are pending implementation and must preserve existing accepted work.
+The revised ADR-017 proposal requires legitimate destabilizing or opposing goals
+alongside preservation, with authored stakes and shared conflict rules. The
+current restorative verbs alone do not establish those new goals or authorities.
 
 **Implementation status.** Live in all three clients: `/app` gets a per-scale Act tab, the explorer an Act mode panel, the CLI an `act` command (typing the verb itself also works). Acts broadcast to the seed-room (`scale_act`), fold into watching clients' property panels and node art, and land in `/history` backfill.
 
@@ -125,7 +128,9 @@ The original Myst suffered from unclear navigation and opaque objectives. Four d
 
 - [ADR-014](../decisions/ADR-014-player-identity-and-journal.md): private journal
   plus selective public bio/goals, home bookmark, and chosen avatar. Badges,
-  disposition facets, avatar creation/upload, and guilds are staged candidates.
+  dynamic disposition meters, avatar creation/upload, and guilds are staged
+  candidates. Proposed opposing tendencies remain separate from achievement;
+  mixed evidence and unknown disposition must not be presented as equivalent.
 - [ADR-015](../decisions/ADR-015-referential-puzzles.md): occasional relevant
   fictional/nonfictional references, initially optional, with verified sources,
   explicit answers, and preserved puzzle ecology and active-instance identity.
@@ -134,8 +139,10 @@ The original Myst suffered from unclear navigation and opaque objectives. Four d
   character text and ambient sound are not yet this speech capability.
 - [ADR-017](../decisions/ADR-017-multidimensional-leaderboards.md): separate
   contribution standings with comparable scoring opportunities for humans and
-  eligible agents. Begin with Stewardship and Cooperation after their evidence
-  exists; no flat engagement total or scoring of simulated agent puzzle solves.
+  eligible agents. Stewardship and Disruption are the revised first proposed
+  pair, after meaningful opposing goals and their evidence exist. Cooperation
+  can serve either goal; no alignment-extremity score, flat engagement total,
+  or credit for simulated agent puzzle solves.
 - [ADR-018](../decisions/ADR-018-collectibles-and-inventory.md): proposed keepsakes,
   components from different scales, and assembled artifacts with useful abilities.
   Review one small assembly within the first mystery before adding inventory to
