@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import queue
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from server.protocol import ws_send
@@ -145,6 +146,8 @@ def _new_session(room: Room, node_name: str, puzzle_name: str) -> PuzzleSession:
     """
     import persistence
     session = PuzzleSession(puzzle_name=puzzle_name)
+    state = persistence.get_puzzle_attempt_state(room.seed, node_name, puzzle_name)
+    session.attempts = state["attempts"]
     solve = persistence.get_puzzle_solve(room.seed, node_name, puzzle_name)
     if solve:
         session.solver = solve["solver"]
@@ -153,9 +156,6 @@ def _new_session(room: Room, node_name: str, puzzle_name: str) -> PuzzleSession:
         # Unsolved: the pooled attempt count and contributors are durable
         # facts too (PUZZLE_ATTEMPT rows) — a deploy must not refund the
         # room's spent attempts.
-        state = persistence.get_puzzle_attempt_state(
-            room.seed, node_name, puzzle_name)
-        session.attempts = state["attempts"]
         session.contributors = state["contributors"]
     room.puzzle_sessions[node_name] = session
     return session
@@ -226,6 +226,46 @@ def agents_snapshot(room: Room) -> list[dict]:
 
 
 # ── Puzzle sessions (co-op state) ───────────────────────────────────────────
+
+
+def refresh_puzzle_session(room: Room, node_name: str, puzzle_name: str) -> PuzzleSession:
+    """Refresh durable facts, retaining local credit only for the same solve.
+
+    Post-solve visitors are credited in this process without new history rows.
+    A refresh must preserve that credit, but never a solver absent from the DB.
+    """
+    with room.lock:
+        previous = room.puzzle_sessions.get(node_name)
+        session = _new_session(room, node_name, puzzle_name)
+        if (previous is not None and previous.puzzle_name == puzzle_name
+                and session.solver is not None and previous.solver == session.solver):
+            session.attempts = max(session.attempts, previous.attempts)
+            session.contributors |= previous.contributors
+        return session
+
+
+@contextmanager
+def puzzle_attempt(room: Room, node_name: str, puzzle_name: str,
+                   player_name: str | None, correct: bool):
+    """Own refresh, serialization and rollback of an accepted puzzle attempt.
+
+    The caller writes history/effects inside this scope. Unsolved sessions are
+    refreshed under the writer lock to see other processes' commits. Already
+    solved attempts only add local credit and need no database write lock.
+    """
+    import persistence
+    with room.lock:
+        session = refresh_puzzle_session(room, node_name, puzzle_name)
+        if session.solver is not None:
+            yield record_attempt(room, node_name, puzzle_name, player_name, correct)
+            return
+        try:
+            with persistence.transaction():
+                refresh_puzzle_session(room, node_name, puzzle_name)
+                yield record_attempt(room, node_name, puzzle_name, player_name, correct)
+        except BaseException:
+            reset_puzzle_session(room, node_name)
+            raise
 
 
 def get_puzzle_session(room: Room, node_name: str, puzzle_name: str) -> PuzzleSession:

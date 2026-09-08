@@ -25,9 +25,13 @@ no committed in-progress state, lease duration, or lease-expiration race.
 Origin acceptance likewise commits its existing chronicle row, immediate
 material change (if any), pressure, initial causal ring, and maturation patch
 (if any) together. HTTP, CLI, and cast producers share this boundary. HTTP
-puzzle sessions rehydrate under the SQLite lock and invalidate on rollback;
-entangled solves and a newly completed constellation join that solve's commit.
-Room locks precede the database lock and are reentrant for session helpers.
+puzzle acceptance uses a room-owned scope: unsolved sessions rehydrate under the
+SQLite lock and invalidate on rollback; entangled solves and a newly completed
+constellation join that solve's commit. Already-solved attempts only credit a
+local visitor and avoid the writer lock. The puzzle read path uses the same
+refresh/merge rule. Post-solve visitor credit remains process-local; this does
+not add history rows or change the agent/human solve boundary. Room locks precede
+the database lock and are reentrant for session helpers.
 
 A thread-local transaction scope lets the explicitly participating persistence
 helpers borrow one connection. Nested helpers cannot commit independently;
@@ -35,8 +39,9 @@ a nested exception dooms the outer transaction even if caught. World birth,
 pinning, migration, backup, and restore keep their independent connection
 lifecycles. Workers ensure a world is born before entering the effect transaction.
 No network, external model call, room broadcast, or transport acknowledgment
-belongs inside the transaction. Workers catch post-commit notification failures;
-reload/read APIs recover the authoritative outcome without replaying it.
+belongs inside the transaction. Both queues share the candidate/delivery/post-commit notification loop. Workers
+catch post-commit notification failures; reload/read APIs recover the
+authoritative outcome without replaying it.
 
 Migration **0018** adds only columns and indexes to the two existing queues:
 
@@ -70,16 +75,26 @@ M2's prospective contribution, coalescing, exclusive-action, or saturation rules
 
 ## Trade-offs accepted
 
-SQLite still serializes all writers. World hydration and local computation
-hold the write lock for one bounded item; batching is limited to 64 causal or
-32 maturation candidates, with a commit between items. This prioritizes a
-provable recovery boundary over throughput. Measure contention before changing it.
+SQLite still serializes all writers. Causal drains hydrate one immutable born
+tree per seed per batch **before** acquiring the writer lock. Each attempt
+copies only its node/ancestor chain and loads those live overlays plus the
+node's pressure inside the lock. This keeps law routing, deleted properties,
+and effects current without carrying failed in-memory changes into later hops;
+the cached tree is never mutated and requires no failure invalidation. Each
+item still commits independently, with batches limited to 64 causal or 32
+maturation candidates. The review probe's 32-root-hop median fell from 0.7992s
+to 0.0580s (three disposable trials per version); that microbenchmark is not a
+production contention or capacity estimate.
 
 Completed rows are retained indefinitely in this change, adding storage.
 There is no pruning or bulk history rewrite. Backoff isolates poison items
 without a new dead-letter service; operators must inspect persistent failures.
 If even error recording fails (for example, a full disk), the input remains
-pending and the pump logs the error. Recovery then requires repairing storage.
+pending; the worker logs both failures and continues other candidates. Its
+attempt/backoff metadata may remain unchanged, making it eligible next tick.
+A wider storage outage may prevent the next candidate read too; repair storage
+so the normal pump can resume. Diagnostics are best effort, not the recovery
+record: the original pending input is the recovery record.
 
 **No mixed-version workers:** pre-M1 binaries ignore the new status column and
 would consume completed rows. Stop every writer before upgrade, take a backup,

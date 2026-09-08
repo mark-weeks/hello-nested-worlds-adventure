@@ -1,12 +1,40 @@
-"""Atomic acceptance for the existing staged producers (M1, legacy rules)."""
+"""Atomic acceptance and delivery for staged producers (M1, legacy rules)."""
+import logging
+
 import persistence
 from causality import CausalityBus, EventKind, ORIGIN_STRENGTH
-from causality.staging import stage_cascade
 from causality.wiring import record_origin_event, record_verb_act, wire_world_handlers
+from multiverse import store
+
+
+def deliver_due(queue, limit, world_seed, apply, notify, *, prepare=None):
+    """Deliver each candidate independently; notify only after its commit.
+
+    apply(row, notifications) returns a terminal outcome and collects callback
+    arguments. Preparation runs outside the writer lock. Broadcast failures
+    never turn committed work into a retry.
+    """
+    delivered = 0
+    for work_id in persistence.due_work(queue, limit, world_seed):
+        notifications = []
+        committed = persistence.deliver_work(
+            queue, work_id, lambda row: apply(row, notifications),
+            prepare=prepare or (lambda row: store.ensure_born(row["world_seed"])))
+        if committed:
+            delivered += len(notifications)
+            if notify is not None:
+                for args in notifications:
+                    try:
+                        notify(*args)
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "committed delivery %s:%s broadcast failed", queue, work_id)
+    return delivered
 
 
 def accept_event(seed, node, kind, data, *, player_name=None, actor_identity=None):
     """Commit the attributed origin, pressure, and its entire first ring."""
+    from causality.staging import stage_cascade
     with persistence.transaction():
         changed = record_origin_event(
             seed, node, kind, data, player_name=player_name,
@@ -26,6 +54,7 @@ def accept_verb(seed, node, verb, token, base_props, changed, matures,
     prospective contribution/coalescing policies; equal patches aren't retries.
     The caller computes flavor before this function and broadcasts afterwards.
     """
+    from causality.staging import stage_cascade
     with persistence.transaction():
         if matures > 0:
             persistence.record_mutation(

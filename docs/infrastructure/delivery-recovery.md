@@ -29,9 +29,11 @@ cover recorded failures and completion, not every process-killed attempt.
 
 Without intervention, failures retry after 1, 2, 4, … seconds, capped at five
 minutes, without a discard ceiling. An invalid item does not suppress the rest
-of the eligible batch. A storage outage can also prevent error recording; repair
-the storage and restart the normal pump. Its pending row remains the recovery
-source. Notification failures require a reload/reconnect, not a queue reset.
+of the eligible batch. A storage outage can also prevent error recording; that
+failure is logged and the worker still tries other candidates. Attempts/backoff
+can remain unchanged, so the item may be eligible again next tick. If the outage
+also prevents reading or applying work, repair storage and resume the normal
+pump. Its pending row remains the recovery source. Notification failures require a reload/reconnect, not a queue reset.
 
 ## Upgrade and rollback
 

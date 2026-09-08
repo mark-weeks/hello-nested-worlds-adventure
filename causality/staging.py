@@ -17,18 +17,17 @@ arriving afterwards.
 """
 from __future__ import annotations
 
-import logging
+from copy import copy
 import os
 from typing import Callable
 
 import persistence
 from causality import CausalEvent, CausalityBus, EventKind, MIN_STRENGTH
+from causality.delivery import deliver_due
 from causality.wiring import wire_world_handlers
 from multiverse import store
 from multiverse.node import SpatialNode
-from multiverse.utils import (
-    apply_property_overrides, apply_ripple_scores, find_node,
-)
+from multiverse.utils import find_node
 
 HOP_DELAY_ENV = "NESTED_WORLDS_HOP_DELAY"
 _DEFAULT_HOP_DELAY = 12.0
@@ -93,14 +92,33 @@ def stage_cascade(seed: int, origin: SpatialNode, kind: EventKind,
 Broadcaster = Callable[[int, SpatialNode, CausalEvent], None]
 
 
-def _apply_hop(row: dict, notifications: list) -> str:
+def _live_hop_node(root: SpatialNode, seed: int, name: str) -> SpatialNode | None:
+    """Copy only the hop's ancestor chain; never mutate the cached born tree.
+
+    Live overlays include the governing Universe's law. Loading this short
+    chain under the lock preserves routing and broadcast state after another
+    worker's commit, without rebuilding the world or sharing failed effects.
+    Children supply immutable topology for continuation scheduling only.
+    """
+    born = find_node(root, name)
+    node = child = None
+    while born is not None:
+        current = copy(born)
+        current.properties = persistence.json_merge_patch(
+            born.properties, persistence.load_node_property_override(seed, born.name))
+        if child is None:
+            node = current
+            node.ripple_score = persistence.get_ripple_score(seed, name)
+        else:
+            child.parent = current
+        child, born = current, born.parent
+    return node
+
+
+def _apply_hop(row: dict, notifications: list, root: SpatialNode) -> str:
     """v1 interpreter: same law physics, including pre-law legacy payloads."""
     seed = row["world_seed"]
-    # A fresh object per attempt; failed in-memory changes are never reused.
-    root = store.world_tree(seed=seed)
-    apply_ripple_scores(root, persistence.load_ripple_scores(seed))
-    apply_property_overrides(root, persistence.load_node_property_overrides(seed))
-    node = find_node(root, row["node_name"])
+    node = _live_hop_node(root, seed, row["node_name"])
     if node is None:
         return "missing_node"
     if row["direction"] not in ("up", "down"):
@@ -161,19 +179,14 @@ def drain_due_hops(limit: int = 64,
     Lost broadcasts do not retry committed effects. Reconnect/read APIs expose
     the authoritative overlay and chronicle. One bad item cannot lose a batch.
     """
-    fired = 0
-    for work_id in persistence.due_work("causal_queue", limit, world_seed):
-        notifications = []
-        committed = persistence.deliver_work(
-            "causal_queue", work_id, lambda row: _apply_hop(row, notifications),
-            prepare=lambda row: store.ensure_born(row["world_seed"]))
-        if committed:
-            fired += len(notifications)
-            for args in notifications:
-                if broadcaster is not None:
-                    try:
-                        broadcaster(*args)
-                    except Exception:
-                        logging.getLogger(__name__).exception(
-                            "committed hop %s broadcast failed", work_id)
-    return fired
+    trees = {}
+
+    def prepare(row):
+        seed = row["world_seed"]
+        if seed not in trees:
+            trees[seed] = store.world_tree(seed=seed)
+
+    return deliver_due(
+        "causal_queue", limit, world_seed,
+        lambda row, notifications: _apply_hop(row, notifications, trees[row["world_seed"]]),
+        broadcaster, prepare=prepare)

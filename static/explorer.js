@@ -452,7 +452,7 @@ async function doAct() {
     });
     const data = await res.json();
     if (data.error) { resp.textContent = data.error; return; }
-    if (data.changed && !data.matures_in) {
+    if (data.changed && data.matures_in == null) {
       // The world changed under us: fold the delta into the selected node
       // so the panel and the sigil show the act immediately. (selectNode
       // clears the act panel, so write the flavor line after.)

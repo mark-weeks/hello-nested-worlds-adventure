@@ -35,7 +35,7 @@ from agents.personas import for_name as persona_for_name
 from agents.roster import profile_for
 from causality import CausalityBus, EventKind
 from causality.staging import stage_cascade
-from causality.delivery import accept_verb
+from causality.delivery import accept_verb, deliver_due
 from causality.wiring import wire_world_handlers
 from multiverse import store
 from multiverse.generator import DEFAULT_WORLD_SEED, LEVELS
@@ -130,7 +130,7 @@ def _drop_in(root: SpatialNode, rng: random.Random,
 
 def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                  persona_name: str, visited_names: list[str],
-                 rng: random.Random, bus: CausalityBus, on_event=None) -> str | None:
+                 rng: random.Random, on_event=None) -> str | None:
     """After a traversal, the wanderer acts on the world by temperament.
 
     This is the world's living entropy loop: DESTABILIZERS emit real decay
@@ -334,7 +334,7 @@ def run_tick(seed: int | None = None, rng: random.Random | None = None,
         # live_handler, whose agent_move would otherwise re-register the
         # walker after departure and leave a ghost in room.active_agents.
         act = _persona_act(seed, room, root, agent_name, persona.name,
-                           [e["node"] for e in events], rng, bus, on_event=live_handler)
+                           [e["node"] for e in events], rng, on_event=live_handler)
     finally:
         agent_leave(room, agent_name)
         if companion is not None:
@@ -402,43 +402,32 @@ def drain_matured_verbs(limit: int = 32, world_seed: int | None = None) -> int:
     the change arrive — often long after (and far from) whoever planted
     it. Returns maturations landed.
     """
-    landed = 0
-    for work_id in persistence.due_work("verb_maturation", limit, world_seed):
-        notifications = []
+    return deliver_due(
+        "verb_maturation", limit, world_seed, _apply_maturation,
+        lambda seed, message: broadcast(get_room(seed), message))
 
-        def apply(row):
-            seed, node_name = row["world_seed"], row["node_name"]
-            resolved = store.resolve_node_by_name(seed, node_name)
-            if resolved is None:
-                return "missing_node"
-            if not row["changed"]:
-                return "empty_patch"
-            persistence.record_substance_change(
-                seed, node_name, "SCALE_ACT_MATURED", row["actor"],
-                {"verb": row["verb"], "changed": row["changed"],
-                 "delivery": {"queue": "verb_maturation", "id": row["id"]}},
-                row["changed"], actor_identity=row["actor"])
-            notifications.append((seed, {
-                "type": "scale_act", "node": node_name, "level": resolved.level,
-                "verb": row["verb"],
-                "actor": row["actor"] or "the slow work of someone",
-                "changed": row["changed"], "matured": True,
-                "flavor": (f"The {row['verb']} planted here settles at last — "
-                           "the change arrives."),
-            }))
-            return "applied"
 
-        committed = persistence.deliver_work(
-            "verb_maturation", work_id, apply,
-            prepare=lambda row: store.ensure_born(row["world_seed"]))
-        if committed:
-            landed += len(notifications)
-            for seed, message in notifications:
-                try:
-                    broadcast(get_room(seed), message)
-                except Exception:
-                    _log.exception("committed maturation %s broadcast failed", work_id)
-    return landed
+def _apply_maturation(row, notifications):
+    seed, node_name = row["world_seed"], row["node_name"]
+    resolved = store.resolve_node_by_name(seed, node_name)
+    if resolved is None:
+        return "missing_node"
+    if not row["changed"]:
+        return "empty_patch"
+    persistence.record_substance_change(
+        seed, node_name, "SCALE_ACT_MATURED", row["actor"],
+        {"verb": row["verb"], "changed": row["changed"],
+         "delivery": {"queue": "verb_maturation", "id": row["id"]}},
+        row["changed"], actor_identity=row["actor"])
+    notifications.append((seed, {
+        "type": "scale_act", "node": node_name, "level": resolved.level,
+        "verb": row["verb"],
+        "actor": row["actor"] or "the slow work of someone",
+        "changed": row["changed"], "matured": True,
+        "flavor": (f"The {row['verb']} planted here settles at last — "
+                   "the change arrives."),
+    }))
+    return "applied"
 
 
 def run_pump_loop(stop: threading.Event) -> None:

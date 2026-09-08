@@ -35,7 +35,7 @@ from puzzles.engine import PuzzleEngine
 from server import guard, imageprompt, moderation, observability
 from server.rooms import (
     agent_enter, agent_leave, agent_move, agent_persona, broadcast, get_room,
-    record_attempt, snapshot,
+    puzzle_attempt, refresh_puzzle_session, snapshot,
 )
 from server.world_mechanics import (
     CONSTELLATION_LEVELS as _CONSTELLATION_LEVELS,
@@ -1196,10 +1196,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"found": False})
 
         p = puzzles[0]
-        solve = persistence.get_puzzle_solve(seed, target.name, p.name)
-        attempt_state = persistence.get_puzzle_attempt_state(
-            seed, target.name, p.name,
-        )
+        session = refresh_puzzle_session(get_room(seed), target.name, p.name)
         payload = {
             "found":        True,
             "name":         p.name,
@@ -1214,11 +1211,10 @@ class Handler(BaseHTTPRequestHandler):
             # client-session detail. Returning them here keeps revisiting a
             # puzzle from presenting a fresh input for something the world
             # already records as resolved.
-            "solved":       bool(solve),
-            "attempt":      attempt_state["attempts"],
-            "solver":       solve["solver"] if solve else None,
-            "contributors": (solve["contributors"] if solve else
-                             sorted(attempt_state["contributors"])),
+            "solved":       session.solver is not None,
+            "attempt":      session.attempts,
+            "solver":       session.solver,
+            "contributors": sorted(session.contributors),
         }
         # Constellation containers also report their nested progress: how
         # much of what they enfold is already resolved.
@@ -1343,50 +1339,34 @@ class Handler(BaseHTTPRequestHandler):
         room           = get_room(seed)
         correct        = answer.lower() == p.answer.lower()
 
-        # The room cache cannot acknowledge an uncommitted solve. Rehydrate
-        # from durable rows under the writer lock, including across processes;
-        # invalidate on rollback so a retry cannot see a phantom solver.
         changed = None
         secondary_notifications = []
-        with room.lock:
-            try:
-                with persistence.transaction():
-                    previous = room.puzzle_sessions.pop(effective_node, None)
-                    session, just_solved = record_attempt(
-                        room, effective_node, p.name, player_name, correct)
-                    if (previous is not None and previous.puzzle_name == p.name
-                            and previous.solver == session.solver
-                            and session.solver is not None and not just_solved):
-                        session.attempts = previous.attempts
-                        session.contributors |= previous.contributors
-                    if just_solved or session.solver is None:
-                        persistence.record_mutation(
-                            seed, effective_node, "PUZZLE_ATTEMPT", player_name,
-                            {"puzzle": p.name, "correct": correct,
-                             "guess": answer[:32]},
-                            actor_identity=_actor_identity(user_key, player_name))
-                    if just_solved:
-                        changed, _staged = accept_event(
-                            seed, target, EventKind.PUZZLE_SOLVED,
-                            {"puzzle": p.name,
-                             "contributors": sorted(session.contributors)},
-                            player_name=(session.solver
-                                         if session.solver != "anonymous" else None),
-                            actor_identity=_actor_identity(user_key, player_name))
-                        twin = _entangled_twin(target)
-                        if twin is not None:
-                            _resolve_entangled_twin(
-                                seed, room, twin, effective_node, session.solver,
-                                sorted(session.contributors),
-                                _actor_identity(user_key, player_name),
-                                notifications=secondary_notifications)
-                        _check_constellation(
-                            seed, room, target.parent, session.solver,
-                            _actor_identity(user_key, player_name),
-                            notifications=secondary_notifications)
-            except BaseException:
-                room.puzzle_sessions.pop(effective_node, None)
-                raise
+        with puzzle_attempt(room, effective_node, p.name, player_name, correct) as (session, just_solved):
+            if just_solved or session.solver is None:
+                persistence.record_mutation(
+                    seed, effective_node, "PUZZLE_ATTEMPT", player_name,
+                    {"puzzle": p.name, "correct": correct,
+                     "guess": answer[:32]},
+                    actor_identity=_actor_identity(user_key, player_name))
+            if just_solved:
+                changed, _staged = accept_event(
+                    seed, target, EventKind.PUZZLE_SOLVED,
+                    {"puzzle": p.name,
+                     "contributors": sorted(session.contributors)},
+                    player_name=(session.solver
+                                 if session.solver != "anonymous" else None),
+                    actor_identity=_actor_identity(user_key, player_name))
+                twin = _entangled_twin(target)
+                if twin is not None:
+                    _resolve_entangled_twin(
+                        seed, room, twin, effective_node, session.solver,
+                        sorted(session.contributors),
+                        _actor_identity(user_key, player_name),
+                        notifications=secondary_notifications)
+                _check_constellation(
+                    seed, room, target.parent, session.solver,
+                    _actor_identity(user_key, player_name),
+                    notifications=secondary_notifications)
 
         # If the puzzle was already solved by an earlier player, return that
         # state without re-firing broadcasts or mutations.

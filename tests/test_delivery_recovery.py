@@ -577,10 +577,10 @@ def test_cli_and_cast_initial_enqueue_failures_are_atomic(monkeypatch):
             interface._do_scale_verb(galaxy, 382, "CLIVisitor")
         with pytest.raises(RuntimeError):
             heartbeat._persona_act(382, get_room(382), root, "Tender", "tender",
-                                   [galaxy.name], random.Random(1), None)
+                                   [galaxy.name], random.Random(1))
         with pytest.raises(RuntimeError):
             heartbeat._persona_act(382, get_room(382), root, "Entropy", "destabilizer",
-                                   [galaxy.name], random.Random(1), None)
+                                   [galaxy.name], random.Random(1))
     assert snapshot() == ([], {}, {})
     assert persistence.pending_causal_hops(382) == 0
     assert persistence.pending_verb_maturations(382) == 0
@@ -609,3 +609,145 @@ def test_malformed_payload_is_retained_without_partial_effect(queue, blob):
     assert row["status"] == "pending" and row["last_error"]
     assert row[field] == blob
     assert snapshot() == before
+
+
+@pytest.mark.parametrize("queue", QUEUES)
+def test_error_recording_failure_does_not_abort_batch(queue, caplog):
+    work_id = accept_work(queue)
+    with persistence._connect() as conn:
+        # This accepted input is temporarily unreadable; a second accepted
+        # request must still arrive even when recording the error also fails.
+        conn.execute(f"UPDATE {queue} SET semantics_version = 99 WHERE id = ?", (work_id,))
+    root = store.world_tree(seed=382)
+    act(root.children[0].children[0])
+    with persistence._connect() as conn:
+        conn.execute(f"UPDATE {queue} SET due_at = datetime('now', '-1 second')")
+    candidates = persistence.due_work(queue, 100)
+
+    class BrokenErrorWrite(sqlite3.Connection):
+        def execute(self, sql, parameters=()):
+            if "last_error = ?" in sql:
+                raise sqlite3.OperationalError("retry metadata unavailable")
+            return super().execute(sql, parameters)
+
+    with patch.object(persistence, "_connect", side_effect=lambda: sqlite3.connect(
+            persistence._DB_PATH, factory=BrokenErrorWrite)):
+        assert drain(queue) > 0
+    row = persistence.inspect_work(queue, work_id)
+    assert row["status"] == "pending" and row["attempts"] == 0
+    assert row["retry_at"] is None
+    assert "retry metadata unavailable" in caplog.text
+    assert all(persistence.inspect_work(queue, item)["status"] == "completed"
+               for item in candidates if item != work_id)
+    # Once storage/input are repaired, no manual claim recovery is necessary.
+    with persistence._connect() as conn:
+        conn.execute(f"UPDATE {queue} SET semantics_version = 1 WHERE id = ?", (work_id,))
+    drain(queue)
+    assert persistence.inspect_work(queue, work_id)["status"] == "completed"
+
+
+def test_hop_batch_hydrates_once_outside_writer_lock():
+    accept_work("causal_queue")
+    root = store.world_tree(seed=382)
+    for _ in range(7):
+        persistence.enqueue_causal_hop(382, root.name, "DANGER_ALERT", 1, "up", {}, 0)
+    original = store.world_tree
+    locks = []
+
+    def hydrate(*args, **kwargs):
+        locks.append(getattr(persistence._transaction_state, "connection", None))
+        return original(*args, **kwargs)
+
+    with patch.object(store, "world_tree", hydrate):
+        assert drain_due_hops(limit=8) == 8
+    assert locks == [None], "one born tree per seed per drain, outside the writer lock"
+
+
+def test_solved_attempt_avoids_writer_lock_and_read_preserves_contributors():
+    root = store.world_tree(seed=382)
+    node = next(n for n in walk(root) if n.level == "Room")
+    first = solve(node)
+    assert first["correct"]
+    before = snapshot()
+    handler = object.__new__(_Handler)
+    replies = []
+    handler._send_json = replies.append
+    with patch.object(persistence, "transaction", side_effect=AssertionError("read-only attempt locked")):
+        handler._do_puzzle_attempt({
+            "seed": 382, "depth": 11, "node_name": node.name,
+            "player_name": "LateVisitor", "answer": "already solved"})
+        handler._do_puzzle({"seed": ["382"], "depth": ["11"], "node_name": [node.name]})
+    assert replies[0]["contributors"] == replies[1]["contributors"]
+    assert "LateVisitor" in replies[1]["contributors"]
+    assert replies[0]["attempt"] == replies[1]["attempt"] == first["attempt"]
+    assert snapshot() == before
+
+
+def test_failed_hop_cannot_mutate_cached_tree_for_next_item():
+    root = store.world_tree(seed=382)
+    node = next(n for n in walk(root) if n.level == "Region")
+    persistence.record_substance_change(382, node.name, "SCALE_ACT", None, {}, {"danger_level": 3})
+    ids = [persistence.enqueue_causal_hop(382, node.name, "DANGER_ALERT", 1, "up", {}, 0)
+           for _ in range(2)]
+    enqueue = persistence.enqueue_causal_hop
+    failed = False
+
+    def fail_once(*args, **kwargs):
+        nonlocal failed
+        enqueue(*args, **kwargs)
+        if not failed:
+            failed = True
+            raise RuntimeError("after in-memory effect and continuation")
+
+    with patch.object(store, "world_tree", return_value=root) as hydrate:
+        with patch.object(persistence, "enqueue_causal_hop", fail_once):
+            assert drain_due_hops(limit=2) == 1
+        assert hydrate.call_count == 1
+    assert persistence.load_node_property_overrides(382)[node.name]["danger_level"] == 4
+    persistence.retry_work("causal_queue", ids[0])
+    assert drain_due_hops(limit=1) == 1
+    deltas = persistence.get_substance_deltas(382, node.name)
+    assert [d["delta"]["danger_level"] for d in deltas] == [3, 4, 5]
+
+
+def test_cached_tree_uses_live_law_and_deleted_property_between_hops():
+    root = store.world_tree(seed=382)
+    node = next(n for n in walk(root) if n.level == "Region")
+    universe = node
+    while universe.level != "Universe":
+        universe = universe.parent
+    persistence.record_substance_change(382, node.name, "SCALE_ACT", None, {}, {"danger_level": 3})
+    persistence.record_substance_change(382, universe.name, "SCALE_ACT", None, {}, {"laws_of_physics": "Newtonian"})
+    for _ in range(2):
+        persistence.enqueue_causal_hop(382, node.name, "DANGER_ALERT", 1, "up", {"_hop": 2}, 0)
+    arrivals = []
+
+    def notify(seed, delivered, event):
+        arrivals.append((event.strength, dict(delivered.properties)))
+        if len(arrivals) == 1:
+            # Another writer commits between two attempts in the same drain.
+            persistence.record_substance_change(seed, node.name, "SCALE_ACT", None, {}, {"danger_level": None})
+            persistence.record_substance_change(seed, universe.name, "SCALE_ACT", None, {}, {"laws_of_physics": "Fractal"})
+
+    with patch.object(store, "world_tree", return_value=root) as hydrate:
+        born_properties = dict(node.properties)
+        assert drain_due_hops(limit=2, broadcaster=notify) == 2
+        assert hydrate.call_count == 1
+        assert node.properties == born_properties
+    assert arrivals[0][0] == 0.35
+    assert arrivals[0][1]["danger_level"] == 4
+    assert arrivals[1][0] == 1.0
+    assert "danger_level" not in arrivals[1][1]
+    assert arrivals[1][1]["disturbed"] is True
+
+
+def test_room_scope_rolls_back_uncommitted_solve_for_all_readers():
+    from server.rooms import get_puzzle_session, get_room, puzzle_attempt, refresh_puzzle_session
+    room = get_room(382)
+    with pytest.raises(RuntimeError, match="acceptance failed"):
+        with puzzle_attempt(room, "Room", "Puzzle", "Ada", True) as (session, just_solved):
+            assert just_solved and session.solver == "Ada"
+            persistence.record_mutation(382, "Room", "PUZZLE_SOLVED", "Ada", {"puzzle": "Puzzle"})
+            raise RuntimeError("acceptance failed")
+    assert get_puzzle_session(room, "Room", "Puzzle").solver is None
+    assert refresh_puzzle_session(room, "Room", "Puzzle").contributors == set()

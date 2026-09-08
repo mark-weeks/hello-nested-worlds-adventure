@@ -444,13 +444,18 @@ def deliver_work(queue: str, work_id: int, apply: Callable[[dict], str], *,
     except Exception as exc:
         # Outside the failed transaction. If another worker completed in
         # between, do not overwrite its terminal outcome with this failure.
-        with transaction() as conn:
-            conn.execute(
-                f"""UPDATE {queue} SET attempts = attempts + 1, last_error = ?,
-                    retry_at = datetime('now', '+' ||
-                        min(300, (1 << min(attempts, 9))) || ' seconds')
-                    WHERE id = ? AND status = 'pending'""",
-                (f"{type(exc).__name__}: {exc}"[:2000], work_id))
+        try:
+            with transaction() as conn:
+                conn.execute(
+                    f"""UPDATE {queue} SET attempts = attempts + 1, last_error = ?,
+                        retry_at = datetime('now', '+' ||
+                            min(300, (1 << min(attempts, 9))) || ' seconds')
+                        WHERE id = ? AND status = 'pending'""",
+                    (f"{type(exc).__name__}: {exc}"[:2000], work_id))
+        except Exception:
+            # Storage trouble can also prevent diagnostics/backoff. The
+            # original input is still pending; keep trying the other items.
+            _log.exception("could not record delivery failure: %s:%s", queue, work_id)
         _log.exception("delivery failed: %s:%s; retained for retry", queue, work_id)
         return False
 
@@ -468,6 +473,8 @@ def retry_work(queue: str, work_id: int) -> bool:
 @_with_db
 def latest_event_id(mutation_type: str | None = None) -> int:
     """Link new work to the origin just written in the caller's transaction."""
+    # BEGIN IMMEDIATE excludes other writers, and the origin writers always
+    # append a row even when their material delta is empty.
     if getattr(_transaction_state, "connection", None) is None:
         raise RuntimeError("origin linkage requires a transaction")
     with _connection() as conn:
@@ -1577,6 +1584,13 @@ def rebuild_ripple_scores(world_seed: int) -> dict[str, float]:
 
 
 @_with_db
+def load_node_property_override(world_seed: int, node_name: str) -> dict:
+    """Read one current overlay without hydrating the rest of the world."""
+    with _connection() as conn:
+        return _current_property_overlay(conn, world_seed, node_name, repair=False)
+
+
+@_with_db
 def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
     """All property overlays, lazily repaired from born rows + chronicle.
 
@@ -1794,7 +1808,7 @@ def pin_world_meta(world_seed: int, key: str, value: str) -> str:
 
 @_with_db
 def get_ripple_score(world_seed: int, node_name: str) -> float:
-    with _connect() as conn:
+    with _connection() as conn:
         row = conn.execute(
             "SELECT ripple_score FROM node_runtime_state WHERE world_seed = ? AND node_name = ?",
             (world_seed, node_name),
