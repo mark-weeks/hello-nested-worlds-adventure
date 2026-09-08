@@ -1,6 +1,7 @@
 # ADR-015: Referential Puzzles Within the World's Puzzle Ecology
 
-**Status:** Accepted content direction, 2026-09-07; implementation pending.
+**Status:** Proposed (owner-requested content direction), 2026-09-07;
+pending development-team review and ratification. Implementation pending.
 The owner requested occasional puzzles drawing on relevant fictional and
 nonfictional knowledge. The authoring and release criteria below formalize the
 recommendation; no puzzle bank, active puzzle, or golden pin changes here.

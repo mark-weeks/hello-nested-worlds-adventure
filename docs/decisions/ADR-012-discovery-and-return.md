@@ -1,6 +1,7 @@
 # ADR-012: Discovery and Return as the Next Product Milestone
 
-**Status:** Accepted as product direction, 2026-09-07; implementation pending.
+**Status:** Proposed (owner-endorsed product direction), 2026-09-07;
+pending development-team review and ratification. Implementation pending.
 The owner endorsed the recommendations following PR #92 and requested a formal
 plan. The example situation, presentation choice, and pacing remain hypotheses
 to test. This records direction, not a completed feature or a new write path.

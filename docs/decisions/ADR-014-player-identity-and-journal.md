@@ -1,15 +1,15 @@
 # ADR-014: Player Identity, a Private Journal, and Public Relationships
 
-**Status:** Accepted product direction, 2026-09-07; implementation pending.
+**Status:** Proposed (owner-endorsed product direction), 2026-09-07;
+pending development-team review and ratification. Implementation pending.
 The owner requested a journal and ways for players to form and broadcast an
 identity. Bio, badges, home, disposition, guilds, and avatar creation/upload were
 raised as possibilities. Their staging and defaults below are recommendations
 for team review, not a claim that every possibility was approved for the pilot.
-The subsequent owner request for multidimensional leaderboards and competitive
-human/agent participation is recorded as product direction in ADR-017.
-The owner subsequently challenged the preference for orderly play and suggested
-dynamic meters between opposing dispositions. The axes and update rules below
-are a revised proposal for review, not an accepted morality or scoring formula.
+Multidimensional leaderboards and competitive human/agent participation are
+covered by ADR-017. Dynamic disposition meters describe independent tendencies,
+including orderly and chaotic play. The axes and update rules below are proposals
+for review, not accepted morality or scoring formulas.
 
 ## Context
 

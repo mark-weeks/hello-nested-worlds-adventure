@@ -114,12 +114,19 @@ construction projects and additional recipes follow evidence of useful play.
 
 ## Revisit when…
 
-The owner/team accepts or changes this proposal; an M0 walkthrough demonstrates
-that assembly improves the first mystery; or pilot participants identify travel
-friction, collection overload, or recurring demand for shared projects. Compare
-the candidate with the simpler first situation: do players explain why parts fit,
-use the result meaningfully, and name a reason to return beyond filling slots?
-Also test an empty-handed late entrant after humans or agents finish the project.
+- **Owner/team accepts or changes the proposal** → record the ratification date,
+  adopted scope, and any remaining proposals before implementation.
+- **M0 walkthrough shows assembly strengthens the mystery** → consider the bounded
+  recipe for M5, comparing it with the simpler situation. Check whether players
+  explain why parts fit, use the artifact meaningfully, and have a reason to return
+  beyond filling slots; defer until after M7 if the benefit is not demonstrated.
+- **Pilot participants identify travel friction** → evaluate attuned-anchor travel
+  against existing jumps and define the movement contract before adding hyperleaps.
+- **Collection becomes clutter or repetitive work** → simplify acquisition, recipes,
+  and display before expanding the inventory.
+- **Recurring demand for shared projects emerges** → define one bounded project,
+  contribution rules, and late-arrival opportunities. Test an empty-handed entrant
+  after humans or agents finish the project before broadening shared assembly.
 
 ## Rejected alternatives
 

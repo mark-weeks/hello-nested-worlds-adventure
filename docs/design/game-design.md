@@ -7,7 +7,7 @@
 The next milestone is a compelling discovery-and-return experience in the same
 shared world, with a private journal and a separate public identity. The
 [delivery plan](../roadmap/discovery-and-return.md) sequences that work and
-records the distinction between accepted direction, proposed contracts, and
+records the distinction between owner-endorsed direction, proposed contracts, and
 candidate extensions. ADR-012 through ADR-018 cover discovery, continuity,
 identity, referential puzzles, optional spoken interaction, and multidimensional
 contribution leaderboards, plus a proposed collection and assembly direction.
@@ -55,7 +55,7 @@ Design intent: every verb is the **restorative counterpart** to the decay events
 trade-offs through targets, sequence, and situation commitments. ADR-013 defines
 explicit contribution, one-time, and exclusive-action semantics; those changes
 are pending implementation and must preserve existing accepted work.
-The revised ADR-017 proposal requires legitimate destabilizing or opposing goals
+The ADR-017 proposal requires legitimate destabilizing or opposing goals
 alongside preservation, with authored stakes and shared conflict rules. The
 current restorative verbs alone do not establish those new goals or authorities.
 
@@ -139,7 +139,7 @@ The original Myst suffered from unclear navigation and opaque objectives. Four d
   character text and ambient sound are not yet this speech capability.
 - [ADR-017](../decisions/ADR-017-multidimensional-leaderboards.md): separate
   contribution standings with comparable scoring opportunities for humans and
-  eligible agents. Stewardship and Disruption are the revised first proposed
+  eligible agents. Stewardship and Disruption are the first proposed
   pair, after meaningful opposing goals and their evidence exist. Cooperation
   can serve either goal; no alignment-extremity score, flat engagement total,
   or credit for simulated agent puzzle solves.

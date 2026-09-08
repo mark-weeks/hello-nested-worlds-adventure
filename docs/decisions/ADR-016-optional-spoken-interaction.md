@@ -1,6 +1,7 @@
 # ADR-016: Optional Spoken Interaction
 
-**Status:** Accepted capability direction, 2026-09-07; implementation pending.
+**Status:** Proposed (owner-requested capability direction), 2026-09-07;
+pending development-team review and ratification. Implementation pending.
 The owner requested voice as an alternative to typing and reading. The initial
 interaction design below is recommended; providers, operating budgets, and
 supported-device commitments require a measured implementation proposal.

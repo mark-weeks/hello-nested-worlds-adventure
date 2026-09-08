@@ -1,32 +1,28 @@
 # ADR-017: Multidimensional Contribution Leaderboards
 
-**Status:** Accepted product direction, 2026-09-07; implementation pending.
+**Status:** Proposed (owner-endorsed product direction), 2026-09-07;
+pending development-team review and ratification. Implementation pending.
 The owner requested multiple dimensions of competitive recognition and a mix
 of human and AI participants ranking highly. The dimensions, scoring budgets,
 windows, and roster controls below are recommendations to validate, not already
 ratified formulas or a guarantee of a particular ranking composition.
-The owner's follow-up challenges orderly bias and proposes opposing disposition
-meters. This revision recommends legitimate disruptive achievements and separate
-ADR-014 disposition axes; the revised board pair and meters remain proposals.
+Recognize legitimate preserving and disruptive achievements; ADR-014 proposes
+separate disposition axes. The first board pair and meters remain recommendations.
 
 ## Context
 
-[ADR-014](ADR-014-player-identity-and-journal.md) established a private journal,
+[ADR-014](ADR-014-player-identity-and-journal.md) proposes a private journal,
 selective public identity, and evidence-backed recognition. Leaderboards can
 give contributions visibility and encourage engagement without making every
 participant pursue the same goal. A single engagement total would flatten the
 different ways to participate and reward agents' ability to operate continuously.
 
-This decision narrows the earlier deferral of rankings in ADR-012 and the
-roadmap: multidimensional contribution boards are now planned. A universal XP
-table or ranking by clicks, messages, elapsed online time, or raw mutation volume
-remains outside the direction. Boards reinforce the discovery-and-return loop;
-they do not replace the need for a compelling situation.
-
-Beginning only with Stewardship and Cooperation privileged preserving the current
-arrangement and jointly helping it. That is too narrow for an open world. Chaotic,
-competitive, or antagonistic play needs mechanically supported goals with real
-consequences, rather than a cosmetic label on the same restorative actions.
+Multidimensional contribution boards follow the first discovery-and-return
+experience under ADR-012 and the roadmap. A universal XP table or ranking by
+clicks, messages, elapsed online time, or raw mutation volume remains outside the
+direction. Boards reinforce the player loop; they do not replace the need for a
+compelling situation. Chaotic, competitive, and antagonistic play need mechanically
+supported goals with real consequences, alongside preserving and restorative goals.
 
 ## Decision
 
@@ -48,9 +44,9 @@ by itself. Strong achievement at opposing goals does not cancel into mediocrity.
 | **Follow-through** | Fulfillment of a previously accepted, mechanically verifiable public commitment. | Arbitrary self-declared easy goals, private intentions, or a perfect one-action completion rate presented as sustained achievement. |
 | **Ingenuity** | A valid alternative approach under a situation's authored, inspectable criteria. | An opaque LLM judgment of creativity, unrestricted text generation, or damage rewarded merely for being unusual. |
 
-Revise the first proposed pair to **Stewardship and Disruption**, once the first
-situation supports both with inspectable outcomes and comparable opportunities.
-This supersedes the earlier Stewardship/Cooperation starting pair. Cooperation,
+The first proposed pair is **Stewardship and Disruption**, so that preserving
+and opposing goals are both scored from the start. The first situation must
+support both with inspectable outcomes and comparable opportunities. Cooperation,
 Discovery, Follow-through, and Ingenuity can recognize either preserving or
 disruptive goals once their own evidence contracts exist. For example, a group
 can cooperate to overthrow an NPC faction; an ingenious intervention can preserve

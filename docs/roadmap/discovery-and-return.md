@@ -20,6 +20,12 @@ identity, append-only historical facts, and additive change.
 
 ## Decision register and authority
 
+All seven records are **Proposed**, pending review and ratification. Owner
+endorsement or a requested direction is identified below separately from ADR
+acceptance. Record the scope and date when a decision is ratified; leave unadopted
+contracts and candidates marked Proposed. Each implementation still needs its
+own review and compatibility evidence.
+
 | Record | Status and what it settles |
 |---|---|
 | [ADR-012: discovery and return](../decisions/ADR-012-discovery-and-return.md) | Owner-endorsed product direction: investigation in an open world, a bounded first situation, responsive inhabitants, and a meaningful return. The example story, pacing, and scene-interface performance are testable hypotheses. |
@@ -27,7 +33,7 @@ identity, append-only historical facts, and additive change.
 | [ADR-014: player identity and journal](../decisions/ADR-014-player-identity-and-journal.md) | Identity/journal direction endorsed. First-release defaults and staging remain recommendations. The owner's opposing-meter idea is developed as a proposed multidimensional disposition model, distinct from achievement and faction relationships; badges, meters, guilds, and avatar creation/upload are not implied pilot requirements. |
 | [ADR-015: referential puzzles](../decisions/ADR-015-referential-puzzles.md) | Owner-requested content direction: occasional relevant fictional/nonfictional references. No live bank allocation or active answer change is approved by this plan. |
 | [ADR-016: optional spoken interaction](../decisions/ADR-016-optional-spoken-interaction.md) | Owner-requested capability direction: speech input and playback alongside text. The staged interaction is recommended; vendor, budget, and support choices need evidence. |
-| [ADR-017: multidimensional leaderboards](../decisions/ADR-017-multidimensional-leaderboards.md) | Owner-requested recognition direction: multiple dimensions with humans and agents able to rank highly. The revised proposal includes legitimate disruptive goals, starting with Stewardship and Disruption. Dimensions, caps, admission, and windows remain experiments; alignment extremity is not achievement and a mixed top group is not a hidden quota. |
+| [ADR-017: multidimensional leaderboards](../decisions/ADR-017-multidimensional-leaderboards.md) | Owner-requested recognition direction: multiple dimensions with humans and agents able to rank highly. The proposal includes legitimate disruptive goals, starting with Stewardship and Disruption. Dimensions, caps, admission, and windows remain experiments; alignment extremity is not achievement and a mixed top group is not a hidden quota. |
 | [ADR-018: collectibles and inventory](../decisions/ADR-018-collectibles-and-inventory.md) | Exploratory proposal in response to the owner's collection idea: keepsakes, cross-scale components, and useful assembled artifacts. One small assembly is a candidate for M0 review, not an accepted M5 requirement; hyperleaping and shared projects are later candidates. |
 
 The owner sets product direction; development-team review covers implementation
@@ -100,7 +106,7 @@ through play. It does not need a reputation economy or guild administration.
 1. **M6:** private journal; selective public bio/goals; optional home bookmark;
    chosen preset/simple configurable avatar. Publish only selected fields.
 2. **After M7:** evidence-backed contribution badges and an ADR-017 ranking
-   experiment, with Stewardship and Disruption now proposed first, plus selected
+   experiment, with Stewardship and Disruption proposed first, plus selected
    journal sharing if players need it. Define credit for opposing/shared goals,
    versioned award rules, and comparable human/agent opportunities before display.
 3. **Later experiments:** explainable, opt-in disposition meters under ADR-014;

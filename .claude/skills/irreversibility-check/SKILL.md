@@ -54,8 +54,9 @@ request. The human is quizzed only when a one-way door actually trips.
    path; <what the diff actually is>`. Never write "none" without the
    "here's why" clause; the clause is the evidence you actually looked.
 
-4. **If a door trips**, do not merge on green. Escalate to the human with
-   only the 1–2 questions that door raises, hardest first:
+4. **If a door trips**, resolve its open irreversibility questions before
+   requesting merge authorization. Escalate only the 1–2 questions not already
+   answered by the owner's instructions or reviewed evidence, hardest first:
    - re-pin → which pins change and why the change is safe pre/post launch;
    - migration / write path → what the new row or table is and how the
      continuity policy holds;
