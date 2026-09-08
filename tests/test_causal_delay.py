@@ -15,7 +15,7 @@ import urllib.request
 import pytest
 
 import persistence
-from causality import CausalityBus, EventKind, MIN_STRENGTH
+from causality import CausalityBus, EventKind
 from causality.staging import (
     STAGED_DAMPENING, drain_due_hops, hop_delay_seconds, stage_cascade,
 )
@@ -117,38 +117,16 @@ class TestDrain:
                            dampening=STAGED_DAMPENING)
         sync_reach = {name: ev.strength for name, ev in sync_bus.get_log()}
 
-        # Staged: fire origin, then drain rings until dry. Nodes here are
-        # synthetic (not canonical), so drain against a stub world resolver —
-        # instead, rebuild the same synthetic tree names via a custom drain:
-        # use the canonical-world drain path only for canonical nodes; for
-        # this equivalence test, walk the queue manually.
+        # Run the actual interpreter on the same synthetic topology. The
+        # resolver stub preserves wiring, continuation, completion and deltas.
+        from unittest.mock import patch
         seed = 34
         staged_reach = {"Room-A": 1.0}
         stage_cascade(seed, room, EventKind.PUZZLE_SOLVED, {"puzzle": "P"})
-        nodes_by_name = {"Region-A": region, "Room-A": room, "Obelisk-A": obj}
-        while True:
-            rows = persistence.claim_due_causal_hops()
-            if not rows:
-                break
-            for row in rows:
-                # New row contract: strength is pre-arrival; each hop
-                # dampens itself on landing (law of the landing node —
-                # none here, so the staged fallback applies).
-                node = nodes_by_name[row["node_name"]]
-                arrived = row["strength"] * STAGED_DAMPENING
-                if arrived < MIN_STRENGTH:
-                    continue
-                staged_reach[node.name] = arrived
-                if row["direction"] == "up" and node.parent is not None:
-                    persistence.enqueue_causal_hop(
-                        seed, node.parent.name, row["kind"], arrived, "up",
-                        row["payload"], 0)
-                elif row["direction"] == "down":
-                    for child in node.children:
-                        persistence.enqueue_causal_hop(
-                            seed, child.name, row["kind"], arrived, "down",
-                            row["payload"], 0)
-
+        with patch("causality.staging.store.world_tree", side_effect=lambda **kw: _tree()[0]):
+            while persistence.pending_causal_hops(seed):
+                drain_due_hops(broadcaster=lambda s, n, ev: staged_reach.update(
+                    {n.name: ev.strength}))
         assert staged_reach == pytest.approx(sync_reach)
 
     def test_drain_broadcasts_each_arrival(self):

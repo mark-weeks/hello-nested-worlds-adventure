@@ -1,0 +1,53 @@
+{
+  "before_commit": "ecfac655af77759defc72dbfd3f0c9b671b3b134",
+  "after": "PR 94 review follow-up",
+  "scope": "three disposable databases per version, 32 root hops per database; microbenchmark, not a production capacity estimate",
+  "before": {
+    "seed": 382,
+    "hops_per_trial": 32,
+    "trials": [
+      {
+        "delivered": 32,
+        "seconds": 0.7898,
+        "world_tree_calls": 32,
+        "tree_calls_inside_writer": 32
+      },
+      {
+        "delivered": 32,
+        "seconds": 0.8119,
+        "world_tree_calls": 32,
+        "tree_calls_inside_writer": 32
+      },
+      {
+        "delivered": 32,
+        "seconds": 0.7992,
+        "world_tree_calls": 32,
+        "tree_calls_inside_writer": 32
+      }
+    ]
+  },
+  "after_measurements": {
+    "seed": 382,
+    "hops_per_trial": 32,
+    "trials": [
+      {
+        "delivered": 32,
+        "seconds": 0.0577,
+        "world_tree_calls": 1,
+        "tree_calls_inside_writer": 0
+      },
+      {
+        "delivered": 32,
+        "seconds": 0.0581,
+        "world_tree_calls": 1,
+        "tree_calls_inside_writer": 0
+      },
+      {
+        "delivered": 32,
+        "seconds": 0.058,
+        "world_tree_calls": 1,
+        "tree_calls_inside_writer": 0
+      }
+    ]
+  }
+}

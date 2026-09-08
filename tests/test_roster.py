@@ -141,7 +141,7 @@ class TestFavoredVerb:
                 seed=902, room=get_room(902), root=root,
                 agent_name="The Locksmith", persona_name="tender",
                 visited_names=["Cell-11", "Wild-12"],
-                rng=random.Random(i), bus=None)
+                rng=random.Random(i))
             if act is not None:
                 acts.add(act.split()[0])
         assert acts == {"inscribeed"}

@@ -316,8 +316,10 @@ class TestCanonicalWorldBoundary:
                 seed, f"node-{seed}", "align", {"condition": "changed"},
                 "Ada", 0)
 
-        hops = persistence.claim_due_causal_hops(world_seed=42)
-        verbs = persistence.claim_due_verb_maturations(world_seed=42)
+        hops = [persistence.inspect_work("causal_queue", i) for i in
+                persistence.due_work("causal_queue", 64, world_seed=42)]
+        verbs = [persistence.inspect_work("verb_maturation", i) for i in
+                 persistence.due_work("verb_maturation", 32, world_seed=42)]
         assert [row["world_seed"] for row in hops] == [42]
         assert [row["world_seed"] for row in verbs] == [42]
         assert persistence.pending_causal_hops(43) == 1

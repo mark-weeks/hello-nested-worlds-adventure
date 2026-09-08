@@ -305,19 +305,21 @@ class TestFoldEqualsOverlay:
             seed, room.name, "The Lock")["solver"] == "Ada"
 
     def test_maturation_drain_chronicles_the_landing_delta(self):
+        from multiverse import store
         seed = 7132
+        name = store.world_tree(seed=seed).children[0].children[0].name
         persistence.enqueue_verb_maturation(
-            seed, "Galaxy-X", "kindle", {"kindled": True}, "Ada", 0)
+            seed, name, "kindle", {"kindled": True}, "Ada", 0)
         assert heartbeat.drain_matured_verbs(world_seed=seed) == 1
 
-        rows = persistence.get_substance_deltas(seed, "Galaxy-X")
+        rows = persistence.get_substance_deltas(seed, name)
         assert len(rows) == 1
         assert rows[0]["type"] == "SCALE_ACT_MATURED"
         assert rows[0]["delta"] == {"kindled": True}
         assert rows[0]["strength"] is None  # landing fires no causal event
         overlay = persistence.load_node_property_overrides(seed)
-        assert persistence.fold_node_properties(seed, "Galaxy-X") == \
-            overlay["Galaxy-X"] == {"kindled": True}
+        assert persistence.fold_node_properties(seed, name) == \
+            overlay[name] == {"kindled": True}
 
     def test_act_endpoint_writes_one_atomic_scale_act_row(self):
         # The HTTP immediate branch: SCALE_ACT row = delta + strength +

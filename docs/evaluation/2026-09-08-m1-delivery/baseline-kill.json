@@ -1,0 +1,16 @@
+{
+  "causal_queue": {
+    "process_exit": -9,
+    "queued_before": 1,
+    "queued_after_kill": 0,
+    "history_after_kill": 0,
+    "restart_recovered": 0
+  },
+  "verb_maturation": {
+    "process_exit": -9,
+    "queued_before": 1,
+    "queued_after_kill": 0,
+    "history_after_kill": 0,
+    "restart_recovered": 0
+  }
+}
