@@ -225,7 +225,8 @@ for (const route of ["/", "/app"]) {
   }
 }
 
-test("explorer keeps a delayed response attached to the place where it was requested", async ({ page, request }) => {
+for (const [route, heldEndpoint] of [["/", "/act"], ["/app", "/act"], ["/", "/node"], ["/app", "/node"]]) {
+test(`${route} keeps a delayed ${heldEndpoint} response attached to the place where it was requested`, async ({ page, request }) => {
   const directory = await mkdtemp(path.join(tmpdir(), "enfolded-m2-navigation-"));
   const db = path.join(directory, "worlds.db");
   let server;
@@ -240,11 +241,19 @@ test("explorer keeps a delayed response attached to the place where it was reque
       localStorage.setItem("nw_last_node", name);
       sessionStorage.setItem("nw_sound_invited", "1");
     }, galaxy.name);
-    await openKindle(page, server.url, "/");
+    // Miss the acceptance notice so the held HTTP response is the only
+    // authority for this request; the normal socket cannot mask the race.
+    await page.routeWebSocket(/\/ws\?/, socket => {
+      const server = socket.connectToServer();
+      server.onMessage(message => {
+        if (JSON.parse(message).type !== "scale_act") socket.send(message);
+      });
+    });
+    await openKindle(page, server.url, route);
     const held = new Promise(resolve => { release = resolve; });
     let committed;
     const accepted = new Promise(resolve => { committed = resolve; });
-    await page.route(/\/act$/, async route => {
+    await page.route(heldEndpoint === "/act" ? /\/act$/ : /\/node\?/, async route => {
       const response = await route.fetch();
       committed();
       await held;
@@ -252,17 +261,29 @@ test("explorer keeps a delayed response attached to the place where it was reque
     });
     await page.getByRole("button", { name: "Kindle this Galaxy", exact: true }).click();
     await accepted;
-    await page.evaluate(() => {
+    if (route === "/app") await page.getByRole("button", { name: "← back", exact: true }).click();
+    else await page.evaluate(() => {
       const root = [...document.querySelectorAll("#graph .node")]
         .find(el => el.__data__?.data?.level === "Multiverse");
       root.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    const responseArrived = page.waitForResponse(r => new URL(r.url()).pathname === "/act");
+    if (route === "/app") {
+      await expect(page.getByRole("button", { name: "Calibrate", exact: true })).toBeVisible();
+    }
+    const responseArrived = page.waitForResponse(r => new URL(r.url()).pathname === heldEndpoint);
     release();
     await responseArrived;
-    await expect(page.locator("#node-name")).toContainText(data.world.name.replace(/-\d+$/, ""));
-    await expect(page.locator("#act-response")).toHaveText("");
-    await expect(page.locator("#act-tagline")).not.toContainText("kindle");
+    if (route === "/") {
+      await expect(page.locator("#node-name")).toContainText(data.world.name.replace(/-\d+$/, ""));
+      await expect(page.locator("#act-response")).toHaveText("");
+      await expect(page.locator("#act-tagline")).not.toContainText("kindle");
+    } else {
+      await expect(page.getByRole("button", { name: "Calibrate", exact: true })).toBeVisible();
+      // Wait for any read triggered by the released response to finish.
+      await page.waitForLoadState("networkidle");
+      await expect(page.getByRole("button", { name: "Calibrate", exact: true })).toBeVisible();
+      await expect(page.getByText(/Your kindle is planted/)).toHaveCount(0);
+    }
   } finally {
     release?.();
     await page.goto("about:blank").catch(() => {});
@@ -270,3 +291,74 @@ test("explorer keeps a delayed response attached to the place where it was reque
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+}
+
+for (const route of ["/", "/app"]) {
+  test(`${route} co-viewers keep personal responses and refresh only the affected node`, async ({ browser, request }) => {
+    test.setTimeout(45_000); // Includes the production pump's five-second polling cadence.
+    const directory = await mkdtemp(path.join(tmpdir(), "enfolded-m2-viewers-"));
+    const db = path.join(directory, "worlds.db");
+    let server;
+    const contexts = [];
+    try {
+      server = await startServer(db, true, 0, "0.05");
+      const data = await (await request.get(`${server.url}/world?depth=3`)).json();
+      const galaxy = data.world.children[0].children[0];
+      await changeProperties(db, galaxy.name, { star_density: 418, kindled: false });
+      const pages = [];
+      for (const name of ["Ada", "Bea"]) {
+        const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+        contexts.push(context);
+        await context.addInitScript(({ name, node }) => {
+          localStorage.setItem("nw_seen_intro", "1");
+          localStorage.setItem("nw_player_name", name);
+          localStorage.setItem("nw_last_node", node);
+          sessionStorage.setItem("nw_sound_invited", "1");
+        }, { name, node: galaxy.name });
+        const page = await context.newPage();
+        await openKindle(page, server.url, route);
+        await page.waitForLoadState("networkidle");
+        pages.push(page);
+      }
+      const [ada, bea] = pages;
+      const reads = pages.map(() => ({ world: 0, node: 0 }));
+      pages.forEach((page, i) => page.on("request", req => {
+        const endpoint = new URL(req.url()).pathname.slice(1);
+        if (endpoint in reads[i]) reads[i][endpoint]++;
+      }));
+      const own = await clickKindle(ada);
+      const personal = route === "/" ? ada.locator("#act-response") : ada.getByText(own.flavor, { exact: true });
+      await expect(personal).toHaveText(own.flavor);
+      await expect(bea.getByText("1 kindle change is still traveling.", { exact: false }).first()).toBeVisible();
+      // Bea has made no request; Ada's second-person line belongs nowhere
+      // in Bea's interaction panel or shared event feed.
+      if (route === "/") await expect(bea.locator("#act-response")).toHaveText("");
+      await expect(bea.getByText(/Your kindle is planted/)).toHaveCount(0);
+      const other = await clickKindle(bea);
+      expect(other.work.id).not.toBe(own.work.id);
+      for (const page of pages) {
+        await expect(page.getByText("2 kindle changes are still traveling.", { exact: false }).first()).toBeVisible();
+        await page.waitForLoadState("networkidle");
+      }
+      await expect(personal).toHaveText(own.flavor);
+      expect(reads).toEqual([{ world: 0, node: 2 }, { world: 0, node: 2 }]);
+      // A landing is a new event: it must not be swallowed as the acceptance
+      // echo, nor overwrite either player's own explanation.
+      for (const page of pages) {
+        await expect(page.getByText(/kindle changes? (?:is|are) still traveling/)).toHaveCount(0, { timeout: 25_000 });
+      }
+      await expect(personal).toHaveText(own.flavor);
+      for (const page of pages) {
+        if (route === "/") await expect(page.locator("#node-props")).toContainText("459");
+        else await expect(page.getByText("459", { exact: true }).first()).toBeVisible();
+        await expect(page.getByText(/undefined/)).toHaveCount(0);
+      }
+      expect(reads).toEqual([{ world: 0, node: 4 }, { world: 0, node: 4 }]);
+    } finally {
+      for (const context of contexts) await context.close();
+      await kill(server);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}

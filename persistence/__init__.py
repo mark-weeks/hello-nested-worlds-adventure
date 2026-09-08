@@ -392,17 +392,21 @@ def pending_verb_work(world_seed: int, node_name: str, verb: str) -> list[dict]:
 
 
 @_with_db
-def pending_verb_summaries(world_seed: int) -> dict[str, list[dict]]:
-    """Bound public output by node/verb/version, not number of contributors."""
+def pending_verb_summaries(world_seed: int, node_name: str | None = None) -> dict[str, list[dict]]:
+    """Public counts combine versions; durable work and its rules stay distinct."""
+    where = "world_seed = ? AND status = 'pending'"
+    params = [world_seed]
+    if node_name is not None:
+        where += " AND node_name = ?"
+        params.append(node_name)
     with _connection() as conn:
         rows = conn.execute(
-            """SELECT node_name, verb, semantics_version, COUNT(*), MIN(due_at)
-                FROM verb_maturation WHERE world_seed = ? AND status = 'pending'
-                GROUP BY node_name, verb, semantics_version""", (world_seed,)).fetchall()
+            f"""SELECT node_name, verb, COUNT(*), MIN(due_at)
+                FROM verb_maturation WHERE {where}
+                GROUP BY node_name, verb""", params).fetchall()
     result = {}
-    for node, verb, version, count, due in rows:
-        result.setdefault(node, []).append({"verb": verb, "semantics_version": version,
-                                          "count": count, "due_at": due})
+    for node, verb, count, due in rows:
+        result.setdefault(node, []).append({"verb": verb, "count": count, "due_at": due})
     return result
 
 
@@ -871,14 +875,18 @@ def get_chronicle(world_seed: int, limit: int = 50,
 
 
 @_with_db
-def count_mutations_by_node(world_seed: int) -> dict[str, int]:
+def count_mutations_by_node(world_seed: int, node_name: str | None = None) -> dict[str, int]:
     """Recorded interactions per node — the world's lived history, in counts.
     Feeds the per-node generative art (trace etchings) via /world."""
-    with _connect() as conn:
+    where = "world_seed = ?"
+    params = [world_seed]
+    if node_name is not None:
+        where += " AND node_name = ?"
+        params.append(node_name)
+    with _connection() as conn:
         rows = conn.execute(
-            """SELECT node_name, COUNT(*) FROM world_mutations
-               WHERE world_seed = ? GROUP BY node_name""",
-            (world_seed,),
+            f"SELECT node_name, COUNT(*) FROM world_mutations WHERE {where} GROUP BY node_name",
+            params,
         ).fetchall()
         return {name: count for name, count in rows}
 

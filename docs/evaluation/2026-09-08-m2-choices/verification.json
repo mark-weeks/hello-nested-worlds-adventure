@@ -5,26 +5,28 @@
   "node_version": "20.19.0",
   "ruff": "passed",
   "python": {
-    "passed": 988,
-    "seconds": 106.38
+    "passed": 996,
+    "seconds": 111.05
   },
   "vitest": {
-    "files": 9,
-    "passed": 96
+    "files": 10,
+    "passed": 100
   },
   "frontend_build": "passed; committed bundle byte-fresh",
   "installed_wheel_smoke": "passed",
   "playwright": {
-    "passed": 24,
-    "reported_duration": "1.4m"
+    "passed": 29,
+    "reported_duration": "2.1m"
   },
   "focused_recovery_checkpoint": {
-    "passed": 80,
+    "passed": 88,
     "m1_regressions": 47,
-    "m2_regressions": 33,
-    "seconds": 25.84
+    "m2_regressions": 41,
+    "seconds": 30.45
   },
   "diff_whitespace": "passed",
-  "local_documentation_links": 18,
-  "data_scope": "disposable databases only; no deployment, production restore, merge or auto-merge"
+  "local_documentation_links": 19,
+  "data_scope": "disposable databases only; no deployment, production restore, merge or auto-merge",
+  "reviewed_commit": "2dc176481f9c2d34c19b9d1b045b8cd9f2a51c20",
+  "final_frontend_followup": "100 Vitest passed; Vite proxy includes /node; production build unchanged"
 }

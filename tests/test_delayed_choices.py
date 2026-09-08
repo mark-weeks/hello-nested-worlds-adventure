@@ -1,9 +1,11 @@
 """M2 request-to-outcome contracts. Every database and HTTP server is disposable."""
 import json
+from contextlib import contextmanager
 import random
 import signal
 import threading
 import urllib.request
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from unittest.mock import patch
@@ -76,6 +78,11 @@ def http(monkeypatch):
                 headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=10) as response:
                 return json.load(response)
+
+        def bounded_read(self, node, seed=SEED):
+            query = urllib.parse.urlencode({"seed": seed, "node_name": node.name})
+            with urllib.request.urlopen(url + "/node?" + query, timeout=10) as response:
+                return json.load(response)["node"]
 
         def read(self, node):
             with urllib.request.urlopen(url + "/world?depth=4", timeout=10) as response:
@@ -294,11 +301,17 @@ def test_cli_cast_and_http_share_one_time_admission(http, capsys):
     root = store.world_tree(SEED)
     cast_node = next(n for n in walk(root) if n.name == node.name)
     # Cast is the first accepter; the stale CLI tree must not create another.
-    result = heartbeat._persona_act(SEED, get_room(SEED), root, "Tender", "tender",
-                                    [cast_node.name], random.Random(1))
+    with patch("server.heartbeat.broadcast") as notify:
+        result = heartbeat._persona_act(SEED, get_room(SEED), root, "Tender", "tender",
+                                       [cast_node.name], random.Random(1))
     assert result
+    message = notify.call_args.args[1]
+    assert "flavor" not in message
+    assert message["event_id"] > 0
     interface._do_scale_verb(node, SEED, "Ada")
-    assert "no additional change" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "no additional change" in output
+    assert "minute(s)" in output
     assert http.post(node, "Bea")["action_status"] == "shared"
     assert persistence.pending_verb_maturations(SEED) == 1
     assert land() == 1
@@ -352,3 +365,115 @@ def test_m1_to_m2_migration_pending_backup_restore_and_dedup(http, tmp_path, mon
     persistence.init_db()
     assert persistence.pending_verb_maturations(SEED) == 1
     assert persistence.inspect_work("verb_maturation", 1)["status"] == "completed"
+
+
+def test_pending_summary_combines_versions_without_combining_work(http):
+    node = http.node("Galaxy")
+    change(node, {"star_density": 418, "kindled": False})
+    legacy = persistence.enqueue_verb_maturation(SEED, node.name, "kindle",
+                                                {"star_density": 438}, "Legacy", 180)
+    new = http.post(node)
+    with patch.object(store, "world_tree", side_effect=AssertionError("full tree read")), \
+            patch.object(persistence, "load_node_property_overrides",
+                         side_effect=AssertionError("all overlays read")):
+        bounded = http.bounded_read(node)
+    assert bounded["pending_actions"] == [{"verb": "kindle", "count": 2,
+                                           "due_at": min(new["work"]["due_at"],
+                                              persistence.inspect_work("verb_maturation", legacy)["due_at"])}]
+    assert "children" not in bounded
+    assert "id" not in bounded  # Renderer IDs belong to the existing tree.
+    assert "actor_identity" not in json.dumps(bounded)
+    assert "semantics_version" not in json.dumps(bounded["pending_actions"])
+    full = http.read(node)
+    assert bounded == {k: v for k, v in full.items() if k not in ("children", "id")}
+    assert land() == 2
+    assert len(history(node)) == 2
+    assert {persistence.inspect_work("verb_maturation", i)["semantics_version"]
+            for i in (legacy, new["work"]["id"])} == {1, 2}
+
+
+def test_bounded_read_uses_canonical_seed_guard(http):
+    with pytest.raises(urllib.error.HTTPError) as error:
+        http.bounded_read(http.node("Galaxy"), seed=999)
+    assert error.value.code == 400
+
+
+def test_acceptance_wait_uses_existing_shared_due_time(http):
+    node = http.node("Galaxy")
+    change(node, {"star_density": 999, "kindled": False})
+    first = http.post(node)
+    assert "5 minute(s)" in first["flavor"]
+    with persistence._connect() as conn:
+        conn.execute("UPDATE verb_maturation SET due_at=datetime('now', '+30 seconds') WHERE id=?",
+                     (first["work"]["id"],))
+    shared = http.post(node, "Bea")
+    assert shared["action_status"] == "shared"
+    assert 0 <= shared["matures_in"] <= 30
+    assert "second(s)" in shared["flavor"]
+    assert "minute(s)" not in shared["flavor"]
+    assert shared["work"]["id"] == first["work"]["id"]
+
+
+def test_acceptance_broadcast_is_neutral_and_has_same_event_as_http(http):
+    node = http.node("Galaxy")
+    change(node, {"star_density": 418, "kindled": False})
+    with patch("server.handlers.broadcast") as notify:
+        result = http.post(node)
+    message = next(call.args[1] for call in notify.call_args_list
+                   if call.args[1]["type"] == "scale_act")
+    assert result["flavor"].startswith("Your kindle")
+    assert "flavor" not in message
+    assert message["actor"] == "Ada"
+    assert message["event_id"] == result["event_id"]
+    assert message["event_id"] == persistence.inspect_work(
+        "verb_maturation", result["work"]["id"])["source_event_id"]
+
+
+@pytest.mark.parametrize("level,field,flag,saturated", [
+    ("Galaxy", "star_density", "kindled", 999),
+    ("Region", "danger_level", "warded", 1),
+])
+def test_saturated_immediate_http_and_cast_candidates_do_not_reserve_writer(
+        http, monkeypatch, level, field, flag, saturated):
+    from server.rooms import get_room
+    monkeypatch.setenv("NESTED_WORLDS_MATURATION_SCALE", "0")
+    root = store.world_tree(SEED)
+    nodes = [n for n in walk(root) if n.level == level][:4]
+    assert len(nodes) == 4
+    for node in nodes:
+        change(node, {field: saturated, flag: True})
+    before = snapshot()
+    with patch.object(persistence, "transaction", side_effect=AssertionError("no-op writer lock")):
+        assert http.post(nodes[0])["action_status"] == "noop"
+        assert heartbeat._persona_act(SEED, get_room(SEED), root, "Tender", "tender",
+                                      [n.name for n in nodes], random.Random(1)) is None
+    assert snapshot() == before
+
+
+@pytest.mark.parametrize("level,field,flag,initial,saturated", [
+    ("Galaxy", "star_density", "kindled", 998, 999),
+    ("Region", "danger_level", "warded", 2, 1),
+])
+def test_immediate_admission_rechecks_after_read_before_writer_lock(
+        http, monkeypatch, level, field, flag, initial, saturated):
+    monkeypatch.setenv("NESTED_WORLDS_MATURATION_SCALE", "0")
+    node = http.node(level)
+    change(node, {field: initial, flag: False})
+    transaction = persistence.transaction
+    intervened = False
+
+    @contextmanager
+    def intervene():
+        nonlocal intervened
+        if not intervened:
+            intervened = True
+            change(node, {field: saturated, flag: True})
+        with transaction() as connection:
+            yield connection
+
+    with patch.object(persistence, "transaction", intervene):
+        result = http.post(node)
+    assert intervened
+    assert result["action_status"] == "noop"
+    assert history(node, "SCALE_ACT") == []
+    assert http.bounded_read(node)["properties"][field] == saturated

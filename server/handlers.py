@@ -143,10 +143,10 @@ def _actor_identity(user_key: str, player_name: str | None) -> str | None:
 
 
 def _node_to_dict(node: SpatialNode, activity: dict | None = None,
-                  pending: dict | None = None) -> dict:
+                  pending: dict | None = None, *, children: bool = True) -> dict:
     verb = verb_for_level(node.level)
     return {
-        "id": node.id,
+        **({"id": node.id} if children else {}),
         "name": node.name,
         "level": node.level,
         "properties": node.properties,
@@ -160,7 +160,8 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None,
         "verb": ({"name": verb.name, "tagline": verb.tagline}
                  if verb else None),
         "pending_actions": (pending or {}).get(node.name, []),
-        "children": [_node_to_dict(c, activity, pending) for c in node.children],
+        **({"children": [_node_to_dict(c, activity, pending) for c in node.children]}
+           if children else {}),
     }
 
 
@@ -178,7 +179,7 @@ _RATE_LIMITED_PATHS = frozenset({
 # never trips it.
 _READ_LIMITED_PATHS = frozenset({
     "/world", "/agent", "/observe", "/puzzle", "/chronicle", "/history",
-    "/wayback",
+    "/wayback", "/node",
 })
 
 # The player-facing pace line (429). Rate limiting is a mechanical guard, but
@@ -578,6 +579,18 @@ class Handler(BaseHTTPRequestHandler):
             if position and hosted is not None and position.get("seed") != hosted:
                 position = None
             self._send_json({"position": position})
+
+        elif path == "/node":
+            try:
+                seed = guard.world_seed(param("seed"))
+                node = _resolve_node(seed, param("node_name", ""))
+            except ValueError as exc:
+                return self._send_error(str(exc))
+            if node is None:
+                return self._send_error("no such place in this world", 404)
+            self._send_json({"seed": seed, "node": _node_to_dict(
+                node, persistence.count_mutations_by_node(seed, node.name),
+                persistence.pending_verb_summaries(seed, node.name), children=False)})
 
         elif path == "/world":
             try:
@@ -1275,7 +1288,8 @@ class Handler(BaseHTTPRequestHandler):
             room = get_room(seed)
             broadcast(room, {
                 "type": "scale_act", "node": target.name, "level": target.level,
-                "verb": verb.name, "actor": player_name or "someone", **result,
+                "verb": verb.name, "actor": player_name or "someone",
+                **{key: value for key, value in result.items() if key != "flavor"},
             })
             broadcast(room, {
                 "type": "causal_event", "node": target.name,

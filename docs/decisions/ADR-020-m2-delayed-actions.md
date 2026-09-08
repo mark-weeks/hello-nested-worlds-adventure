@@ -47,10 +47,35 @@ in-fiction explanation. Applied work records only the actual delta. Acceptance
 does not reserve capacity or guarantee a numerical result; racing contributions
 can saturate before later ones arrive. No-op maturation adds no extra ripple.
 
-Both clients receive pending summaries on authoritative world reads, acceptance
-flavor and a shared work reference, and terminal history/notification flavor.
+Both clients receive pending summaries on authoritative reads, personal
+acceptance flavor with an approximate wait, and terminal history/notification
+flavor. Shared responses use the existing outcome's remaining due time, never a
+fresh full wait. Public summaries group by node/verb across versions; two legacy
+and new pending rows count as two changes, without collapsing either row.
 No private queue payload, credential hash, or diagnostic error is exposed.
 Broadcasts stay outside transactions; reload recovers missed notifications.
+
+`GET /node` resolves one canonical born node and reads its live properties,
+pressure, activity and pending summary. It is gated and read-rate-limited like
+`/world`, but omits topology and transient renderer IDs. Both clients retain
+their existing passages and selection. A late act/read response cannot navigate
+back or write another place's response panel. Socket notices refresh shared
+state without clearing personal interaction text; acceptance broadcasts omit
+second-person flavor. Terminal narration remains in the shared feed/history.
+
+The acceptance response and broadcast expose the same existing origin event ID.
+A bounded client cache (128 events) coalesces the redundant authoritative read
+for an HTTP response and its socket echo. Landing work IDs use a separate phase;
+shared/no-op responses still read fresh state. This is read deduplication only:
+it does not turn another act request into the same accepted contribution.
+Older overlapping reads cannot replace a newer response, and failed reads are
+retryable. Notifications remain best-effort; a page reload recovers missed ones.
+
+Immediate verbs (including the zero-delay override) first check live state
+without reserving SQLite's writer lock. An observational no-op returns there;
+an intended change re-reads and rechecks inside M1's atomic acceptance boundary.
+Delayed admission, including saturation and shared-outcome selection, remains
+serialized under the writer lock.
 
 ### Exclusive interventions: future contract only
 

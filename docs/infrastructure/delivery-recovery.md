@@ -83,7 +83,16 @@ completed fence or rewrite an accepted row to make versions look uniform.
 Unknown versions/operations remain pending with backoff and diagnostic errors;
 repair forward using compatible code. Queue rows can contain private actor
 identity. Public clients receive only aggregate pending summaries and their
-request's work reference; errors and raw inputs remain operator data.
+request's work reference; errors and raw inputs remain operator data. Mixed
+versions produce one public node/verb count, not duplicate version-labeled lines;
+inspect the durable rows to distinguish their preserved meanings.
+
+For client recovery, `/node?node_name=...&seed=...` is the bounded authoritative
+state read; `/world` remains the tree/return read. Neither is a delivery or queue
+reset. The existing origin `event_id` in acceptance responses/notices only lets
+clients avoid reading twice for the same HTTP response/socket echo. Maturation
+is a separate event, and this optimization adds no HTTP request idempotency.
+Do not use display-name matching to infer duplicate work or participant identity.
 
 Completed work and error details are retained indefinitely. No pruning is
 introduced. Revisit retention and transaction contention using measured storage

@@ -2,6 +2,7 @@
 import logging
 import json
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import persistence
 from causality import CausalityBus, EventKind, ORIGIN_STRENGTH
@@ -72,18 +73,29 @@ def accept_verb(seed, node, verb, token, act_data, payload, *,
     """
     from causality.staging import stage_cascade
     from multiverse import delayed_v2
-    from multiverse.verbs import apply_verb, maturation_seconds
+    from multiverse.verbs import apply_verb, maturation_note, maturation_seconds
     store.ensure_born(seed)
     matures = maturation_seconds(node.level)
-    with persistence.transaction():
+    def read_current():
         born = store.resolve_node_by_name(seed, node.name)
         if born is None:
             raise ValueError("no such place in this world")
-        current = persistence.json_merge_patch(
+        return persistence.json_merge_patch(
             born.properties, persistence.load_node_property_override(seed, node.name))
+
+    result = {"changed": None, "matures_in": None, "action_status": "noop",
+              "outcome": None, "work": None, "flavor": ""}
+    if matures <= 0:
+        # A read-only no-op needs no writer reservation. An intended change
+        # still re-reads and rechecks below, at the atomic acceptance boundary.
+        preview = SimpleNamespace(level=node.level, properties=read_current())
+        changed, flavor = apply_verb(preview, verb, token)
+        if not changed:
+            result.update(outcome="already_satisfied", flavor=flavor)
+            return result, 0
+    with persistence.transaction():
+        current = read_current()
         node.properties = dict(current)
-        result = {"changed": None, "matures_in": None, "action_status": "noop",
-                  "outcome": None, "work": None, "flavor": ""}
         if matures > 0:
             operation, outcome = delayed_v2.prepare(verb.name, node.level, current)
             if operation is None:
@@ -102,6 +114,7 @@ def accept_verb(seed, node, verb, token, act_data, payload, *,
                         result.update(action_status="shared", work=work_summary(row),
                                       matures_in=max(0, int((due - datetime.now(timezone.utc)).total_seconds())),
                                       flavor=delayed_v2.acceptance_flavor(verb.name, operation, shared=True))
+                        result["flavor"] += maturation_note(result["matures_in"])
                         return result, 0
             data = {**act_data, "changed": None, "matures_in": int(matures),
                     "semantics_version": 2, "operation": operation,
@@ -115,7 +128,7 @@ def accept_verb(seed, node, verb, token, act_data, payload, *,
                 source_event_id=source, operation=operation, actor_identity=actor_identity)
             result.update(work=work_summary(persistence.inspect_work("verb_maturation", work_id)),
                           matures_in=int(matures),
-                          flavor=delayed_v2.acceptance_flavor(verb.name, operation))
+                          flavor=delayed_v2.acceptance_flavor(verb.name, operation) + maturation_note(matures))
         else:
             changed, flavor = apply_verb(node, verb, token)
             result["flavor"] = flavor
@@ -127,6 +140,7 @@ def accept_verb(seed, node, verb, token, act_data, payload, *,
                 player_name=player_name, actor_identity=actor_identity)
             source = persistence.latest_event_id()
         result["action_status"] = "accepted"
+        result["event_id"] = source
         wire_world_handlers(CausalityBus(), seed, record=False).emit(
             node, EventKind.SCALE_ACT, payload)
         staged = stage_cascade(seed, node, EventKind.SCALE_ACT, payload,

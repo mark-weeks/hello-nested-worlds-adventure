@@ -1,0 +1,65 @@
+{
+  "pr": 95,
+  "reviewed_commit": "2dc176481f9c2d34c19b9d1b045b8cd9f2a51c20",
+  "comment_ids": [
+    3959573660,
+    3960841146,
+    3960841660,
+    3960842594,
+    3960843303,
+    3960843863,
+    3960844796
+  ],
+  "data_scope": "Disposable databases and archived baseline; no production data or deployment",
+  "baseline_observations": {
+    "unrequested_personal_response_explorer": "Ada acts; Bea has not acted. Bea act-response becomes Your kindle is planted...",
+    "unrequested_personal_response_react": "Ada acts; Bea sees Your kindle is planted... in the shared event feed.",
+    "two_acceptances_reads_per_viewer": {
+      "world": 3,
+      "node": 0
+    },
+    "clients": [
+      "/",
+      "/app"
+    ],
+    "late_response_navigation": "Reported race is guarded in the fix; baseline navigation checks did not reproduce a lasting navigation change."
+  },
+  "fixed_browser_checks": {
+    "clients": [
+      "/",
+      "/app"
+    ],
+    "no_second_person_acceptance_for_other_viewer": true,
+    "two_acceptances_reads_per_viewer": {
+      "world": 0,
+      "node": 2
+    },
+    "cumulative_after_two_landings_reads_per_viewer": {
+      "world": 0,
+      "node": 4
+    },
+    "personal_response_retained_after_other_action_and_landing": true,
+    "navigation_retained_after_held_act_and_node_responses": true,
+    "missed_notification_reload_and_process_restart": "Retained existing browser recovery coverage"
+  },
+  "focused_python": {
+    "passed": 88,
+    "legacy_recovery_tests": 47,
+    "m2_tests": 41
+  },
+  "canonical": {
+    "python": 996,
+    "vitest": 100,
+    "playwright": 29,
+    "command": "ENFOLDED_E2E=1 ./scripts/check.sh"
+  },
+  "additional_regressions": [
+    "Mixed v1/v2 pending count without merging work",
+    "Shared wait uses remaining deadline",
+    "Native ward and zero-delay kindle no-op writer-lock avoidance",
+    "Intervening saturation rechecked inside acceptance",
+    "Bounded read uses canonical guard and avoids full tree/all overlays",
+    "HTTP and cast acceptance broadcasts share origin ID and omit personal flavor",
+    "Read echo deduplication, phases, stale reads, failure retry and node/world isolation"
+  ]
+}

@@ -190,7 +190,8 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                 continue
             broadcast(room, {
                 "type": "scale_act", "node": node.name, "level": node.level,
-                "verb": verb.name, "actor": agent_name, **result,
+                "verb": verb.name, "actor": agent_name,
+                **{key: value for key, value in result.items() if key != "flavor"},
             })
             return f"{verb.name}ed {node.name}"
     return None
