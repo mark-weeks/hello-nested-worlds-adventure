@@ -14,7 +14,7 @@
   "canonical_status": "passed",
   "ruff": "passed",
   "python_passed": 1062,
-  "python_seconds": 128.75,
+  "python_seconds": 128.57,
   "vitest_passed": 110,
   "production_bundle": "byte-fresh",
   "installed_wheel_smoke": "passed",
@@ -22,6 +22,12 @@
   "playwright_reported_duration": "2.1m",
   "new_m4_python_cases": 28,
   "new_m4_browser_cases": 2,
+  "runtime_only_browser_verification": {
+    "pytest_installed": false,
+    "passed": 2,
+    "seconds": 4.5,
+    "initial_remote_failure": "Browser fixture imported pytest through a Python test helper; fixture made self-contained"
+  },
   "retained_m1_recovery_cases": 47,
   "retained_m2_cases": 41,
   "retained_m3_narration_cases": 38,

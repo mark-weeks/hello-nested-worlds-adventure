@@ -167,8 +167,13 @@ safe ground and independent same-world social trials. A new renewal test also
 needed `depth=11` to address its real Room through HTTP. No production data was
 used to correct these fixtures.
 
+The first remote browser run exposed a test-only dependency: importing a
+Python test helper required `pytest`, which the browser job's runtime-only
+installation intentionally lacks. The browser fixture now defines its tiny
+deterministic RNG and tree walk locally. Both new browser cases also pass in
+a clean locked-runtime environment with `pytest` confirmed absent (4.5s).
 
-The canonical check passed: **1,062 Python tests** in 128.75s, **110 Vitest
+The canonical check passed: **1,062 Python tests** in 128.57s, **110 Vitest
 tests**, **35 Playwright tests** (2.1m), Ruff, a byte-fresh committed production
 bundle and installed-wheel smoke. Python 3.11.15 / Node 20.19.0 were installed
 through `setup.sh`. Both browser screenshots were inspected.

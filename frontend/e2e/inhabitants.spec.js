@@ -12,7 +12,7 @@ test.use({ viewport: { width: 1440, height: 1100 } });
 
 async function serve(db) {
   const child = spawn(python, ['-u', '-c', `
-import sys, threading, json
+import sys, threading, json, random
 from pathlib import Path
 from unittest.mock import patch
 import persistence
@@ -20,7 +20,19 @@ persistence._DB_PATH = Path(sys.argv[1])
 from server import _Handler, _ThreadedServer, heartbeat
 from multiverse import store
 from causality.staging import drain_due_hops
-from tests.test_agent_attention import Steady, walk
+# Keep this real-server fixture runnable with CI's runtime-only installation.
+class Steady(random.Random):
+    def choice(self, seq):
+        return seq[0]
+
+    def random(self):
+        return 0.5
+
+def walk(node):
+    yield node
+    for child in node.children:
+        yield from walk(child)
+
 root = store.world_tree(382)
 nodes = list(walk(root))
 target = root.children[0].children[0]
