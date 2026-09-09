@@ -21,11 +21,12 @@ def cmd_world(args):
 
 def cmd_agent(args):
     root = store.world_tree(seed=args.seed)
-    agent = Agent(name=args.name, danger_threshold=args.danger_threshold)
+    agent = Agent(name=args.name, danger_threshold=args.danger_threshold, world_seed=args.seed)
 
     saved = persistence.load_agent_memory(args.name, args.seed)
     if saved:
         agent.memory = saved["visited_ids"]
+        agent.scan_cursor = saved.get("scan_cursor")
         print(f"[Memory restored: {len(agent.memory)} nodes previously known]")
 
     agent.traverse(root, max_nodes=args.max_nodes)
@@ -36,7 +37,10 @@ def cmd_agent(args):
         for e in agent.log
     ]
     persistence.save_agent_run(args.name, args.seed, agent.fresh_count, events)
-    persistence.save_agent_memory(args.name, args.seed, agent.memory, events[-100:])
+    persistence.save_agent_memory(args.name, args.seed, agent.memory,
+        ((saved or {}).get("log_entries", []) + events)[-100:])
+    if agent.scan_cursor:
+        persistence.save_agent_scan_cursor(args.name, args.seed, agent.scan_cursor)
     print(f"[Memory saved: {len(agent.memory)} total nodes known]")
 
 

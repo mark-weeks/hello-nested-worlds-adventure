@@ -1,0 +1,77 @@
+{
+  "date": "2026-09-08",
+  "base_sha": "d97ea1422d0a0c307d952ac1044e8607a5fad502",
+  "required_ancestors": {
+    "M1": "09317c35c5d07beafe2bbe93b9233fd2fba9a8bf",
+    "M2": "de45e98d4e4a3579e7eeb88df8fa290f8a5636a3",
+    "M3": "d97ea1422d0a0c307d952ac1044e8607a5fad502"
+  },
+  "m3_merge_utc": "2026-09-08T22:12:28Z",
+  "branch": "codex/m4-responsive-inhabitants",
+  "python_version": "3.11.15",
+  "node_version": "20.19.0",
+  "canonical_command": "ENFOLDED_E2E=1 ./scripts/check.sh",
+  "canonical_status": "passed",
+  "ruff": "passed",
+  "python_passed": 1062,
+  "python_seconds": 128.75,
+  "vitest_passed": 110,
+  "production_bundle": "byte-fresh",
+  "installed_wheel_smoke": "passed",
+  "playwright_passed": 35,
+  "playwright_reported_duration": "2.1m",
+  "new_m4_python_cases": 28,
+  "new_m4_browser_cases": 2,
+  "retained_m1_recovery_cases": 47,
+  "retained_m2_cases": 41,
+  "retained_m3_narration_cases": 38,
+  "probe_scope": "constructed disposable saturation and real HTTP actions; not production frequency",
+  "full_cast_12_ticks": {
+    "before_fresh": 0,
+    "after_fresh": 0,
+    "before_acts": 0,
+    "after_acts": 6,
+    "before_rows": 0,
+    "after_rows_before_drain": 20
+  },
+  "maxima_across_22_probe_ticks": {
+    "inspected": 40,
+    "visited": 10,
+    "puzzle_attempts": 1,
+    "persona_attempts": 2,
+    "origin_effects": 3,
+    "initial_hops": 7,
+    "persona_moves": 2,
+    "conversations": 1,
+    "sql_steps": 72000
+  },
+  "partial_and_full_fixture_reads": {
+    "before": [
+      6,
+      6,
+      6,
+      6,
+      6
+    ],
+    "after": [
+      24,
+      11,
+      11,
+      23,
+      11
+    ],
+    "count_includes": "SELECT and WITH statements, not PRAGMAs"
+  },
+  "restart_phases": [
+    "before_marker",
+    "after_marker_before_commit",
+    "after_commit"
+  ],
+  "migration": 20,
+  "history_rewrite": false,
+  "golden_repin": false,
+  "new_event_kind": false,
+  "deployment": "not performed",
+  "merge": "not performed",
+  "auto_merge": "not enabled"
+}

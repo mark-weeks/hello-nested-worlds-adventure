@@ -27,10 +27,12 @@ from __future__ import annotations
 import logging
 import os
 import random
+import sqlite3
 import threading
 
 import persistence
 from agents.agent import Agent
+from agents.behaviors import State, should_preserve
 from agents.personas import for_name as persona_for_name
 from agents.roster import profile_for
 from causality import CausalityBus, EventKind
@@ -40,9 +42,6 @@ from causality.wiring import wire_world_handlers
 from multiverse import store
 from multiverse.generator import DEFAULT_WORLD_SEED, LEVELS
 from multiverse.node import SpatialNode
-from multiverse.utils import (
-    apply_property_overrides, apply_ripple_scores, build_distance_map,
-)
 from server import guard, rooms as _rooms_module
 from server.history import narration_fields, broadcast_history_batch
 from server.rooms import (
@@ -131,7 +130,8 @@ def _drop_in(root: SpatialNode, rng: random.Random,
 
 def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                  persona_name: str, visited_names: list[str],
-                 rng: random.Random, on_event=None) -> str | None:
+                 rng: random.Random, on_event=None, *, node_index=None, attempt=None,
+                 on_action=None, chance=True) -> str | None:
     """After a traversal, the wanderer acts on the world by temperament.
 
     This is the world's living entropy loop: DESTABILIZERS emit real decay
@@ -145,9 +145,9 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
     from multiverse.utils import find_node
     from multiverse.verbs import verb_for_level
 
-    if rng.random() > 0.6 or not visited_names:
+    if not visited_names or chance and rng.random() > 0.6:
         return None
-    nodes = [n for n in (find_node(root, name)
+    nodes = [n for n in ((node_index.get(name) if node_index is not None else find_node(root, name))
                          for name in rng.sample(visited_names,
                                                 min(4, len(visited_names))))
              if n is not None]
@@ -161,19 +161,29 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                                   != profile.favored_verb))
     payload = {"agent": agent_name, "persona": persona_name}
 
+    def perform(node, operation):
+        return attempt(node, "persona", operation) if attempt else operation()
+
     if persona_name == "destabilizer":
+        count = 0
         for node in nodes[:2]:
             kind = (EventKind.STRUCTURAL_CHANGE
                     if "condition" in (node.properties or {})
                     else EventKind.DANGER_ALERT)
-            with persistence.transaction():
-                event = wire_world_handlers(CausalityBus(), seed).emit(
-                    node, kind, dict(payload))
-                stage_cascade(seed, node, kind, dict(payload),
-                              source_event_id=persistence.latest_event_id(kind.name))
-            if on_event is not None:
-                on_event(node, event)
-        return f"destabilized {min(2, len(nodes))} node(s)"
+            def decay():
+                from multiverse.effects import compute_event_effects
+                if not compute_event_effects(node.properties, kind, 1.0):
+                    return None
+                return _ambient_event(seed, node, kind, payload, cascade=True)
+            accepted = perform(node, decay)
+            if accepted is not None:
+                event, _staged = accepted
+                count += 1
+                if on_action is not None:
+                    on_action(node, "destabilized")
+                if on_event is not None:
+                    on_event(node, event)
+        return f"destabilized {count} node(s)" if count else None
 
     if persona_name in ("tender", "scholar"):
         allowed = None if persona_name == "tender" else (
@@ -184,19 +194,58 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                 continue
             token = f"{agent_name}:{node.name}"
             act_payload = {"verb": verb.name, **payload}
-            result, _staged = accept_verb(
+            accepted = perform(node, lambda: accept_verb(
                 seed, node, verb, token, act_payload, act_payload,
-                actor_identity=agent_name, maturation_actor=agent_name)
+                actor_identity=agent_name, maturation_actor=agent_name))
+            if accepted is None:
+                continue
+            result, _staged = accepted
             if result["action_status"] != "accepted":
                 continue
-            broadcast(room, {
-                "type": "scale_act", "node": node.name, "level": node.level,
-                "verb": verb.name, "actor": agent_name,
-                **{key: value for key, value in result.items() if key != "flavor"},
-                **narration_fields(seed, result["event_id"]),
-            })
+            if on_action is not None:
+                on_action(node, f"{verb.name}ed")
+            try:
+                broadcast(room, {
+                    "type": "scale_act", "node": node.name, "level": node.level,
+                    "verb": verb.name, "actor": agent_name,
+                    **{key: value for key, value in result.items() if key != "flavor"},
+                    **narration_fields(seed, result["event_id"]),
+                })
+            except Exception:
+                _log.exception("committed cast action notice failed")
             return f"{verb.name}ed {node.name}"
     return None
+
+
+def _ambient_event(seed, node, kind, payload, *, cascade=False):
+    """Existing origin event + pressure + optional ring, committed before notice."""
+    with persistence.transaction():
+        event = wire_world_handlers(CausalityBus(), seed).emit(node, kind, dict(payload))
+        event.recorded_id = persistence.latest_event_id(kind.name)
+        event.origin_id = node.name
+        staged = (stage_cascade(seed, node, kind, payload,
+                                source_event_id=event.recorded_id) if cascade else 0)
+    return event, staged
+
+
+def _chain(node):
+    while node is not None:
+        yield node
+        node = node.parent
+
+
+def _accessible(node, signals, threshold, current_name=None):
+    from puzzles.generators import build_puzzle
+    for ancestor in _chain(node):
+        if ancestor is not node and should_preserve(ancestor, threshold):
+            return False
+        if ancestor.level == "Room" and ancestor.properties.get("locked"):
+            if current_name and current_name.rpartition('-')[2].startswith(ancestor.name.rpartition('-')[2]):
+                continue  # already inside: the seal never imprisons
+            signal = signals[ancestor.name]
+            if build_puzzle(ancestor, signal["epoch"]).name not in signal["solved"]:
+                return False
+    return True
 
 
 def _hold_conversation(seed: int, room, node: SpatialNode,
@@ -234,6 +283,25 @@ def _hold_conversation(seed: int, room, node: SpatialNode,
 def run_tick(seed: int | None = None, rng: random.Random | None = None,
              max_nodes: int = _DEFAULT_MAX_NODES,
              pace: float = _DEFAULT_PACE) -> dict:
+    rng = rng or random.Random()
+    seed = _pick_seed(rng) if seed is None else seed
+    # Birth is one-time world initialization, never repeated world evolution.
+    store.ensure_born(seed)
+    with persistence.agent_work_budget() as budget:
+        try:
+            result = _run_tick(seed, rng, max_nodes, pace)
+        except sqlite3.OperationalError as exc:
+            if str(exc) != 'interrupted' or budget['steps'] < budget['limit']:
+                raise
+            # Earlier commits remain authoritative; never claim zero effects.
+            _log.warning('heartbeat SQL work budget exhausted; committed work retained')
+            result = {'seed': seed, 'status': 'work_limit', 'fresh': None, 'act': None,
+                      'work': {'projection_limited': True, 'interrupted': True}}
+        result['work']['sql_steps'] = budget['steps']
+        return result
+
+
+def _run_tick(seed, rng, max_nodes, pace):
     """One heartbeat: a wandering agent moves through the world, leaving
     persistent traces and live broadcasts. Returns a small summary."""
     rng = rng or random.Random()
@@ -244,100 +312,210 @@ def run_tick(seed: int | None = None, rng: random.Random | None = None,
     persona = persona_for_name(agent_name)
     profile = profile_for(agent_name)
 
+    # max_nodes bounds actual visits; even callers requesting enormous walks
+    # cannot exceed this heartbeat's independent inspection/action caps.
+    visit_limit = max(0, min(10, int(max_nodes)))
+    inspect_limit = min(40, visit_limit * 4)
     root = store.world_tree(seed=seed)
-    apply_ripple_scores(root, persistence.load_ripple_scores(seed))
-    apply_property_overrides(root, persistence.load_node_property_overrides(seed))
+    nodes, stack = [], [root]
+    while stack:
+        node = stack.pop()
+        nodes.append(node)
+        stack.extend(reversed(node.children))
+    node_index = {node.name: node for node in nodes}
+    positions = {node.name: i for i, node in enumerate(nodes)}
+    saved = persistence.load_agent_memory(agent_name, seed) or {}
     target = _drop_in(root, rng, profile)
-
-    room = get_room(seed)
-    distance_map = build_distance_map(target)
-    agent_enter(room, agent_name, persona=persona.name)
-
-    # Roughly a third of ticks are social: a second wanderer is already
-    # loitering where the walker drops in, so the two actually MEET — an
-    # encounter broadcast plus a persisted conversation — instead of the
-    # cast only ever walking the world alone. Ground flagged contains_npc
-    # is where someone is usually home: meetings there are twice as likely.
-    companion = None
-    social_p = 0.7 if (target.properties or {}).get("contains_npc") else 0.35
-    if rng.random() < social_p:
-        others = [n for n in WANDERER_ROSTER if n != agent_name]
-        companion = rng.choice(others)
-        companion_persona = persona_for_name(companion)
-        agent_enter(room, companion, persona=companion_persona.name)
-        agent_move(room, companion, target.name)
-
-    def live_handler(node, event):
-        broadcast(room, {
-            "type":     "causal_event",
-            "node":     node.name,
-            "level":    node.level,
-            "kind":     event.kind.name,
-            "strength": round(event.strength, 4),
-            "depth":    distance_map.get(node.id, 0),
-            "origin":   target.name,
-            "agent":    agent_name,
-            "persona":  persona.name,
-        })
-        for other_name in agent_move(room, agent_name, node.name):
-            other_persona = agent_persona(room, other_name)
-            broadcast(room, {
-                "type":           "agent_encounter",
-                "agent1":         agent_name,
-                "agent1_persona": persona.name,
-                "agent2":         other_name,
-                "agent2_persona": other_persona,
-                "node":           node.name,
-                "level":          node.level,
-            })
-            # The meeting is a conversation, not just a proximity ping:
-            # a deterministic in-character exchange (zero API cost) that
-            # persists into node history — players who arrive later find
-            # the transcript, and the node's voice can allude to it.
-            _hold_conversation(seed, room, node, agent_name, persona.name,
-                               other_name, other_persona)
-
-    bus = CausalityBus()
-    bus.register_handler(live_handler)
-    wire_world_handlers(bus, seed)
-
-    # Courage is character: each regular withdraws at their own threshold
-    # (Aunt Entropy walks into anything; The Locksmith turns back early).
+    cursor = saved.get("scan_cursor")
+    start = (positions[cursor] + 1) % len(nodes) if cursor in positions else positions[target.name]
+    fair = [nodes[(start + i) % len(nodes)] for i in range(min(inspect_limit, len(nodes)))]
+    fair_names = {node.name for node in fair}
+    known = set(saved.get("visited_ids", []))
+    priority_limit = min(2, max(0, visit_limit - 1))
+    priority = [node_index[name] for name in persistence.recent_attention_nodes(seed, agent_name)
+                if name in known and name in node_index and name not in fair_names][:priority_limit]
+    priority_names = {node.name for node in priority}
+    candidates = priority + fair[:inspect_limit - len(priority)]
+    target = candidates[0] if candidates else target
+    related = {n.name: n for candidate in candidates for n in _chain(candidate)}
+    # Keep born values separate: a concurrent tombstone must not resurrect a
+    # value from the previous overlaid snapshot when admission refreshes it.
+    born = {name: dict(node.properties) for name, node in related.items()}
     threshold = profile.danger_threshold if profile is not None else 7
-    agent = Agent(name=agent_name, danger_threshold=threshold, bus=bus,
-                  persona=persona)
-    saved = persistence.load_agent_memory(agent_name, seed)
-    if saved:
-        agent.memory = saved["visited_ids"]
-
+    agent = Agent(name=agent_name, danger_threshold=threshold, persona=persona,
+                  world_seed=seed, memory=list(saved.get("visited_ids", [])))
+    agent._memory_before = len(agent.memory)
+    work = {"inspected": 0, "visited": 0, "puzzle_attempts": 0,
+            "persona_attempts": 0, "origin_effects": 0, "initial_hops": 0,
+            "hydrated_nodes": len(nodes), "persona_moves": 0, "conversations": 0,
+            "projection_limited": False}
+    room = get_room(seed)
+    companion = None
     act = None
+    signals, markers = {}, {}
+    persona_candidates = []
+    current_name = None
+    fair_cursor = cursor
+
+    def refresh(selected):
+        overrides = persistence.load_node_property_overrides(seed, list(selected))
+        for name, node in selected.items():
+            node.properties = persistence.json_merge_patch(born[name], overrides.get(name, {}))
+        return persistence.agent_attention_signals(seed, list(selected), seals=True)
+
+    def notice(node, event):
+        # Notification/read failures cannot refund a committed opportunity.
+        try:
+            broadcast(room, {"type": "causal_event", "node": node.name,
+                "level": node.level, "kind": event.kind.name,
+                "strength": event.strength, "origin": event.origin_id,
+                "agent": agent_name, "persona": persona.name,
+                "event_id": event.recorded_id, **narration_fields(seed, event.recorded_id)})
+        except Exception:
+            _log.exception("committed heartbeat notice failed")
+
+    def attempt(node, mode, operation):
+        key = "puzzle_attempts" if mode == "puzzle" else "persona_attempts"
+        if work[key] >= (2 if mode == "puzzle" else 4):
+            return None
+        if work["puzzle_attempts"] + work["persona_attempts"] >= 4:
+            return None
+        # Count admission attempts too, including a race-lost or no-op attempt.
+        work[key] += 1
+        with persistence.transaction():
+            current_signals = refresh({n.name: n for n in _chain(node)})
+            state = persistence.load_agent_attention(agent_name, seed, [node.name]).get(node.name, {})
+            signal = current_signals[node.name]
+            field, value = ("puzzle", signal["epoch"]) if mode == "puzzle" else ("change", signal["change"])
+            if (state.get(field, -1) >= value or not _accessible(node, current_signals, threshold, current_name)
+                    or should_preserve(node, threshold)):
+                return None
+            result = operation(signal) if mode == "puzzle" else operation()
+            persistence.mark_agent_attention(agent_name, seed, node.name, **{field: value})
+        if result is not None:
+            first, staged = result
+            accepted = not isinstance(first, dict) or first.get("action_status") == "accepted"
+            if accepted:
+                work["origin_effects"] += 1
+                work["initial_hops"] += staged
+        return result
+
+    def visit(node, fresh):
+        nonlocal current_name, fair_cursor
+        if node.name not in priority_names:
+            fair_cursor = node.name
+        signal = signals[node.name]
+        state = markers.get(node.name, {})
+        if not _accessible(node, signals, threshold, current_name):
+            return False
+        danger = should_preserve(node, threshold)
+        from multiverse.verbs import verb_for_level
+        verb = verb_for_level(node.level)
+        persona_eligible = (persona.name in ("tender", "destabilizer") or
+                            persona.name == "scholar" and verb is not None and
+                            verb.name in ("inscribe", "observe", "calibrate"))
+        changed = signal["change"] > state.get("change", -1)
+        puzzle_due = (not danger and node.properties.get("has_puzzle") and
+                      signal["epoch"] > state.get("puzzle", -1))
+        if not (fresh or changed and (persona_eligible or danger) or puzzle_due):
+            return False
+        # Actual movement is separate from event propagation, and precedes any
+        # encounter. The companion is only present for a real visit.
+        nonlocal companion
+        if not agent.activity_nodes and rng.random() < (0.7 if node.properties.get("contains_npc") else 0.35):
+            others = [name for name in WANDERER_ROSTER if name != agent_name]
+            if others:
+                companion = rng.choice(others)
+                companion_persona = persona_for_name(companion)
+                agent_enter(room, companion, persona=companion_persona.name)
+                agent_move(room, companion, node.name)
+        for other in agent_move(room, agent_name, node.name)[:1]:
+            other_persona = agent_persona(room, other)
+            broadcast(room, {"type": "agent_encounter", "agent1": agent_name,
+                "agent1_persona": persona.name, "agent2": other,
+                "agent2_persona": other_persona, "node": node.name, "level": node.level})
+            if work['conversations'] < 1:
+                _hold_conversation(seed, room, node, agent_name, persona.name, other, other_persona)
+                work['conversations'] += 1
+        current_name = node.name
+        agent.state = State.EXPLORE
+        if danger:
+            agent._record(node, f"withdrew (danger_level={node.properties.get('danger_level')})")
+            # Remember observing this unsafe condition without amplifying it.
+            persistence.mark_agent_attention(agent_name, seed, node.name, change=signal["change"])
+            return True
+        agent._record(node, "explored" if fresh else "revisited")
+        if persona_eligible and changed:
+            persona_candidates.append(node.name)
+        if fresh:
+            event, _ = _ambient_event(seed, node, EventKind.AGENT_VISIT, agent._payload())
+            work["origin_effects"] += 1
+            notice(node, event)
+        if puzzle_due:
+            def puzzle_operation(current):
+                solved, puzzle_name, difficulty = agent._attempt_puzzle(node, current["epoch"])
+                agent.state = State.INTERACT
+                agent._record(node, f"{'solved' if solved else 'failed'} the puzzle ({puzzle_name})")
+                return _ambient_event(seed, node, EventKind.PUZZLE_SOLVED if solved else EventKind.PUZZLE_FAILED,
+                    agent._payload(puzzle=puzzle_name, difficulty=difficulty), cascade=True)
+            outcome = attempt(node, "puzzle", puzzle_operation)
+            if outcome is not None:
+                notice(node, outcome[0])
+        return True
+
+    def acted(node, action):
+        nonlocal current_name
+        # Choosing an earlier visited place entails an actual return, not
+        # movement inferred from a remote consequence. At most two per tick.
+        agent_move(room, agent_name, node.name)
+        current_name = node.name
+        work["persona_moves"] += 1
+        agent._record(node, action)
+
+    agent_enter(room, agent_name, persona=persona.name)
     try:
-        agent.traverse(target, max_nodes=max_nodes, pace=pace)
+        try:
+            signals = refresh(related)
+            markers = persistence.load_agent_attention(agent_name, seed, list(related))
+            agent.traverse(target, max_nodes=inspect_limit, pace=pace,
+                           candidates=candidates, visit=visit, max_visits=visit_limit)
+            # Eligibility comes from independently tracked visited places,
+            # including familiar ones; the fresh-discovery log is not a queue.
+            try:
+                act = _persona_act(seed, room, root, agent_name, persona.name,
+                    persona_candidates, rng, on_event=notice,
+                    node_index=node_index, attempt=attempt, on_action=acted, chance=False)
+            except persistence.AttentionReadLimit:
+                raise
+            except Exception:
+                _log.exception("heartbeat persona attempt/notice failed")
+        except persistence.AttentionReadLimit:
+            work["projection_limited"] = True
+            if not getattr(agent, 'inspected', 0) and fair:
+                fair_cursor = fair[-1].name
+            _log.warning("heartbeat attention projection exhausted its budget")
         events = [{"node": e.node_name, "level": e.level, "state": e.state.name,
                    "action": e.action, "persona": e.persona} for e in agent.log]
+        # Discovery is a union even if another run saved memory during ours.
+        with persistence.transaction():
+            latest = persistence.load_agent_memory(agent_name, seed) or {}
+            memory = list(dict.fromkeys(latest.get("visited_ids", []) + agent.memory))
+            previous = latest.get("log_entries", [])
+            persistence.save_agent_memory(agent_name, seed, memory, (previous + events)[-100:])
+            if candidates:
+                persistence.save_agent_scan_cursor(agent_name, seed,
+                    fair_cursor or fair[-1].name)
         persistence.save_agent_run(agent_name, seed, agent.fresh_count, events)
-        persistence.save_agent_memory(agent_name, seed, agent.memory,
-                                      events[-100:])
-
-        # The wanderer acts on the world by temperament — the living entropy
-        # (destabilizers) and tending (tenders/scholars) loop. This runs
-        # BEFORE agent_leave: a destabilizer's decay events replay through
-        # live_handler, whose agent_move would otherwise re-register the
-        # walker after departure and leave a ghost in room.active_agents.
-        act = _persona_act(seed, room, root, agent_name, persona.name,
-                           [e["node"] for e in events], rng, on_event=live_handler)
     finally:
         agent_leave(room, agent_name)
         if companion is not None:
             agent_leave(room, companion)
-
+    work.update(inspected=getattr(agent, "inspected", 0), visited=len(getattr(agent, "activity_nodes", [])))
     broadcast(room, {"type": "agent_done", "node": target.name,
                      "nodes_visited": agent.fresh_count})
     summary = {"seed": seed, "agent": agent_name, "persona": persona.name,
-               "origin": target.name, "fresh": agent.fresh_count,
-               "act": act}
-    _log.info("heartbeat: %(agent)s (%(persona)s) walked %(fresh)d fresh "
-              "node(s) from %(origin)s in world %(seed)d", summary)
+               "origin": target.name, "fresh": agent.fresh_count, "act": act, "work": work}
+    _log.info("heartbeat: %s", summary)
     return summary
 
 

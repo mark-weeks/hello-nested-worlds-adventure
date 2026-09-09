@@ -1,0 +1,294 @@
+{
+  "scope": "constructed fixtures; no production frequency claim",
+  "partial": {
+    "world_nodes": 4208,
+    "initial_known": 270,
+    "target": "Mossbound Bell Disc-111",
+    "player_acceptance": {
+      "verb": "kindle",
+      "level": "Galaxy",
+      "node": "Mossbound Bell Disc-111",
+      "changed": null,
+      "matures_in": 300,
+      "action_status": "accepted",
+      "outcome": null,
+      "work": {
+        "id": 1,
+        "verb": "kindle",
+        "policy": "contribution",
+        "semantics_version": 2,
+        "due_at": "2026-09-09 00:06:50"
+      },
+      "flavor": "Your kindle is planted: one contribution is still traveling. It will tend what it finds when it arrives; there may be nothing left to change. The wait is about 5 minute(s); it will settle against the state it finds.",
+      "event_id": 1
+    },
+    "ticks": [
+      {
+        "seed": 382,
+        "agent": "Tessera",
+        "persona": "tender",
+        "origin": "Mossbound Bell Disc-111",
+        "fresh": 0,
+        "act": null,
+        "selects": 6,
+        "hydrations": 1,
+        "legacy_recursive_calls": 80,
+        "known": 270,
+        "context_rows": 0
+      },
+      {
+        "seed": 382,
+        "agent": "Tessera",
+        "persona": "tender",
+        "origin": "Mossbound Bell Disc-111",
+        "fresh": 0,
+        "act": null,
+        "selects": 6,
+        "hydrations": 1,
+        "legacy_recursive_calls": 80,
+        "known": 270,
+        "context_rows": 0
+      },
+      {
+        "seed": 382,
+        "agent": "Tessera",
+        "persona": "tender",
+        "origin": "Mossbound Bell Disc-111",
+        "fresh": 0,
+        "act": null,
+        "selects": 6,
+        "hydrations": 1,
+        "legacy_recursive_calls": 80,
+        "known": 270,
+        "context_rows": 0
+      },
+      {
+        "seed": 382,
+        "agent": "Tessera",
+        "persona": "tender",
+        "origin": "Mossbound Bell Disc-111",
+        "fresh": 0,
+        "act": null,
+        "selects": 6,
+        "hydrations": 1,
+        "legacy_recursive_calls": 80,
+        "known": 270,
+        "context_rows": 0
+      },
+      {
+        "seed": 382,
+        "agent": "Tessera",
+        "persona": "tender",
+        "origin": "Mossbound Bell Disc-111",
+        "fresh": 0,
+        "act": null,
+        "selects": 6,
+        "hydrations": 1,
+        "legacy_recursive_calls": 80,
+        "known": 270,
+        "context_rows": 0
+      }
+    ]
+  },
+  "full": {
+    "world_nodes": 4208,
+    "initial_known": 4208,
+    "target": "Mossbound Bell Disc-111",
+    "player_acceptance": {
+      "verb": "kindle",
+      "level": "Galaxy",
+      "node": "Mossbound Bell Disc-111",
+      "changed": null,
+      "matures_in": 300,
+      "action_status": "accepted",
+      "outcome": null,
+      "work": {
+        "id": 1,
+        "verb": "kindle",
+        "policy": "contribution",
+        "semantics_version": 2,
+        "due_at": "2026-09-09 00:06:50"
+      },
+      "flavor": "Your kindle is planted: one contribution is still traveling. It will tend what it finds when it arrives; there may be nothing left to change. The wait is about 5 minute(s); it will settle against the state it finds.",
+      "event_id": 1
+    },
+    "ticks": [
+      {
+        "seed": 382,
+        "agent": "Tessera",
+        "persona": "tender",
+        "origin": "Mossbound Bell Disc-111",
+        "fresh": 0,
+        "act": null,
+        "selects": 6,
+        "hydrations": 1,
+        "legacy_recursive_calls": 80,
+        "known": 4208,
+        "context_rows": 0
+      },
+      {
+        "seed": 382,
+        "agent": "Tessera",
+        "persona": "tender",
+        "origin": "Mossbound Bell Disc-111",
+        "fresh": 0,
+        "act": null,
+        "selects": 6,
+        "hydrations": 1,
+        "legacy_recursive_calls": 80,
+        "known": 4208,
+        "context_rows": 0
+      },
+      {
+        "seed": 382,
+        "agent": "Tessera",
+        "persona": "tender",
+        "origin": "Mossbound Bell Disc-111",
+        "fresh": 0,
+        "act": null,
+        "selects": 6,
+        "hydrations": 1,
+        "legacy_recursive_calls": 80,
+        "known": 4208,
+        "context_rows": 0
+      },
+      {
+        "seed": 382,
+        "agent": "Tessera",
+        "persona": "tender",
+        "origin": "Mossbound Bell Disc-111",
+        "fresh": 0,
+        "act": null,
+        "selects": 6,
+        "hydrations": 1,
+        "legacy_recursive_calls": 80,
+        "known": 4208,
+        "context_rows": 0
+      },
+      {
+        "seed": 382,
+        "agent": "Tessera",
+        "persona": "tender",
+        "origin": "Mossbound Bell Disc-111",
+        "fresh": 0,
+        "act": null,
+        "selects": 6,
+        "hydrations": 1,
+        "legacy_recursive_calls": 80,
+        "known": 4208,
+        "context_rows": 0
+      }
+    ]
+  },
+  "whole_cast": {
+    "ticks": [
+      {
+        "seed": 382,
+        "agent": "Aunt Entropy",
+        "persona": "destabilizer",
+        "origin": "Weathered Cinder Archipelago-143",
+        "fresh": 0,
+        "act": null
+      },
+      {
+        "seed": 382,
+        "agent": "Mirrorbird",
+        "persona": "wanderer",
+        "origin": "Glass Thorn Basin-113122",
+        "fresh": 0,
+        "act": null
+      },
+      {
+        "seed": 382,
+        "agent": "Tessera",
+        "persona": "tender",
+        "origin": "Amber Reed Workshop-1323111",
+        "fresh": 0,
+        "act": null
+      },
+      {
+        "seed": 382,
+        "agent": "Sela",
+        "persona": "wanderer",
+        "origin": "Broken Reed Rotunda-1411221",
+        "fresh": 0,
+        "act": null
+      },
+      {
+        "seed": 382,
+        "agent": "Sela",
+        "persona": "wanderer",
+        "origin": "Last Willow Alcove-1421112",
+        "fresh": 0,
+        "act": null
+      },
+      {
+        "seed": 382,
+        "agent": "Karst",
+        "persona": "destabilizer",
+        "origin": "Verdant Shadow Garland-1141",
+        "fresh": 0,
+        "act": null
+      },
+      {
+        "seed": 382,
+        "agent": "Karst",
+        "persona": "destabilizer",
+        "origin": "Hollow Tide Sanctuary-11112",
+        "fresh": 0,
+        "act": null
+      },
+      {
+        "seed": 382,
+        "agent": "Vex",
+        "persona": "destabilizer",
+        "origin": "Iron Cinder Undercroft-1112111",
+        "fresh": 0,
+        "act": null
+      },
+      {
+        "seed": 382,
+        "agent": "Sela",
+        "persona": "wanderer",
+        "origin": "Iron Reed Circuit-1221",
+        "fresh": 0,
+        "act": null
+      },
+      {
+        "seed": 382,
+        "agent": "The Locksmith",
+        "persona": "tender",
+        "origin": "Lucent River Gallery-1212211",
+        "fresh": 0,
+        "act": null
+      },
+      {
+        "seed": 382,
+        "agent": "Karst",
+        "persona": "destabilizer",
+        "origin": "Amber Frost Barrens-124221",
+        "fresh": 0,
+        "act": null
+      },
+      {
+        "seed": 382,
+        "agent": "The Locksmith",
+        "persona": "tender",
+        "origin": "Azure Reed Reach-144311",
+        "fresh": 0,
+        "act": null
+      }
+    ],
+    "chronicle_rows": 0,
+    "fresh": 0,
+    "acts": 0
+  },
+  "renewal": {
+    "human_endpoint_correct": true,
+    "decay": "destabilized 1 node(s)",
+    "epoch": 1,
+    "current_puzzle": "The Jumbled Room Word \u00b7 Renewal 1",
+    "agent_puzzle": "The Keeper Witness of the Room",
+    "difficulty": 3
+  }
+}

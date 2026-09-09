@@ -631,24 +631,30 @@ class Handler(BaseHTTPRequestHandler):
             persona = persona_by_name(persona_arg) or persona_for_name(name)
             root  = store.world_tree(seed=seed)
             apply_ripple_scores(root, persistence.load_ripple_scores(seed))
+            apply_property_overrides(root, persistence.load_node_property_overrides(seed))
             # Per-request bus with the standard record/ripple/effects wiring
             # so traversal events persist and change world substance.
             agent_bus = wire_world_handlers(CausalityBus(), seed)
             agent = Agent(name=name, danger_threshold=threshold, bus=agent_bus,
-                          persona=persona)
+                          persona=persona, world_seed=seed)
             saved = persistence.load_agent_memory(name, seed)
             if saved:
                 agent.memory = saved["visited_ids"]
+                agent.scan_cursor = saved.get("scan_cursor")
             agent.traverse(root, max_nodes=max_nodes)
             events = [{"node": e.node_name, "level": e.level,
                        "state": e.state.name, "action": e.action,
                        "persona": e.persona}
                       for e in agent.log]
             run_id = persistence.save_agent_run(name, seed, agent.fresh_count, events)
-            persistence.save_agent_memory(name, seed, agent.memory, events[-100:])
+            persistence.save_agent_memory(name, seed, agent.memory,
+                ((saved or {}).get("log_entries", []) + events)[-100:])
+            if agent.scan_cursor:
+                persistence.save_agent_scan_cursor(name, seed, agent.scan_cursor)
             self._send_json({"run_id": run_id, "agent": name, "seed": seed,
                              "persona": persona.name,
                              "nodes_visited": agent.fresh_count,
+                             "nodes_inspected": agent.inspected,
                              "total_known": len(agent.memory),
                              "events": events})
 
@@ -1180,7 +1186,7 @@ class Handler(BaseHTTPRequestHandler):
         wire_world_handlers(bus, seed)
         try:
             agent = Agent(name=agent_name, danger_threshold=7, bus=bus,
-                          persona=persona)
+                          persona=persona, world_seed=seed)
             agent.traverse(target, max_nodes=40)
             nodes_visited = len(agent.visited)
             self._sse_event({"done": True, "nodes_visited": nodes_visited})

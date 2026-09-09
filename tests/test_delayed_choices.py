@@ -69,6 +69,8 @@ def http(monkeypatch):
     url = f"http://127.0.0.1:{server.server_address[1]}"
 
     class Client:
+        base_url = url
+
         def node(self, level):
             return next(n for n in walk(root) if n.level == level)
 
@@ -339,7 +341,7 @@ def test_m1_to_m2_migration_pending_backup_restore_and_dedup(http, tmp_path, mon
     persistence._initialized.discard(db)
     persistence.init_db()
     with persistence._connect() as conn:
-        assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 19
+        assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] >= 19
         for table, rows in before.items():
             now = conn.execute(f"SELECT * FROM {table}").fetchall()
             assert [r[:len(rows[0])] for r in now] == rows if rows else now == []

@@ -76,10 +76,14 @@ shared-flag and explicit no-op policies in
 [endpoint/browser evidence](../evaluation/2026-09-08-m2-choices.md).
 Exclusive interventions remain a future M0/M5 contract; there is no current
 exclusive delayed verb and no situation engine in M2. ADR-013 remains Proposed.
-These are repository merges, not deployment evidence. The bounded M3 correction
-is prepared for review with an [evidence-bound narration policy](../decisions/ADR-021-m3-history-narration.md)
+M3 merged in PR #96 at `d97ea1422d0a0c307d952ac1044e8607a5fad502`
+on 2026-09-08 at 22:12:28 UTC, with an [evidence-bound narration policy](../decisions/ADR-021-m3-history-narration.md)
 and [endpoint/browser evidence](../evaluation/2026-09-08-m3-history.md); it changes
 existing presentation and read projections, not historical facts or delivery semantics.
+These are repository merges, not deployment evidence. Bounded M4 is prepared for
+review with [ADR-022](../decisions/ADR-022-m4-responsive-inhabitants.md) and
+[heartbeat, restart and browser evidence](../evaluation/2026-09-08-m4-responsive.md).
+M0/M5 situations, commitments and broader ADR-013 proposals remain separate.
 
 ## First-situation review checklist
 

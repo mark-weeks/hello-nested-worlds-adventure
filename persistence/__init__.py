@@ -96,12 +96,35 @@ def _connect() -> sqlite3.Connection:
     # (docs/roadmap/phase-2-scale.md) remains the answer if waits ever show
     # up in latency, but a trigger is not a defense.
     conn.execute("PRAGMA busy_timeout=5000")
+    budget = getattr(_transaction_state, "agent_budget", None)
+    if budget is not None:
+        conn.set_progress_handler(budget["charge"], 1000)
     return conn
 
 
 # Only explicitly composable persistence helpers use this connection scope.
 # A delivery/acceptance transaction belongs to one synchronous request thread.
 _transaction_state = threading.local()
+
+
+@contextmanager
+def agent_work_budget(limit: int = 2_000_000):
+    """Bound SQL execution across a heartbeat's connections, including writes.
+
+    World birth is a separate one-time initialization. The progress handler
+    interrupts SQLite work, not lock waits or Python hydration; those bounds
+    are stated separately. An interrupted acceptance transaction rolls back.
+    """
+    budget = {"steps": 0, "limit": limit}
+    def charge():
+        budget["steps"] += 1000
+        return budget["steps"] >= limit
+    budget["charge"] = charge
+    _transaction_state.agent_budget = budget
+    try:
+        yield budget
+    finally:
+        del _transaction_state.agent_budget
 
 
 @contextmanager
@@ -917,7 +940,7 @@ def get_agent_runs(world_seed: int) -> list[dict[str, Any]]:
 @_with_db
 def save_agent_memory(agent_name: str, world_seed: int,
                       visited_ids: list[str], log_entries: list[dict[str, Any]]) -> None:
-    with _connect() as conn:
+    with _connection() as conn:
         conn.execute(
             f"""INSERT INTO agent_memory (agent_name, world_seed, visited_ids, log_entries, updated_at, created_at)
                VALUES (?, ?, ?, ?, {_NOW}, {_NOW})
@@ -931,9 +954,9 @@ def save_agent_memory(agent_name: str, world_seed: int,
 
 @_with_db
 def load_agent_memory(agent_name: str, world_seed: int) -> dict[str, Any] | None:
-    with _connect() as conn:
+    with _connection() as conn:
         row = conn.execute(
-            """SELECT visited_ids, log_entries, updated_at
+            """SELECT visited_ids, log_entries, updated_at, scan_cursor
                FROM agent_memory WHERE agent_name = ? AND world_seed = ?""",
             (agent_name, world_seed),
         ).fetchone()
@@ -943,7 +966,160 @@ def load_agent_memory(agent_name: str, world_seed: int) -> dict[str, Any] | None
             "visited_ids": json.loads(row[0]),
             "log_entries": json.loads(row[1]),
             "updated_at":  row[2],
+            "scan_cursor": row[3],
         }
+
+
+@_with_db
+def save_agent_scan_cursor(agent_name: str, world_seed: int, cursor: str) -> None:
+    with _connection() as conn:
+        conn.execute("""INSERT INTO agent_memory (agent_name, world_seed, scan_cursor)
+                        VALUES (?, ?, ?) ON CONFLICT(agent_name, world_seed)
+                        DO UPDATE SET scan_cursor=excluded.scan_cursor""",
+                     (agent_name, world_seed, cursor))
+
+
+@_with_db
+def load_agent_attention(agent_name: str, world_seed: int,
+                         names: list[str]) -> dict[str, dict]:
+    if not names:
+        return {}
+    with _connection() as conn:
+        rows = conn.execute(f"""SELECT node_name, change_id, puzzle_epoch
+            FROM agent_attention WHERE world_seed=? AND agent_name=?
+            AND node_name IN ({','.join('?' for _ in names)})""",
+            (world_seed, agent_name, *names)).fetchall()
+    return {name: {"change": change, "puzzle": epoch} for name, change, epoch in rows}
+
+
+@_with_db
+def mark_agent_attention(agent_name: str, world_seed: int, node_name: str, *,
+                         change: int = -1, puzzle: int = -1) -> None:
+    """Consume only the attempted opportunity, in its acceptance transaction."""
+    with _connection() as conn:
+        conn.execute("""INSERT INTO agent_attention
+            (world_seed, agent_name, node_name, change_id, puzzle_epoch)
+            VALUES (?, ?, ?, ?, ?) ON CONFLICT(world_seed, agent_name, node_name)
+            DO UPDATE SET change_id=MAX(change_id, excluded.change_id),
+                          puzzle_epoch=MAX(puzzle_epoch, excluded.puzzle_epoch)""",
+            (world_seed, agent_name, node_name, change, puzzle))
+
+
+class AttentionReadLimit(RuntimeError):
+    """History has exceeded one bounded attention projection's SQL budget."""
+
+
+@_with_db
+def recent_attention_nodes(world_seed: int, agent_name: str) -> list[str]:
+    """Recent external changes/renewals get a small priority lane.
+
+    Read only the latest 64 material/rearm rows using the partial index. This
+    is a latency aid, not a complete change queue; fair scanning covers events
+    displaced by a busy world. Unknown maturation provenance is not external.
+    """
+    with _connection() as conn:
+        rows = conn.execute("""WITH recent AS (
+            SELECT * FROM world_mutations WHERE world_seed=?
+              AND (delta IS NOT NULL OR mutation_type='PUZZLE_REARM')
+            ORDER BY id DESC LIMIT 64)
+            SELECT m.node_name FROM recent m
+            LEFT JOIN agent_attention a ON a.world_seed=m.world_seed
+              AND a.agent_name=? AND a.node_name=m.node_name
+            LEFT JOIN verb_maturation q ON m.mutation_type='SCALE_ACT_MATURED'
+              AND json_extract(m.data,'$.delivery.queue')='verb_maturation'
+              AND q.id=json_extract(m.data,'$.delivery.id')
+              AND q.world_seed=m.world_seed AND q.node_name=m.node_name
+              AND q.verb=json_extract(m.data,'$.verb')
+            LEFT JOIN world_mutations s ON s.id=q.source_event_id
+              AND s.world_seed=m.world_seed AND s.node_name=m.node_name
+              AND s.mutation_type='SCALE_ACT' AND s.id<m.id
+              AND json_extract(s.data,'$.verb')=q.verb
+            WHERE m.mutation_type='PUZZLE_REARM' OR
+              (m.id>COALESCE(a.change_id,-1) AND
+               CASE WHEN m.mutation_type='SCALE_ACT_MATURED'
+                    THEN s.id IS NOT NULL AND json_extract(s.data,'$.agent') IS NULL
+                    ELSE json_extract(m.data,'$.agent') IS NULL END)
+            ORDER BY m.id DESC""", (world_seed, agent_name)).fetchall()
+    return list(dict.fromkeys(row[0] for row in rows))
+
+
+ATTENTION_SQL_STEPS = 200_000
+
+
+@_with_db
+def agent_attention_signals(world_seed: int, names: list[str], *,
+                            seals: bool = False) -> dict[str, dict]:
+    """Bounded batch projection of current epochs and external material change.
+
+    Agent payloads identify autonomy, never public labels. Maturation requires
+    a matching retained delivery and source, including legacy v1 work. Unknown
+    provenance does not manufacture a new external opportunity. Range reads
+    use the existing (world_seed, node_name) index; a VM budget also bounds
+    historical scanning, not merely the number of returned rows/statements.
+    """
+    names = list(dict.fromkeys(names))
+    if len(names) > 550:
+        raise ValueError("attention projection exceeds candidate/ancestor bound")
+    if not names:
+        return {}
+    signals = {name: {"epoch": 0, "change": 0, "solved": set()} for name in names}
+    marks = ','.join('?' for _ in names)
+    with _connection() as conn:
+        steps = 0
+        def budget():
+            nonlocal steps
+            steps += 1000
+            total = getattr(_transaction_state, 'agent_budget', None)
+            exhausted = total['charge']() if total is not None else False
+            return exhausted or steps >= ATTENTION_SQL_STEPS
+        conn.set_progress_handler(budget, 1000)
+        try:
+            rows = conn.execute(f"""
+                SELECT m.node_name,
+                  SUM(m.mutation_type='PUZZLE_REARM'),
+                  MAX(CASE WHEN m.delta IS NOT NULL AND
+                    CASE WHEN m.mutation_type='SCALE_ACT_MATURED'
+                         THEN s.id IS NOT NULL AND json_extract(s.data, '$.agent') IS NULL
+                         ELSE json_extract(m.data, '$.agent') IS NULL END
+                    THEN m.id ELSE 0 END)
+                FROM world_mutations m
+                LEFT JOIN verb_maturation q ON m.mutation_type='SCALE_ACT_MATURED'
+                  AND json_extract(m.data, '$.delivery.queue')='verb_maturation'
+                  AND q.id=json_extract(m.data, '$.delivery.id')
+                  AND q.world_seed=m.world_seed AND q.node_name=m.node_name
+                  AND q.verb=json_extract(m.data, '$.verb')
+                LEFT JOIN world_mutations s ON s.id=q.source_event_id
+                  AND s.world_seed=m.world_seed AND s.node_name=m.node_name
+                  AND s.mutation_type='SCALE_ACT' AND s.id<m.id
+                  AND json_extract(s.data, '$.verb')=q.verb
+                WHERE m.world_seed=? AND m.node_name IN ({marks})
+                  AND (m.delta IS NOT NULL OR m.mutation_type='PUZZLE_REARM')
+                GROUP BY m.node_name""", (world_seed, *names)).fetchall()
+            for name, epoch, change in rows:
+                signals[name].update(epoch=epoch, change=change)
+            if seals:
+                # Match get_puzzle_solve's latest-20 evidence window, in one
+                # batch. A cast solve can never open entry into a locked room.
+                rows = conn.execute(f"""SELECT node_name, data FROM (
+                    SELECT node_name, data, ROW_NUMBER() OVER (
+                        PARTITION BY node_name ORDER BY recorded_at DESC, id DESC) AS rn
+                    FROM world_mutations WHERE world_seed=? AND node_name IN ({marks})
+                      AND mutation_type='PUZZLE_SOLVED') WHERE rn<=20""",
+                    (world_seed, *names)).fetchall()
+                for name, blob in rows:
+                    data = json.loads(blob or '{}')
+                    if isinstance(data, dict) and not data.get('agent'):
+                        puzzle = data.get('puzzle')
+                        if isinstance(puzzle, str):
+                            signals[name]['solved'].add(puzzle)
+        except sqlite3.OperationalError as exc:
+            if str(exc) == 'interrupted':
+                raise AttentionReadLimit('attention history budget exhausted') from exc
+            raise
+        finally:
+            total = getattr(_transaction_state, 'agent_budget', None)
+            conn.set_progress_handler(total['charge'] if total else None, 1000)
+    return signals
 
 
 @_with_db
@@ -1644,31 +1820,41 @@ def load_node_property_override(world_seed: int, node_name: str) -> dict:
 
 
 @_with_db
-def load_node_property_overrides(world_seed: int) -> dict[str, dict]:
+def load_node_property_overrides(world_seed: int, names: list[str] | None = None) -> dict[str, dict]:
     """All property overlays, lazily repaired from born rows + chronicle.
 
     The cache is derived. Nodes with canonical deltas are rebuilt before
     hydration so upgrades cannot revive born values whose old cached
     tombstones were discarded; legacy cache-only rows remain intact.
     """
+    if names is not None:
+        names = list(dict.fromkeys(names))
+        if not names:
+            return {}
+        if len(names) > 550:
+            raise ValueError("property projection exceeds candidate/ancestor bound")
+    selected = '' if names is None else f" AND node_name IN ({','.join('?' for _ in names)})"
+    args = (world_seed, *(names or []))
+
     def read_rows(conn: sqlite3.Connection) -> tuple[
             list[tuple], dict[str, int]]:
         rows = conn.execute(
-            """SELECT state.node_name, state.properties, meta.cache_format,
+            f"""SELECT state.node_name, state.properties, meta.cache_format,
                       meta.properties_blob, meta.delta_version,
                       meta.legacy_baseline
                FROM node_runtime_state AS state
                LEFT JOIN node_property_cache_meta AS meta
                  ON meta.world_seed = state.world_seed
                 AND meta.node_name = state.node_name
-               WHERE state.world_seed = ? AND state.properties IS NOT NULL""",
-            (world_seed,),
+               WHERE state.world_seed = ? AND state.properties IS NOT NULL
+               {selected.replace('node_name', 'state.node_name')}""",
+            args,
         ).fetchall()
         delta_versions = {name: int(version) for name, version in conn.execute(
-            """SELECT node_name, MAX(node_version) FROM world_mutations
-               WHERE world_seed = ? AND delta IS NOT NULL
+            f"""SELECT node_name, MAX(node_version) FROM world_mutations
+               WHERE world_seed = ? AND delta IS NOT NULL {selected}
                GROUP BY node_name""",
-            (world_seed,),
+            args,
         ).fetchall()}
         return rows, delta_versions
 

@@ -153,7 +153,7 @@ def _ambient_mode(node: SpatialNode, seed: int) -> None:
     bus = CausalityBus()
     bus.register_handler(_handler)
     wire_world_handlers(bus, seed)
-    agent = Agent(name="Observer", danger_threshold=7, bus=bus)
+    agent = Agent(name="Observer", danger_threshold=7, bus=bus, world_seed=seed)
     agent.traverse(node, max_nodes=40)
     print(f"\n{_DIM}Observer visited {len(agent.visited)} node(s). Press Enter to continue.{_RESET}")
     try:

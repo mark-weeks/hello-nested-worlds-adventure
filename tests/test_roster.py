@@ -184,38 +184,29 @@ class TestBanterTics:
 
 
 class TestInhabitedGroundIsSocial:
-    def test_contains_npc_ground_hosts_more_meetings(self, monkeypatch):
+    def test_contains_npc_ground_hosts_more_meetings(self, monkeypatch, tmp_path):
         import persistence
+        from multiverse import store
 
-        # Same world, same tick seeds; only the drop-in target differs —
-        # inhabited ground must host more conversations than quiet ground.
-        root = generate_node_hierarchy(seed=42)
-
-        def rooms_with(npc):
-            out = []
+        root = store.world_tree(42)
+        def safe_rooms(npc):
             def walk(n):
-                if (n.level == "Room" and n.children
-                        and bool(n.properties.get("contains_npc")) is npc):
-                    out.append(n)
-                for c in n.children:
-                    walk(c)
-            walk(root)
-            return out
+                yield n
+                for child in n.children:
+                    yield from walk(child)
+            return [n for n in walk(root) if n.level == "Room" and not n.properties.get("locked")
+                    and bool(n.properties.get("contains_npc")) is npc
+                    and all(a.properties.get("danger_level", 0) <= 4 for a in heartbeat._chain(n))]
 
-        peopled = rooms_with(True)[0]
-        quiet = rooms_with(False)[0]
-
-        def talks_at(target, world_seed):
-            monkeypatch.setattr(heartbeat, "_drop_in",
-                                lambda root, rng, profile=None: target)
+        def talks_at(target, prefix):
+            talks = 0
             for i in range(20):
-                heartbeat.run_tick(seed=world_seed, rng=random.Random(i),
-                                   pace=0.0)
-            return sum(1 for m in persistence.get_mutations(world_seed,
-                                                            limit=500)
-                       if m["type"] == "AGENT_TALK")
+                # Independent disposable trials hold memory/cursor constant.
+                # Both targets belong to seed 42; the old test mixed worlds.
+                monkeypatch.setattr(persistence, "_DB_PATH", tmp_path / f"{prefix}-{i}.db")
+                monkeypatch.setattr(heartbeat, "_drop_in", lambda *args: target)
+                heartbeat.run_tick(seed=42, rng=random.Random(i), max_nodes=1, pace=0)
+                talks += sum(m["type"] == "AGENT_TALK" for m in persistence.get_mutations(42))
+            return talks
 
-        # NOTE: _drop_in is patched, but run_tick regenerates the world per
-        # tick — target nodes must come from a tree with the same names,
-        # which seed 42 guarantees.
-        assert talks_at(peopled, 42) > talks_at(quiet, 43)
+        assert talks_at(safe_rooms(True)[0], "peopled") > talks_at(safe_rooms(False)[0], "quiet")

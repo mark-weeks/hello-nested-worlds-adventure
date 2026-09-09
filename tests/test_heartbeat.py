@@ -60,7 +60,9 @@ class TestHeartbeatTick:
             room.players["watcher"] = Player(
                 name="Watcher", seed=42, current_node="", session_id="watcher",
                 sock=sock)
-        heartbeat.run_tick(seed=42, rng=random.Random(2), pace=0.0)
+        # This seed selects safe, accessible ground. Unsafe/sealed drop-ins
+        # are allowed to stay quiet; a separate M4 test checks that boundary.
+        heartbeat.run_tick(seed=42, rng=random.Random(1), pace=0.0)
         frames = _decode_frames(sock.raw)
         kinds = {f.get("type") for f in frames}
         assert "causal_event" in kinds, "live players must see the agent move"
