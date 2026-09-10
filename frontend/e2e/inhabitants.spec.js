@@ -123,7 +123,14 @@ for (const route of ['/', '/app']) {
       });
       const tick = await server.command('tick');
       expect(tick.fresh).toBe(0);
-      expect(tick.act).toContain('kindle');
+      expect(tick.act).toContain('kindled');
+      await expect.poll(() => notices.find(m => m.type === 'agent_done')).toBeTruthy();
+      const done = notices.find(m => m.type === 'agent_done');
+      expect(done.nodes_visited).toBe(tick.work.visited);
+      expect(done.nodes_visited).toBeGreaterThan(0);
+      const visitText = route === '/' ? `Agent: ${done.nodes_visited} nodes from`
+        : `Agent visited ${done.nodes_visited} nodes from`;
+      await expect(page.getByText(visitText, { exact: false }).first()).toBeVisible();
       await expect.poll(() => notices.find(m => m.type === 'scale_act' && m.actor === 'Tessera')).toBeTruthy();
       const accepted = notices.find(m => m.type === 'scale_act' && m.actor === 'Tessera');
       expect(accepted.flavor).toBeUndefined();

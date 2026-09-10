@@ -18,9 +18,19 @@ preorder cursor advances across the born world, including inaccessible places;
 it never changes topology, the pinned hinge, or the player's navigation.
 Up to two recently changed familiar places precede the fair scan; at least
 one visit slot remains for fair progress. The priority read examines only the
-latest 64 material/renewal rows, so heavy traffic can displace a change from
-that fast path. The fair cursor still covers it. An inhabitant drops into the
-next inspected area; causal arrivals do not move it.
+latest 64 material/renewal rows. Their candidates are screened against consumed
+epochs, persona eligibility and live access before assigning the two slots.
+Heavy traffic can displace a change from that fast path; the fair cursor still
+covers it. Home affinity seeds initial placement only. Later ticks resume the
+saved cursor without sampling an unused drop-in. Only actual visits move the
+inhabitant; causal arrivals do not.
+
+Remaining shared action capacity is checked before a familiar visit. Deferred
+persona candidates reserve admission slots, so puzzle visits cannot spend their
+capacity. Once the puzzle or combined cap is spent/reserved, that opportunity
+does not authorize movement or a context entry. Fresh discovery and a newly
+observed danger can still justify a visit. Run records and completion notices
+count actual visits; fresh discoveries remain separate.
 
 A place without an attention marker has one initial persona opportunity.
 Subsequently, only a new material event with external provenance renews that opportunity. Autonomous
@@ -37,11 +47,19 @@ per-node difficulty. Agent payloads remain tagged for human-progress exclusion;
 no co-op session, seal, or constellation is claimed. Sealed subtrees and danger
 withdrawal constrain visits; withdrawal records the observed danger without
 raising it again. An inhabitant already inside may still leave; a ripple is
-not passage through a seal.
+not passage through a seal. Heartbeat reuses the player gate's structural seal
+helpers, with its own batched human-solve projection. Plain `/observe` and CLI
+ambient traversal begin at their supplied subtree root: danger above that
+starting point does not retroactively bar the drop-in; danger encountered below
+it still stops descent.
 
 Inspection, actual visits, puzzle/persona attempts, origin effects and initial
-queue work have separate counters and caps. Read projections batch candidate
-signals and attempt markers. One tree hydration per tick supplies immutable
+queue work have separate counters and caps. At most 64 recent candidates are
+screened (`priority_screened`) plus 40 traversal candidates inspected (`inspected`),
+for at most 104 candidate checks. Their ancestor union has at most 1,144 names;
+property/epoch/solve reads use batches of at most 550 names, at most three initial
+batches. Admission refreshes only its short chain. Read projections batch
+candidate signals and attempt markers. One tree hydration per tick supplies immutable
 topology; authoritative action admission still rechecks live state. SQL history
 projection has a VM-instruction budget and fails quiet if exhausted, rather
 than allowing historical growth to defeat the work bound. The whole tick also

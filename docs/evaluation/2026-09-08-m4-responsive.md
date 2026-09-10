@@ -1,6 +1,6 @@
 # M4: familiar places remain actionable
 
-**Date:** 2026-09-08. **Base:** fetched `origin/main` at
+**Date:** 2026-09-08. **Review update:** 2026-09-09. **Base:** fetched `origin/main` at
 `d97ea1422d0a0c307d952ac1044e8607a5fad502` (M3, PR #96), with M1
 `09317c35c5d07beafe2bbe93b9233fd2fba9a8bf` and M2
 `de45e98d4e4a3579e7eeb88df8fa290f8a5636a3` verified as ancestors.
@@ -16,10 +16,10 @@ in its evaluation and the milestone plan; it is not deployment evidence.
 | Concern | Rule |
 |---|---|
 | Discovery | Keep accumulated canonical names. Familiar activity adds no fresh discovery. |
-| Revisit | Up to two recently changed familiar places, then a durable fair scan. Inspect quiet/unsafe/sealed candidates without manufacturing movement. |
+| Revisit | Screen up to 64 recent candidates for unconsumed, persona-relevant, accessible opportunities before assigning two slots; then a durable fair scan. Initial home affinity seeds that cursor only. |
 | Persona action | One initial opportunity, then one per new external material event. Tenders use existing verbs; scholars retain their documentary verbs; destabilizers retain existing decay. All cast-origin effects, including sourced maturations, are excluded as new triggers. |
 | Puzzle | One attempt per current renewal epoch, with the existing difficulty-weighted deterministic roll. Epoch zero keeps its previous roll; later epochs receive a new deterministic roll. Failure waits for renewal, not a timer or a property edit. |
-| Activity/context | Real visits, withdrawal, puzzle attempts and accepted persona acts form recent context. Quiet ticks retain it; cap at 100 entries. Causal arrivals never move the inhabitant. |
+| Activity/context | Real visits, withdrawal, puzzle attempts and accepted persona acts form recent context. Quiet or capacity-exhausted opportunities add no visit/context; cap retained context at 100 entries. Run records and completion notices count actual visits separately from fresh discovery. Causal arrivals never move the inhabitant. |
 
 An initial opportunity does not require clearing legacy discovery memory. A
 shared or no-op admission consumes that opportunity without inventing an origin
@@ -58,12 +58,14 @@ or a forecast of time until saturation.
 | Five ticks, four-visit request, partially/full known | 80 recursive node calls per tick, despite a nominal budget of four; zero persona acts. | At most 16 candidate inspections and four visits. The first tick acts on familiar ground; quiet ticks inspect without inventing activity. |
 | Recent context in those fixtures | First tick erases the saved context. | Initial context retained; quiet ticks preserve the same six, then nine, entries. |
 | Real Ada kindle matures at the familiar Galaxy | No response on the next tick. | The bounded recent-change lane revisits it and accepts an inhabitant kindle. That is pending work, not a claim of immediate density growth. |
-| Fully known recurring cast, 12 ticks | 0 fresh discoveries, 0 persona acts, 0 chronicle rows. | 0 fresh discoveries, 6 persona acts, 20 chronicle rows before draining all staged work. |
+| Fully known recurring cast, 12 ticks | 0 fresh discoveries, 0 persona acts, 0 chronicle rows. | 0 fresh discoveries, 6 persona acts, 16 chronicle rows before draining all staged work. |
 | Human endpoint solve → decay → epoch 1 | Agent attempts `The Keeper Witness of the Room` from epoch zero. | Agent attempts the current `The Jumbled Room Word · Renewal 1`; difficulty stays 3. |
 
 The [before JSON](2026-09-08-m4-responsive/before.json) and
-[after JSON](2026-09-08-m4-responsive/after.json) retain tick summaries, SQL read
+[current after JSON](2026-09-08-m4-responsive/after-review.json) retain tick summaries, SQL read
 counts, hydration counts, context sizes, player acceptance and renewal evidence.
+The [initial M4 output](2026-09-08-m4-responsive/after.json) is retained as
+pre-review evidence from `d85edc6`; it is superseded by `after-review.json`.
 The five-tick fixtures use 6 SQL reads per baseline tick versus 24, 11, 11, 23
 and 11 in M4 (SELECT and WITH included). The increase pays for current state
 and accepted action checks; it does not multiply queries by all known nodes.
@@ -90,17 +92,18 @@ initialization, not part of the repeat-tick measurement.
 
 | Work per tick | Enforced limit | Maximum in the 22 recorded ticks |
 |---|---|---|
-| Recent-change read | Latest 64 material/renewal rows; at most 2 priority candidates | Included in each bounded tick |
-| Candidate inspections | `min(40, 4 × requested visits)` | 40 |
-| Actual visits | `min(10, requested visits)` | 10 |
+| Recent candidates screened | Latest 64 material/renewal rows; eligibility checked before assigning 2 priority slots | 1 |
+| Traversal candidate inspections | `min(40, 4 × requested visits)`; at most 104 checks including screening | 40 |
+| Initial projected names | At most `(64 + 40) × 11 = 1,144`; batches of at most 550 | 50 |
+| Actual visits | `min(10, requested visits)` | 4 |
 | Puzzle attempts | 2 | 1 |
-| All puzzle/persona admissions, including races/no-ops | 4 combined | 3 |
-| Origin effects | Visits + 4, at most 14 | 3 |
-| Initial causal rows | At most `4 × D` | 7 |
+| All puzzle/persona admissions, including races/no-ops | 4 combined, including reserved deferred admissions | 3 |
+| Origin effects | Visits + 4, at most 14 | 2 |
+| Initial causal rows | At most `4 × D` | 6 |
 | Persona returns to previously visited places | At most 2 | 2 |
 | Conversations | At most 1 | 1 |
 | History projection | 200,000 SQLite VM steps per projection | Below cutoff |
-| Whole-tick SQL work | 2,000,000 sampled VM steps across connections | 72,000 |
+| Whole-tick SQL work | 2,000,000 sampled VM steps across connections | 71,000 |
 
 SQLite progress is sampled in 1,000-instruction quanta; short statements and
 partial quanta are not exact instruction counts. This is not a latency SLA:
@@ -109,7 +112,10 @@ work are Python work, and pacing adds at most ten requested visit delays. The
 fixed action/candidate limits also bound statement counts. Candidate/ancestor
 properties, epochs and markers are batch reads; only attempted actions refresh
 their short chains under the writer lock. No per-inspected-node SQL loop or
-repeated full-world hydration is added.
+repeated full-world hydration is added. A separate full-pool regression screens
+64 recent candidates and inspects 40 traversal candidates: 109 initial projected
+names, 30 SELECT/WITH reads, one hydration and 86,000 sampled SQL steps. This
+measures the screening work separately rather than hiding it in the 40-node cap.
 
 The causal pump retains its independent 64-candidate / 32-maturation batches and
 M3's eight-commit/50ms notification flush rule. Each accepted causal source can
@@ -158,9 +164,34 @@ that another tick cannot duplicate the acceptance, drain both contributions,
 and reload the attributed outcome and density 459. These are desktop consistency
 checks; M5's mobile/accessibility slice and invite-default gates are unchanged.
 
+## PR review follow-up, 2026-09-09
+
+The [owner review](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/97#pullrequestreview-5162478122)
+and [Copilot review](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/97#pullrequestreview-5162535663)
+examined `d85edc6`. Twelve targeted cases failed on that head; four shared-seal
+parity cases already passed. Eighteen new regression cases now cover those
+findings plus combined capacity and full-pool read accounting.
+
+| Finding | Reproduced behavior | Correction and evidence |
+|---|---|---|
+| Observer drop-in under danger | Real `/observe` finished with zero visits; CLI ambient left no trace. | Plain traversal stops ancestor checks at its supplied root. Both endpoint and CLI now leave real visits, while internal danger still blocks descent. The review's seed-42 25.5% prevalence is not claimed as remeasured; these regressions use disposable seed 382. |
+| Consumed/ineligible priority candidates | Two newer dead candidates displaced an older real human maturation. | Batched current epochs, consumed markers, persona relevance and access filter candidates before the two-slot slice; the next tick reaches the human change without resetting fair progress. |
+| Capacity exhausted after eligibility | A known five-puzzle page made five visits after only two attempts. | Check capacity before movement, and reserve deferred persona slots against the same four-admission budget. Two puzzle opportunities now produce two visits; later candidates leave context alone. |
+| Unused home-affinity draws | Three ticks sampled three drop-ins despite a saved cursor. | One initial home drop-in, then three distinct cursor positions. Roster and ADR claims now describe initial placement. No additional affinity lane or mutable identity was added. |
+| Seal covenant duplicated | Existing inside/outside and human-solve behavior agreed. | Reuse `gates.sealing_room` and `gates._path_suffix`; parity cases retain renewal and the already-inside exemption. Batched solve evidence stays local. |
+| Malformed action text | `kindleed`, `inscribeed`, `observeed` were returned/persisted. | One correctly formed past tense feeds both new context and summary; old records remain untouched. |
+| Familiar visits reported as zero | A real visit had `fresh=0`, and run records/completion notices also said zero. | Persist and broadcast actual visits; both real clients display that count. The zero-discovery field remains separate. |
+
+The wider focused pass initially exposed one old assertion expecting
+`inscribeed`; that expectation was corrected. The two real-client cases pass
+with displayed counts, player response ownership, live attribution, missed
+notifications and process restart still covered. No migration or causal-law
+change was added by this follow-up; all M1/M2/M3 recovery tests remain in the
+canonical gate.
+
 ## Verification and irreversibility
 
-The new suite adds 28 Python and two browser cases. Initial checks exposed two
+The suite adds 46 Python cases (28 initial plus 18 review regressions) and two browser cases. Initial checks exposed two
 old fixtures: a broadcast test selected a newly respected unsafe drop-in, and
 a social test supplied a seed-42 identity to seed 43. Their replacements use
 safe ground and independent same-world social trials. A new renewal test also
@@ -173,8 +204,8 @@ installation intentionally lacks. The browser fixture now defines its tiny
 deterministic RNG and tree walk locally. Both new browser cases also pass in
 a clean locked-runtime environment with `pytest` confirmed absent (4.5s).
 
-The canonical check passed: **1,062 Python tests** in 128.57s, **110 Vitest
-tests**, **35 Playwright tests** (2.1m), Ruff, a byte-fresh committed production
+The canonical check passed: **1,080 Python tests** in 135.75s, **110 Vitest
+tests**, **35 Playwright tests** (2.2m), Ruff, a byte-fresh committed production
 bundle and installed-wheel smoke. Python 3.11.15 / Node 20.19.0 were installed
 through `setup.sh`. Both browser screenshots were inspected.
 

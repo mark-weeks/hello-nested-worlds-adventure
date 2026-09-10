@@ -144,7 +144,7 @@ class TestFavoredVerb:
                 rng=random.Random(i))
             if act is not None:
                 acts.add(act.split()[0])
-        assert acts == {"inscribeed"}
+        assert acts == {"inscribed"}
 
 
 class TestBanterTics:

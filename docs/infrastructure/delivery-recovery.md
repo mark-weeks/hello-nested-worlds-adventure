@@ -121,8 +121,13 @@ The M4 tests include SIGKILL before/after marker commit and fresh-process recove
 of accepted work, plus a pending-work backup/restore. Attention commits in the
 same acceptance transaction. A missed notice never refunds it.
 
-Tick summaries report inspections, visits, puzzle/persona admission attempts,
-origin effects, initial hops, conversation count and sampled SQL VM steps. A
+Tick summaries separately report recent candidates screened (`priority_screened`,
+at most 64), traversal inspections (`inspected`, at most 40), projected ancestor
+names, visits, puzzle/persona admission attempts, origin effects, initial hops,
+conversation count and sampled SQL VM steps. Budget for up to 104 candidate
+checks, not just the 40 traversal inspections. `agent_runs.nodes_visited` and
+completion notices count actual visits; `fresh` remains the discovery count.
+These corrections apply to future writes only; prior rows/context are not rewritten. A
 `projection_limited` summary flags an exhausted history read. `status=work_limit`
 means the total SQL cutoff interrupted the run: earlier commits remain durable,
 so absent counts are unknown, not zero. Do not replay the whole tick to undo a

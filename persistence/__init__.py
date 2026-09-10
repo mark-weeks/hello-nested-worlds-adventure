@@ -1011,8 +1011,10 @@ class AttentionReadLimit(RuntimeError):
 
 @_with_db
 def recent_attention_nodes(world_seed: int, agent_name: str) -> list[str]:
-    """Recent external changes/renewals get a small priority lane.
+    """Bounded candidates for the recent-change priority lane.
 
+    Renewal rows are only candidates: heartbeat checks the current epoch,
+    consumed marker, persona and live accessibility before assigning slots.
     Read only the latest 64 material/rearm rows using the partial index. This
     is a latency aid, not a complete change queue; fair scanning covers events
     displaced by a busy world. Unknown maturation provenance is not external.

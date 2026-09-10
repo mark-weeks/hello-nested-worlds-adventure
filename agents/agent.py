@@ -167,9 +167,12 @@ class Agent:
                 active = visit(current, current.name not in known)
             else:
                 ancestor = current.parent
-                while ancestor is not None and not should_preserve(ancestor, self.danger_threshold):
+                # Plain observers are already at the supplied root. Danger
+                # outside that subtree cannot retroactively bar their drop-in.
+                boundary = node.parent
+                while ancestor is not boundary and not should_preserve(ancestor, self.danger_threshold):
                     ancestor = ancestor.parent
-                active = current.name not in known and ancestor is None
+                active = current.name not in known and ancestor is boundary
                 if active:
                     self.state = transition(self.state, current, self.danger_threshold)
                     self._act(current)

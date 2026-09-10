@@ -101,7 +101,8 @@ def _drop_in(root: SpatialNode, rng: random.Random,
              profile=None) -> SpatialNode:
     """A random mid-world node to start from — somewhere with ground below.
 
-    Cast regulars gravitate home: most drop-ins aim the walk at one of the
+    Initial placement gravitates home; a saved cursor resumes the fair scan
+    without drawing another drop-in. Most initial drop-ins aim at the
     agent's home levels (Marginalia sinks to Molecules, Aunt Entropy stays
     among the cosmic shells), the rest ramble shallow like anyone else. On
     the way down, children flagged ``contains_npc`` pull the walk toward
@@ -202,8 +203,9 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
             result, _staged = accepted
             if result["action_status"] != "accepted":
                 continue
+            past = verb.name + ("d" if verb.name.endswith("e") else "ed")
             if on_action is not None:
-                on_action(node, f"{verb.name}ed")
+                on_action(node, past)
             try:
                 broadcast(room, {
                     "type": "scale_act", "node": node.name, "level": node.level,
@@ -213,7 +215,7 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
                 })
             except Exception:
                 _log.exception("committed cast action notice failed")
-            return f"{verb.name}ed {node.name}"
+            return f"{past} {node.name}"
     return None
 
 
@@ -235,17 +237,17 @@ def _chain(node):
 
 
 def _accessible(node, signals, threshold, current_name=None):
+    from puzzles import gates
     from puzzles.generators import build_puzzle
-    for ancestor in _chain(node):
-        if ancestor is not node and should_preserve(ancestor, threshold):
-            return False
-        if ancestor.level == "Room" and ancestor.properties.get("locked"):
-            if current_name and current_name.rpartition('-')[2].startswith(ancestor.name.rpartition('-')[2]):
-                continue  # already inside: the seal never imprisons
-            signal = signals[ancestor.name]
-            if build_puzzle(ancestor, signal["epoch"]).name not in signal["solved"]:
-                return False
-    return True
+    if any(should_preserve(ancestor, threshold) for ancestor in _chain(node.parent)):
+        return False
+    room = gates.sealing_room(node)
+    if room is None:
+        return True
+    if current_name and gates._path_suffix(current_name).startswith(gates._path_suffix(room.name)):
+        return True  # shared structural rule: the seal never imprisons
+    signal = signals[room.name]
+    return build_puzzle(room, signal["epoch"]).name in signal["solved"]
 
 
 def _hold_conversation(seed: int, room, node: SpatialNode,
@@ -325,19 +327,25 @@ def _run_tick(seed, rng, max_nodes, pace):
     node_index = {node.name: node for node in nodes}
     positions = {node.name: i for i, node in enumerate(nodes)}
     saved = persistence.load_agent_memory(agent_name, seed) or {}
-    target = _drop_in(root, rng, profile)
     cursor = saved.get("scan_cursor")
-    start = (positions[cursor] + 1) % len(nodes) if cursor in positions else positions[target.name]
+    if cursor in positions:
+        start = (positions[cursor] + 1) % len(nodes)
+    else:
+        start = positions[_drop_in(root, rng, profile).name]
+    target = nodes[start]
     fair = [nodes[(start + i) % len(nodes)] for i in range(min(inspect_limit, len(nodes)))]
     fair_names = {node.name for node in fair}
     known = set(saved.get("visited_ids", []))
     priority_limit = min(2, max(0, visit_limit - 1))
-    priority = [node_index[name] for name in persistence.recent_attention_nodes(seed, agent_name)
-                if name in known and name in node_index and name not in fair_names][:priority_limit]
-    priority_names = {node.name for node in priority}
-    candidates = priority + fair[:inspect_limit - len(priority)]
-    target = candidates[0] if candidates else target
-    related = {n.name: n for candidate in candidates for n in _chain(candidate)}
+    priority_pool = ([node_index[name] for name in persistence.recent_attention_nodes(seed, agent_name)
+                      if name in known and name in node_index and name not in fair_names]
+                     if priority_limit else [])
+    priority_names = set()
+    candidates = fair
+    # Screen the bounded recent pool BEFORE assigning its two visit slots.
+    # Include ancestor state once, so sealed/unsafe candidates cannot squat
+    # in that lane either. At most (64 + 40) * 11 projected names, in batches.
+    related = {n.name: n for candidate in priority_pool + fair for n in _chain(candidate)}
     # Keep born values separate: a concurrent tombstone must not resurrect a
     # value from the previous overlaid snapshot when admission refreshes it.
     born = {name: dict(node.properties) for name, node in related.items()}
@@ -348,7 +356,8 @@ def _run_tick(seed, rng, max_nodes, pace):
     work = {"inspected": 0, "visited": 0, "puzzle_attempts": 0,
             "persona_attempts": 0, "origin_effects": 0, "initial_hops": 0,
             "hydrated_nodes": len(nodes), "persona_moves": 0, "conversations": 0,
-            "projection_limited": False}
+            "projection_limited": False, "priority_screened": 0,
+            "projected_nodes": len(related)}
     room = get_room(seed)
     companion = None
     act = None
@@ -358,10 +367,30 @@ def _run_tick(seed, rng, max_nodes, pace):
     fair_cursor = cursor
 
     def refresh(selected):
-        overrides = persistence.load_node_property_overrides(seed, list(selected))
-        for name, node in selected.items():
-            node.properties = persistence.json_merge_patch(born[name], overrides.get(name, {}))
-        return persistence.agent_attention_signals(seed, list(selected), seals=True)
+        result = {}
+        names = list(selected)
+        # Candidate screening can span 104 ancestor chains; keep every read
+        # projection inside the existing 550-name / 200k-instruction limit.
+        for start in range(0, len(names), 550):
+            batch = names[start:start + 550]
+            overrides = persistence.load_node_property_overrides(seed, batch)
+            for name in batch:
+                selected[name].properties = persistence.json_merge_patch(born[name], overrides.get(name, {}))
+            result.update(persistence.agent_attention_signals(seed, batch, seals=True))
+        return result
+
+    def opportunities(node):
+        from multiverse.verbs import verb_for_level
+        signal, state = signals[node.name], markers.get(node.name, {})
+        danger = should_preserve(node, threshold)
+        verb = verb_for_level(node.level)
+        persona_eligible = (persona.name in ("tender", "destabilizer") or
+                            persona.name == "scholar" and verb is not None and
+                            verb.name in ("inscribe", "observe", "calibrate"))
+        changed = signal["change"] > state.get("change", -1)
+        puzzle_due = (not danger and node.properties.get("has_puzzle") and
+                      signal["epoch"] > state.get("puzzle", -1))
+        return danger, changed and persona_eligible, bool(puzzle_due), changed
 
     def notice(node, event):
         # Notification/read failures cannot refund a committed opportunity.
@@ -405,19 +434,15 @@ def _run_tick(seed, rng, max_nodes, pace):
         if node.name not in priority_names:
             fair_cursor = node.name
         signal = signals[node.name]
-        state = markers.get(node.name, {})
         if not _accessible(node, signals, threshold, current_name):
             return False
-        danger = should_preserve(node, threshold)
-        from multiverse.verbs import verb_for_level
-        verb = verb_for_level(node.level)
-        persona_eligible = (persona.name in ("tender", "destabilizer") or
-                            persona.name == "scholar" and verb is not None and
-                            verb.name in ("inscribe", "observe", "calibrate"))
-        changed = signal["change"] > state.get("change", -1)
-        puzzle_due = (not danger and node.properties.get("has_puzzle") and
-                      signal["epoch"] > state.get("puzzle", -1))
-        if not (fresh or changed and (persona_eligible or danger) or puzzle_due):
+        danger, persona_due, puzzle_due, changed = opportunities(node)
+        # Persona actions run after traversal: reserve their admission slots
+        # now, so later puzzle visits cannot spend the same capacity twice.
+        available = 4 - work["puzzle_attempts"] - work["persona_attempts"] - len(persona_candidates)
+        puzzle_due = puzzle_due and work["puzzle_attempts"] < 2 and available > 0
+        persona_due = persona_due and not danger and available > int(puzzle_due)
+        if not (fresh or changed and danger or persona_due or puzzle_due):
             return False
         # Actual movement is separate from event propagation, and precedes any
         # encounter. The companion is only present for a real visit.
@@ -445,7 +470,7 @@ def _run_tick(seed, rng, max_nodes, pace):
             persistence.mark_agent_attention(agent_name, seed, node.name, change=signal["change"])
             return True
         agent._record(node, "explored" if fresh else "revisited")
-        if persona_eligible and changed:
+        if persona_due:
             persona_candidates.append(node.name)
         if fresh:
             event, _ = _ambient_event(seed, node, EventKind.AGENT_VISIT, agent._payload())
@@ -476,7 +501,19 @@ def _run_tick(seed, rng, max_nodes, pace):
     try:
         try:
             signals = refresh(related)
-            markers = persistence.load_agent_attention(agent_name, seed, list(related))
+            markers = persistence.load_agent_attention(agent_name, seed,
+                [node.name for node in priority_pool + fair])
+            priority = []
+            for node in priority_pool:
+                work["priority_screened"] += 1
+                danger, persona_due, puzzle_due, changed = opportunities(node)
+                if ((persona_due or puzzle_due or danger and changed)
+                        and _accessible(node, signals, threshold)):
+                    priority.append(node)
+            priority = priority[:priority_limit]
+            priority_names = {node.name for node in priority}
+            candidates = priority + fair[:inspect_limit - len(priority)]
+            target = candidates[0] if candidates else target
             agent.traverse(target, max_nodes=inspect_limit, pace=pace,
                            candidates=candidates, visit=visit, max_visits=visit_limit)
             # Eligibility comes from independently tracked visited places,
@@ -505,14 +542,14 @@ def _run_tick(seed, rng, max_nodes, pace):
             if candidates:
                 persistence.save_agent_scan_cursor(agent_name, seed,
                     fair_cursor or fair[-1].name)
-        persistence.save_agent_run(agent_name, seed, agent.fresh_count, events)
+        persistence.save_agent_run(agent_name, seed, len(getattr(agent, "activity_nodes", [])), events)
     finally:
         agent_leave(room, agent_name)
         if companion is not None:
             agent_leave(room, companion)
     work.update(inspected=getattr(agent, "inspected", 0), visited=len(getattr(agent, "activity_nodes", [])))
     broadcast(room, {"type": "agent_done", "node": target.name,
-                     "nodes_visited": agent.fresh_count})
+                     "nodes_visited": work["visited"]})
     summary = {"seed": seed, "agent": agent_name, "persona": persona.name,
                "origin": target.name, "fresh": agent.fresh_count, "act": act, "work": work}
     _log.info("heartbeat: %s", summary)

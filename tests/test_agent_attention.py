@@ -244,7 +244,7 @@ def test_total_work_is_bounded_independently_of_fresh_discovery(requested):
     original_connect, original_tree = persistence._connect, store.world_tree
     def connect():
         conn = original_connect()
-        conn.set_trace_callback(lambda sql: selects.append(sql) if sql.lstrip().upper().startswith('SELECT') else None)
+        conn.set_trace_callback(lambda sql: selects.append(sql) if sql.lstrip().upper().startswith(('SELECT', 'WITH')) else None)
         return conn
     def tree(*args, **kwargs):
         hydrations.append(1)
@@ -378,7 +378,7 @@ def test_recent_context_is_capped_without_forgetting_discovered_names():
     saved = persistence.load_agent_memory(NAME, SEED)
     assert len(saved['log_entries']) == 100
     assert saved['visited_ids'] == known
-    assert saved['log_entries'][-1]['action'] == 'kindleed'
+    assert saved['log_entries'][-1]['action'] == 'kindled'
 
 
 def test_current_seal_does_not_imprison_inhabitant_already_inside():
