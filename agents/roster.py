@@ -8,9 +8,10 @@ scholar and "Cartographer-9" as the destabilizer. This module assigns
 personas deliberately, balanced 3/3/3/3, and gives each regular a small
 trait sheet the heartbeat reads:
 
-- ``home_levels``: the scales this agent gravitates toward. Drop-ins re-aim
-  at home ground most of the time, so The Locksmith haunts Rooms and Aunt
-  Entropy the cosmic shells instead of everyone rambling uniformly.
+- ``home_levels``: preferred initial placement when no fair cursor exists.
+  The Locksmith starts near Rooms and Aunt Entropy near cosmic shells.
+  Later heartbeat ticks resume the saved fair scan; home affinity does not
+  continually redirect it. Peopled ground still favors actual meetings.
 - ``danger_threshold``: personal courage — the agent withdraws when a
   node's danger_level exceeds it. Destabilizers walk into danger that turns
   a tender back; caution is character, not a shared constant.

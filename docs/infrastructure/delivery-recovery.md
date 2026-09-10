@@ -97,3 +97,40 @@ Do not use display-name matching to infer duplicate work or participant identity
 Completed work and error details are retained indefinitely. No pruning is
 introduced. Revisit retention and transaction contention using measured storage
 and latency rather than silently removing completion fences.
+
+
+## M4 attention alongside accepted work
+
+Migration 0020 adds `agent_memory.scan_cursor`, `agent_attention` and a partial
+history index. It changes neither v1/v2 work nor completed fences. The cursor is
+fair-scan progress; `change_id` and `puzzle_epoch` are consumed opportunities,
+not player credit or commitments. Never clear these rows to make an inhabitant
+look active: that refunds autonomous opportunities without a new world change.
+The original pending work remains the recovery record after acceptance.
+
+Before a later authorized upgrade, stop writers, back up the whole database,
+and start compatible M4 heartbeat workers together. Mixed heartbeat versions do
+not enforce one attention policy. M3 ignores the added metadata but resumes its
+known inactivity behavior; no in-place downgrade is authorized by this PR.
+Prefer forward repair. If restoring a matched older database/binary, retain the
+existing explicit loss-of-intervening-history warning and §8 restore rehearsal.
+
+On a disposable copy, compare memory names, recent context, cursor and attention
+markers together with pending inputs and completed fences before/after restore.
+The M4 tests include SIGKILL before/after marker commit and fresh-process recovery
+of accepted work, plus a pending-work backup/restore. Attention commits in the
+same acceptance transaction. A missed notice never refunds it.
+
+Tick summaries separately report recent candidates screened (`priority_screened`,
+at most 64), traversal inspections (`inspected`, at most 40), projected ancestor
+names, visits, puzzle/persona admission attempts, origin effects, initial hops,
+conversation count and sampled SQL VM steps. Budget for up to 104 candidate
+checks, not just the 40 traversal inspections. `agent_runs.nodes_visited` and
+completion notices count actual visits; `fresh` remains the discovery count.
+These corrections apply to future writes only; prior rows/context are not rewritten. A
+`projection_limited` summary flags an exhausted history read. `status=work_limit`
+means the total SQL cutoff interrupted the run: earlier commits remain durable,
+so absent counts are unknown, not zero. Do not replay the whole tick to undo a
+notice failure. If these limits recur, inspect a copy and tune the read projection
+under review; do not disable the limits or reset history. See
+[ADR-022](../decisions/ADR-022-m4-responsive-inhabitants.md) for policy and limits.
