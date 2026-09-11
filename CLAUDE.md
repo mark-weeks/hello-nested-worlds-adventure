@@ -1,17 +1,9 @@
 # Working in Enfolded
 
-Enfolded is a persistent multiverse — eleven nested scales inhabited at once by
-human players and Claude-powered agents — built by directing fresh Claude Code
-sessions, roughly one per PR. Because each session starts cold, the hard-won
-rules of this repo are otherwise unknowns you'd rediscover (or violate) every
-time. This file is the standing map. It is distilled from `docs/CHANGELOG.md`,
-the ADRs, the roadmap, and test docstrings; when in doubt, the enforcing file
-named beside each rule is the territory.
-
-Read this before planning. The rules below are not stylistic preferences —
-several are permanent, one-way doors.
-
----
+Enfolded is a persistent multiverse inhabited by human players and agents. The
+covenants below define correctness across agents and models. Use the referenced code
+and decisions for the area being changed; unrelated work does not require a full
+roadmap, CHANGELOG, or ADR review.
 
 ## World covenants (the rules that never made it into a spec)
 
@@ -87,10 +79,10 @@ a harmless view option.
 - **A born world is never re-born.** `birth_world` is idempotent and
   `persistence.save_world_nodes` refuses to overwrite — nothing in
   application code may regenerate or rewrite `world_nodes` rows for a seed
-  that has them. Deliberate evolution of a born node is a *future,
-  ADR-gated* write path (chronicled world events — see ADR-006 "Revisit
-  when"); it does not exist yet, so today any code path that would mutate a
-  stored node's name/level/base properties is a bug.
+  that has them. Existing state changes use overlays and chronicled deltas
+  (ADR-009); they do not rewrite birth identity. The broader evolution grammar
+  remains ADR-gated (ADR-006 "Revisit when", ADR-013). Any code path that would
+  mutate a stored node's name/level/base properties is a bug.
 - **The wrap hinge is pinned, not computed** (ADR-008, ratified at the
   batch-2 merge gate). The traversal loop's one root-ascent landing is
   selected once per world by a seed-pure rule (`multiverse/wrap.py`,
@@ -113,7 +105,8 @@ a harmless view option.
   five scales exist only below depth 6) pins what generator v2 births. A
   failing pin no longer means "you are rewriting the permanent world" — the
   store forbids that — it means "you changed what new worlds are born as":
-  stop, confirm it's intended, bump the version, re-pin deliberately.
+  establish intent from the request and existing ratification, bump the version,
+  and re-pin deliberately. Accidental birth changes require a code fix.
 - **One read-time generative surface remains frozen: era names.**
   `multiverse/chronicle.py`'s two display banks are read at render time, so
   editing them retroactively renames every era already displayed. They stay
@@ -136,8 +129,8 @@ breadth use separate keyed deterministic domains, so a fresh install birthing a 
 reproduces it exactly, and any depth view is a true prefix of the one stored
 full-depth world. **After birth**, the stored row is authoritative, and
 art/sound/puzzles derive deterministically from the node *as served* — so
-co-op reproducibility and reproducible screenshots survive, and will follow
-evolution when it exists. Consequences:
+co-op reproducibility and reproducible screenshots follow the served state.
+Consequences:
 
 - No `Math.random()`, `Date.now()`, `time.time()`, or other wall-clock/entropy
   in generation, art, sound, or puzzle-selection code paths.
@@ -152,119 +145,65 @@ evolution when it exists. Consequences:
 
 ---
 
-## Testing discipline
+## Verification and completion
 
-- **Behavior tests, not grep tests.** Assert what the code *does* (drive the
-  endpoint, run the generator, inspect the built prompt), never that a string
-  appears in a file. Two P0s shipped because substring/grep "tests" passed while
-  behavior was broken; the fix each time was a real behavior test. See
-  `tests/test_frontend_contract.py`'s own history and the CHANGELOG P0 entries.
-- Bootstrap once with `./setup.sh`, then run `./scripts/check.sh` before
-  proposing merge. The check runs Ruff, the Python and Vitest behavior suites,
-  the production frontend build + committed-bundle freshness gate, and an
-  installed-wheel smoke test. Set `ENFOLDED_E2E=1` to include Playwright after
-  installing Chromium.
-- The invariant suites are the crown jewels — keep them honest: puzzle no-leak /
-  solvable / per-node-difficulty (`tests/test_puzzles.py`), continuity freeze
-  (`tests/test_continuity_freeze.py`), causal wiring, staged-cascade equivalence,
-  restart-proof co-op.
+- Complete the requested deliverable: advice or a plan ends with findings or decisions;
+  a requested draft ends with a reviewable artifact and known gaps. Neither authorizes
+  implementation or publication. Authorized implementation continues through the checks
+  and corrections below; report exact blockers and finish independent work.
+- For code changes, use behavior tests that exercise the affected endpoint, generator,
+  prompt, or client; string-presence checks cannot verify these behaviors. Preserve puzzle
+  answer secrecy, solvability, per-node difficulty, continuity, causal equivalence, and restart/co-op.
+- Bootstrap the pinned Python 3.11 / Node 20 environment with `./setup.sh`. Use focused
+  checks during iteration; run
+  `./scripts/check.sh` before proposing merge. Its required Ruff, Python/Vitest, frontend
+  build and bundle-freshness, and installed-wheel gates remain unchanged. Set
+  `ENFOLDED_E2E=1` to include Playwright after installing Chromium.
+- Finish requested implementation and relevant verification, inspect user-visible
+  behavior when applicable, and fix failures introduced by the change. Re-run affected
+  checks after fixes; do not repeat a passed full suite without a changed basis.
+- Each change batch needs one measured `docs/CHANGELOG.md` entry. Record actual checks
+  and unavailable verification honestly. Documentation-only work can finish with document
+  validation; the canonical gate still applies before proposing merge.
+- Produce the diff-based irreversibility check for the CHANGELOG and any PR. A tripped
+  door retains the human gate; green tests alone are not approval. Existing approval of
+  the same decision need not be requested again. Ask only about consequential unresolved
+  scope, architecture, ownership, security, or irreversible decisions; block only dependent work.
+- Prepare PRs for development-team review when publication is authorized. **Never enable
+  auto-merge. Merge only on the owner's explicit instruction for that PR; authorization
+  for one PR does not carry to another.** Deployment and other external changes require
+  their own authorization; completion criteria do not supply it.
 
----
+## Read when relevant
 
-## The Claude runtime
+- **CHANGELOG or PR preparation:** `.claude/skills/changelog-entry/SKILL.md` and
+  `.claude/skills/irreversibility-check/SKILL.md`. The latter defines every one-way-door
+  check and the scoped human questions. Use the actual diff; ordinary edits do not require
+  repeatedly running the merge procedure.
+- **Intentional generator re-pin:** `.claude/skills/repin-goldens/SKILL.md`. Human
+  ratification, both-depth coverage, and frozen era names remain required.
+- **Architecture or continuity decision:** the applicable `docs/decisions/` ADR and its
+  revisit triggers. New decisions use Context / Decision / Trade-offs accepted /
+  Revisit when / Rejected alternatives. Resolve unsettled architectural questions before
+  building; an already settled decision does not require another interview.
+- **Discovery/return product work:** `docs/roadmap/discovery-and-return.md` for dependencies,
+  acceptance gates, and the separate puzzle and speech tracks; ADR-012 through ADR-018
+  for the relevant direction. Respect each record's status, including ADR-013's broader
+  proposed contracts and ADR-018's exploratory proposal. Plans are not shipped capabilities;
+  existing write-path and client-default gates still apply.
+- **Delivery, delayed actions, history narration, or inhabitant attention:** ADR-019 through
+  ADR-022 for the affected implementation and acceptance evidence. Preserve queue-version
+  compatibility, atomic effect/completion fences, evidence-bound narration, and discovery memory.
+- **Voice, model, or prompt caching:** `docs/development/agent-runtime.md`.
+- **External contract change:** verify affected API/config/protocol assumptions against
+  current official docs or a live run before implementation (including Anthropic, fly.io,
+  CSP, WebSocket, and PixiJS contracts). Keep the check limited to the changed interface.
+- **Deployment or launch work:** `docs/infrastructure/fly-deployment.md` (including §8),
+  `docs/roadmap/pre-launch-window.md`, and the relevant continuity policy in
+  `docs/roadmap/phase-2-scale.md`. Backups and deployment gates remain mandatory.
+- **Substantial audit driving a batch:** record it in `docs/evaluation/YYYY-MM-DD-<name>.md`
+  in that batch; read historical evaluations only when they inform the current question.
 
-- Model: `claude-opus-4-8` (env `NESTED_WORLDS_MODEL`). Voice quality is
-  bottlenecked by the *context* the prompt carries, not the model — when a voice
-  is flat, first ask what world-state the dynamic block is withholding, not
-  whether the model is capable.
-- **Prompt-cache minimum is 4096 tokens on Opus-class models, not 1024.**
-  `cache_control` on a shorter prefix is a silent no-op — this shipped twice.
-  Both bibles are deliberately sized past the minimum;
-  `consciousness.cached_prefix_meets_minimum()` guards it and
-  `warn_if_cache_ineffective()` fires at server startup if a future edit shrinks
-  them. Don't trim the bibles below it.
-
----
-
-## Working rules for this repo
-
-- **One CHANGELOG entry per change, with measured evidence.** `docs/CHANGELOG.md`
-  is the running deviation-and-surprise log the next session navigates by —
-  quantify surprises ("+1 syllable renames 77/83 nodes"), don't just describe
-  outcomes. Substantial audits/pre-mortems that drive a batch land as
-  `docs/evaluation/YYYY-MM-DD-<name>.md` in the same PR.
-- **Decisions get an ADR** in the `docs/decisions/` house style (Context /
-  Decision / Trade-offs accepted / Revisit when… / Rejected alternatives).
-  Prefer writing it *before* building — interview the human, front-loading the
-  architecture-changing questions — so ADRs stop being post-hoc reconciliations.
-  Each ADR's "Revisit when…" triggers are live; honour them.
-- **Blind-spot pass at external seams.** Before touching an external contract —
-  Anthropic API parameters, fly.io config, browser CSP, the WebSocket/RFC 6455
-  handshake, PixiJS lifecycle — state your assumptions and verify them against
-  live docs or a live run *before* implementing. The repo's three worst shipped
-  defects all lived exactly here (the 1024-vs-4096 cache minimum, PixiJS dead
-  under production CSP, deploy files that existed only as fenced code in a doc).
-- **Gate merges by irreversibility, not by reflex.** After tests pass, write a
-  2–3 line **irreversibility check** yourself and put it in the merge request:
-  does this diff re-pin a golden world, add or alter a migration, or add a
-  `world_mutations` write path / chronicle row? For most PRs the answer is
-  "none, and here's why" — verify that from the diff and prepare the PR for
-  development-team review. **Never auto-merge. Merge only when the owner
-  explicitly requests it for that PR; authorization for one PR does not carry
-  to later PRs.** Green checks alone are not merge authorization. Don't
-  make the human answer what the diff already answers; comprehension checks the
-  code makes for you are friction, not a gate. **Escalate to an actual quiz only
-  when the check trips** a one-way door — then ask just the 1–2 questions that
-  door raises (which pins and why safe; what the new row/migration/write path is;
-  the matching launch-runbook §8 scenario), hardest first, and fold any missed
-  answer into that PR's CHANGELOG entry. The human is the last un-automated gate
-  on *irreversible* decisions — spend their attention there, not everywhere.
-- **The harness carries part of this file now.** `.claude/settings.json`
-  registers a SessionStart hook (`.claude/hooks/session-start.sh`) that
-  bootstraps remote web sessions onto the pinned toolchain — it selects the
-  container's Node 20 and runs `./setup.sh` behind a locked-inputs stamp —
-  and pre-allows the canonical verification commands. Three project skills
-  mechanize the rituals above: `irreversibility-check` (the merge gate),
-  `changelog-entry` (the house format), `repin-goldens` (the conscious
-  re-pin procedure); `.github/pull_request_template.md` gives the check its
-  slot in every PR body. When a working rule changes, update the matching
-  skill in the same PR — a skill that contradicts this file is drift.
-
----
-
-## Pointers
-
-- `docs/roadmap/discovery-and-return.md` — the next product sequence after
-  assessment PR #92, with dependencies, acceptance gates, and separate puzzle
-  reference and spoken-interaction tracks. Planned capabilities are not shipped.
-- `docs/decisions/ADR-012-discovery-and-return.md` through ADR-018 — endorsed
-  discovery, identity/journal, referential-puzzle, speech, and multidimensional
-  leaderboard directions plus
-  ADR-013's proposed delivery/evolution contract and ADR-018's exploratory
-  collection/assembly proposal. Respect each record's status
-  and preserve existing write-path and client-default gates.
-- `docs/CHANGELOG.md` — the batch-by-batch record; read it to learn what shipped.
-- `docs/decisions/ADR-0{01..11}-*.md` — stack, image generation,
-  persistence backend, the day-one data policy (permanence, redaction,
-  continuity, identity, write-path scope), the launch-window operations
-  policy (backup cadence, staging rehearsal, beta client posture, voice
-  model), the evolving-world decision (the world materialized as data; banks
-  govern births only — Option A, ratified), the one-shared-launch-world
-  boundary, the wrap passage (the hierarchy closes into a traversal-layer
-  loop; containment stays a tree, causality does not wrap), chronicled
-  deltas (every substance change records its delta; state-at-T is born row
-  + fold, never replay), and the causal-prediction family (the Causal
-  Augury: puzzle answers are the engine's own forecast, pinned equivalent
-  to the live bus; hash-elected, ancestor-chain-pure, declines under
-  Inverted law), and the Wayback surface (read-only state-at-T through
-  present deterministic senses; node-local event cursors; actor-blind), each
-  with its "Revisit when…" triggers.
-- `docs/roadmap/pre-launch-window.md` — the pre-launch decision list and
-  batch sequence (living; governs until first production history exists).
-- `docs/roadmap/phase-2-scale.md` — the continuity policy and the phase-2b/2c
-  trigger list (living document — edit in place as triggers fire).
-- `docs/infrastructure/fly-deployment.md` — the deploy runbook and §8 launch
-  window checklist.
-- `docs/evaluation/2026-07-04-deep-evaluation.md` — the deep map-vs-territory
-  audit (see its dated addendum for what has since shipped).
-- `README.md` — concept, architecture, and the current-state matrix.
+The SessionStart hook in `.claude/settings.json` handles remote toolchain bootstrap;
+inspect `.claude/hooks/session-start.sh` when changing that behavior. When changing a
+working rule, update its matching skill and PR template so the instructions agree.

@@ -223,6 +223,9 @@ npm run capture:pitch
 
 ## Running Tests
 
+For contributions, [AGENTS.md](AGENTS.md) routes to the shared repository contract,
+completion criteria, and task-specific procedures.
+
 ```bash
 ./scripts/check.sh
 
