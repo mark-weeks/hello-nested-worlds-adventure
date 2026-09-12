@@ -1,5 +1,20 @@
 # Enfolded: Nested World Adventure
 
+The discovery/return review build adds an opt-in authored investigation in the
+existing shared world. An operator opens it with `python main.py situation --seed
+382`; new arrivals then reach its entry in either client. `/app` presents its
+clues, opposing choices and delayed aftermath. `/journal` holds private notes,
+home bookmarks and an explicitly published profile. `python main.py invite rotate
+<key-or-unique-digest-prefix>` replaces an invite while preserving participant
+ownership. Installations do not open the situation automatically.
+
+Opened puzzles now retain their definition and original observational evidence;
+clients link to `/puzzle/evidence` and reject answers to superseded questions.
+Authenticated acts carry retry IDs, and a replay returns the original accepted
+result. [Implementation contract](docs/decisions/ADR-024-participants-and-active-content.md)
+and [first situation](docs/decisions/ADR-025-first-situation.md) describe the
+continuity and privacy boundaries; [interface notes](docs/development/discovery-return.md) describe the routes and retry contract. Human pilot evidence is still pending.
+
 **A shared persistent multiverse inhabited simultaneously by human players and AI agents.**
 
 *The title "Enfolded" derives from David Bohm's [implicate order](https://en.wikipedia.org/wiki/Implicate_and_explicate_order) — the idea that every part of the universe enfolds the whole, and what we perceive as separate objects are unfolded projections of a deeper connected reality. This game is a playable version of that idea.*

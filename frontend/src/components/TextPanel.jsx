@@ -1,3 +1,4 @@
+import Investigation from "./Investigation.jsx";
 import { useState } from "react";
 import Chronicle from "./Chronicle.jsx";
 import Interact from "./Interact.jsx";
@@ -20,7 +21,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
   };
 
   return (
-    <div style={s.panel}>
+    <div className="world-panel" style={s.panel}>
 
       <div style={s.section}>
         <div style={s.label}>{node.level}</div>
@@ -40,11 +41,14 @@ export default function TextPanel({ node, players, agents = {}, connected, event
             title="Replay this node from its first recorded state to now"
             onClick={() => setWaybackOpen(true)}
           >Replay History</button>
+          <a href={`/journal?seed=${seed}&node=${encodeURIComponent(node?.name || "")}`} target="_blank" rel="noopener" style={s.guideLink}>Journal</a>
           <a href="/guide" style={s.guideLink} title="How to play Enfolded">
             Player's Guide ↗
           </a>
         </div>
       </div>
+
+      <Investigation key={`${seed}:${node.name}`} node={node} seed={seed} onJump={onJump} onNodeChanged={onNodeChanged} />
 
       {Object.keys(node.properties).length > 0 && (
         <div style={s.section}>
@@ -229,7 +233,7 @@ function EventRow({ ev }) {
 }
 
 const s = {
-  panel:       { flex: "0 0 300px", display: "flex", flexDirection: "column", padding: "16px 14px 10px", borderLeft: "1px solid #1e2235", gap: "14px", fontFamily: "Courier New, monospace", minHeight: 0, overflowY: "auto" },
+  panel:       { flex: "0 0 360px", maxWidth: "42%", display: "flex", flexDirection: "column", padding: "16px 14px 10px", borderLeft: "1px solid #1e2235", gap: "14px", fontFamily: "Courier New, monospace", minHeight: 0, overflowY: "auto" },
   section:     { display: "flex", flexDirection: "column", gap: "5px", flexShrink: 0 },
   feedSection: { display: "flex", flexDirection: "column", gap: "5px", flex: 1, minHeight: 0 },
   labelRow:    { display: "flex", justifyContent: "space-between", alignItems: "center" },

@@ -84,6 +84,7 @@ const {
 // The wrap passage's landings and authored lines — server-owned, arriving
 // with /world (ADR-008).
 let wrapInfo = null;
+let investigationEntry = null;
 
 function resolveEntryNode(root) {
   const saved = localStorage.getItem(LAST_NODE_KEY);
@@ -91,7 +92,8 @@ function resolveEntryNode(root) {
     const hit = findNodeByName(root, saved);
     if (hit) return hit;              // resume where the player left off
   }
-  return dropInNode(root, playerName); // first-time drop-in (or saved world gone)
+  const investigation = investigationEntry && findNodeByName(root, investigationEntry);
+  return investigation || dropInNode(root, playerName); // first-time drop-in (or saved world gone)
 }
 
 // ── Cross-device resume ─────────────────────────────────────────────────────
@@ -161,6 +163,7 @@ async function loadWorld() {
     if (data.error) throw new Error(data.error);
     worldParams.seed = data.seed;
     wrapInfo = data.wrap || null;
+    investigationEntry = data.entry_node || null;
     const sameWorld = previousSeed !== null && previousSeed === data.seed;
     setStatus(`${data.node_count} nodes · shared world · depth ${depth}`);
     renderTree(data.world, { preservePresence: sameWorld });
@@ -442,22 +445,27 @@ function refreshActPanel(data, { clearResponse = true } = {}) {
     ` ${p.count} ${p.verb} ${p.count === 1 ? 'change is' : 'changes are'} still traveling.`).join('');
 }
 
+let actBusy = false;
 async function doAct() {
-  if (!selected || !selected.verb) return;
+  if (actBusy || !selected || !selected.verb) return;
+  actBusy = true;
   const target = selected;
   const resp = document.getElementById('act-response');
   resp.textContent = '…';
   try {
+    const intent = await globalThis.EnfoldedIntents.begin('act', worldParams.seed, {node: target.name, verb: target.verb.name}, localStorage.getItem('nw_beta_key'));
     const res = await fetch(withKey('/act'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         seed: worldParams.seed, depth: worldParams.depth,
         node_name: target.name, verb: target.verb.name,
+        ...(intent ? {request_id: intent.request_id} : {}),
         player_name: playerName || undefined,
       }),
     });
     const data = await res.json();
+    if (res.status < 500) globalThis.EnfoldedIntents.finish(intent);
     if (selected?.name !== target.name) return;
     if (data.error) { resp.textContent = data.error; return; }
     await refreshPendingAct(target.name, data);
@@ -465,8 +473,8 @@ async function doAct() {
     document.getElementById('act-response').textContent =
       data.flavor || '(nothing happened)';
   } catch (e) {
-    if (selected?.name === target.name) resp.textContent = 'The act fizzles: ' + e.message;
-  }
+    if (selected?.name === target.name) resp.textContent = 'The signal is uncertain. Retry to recover this act: ' + e.message;
+  } finally { actBusy = false; }
 }
 
 const refreshActNode = createNodeRefresher(async (seed, name) => {
@@ -928,6 +936,7 @@ function renderPuzzle(data) {
     <div class="puzzle-name">${escHtml(data.name)}</div>
     ${constellationHtml}
     <div class="puzzle-prompt">${escHtml(data.prompt)}</div>
+    <a href="${escHtml(withKey('/puzzle/evidence?seed=' + worldParams.seed + '&epoch=' + data.epoch + '&node_name=' + encodeURIComponent(selected.name)))}" target="_blank" rel="noopener">Conditions when this question opened ↗</a>
     <div class="attempt-info" id="attempt-info">
       ${data.max_attempts} attempt${data.max_attempts !== 1 ? 's' : ''} allowed
     </div>
@@ -953,13 +962,15 @@ async function submitAnswer() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ seed, depth,
-                             node_name: selected.name, answer,
+                             node_name: selected.name, answer, puzzle_name: puzzleState.name,
                              player_name: playerName }),
     });
     const data = await res.json();
     const resultEl = document.getElementById('puzzle-result');
     const hintEl   = document.getElementById('puzzle-hint');
     const infoEl   = document.getElementById('attempt-info');
+
+    if (!res.ok || data.error) { resultEl.textContent = data.error || 'Reopen this question.'; return; }
 
     // Attempts pool across the whole room (co-op), so the server's count is
     // the truth — a local counter drifts the moment anyone else guesses.

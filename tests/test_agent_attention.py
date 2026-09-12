@@ -366,7 +366,7 @@ def test_v19_upgrade_preserves_memory_world_hinge_history_and_pending(tmp_path, 
     memory = persistence.load_agent_memory(NAME, SEED)
     assert memory['visited_ids'] == ['Remembered-1'] and memory['scan_cursor'] is None
     with persistence._connect() as conn:
-        assert conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == 20
+        assert conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == max(int(p.name[:4]) for p in persistence._MIGRATIONS_DIR.glob('*.sql'))
         assert conn.execute('SELECT * FROM agent_attention').fetchall() == []
         assert before == {t: conn.execute(f'SELECT * FROM {t}').fetchall() for t in tables}
 

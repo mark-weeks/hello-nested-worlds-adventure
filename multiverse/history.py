@@ -30,6 +30,14 @@ def actor(entry):
 def narrate(entry, source=None):
     data = data_of(entry)
     kind = entry.get("type")
+    if kind in ("SITUATION_OPENED", "SITUATION_COMMITTED", "SITUATION_CONSEQUENCE", "SITUATION_FOLLOWUP"):
+        text = label(data.get("flavor")) or "A recorded development changed this investigation."
+        reference = data.get("source_event_id")
+        if type(reference) is int and reference > 0:
+            text += f" Source event #{reference}."
+        return {"phase": "situation", "text": text, "origin": entry.get("node"),
+                "receiver": entry.get("node"), "actor_label": actor(entry),
+                "source_event_id": reference if type(reference) is int else None}
     ref = data.get("delivery") or {}
     arrival = bool(data.get("_origin") or data.get("_hop")
                    or (isinstance(ref, dict) and ref.get("queue") == "causal_queue"))

@@ -49,9 +49,12 @@ def cmd_puzzles(args):
 
     root = store.world_tree(seed=args.seed)
     engine = PuzzleEngine(seed=args.seed)
-    engine.attach_puzzles(root)
-    puzzles = engine.collect_puzzles(root)
-
+    def walk(node):
+        yield node
+        for child in node.children:
+            yield from walk(child)
+    nodes = list(walk(root))
+    puzzles = nodes  # Select first; do not open every future question on a CLI preview.
     if not puzzles:
         print("No puzzles found in this world. Try a different seed.")
         return
@@ -60,13 +63,21 @@ def cmd_puzzles(args):
     print(f"Found {len(puzzles)} puzzle(s) in this world; "
           f"playing the first {min(limit, len(puzzles))} "
           f"(--limit to change, 'skip' to pass, Ctrl-D to stop).\n")
-    for puzzle in puzzles[:limit]:
+    epochs = persistence.count_rearms_by_node(args.seed)
+    for node in nodes[:limit]:
+        engine.attach_puzzles(node, epochs, persist=True, recursive=False)
+        puzzle = engine.puzzle_for(node)
         result = engine.run_puzzle(puzzle)
         persistence.save_puzzle_result(args.seed, puzzle.name, result.name, puzzle.attempts)
         if result == PuzzleResult.UNSOLVED and puzzle.attempts == 0:
             # The player walked away without a single guess (EOF/quit) —
             # stop the tour instead of marching through every remaining node.
             break
+
+
+def cmd_situation(args):
+    from persistence.situations import install
+    print(f"Opened situation {install(args.seed)} in world {args.seed}. Existing instances are preserved.")
 
 
 def cmd_history(args):
@@ -237,7 +248,7 @@ def cmd_invite(args):
             print(f"  note: {args.note}")
         print(f"\nShare the URL: {invite_share_url(key, name)}")
         print("(Keys are stored hashed — this is the only time the key is "
-              "shown. If it's lost, revoke and mint a new one.)")
+              "shown. If it is lost, use invite rotate with its digest prefix.)")
     elif action == "list":
         rows = persistence.list_invite_keys(include_revoked=args.all)
         if not rows:
@@ -257,6 +268,16 @@ def cmd_invite(args):
             print(f"Revoked: {args.key}")
         else:
             print(f"No active key matched: {args.key}")
+    elif action == "rotate":
+        from persistence.participants import rotate
+        key = "nw_" + secrets.token_hex(16)
+        try:
+            participant = rotate(args.key, key)
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+        print(f"Replaced credential for {participant['name']}; the previous key no longer works.")
+        print(f"Participant, journal, profile and saved position retained: {participant['id']}")
+        print(f"Share once: {invite_share_url(key, participant['name'])}")
     elif action == "create":
         # Self-service registration (ADR-004 §7): the operator shares this
         # single-use link; the PLAYER picks their own unique name at
@@ -428,9 +449,13 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Skip the interactive confirmation")
     p_redact.set_defaults(func=cmd_redact)
 
+    p_situation = sub.add_parser("situation", help="Install the authored first situation in existing world 382")
+    p_situation.add_argument("--seed", type=int, default=382)
+    p_situation.set_defaults(func=cmd_situation)
+
     p_invite = sub.add_parser("invite",
         help="Manage per-user beta invite keys and registration invites "
-             "(mint / list / revoke / create / tokens / cancel)")
+             "(mint / list / rotate / revoke / create / tokens / cancel)")
     invite_sub = p_invite.add_subparsers(dest="invite_action", required=True)
 
     p_invite_mint = invite_sub.add_parser("mint",
@@ -450,6 +475,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Revoke an invite key (irreversible)")
     p_invite_revoke.add_argument("key", type=str, help="The key string to revoke")
     p_invite_revoke.set_defaults(func=cmd_invite)
+
+    p_invite_rotate = invite_sub.add_parser("rotate", help="Replace a live key, preserving participant ownership")
+    p_invite_rotate.add_argument("key", help="Existing key or unique digest prefix from invite list")
+    p_invite_rotate.set_defaults(func=cmd_invite)
 
     p_invite_create = invite_sub.add_parser("create",
         help="Create a single-use registration invite (the PLAYER picks "

@@ -7,8 +7,15 @@
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       html, body, #root { height: 100%; background: #07080f; color: #b0bcd0; font-family: 'Courier New', monospace; }
+      :focus-visible { outline: 3px solid #e3bd73; outline-offset: 3px; }
+      button:disabled { opacity: .55; cursor: default !important; }
+      @media (max-width: 760px) {
+        .world-layout { flex-direction: column; height: 100dvh !important; }
+        .scene-view { flex: 0 0 32% !important; min-height: 150px; }
+        .world-panel { flex: 1 1 auto !important; max-width: 100% !important; width: 100%; border-left: 0 !important; }
+      }
     </style>
-    <script type="module" crossorigin src="/app/assets/index-FNduk6lh.js"></script>
+    <script type="module" crossorigin src="/app/assets/index-BsUVlhPy.js"></script>
     <link rel="modulepreload" crossorigin href="/app/assets/Shader-CuqW9kUu.js">
     <link rel="modulepreload" crossorigin href="/app/assets/Filter-DJ0fTosb.js">
     <link rel="modulepreload" crossorigin href="/app/assets/GCManagedHash-D-i8r1ej.js">

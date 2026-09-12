@@ -120,26 +120,26 @@ Pull each item forward when its trigger fires, not on a calendar.
 * Estimated effort: an afternoon. Estimated savings: ~80% of fal spend at
   100 users (most nodes have repeat visitors).
 
-### Trigger: any `database is locked` error OR write p95 > 50ms
+### Trigger: measured contention, latency, queue lag or recovery exceeds its objective
 
-**Postgres switchover.**
+**Evaluate the backend against the current continuity contract.**
 
-* Plan and seam are already documented in
-  [`docs/decisions/ADR-003-persistence-backend.md`](../decisions/ADR-003-persistence-backend.md).
-  The `--- SQL dialect seam ---` block in `persistence/__init__.py`
-  concentrates the SQLite-isms so the port is mechanical.
-* Estimated effort: half a day for the code, plus a one-time data copy
-  via `pg_dump`-style export from the SQLite snapshot.
+Follow [ADR-003](../decisions/ADR-003-persistence-backend.md). Capture a
+representative workload and diagnose query/transaction boundaries first. Retire
+the half-day port estimate: acceptance receipts, active definitions and pending
+effects make this a correctness and recovery project. Keep SQLite until evidence
+justifies changing it. Reverting to an old file after accepting new writes is
+not ordinary rollback.
 
-### Trigger: rolling deploys need to be lossless
+### Trigger: a concrete multi-host or rolling-deploy requirement
 
-**Move room state to Redis.**
+**Design process coordination as a whole.**
 
-* `_rooms: dict[int, Room]` in `server/rooms.py` is the single piece of
-  process-local state that prevents both horizontal scale and zero-downtime
-  deploys. Replace with `redis.Redis` plus pubsub for the broadcast path.
-* This is the single change that unlocks the rest of phase 2c. Estimated
-  effort: 1–2 days. ADR-001 has the original sketch.
+Shared room presence and broadcasts are only part of the contract. Coordinate
+writer ownership, workers, budgets, migrations, active versions, graceful drains
+and reconnects; test concurrent acceptance and recovery. Redis or ASGI alone does
+not establish lossless rolling deploys. ADR-001 remains the historical sketch;
+there is no verified one-change or fixed-duration migration promise.
 
 ### Trigger: thread count > 200 OR /speak p95 latency degrades
 
