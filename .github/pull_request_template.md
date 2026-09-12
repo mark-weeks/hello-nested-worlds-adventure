@@ -20,8 +20,8 @@
      produces this). Check birth/golden changes, migrations, chronicle write paths,
      world-meta pins, and era banks against the actual base/head diff.
      For most PRs: "none — <why, from the diff>". If a door trips, list the
-     existing ratification and any unresolved decision. Green checks do not supply
-     merge permission: owner authorization is specific to this PR; never auto-merge. -->
+     existing ratification and any unresolved decision. Follow the authorization
+     boundaries in CLAUDE.md "Verification and completion". -->
 
 ## CHANGELOG
 

@@ -68,14 +68,11 @@ Use the same result in the batch's CHANGELOG entry and the PR body when a PR exi
 
 ## Review and merge authorization
 
-Prepare the checked PR for development-team review when publication is authorized;
-never enable auto-merge. Green checks and an untripped irreversibility check do not
-authorize merging. Merge only on the owner's explicit instruction for that PR.
-Authorization for a previous PR does not carry to this one.
+Apply the authorization boundaries in `CLAUDE.md` → "Verification and completion".
+This assessment supplies evidence for review, not permission for a subsequent action.
 
 ## Completion
 
 Done when the actual diff scope and evidence support the check, and each tripped door
 names its ratification or the specific pending decision. Put the result in the CHANGELOG
-and PR body when one exists. Do not merge without authorization; a pending decision blocks
-the dependent merge or change, not unrelated preparation. Reassess when the diff changes.
+and PR body when one exists. Reassess when the diff changes.

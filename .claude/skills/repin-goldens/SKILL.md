@@ -18,10 +18,11 @@ after your change.
    birth output the point of this diff, or a side effect? A side effect (an
    accidental extra RNG draw, a reordered bank, a changed breadth range) is
    a bug — fix the code, not the pin.
-2. **This is a one-way door under the merge gate.** The human ratifies the
-   re-pin; present which pins change and why the change is safe (pre-launch
-   vs post-launch matters — after first production birth, seed/name changes
-   go through the ADR-007 continuity process).
+2. **Apply the specific re-pin approval rule in `CLAUDE.md`'s golden-pin covenant.**
+   Identify the owner's approval for this pin change in the current task or PR;
+   if missing, ask before changing pins. Present which pins change and why the
+   change is safe (pre-launch vs post-launch matters — after first production birth,
+   seed/name changes go through the ADR-007 continuity process).
 
 ## The procedure
 

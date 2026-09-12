@@ -12,9 +12,11 @@ describe outcomes.
 
 ## House format
 
-Follow the current `docs/CHANGELOG.md` layout, adding the batch newest
-first (within a release section if the file uses them). Do not create a new
-section scheme or rewrite historical entries. Each batch is one bullet:
+Add each batch under the first `## [Unreleased]` in `docs/CHANGELOG.md`, newest
+first within `### Added` for new capabilities or `### Fixed` for corrections to
+existing behavior or guidance. The file also has older bullets above `[Unreleased]`;
+leave those historical entries in place, but do not use them as the insertion point.
+Keep the release-section scheme. Each batch is one bullet:
 
 1. **Bold headline** — a sentence naming what changed and why it matters,
    followed by a parenthesized list of the load-bearing files touched.

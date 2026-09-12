@@ -105,8 +105,10 @@ a harmless view option.
   five scales exist only below depth 6) pins what generator v2 births. A
   failing pin no longer means "you are rewriting the permanent world" — the
   store forbids that — it means "you changed what new worlds are born as":
-  establish intent from the request and existing ratification, bump the version,
-  and re-pin deliberately. Accidental birth changes require a code fix.
+  obtain the owner's explicit approval for this specific pin change in the current
+  task or PR before re-pinning. Reuse that approval while scope is unchanged;
+  a historical ADR or CHANGELOG entry does not pre-approve a new re-pin. Then bump
+  the version and re-pin deliberately. Accidental birth changes require a code fix.
 - **One read-time generative surface remains frozen: era names.**
   `multiverse/chronicle.py`'s two display banks are read at render time, so
   editing them retroactively renames every era already displayed. They stay
@@ -153,7 +155,10 @@ Consequences:
   and corrections below; report exact blockers and finish independent work.
 - For code changes, use behavior tests that exercise the affected endpoint, generator,
   prompt, or client; string-presence checks cannot verify these behaviors. Preserve puzzle
-  answer secrecy, solvability, per-node difficulty, continuity, causal equivalence, and restart/co-op.
+  answer secrecy, solvability, and per-node difficulty (`tests/test_puzzles.py`), birth
+  continuity (`tests/test_continuity_freeze.py`), causal wiring (`tests/test_causality.py`),
+  staged-cascade equivalence (`tests/test_causal_delay.py`), and restart/co-op behavior
+  (`tests/test_server_rooms.py`, `tests/test_server.py`). Use the affected suites during iteration.
 - Bootstrap the pinned Python 3.11 / Node 20 environment with `./setup.sh`. Use focused
   checks during iteration; run
   `./scripts/check.sh` before proposing merge. Its required Ruff, Python/Vitest, frontend
@@ -191,9 +196,11 @@ Consequences:
   for the relevant direction. Respect each record's status, including ADR-013's broader
   proposed contracts and ADR-018's exploratory proposal. Plans are not shipped capabilities;
   existing write-path and client-default gates still apply.
-- **Delivery, delayed actions, history narration, or inhabitant attention:** ADR-019 through
-  ADR-022 for the affected implementation and acceptance evidence. Preserve queue-version
-  compatibility, atomic effect/completion fences, evidence-bound narration, and discovery memory.
+- **Delivery, delayed actions, history narration, or inhabitant attention:** consult the
+  affected ADR-019 through ADR-022. They describe implemented M1–M4 choices but remain marked
+  Proposed; this pointer does not ratify them or authorize broader designs. Within authorized
+  maintenance of that implementation, preserve its code/test-backed queue compatibility,
+  atomic effect/completion fences, evidence-bound narration, and discovery memory.
 - **Voice, model, or prompt caching:** `docs/development/agent-runtime.md`.
 - **External contract change:** verify affected API/config/protocol assumptions against
   current official docs or a live run before implementation (including Anthropic, fly.io,
