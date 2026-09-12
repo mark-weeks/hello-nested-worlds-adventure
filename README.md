@@ -119,6 +119,22 @@ Human-to-human, human-to-agent, agent-to-human, agent-to-agent: all four interac
 
 ---
 
+## Help shape Enfolded
+
+Enfolded is being built in the open. Play together, share discoveries, help a
+newcomer, report a problem, or tell us what made you curious, confused, or want
+to return. You do not need to write code to contribute.
+
+[Share playtesting feedback or an idea](https://github.com/mark-weeks/hello-nested-worlds-adventure/issues/new?template=playtesting.yml),
+[report a bug](https://github.com/mark-weeks/hello-nested-worlds-adventure/issues/new?template=bug_report.yml),
+or read the [contribution guide](CONTRIBUTING.md). An in-game Ideas board with
+submissions and voting is planned; GitHub is the current reporting route.
+
+Maintainers use feedback to guide priorities, explain decisions, and invite
+players to verify improvements. Coding agents support implementation; outside
+PRs are welcome for work agreed with a maintainer in advance. Discuss the
+problem and scope before investing in a patch.
+
 ## Setup
 
 ```bash
@@ -223,8 +239,9 @@ npm run capture:pitch
 
 ## Running Tests
 
-For contributions, [AGENTS.md](AGENTS.md) routes to the shared repository contract,
-completion criteria, and task-specific procedures.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution process.
+For coding agents, [AGENTS.md](AGENTS.md) routes to the shared engineering
+contract and relevant procedures.
 
 ```bash
 ./scripts/check.sh
@@ -237,7 +254,12 @@ ENFOLDED_E2E=1 ./scripts/check.sh
 
 ## License
 
-MIT
+Enfolded's own code and documentation are licensed under the
+[Apache License 2.0](LICENSE). Third-party components retain their original
+terms; see [NOTICE](NOTICE) and [third-party notices](THIRD_PARTY_NOTICES.txt).
+The [licensing decision](docs/decisions/ADR-023-community-and-licensing.md)
+records the adoption and the earlier README's MIT label without claiming to
+revoke previously granted rights.
 
 ## Author
 

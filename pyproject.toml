@@ -14,6 +14,8 @@ name = "enfolded"
 version = "0.1.1rc2"
 description = "Enfolded: Nested World Adventure — a shared persistent multiverse inhabited by human players and AI agents"
 requires-python = ">=3.11,<3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"]
 dependencies = [
     "anthropic>=0.40.0",
     "sentry-sdk>=2.0",

@@ -1,0 +1,10 @@
+Enfolded: Nested World Adventure
+Copyright 2026 Mark Weeks
+
+Enfolded's own code and documentation are licensed under the Apache License,
+Version 2.0. See LICENSE (LICENSE.txt in the browser distribution) for the full
+terms.
+
+Third-party components retain their original copyright and license terms.
+See THIRD_PARTY_NOTICES.txt for the bundled browser libraries. This notice
+does not change those terms or claim ownership of third-party material.

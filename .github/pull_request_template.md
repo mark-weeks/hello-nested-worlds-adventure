@@ -5,6 +5,13 @@
 
 <!-- What changed and why, with measured evidence — quantify surprises. -->
 
+## Agreed scope and contribution
+
+<!-- Link the issue and maintainer agreement before implementation. Owner-directed
+     maintenance may cite that direction instead of inventing an issue. Explain
+     material AI assistance, known limitations, and reporting/verification credit.
+     See CONTRIBUTING.md for rights and third-party attribution requirements. -->
+
 ## Verification
 
 <!-- Report checks actually run and their outcomes. For documentation-only work,

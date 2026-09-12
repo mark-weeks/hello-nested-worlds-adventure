@@ -12,6 +12,8 @@ COPY frontend/package.json frontend/package-lock.json ./frontend/
 RUN cd frontend && npm ci
 COPY frontend ./frontend
 COPY static ./static
+# The postbuild step copies the project license and notices into static/app.
+COPY LICENSE NOTICE THIRD_PARTY_NOTICES.txt ./
 RUN cd frontend && npm run build   # vite outDir → ../static/app
 
 # --- Stage 2: Python runtime ---

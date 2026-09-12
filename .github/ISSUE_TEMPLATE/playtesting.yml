@@ -1,0 +1,27 @@
+name: Playtesting feedback or idea
+description: Tell us about a moment in the world and what would improve it.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Playing, sharing discoveries, and testing improvements all help shape Enfolded.
+        You do not need a technical diagnosis or a proposed solution.
+        Reports are public: remove invite keys, registration links, and private conversations, and mark spoilers.
+        Please discuss scope with a maintainer before preparing code.
+  - type: textarea
+    id: experience
+    attributes:
+      label: What was your experience or idea?
+      description: What were you trying to do? Where did you become curious, confused, bored, or want to return?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What would make this better?
+      description: Optional. Describe the outcome you want or a suggestion to explore.
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything that would help us understand?
+      description: Optional. A place name, browser/device, screenshot, or related report. Please mark puzzle spoilers.
