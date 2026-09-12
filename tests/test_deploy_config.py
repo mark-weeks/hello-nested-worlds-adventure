@@ -10,6 +10,7 @@ the DB on the volume, and no secrets/dev-DB leaking into the image.
 """
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -93,3 +94,24 @@ class TestDockerfile:
         body = _read("Dockerfile")
         assert "HOME=/data" in body
         assert "8080" in body
+
+    def test_frontend_stage_copies_every_root_file_postbuild_reads(self):
+        # `npm run build` triggers frontend/scripts/normalize-build.mjs, which
+        # copies root files (`new URL("../../<name>", import.meta.url)`) into
+        # static/app. Stage 1 of the Dockerfile builds inside /build with only
+        # what it COPYs before `npm run build`, so any root file the script
+        # reads but the stage does not copy makes `docker build` (and therefore
+        # `fly deploy`) fail with ENOENT — a path no CI job exercises.
+        script = _read("frontend/scripts/normalize-build.mjs")
+        required = set(re.findall(r'\["([^"]+)",\s*"[^"]+"\]', script))
+        assert required, "postbuild copy inventory not found in normalize-build.mjs"
+
+        stage_one = _read("Dockerfile").split("# --- Stage 2")[0]
+        copied: set[str] = set()
+        for line in stage_one.splitlines():
+            if "npm run build" in line:
+                break
+            if line.startswith("COPY "):
+                copied.update(line.split()[1:-1])
+        missing = sorted(required - copied)
+        assert not missing, f"stage 1 never copies {missing} before npm run build"
