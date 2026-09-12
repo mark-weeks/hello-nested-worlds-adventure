@@ -46,6 +46,27 @@ def test_concurrent_first_use_and_rotation_keep_one_person(accounts):
         hashlib.sha256(a.encode()).hexdigest()[:16], hashlib.sha256(replacement.encode()).hexdigest()[:16]}
 
 
+def test_known_credential_resolves_while_another_writer_holds_the_lock(accounts):
+    """Situation polls and act pre-flights must not queue behind the single writer."""
+    import sqlite3
+    owner = participants.identify(accounts[0])['id']
+    writer = sqlite3.connect(persistence._DB_PATH, isolation_level=None)
+    writer.execute('BEGIN IMMEDIATE')
+    try:
+        outcome = {}
+        worker = threading.Thread(target=lambda: outcome.update(participants.identify(accounts[0])))
+        worker.start()
+        worker.join(2.0)
+        assert not worker.is_alive(), 'identify() waited on the writer lock for a known credential'
+        assert outcome == {'id': owner, 'name': 'Ada'}
+        with pytest.raises(participants.Unauthorized):
+            participants.identify('nw_' + 'z' * 32)
+    finally:
+        writer.execute('ROLLBACK')
+        writer.close()
+    assert participants.identify(accounts[1])['id'] != owner  # First use still enrolls.
+
+
 def test_rotation_keeps_conversation_without_rewriting_history(accounts):
     a, _ = accounts
     original = hashlib.sha256(a.encode()).hexdigest()[:16]

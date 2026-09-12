@@ -178,7 +178,7 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_HEARTBEAT` | Set to `0` to disable the ambient world heartbeat (background agent life). | on |
 | `NESTED_WORLDS_HEARTBEAT_INTERVAL` | Seconds between heartbeat ticks. Heartbeat agents are FSM-driven — no API spend. | `180` |
 | `NESTED_WORLDS_HOP_DELAY` | Seconds a staged causal cascade waits between rings — how fast consequences travel across scales. `0` makes staged hops due immediately (they still run through the queue). | `12` |
-| `NESTED_WORLDS_CAUSAL_PUMP` | Set to `0` to disable the pump thread that drains staged causal hops (queued hops then wait until a pump runs again). | on |
+| `NESTED_WORLDS_CAUSAL_PUMP` | Set to `0` to disable the pump thread that drains staged causal hops, matured verbs, and situation consequences (queued work then waits until a pump runs again; an expired shared decision still closes on the next choice). | on |
 | `NESTED_WORLDS_RATE_LIMIT_PER_MIN` | Hosted beta: per-IP requests/minute on `/speak`, `/agent/voice`, `/image`, `/puzzle/attempt`, `/act`, `/register`, `/client-error`. | `20` |
 | `NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN` | Hosted beta: per-IP requests/minute on the expensive read endpoints `/world`, `/agent`, `/observe`, `/puzzle`, `/chronicle`, `/history`. | `120` |
 | `NESTED_WORLDS_MAX_WS_CONNECTIONS` | Hosted beta: max concurrent WebSocket connections process-wide. Excess upgrades get `503`. | `128` |
