@@ -7,16 +7,21 @@
 
 ## Verification
 
-<!-- ./scripts/check.sh outcome: Ruff, N Python passed, N Vitest passed,
-     bundle byte-fresh, installed-wheel smoke. Note if ENFOLDED_E2E=1 ran. -->
+<!-- Report checks actually run and their outcomes. For documentation-only work,
+     include reference/consistency validation. For ./scripts/check.sh, include Ruff,
+     Python/Vitest counts, bundle freshness, and installed-wheel smoke; name E2E
+     results if run. Distinguish inspected, executed, skipped, and blocked checks.
+     Drafts may name remaining verification; the canonical gate still applies
+     before proposing merge. -->
 
 ## Irreversibility check
 
-<!-- Required (CLAUDE.md "Working rules"; the irreversibility-check skill
-     produces this). Does this diff re-pin a golden world, add or alter a
-     migration, or add a world_mutations write path / chronicle row?
+<!-- Required (CLAUDE.md "Verification and completion"; the irreversibility-check skill
+     produces this). Check birth/golden changes, migrations, chronicle write paths,
+     world-meta pins, and era banks against the actual base/head diff.
      For most PRs: "none — <why, from the diff>". If a door trips, list the
-     1–2 questions the human gate must answer, hardest first. -->
+     existing ratification and any unresolved decision. Follow the authorization
+     boundaries in CLAUDE.md "Verification and completion". -->
 
 ## CHANGELOG
 

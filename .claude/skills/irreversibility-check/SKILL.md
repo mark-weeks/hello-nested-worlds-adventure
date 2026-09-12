@@ -1,22 +1,23 @@
 ---
 name: irreversibility-check
-description: Write the merge-gate irreversibility check for the current diff. Use before proposing any merge or opening a PR in this repo — it scans the diff for one-way doors (golden re-pins, migrations, world_mutations write paths, world_meta pins, era-bank edits, GENERATOR_VERSION changes) and produces the 2–3 line check CLAUDE.md requires in every merge request.
+description: Assess the actual Enfolded diff for irreversible changes when preparing a CHANGELOG entry, PR, or merge decision.
 ---
 
 # Irreversibility check
 
-CLAUDE.md's merge gate: after tests pass, the author (you) answers the
-irreversibility questions from the diff and puts the answer in the merge
-request. The human is quizzed only when a one-way door actually trips.
+Assess the diff when documenting a change batch or preparing its PR/merge.
+Record the result even for a draft whose verification is incomplete; the canonical
+checks still must pass before proposing merge. Human questions apply only to a
+tripped one-way door whose decision has not already been ratified.
 
 ## Procedure
 
-1. Get the real diff surface **against the PR's actual base** — a local
-   `main` can be stale or carry unrelated merged work, either of which
-   falsely trips (or hides) a door:
-   `git fetch origin main && git diff origin/main...HEAD --stat`,
-   then read every hunk that touches the areas below. (If the PR targets a
-   different base branch, fetch and diff that branch instead.)
+1. Identify the actual comparison scope. For a PR, use its current head and
+   actual base (refresh the relevant remote ref when needed); a stale local
+   `main` can falsely trip or hide a door. For an uncommitted local batch,
+   inspect its staged and unstaged changes plus new files. Read the relevant
+   hunks below and exclude unrelated pre-existing work. Do not create or fetch
+   a PR merely to assess a local documentation edit.
 
 2. Answer each question **from the diff, with the file that proves it**:
 
@@ -54,23 +55,24 @@ request. The human is quizzed only when a one-way door actually trips.
    path; <what the diff actually is>`. Never write "none" without the
    "here's why" clause; the clause is the evidence you actually looked.
 
-4. **If a door trips**, resolve its open irreversibility questions before
-   requesting merge authorization. Escalate only the 1–2 questions not already
-   answered by the owner's instructions or reviewed evidence, hardest first:
+4. **If a door trips**, record existing ratification and resolve only questions
+   not already answered by the owner's instructions or reviewed evidence. Before
+   the dependent change or merge, ask the human the unresolved questions:
    - re-pin → which pins change and why the change is safe pre/post launch;
    - migration / write path → what the new row or table is and how the
      continuity policy holds;
    - launch-relevant → which `fly-deployment.md` §8 scenario covers it.
-   Fold any missed answer into that PR's CHANGELOG entry.
+   Record material clarifications in the batch's CHANGELOG entry.
 
-The same check text belongs in two places: the PR body (the template has a
-section for it) and the batch's CHANGELOG entry.
+Use the same result in the batch's CHANGELOG entry and the PR body when a PR exists.
 
 ## Review and merge authorization
 
-Prepare the checked PR for development-team review; never enable auto-merge.
-Green checks and an untripped irreversibility check do not authorize merging.
-Merge only on the owner's explicit instruction for that PR. An instruction to
-merge a previous PR does not authorize merging the next one. The check should
-answer routine questions from the diff without asking for redundant permission;
-the one-way-door procedure above still applies when a door actually trips.
+Apply the authorization boundaries in `CLAUDE.md` → "Verification and completion".
+This assessment supplies evidence for review, not permission for a subsequent action.
+
+## Completion
+
+Done when the actual diff scope and evidence support the check, and each tripped door
+names its ratification or the specific pending decision. Put the result in the CHANGELOG
+and PR body when one exists. Reassess when the diff changes.

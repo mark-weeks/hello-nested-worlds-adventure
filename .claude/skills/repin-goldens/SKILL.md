@@ -1,6 +1,6 @@
 ---
 name: repin-goldens
-description: Deliberately re-pin the golden freeze digests after a conscious generator change. Use ONLY when tests/test_continuity_freeze.py fails AND changing what new worlds are born as is the intent, ratified by the human — never to make CI green.
+description: Re-pin failing Enfolded birth digests only for an intentional, human-ratified generator change.
 ---
 
 # Re-pinning the golden freeze
@@ -14,14 +14,15 @@ after your change.
 
 ## Before touching any pin
 
-1. **Stop and confirm intent.** Is changing the birth output the point of
-   this diff, or a side effect? A side effect (an accidental extra RNG draw,
-   a reordered bank, a changed breadth range) is a bug — fix the code, not
-   the pin.
-2. **This is a one-way door under the merge gate.** The human ratifies the
-   re-pin; present which pins change and why the change is safe (pre-launch
-   vs post-launch matters — after first production birth, seed/name changes
-   go through the ADR-007 continuity process).
+1. **Confirm intent from the request and existing ratification.** Is changing
+   birth output the point of this diff, or a side effect? A side effect (an
+   accidental extra RNG draw, a reordered bank, a changed breadth range) is
+   a bug — fix the code, not the pin.
+2. **Apply the specific re-pin approval rule in `CLAUDE.md`'s golden-pin covenant.**
+   Identify the owner's approval for this pin change in the current task or PR;
+   if missing, ask before changing pins. Present which pins change and why the
+   change is safe (pre-launch vs post-launch matters — after first production birth,
+   seed/name changes go through the ADR-007 continuity process).
 
 ## The procedure
 
@@ -42,4 +43,11 @@ after your change.
    intentional in the irreversibility check (see the 2026-08-03 and
    2026-08-04 entries for the expected shape).
 5. Run the full `./scripts/check.sh` — the freeze suite must pass green on
-   the new pins, and nothing else may have moved.
+   the new pins, with no unexplained changes outside the authorized birth change.
+
+## Completion
+
+Done when the authorized birth change is versioned, both depths and renewal epochs are
+covered, the canonical checks pass, and the CHANGELOG explains the ratified change.
+Keep existing approval when scope is unchanged; seek a new decision if the affected
+pins or continuity consequences change. A failing test alone never authorizes re-pinning.
