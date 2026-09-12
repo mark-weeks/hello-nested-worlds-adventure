@@ -1,4 +1,4 @@
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, readdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const buildDirectory = fileURLToPath(
@@ -24,3 +24,15 @@ async function normalizeDirectory(directory) {
 }
 
 await normalizeDirectory(buildDirectory);
+
+// Keep the standalone browser distribution accompanied by its license terms.
+for (const [source, destination] of [
+  ["LICENSE", "LICENSE.txt"],
+  ["NOTICE", "NOTICE.txt"],
+  ["THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_NOTICES.txt"],
+]) {
+  await copyFile(
+    new URL(`../../${source}`, import.meta.url),
+    `${buildDirectory}/${destination}`,
+  );
+}

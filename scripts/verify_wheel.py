@@ -11,6 +11,7 @@ result and the published bytes can never describe different wheels.
 from __future__ import annotations
 
 import os
+from email.parser import BytesParser
 import subprocess
 import sys
 import tempfile
@@ -55,6 +56,28 @@ def main() -> None:
 
         with zipfile.ZipFile(wheel) as archive:
             names = set(archive.namelist())
+            metadata_names = [n for n in names if n.endswith(".dist-info/METADATA")]
+            if len(metadata_names) != 1:
+                raise RuntimeError("wheel must contain one package metadata record")
+            metadata_name = metadata_names[0]
+            metadata = BytesParser().parsebytes(archive.read(metadata_name))
+            if metadata.get("License-Expression") != "Apache-2.0":
+                raise RuntimeError("wheel must declare the Apache-2.0 license")
+            license_files = {"LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"}
+            if set(metadata.get_all("License-File", [])) != license_files:
+                raise RuntimeError("wheel metadata must declare all license and notice files")
+            info_dir = metadata_name.rsplit("/", 1)[0]
+            for filename in license_files:
+                license_path = f"{info_dir}/licenses/{filename}"
+                browser_filename = filename if filename.endswith(".txt") else f"{filename}.txt"
+                browser_path = f"static/app/{browser_filename}"
+                if license_path not in names or browser_path not in names:
+                    raise RuntimeError(f"wheel is missing distributed license/notice: {filename}")
+                contents = archive.read(license_path)
+                if not contents.strip() or archive.read(browser_path) != contents:
+                    raise RuntimeError(f"browser and package license/notice differ: {filename}")
+                if supplied is None and contents != (ROOT / filename).read_bytes():
+                    raise RuntimeError(f"built wheel has stale license/notice: {filename}")
         required = {
             "main.py",
             "persistence/migrations/0013_world_nodes.sql",

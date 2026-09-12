@@ -1,0 +1,32 @@
+name: Bug report
+description: Report something that did not work as expected.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A concrete example helps us investigate; you do not need to know the cause.
+        Remove invite keys, registration links, and private conversations before posting.
+        Check existing reports first and add new evidence there when appropriate.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How can we reproduce it?
+      description: Steps, place name, and whether it happens again. It is fine if you are not sure.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser, device, and view
+      description: For example, Safari on iPhone in the map view, or Chrome on Windows in the scene view.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Additional evidence
+      description: Optional screenshots or logs. Remove credentials and mark puzzle spoilers.
