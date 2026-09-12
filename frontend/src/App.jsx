@@ -125,7 +125,7 @@ export default function App() {
     preserveSession = false,
     background = false,
   } = {}) => {
-    const savedNode = targetNode || localStorage.getItem(LAST_NODE_KEY);
+    const savedNode = targetNode || new URLSearchParams(location.search).get("node") || localStorage.getItem(LAST_NODE_KEY);
     const requestedDepth = resumeDepth(
       depth, savedNode, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
     );
@@ -146,7 +146,7 @@ export default function App() {
       // the nav stack, so "back" walks the real ancestry.
       const name = localStorage.getItem(NAME_KEY) || urlName() || "";
       worldRootRef.current = data.world;
-      setNodeStack(entryPath(data.world, savedNode, name));
+      setNodeStack(entryPath(data.world, savedNode || data.entry_node, name));
 
       // Backfill the canonical world's recent past into the feed.
       if (!preserveSession) {
@@ -318,7 +318,7 @@ export default function App() {
     (async () => {
       const position = await hydratePositionFromServer();
       if (cancelled) return;
-      const targetNode = position?.node || localStorage.getItem(LAST_NODE_KEY);
+      const targetNode = new URLSearchParams(location.search).get("node") || position?.node || localStorage.getItem(LAST_NODE_KEY);
       const targetDepth = resumeDepth(
         position?.depth ?? localStorage.getItem(LAST_DEPTH_KEY),
         targetNode,
@@ -537,7 +537,7 @@ export default function App() {
   }
 
   return (
-    <div style={s.layout}>
+    <div className="world-layout" style={s.layout}>
       <SceneView
         node={currentNode}
         players={players}
@@ -624,7 +624,7 @@ const s = {
   layout:  { display: "flex", height: "100vh", overflow: "hidden", background: "#07080f" },
   loading: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontSize: "1.1rem", color: "#4a5580", fontFamily: "Courier New, monospace" },
   nameWrap: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#07080f", fontFamily: "Courier New, monospace" },
-  nameBox: { background: "#0d1020", border: "1px solid #2a4060", padding: "32px 28px", minWidth: 320, textAlign: "center" },
+  nameBox: { background: "#0d1020", border: "1px solid #2a4060", padding: "32px 28px", width: "min(420px, calc(100vw - 32px))", textAlign: "center" },
   nameTitle: { fontSize: "1.1rem", color: "#3a8eff", letterSpacing: "2px", marginBottom: 8 },
   nameDesc: { fontSize: "0.85rem", color: "#6a7090", marginBottom: 18 },
   nameInput: { width: "100%", background: "#07080f", border: "1px solid #2a4060", color: "#b0bcd0", padding: "8px 10px", fontFamily: "inherit", fontSize: "0.9rem", marginBottom: 12, outline: "none" },

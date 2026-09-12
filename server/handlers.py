@@ -169,7 +169,7 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None,
 
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
-    "/client-error", "/register",
+    "/client-error", "/register", "/journal/note", "/profile/save", "/profile/home", "/situation/discover", "/situation/choose", "/situation/follow-up",
 })
 
 # Expensive reads: these rebuild (and for /world, fully serialize) the
@@ -179,7 +179,7 @@ _RATE_LIMITED_PATHS = frozenset({
 # never trips it.
 _READ_LIMITED_PATHS = frozenset({
     "/world", "/agent", "/observe", "/puzzle", "/chronicle", "/history",
-    "/wayback", "/node",
+    "/wayback", "/node", "/me", "/profile", "/journal/data", "/situation",
 })
 
 # The player-facing pace line (429). Rate limiting is a mechanical guard, but
@@ -268,9 +268,10 @@ class Handler(BaseHTTPRequestHandler):
         without a live token (ADR-004 §7, invite-gated self-service).
         """
         stripped = path.rstrip("/")
-        if stripped in ("", "/health", "/clientlogic.js", "/explorer.js", "/d3.v7.min.js",
+        if stripped in ("", "/health", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js", "/nodesound.js",
-                        "/guide", "/register", "/register.js", "/favicon.ico"):
+                        "/guide", "/register", "/register.js", "/favicon.ico",
+                        "/journal", "/journal.js"):
             return True
         if stripped == "/app" or path.startswith("/app/"):
             return True
@@ -315,6 +316,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if getattr(self, "_private_response", False):
+            self.send_header("Cache-Control", "no-store")
         self._send_security_headers()
         self.end_headers()
         self.wfile.write(body)
@@ -421,7 +424,15 @@ class Handler(BaseHTTPRequestHandler):
             vals = qs.get(key)
             return vals[0] if vals else default
 
-        if path in ("", "/"):
+        from server import participant_api, situation_api
+        if participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
+            return
+
+        if path == "/journal":
+            self._send_file(_STATIC_DIR / "journal.html")
+        elif path == "/journal.js":
+            self._send_file(_STATIC_DIR / "journal.js", content_type="application/javascript; charset=utf-8")
+        elif path in ("", "/"):
             self._send_file(_STATIC_DIR / "index.html")
 
         elif path == "/guide":
@@ -443,6 +454,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/nodesound.js":
             self._send_file(_STATIC_DIR / "nodesound.js",
                             content_type="application/javascript; charset=utf-8")
+
+        elif path == "/intents.js":
+            self._send_file(_STATIC_DIR / "intents.js", "application/javascript")
 
         elif path == "/clientlogic.js":
             self._send_file(_STATIC_DIR / "clientlogic.js",
@@ -600,7 +614,10 @@ class Handler(BaseHTTPRequestHandler):
             node_count = count_nodes(root)
             persistence.save_world(seed, node_count, depth, *BREADTH_ENVELOPE)
             activity = persistence.count_mutations_by_node(seed)
+            from persistence.situations import view as situation_view
+            investigation = situation_view(seed)
             self._send_json({"seed": seed, "node_count": node_count,
+                             "entry_node": investigation["entry"] if investigation else None,
                              # The wrap passage (ADR-008): the loop's two
                              # fixed landings and its authored lines, so
                              # every client offers the same passage and
@@ -660,6 +677,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/observe":
             self._do_observe(qs)
+
+        elif path == "/puzzle/evidence":
+            self._do_puzzle_evidence(qs)
 
         elif path == "/puzzle":
             self._do_puzzle(qs)
@@ -725,6 +745,10 @@ class Handler(BaseHTTPRequestHandler):
         # catch-all 500. Malformed shape is the client's error: answer 400.
         if not isinstance(body, dict):
             return self._send_error("request body must be a JSON object")
+
+        from server import participant_api, situation_api
+        if participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
+            return
 
         if path == "/speak":
             if guard.ai_disabled():
@@ -983,6 +1007,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             import consciousness
             history = persistence.get_node_history(seed, node.name)
+            from persistence.situations import keeper_history
+            commitments = keeper_history(seed, agent_name, node.name)
+            commitment_ids = {event['id'] for event in commitments}
+            history = commitments + [event for event in history if event.get('id') not in commitment_ids]
             agent_memory = persistence.load_agent_memory(agent_name, seed)
             response = consciousness.voice_agent(persona, agent_name, node,
                                                  message, history=history,
@@ -1199,6 +1227,45 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── Puzzle ──
 
+    def _do_puzzle_evidence(self, qs):
+        from puzzles.instances import get_puzzle, evidence
+        from html import escape
+        try:
+            seed = guard.world_seed(qs.get("seed", [""])[0])
+            node = _resolve_node(seed, qs.get("node_name", [""])[0])
+            if node is None:
+                return self._send_error("No such place in this world.", 404)
+            current = persistence.count_rearms_by_node(seed).get(node.name, 0)
+            epoch = int(qs.get("epoch", [str(current)])[0])
+            if epoch < 0 or epoch > current:
+                return self._send_error("That question has not opened here.", 404)
+            if epoch != current:
+                from persistence.puzzle_content import read
+                if read(seed, node.name, epoch) is None:
+                    return self._send_error("That question's conditions were not preserved.", 404)
+            puzzle = get_puzzle(seed, node, epoch)
+            rows = evidence(seed, node.name, epoch)
+        except ValueError as exc:
+            return self._send_error(str(exc))
+        content = '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Question evidence</title>'
+        content += '<main style="max-width:48em;margin:2em auto;padding:1em;font:16px/1.6 system-ui">'
+        content += '<h1>Conditions when this question opened</h1><p>' + escape(puzzle.prompt) + '</p>'
+        content += '<p>The world may have changed since these observations. This question still uses these conditions.</p>'
+        for row in rows:
+            content += '<h2>' + escape(row['node']) + '</h2><dl>'
+            for key, value in row['properties'].items():
+                content += '<dt>' + escape(str(key)) + '</dt><dd>' + escape(str(value)) + '</dd>'
+            content += '</dl>'
+        encoded = (content + '</main>').encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(encoded)))
+        self.send_header('Cache-Control', 'no-store')
+        self._send_security_headers()
+        self.send_header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
+        self.end_headers()
+        self.wfile.write(encoded)
+
     def _do_puzzle(self, qs: dict) -> None:
         try:
             root, seed, *_ = _build_world(_flatten_qs(qs))
@@ -1212,7 +1279,8 @@ class Handler(BaseHTTPRequestHandler):
         # Renewal epochs: decay that lands on a solved node re-arms it with
         # a fresh puzzle (see causality/wiring); the epoch renames and
         # reseeds the build so old solved-state doesn't apply.
-        engine.attach_puzzles(target, persistence.count_rearms_by_node(seed))
+        epochs = persistence.count_rearms_by_node(seed)
+        engine.attach_puzzles(target, epochs, persist=True, recursive=False)
         puzzles = engine.collect_puzzles(target)
 
         if not puzzles:
@@ -1222,6 +1290,7 @@ class Handler(BaseHTTPRequestHandler):
         session = refresh_puzzle_session(get_room(seed), target.name, p.name)
         payload = {
             "found":        True,
+            "epoch":        epochs.get(target.name, 0),
             "name":         p.name,
             "kind":         p.kind.name,
             "prompt":       p.prompt,
@@ -1287,11 +1356,28 @@ class Handler(BaseHTTPRequestHandler):
         payload = {"verb": verb.name}
         if player_name:
             payload["actor"] = player_name
-        result, _staged = accept_verb(
-            seed, target, verb, token, {"verb": verb.name}, payload,
-            player_name=player_name, actor_identity=_actor_identity(user_key, player_name),
-            maturation_actor=player_name)
-        if result["action_status"] == "accepted":
+        def apply():
+            result, _staged = accept_verb(
+                seed, target, verb, token, {"verb": verb.name}, payload,
+                player_name=player_name, actor_identity=_actor_identity(user_key, player_name),
+                maturation_actor=player_name)
+            return result
+
+        replayed = False
+        if "request_id" in body:
+            from persistence import intents, participants
+            try:
+                participant = participants.identify(user_key)
+                result, replayed = intents.execute(
+                    participant["id"], seed, "act", body["request_id"],
+                    {"node": target.name, "verb": verb.name}, apply)
+            except participants.Unauthorized as exc:
+                return self._send_error(str(exc), 403)
+            except ValueError as exc:
+                return self._send_error(str(exc), 409)
+        else:
+            result = apply()
+        if result["action_status"] == "accepted" and not replayed:
             from server.history import narration_fields
             narration = narration_fields(seed, result["event_id"])
             room = get_room(seed)
@@ -1329,7 +1415,8 @@ class Handler(BaseHTTPRequestHandler):
         # Renewal epochs: decay that lands on a solved node re-arms it with
         # a fresh puzzle (see causality/wiring); the epoch renames and
         # reseeds the build so old solved-state doesn't apply.
-        engine.attach_puzzles(target, persistence.count_rearms_by_node(seed))
+        epochs = persistence.count_rearms_by_node(seed)
+        engine.attach_puzzles(target, epochs, persist=True, recursive=False)
         puzzles = engine.collect_puzzles(target)
 
         if not puzzles:
@@ -1342,32 +1429,38 @@ class Handler(BaseHTTPRequestHandler):
 
         changed = None
         secondary_notifications = []
-        with puzzle_attempt(room, effective_node, p.name, player_name, correct) as (session, just_solved):
-            if just_solved or session.solver is None:
-                persistence.record_mutation(
-                    seed, effective_node, "PUZZLE_ATTEMPT", player_name,
-                    {"puzzle": p.name, "correct": correct,
-                     "guess": answer[:32]},
-                    actor_identity=_actor_identity(user_key, player_name))
-            if just_solved:
-                changed, _staged = accept_event(
-                    seed, target, EventKind.PUZZLE_SOLVED,
-                    {"puzzle": p.name,
-                     "contributors": sorted(session.contributors)},
-                    player_name=(session.solver
-                                 if session.solver != "anonymous" else None),
-                    actor_identity=_actor_identity(user_key, player_name))
-                twin = _entangled_twin(target)
-                if twin is not None:
-                    _resolve_entangled_twin(
-                        seed, room, twin, effective_node, session.solver,
-                        sorted(session.contributors),
+        if body.get("puzzle_name") is not None and body["puzzle_name"] != p.name:
+            return self._send_error("This question has renewed. Reopen it before answering.", 409)
+        from server.rooms import PuzzleRenewed
+        try:
+            with puzzle_attempt(room, effective_node, p.name, player_name, correct, expected_epoch=epochs.get(target.name, 0)) as (session, just_solved):
+                if just_solved or session.solver is None:
+                    persistence.record_mutation(
+                        seed, effective_node, "PUZZLE_ATTEMPT", player_name,
+                        {"puzzle": p.name, "correct": correct,
+                         "guess": answer[:32]},
+                        actor_identity=_actor_identity(user_key, player_name))
+                if just_solved:
+                    changed, _staged = accept_event(
+                        seed, target, EventKind.PUZZLE_SOLVED,
+                        {"puzzle": p.name,
+                         "contributors": sorted(session.contributors)},
+                        player_name=(session.solver
+                                     if session.solver != "anonymous" else None),
+                        actor_identity=_actor_identity(user_key, player_name))
+                    twin = _entangled_twin(target)
+                    if twin is not None:
+                        _resolve_entangled_twin(
+                            seed, room, twin, effective_node, session.solver,
+                            sorted(session.contributors),
+                            _actor_identity(user_key, player_name),
+                            notifications=secondary_notifications)
+                    _check_constellation(
+                        seed, room, target.parent, session.solver,
                         _actor_identity(user_key, player_name),
                         notifications=secondary_notifications)
-                _check_constellation(
-                    seed, room, target.parent, session.solver,
-                    _actor_identity(user_key, player_name),
-                    notifications=secondary_notifications)
+        except PuzzleRenewed as exc:
+            return self._send_error(str(exc), 409)
 
         # If the puzzle was already solved by an earlier player, return that
         # state without re-firing broadcasts or mutations.

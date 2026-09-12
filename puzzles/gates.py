@@ -29,7 +29,7 @@ from __future__ import annotations
 import persistence
 from multiverse.node import SpatialNode
 from multiverse.utils import apply_property_patch
-from puzzles.generators import build_puzzle
+from puzzles.instances import get_puzzle
 
 
 def _path_suffix(name: str) -> str:
@@ -82,7 +82,7 @@ def seal_check(seed: int, target: SpatialNode,
         return None  # already inside — the seal never imprisons
     _overlaid(seed, room)
     epoch = persistence.count_node_mutations(seed, room.name, "PUZZLE_REARM")
-    puzzle = build_puzzle(room, epoch)
+    puzzle = get_puzzle(seed, room, epoch)
     if persistence.get_puzzle_solve(seed, room.name, puzzle.name):
         return None
     return {

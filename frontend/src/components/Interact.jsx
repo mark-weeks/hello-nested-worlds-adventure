@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { withKey } from "../auth.js";
+import "../../../static/intents.js";
+import { betaKey, withKey } from "../auth.js";
 import { displayName } from "../names.js";
 
 // Node interaction panel: the two core-loop mechanics the /app client was
@@ -62,16 +63,20 @@ function Act({ node, seed, depth, playerName, onChanged }) {
   const act = useCallback(async () => {
     if (busy) return;
     setBusy(true); setError("");
+    let intent;
     try {
+      intent = await globalThis.EnfoldedIntents.begin("act", seed, {node: node.name, verb: verb.name}, betaKey());
       const r = await fetch(withKey("/act"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           seed, depth, node_name: node.name, verb: verb.name,
+          ...(intent ? {request_id: intent.request_id} : {}),
           player_name: playerName || undefined,
         }),
       });
       const data = await r.json();
+      if (r.status < 500) globalThis.EnfoldedIntents.finish(intent);
       if (!active.current) return;
       if (data.error) { setError(data.error); }
       else {
@@ -250,11 +255,13 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          seed, depth, node_name: node.name, answer: a,
+          seed, depth, node_name: node.name, answer: a, puzzle_name: puzzle.name,
           player_name: playerName || undefined,
         }),
       });
       const data = await r.json();
+      if (!r.ok || data.error) { setStatus(data.error || "The question has changed. Reopen it."); return; }
+      setStatus("");
       setResult(data);
       setAttempt(data.attempt ?? attempt + 1);
       // If this node was sealed, the solve IS the key: tell App to walk
@@ -268,7 +275,7 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
     } finally {
       setBusy(false);
     }
-  }, [answer, busy, result, seed, depth, node, playerName, attempt, onSolved]);
+  }, [answer, busy, result, seed, depth, node, playerName, attempt, onSolved, puzzle]);
 
   if (!puzzle) {
     return (
@@ -291,6 +298,8 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
       </div>
       <div style={s.pName}>{puzzle.name}</div>
       <div style={s.pPrompt}>{puzzle.prompt}</div>
+      <a style={{color: "#a7cde0", fontSize: 12}} href={withKey(`/puzzle/evidence?seed=${seed}&epoch=${puzzle.epoch}&node_name=${encodeURIComponent(node.name)}`)} target="_blank" rel="noopener">Conditions when this question opened ↗</a>
+      {status && <div role="status">{status} <button onClick={find}>Reopen question</button></div>}
       <input
         style={s.input}
         value={answer}

@@ -13,7 +13,7 @@ from causality.wiring import wire_world_handlers
 from multiverse import store
 from multiverse.node import SpatialNode
 from multiverse.utils import apply_property_patch
-from puzzles.engine import build_puzzle
+from puzzles.instances import get_puzzle
 from server.rooms import broadcast
 
 
@@ -25,7 +25,7 @@ def constellation_progress(seed: int, container: SpatialNode) -> tuple[int, int]
     solved = 0
     for child in container.children:
         epoch = persistence.count_node_mutations(seed, child.name, "PUZZLE_REARM")
-        puzzle = build_puzzle(child, epoch)
+        puzzle = get_puzzle(seed, child, epoch)
         if persistence.get_puzzle_solve(seed, child.name, puzzle.name):
             solved += 1
     return solved, len(container.children)
@@ -131,7 +131,7 @@ def resolve_entangled_twin(
     messages = [] if notifications is None else notifications
     with room.lock, persistence.transaction():
         epoch = persistence.count_node_mutations(seed, twin.name, "PUZZLE_REARM")
-        twin_puzzle = build_puzzle(twin, epoch)
+        twin_puzzle = get_puzzle(seed, twin, epoch)
         if persistence.get_puzzle_solve(seed, twin.name, twin_puzzle.name):
             return
         display = solver if solver != "anonymous" else None

@@ -60,21 +60,20 @@ game's general invite gate is open. Never use a client-supplied name or the
 browser's local storage ID as the vote identity. Tests and local development
 can mint disposable named credentials.
 
-The current project has invite records, not a separate stable account ID.
-Use a small community-member identifier with a private credential-to-member
-mapping. Create one member for an existing valid invite on first Ideas use;
-a unique credential mapping makes concurrent first use idempotent. A future
-credential replacement can be explicitly linked to that same member by an
-operator. Do not alter the frozen chronicle identity scheme or automatically
-link identities by matching display names. Multiple independently issued
-accounts remain possible; this controls votes per invited account, not proof
-of a unique human. Ambient agents do not receive community credentials.
+The game now has a stable participant ID and explicit credential aliases under
+[ADR-024](../decisions/ADR-024-participants-and-active-content.md). Reuse
+`participants.identify` and that owner ID when implementing Ideas; do not create
+a second community-member identity. Operator rotation already preserves the
+same participant. Keep frozen historical actor hashes unchanged and never link
+independently issued accounts by matching display names. This controls votes
+per invited account, not proof of a unique human. Ambient agents do not receive
+community credentials. The board itself remains planned.
 
 Proposed default: full ideas are visible to invited players; a public visitor
 sees an explanatory shell, not the idea contents or voter list. Show the
 submitter's registered game name on the board, disclose that before submission,
 and keep individual voters private. Before final implementation, ratify this
-visibility choice and the credential-replacement mapping with the owner.
+visibility choice with the owner; credential replacement follows ADR-024.
 
 Tell submitters that selected ideas may be summarized in a public GitHub issue.
 Public attribution by name is opt-in. A maintainer reviews the selected summary
@@ -92,7 +91,7 @@ database but do not create world events, affect puzzles, or write to
 
 | Record | Purpose and constraints |
 | --- | --- |
-| Community member and credential mapping | Stable internal member ID; unique reference to an existing credential digest; raw keys never stored or returned. Operator-controlled replacement mapping. |
+| Community member and credential mapping | Reference the existing participant ID and credential aliases from migration 0021; no duplicate member identity. |
 | Idea | Stable ID, member ID, title, description, status, created/updated times, visibility, optional duplicate target, public-credit preference, and per-member submission request ID. Unique request ID prevents retries from duplicating a submission. |
 | Vote | Unique `(idea_id, member_id)` pair. Transactional add/remove; aggregate count and viewer state returned from the committed result. |
 | Maintainer decision | Idea ID, recorded operator, status/visibility transition, explanation, and timestamp. Separate operational audit history; do not fabricate game-world actions. |

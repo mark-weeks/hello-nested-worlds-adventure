@@ -1,5 +1,16 @@
 # Discovery, Identity, and Return: Delivery Plan
 
+**2026-09-12 review build:** The owner authorized implementation of the decision
+review. [ADR-024](../decisions/ADR-024-participants-and-active-content.md) and
+[ADR-025](../decisions/ADR-025-first-situation.md) now implement a bounded M0/M5
+situation and the core M6 journal/profile ownership path. M7 remains unrun;
+[pilot protocol](../evaluation/2026-09-12-pilot-protocol.md) separates curiosity,
+choice comprehension, unprompted return and useful-return evidence from world
+history. The scene is the primary development surface; default invites remain
+on the explorer pending the public-switch gate. This is local implementation,
+not deployment or a claim of human acceptance. Historical milestones below
+retain their dated context.
+
 **Date:** 2026-09-07. **Baseline:** `4d21676456389a4531438bd64cf8c01c8ea0272d`
 (merged assessment PR #92). **Status:** product direction endorsed; planning
 documents prepared for team review. No implementation milestone below has

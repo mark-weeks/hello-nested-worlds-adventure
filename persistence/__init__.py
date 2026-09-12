@@ -4,10 +4,10 @@ Single SQLite database, single connection factory (`_connect`), schema
 managed by the migration runner over `persistence/migrations/*.sql`.
 Caller code outside this module does not touch `sqlite3` directly.
 
-The dialect-specific bits — the few places we depend on SQLite syntax
-that won't port to Postgres — are concentrated in the `--- SQL dialect
-seam ---` block below. See `docs/decisions/ADR-003-persistence-backend.md`
-for the switchover plan and the full translation table.
+The helpers below centralize common SQL expressions. They do not make a
+backend migration mechanical: SQLite writer fencing, JSON projections,
+retained work, IDs and restore semantics are part of the behavioral contract.
+See `docs/decisions/ADR-003-persistence-backend.md` before a backend change.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ _TTL_ENV_VAR = "NESTED_WORLDS_MUTATION_TTL_DAYS"
 _PRUNE_OVERRIDE_ENV = "NESTED_WORLDS_ALLOW_HISTORY_PRUNE"
 
 # --- SQL dialect seam ---
-# Concentrate SQLite-isms here so the Postgres port is mechanical.
+# Common expressions and an inventory for a future measured backend evaluation.
 # See docs/decisions/ADR-003-persistence-backend.md.
 #
 # Abstracted:
@@ -40,12 +40,14 @@ _PRUNE_OVERRIDE_ENV = "NESTED_WORLDS_ALLOW_HISTORY_PRUNE"
 #   _delete_older_than   — cutoff-based DELETE used by prune_mutations
 #
 # Not yet abstracted (deliberate — kept as-is to avoid churn before the
-# switchover triggers; translation is mechanical at port time):
+# switchover triggers; preserve behavior as well as SQL syntax):
 #   * `INSERT OR REPLACE INTO node_images ...`  — cache_image
-#   * `json_extract(...)` — get_player_exchanges (PG: `data->>'identity'`)
+#   * JSON expressions in history, attention and participants.recap
+#   * BEGIN IMMEDIATE, nested transaction ownership and generated event IDs
+#   * Online backup/restore and writer-quiescence requirements
 #   * `_SCHEMA_VERSION_DDL` `DEFAULT (datetime('now'))` — per-backend DDL
 #   * `migrations/*.sql` — schema files are per-backend; a Postgres port
-#     ships as `migrations/postgres/*.sql` selected by the runner.
+#     needs its own reviewed schema and runner; neither exists today.
 
 _NOW = "datetime('now')"  # PG: CURRENT_TIMESTAMP
 
@@ -650,14 +652,17 @@ def get_player_exchanges(world_seed: int, node_name: str, identity: str,
     """
     if not identity:
         return []
+    from persistence.participants import actor_aliases
+    aliases = actor_aliases(identity)
+    placeholders = ",".join("?" for _ in aliases)
     with _connect() as conn:
         rows = conn.execute(
-            """SELECT data FROM world_mutations
+            f"""SELECT data FROM world_mutations
                WHERE world_seed = ? AND node_name = ?
                  AND mutation_type = 'PLAYER_SPEAK'
-                 AND json_extract(data, '$.identity') = ?
+                 AND json_extract(data, '$.identity') IN ({placeholders})
                ORDER BY recorded_at DESC, id DESC LIMIT ?""",
-            (world_seed, node_name, identity, limit),
+            (world_seed, node_name, *aliases, limit),
         ).fetchall()
     out: list[dict[str, Any]] = []
     for (blob,) in reversed(rows):

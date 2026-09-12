@@ -1,5 +1,11 @@
 # ADR-013: Versioned Situations and Reliable Consequences
 
+**2026-09-12 bounded adoption:** ADR-024 pins active puzzle definitions/evidence
+and request receipts; ADR-025 pins one authored situation and its executable
+commitment. These contracts implement the owner's decision-review request.
+They do not adopt every broader evolution or inventory proposal in this record.
+Born nodes, world metadata and era banks remain unchanged.
+
 **Status:** Proposed implementation contract, 2026-09-07. Preservation of the
 shared world is endorsed product direction; transaction design, migrations, and
 new event kinds require review in their implementing PRs. No runtime behavior

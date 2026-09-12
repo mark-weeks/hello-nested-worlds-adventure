@@ -165,7 +165,7 @@ def _ambient_mode(node: SpatialNode, seed: int) -> None:
 def _play_puzzle(node: SpatialNode, seed: int,
                  player_name: str | None = None) -> None:
     engine = PuzzleEngine(seed=seed)
-    engine.attach_puzzles(node, persistence.count_rearms_by_node(seed))
+    engine.attach_puzzles(node, persistence.count_rearms_by_node(seed), persist=True, recursive=False)
     puzzle = engine.puzzle_for(node)
     if puzzle is None:
         print("  No puzzle here.")
