@@ -27,13 +27,34 @@ def _ensure(conn, digest):
     return participant
 
 
+_LIVE_INVITE = "SELECT name FROM invite_keys WHERE key=? AND revoked_at IS NULL"
+
+
 def identify(key: str) -> dict:
-    """Always require a live invite, including in otherwise ungated local mode."""
+    """Always require a live invite, including in otherwise ungated local mode.
+
+    Every authenticated read (situation polls, act pre-flight, journal,
+    profile) passes through here, so the steady state must not queue behind
+    the single SQLite writer: a known credential is resolved on a plain
+    connection, and the write transaction is entered only on first use.
+    """
+    if not key:
+        raise Unauthorized("A current personal invite is required.")
     digest = db._credential_digest(key)
+    db.init_db()
+    with db._connection() as conn:
+        row = conn.execute(_LIVE_INVITE, (digest,)).fetchone()
+        if not row:
+            raise Unauthorized("A current personal invite is required.")
+        known = conn.execute(
+            "SELECT participant_id FROM participant_credentials WHERE credential_digest=?",
+            (digest,)).fetchone()
+    if known:
+        return {"id": known[0], "name": row[0]}
     with db.transaction() as conn:
-        row = conn.execute("""SELECT name FROM invite_keys
-            WHERE key=? AND revoked_at IS NULL""", (digest,)).fetchone()
-        if not key or not row:
+        # Re-read under the write lock: a revocation may have landed between reads.
+        row = conn.execute(_LIVE_INVITE, (digest,)).fetchone()
+        if not row:
             raise Unauthorized("A current personal invite is required.")
         participant = _ensure(conn, digest)
     return {"id": participant, "name": row[0]}

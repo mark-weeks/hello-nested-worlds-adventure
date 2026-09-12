@@ -85,6 +85,23 @@ def test_tie_keeps_window_open_one_choice_per_participant_and_version_is_pinned(
     assert spec['window_seconds'] == 60
 
 
+def test_late_choice_after_deadline_commits_the_decision_without_a_pump(experience, monkeypatch):
+    """A rejected late choice must leave the commitment behind, not roll it back."""
+    owner, late = experience
+    investigate(owner)
+    situations.choose(382, owner, 'owner-choice', 'preserve')
+    investigate(late)
+    monkeypatch.setattr(situations, '_now', lambda: START + timedelta(seconds=61))
+    with pytest.raises(ValueError, match='already been made'):
+        situations.choose(382, late, 'late-choice', 'release')
+    assert situations.view(382)['phase'] == 'pending'
+    assert [r['type'] for r in history()].count('SITUATION_COMMITTED') == 1
+    assert situations.view(382, late)['choice'] is None
+    assert situations.advance(382, now=START + timedelta(seconds=200)) == 3
+    assert situations.view(382)['phase'] == 'aftermath'
+    assert persistence.load_node_property_override(382, NODES['region'])['danger_level'] == 6
+
+
 def test_application_failure_rolls_back_delta_and_retries_original_work(experience, monkeypatch):
     a, _ = experience
     investigate(a)

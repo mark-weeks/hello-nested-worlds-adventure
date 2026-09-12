@@ -128,7 +128,28 @@ def _settle(conn, situation, now):
     return True
 
 
+def _settle_overdue(seed):
+    """Close an expired window in its own commit before a choice is judged.
+
+    The commitment must never share a transaction with the choice that
+    arrives after it: rejecting that late choice would otherwise roll the
+    commitment back, leaving the window open with no pump to close it.
+    """
+    now = _now()
+    with db._connection() as conn:
+        situation = _read(conn, seed)
+    if (not situation or situation['phase'] != 'decision'
+            or datetime.fromisoformat(situation['deadline']) > now):
+        return  # Nothing to close; _settle re-checks under the write lock.
+    with db.transaction() as conn:
+        situation = _read(conn, seed)
+        if situation:
+            _settle(conn, situation, now)
+
+
 def choose(seed, participant, request_id, branch):
+    _settle_overdue(seed)
+
     def apply():
         with db._connection() as conn:
             situation = _read(conn, seed)
@@ -136,8 +157,6 @@ def choose(seed, participant, request_id, branch):
                 raise ValueError('There is no open investigation here.')
             if branch not in situation['definition']['branches']:
                 raise ValueError('Choose one of the two signal routes.')
-            _settle(conn, situation, _now())
-            situation = _read(conn, seed)
             if situation['phase'] not in ('investigate', 'decision'):
                 raise ValueError('The shared decision has already been made. You can investigate its aftermath.')
             known = {r[0] for r in conn.execute('SELECT node_name FROM situation_discoveries WHERE situation_id=? AND participant_id=?',
