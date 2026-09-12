@@ -6,7 +6,7 @@ body:
       value: |
         Playing, sharing discoveries, and testing improvements all help shape Enfolded.
         You do not need a technical diagnosis or a proposed solution.
-        Reports are public: remove invite keys and private conversations, and mark spoilers.
+        Reports are public: remove invite keys, registration links, and private conversations, and mark spoilers.
         Please discuss scope with a maintainer before preparing code.
   - type: textarea
     id: experience
