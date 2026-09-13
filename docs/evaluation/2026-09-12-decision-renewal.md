@@ -3,7 +3,8 @@
 **Baseline:** `a8bfcb332539cd56174cb3c221ebbe6817723430` (current main inspected
 September 12, 2026). **Authority:** the owner's request to implement the preceding
 decision review. Work is isolated on `codex/discovery-return-contracts`; no
-production database, deployment, merge or external publication is part of it.
+production database, deployment or merge is part of it. The owner subsequently
+authorized publication as draft PR #100 and the September 13 review fixes.
 
 The project has outgrown generated breadth as its main invitation, credentials
 as resource ownership, rebuilt active puzzles, and a migration plan that treats
@@ -101,3 +102,58 @@ the first session may be too weak to motivate next-day return. Device emulation
 and keyboard checks are useful evidence, not a full assistive-technology audit
 or Safari/iOS certification. The human pilot and production rehearsal remain
 explicit work, without claiming this local implementation performed them.
+
+
+## September 13 review fixes
+
+The owner requested incorporation of the proposed fixes and all remaining review
+findings. Commit `034cc471` from `claude/happy-carson-oxvlz9` was cherry-picked with
+its authorship retained. Its known-credential read path removes `BEGIN IMMEDIATE`
+from steady-state identity reads. The decision fix was extended after a new test
+showed that a request arriving before the deadline could acquire the writer lock
+after it and still vote: the deadline is now checked inside acceptance, before
+writes, with overdue settlement committed separately and accepted receipts still
+replayed. Pump-disabled consequences remain queued until the pump resumes.
+
+First-open puzzle generation now reads born properties plus current overlays for
+the entire ancestor chain and pins the definition and evidence in one transaction.
+Existing instances remain unchanged. Both CLI trees also load current overlays.
+Constellation progress resolves stored names or previews future names without
+opening child questions. Pilot identifiers are trimmed before duplicate detection.
+
+The scene serializes arrival saves and waits for the relevant successful save
+before reading a clue. A failed save produces a retryable arrival message, and
+navigation away suppresses a stale clue submission. The discovery helper no longer
+polls `/position` before clicking. Two browser cases click immediately while the
+arrival request is held, verify no premature clue request, then release or fail
+that request and verify successful reading or retry. They also verify that a
+consumed deep link no longer overrides subsequent travel on reload.
+
+The five additional concerns named in the review summary are covered: complete
+ancestor evidence hydration; deep-link consumption; a per-credential cached
+participant namespace for action retries (every action still authenticates on the
+server); reuse of the existing frozen actor-identity helper; and recap selection
+through stored situation event IDs instead of scanning chronicle JSON. A recap
+behavior test retains the same result with 2,000 unrelated events under a 5,000
+SQLite-operation budget. No private note text enters that projection.
+
+Five added regression cases failed before their corresponding fixes (deadline
+lock wait, whitespace aliases, ancestor evidence and both CLI entry points).
+Focused verification passed 105 Python tests, 113 Vitest tests and eight discovery
+browser cases, including accepted-response loss and reload with `/me` unavailable
+in both clients. The first browser run caught an ambiguous destination assertion;
+the clue interactions themselves passed, and the corrected assertion passed too.
+Full gate verification passed: Ruff, 1,110 Python tests, 113 Vitest tests,
+byte-fresh production bundle, installed-wheel smoke and 43 Playwright tests
+(2.2 minutes). After the final recap-query refinement, the complete Python suite
+passed again: 1,110 tests in 140.64 seconds. Rendered clue interaction was visually
+inspected; 14 local Markdown targets and `git diff --check` pass. The recap query's
+original implementation exceeds the 5,000-operation regression budget; merely
+removing its JSON lookup was insufficient until indexed per-place reads also
+replaced the global reverse scan.
+
+**Irreversibility check:** none for this follow-up diff: no migration, golden or
+birth change, new chronicle writer, world-meta pin or era-bank edit. Existing
+settlement writes have a corrected transaction boundary; previously pinned puzzle
+content and append-only history are preserved. The original PR's three additive
+migrations and four situation event kinds retain their previously scoped authority.

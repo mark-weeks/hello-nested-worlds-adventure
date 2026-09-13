@@ -6,7 +6,7 @@ import persistence
 from agents.agent import Agent
 from multiverse import store, wrap
 from multiverse.generator import BREADTH_ENVELOPE, DEFAULT_WORLD_SEED
-from multiverse.utils import count_nodes, find_node
+from multiverse.utils import apply_property_overrides, count_nodes, find_node
 from puzzles.engine import PuzzleEngine
 
 
@@ -21,6 +21,7 @@ def cmd_world(args):
 
 def cmd_agent(args):
     root = store.world_tree(seed=args.seed)
+    apply_property_overrides(root, persistence.load_node_property_overrides(args.seed))
     agent = Agent(name=args.name, danger_threshold=args.danger_threshold, world_seed=args.seed)
 
     saved = persistence.load_agent_memory(args.name, args.seed)
@@ -48,6 +49,7 @@ def cmd_puzzles(args):
     from puzzles.types import PuzzleResult
 
     root = store.world_tree(seed=args.seed)
+    apply_property_overrides(root, persistence.load_node_property_overrides(args.seed))
     engine = PuzzleEngine(seed=args.seed)
     def walk(node):
         yield node

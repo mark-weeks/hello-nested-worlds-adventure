@@ -6,7 +6,7 @@ import Wayback from "./Wayback.jsx";
 import { passageBadges } from "../badges.js";
 import { causalFeedLine, displayName, nodeAddress } from "../names.js";
 
-export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, passageLoadStatus = "idle", onPassageRetry, wrapPassage = null, onWrapCross, onSolved, onNodeChanged, soundOn, onToggleSound, onWaybackListen }) {
+export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, passageLoadStatus = "idle", onPassageRetry, wrapPassage = null, onWrapCross, onSolved, onNodeChanged, onEnsurePosition, soundOn, onToggleSound, onWaybackListen }) {
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
   const [waybackOpen, setWaybackOpen] = useState(false);
@@ -48,7 +48,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
         </div>
       </div>
 
-      <Investigation key={`${seed}:${node.name}`} node={node} seed={seed} onJump={onJump} onNodeChanged={onNodeChanged} />
+      <Investigation key={`${seed}:${node.name}`} node={node} seed={seed} onJump={onJump} onNodeChanged={onNodeChanged} onEnsurePosition={onEnsurePosition} />
 
       {Object.keys(node.properties).length > 0 && (
         <div style={s.section}>

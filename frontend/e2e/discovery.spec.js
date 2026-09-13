@@ -66,7 +66,6 @@ async function clue(page, server, role) {
   const panel = page.getByRole('region', {name: 'Investigation'});
   const label = role === 'chain' ? 'Visit the chain' : phrase(names[role]);
   await panel.getByRole('button', {name: label, exact: true}).click();
-  await expect.poll(async () => (await (await page.request.get(server.url + '/position', {headers})).json()).position?.node).toBe(names[role]);
   await panel.getByRole('button', {name: 'Read the clue here'}).click();
   await expect(panel.locator('blockquote')).toBeVisible();
 }
@@ -134,6 +133,7 @@ for (const route of ['/', '/app']) {
       }, {times: 1});
       await page.getByRole('button', {name: 'Mend this Object', exact: true}).click();
       await expect.poll(() => first?.event_id).toBeTruthy();
+      await page.route('**/me', intercept => intercept.abort());
       await page.reload();
       if (route === '/') await page.locator('#btn-act').click();
       else await page.getByRole('button', {name: 'Mend', exact: true}).click();
@@ -182,3 +182,57 @@ test('renderer initialization failure leaves a navigable text scene', async ({pa
     await expect(page.locator('[title="Broken Ember Gallery-1111111"]').first()).toBeVisible();
   } finally { await server.close(); }
 });
+
+for (const saveFailure of [false, true]) {
+  test(`immediate navigation-to-clue waits for arrival${saveFailure ? ' and recovers from a failed save' : ''}`, async ({page}) => {
+    const server = await start();
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    let blocked = false;
+    let attempts = 0;
+    const discoveries = [];
+    page.on('request', request => {
+      if (new URL(request.url()).pathname === '/situation/discover') discoveries.push(request.postDataJSON());
+    });
+    try {
+      await page.route('**/position*', async route => {
+        const request = route.request();
+        if (request.method() === 'POST' && request.postDataJSON()?.node === names.instrument && ++attempts === 1) {
+          blocked = true;
+          await held;
+          if (saveFailure) return route.abort('failed');
+        }
+        await route.continue();
+      });
+      await enter(page, server, '/app?node=' + encodeURIComponent(names.regulator));
+      const panel = page.getByRole('region', {name: 'Investigation'});
+      await panel.getByRole('button', {name: phrase(names.instrument), exact: true}).click();
+      // Click as soon as the rendered destination offers its clue. No position
+      // polling: the UI must coordinate its own pending arrival request.
+      const read = panel.getByRole('button', {name: 'Read the clue here'});
+      await read.click();
+      await expect(read).toBeDisabled();
+      await expect.poll(() => blocked).toBe(true);
+      expect(discoveries).toEqual([]);
+      await page.screenshot({path: capture('enfolded-pr100-arriving.png')});
+      release();
+      if (saveFailure) {
+        await expect(panel).toContainText('Try the clue again.');
+        expect(discoveries).toEqual([]);
+        await read.click();
+      }
+      await expect(panel.locator('blockquote')).toBeVisible();
+      expect(discoveries).toEqual([{node: names.instrument, seed: 382}]);
+      await expect(panel).not.toContainText('Travel to the place before reading its clue.');
+      await panel.locator('blockquote').scrollIntoViewIfNeeded();
+      await page.screenshot({path: capture('enfolded-pr100-clue.png')});
+      // The original deep link has been consumed; reload resumes this arrival.
+      await page.reload();
+      await expect(page.locator('.world-panel').getByTitle(names.instrument, {exact: true}).filter({hasText: /^Elder River Instrument$/})).toBeVisible();
+    } finally {
+      release();
+      await page.unrouteAll({behavior: 'wait'});
+      await server.close();
+    }
+  });
+}

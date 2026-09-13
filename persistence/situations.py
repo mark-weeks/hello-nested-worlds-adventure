@@ -128,28 +128,19 @@ def _settle(conn, situation, now):
     return True
 
 
-def _settle_overdue(seed):
-    """Close an expired window in its own commit before a choice is judged.
+class _DecisionDue(Exception):
+    """The acceptance lock was acquired after the decision deadline."""
 
-    The commitment must never share a transaction with the choice that
-    arrives after it: rejecting that late choice would otherwise roll the
-    commitment back, leaving the window open with no pump to close it.
-    """
-    now = _now()
-    with db._connection() as conn:
-        situation = _read(conn, seed)
-    if (not situation or situation['phase'] != 'decision'
-            or datetime.fromisoformat(situation['deadline']) > now):
-        return  # Nothing to close; _settle re-checks under the write lock.
+
+def _settle_overdue(seed):
+    """Commit the due decision separately from a potentially rejected choice."""
     with db.transaction() as conn:
         situation = _read(conn, seed)
         if situation:
-            _settle(conn, situation, now)
+            _settle(conn, situation, _now())
 
 
 def choose(seed, participant, request_id, branch):
-    _settle_overdue(seed)
-
     def apply():
         with db._connection() as conn:
             situation = _read(conn, seed)
@@ -157,6 +148,11 @@ def choose(seed, participant, request_id, branch):
                 raise ValueError('There is no open investigation here.')
             if branch not in situation['definition']['branches']:
                 raise ValueError('Choose one of the two signal routes.')
+            # Check after acquiring the receipt transaction's writer lock.
+            # Raise before any writes, then settle in a separate commit.
+            if (situation['phase'] == 'decision'
+                    and datetime.fromisoformat(situation['deadline']) <= _now()):
+                raise _DecisionDue()
             if situation['phase'] not in ('investigate', 'decision'):
                 raise ValueError('The shared decision has already been made. You can investigate its aftermath.')
             known = {r[0] for r in conn.execute('SELECT node_name FROM situation_discoveries WHERE situation_id=? AND participant_id=?',
@@ -171,7 +167,13 @@ def choose(seed, participant, request_id, branch):
                 (situation['id'], participant, branch))
             return {'recorded': True, 'branch': branch, 'deadline': deadline,
                     'message': 'Your preference is recorded. The shared decision is still open.'}
-    return intents.execute(participant, seed, 'situation-choice', request_id, {'branch': branch}, apply)[0]
+    while True:
+        try:
+            return intents.execute(participant, seed, 'situation-choice', request_id, {'branch': branch}, apply)[0]
+        except _DecisionDue:
+            _settle_overdue(seed)
+            # A tie extends the window; otherwise the next attempt rejects it.
+            # Existing receipts replay before apply(), even after settlement.
 
 
 def _land(conn, work, situation):

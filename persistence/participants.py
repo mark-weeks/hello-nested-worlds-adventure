@@ -182,14 +182,34 @@ def recap(participant: str, seed: int) -> list[dict]:
     """Recent consequences at saved places or explicitly joined situations; no note text."""
     db.init_db()
     with db._connection() as conn:
-        rows = conn.execute("""SELECT id,node_name,mutation_type,data FROM world_mutations
-            WHERE world_seed=? AND delta IS NOT NULL AND node_name IN (
-                SELECT node_name FROM journal_notes WHERE participant_id=? AND world_seed=?
-                UNION SELECT home_node FROM participant_profiles WHERE participant_id=? AND home_seed=?
-                UNION SELECT DISTINCT m.node_name FROM world_mutations m JOIN situations s
-                  ON json_extract(m.data,'$.situation')=s.id JOIN situation_discoveries d ON d.situation_id=s.id
-                  WHERE d.participant_id=? AND s.world_seed=? AND m.world_seed=?)
-            ORDER BY id DESC LIMIT 8""", (seed, participant, seed, participant, seed, participant, seed, seed)).fetchall()
+        places = conn.execute("""WITH joined AS (
+                SELECT DISTINCT s.id,s.opened_event_id,s.commitment_event_id,s.outcome_event_id
+                FROM situations s JOIN situation_discoveries d ON d.situation_id=s.id
+                WHERE d.participant_id=? AND s.world_seed=?
+            ), linked_events AS (
+                SELECT opened_event_id AS id FROM joined
+                UNION SELECT commitment_event_id FROM joined
+                UNION SELECT outcome_event_id FROM joined
+                UNION SELECT w.event_id FROM situation_work w JOIN joined j ON j.id=w.situation_id
+                UNION SELECT f.event_id FROM situation_followups f JOIN joined j ON j.id=f.situation_id
+            )
+            SELECT node_name FROM journal_notes WHERE participant_id=? AND world_seed=?
+            UNION SELECT home_node FROM participant_profiles WHERE participant_id=? AND home_seed=?
+            UNION SELECT m.node_name FROM linked_events e
+                CROSS JOIN world_mutations m NOT INDEXED
+                WHERE m.id=e.id AND m.world_seed=?""",
+            (participant, seed, participant, seed, participant, seed, seed)).fetchall()
+        # Each place contributes at most eight candidates. The node index keeps
+        # unrelated world history out of these reads, including when fewer than
+        # eight relevant deltas exist and a global reverse scan would run to birth.
+        rows = []
+        for (node,) in places:
+            if node is not None:
+                rows.extend(conn.execute("""SELECT id,node_name,mutation_type,data FROM world_mutations
+                    INDEXED BY idx_world_mutations_seed_node
+                    WHERE world_seed=? AND node_name=? AND delta IS NOT NULL
+                    ORDER BY id DESC LIMIT 8""", (seed, node)).fetchall())
+        rows = sorted(rows, key=lambda row: row[0], reverse=True)[:8]
     projected = {r['id']: r for r in db.presented_mutations(seed, [row[0] for row in rows])}
     return [{"event_id": row[0], "node": row[1],
              "text": projected.get(row[0], {}).get("narration", {}).get("text")

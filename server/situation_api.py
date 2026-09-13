@@ -1,6 +1,4 @@
 """Bounded investigation reads and authenticated participant actions."""
-import hashlib
-
 from persistence import participants, situations
 from multiverse import store
 from puzzles.gates import seal_check
@@ -36,8 +34,9 @@ def handle(handler, path, qs, body=None):
         elif path == '/situation/choose':
             result = situations.choose(seed, me['id'], body.get('request_id'), body.get('branch'))
         elif path == '/situation/follow-up':
+            from server.handlers import _actor_identity
             result = situations.follow_up(seed, me['id'], body.get('request_id'),
-                actor_identity=hashlib.sha256(key.encode()).hexdigest()[:16], player_name=me['name'])
+                actor_identity=_actor_identity(key, me['name']), player_name=me['name'])
         else:
             raise ValueError('This page is read-only.')
         handler._send_json(result)

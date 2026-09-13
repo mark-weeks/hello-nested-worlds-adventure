@@ -214,3 +214,66 @@ def test_new_routes_enforce_canonical_world_before_any_parallel_history(http):
     for path in ('/situation', '/me', '/profile', '/journal/data', '/puzzle/evidence'):
         assert http(path + '?seed=999')[0] in (400, 409)
     assert not persistence.world_is_born(999)
+
+
+def test_first_open_hydrates_entire_lineage_and_keeps_original_evidence():
+    from puzzles.instances import evidence
+    from multiverse.situation import NODES
+    node = store.resolve_node_by_name(382, NODES['instrument'])
+    ancestor = node.parent.parent
+    persistence.record_substance_change(382, node.name, 'TEST_CHANGE', None, {}, {'signal': 'current'})
+    persistence.record_substance_change(382, ancestor.name, 'TEST_CHANGE', None, {}, {'climate': 'copper rain'})
+    get_puzzle(382, node)
+    snapshot = {r['node']: r['properties'] for r in evidence(382, node.name, 0)}
+    assert snapshot[node.name]['signal'] == 'current'
+    assert snapshot[ancestor.name]['climate'] == 'copper rain'
+    assert 'signal' not in node.properties  # Caller-owned tree remains untouched.
+    persistence.record_substance_change(382, ancestor.name, 'TEST_CHANGE', None, {}, {'climate': 'later'})
+    get_puzzle(382, node)
+    assert evidence(382, node.name, 0)[2]['properties']['climate'] == 'copper rain'
+
+
+def test_constellation_read_does_not_open_child_questions(http, monkeypatch):
+    from persistence import puzzle_content
+    from puzzles import generators, instances
+    from multiverse.situation import NODES
+    from multiverse.utils import find_node
+    from server.world_mechanics import constellation_progress
+
+    root = store.world_tree(382)
+    container = find_node(root, NODES['region'])
+    child = container.children[0]
+    result = http('/puzzle?node_name=' + quote(container.name))
+    assert result[0] == 200
+    assert all(puzzle_content.read(382, n.name, 0) is None for n in container.children)
+    persistence.record_substance_change(382, child.name, 'TEST_CHANGE', None, {}, {'scene': 'after preview'})
+    opened = instances.get_puzzle(382, child)
+    assert instances.evidence(382, child.name, 0)[0]['properties']['scene'] == 'after preview'
+    # Stored names, not a later generator interpretation, identify prior human solves.
+    persistence.record_mutation(382, child.name, 'PUZZLE_SOLVED', 'Ada', {'puzzle': opened.name})
+    from dataclasses import replace
+    build = generators.build_puzzle
+    monkeypatch.setattr(generators, 'build_puzzle', lambda node, epoch=0: replace(build(node, epoch), name='Future question'))
+    assert constellation_progress(382, container) == (1, len(container.children))
+    assert all(puzzle_content.read(382, n.name, 0) is None for n in container.children[1:])
+
+
+@pytest.mark.parametrize('command', ['puzzles', 'agent'])
+def test_cli_opens_questions_from_current_properties(command, monkeypatch):
+    from argparse import Namespace
+    import main
+    from puzzles.instances import evidence
+    root = store.world_tree(382)
+    persistence.record_substance_change(382, root.name, 'TEST_CHANGE', None, {}, {'scene': 'current cli world'})
+    if command == 'puzzles':
+        monkeypatch.setattr('builtins.input', lambda _: 'skip')
+        main.cmd_puzzles(Namespace(seed=382, limit=1))
+    else:
+        # Exercise the actual CLI tree and actual agent puzzle resolver without
+        # relying on the FSM happening to choose INTERACT on this particular root.
+        def traverse(agent, node, max_nodes):
+            assert node.properties['scene'] == 'current cli world'
+            agent._attempt_puzzle(node)
+        monkeypatch.setattr(main.Agent, 'traverse', traverse)
+        main.cmd_agent(Namespace(seed=382, name='Test Walker', danger_threshold=7, max_nodes=1))
+    assert evidence(382, root.name, 0)[0]['properties']['scene'] == 'current cli world'

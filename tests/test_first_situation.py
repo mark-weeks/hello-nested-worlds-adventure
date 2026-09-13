@@ -207,3 +207,69 @@ def test_maturation_failure_cannot_starve_situation_pump(monkeypatch):
             return self.ticks > 1
     heartbeat.run_pump_loop(Stop())
     assert calls == [382]
+
+
+def test_choice_waiting_for_writer_cannot_cross_the_deadline(experience, monkeypatch):
+    from contextlib import contextmanager
+    import sqlite3
+    import threading
+
+    owner, late = experience
+    for person in (owner, late):
+        investigate(person)
+    situations.choose(382, owner, 'owner-choice', 'preserve')
+    clock = [START + timedelta(seconds=59)]
+    monkeypatch.setattr(situations, '_now', lambda: clock[0])
+    waiting = threading.Event()
+    real_transaction = persistence.transaction
+
+    @contextmanager
+    def transaction():
+        waiting.set()
+        with real_transaction() as conn:
+            yield conn
+
+    monkeypatch.setattr(persistence, 'transaction', transaction)
+    writer = sqlite3.connect(persistence._DB_PATH, isolation_level=None)
+    writer.execute('BEGIN IMMEDIATE')
+    outcome = {}
+
+    def choose():
+        try:
+            outcome['result'] = situations.choose(382, late, 'late-choice', 'release')
+        except ValueError as exc:
+            outcome['error'] = str(exc)
+
+    worker = threading.Thread(target=choose)
+    worker.start()
+    try:
+        assert waiting.wait(2)
+        clock[0] = START + timedelta(seconds=61)
+    finally:
+        writer.execute('ROLLBACK')
+        writer.close()
+        worker.join(5)
+    assert not worker.is_alive()
+    assert 'already been made' in outcome.get('error', '')
+    assert situations.view(382)['phase'] == 'pending'
+    assert situations.view(382)['counts'] == {'preserve': 1}
+    assert [r['type'] for r in history()].count('SITUATION_COMMITTED') == 1
+    # Replaying an accepted choice after settlement still returns its receipt.
+    assert situations.choose(382, owner, 'owner-choice', 'preserve')['recorded']
+
+
+def test_recap_uses_linked_event_ids_under_unrelated_chronicle_growth(experience):
+    owner, _ = experience
+    investigate(owner)
+    situations.choose(382, owner, 'choice-recap', 'release')
+    situations.advance(382, now=START + timedelta(seconds=200))
+    situations.advance(382, now=START + timedelta(seconds=300))
+    expected = participants.recap(owner, 382)
+    assert expected
+    with persistence.transaction():
+        for _ in range(2000):
+            persistence.record_mutation(382, 'Unrelated Place-12', 'AGENT_VISIT', None, {'agent': 'Walker'})
+    # Bound actual SQL execution rather than matching a query's text. Looking
+    # up situation evidence by JSON across this history exceeds this budget.
+    with persistence.agent_work_budget(5_000):
+        assert participants.recap(owner, 382) == expected

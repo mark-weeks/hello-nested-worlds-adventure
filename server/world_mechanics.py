@@ -13,7 +13,7 @@ from causality.wiring import wire_world_handlers
 from multiverse import store
 from multiverse.node import SpatialNode
 from multiverse.utils import apply_property_patch
-from puzzles.instances import get_puzzle
+from puzzles.instances import get_puzzle, peek_puzzle
 from server.rooms import broadcast
 
 
@@ -25,7 +25,7 @@ def constellation_progress(seed: int, container: SpatialNode) -> tuple[int, int]
     solved = 0
     for child in container.children:
         epoch = persistence.count_node_mutations(seed, child.name, "PUZZLE_REARM")
-        puzzle = get_puzzle(seed, child, epoch)
+        puzzle = peek_puzzle(seed, child, epoch)
         if persistence.get_puzzle_solve(seed, child.name, puzzle.name):
             solved += 1
     return solved, len(container.children)

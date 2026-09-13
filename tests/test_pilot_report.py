@@ -20,3 +20,9 @@ def test_reminder_and_repeat_session_cannot_inflate_retention():
         report([{'participant': 'A', 'unprompted_return': True, 'reminded': True}])
     with pytest.raises(ValueError):
         report([{'participant': 'A'}, {'participant': 'A'}])
+
+
+def test_whitespace_aliases_cannot_inflate_participant_denominators():
+    with pytest.raises(ValueError, match='one row per participant'):
+        report([{'participant': 'P01', 'curiosity': True},
+                {'participant': ' P01\t', 'curiosity': True}])

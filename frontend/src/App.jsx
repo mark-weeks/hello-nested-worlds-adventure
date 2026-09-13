@@ -55,15 +55,18 @@ async function hydratePositionFromServer() {
   }
 }
 
-function savePositionToServer(node, seed, depth) {
+async function savePositionToServer(node, seed, depth) {
   if (!betaKey() || !node || !Number.isFinite(seed)) return;
   try {
-    fetch(withKey("/position"), {
-      method:  "POST",
+    const response = await fetch(withKey("/position"), {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ node, seed, depth }),
-    }).catch(() => {});             // fire-and-forget; localStorage is the backstop
-  } catch (_) {}
+      body: JSON.stringify({ node, seed, depth }),
+    });
+    const data = await response.json();
+    if (response.ok && data.saved) return;
+  } catch (_) { /* Keep a failed arrival retryable in the clue control. */ }
+  throw new Error("Your arrival has not settled here. Try the clue again.");
 }
 
 export default function App() {
@@ -147,6 +150,12 @@ export default function App() {
       const name = localStorage.getItem(NAME_KEY) || urlName() || "";
       worldRootRef.current = data.world;
       setNodeStack(entryPath(data.world, savedNode || data.entry_node, name));
+      // A deep link selects this arrival once; later reloads resume actual travel.
+      if (new URLSearchParams(location.search).has("node")) {
+        const url = new URL(location.href);
+        url.searchParams.delete("node");
+        history.replaceState(null, "", url);
+      }
 
       // Backfill the canonical world's recent past into the feed.
       if (!preserveSession) {
@@ -169,6 +178,22 @@ export default function App() {
   }, []);
 
   const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
+  const positionQueue = useRef(Promise.resolve());
+  const latestPosition = useRef(null);
+  const queuePosition = useCallback((node, world, depth) => {
+    // Preserve navigation order even when an earlier request is slow or fails.
+    const promise = positionQueue.current.catch(() => {}).then(() => savePositionToServer(node, world, depth));
+    positionQueue.current = promise;
+    const arrival = {node, seed: world, promise, failed: false};
+    latestPosition.current = arrival;
+    promise.catch(() => { arrival.failed = true; });
+    return promise;
+  }, []);
+  const ensurePosition = useCallback((node) => {
+    const arrival = latestPosition.current;
+    if (arrival?.node === node && arrival.seed === seed && !arrival.failed) return arrival.promise;
+    return queuePosition(node, seed, worldDepth);
+  }, [queuePosition, seed, worldDepth]);
 
   const seedRef = useRef(seed);
   seedRef.current = seed;
@@ -344,9 +369,9 @@ export default function App() {
     if (currentNodeName) {
       localStorage.setItem(LAST_NODE_KEY, currentNodeName);
       localStorage.setItem(LAST_DEPTH_KEY, String(worldDepth));
-      savePositionToServer(currentNodeName, seed, worldDepth);
+      queuePosition(currentNodeName, seed, worldDepth);
     }
-  }, [currentNodeName, seed, worldDepth]);
+  }, [currentNodeName, seed, worldDepth, queuePosition]);
 
   // Drop all transients when the player navigates — a leftover ripple from
   // the previous node is meaningless in the new scene.
@@ -564,6 +589,7 @@ export default function App() {
         onWrapCross={crossWrap}
         onSolved={handleSolved}
         onNodeChanged={refreshCurrentNode}
+        onEnsurePosition={ensurePosition}
         soundOn={soundPreferred}
         onToggleSound={toggleSound}
         onWaybackListen={previewWaybackSound}

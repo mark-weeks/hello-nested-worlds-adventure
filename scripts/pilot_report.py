@@ -19,9 +19,10 @@ def report(rows):
     for row in rows:
         if not isinstance(row, dict) or not isinstance(row.get('participant'), str) or not row['participant'].strip():
             raise ValueError('Each observation needs a pseudonymous participant.')
-        if row['participant'] in seen:
+        participant = row['participant'].strip()
+        if participant in seen:
             raise ValueError('Use one row per participant, not one per session.')
-        seen.add(row['participant'])
+        seen.add(participant)
         for metric in METRICS:
             value = row.get(metric)
             if value is not None and not isinstance(value, bool):

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { betaKey } from "../auth.js";
 import { displayName } from "../names.js";
 
-export default function Investigation({ node, seed, onJump, onNodeChanged }) {
+export default function Investigation({ node, seed, onJump, onNodeChanged, onEnsurePosition }) {
   const [situation, setSituation] = useState(null);
   const [clue, setClue] = useState("");
   const [message, setMessage] = useState("");
@@ -41,6 +41,11 @@ export default function Investigation({ node, seed, onJump, onNodeChanged }) {
     setBusy(true); setMessage("");
     let intent;
     try {
+      if (path === "/situation/discover") {
+        setMessage("Your arrival is settling here…");
+        await onEnsurePosition?.(place);
+        if (!active.current) return;
+      }
       if (consequential) intent = await globalThis.EnfoldedIntents.begin(path, seed, payload, betaKey());
       const data = await api(path, {...payload, ...(intent ? {request_id: intent.request_id} : {})});
       globalThis.EnfoldedIntents.finish(intent);
