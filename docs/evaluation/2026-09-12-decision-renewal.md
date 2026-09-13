@@ -157,3 +157,13 @@ birth change, new chronicle writer, world-meta pin or era-bank edit. Existing
 settlement writes have a corrected transaction boundary; previously pinned puzzle
 content and append-only history are preserved. The original PR's three additive
 migrations and four situation event kinds retain their previously scoped authority.
+
+
+The first GitHub run on the review-fix commit passed Python and frontend gates,
+but exposed an existing stdout framing assumption in `inhabitants.spec.js`:
+42/43 browser cases passed, and the explorer inhabitant case parsed a partial
+pipe chunk as a whole JSON response. The fixture now reads newline-delimited
+messages, including server startup. Replies are deliberately split across writes
+to keep that regression exercised. Both affected browser cases pass locally
+(2/2 in 4.2 seconds). This follow-up changes only the test fixture and evidence;
+application code, schema and production bundle are unchanged.

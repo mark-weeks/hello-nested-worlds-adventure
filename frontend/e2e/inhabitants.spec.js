@@ -2,6 +2,7 @@
 import { expect, test } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { createInterface } from 'node:readline';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -12,7 +13,7 @@ test.use({ viewport: { width: 1440, height: 1100 } });
 
 async function serve(db) {
   const child = spawn(python, ['-u', '-c', `
-import sys, threading, json, random
+import sys, threading, json, random, time
 from pathlib import Path
 from unittest.mock import patch
 import persistence
@@ -58,22 +59,33 @@ for command in sys.stdin:
         result = {'hops': drain_due_hops(world_seed=382, broadcaster_batch=heartbeat._pump_broadcast_batch)}
         if command.strip() == 'land':
             result['landed'] = heartbeat.drain_matured_verbs(world_seed=382)
-    print(json.dumps(result), flush=True)
+    # Exercise pipe fragmentation deliberately: a data chunk is not a message.
+    reply = json.dumps(result)
+    split = len(reply) // 2
+    sys.stdout.write(reply[:split])
+    sys.stdout.flush()
+    time.sleep(0.02)
+    print(reply[split:], flush=True)
 `, db], { cwd: repo, env: { ...process.env,
     NESTED_WORLDS_CANONICAL_SEED: '382', NESTED_WORLDS_MATURATION_SCALE: '1',
     NESTED_WORLDS_DISABLE_AI: '1', NESTED_WORLDS_DISABLE_IMAGES: '1' },
     stdio: ['pipe', 'pipe', 'pipe'] });
   let errors = '';
   child.stderr.on('data', data => { errors += data; });
-  const port = await new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.once('exit', code => reject(new Error(`server ${code}: ${errors}`)));
-    child.stdout.once('data', data => resolve(Number(String(data).trim())));
-  });
-  const command = value => new Promise(resolve => {
-    child.stdout.once('data', data => resolve(JSON.parse(String(data).trim())));
+  const output = createInterface({input: child.stdout, crlfDelay: Infinity});
+  const lines = output[Symbol.asyncIterator]();
+  let spawnError;
+  child.once('error', error => { spawnError = error; output.close(); });
+  const read = async () => {
+    const {value, done} = await lines.next();
+    if (done) throw spawnError || new Error(`server closed its output: ${errors}`);
+    return value;
+  };
+  const port = Number(await read());
+  const command = async value => {
     child.stdin.write(value + '\n');
-  });
+    return JSON.parse(await read());
+  };
   return { child, command, url: `http://127.0.0.1:${port}` };
 }
 async function stop(server) {
