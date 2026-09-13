@@ -1,5 +1,14 @@
 # ADR-005: Launch-Window Operations Policy
 
+**2026-09-12 client development revision:** The scene client `/app` is now the
+primary surface for the discovery/return slice. The explorer `/` retains the
+world map and compatibility role; shared rules and request-intent handling live
+outside either shell. Invites still default to `/` in this batch. A public
+switch follows a reviewed device/accessibility/fallback assessment and human
+onboarding evidence; Chromium checks alone do not establish support on every
+device. The scene now has a responsive layout and navigable text fallback when
+its graphics renderer is unavailable. See ADR-025 and the implementation evaluation.
+
 **Status:** Accepted 2026-07-19
 
 ---

@@ -1,5 +1,13 @@
 # ADR-014: Player Identity, a Private Journal, and Public Relationships
 
+**2026-09-12 implementation scope:** [ADR-024](ADR-024-participants-and-active-content.md)
+provides the previously assumed durable participant identity, private journal,
+selectively published profile, private home bookmark and four preset avatars.
+Profiles render the chosen avatar; live-presence avatar parity is still deferred.
+Operator credential rotation preserves ownership. Rankings, disposition,
+journal sharing, guilds, uploaded avatars and self-service recovery remain
+proposals, not implied by this implementation.
+
 **Status:** Proposed (owner-endorsed product direction), 2026-09-07;
 pending development-team review and ratification. Implementation pending.
 The owner requested a journal and ways for players to form and broadcast an

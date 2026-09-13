@@ -1,5 +1,14 @@
 # Game Design Document — Enfolded: Nested World Adventure
 
+The September 12 discovery/return slice implements one bounded shared signal
+investigation in existing places ([ADR-025](../decisions/ADR-025-first-situation.md)).
+Preserving keeper control and releasing the signal have different beneficiaries
+and costs. A shared decision window produces lasting consequences; late arrivals
+investigate the aftermath. The scene client leads this experience, with journals
+and selectively published profiles under [ADR-024](../decisions/ADR-024-participants-and-active-content.md).
+This is implemented scope, not evidence of retention or approval of rankings,
+guilds, disposition meters, voice input or a general inventory system.
+
 ---
 
 ## Product direction and implementation status

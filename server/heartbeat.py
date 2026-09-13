@@ -236,7 +236,7 @@ def _chain(node):
         node = node.parent
 
 
-def _accessible(node, signals, threshold, current_name=None):
+def _accessible(node, signals, threshold, current_name=None, seed=None):
     from puzzles import gates
     from puzzles.generators import build_puzzle
     if any(should_preserve(ancestor, threshold) for ancestor in _chain(node.parent)):
@@ -247,7 +247,9 @@ def _accessible(node, signals, threshold, current_name=None):
     if current_name and gates._path_suffix(current_name).startswith(gates._path_suffix(room.name)):
         return True  # shared structural rule: the seal never imprisons
     signal = signals[room.name]
-    return build_puzzle(room, signal["epoch"]).name in signal["solved"]
+    from puzzles.instances import get_puzzle
+    puzzle = get_puzzle(seed, room, signal["epoch"]) if seed is not None else build_puzzle(room, signal["epoch"])
+    return puzzle.name in signal["solved"]
 
 
 def _hold_conversation(seed: int, room, node: SpatialNode,
@@ -416,7 +418,7 @@ def _run_tick(seed, rng, max_nodes, pace):
             state = persistence.load_agent_attention(agent_name, seed, [node.name]).get(node.name, {})
             signal = current_signals[node.name]
             field, value = ("puzzle", signal["epoch"]) if mode == "puzzle" else ("change", signal["change"])
-            if (state.get(field, -1) >= value or not _accessible(node, current_signals, threshold, current_name)
+            if (state.get(field, -1) >= value or not _accessible(node, current_signals, threshold, current_name, seed)
                     or should_preserve(node, threshold)):
                 return None
             result = operation(signal) if mode == "puzzle" else operation()
@@ -434,7 +436,7 @@ def _run_tick(seed, rng, max_nodes, pace):
         if node.name not in priority_names:
             fair_cursor = node.name
         signal = signals[node.name]
-        if not _accessible(node, signals, threshold, current_name):
+        if not _accessible(node, signals, threshold, current_name, seed):
             return False
         danger, persona_due, puzzle_due, changed = opportunities(node)
         # Persona actions run after traversal: reserve their admission slots
@@ -508,7 +510,7 @@ def _run_tick(seed, rng, max_nodes, pace):
                 work["priority_screened"] += 1
                 danger, persona_due, puzzle_due, changed = opportunities(node)
                 if ((persona_due or puzzle_due or danger and changed)
-                        and _accessible(node, signals, threshold)):
+                        and _accessible(node, signals, threshold, seed=seed)):
                     priority.append(node)
             priority = priority[:priority_limit]
             priority_names = {node.name for node in priority}
@@ -689,6 +691,11 @@ def run_pump_loop(stop: threading.Event) -> None:
             drain_matured_verbs(world_seed=hosted_seed)
         except Exception:  # noqa: BLE001 — planted changes must still land
             _log.exception("verb maturation drain failed; continuing")
+        try:
+            from persistence.situations import advance
+            advance(hosted_seed)
+        except Exception:  # noqa: BLE001 — other queues cannot block a commitment
+            _log.exception("situation progression failed; continuing")
 
 
 def start_pump() -> threading.Event:

@@ -1,5 +1,11 @@
 # ADR-022: Bounded attention to familiar places
 
+**2026-09-12 bounded extension:** [ADR-025](ADR-025-first-situation.md) adds one
+executable public commitment for Tessera and retrieves its actual opening,
+commitment and fulfillment for voice independently of recent chatter. This
+retains discovery memory and the M4 attention policy. It introduces no private
+journal access or unrestricted agent planning.
+
 **Status:** Proposed for review, 2026-09-08. Implements bounded M4 only;
 ADR-013's broader proposals and M0/M5 content remain Proposed.
 

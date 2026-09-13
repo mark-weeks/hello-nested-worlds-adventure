@@ -61,7 +61,8 @@
     .node.selected circle { stroke: #fff !important; stroke-width: 2.5 !important; }
 
     /* ── Sidebar ── */
-    .sidebar { flex: 0 0 340px; border-left: 1px solid #1a2038; background: #0b0d1a; display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar { flex: 0 0 340px; border-left: 1px solid #1a2038; background: #0b0d1a; display: flex; flex-direction: column; overflow-y: auto; }
+    .sidebar > * { flex-shrink: 0; }
 
     .panel { padding: 14px 16px; border-bottom: 1px solid #141828; }
     .panel-title { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #304060; margin-bottom: 10px; }
@@ -118,7 +119,7 @@
     .mode-bar button:hover:not(.active) { background: #0e1020; color: #5a7090; }
 
     /* ── Content panels ── */
-    .content-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .content-area { flex: 1 0 260px; min-height: 260px; display: flex; flex-direction: column; overflow: hidden; }
     .mode-panel { display: none; flex: 1; flex-direction: column; padding: 14px 16px; gap: 8px; overflow: hidden; }
     .mode-panel.active { display: flex; }
 
@@ -284,6 +285,8 @@
   <button id="btn-sound" title="Ambient sound: every place hums its own deterministic tone"
           aria-pressed="false"
           style="font-size:10px;padding:3px 8px;letter-spacing:1px;white-space:nowrap">♪ off</button>
+  <a href="/app" style="font-size:12px;color:#bce5dc">Investigate in scene view ↗</a>
+  <a href="/journal" target="_blank" rel="noopener" style="font-size:12px;color:#9fcbea">Journal ↗</a>
   <a href="/guide" style="font-size:10px;color:#2a4060;text-decoration:none;letter-spacing:1px;white-space:nowrap" title="How to play">Guide ↗</a>
   <a href="/app" style="font-size:10px;color:#2a4060;text-decoration:none;letter-spacing:1px;white-space:nowrap" title="Open the PixiJS immersive view">Visual ↗</a>
 </header>
@@ -419,6 +422,7 @@
 
 <script type="module" src="/nodeart-global.js"></script>
 <script src="/clientlogic.js" defer></script>
+<script src="/intents.js" defer></script>
 <script src="/explorer.js" defer></script>
 </body>
 </html>

@@ -1,5 +1,12 @@
 # ADR-020: Coherent delayed scale actions
 
+**2026-09-12 request and conflict revision:** [ADR-024](ADR-024-participants-and-active-content.md)
+adds optional authenticated HTTP request IDs to `/act`, with transactional
+receipts and client retry persistence. Legacy callers without IDs retain their
+semantics. [ADR-025](ADR-025-first-situation.md) requires IDs for its choices and
+follow-ups and adopts a shared decision window, not first-valid-commitment,
+for that situation. Existing delayed verbs and their version-2 policies remain.
+
 **Status:** Proposed for development-team review, 2026-09-08. These are the
 bounded choices implemented by M2. ADR-013's broader situation contract remains
 Proposed; M0 must define actual opposing interventions before M5 implements them.

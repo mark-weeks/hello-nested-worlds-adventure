@@ -455,6 +455,23 @@ and the launch-readiness findings in
 `docs/evaluation/2026-07-04-deep-evaluation.md`. Work through it top to
 bottom on the day.
 
+**Discovery/return compatibility rehearsal (2026-09-12):** Before deploying
+migrations 0021–0023, stop all writers and verify a complete backup. On the
+separate disposable staging database, exercise key rotation with private notes,
+an opened puzzle across content change, duplicate `/act` requests, both signal
+branches, a process death during a pending promise, and restore with that promise
+still pending. Use a compatible application build after restore; an older build
+that cannot interpret situation version 1 must not resume its work. The tests
+in `test_first_situation.py` exercise local crash/restore behavior; they are not
+proof of an off-host deployment rehearsal. Reverting to a pre-deploy database
+would discard newly accepted history and is the exceptional disaster path.
+
+Opening `python main.py situation --seed 382` appends the situation's opening
+record; it is a separate deliberate operator action after deployment, never an
+automatic startup hook. Do not open it on production during acceptance testing.
+The existing backup-before-deploy requirement and explicit deploy authorization
+remain in force.
+
 **T-1 week:**
 
 - [ ] `FLY_API_TOKEN` repo secret set; one manual `workflow_dispatch` of

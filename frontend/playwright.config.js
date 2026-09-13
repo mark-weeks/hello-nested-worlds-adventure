@@ -21,7 +21,7 @@ export default defineConfig({
       : {},
   },
   webServer: {
-    command: `${PYTHON} ../main.py serve --host 127.0.0.1 --port ${PORT}`,
+    command: `${PYTHON} ../scripts/e2e_server.py ${PORT}`,
     url: `http://127.0.0.1:${PORT}/health`,
     reuseExistingServer: false,
     timeout: 30_000,
@@ -31,7 +31,8 @@ export default defineConfig({
       // pump mutating state while assertions read it.
       NESTED_WORLDS_HEARTBEAT: "0",
       NESTED_WORLDS_CAUSAL_PUMP: "0",
-      HOME: process.env.E2E_HOME || process.env.HOME,
+      NESTED_WORLDS_DISABLE_AI: "1",
+      NESTED_WORLDS_DISABLE_IMAGES: "1",
     },
   },
 });

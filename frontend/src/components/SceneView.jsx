@@ -23,6 +23,7 @@ export default function SceneView({
   // mobile devices). This flag gates every draw on init having finished.
   const readyRef = useRef(false);
   const [bgUrl, setBgUrl] = useState(null);
+  const [unavailable, setUnavailable] = useState(false);
 
   // Fetch fal.ai background image URL whenever the node changes
   useEffect(() => {
@@ -85,10 +86,10 @@ export default function SceneView({
       app.ticker.add(tickCallback);
     }).catch((err) => {
       // WebGL/WebGPU unavailable (headless without GPU, locked-down mobile).
-      // Leave the scene blank; the rest of the app (text panel, speak, puzzle)
-      // stays fully usable instead of white-screening. Warn instead of going
+      // Keep a navigable text scene if the graphics backend is unavailable. Warn instead of going
       // fully silent so a real init regression is distinguishable from a
       // GPU-less environment.
+      if (appRef.current === app) setUnavailable(true);
       console.warn("scene renderer unavailable:", err?.message ?? err);
     });
 
@@ -126,17 +127,22 @@ export default function SceneView({
   }, [node, players, onNavigate, bgUrl, seed]);
 
   return (
-    <div style={styles.wrapper}>
+    <div className="scene-view" style={styles.wrapper}>
       <div
         ref={containerRef}
         style={styles.canvas}
         role="img"
         aria-label={`Scene of ${node ? displayName(node.name) : "the world"}, a ${node?.level || "place"}. ${node?.properties?.aspect || ""}`}
       />
+      {unavailable && <section aria-label="Text scene" style={{position: "absolute", inset: "100px 20px 44px", overflowY: "auto", color: "#cbd9e5", lineHeight: 1.6}}>
+        <h2>{displayName(node.name)}</h2>
+        <p>The view is quiet. The passages remain open to exploration.</p>
+        {node.children.map(child => <button key={child.name} style={{...styles.upBtn, position: "static", display: "block", marginTop: 10}} onClick={() => onNavigate(child)}>Enter {displayName(child.name)}</button>)}
+      </section>}
       {canGoUp && (
         <button style={styles.upBtn} onClick={onNavigateUp}>← back</button>
       )}
-      <a href="/" style={styles.switchLink} title="Switch to D3 explorer">D3 ↗</a>
+      <a href="/" style={styles.switchLink} title="Open the world map">World map ↗</a>
     </div>
   );
 }
@@ -408,8 +414,8 @@ function rippleColor(kind) {
 }
 
 const styles = {
-  wrapper:    { flex: "0 0 65%", position: "relative", overflow: "hidden" },
+  wrapper:    { flex: "1 1 60%", minWidth: 0, position: "relative", overflow: "hidden" },
   canvas:     { width: "100%", height: "100%" },
-  upBtn:      { position: "absolute", top: 16, left: 16, background: "rgba(10,14,28,0.85)", border: "1px solid #2a4060", color: "#3a8eff", padding: "6px 14px", cursor: "pointer", fontFamily: "Courier New, monospace", fontSize: "12px", zIndex: 10, letterSpacing: "0.05em" },
-  switchLink: { position: "absolute", bottom: 12, left: 16, fontSize: "10px", color: "#2a3555", textDecoration: "none", letterSpacing: "0.08em" },
+  upBtn:      { position: "absolute", top: 56, left: 16, background: "rgba(10,14,28,0.85)", border: "1px solid #2a4060", color: "#3a8eff", padding: "6px 14px", cursor: "pointer", fontFamily: "Courier New, monospace", fontSize: "12px", zIndex: 10, letterSpacing: "0.05em" },
+  switchLink: { position: "absolute", bottom: 12, left: 16, fontSize: "10px", color: "#a4bdd1", textDecoration: "none", letterSpacing: "0.08em" },
 };

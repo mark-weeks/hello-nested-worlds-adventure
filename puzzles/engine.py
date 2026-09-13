@@ -40,6 +40,7 @@ def _make_puzzle_for_node(node: SpatialNode, rng: random.Random,
 
 class PuzzleEngine:
     def __init__(self, seed: int = 0):
+        self.seed = seed
         self._rng = random.Random(seed)
         # Puzzles live in the ENGINE, keyed by node name — never inside
         # node.properties. A Puzzle stored on the node leaked its answer
@@ -49,18 +50,23 @@ class PuzzleEngine:
         self._by_node: dict[str, Puzzle] = {}
 
     def attach_puzzles(self, root: SpatialNode,
-                       epochs: dict[str, int] | None = None) -> int:
+                       epochs: dict[str, int] | None = None, *,
+                       persist: bool = False, recursive: bool = True) -> int:
         """Attach each node's puzzle. `epochs` maps node name → renewal
         count (from persistence.count_rearms_by_node); a renewed node grows
         a fresh, renamed puzzle whose solved-state starts clean."""
         count = 0
         if root.name not in self._by_node:
             epoch = (epochs or {}).get(root.name, 0)
-            self._by_node[root.name] = _make_puzzle_for_node(
-                root, self._rng, epoch)
+            if persist:
+                from puzzles.instances import get_puzzle
+                self._by_node[root.name] = get_puzzle(self.seed, root, epoch)
+            else:
+                self._by_node[root.name] = _make_puzzle_for_node(root, self._rng, epoch)
             count += 1
-        for child in root.children:
-            count += self.attach_puzzles(child, epochs)
+        if recursive:
+            for child in root.children:
+                count += self.attach_puzzles(child, epochs, persist=persist)
         return count
 
     def puzzle_for(self, node: SpatialNode) -> Puzzle | None:

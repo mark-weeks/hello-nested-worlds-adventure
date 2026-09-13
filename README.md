@@ -1,5 +1,20 @@
 # Enfolded: Nested World Adventure
 
+The discovery/return review build adds an opt-in authored investigation in the
+existing shared world. An operator opens it with `python main.py situation --seed
+382`; new arrivals then reach its entry in either client. `/app` presents its
+clues, opposing choices and delayed aftermath. `/journal` holds private notes,
+home bookmarks and an explicitly published profile. `python main.py invite rotate
+<key-or-unique-digest-prefix>` replaces an invite while preserving participant
+ownership. Installations do not open the situation automatically.
+
+Opened puzzles now retain their definition and original observational evidence;
+clients link to `/puzzle/evidence` and reject answers to superseded questions.
+Authenticated acts carry retry IDs, and a replay returns the original accepted
+result. [Implementation contract](docs/decisions/ADR-024-participants-and-active-content.md)
+and [first situation](docs/decisions/ADR-025-first-situation.md) describe the
+continuity and privacy boundaries; [interface notes](docs/development/discovery-return.md) describe the routes and retry contract. Human pilot evidence is still pending.
+
 **A shared persistent multiverse inhabited simultaneously by human players and AI agents.**
 
 *The title "Enfolded" derives from David Bohm's [implicate order](https://en.wikipedia.org/wiki/Implicate_and_explicate_order) — the idea that every part of the universe enfolds the whole, and what we perceive as separate objects are unfolded projections of a deeper connected reality. This game is a playable version of that idea.*
@@ -163,7 +178,7 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_HEARTBEAT` | Set to `0` to disable the ambient world heartbeat (background agent life). | on |
 | `NESTED_WORLDS_HEARTBEAT_INTERVAL` | Seconds between heartbeat ticks. Heartbeat agents are FSM-driven — no API spend. | `180` |
 | `NESTED_WORLDS_HOP_DELAY` | Seconds a staged causal cascade waits between rings — how fast consequences travel across scales. `0` makes staged hops due immediately (they still run through the queue). | `12` |
-| `NESTED_WORLDS_CAUSAL_PUMP` | Set to `0` to disable the pump thread that drains staged causal hops (queued hops then wait until a pump runs again). | on |
+| `NESTED_WORLDS_CAUSAL_PUMP` | Set to `0` to disable the pump thread that drains staged causal hops, matured verbs, and situation consequences (queued work then waits until a pump runs again; an expired shared decision still closes on the next choice). | on |
 | `NESTED_WORLDS_RATE_LIMIT_PER_MIN` | Hosted beta: per-IP requests/minute on `/speak`, `/agent/voice`, `/image`, `/puzzle/attempt`, `/act`, `/register`, `/client-error`. | `20` |
 | `NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN` | Hosted beta: per-IP requests/minute on the expensive read endpoints `/world`, `/agent`, `/observe`, `/puzzle`, `/chronicle`, `/history`. | `120` |
 | `NESTED_WORLDS_MAX_WS_CONNECTIONS` | Hosted beta: max concurrent WebSocket connections process-wide. Excess upgrades get `503`. | `128` |

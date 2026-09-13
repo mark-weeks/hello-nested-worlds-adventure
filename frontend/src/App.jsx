@@ -55,15 +55,18 @@ async function hydratePositionFromServer() {
   }
 }
 
-function savePositionToServer(node, seed, depth) {
+async function savePositionToServer(node, seed, depth) {
   if (!betaKey() || !node || !Number.isFinite(seed)) return;
   try {
-    fetch(withKey("/position"), {
-      method:  "POST",
+    const response = await fetch(withKey("/position"), {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ node, seed, depth }),
-    }).catch(() => {});             // fire-and-forget; localStorage is the backstop
-  } catch (_) {}
+      body: JSON.stringify({ node, seed, depth }),
+    });
+    const data = await response.json();
+    if (response.ok && data.saved) return;
+  } catch (_) { /* Keep a failed arrival retryable in the clue control. */ }
+  throw new Error("Your arrival has not settled here. Try the clue again.");
 }
 
 export default function App() {
@@ -125,7 +128,7 @@ export default function App() {
     preserveSession = false,
     background = false,
   } = {}) => {
-    const savedNode = targetNode || localStorage.getItem(LAST_NODE_KEY);
+    const savedNode = targetNode || new URLSearchParams(location.search).get("node") || localStorage.getItem(LAST_NODE_KEY);
     const requestedDepth = resumeDepth(
       depth, savedNode, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
     );
@@ -146,7 +149,13 @@ export default function App() {
       // the nav stack, so "back" walks the real ancestry.
       const name = localStorage.getItem(NAME_KEY) || urlName() || "";
       worldRootRef.current = data.world;
-      setNodeStack(entryPath(data.world, savedNode, name));
+      setNodeStack(entryPath(data.world, savedNode || data.entry_node, name));
+      // A deep link selects this arrival once; later reloads resume actual travel.
+      if (new URLSearchParams(location.search).has("node")) {
+        const url = new URL(location.href);
+        url.searchParams.delete("node");
+        history.replaceState(null, "", url);
+      }
 
       // Backfill the canonical world's recent past into the feed.
       if (!preserveSession) {
@@ -169,6 +178,22 @@ export default function App() {
   }, []);
 
   const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
+  const positionQueue = useRef(Promise.resolve());
+  const latestPosition = useRef(null);
+  const queuePosition = useCallback((node, world, depth) => {
+    // Preserve navigation order even when an earlier request is slow or fails.
+    const promise = positionQueue.current.catch(() => {}).then(() => savePositionToServer(node, world, depth));
+    positionQueue.current = promise;
+    const arrival = {node, seed: world, promise, failed: false};
+    latestPosition.current = arrival;
+    promise.catch(() => { arrival.failed = true; });
+    return promise;
+  }, []);
+  const ensurePosition = useCallback((node) => {
+    const arrival = latestPosition.current;
+    if (arrival?.node === node && arrival.seed === seed && !arrival.failed) return arrival.promise;
+    return queuePosition(node, seed, worldDepth);
+  }, [queuePosition, seed, worldDepth]);
 
   const seedRef = useRef(seed);
   seedRef.current = seed;
@@ -318,7 +343,7 @@ export default function App() {
     (async () => {
       const position = await hydratePositionFromServer();
       if (cancelled) return;
-      const targetNode = position?.node || localStorage.getItem(LAST_NODE_KEY);
+      const targetNode = new URLSearchParams(location.search).get("node") || position?.node || localStorage.getItem(LAST_NODE_KEY);
       const targetDepth = resumeDepth(
         position?.depth ?? localStorage.getItem(LAST_DEPTH_KEY),
         targetNode,
@@ -344,9 +369,9 @@ export default function App() {
     if (currentNodeName) {
       localStorage.setItem(LAST_NODE_KEY, currentNodeName);
       localStorage.setItem(LAST_DEPTH_KEY, String(worldDepth));
-      savePositionToServer(currentNodeName, seed, worldDepth);
+      queuePosition(currentNodeName, seed, worldDepth);
     }
-  }, [currentNodeName, seed, worldDepth]);
+  }, [currentNodeName, seed, worldDepth, queuePosition]);
 
   // Drop all transients when the player navigates — a leftover ripple from
   // the previous node is meaningless in the new scene.
@@ -537,7 +562,7 @@ export default function App() {
   }
 
   return (
-    <div style={s.layout}>
+    <div className="world-layout" style={s.layout}>
       <SceneView
         node={currentNode}
         players={players}
@@ -564,6 +589,7 @@ export default function App() {
         onWrapCross={crossWrap}
         onSolved={handleSolved}
         onNodeChanged={refreshCurrentNode}
+        onEnsurePosition={ensurePosition}
         soundOn={soundPreferred}
         onToggleSound={toggleSound}
         onWaybackListen={previewWaybackSound}
@@ -624,7 +650,7 @@ const s = {
   layout:  { display: "flex", height: "100vh", overflow: "hidden", background: "#07080f" },
   loading: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontSize: "1.1rem", color: "#4a5580", fontFamily: "Courier New, monospace" },
   nameWrap: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#07080f", fontFamily: "Courier New, monospace" },
-  nameBox: { background: "#0d1020", border: "1px solid #2a4060", padding: "32px 28px", minWidth: 320, textAlign: "center" },
+  nameBox: { background: "#0d1020", border: "1px solid #2a4060", padding: "32px 28px", width: "min(420px, calc(100vw - 32px))", textAlign: "center" },
   nameTitle: { fontSize: "1.1rem", color: "#3a8eff", letterSpacing: "2px", marginBottom: 8 },
   nameDesc: { fontSize: "0.85rem", color: "#6a7090", marginBottom: 18 },
   nameInput: { width: "100%", background: "#07080f", border: "1px solid #2a4060", color: "#b0bcd0", padding: "8px 10px", fontFamily: "inherit", fontSize: "0.9rem", marginBottom: 12, outline: "none" },

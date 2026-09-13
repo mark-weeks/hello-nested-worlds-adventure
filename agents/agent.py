@@ -77,7 +77,9 @@ class Agent:
             import persistence
             epoch = (persistence.count_node_mutations(self.world_seed, node.name, "PUZZLE_REARM")
                      if self.world_seed is not None else 0)
-        puzzle = build_puzzle(node, epoch)
+        from puzzles.instances import get_puzzle
+        puzzle = (get_puzzle(self.world_seed, node, epoch) if self.world_seed is not None
+                  else build_puzzle(node, epoch))
         # Preserve the existing epoch-zero roll; renewal is a new opportunity.
         token = f"attempt:{self.name}:{node.name}" + (f":{epoch}" if epoch else "")
         digest = hashlib.sha256(

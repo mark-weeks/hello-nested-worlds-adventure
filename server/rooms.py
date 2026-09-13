@@ -244,23 +244,32 @@ def refresh_puzzle_session(room: Room, node_name: str, puzzle_name: str) -> Puzz
         return session
 
 
+class PuzzleRenewed(ValueError):
+    pass
+
+
 @contextmanager
 def puzzle_attempt(room: Room, node_name: str, puzzle_name: str,
-                   player_name: str | None, correct: bool):
+                   player_name: str | None, correct: bool, *, expected_epoch: int | None = None):
     """Own refresh, serialization and rollback of an accepted puzzle attempt.
 
     The caller writes history/effects inside this scope. Unsolved sessions are
-    refreshed under the writer lock to see other processes' commits. Already
-    solved attempts only add local credit and need no database write lock.
+    refreshed under the writer lock to see other processes' commits. The epoch check and new solve share the writer lock; already-solved reads remain read-only.
     """
     import persistence
     with room.lock:
         session = refresh_puzzle_session(room, node_name, puzzle_name)
         if session.solver is not None:
+            # A solved read has no durable effect to fence. It may return the
+            # state at this read instant without taking the world writer lock.
+            if expected_epoch is not None and persistence.count_rearms_by_node(room.seed).get(node_name, 0) != expected_epoch:
+                raise PuzzleRenewed("This question has renewed. Reopen it before answering.")
             yield record_attempt(room, node_name, puzzle_name, player_name, correct)
             return
         try:
             with persistence.transaction():
+                if expected_epoch is not None and persistence.count_rearms_by_node(room.seed).get(node_name, 0) != expected_epoch:
+                    raise PuzzleRenewed("This question has renewed. Reopen it before answering.")
                 refresh_puzzle_session(room, node_name, puzzle_name)
                 yield record_attempt(room, node_name, puzzle_name, player_name, correct)
         except BaseException:

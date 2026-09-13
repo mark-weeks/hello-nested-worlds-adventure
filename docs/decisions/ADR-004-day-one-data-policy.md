@@ -1,5 +1,12 @@
 # ADR-004: Day-One Data Policy
 
+**2026-09-12 identity revision:** [ADR-024](ADR-024-participants-and-active-content.md)
+implements the key-rotation revisit trigger. A participant ID owns new profiles,
+notes and receipts; explicit credential aliases retain continuity through
+operator rotation. The existing actor hashes remain frozen historical facts.
+Independently minted accounts are not merged by matching names. The earlier
+“new key = new actor” limitation describes the pre-rotation implementation.
+
 **Status:** Accepted 2026-07-12
 
 ---
