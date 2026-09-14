@@ -223,7 +223,12 @@ class Handler(BaseHTTPRequestHandler):
     def _emit_access_log(self) -> None:
         if not getattr(self, "_started", None):
             return
-        path   = urlparse(self.path).path or "/"
+        try:
+            path = urlparse(self.path).path or "/"
+        except ValueError:
+            # Malformed absolute targets must not rethrow from request cleanup or
+            # put a supplied authority/query (possibly a credential) into logs.
+            path = "/[invalid-target]"
         ip     = guard.client_ip(self.client_address, self.headers)
         observability.access_log(
             self.command or "?", path,
@@ -400,6 +405,27 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
         self.wfile.flush()
 
+    def _fail_dispatch(self, exc):
+        """One privacy/error boundary for GET and POST, including invalid targets."""
+        try:
+            try:
+                path = urlparse(self.path).path
+            except ValueError:
+                self._private_response = True
+                self._send_error('invalid request target', 400)
+                return
+            if path.rstrip('/').startswith('/ideas/'):
+                observability.community_failure(path, exc)
+                self._private_response = True
+                self._send_error('Ideas is temporarily unavailable. Please retry; your draft is retained.', 503)
+            else:
+                observability.capture_exception(exc)
+                self._send_error('internal server error', 500)
+        except Exception:
+            # The connection may already have closed; never fail a second time
+            # while trying to report the original dispatch failure.
+            pass
+
     # ── GET ──
 
     def do_GET(self):
@@ -408,19 +434,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._dispatch_get()
         except Exception as exc:
-            community = urlparse(self.path).path.rstrip('/').startswith('/ideas/')
-            if community:
-                observability.community_failure(urlparse(self.path).path, exc)
-            else:
-                observability.capture_exception(exc)
-            try:
-                if community:
-                    self._private_response = True
-                    self._send_error('Ideas is temporarily unavailable. Please retry; your draft is retained.', 503)
-                else:
-                    self._send_error("internal server error", 500)
-            except Exception:
-                pass
+            self._fail_dispatch(exc)
         finally:
             self._emit_access_log()
 
@@ -723,19 +737,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._dispatch_post()
         except Exception as exc:
-            community = urlparse(self.path).path.rstrip('/').startswith('/ideas/')
-            if community:
-                observability.community_failure(urlparse(self.path).path, exc)
-            else:
-                observability.capture_exception(exc)
-            try:
-                if community:
-                    self._private_response = True
-                    self._send_error('Ideas is temporarily unavailable. Please retry; your draft is retained.', 503)
-                else:
-                    self._send_error("internal server error", 500)
-            except Exception:
-                pass
+            self._fail_dispatch(exc)
         finally:
             self._emit_access_log()
 

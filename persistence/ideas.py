@@ -107,17 +107,26 @@ def _summary(row, me, author, count, supported):
     return result
 
 
+def _author_names(conn, members):
+    """One deterministic attribution policy for board pages and reviewed exports."""
+    members = list(dict.fromkeys(members))
+    if not members:
+        return {}
+    slots = ','.join('?' for _ in members)
+    names = {}
+    for member, name in conn.execute(f"""SELECT c.participant_id,i.name
+        FROM participant_credentials c JOIN invite_keys i ON c.credential_digest=i.key
+        WHERE c.participant_id IN ({slots}) ORDER BY i.revoked_at IS NULL DESC,i.key""", members):
+        names.setdefault(member, name)
+    return names
+
+
 def _summaries(conn, rows, me):
     """Fetch names and support for the bounded page, not once for every item."""
     if not rows:
         return []
     slots = ','.join('?' for _ in rows)
-    names = {}
-    for member, name in conn.execute(f"""SELECT c.participant_id,i.name
-        FROM participant_credentials c JOIN invite_keys i ON c.credential_digest=i.key
-        WHERE c.participant_id IN ({slots}) ORDER BY i.revoked_at IS NULL DESC,i.key""",
-        [row['member_id'] for row in rows]):
-        names.setdefault(member, name)
+    names = _author_names(conn, [row['member_id'] for row in rows])
     votes = {idea: (count, supported) for idea, count, supported in conn.execute(f"""
         SELECT idea_id,count(*),max(member_id=?) FROM community_votes
         WHERE idea_id IN ({slots}) GROUP BY idea_id""", [me['id'], *[row['id'] for row in rows]])}
@@ -128,12 +137,10 @@ def _summaries(conn, rows, me):
 
 
 def _public(conn, row, me, *, detail=False):
-    name = conn.execute('''SELECT i.name FROM invite_keys i JOIN participant_credentials c
-        ON c.credential_digest=i.key WHERE c.participant_id=? ORDER BY i.revoked_at IS NULL DESC LIMIT 1''',
-        (row['member_id'],)).fetchone()
+    name = _author_names(conn, [row['member_id']]).get(row['member_id'], 'Former player')
     count, supported = conn.execute('''SELECT count(*), coalesce(max(member_id=?),0)
         FROM community_votes WHERE idea_id=?''', (me['id'], row['id'])).fetchone()
-    result = _summary(row, me, name[0] if name else 'Former player', count, supported)
+    result = _summary(row, me, name, count, supported)
     link = conn.execute("SELECT issue_url FROM community_promotions WHERE idea_id=? AND state='published'", (row['id'],)).fetchone()
     result['issue_url'] = link[0] if link else None
     if detail:

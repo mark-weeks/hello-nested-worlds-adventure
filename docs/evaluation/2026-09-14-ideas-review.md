@@ -49,7 +49,7 @@ analytics are introduced.
 
 ## Verification
 
-Canonical gate passed: Ruff, **1,169 Python tests**, **113 Vitest tests**, fresh
+Initial review gate passed: Ruff, **1,169 Python tests**, **113 Vitest tests**, fresh
 frontend bundle, installed-wheel smoke, and **57 Playwright tests** (2.2 minutes).
 The Python suite includes 24 new review cases and passed in 170.45 seconds.
 The 14 Ideas browser cases include
@@ -59,6 +59,25 @@ and its corrected constant-query regression passed. After finding stale packagin
 artifacts from switching between the stacked branches, the installed-wheel smoke
 was repeated with this task’s generated build directory removed; the clean wheel
 contains the board increment and the relocated CLI/shared classifier.
+
+## Follow-up from PR #103
+
+The malformed-request and duplicated-error-handler comments also apply to #102,
+where the shared privacy boundary now lives. GET and POST use one `_fail_dispatch`
+helper. A target rejected by URL parsing returns a private JSON 400; access-log
+cleanup records only `/[invalid-target]` and cannot parse the target a second time
+without a guard. Four raw HTTP cases cover two malformed authorities and both
+methods, including supplied query secrets. Three additional POST failure cases
+exercise the same private diagnostic contract as GET.
+
+Author attribution now uses one batched `_author_names` lookup for page and detail
+views, allowing promotion to reuse the same policy without adding per-item queries.
+The bounded-page query regression remains required.
+
+Follow-up verification: **66 focused board cases passed**. The complete corrected
+base gate passed Ruff, **1,176 Python**, **113 Vitest**, fresh bundle, clean
+installed-wheel smoke, and **57 Playwright** (2.2 minutes). No client behavior or
+assets changed in this follow-up.
 
 ## Irreversibility check
 
