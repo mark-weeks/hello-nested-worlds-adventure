@@ -1,6 +1,6 @@
 """PR #102 regressions: bounded reads, private diagnostics and recoverable moderation."""
 from contextlib import contextmanager
-from http.client import HTTPConnection
+from http.client import HTTPConnection, HTTPResponse
 import json
 import subprocess
 import sys
@@ -82,8 +82,34 @@ def test_nested_json_stays_a_400_without_exception_capture(accounts, monkeypatch
     assert not captures
 
 
+@pytest.mark.parametrize('method', ['GET', 'POST'])
+@pytest.mark.parametrize('target', ['http://[::1/ideas/list', 'http://[bad]/ideas/search'])
+def test_malformed_request_targets_return_private_json_and_safe_access_logs(
+        monkeypatch, caplog, capsys, method, target):
+    captures = []
+    monkeypatch.setattr(observability, 'capture_exception', captures.append)
+    caplog.set_level('INFO', logger='nested_worlds.access')
+    sentinel = 'private-credential-and-draft'
+    with raw_client() as client:
+        client.connect()
+        client.sock.sendall((f'{method} {target}?key={sentinel} HTTP/1.1\r\n'
+                             'Host: localhost\r\nConnection: close\r\nContent-Length: 0\r\n\r\n').encode())
+        response = HTTPResponse(client.sock)
+        response.begin()
+        assert response.status == 400
+        assert response.getheader('Cache-Control') == 'no-store'
+        assert json.loads(response.read()) == {'error': 'invalid request target'}
+    assert not captures
+    assert sentinel not in caplog.text + capsys.readouterr().err
+    logs = [json.loads(r.getMessage()) for r in caplog.records if r.name == 'nested_worlds.access']
+    assert len(logs) == 1
+    assert logs[0]['path'] == '/[invalid-target]' and logs[0]['status'] == 400
+    assert not any(r.exc_info for r in caplog.records)
+
+
+@pytest.mark.parametrize('method', ['GET', 'POST'])
 @pytest.mark.parametrize('point', ['auth', 'query', 'dispatch'])
-def test_failures_emit_only_local_safe_diagnostics(http, accounts, caplog, monkeypatch, point):
+def test_failures_emit_only_local_safe_diagnostics(http, accounts, caplog, monkeypatch, point, method):
     sentinel = accounts[0] + ' private-submission-detail'
     def broken(*args, **kwargs):
         raise RuntimeError(sentinel)
@@ -95,13 +121,14 @@ def test_failures_emit_only_local_safe_diagnostics(http, accounts, caplog, monke
         monkeypatch.setattr(ideas, 'listing', broken)
     else:
         # Failure outside the adapter must have the same privacy boundary.
-        monkeypatch.setattr(_Handler, '_dispatch_get', broken)
-    status, data, headers = http('/ideas/list')
+        monkeypatch.setattr(_Handler, '_dispatch_' + method.lower(), broken)
+    route = '/ideas/list' if method == 'GET' else '/ideas/search'
+    status, data, headers = http(route, body=None if method == 'GET' else {})
     assert status == 503 and headers['Cache-Control'] == 'no-store'
     assert not captures and sentinel not in json.dumps(data) + caplog.text
     records = [r for r in caplog.records if r.name == 'nested_worlds.community']
     assert len(records) == 1
-    assert records[0].getMessage() == 'ideas_request_failed route=/ideas/list exception=RuntimeError'
+    assert records[0].getMessage() == f'ideas_request_failed route={route} exception=RuntimeError'
     assert records[0].exc_info is False or records[0].exc_info is None
 
 
