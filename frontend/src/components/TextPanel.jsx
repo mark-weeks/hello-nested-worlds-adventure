@@ -42,9 +42,13 @@ export default function TextPanel({ node, players, agents = {}, connected, event
             onClick={() => setWaybackOpen(true)}
           >Replay History</button>
           <a href={`/journal?seed=${seed}&node=${encodeURIComponent(node?.name || "")}`} target="_blank" rel="noopener" style={s.guideLink}>Journal</a>
+          <span style={{display: "inline-flex", gap: 6}}>
           <a href="/guide" style={s.guideLink} title="How to play Enfolded">
             Player's Guide ↗
           </a>
+          <a href="/ideas" target="_blank" rel="noopener noreferrer" style={s.guideLink}
+             title="Share and support ideas in a new tab">Ideas ↗</a>
+          </span>
         </div>
       </div>
 
@@ -240,7 +244,7 @@ const s = {
   nodeActions: { display: "flex", gap: "7px", alignItems: "stretch", flexWrap: "wrap", marginTop: "3px" },
   statusRight: { display: "flex", gap: "10px", alignItems: "center" },
   soundBtn:    { background: "none", border: "1px solid #1e2235", color: "#4a5580", padding: "1px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em" },
-  guideLink:   { display: "inline-flex", alignItems: "center", color: "#83a9d8", border: "1px solid #2a4060", padding: "4px 8px", fontSize: "10px", letterSpacing: "0.04em", textDecoration: "none" },
+  guideLink:   { display: "inline-flex", minHeight: 44, alignItems: "center", color: "#83a9d8", border: "1px solid #2a4060", padding: "4px 8px", fontSize: "10px", letterSpacing: "0.04em", textDecoration: "none" },
   chronicleBtn:{ background: "#0e1828", border: "1px solid #5268a8", color: "#9aaee8", padding: "4px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "10px", letterSpacing: "0.04em" },
   waybackBtn:  { alignSelf: "flex-start", background: "#111a30", border: "1px solid #5268a8", color: "#9aaee8", padding: "3px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase", marginTop: "3px" },
   label:       { fontSize: "10px", color: "#4a5580", textTransform: "uppercase", letterSpacing: "0.12em" },

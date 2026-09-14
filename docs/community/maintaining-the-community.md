@@ -61,9 +61,9 @@ there is demonstrated interest and capacity. PR count is not the adoption goal.
 ## Ideas and implementation briefs
 
 The desired player entry point is a discoverable in-game **Ideas** control,
-with submissions and voting that do not require GitHub. That board is a
-separate application change, not a capability shipped by this policy. See the
-[implementation design](../roadmap/community-ideas.md) for the proposed flow,
+with submissions and voting that do not require GitHub. The board is implemented in the application revision described by the design;
+hosted availability still requires deployment. See the
+[implementation design](../roadmap/community-ideas.md) for the flow,
 storage, identity, moderation, and selected-idea handoff.
 
 Keep player submissions and votes in Enfolded's database. Promote selected

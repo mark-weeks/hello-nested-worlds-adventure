@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Ideas · Enfolded</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1119;--panel:#131e2a;--ink:#e5edf3;--muted:#aec0cc;--line:#334859;--accent:#b4e2ca}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,sans-serif}a{color:var(--accent);text-underline-offset:4px}button,input,textarea,select{font:inherit}button,.button{border:1px solid var(--line);border-radius:6px;background:#1c3040;color:var(--ink);padding:10px 16px;cursor:pointer;min-height:44px}button:hover{background:#2b4757}button:disabled{opacity:.6;cursor:wait}button[aria-pressed=true],button.primary{background:var(--accent);color:#142c25;border-color:var(--accent)}:focus-visible{outline:3px solid #f4d68a;outline-offset:4px}input,textarea{display:block;width:100%;padding:11px;border:1px solid #607786;border-radius:5px;background:#0d1721;color:var(--ink)}textarea{min-height:180px;resize:vertical}input[type=checkbox]{display:inline;width:20px;height:20px;vertical-align:middle;margin-right:8px}label{display:block;font-weight:600;margin:18px 0 6px}h1,h2,h3,p{margin:0 0 12px}h1{font:500 clamp(38px,6vw,60px)/1.15 Georgia,serif;letter-spacing:-1px}h2{font:500 25px/1.3 Georgia,serif}h3{font-size:18px}h1,h2,h3,p,.copy{overflow-wrap:anywhere}.muted,small{color:var(--muted)}small{display:block;font-size:13px}.mast{border-bottom:1px solid var(--line);padding:18px max(20px,calc((100% - 1120px)/2));display:flex;align-items:center;gap:24px;flex-wrap:wrap}.mast a:first-child{margin-right:auto;letter-spacing:3px;text-transform:uppercase;text-decoration:none;font-size:13px}.wrap{max-width:1160px;padding:40px 20px 60px;margin:auto}.intro{max-width:740px;margin-bottom:24px}.eyebrow{color:var(--accent);letter-spacing:2px;font-size:12px;text-transform:uppercase}.grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(300px,1fr);gap:28px;align-items:start}.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px}#search-form .actions input{flex:1;min-width:180px}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.tabs{margin:18px 0}.tabs button{padding:9px 13px;font-size:14px}.card{padding:20px 0;border-bottom:1px solid var(--line)}.card:first-child{padding-top:6px}.card h3 a{color:var(--ink);text-decoration:none}.card h3 a:hover{text-decoration:underline}.meta{font-size:13px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}.badge{color:var(--accent)}#message{margin:20px 0;min-height:28px}#message.error{color:#ffbfaa}#notice{border-left:3px solid var(--accent);padding-left:16px}.detail{margin-bottom:28px}.copy{white-space:pre-wrap}.decision{border-left:2px solid var(--line);padding-left:14px;margin-top:18px}#related{margin:16px 0;font-size:14px}#related a{display:block;margin:8px 0}#more{margin-top:20px}#draft-state{margin:12px 0;color:#f4d68a}.check{font-weight:400;font-size:14px;cursor:pointer}.share-note{font-size:13px;line-height:1.6;border-top:1px solid var(--line);margin-top:20px;padding-top:16px}dialog{max-width:520px;width:calc(100% - 32px);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:24px}dialog::backdrop{background:#000b}[hidden]{display:none!important}.skip{position:absolute;top:-100px;left:20px}.skip:focus{top:10px;background:var(--bg);padding:10px;z-index:10}#result-status{min-height:30px}#submit-button{margin-top:18px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.wrap{padding-top:28px}.panel{padding:20px}.mast{gap:16px;padding:16px 20px}.intro{margin-bottom:20px}.tabs{gap:8px}.tabs button{flex:1;padding:10px 8px}h1{font-size:44px}}
+</style>
+<script src="/ideas.js" defer></script>
+</head>
+<body>
+<a href="#main" class="skip">Skip to Ideas</a>
+<header class="mast"><a href="/">Enfolded</a><a href="/guide" target="_blank" rel="noopener noreferrer">Player's Guide ↗</a><span aria-current="page">Ideas</span></header>
+<main id="main" class="wrap">
+<div class="intro"><p class="eyebrow">Made better together</p><h1>Ideas for Enfolded</h1><p class="muted">Share a moment that could be better. Support an idea that matters to you. Follow what changes.</p></div>
+<p id="notice">This board is for invited players. Open your current personal game invite in this browser to join. Your active game stays open in its own tab.</p>
+<div id="message" role="status" aria-live="polite"></div>
+<button id="retry" hidden>Retry loading Ideas</button>
+<div id="board" hidden>
+<section id="detail" class="panel detail" aria-labelledby="detail-title" hidden></section>
+<div class="grid">
+<section aria-labelledby="browse-title">
+<h2 id="browse-title">Browse ideas</h2>
+<form id="search-form" role="search"><label for="search">Search ideas</label><div class="actions"><input type="search" id="search" maxlength="120" placeholder="A place, a problem, a possibility…"><button type="submit">Search</button></div></form>
+<nav class="tabs actions" aria-label="Idea views"><button type="button" data-sort="recent" aria-pressed="true">Recent</button><button type="button" data-sort="supported" aria-pressed="false">Most supported</button><button type="button" data-sort="own" aria-pressed="false">Your submissions</button></nav>
+<p id="result-status" class="muted" role="status" aria-live="polite"></p>
+<div id="results" aria-busy="false"></div>
+<button id="more" hidden>Next page</button>
+<button id="first" hidden>Back to first page</button>
+<p class="share-note muted">One positive support vote per invited account, with an undo. Voters stay private. Votes inform maintainer decisions; they do not promise a feature or a date.</p>
+</section>
+<section class="panel" aria-labelledby="share-title"><h2 id="share-title">Share an idea</h2><p class="muted">What happened, and what would improve it? You can describe a problem without having a solution.</p>
+<form id="idea-form" novalidate>
+<label for="title">Title</label><input id="title" maxlength="120" required aria-describedby="title-help"><small id="title-help">Up to 120 characters.</small>
+<div id="related" aria-live="polite"></div>
+<label for="description">Your experience and desired outcome</label><textarea id="description" maxlength="2000" required aria-describedby="description-help"></textarea><small id="description-help">Up to 2,000 characters. A suggested solution is optional.</small>
+<p id="attribution" class="share-note"></p>
+<label class="check"><input id="credit" type="checkbox">Credit my registered game name in a selected public GitHub issue (optional)</label>
+<p class="share-note muted">Selected ideas may be summarized in a public GitHub issue after maintainer review. Leave out credentials, private conversations and details you do not want shared with invited players. Intentional contributions are offered under <a href="https://github.com/mark-weeks/hello-nested-worlds-adventure/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Enfolded’s Apache-2.0 contribution terms</a>; tell the maintainer about different terms before reuse.</p>
+<p class="muted"><small>You may withdraw your idea later. Its text is removed from the live board database; minimal decision and issue-link records remain. Existing backups follow normal retention. Published GitHub issues may remain public.</small></p>
+<p id="draft-state" role="status"></p><button type="submit" id="submit-button" class="primary">Submit idea</button>
+</form></section>
+</div></div>
+<dialog id="withdraw-dialog" aria-labelledby="withdraw-title"><h2 id="withdraw-title">Withdraw this idea?</h2><p>Its title and description will be removed from the live board database. This cannot be undone. Minimal decision and issue-link records remain; existing backups and published GitHub issues may remain.</p><div class="actions"><button id="cancel-withdraw" autofocus>Keep idea</button><button id="confirm-withdraw">Withdraw idea</button></div><p id="withdraw-error" role="alert"></p></dialog>
+</main></body></html>

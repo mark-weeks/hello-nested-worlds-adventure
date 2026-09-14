@@ -377,6 +377,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    from server.ideas_cli import add_parser as add_ideas_parser
+    add_ideas_parser(sub)
+
     p_world = sub.add_parser("world", help="Generate and print the world hierarchy")
     _accept_seed(p_world)
     p_world.add_argument("--depth", type=int, default=11, help="Max hierarchy depth (default: 11)")

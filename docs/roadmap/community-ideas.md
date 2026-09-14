@@ -1,9 +1,11 @@
 # In-game Ideas board: implementation design
 
-**Status:** Proposed design, 2026-09-12. The owner requested this design after
-adopting [ADR-023](../decisions/ADR-023-community-and-licensing.md). The board,
-its migration, and GitHub integration are not implemented or deployed by the
-policy/licensing change. Implementation requires a separately scoped change.
+**Status:** Board/storage/moderation implemented locally, 2026-09-13; not deployed.
+Owner-approved visibility, retention and write limits are recorded in
+[ADR-026](../decisions/ADR-026-community-ideas-operations.md). Participant identity
+and credential rotation reuse merged ADR-024. GitHub promotion is the second
+implementation change and remains pending in this first commit. See the
+[operator/API guide](../development/community-ideas.md) for implemented behavior.
 
 ## Intended outcome
 
@@ -45,8 +47,8 @@ undo. The server returns the authoritative count and viewer state; update the
 UI only on success or roll back a pending update on failure. No downvotes,
 leaderboard, automated feature selection, or promise that the top idea ships.
 
-Display proposed statuses in plain language: Under consideration, Planned,
-In progress, Available to play, Deferred, Declined, and Duplicate. A merge is
+Display statuses in plain language: Under consideration, Planned,
+In progress, Implemented — awaiting merge, Merged — awaiting release, Available to play, Deferred, Declined, and Duplicate. A merge is
 not sufficient to mark an idea Available to play; that follows a verified
 release/deployment. A duplicate links to the surviving idea; votes are not
 silently transferred or double-counted.
@@ -67,13 +69,13 @@ a second community-member identity. Operator rotation already preserves the
 same participant. Keep frozen historical actor hashes unchanged and never link
 independently issued accounts by matching display names. This controls votes
 per invited account, not proof of a unique human. Ambient agents do not receive
-community credentials. The board itself remains planned.
+community credentials. The board uses the same participant ownership.
 
-Proposed default: full ideas are visible to invited players; a public visitor
+Accepted default: full ideas are visible to invited players; a public visitor
 sees an explanatory shell, not the idea contents or voter list. Show the
 submitter's registered game name on the board, disclose that before submission,
-and keep individual voters private. Before final implementation, ratify this
-visibility choice with the owner; credential replacement follows ADR-024.
+and keep individual voters private. The owner approved this visibility choice in the implementation task;
+credential replacement follows ADR-024.
 
 Tell submitters that selected ideas may be summarized in a public GitHub issue.
 Public attribution by name is opt-in. A maintainer reviews the selected summary
@@ -117,8 +119,9 @@ moderation alone is sufficient for persistent public text.
 
 Allow a player to withdraw their own idea from community display; retain the
 minimal operational record and decision/link history needed to explain work
-already undertaken. Define the retention and content-redaction behavior before
-implementation; the game's permanent-chronicle policy does not automatically
+already undertaken. The owner approved immediate logical erasure of original text from the live
+record, retaining ownership/retry fences and decision/link history; existing
+backups follow normal retention and public issues may remain. See ADR-026; the game's permanent-chronicle policy does not automatically
 apply to community submissions. Explain that a separately published GitHub
 issue may remain public. Exclude file uploads and comments from the first
 version to keep the moderation and rights surface manageable.

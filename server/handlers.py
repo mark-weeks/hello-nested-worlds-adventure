@@ -249,6 +249,16 @@ class Handler(BaseHTTPRequestHandler):
         `/puzzle*`, `/speak`, `/image`, `/agent/voice`, `/players`,
         `/history`, `/wayback`, `/worlds`) stays gated.
         """
+        if urlparse(self.path).path.startswith('/ideas/'):
+            self._private_response = True
+            # Ideas has its own active-credential check even when gameplay is open.
+            from persistence import participants
+            try:
+                participants.identify(self.headers.get('X-Beta-Key', ''))
+                return True
+            except participants.Unauthorized:
+                self._send_error('Open your current personal game invite to participate in Ideas.', 403)
+                return False
         if self._is_public_asset(urlparse(self.path).path):
             return True
         if guard.check_invite_key(self.headers, qs):
@@ -271,7 +281,7 @@ class Handler(BaseHTTPRequestHandler):
         if stripped in ("", "/health", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js", "/nodesound.js",
                         "/guide", "/register", "/register.js", "/favicon.ico",
-                        "/journal", "/journal.js"):
+                        "/journal", "/journal.js", "/ideas", "/ideas.js"):
             return True
         if stripped == "/app" or path.startswith("/app/"):
             return True
@@ -424,11 +434,15 @@ class Handler(BaseHTTPRequestHandler):
             vals = qs.get(key)
             return vals[0] if vals else default
 
-        from server import participant_api, situation_api
-        if participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
+        from server import ideas_api, participant_api, situation_api
+        if ideas_api.handle(self, path, qs) or participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
             return
 
-        if path == "/journal":
+        if path == "/ideas":
+            self._send_file(_STATIC_DIR / "ideas.html")
+        elif path == "/ideas.js":
+            self._send_file(_STATIC_DIR / "ideas.js", content_type="application/javascript; charset=utf-8")
+        elif path == "/journal":
             self._send_file(_STATIC_DIR / "journal.html")
         elif path == "/journal.js":
             self._send_file(_STATIC_DIR / "journal.js", content_type="application/javascript; charset=utf-8")
@@ -734,11 +748,11 @@ class Handler(BaseHTTPRequestHandler):
         # max(0, …): a negative Content-Length would pass the size cap and
         # turn rfile.read(length) into read-to-EOF on a held-open socket.
         length = max(0, length)
-        if length > _MAX_BODY:
+        if length > (8192 if path.startswith('/ideas/') else _MAX_BODY):
             return self._send_error("payload too large", 413)
         try:
             body = json.loads(self.rfile.read(length)) if length else {}
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             return self._send_error("invalid JSON")
         # Valid JSON is not necessarily an object — `[1,2]` or `"hi"` parse
         # fine, then every body.get() below would AttributeError into the
@@ -746,8 +760,8 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._send_error("request body must be a JSON object")
 
-        from server import participant_api, situation_api
-        if participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
+        from server import ideas_api, participant_api, situation_api
+        if ideas_api.handle(self, path, qs, body) or participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
             return
 
         if path == "/speak":
