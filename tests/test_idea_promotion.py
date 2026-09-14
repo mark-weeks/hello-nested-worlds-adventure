@@ -395,3 +395,6 @@ def test_publication_does_not_change_world_tables_or_community_status(intent, gi
     p.publish(idea_id,digest,operator='Maintainer',github=github['client'])
     assert snapshot() == before
     assert http('/ideas/detail?id='+idea_id)[1]['idea']['status'] == 'considering'
+    expected = p.get(idea_id)['issue_url']
+    assert http('/ideas/list')[1]['ideas'][0]['issue_url'] == expected
+    assert http('/ideas/search', body={})[1]['ideas'][0]['issue_url'] == expected

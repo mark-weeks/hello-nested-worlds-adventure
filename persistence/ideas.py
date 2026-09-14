@@ -55,8 +55,8 @@ def identifier(value):
 def text(value, label, maximum, *, empty=False):
     if not isinstance(value, str) or len(value) > maximum or (not empty and not value.strip()):
         raise ValueError(f'{label} must contain {"0" if empty else "1"}–{maximum:,} characters.')
-    if any(ord(c) < 32 and c not in '\n\t' for c in value) or _SECRET.search(value):
-        raise ValueError('Remove credentials, invite links and control characters before saving.')
+    if any((ord(c) < 32 and c not in '\n\t') or 0xD800 <= ord(c) <= 0xDFFF for c in value) or _SECRET.search(value):
+        raise ValueError('Remove credentials, invite links and invalid characters before saving.')
     return value.strip()
 
 
@@ -100,15 +100,40 @@ def _readable(row):
         raise Missing()
 
 
+def _summary(row, me, author, count, supported):
+    result = {k: row[k] for k in ('id','title','status','created_at','updated_at')}
+    result.update(status_label=STATUSES[row['status']], author=author,
+                  votes=count, supported=bool(supported), own=row['member_id'] == me['id'])
+    return result
+
+
+def _summaries(conn, rows, me):
+    """Fetch names and support for the bounded page, not once for every item."""
+    if not rows:
+        return []
+    slots = ','.join('?' for _ in rows)
+    names = {}
+    for member, name in conn.execute(f"""SELECT c.participant_id,i.name
+        FROM participant_credentials c JOIN invite_keys i ON c.credential_digest=i.key
+        WHERE c.participant_id IN ({slots}) ORDER BY i.revoked_at IS NULL DESC,i.key""",
+        [row['member_id'] for row in rows]):
+        names.setdefault(member, name)
+    votes = {idea: (count, supported) for idea, count, supported in conn.execute(f"""
+        SELECT idea_id,count(*),max(member_id=?) FROM community_votes
+        WHERE idea_id IN ({slots}) GROUP BY idea_id""", [me['id'], *[row['id'] for row in rows]])}
+    links = dict(conn.execute(f"""SELECT idea_id,issue_url FROM community_promotions
+        WHERE idea_id IN ({slots}) AND state='published'""", [row['id'] for row in rows]))
+    return [{**_summary(row, me, names.get(row['member_id'], 'Former player'),
+                        *votes.get(row['id'], (0, 0))), 'issue_url': links.get(row['id'])} for row in rows]
+
+
 def _public(conn, row, me, *, detail=False):
     name = conn.execute('''SELECT i.name FROM invite_keys i JOIN participant_credentials c
         ON c.credential_digest=i.key WHERE c.participant_id=? ORDER BY i.revoked_at IS NULL DESC LIMIT 1''',
         (row['member_id'],)).fetchone()
     count, supported = conn.execute('''SELECT count(*), coalesce(max(member_id=?),0)
         FROM community_votes WHERE idea_id=?''', (me['id'], row['id'])).fetchone()
-    result = {k: row[k] for k in ('id','title','status','created_at','updated_at')}
-    result.update(status_label=STATUSES[row['status']], author=name[0] if name else 'Former player',
-                  votes=count, supported=bool(supported), own=row['member_id'] == me['id'])
+    result = _summary(row, me, name[0] if name else 'Former player', count, supported)
     link = conn.execute("SELECT issue_url FROM community_promotions WHERE idea_id=? AND state='published'", (row['id'],)).fetchone()
     result['issue_url'] = link[0] if link else None
     if detail:
@@ -157,8 +182,8 @@ def submit(key, data):
         if count >= SUBMISSIONS_PER_DAY:
             raise Limited('You can share 5 new ideas in 24 hours. Please return later or support an existing idea.')
         # Persistent community text has a local-only screen. Ambiguous text is reviewed by operators.
-        from server.moderation import _local_tier
-        if _local_tier(title + '\n' + description) == 'block':
+        from content_screen import local_tier
+        if local_tier(title + '\n' + description) == 'block':
             raise ValueError('Please revise the idea to keep the board respectful.')
         idea_id = secrets.token_hex(16)
         conn.execute('''INSERT INTO community_ideas
@@ -200,9 +225,12 @@ def vote(key, idea_id, supported):
 
 
 def _withdraw(conn, row, operator, explanation):
-    from server.idea_promotion import withdraw_brief
-    withdraw_brief(conn, row['id'])
     stamp = now()
+    # Redact the public brief in this same storage transaction without loading
+    # the HTTP/GitHub adapter. Retain only recovery/link metadata.
+    conn.execute("""UPDATE community_promotions SET public_title='',brief='',
+        state=CASE WHEN state='prepared' THEN 'cancelled' ELSE state END,updated_at=? WHERE idea_id=?""",
+        (stamp, row['id']))
     conn.execute("""UPDATE community_ideas SET title='',description='',public_credit=0,
         response='',availability='',visibility='withdrawn',updated_at=? WHERE id=?""", (stamp, row['id']))
     conn.execute('DELETE FROM community_votes WHERE idea_id=?', (row['id'],))
@@ -230,6 +258,7 @@ def _cursor(payload, me, secret):
 
 
 def listing(key, *, sort='recent', q='', limit=20, cursor=''):
+    me = participants.identify(key)
     if sort not in ('recent', 'supported', 'own'):
         raise ValueError('Choose recent, most supported or your submissions.')
     q = text(q, 'Search', 120, empty=True)
@@ -240,7 +269,6 @@ def listing(key, *, sort='recent', q='', limit=20, cursor=''):
     secret = _key()
     with db._connection() as conn:
         conn.execute('BEGIN')
-        me = participants.identify(key)
         stamp = now()
         query_hash = hashlib.sha256((sort + '\0' + q).encode()).hexdigest()[:16]
         if cursor:
@@ -270,14 +298,16 @@ def listing(key, *, sort='recent', q='', limit=20, cursor=''):
         if owner:
             params.append(me['id'])
         params += [score, score, last, limit + 1]
-        rows = conn.execute(f'''WITH ranked AS (
-            SELECT i.id,i.seq,{rank if sort == 'supported' else '0'} AS score FROM community_ideas i
+        query = conn.execute(f'''WITH ranked AS (
+            SELECT i.*,{rank if sort == 'supported' else '0'} AS score FROM community_ideas i
             WHERE i.visibility='visible' AND i.seq<=? AND (i.title LIKE ? ESCAPE '\\' OR i.description LIKE ? ESCAPE '\\') {owner}
-        ) SELECT id,seq,score FROM ranked WHERE score<? OR (score=? AND seq<?)
-        ORDER BY score DESC,seq DESC LIMIT ?''', params).fetchall()
+        ) SELECT * FROM ranked WHERE score<? OR (score=? AND seq<?)
+        ORDER BY score DESC,seq DESC LIMIT ?''', params)
+        columns = [column[0] for column in query.description]
+        rows = [dict(zip(columns, row)) for row in query.fetchall()]
         page = rows[:limit]
-        next_cursor = _cursor([asof,ceiling,vote_ceiling,page[-1][2],page[-1][1],query_hash], me, secret) if len(rows) > limit else None
-        return {'ideas': [_public(conn, _row(conn, row[0]), me) for row in page],
+        next_cursor = _cursor([asof,ceiling,vote_ceiling,page[-1]['score'],page[-1]['seq'],query_hash], me, secret) if len(rows) > limit else None
+        return {'ideas': _summaries(conn, page, me),
                 'next_cursor': next_cursor, 'viewer': {'id': me['id'], 'name': me['name']}}
 
 
@@ -297,19 +327,22 @@ def moderate(idea_id, *, operator, explanation, status=None, visibility=None, du
         next_status = status or row['status']
         next_visibility = visibility or row['visibility']
         if next_visibility == 'withdrawn':
+            if any(value is not None for value in (status, duplicate_id, availability)):
+                raise ValueError('Record status, duplicate and availability changes separately before withdrawal.')
             _withdraw(conn, row, operator, explanation)
             return
         if next_status == 'available' and not (availability or row['availability']):
             raise ValueError('Available to play requires verified release or deployment evidence.')
         target = duplicate_id if duplicate_id is not None else row['duplicate_id']
         if next_status == 'duplicate':
-            if not target or target == idea_id:
-                raise ValueError('Choose a different surviving idea.')
-            survivor = _row(conn, target)
-            if survivor['visibility'] != 'visible' or survivor['status'] == 'duplicate':
-                raise ValueError('The surviving idea must be visible and not a duplicate.')
-            if conn.execute("SELECT 1 FROM community_ideas WHERE duplicate_id=? AND visibility!='withdrawn'", (idea_id,)).fetchone():
-                raise ValueError('Redirect existing duplicates before making this idea a duplicate.')
+            if row['status'] != 'duplicate' or target != row['duplicate_id']:
+                if not target or target == idea_id:
+                    raise ValueError('Choose a different surviving idea.')
+                survivor = _row(conn, target)
+                if survivor['visibility'] != 'visible' or survivor['status'] == 'duplicate':
+                    raise ValueError('The surviving idea must be visible and not a duplicate.')
+                if conn.execute("SELECT 1 FROM community_ideas WHERE duplicate_id=? AND visibility!='withdrawn'", (idea_id,)).fetchone():
+                    raise ValueError('Redirect existing duplicates before making this idea a duplicate.')
         else:
             target = None
         stamp = now()

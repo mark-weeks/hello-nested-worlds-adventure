@@ -180,6 +180,7 @@ _RATE_LIMITED_PATHS = frozenset({
 _READ_LIMITED_PATHS = frozenset({
     "/world", "/agent", "/observe", "/puzzle", "/chronicle", "/history",
     "/wayback", "/node", "/me", "/profile", "/journal/data", "/situation",
+    "/ideas/list", "/ideas/detail", "/ideas/search",
 })
 
 # The player-facing pace line (429). Rate limiting is a mechanical guard, but
@@ -249,16 +250,11 @@ class Handler(BaseHTTPRequestHandler):
         `/puzzle*`, `/speak`, `/image`, `/agent/voice`, `/players`,
         `/history`, `/wayback`, `/worlds`) stays gated.
         """
-        if urlparse(self.path).path.startswith('/ideas/'):
+        if urlparse(self.path).path.rstrip('/').startswith('/ideas/'):
             self._private_response = True
-            # Ideas has its own active-credential check even when gameplay is open.
-            from persistence import participants
-            try:
-                participants.identify(self.headers.get('X-Beta-Key', ''))
-                return True
-            except participants.Unauthorized:
-                self._send_error('Open your current personal game invite to participate in Ideas.', 403)
-                return False
+            # The Ideas adapter authenticates every operation using active credentials.
+            # Never fall back to the general (possibly open) gameplay gate.
+            return True
         if self._is_public_asset(urlparse(self.path).path):
             return True
         if guard.check_invite_key(self.headers, qs):
@@ -306,7 +302,7 @@ class Handler(BaseHTTPRequestHandler):
         ip = guard.client_ip(self.client_address, self.headers)
         if guard.READ_RATE_LIMITER.allow(ip):
             return True
-        self._send_error(_PACE_LINE, 429)
+        self._send_error("Too many Ideas reads. Please wait a moment and retry." if path.startswith("/ideas/") else _PACE_LINE, 429)
         return False
 
     # ── response helpers ──
@@ -412,8 +408,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._dispatch_get()
         except Exception as exc:
-            community = urlparse(self.path).path.startswith('/ideas/')
-            if not community:
+            community = urlparse(self.path).path.rstrip('/').startswith('/ideas/')
+            if community:
+                observability.community_failure(urlparse(self.path).path, exc)
+            else:
                 observability.capture_exception(exc)
             try:
                 if community:
@@ -725,8 +723,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._dispatch_post()
         except Exception as exc:
-            community = urlparse(self.path).path.startswith('/ideas/')
-            if not community:
+            community = urlparse(self.path).path.rstrip('/').startswith('/ideas/')
+            if community:
+                observability.community_failure(urlparse(self.path).path, exc)
+            else:
                 observability.capture_exception(exc)
             try:
                 if community:
@@ -746,7 +746,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if not self._authorized(qs):
             return
-        if not self._rate_ok(path):
+        if not self._rate_ok(path) or not self._read_rate_ok(path):
             return
 
         # The credential this request presented — used to charge paid calls
@@ -764,7 +764,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error("payload too large", 413)
         try:
             body = json.loads(self.rfile.read(length)) if length else {}
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
             return self._send_error("invalid JSON")
         # Valid JSON is not necessarily an object — `[1,2]` or `"hi"` parse
         # fine, then every body.get() below would AttributeError into the

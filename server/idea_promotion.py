@@ -316,10 +316,3 @@ def publish(idea_id, review_hash, *, operator, github=None):
         error = 'Publication was not confirmed. Reconcile this retained intent before any further action.'
         _remember_error(idea_id, error, uncertain=True)
         raise Uncertain(error) from None
-
-
-def withdraw_brief(conn, idea_id):
-    """Called within the source withdrawal transaction; retain only recovery/link metadata."""
-    conn.execute('''UPDATE community_promotions SET public_title='',brief='',
-        state=CASE WHEN state='prepared' THEN 'cancelled' ELSE state END,updated_at=? WHERE idea_id=?''',
-        (ideas.now(),idea_id))

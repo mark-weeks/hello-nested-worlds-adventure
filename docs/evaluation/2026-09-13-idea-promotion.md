@@ -95,3 +95,23 @@ Source withdrawal scrubs prepared briefs while retaining the token/link fence.
 No golden/birth pins, generator banks/version, world-meta pins, era banks, existing
 migrations or world-mutation writers change. Promotion remains operational data
 separate from permanent world history. The status remains local and undeployed.
+
+
+## Integration after the PR #102 review
+
+The promotion branch inherits board correction `fd519a2`. Authentication privacy
+and local safe diagnostics now belong to the board base. The CLI's promotion
+commands follow the relocated `persistence.ideas_cli` registration, with GitHub
+imports deferred until a promotion command runs. Source withdrawal scrubs the
+promotion brief directly inside the storage transaction, without importing the
+HTTP/GitHub adapter. List/search include published issue links through one batch
+query, keeping page query counts constant at nine for both 1 and 50 results.
+
+The combined affected board/review/promotion suite passed **93 tests in 55.77s**.
+The final canonical gate passed: **1,203 Python in 195.21s, 113 Vitest,
+58 Playwright**, Ruff, byte-fresh bundle and installed-wheel smoke from a clean
+build. The browser suite includes all 15 Ideas cases, including the published-link
+privacy fixture. Live GitHub writes
+remain limited to local fake-service fixtures in tests; no test issue is published.
+The only migration in this PR remains additive 0025; no world-history, birth pin,
+world-meta or era-bank changes accompany the review integration.
