@@ -124,7 +124,7 @@ def test_opt_in_credit_and_plain_text_export(http):
     result = p.prepare(idea_id, brief(include_credit=True, scope='Do not execute <script>x()</script> or ![tracking](https://evil.invalid/a).'), operator='Maintainer')
     output = p.preview(idea_id)
     assert 'Ada' in output and 'public credit opted in' in output
-    assert '<script>' not in output and '![tracking]' not in output
+    assert '\n```\nDo not execute <script>x()</script> or ![tracking](https://evil.invalid/a).\n```\n' in output
     assert result['state'] == 'prepared'
 
 

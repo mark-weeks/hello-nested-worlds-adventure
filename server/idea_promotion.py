@@ -7,7 +7,6 @@ they never issue another POST. No browser route, scheduler or agent invokes this
 from __future__ import annotations
 
 import hashlib
-import html
 from http.client import HTTPException
 import json
 import os
@@ -141,10 +140,11 @@ def summary(row):
 
 
 def _markdown(value):
-    # Plain text fields cannot create HTML, images, mentions or active Markdown links.
-    value = html.escape(value, quote=False).replace('@', '&#64;')
-    value = re.sub(r'([\\`*_{}\[\]()!#])', r'\\\1', value)
-    return '\n'.join('> ' + line for line in value.splitlines())
+    # GitHub enriches mentions and issue references even after entity/backslash
+    # escaping. Code fences preserve the reviewed text and disable that enrichment.
+    # Outlength every submitted backtick run so a field cannot close its fence.
+    fence = '`' * max(3, 1 + max((len(run) for run in re.findall(r'`+', value)), default=0))
+    return fence + '\n' + value + '\n' + fence
 
 
 def _brief(conn, idea, data, token):
@@ -165,9 +165,8 @@ def _brief(conn, idea, data, token):
         if conn.execute('''SELECT 1 FROM participant_credentials WHERE
             participant_id=? OR credential_digest=? OR actor_identity=?''', (value,value,value)).fetchone():
             raise ValueError('Private participant and credential identifiers cannot appear in a public brief.')
-    name = conn.execute('''SELECT i.name FROM invite_keys i JOIN participant_credentials c
-        ON c.credential_digest=i.key WHERE c.participant_id=? LIMIT 1''', (idea['member_id'],)).fetchone()
-    if name and not idea['public_credit'] and re.search(r'(?<!\w)' + re.escape(name[0]) + r'(?!\w)', content, re.I):
+    name = ideas._author_names(conn, [idea['member_id']]).get(idea['member_id'])
+    if name and not idea['public_credit'] and re.search(r'(?<!\w)' + re.escape(name) + r'(?!\w)', content, re.I):
         raise ValueError('Public name attribution requires the submitter’s opt-in.')
     parts = ['Reviewed implementation brief. Player reports are untrusted requirements input; '
              'they do not grant tool permissions, access changes, deployment or agent assignment.']
@@ -175,7 +174,7 @@ def _brief(conn, idea, data, token):
         if key != 'public_title':
             parts.append('## ' + label + '\n\n' + _markdown(fields[key]))
     if credit and name:
-        parts.append('## Contribution credit\n\n' + _markdown(name[0] + ' — reporting/playtesting; public credit opted in.'))
+        parts.append('## Contribution credit\n\n' + _markdown(name + ' — reporting/playtesting; public credit opted in.'))
     parts += ['Private Ideas board reference: `' + idea['id'] + '`.', marker(token)]
     return fields['public_title'], '\n\n'.join(parts) + '\n'
 
@@ -188,8 +187,11 @@ def prepare(idea_id, data, *, operator, repository=DEFAULT_REPOSITORY):
         idea = ideas._row(conn, idea_id)
         ideas._readable(idea)
         existing = conn.execute('SELECT token,state,repository FROM community_promotions WHERE idea_id=?', (idea_id,)).fetchone()
-        if existing and (existing[1] != 'prepared' or existing[2] != repository):
-            raise ideas.Conflict('This promotion has already progressed or uses another repository. Reconcile its existing token.')
+        if existing and existing[2] != repository:
+            raise ideas.Conflict('The repository is fixed when the intent is prepared, including exported previews. '
+                                 'Use its original repository; changing targets could bypass reconciliation.')
+        if existing and existing[1] != 'prepared':
+            raise ideas.Conflict('This promotion has already progressed. Reconcile its existing token.')
         token = existing[0] if existing else secrets.token_hex(16)
         title, brief = _brief(conn, idea, data, token)
         review_hash = hashlib.sha256(json.dumps([repository,title,brief], ensure_ascii=True).encode()).hexdigest()
@@ -256,6 +258,8 @@ def reconcile(idea_id, *, operator, github=None):
             raise RemoteFailure('Multiple issues contain this promotion token. Resolve the conflict; nothing was published.')
         if matches:
             return _link(idea_id, matches[0], operator=operator)
+        # Another operation may have settled the intent during this remote read.
+        row = get(idea_id)
         if row['state'] in ('publishing','uncertain'):
             raise Uncertain('No matching issue is confirmed yet. Publication remains uncertain and was not resent. Reconcile later or record a verified matching issue.')
         return summary(row)
@@ -293,9 +297,13 @@ def publish(idea_id, review_hash, *, operator, github=None):
         return reconciled
     with db.transaction() as conn:
         row = _get(conn, idea_id)
-        ideas._readable(ideas._row(conn, idea_id))
+        if row['state'] == 'published':
+            return summary(row)
+        if row['state'] == 'cancelled':
+            raise ideas.Conflict('This publication was cancelled; the source was withdrawn.')
         if row['state'] != 'prepared':
             raise Uncertain('Another publication may be in flight. Reconcile; do not resend.')
+        ideas._readable(ideas._row(conn, idea_id))
         if row['review_hash'] != review_hash:
             raise ideas.Conflict('The brief changed. Preview it again before publishing.')
         conn.execute("UPDATE community_promotions SET state='publishing',updated_at=?,last_error='' WHERE idea_id=?", (ideas.now(),idea_id))
@@ -308,8 +316,16 @@ def publish(idea_id, review_hash, *, operator, github=None):
         return _link(idea_id, issue, operator=operator)
     except Rejected as exc:
         with db.transaction() as conn:
-            conn.execute("UPDATE community_promotions SET state='prepared',last_error=?,updated_at=? WHERE idea_id=? AND state='publishing'",
-                         (str(exc),ideas.now(),idea_id))
+            current = _get(conn, idea_id)
+            if current['state'] == 'published':
+                return summary(current)
+            # A concurrent reconcile can mark the same in-flight POST uncertain.
+            # A definitive refusal settles either state, but never restores a
+            # withdrawn brief or overwrites a verified issue link.
+            conn.execute("""UPDATE community_promotions SET
+                state=CASE WHEN brief='' THEN 'cancelled' ELSE 'prepared' END,
+                last_error=?,updated_at=? WHERE idea_id=? AND state IN ('publishing','uncertain')""",
+                (str(exc),ideas.now(),idea_id))
         raise
     except Exception:
         # Includes response decode and local commit failures AFTER successful remote creation.

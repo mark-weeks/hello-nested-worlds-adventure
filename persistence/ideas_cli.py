@@ -45,7 +45,7 @@ def add_parser(sub):
     prepare = commands.add_parser('prepare', help='Store a reviewed public brief; does not contact GitHub')
     prepare.add_argument('id')
     prepare.add_argument('--brief', required=True, help='Local JSON file with the reviewed public fields')
-    prepare.add_argument('--repository', default='mark-weeks/hello-nested-worlds-adventure')
+    prepare.add_argument('--repository', help='GitHub owner/repository; defaults to the Enfolded repository')
     prepare.add_argument('--operator', required=True)
     preview = commands.add_parser('preview', help='Print only the reviewed public artifact and its SHA256')
     preview.add_argument('id')
@@ -70,15 +70,19 @@ def run_promotion(args):
     try:
         if args.action == 'prepare':
             # This is operator-authored public text, never a dump of the source record.
-            with Path(args.brief).open('rb') as stream:
-                raw = stream.read(32 * 1024 + 1)
+            try:
+                with Path(args.brief).open('rb') as stream:
+                    raw = stream.read(32 * 1024 + 1)
+            except OSError:
+                raise ValueError('The public brief file could not be read. Check the file and try preparing again.') from None
             if len(raw) > 32 * 1024:
                 raise ValueError('The public brief JSON file must fit within 32 KiB.')
             try:
                 data = json.loads(raw)
             except (ValueError, UnicodeDecodeError):
                 raise ValueError('The public brief file must contain a valid JSON object.') from None
-            result = promotion.prepare(args.id, data, operator=args.operator, repository=args.repository)
+            repository = args.repository if args.repository is not None else promotion.DEFAULT_REPOSITORY
+            result = promotion.prepare(args.id, data, operator=args.operator, repository=repository)
         elif args.action == 'preview':
             print(promotion.preview(args.id))
             return
@@ -93,4 +97,10 @@ def run_promotion(args):
         raise SystemExit(str(exc)) from None
     except Exception:
         # Never echo file contents, HTTP responses, credentials or private local paths.
-        raise SystemExit('Promotion could not complete. Its stored intent is retained; inspect and reconcile before retrying.') from None
+        if args.action == 'prepare':
+            message = 'Preparation was not confirmed. Inspect the local intent before preparing again; no publication was requested.'
+        elif args.action == 'preview':
+            message = 'The public preview could not be read. Check the local intent and retry.'
+        else:
+            message = 'Promotion could not complete. Inspect the local intent and reconcile any attempted publication before retrying.'
+        raise SystemExit(message) from None

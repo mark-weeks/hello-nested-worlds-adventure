@@ -118,6 +118,9 @@ limited to GitHub issue reads and one explicit creation attempt at a time.
    submitter's stored opt-in. The tool rejects obvious credentials, personal email
    addresses/device UUIDs, private participant aliases and opt-out name attribution;
    these checks do not replace the maintainer's semantic review of private details.
+   Body fields and optional credit render as literal text blocks. Fence lengths
+   exceed every backtick run in the field: Markdown, HTML, links, mentions and issue
+   references remain inert while the reviewed text is preserved.
 2. Prepare and preview the exact public artifact. Both commands are offline.
    Preparation durably saves the brief and a stable reconciliation token; preview
    prints only public fields, the random idea reference, token and review hash.
@@ -145,12 +148,21 @@ python main.py ideas reconcile IDEA_ID --operator 'Maintainer'
 python main.py ideas record-link IDEA_ID https://github.com/mark-weeks/hello-nested-worlds-adventure/issues/NUMBER --operator 'Maintainer'
 ```
 
-`prepare --repository OWNER/REPO` selects an explicit target. A prepared brief can
-be amended by preparing the same idea/repository again: its token stays stable,
+`prepare --repository OWNER/REPO` selects an explicit target; omitting it uses the
+Enfolded repository. The target is fixed by the first successful preparation,
+including while the intent is still `prepared`. Review the target before preparing.
+A preview may already have been exported and published manually, so changing this
+repository would stop reconciliation from finding that issue. There is no retarget
+or reset command in this version. A wrong-target intent should remain unpublished;
+do not withdraw the player's idea or delete its fence to work around the restriction.
+Supporting target correction would require retaining and reconciling prior targets.
+
+A prepared brief can be amended in the same repository: its token stays stable,
 but its review hash changes and an old preview cannot authorize publication.
-After an attempt becomes uncertain or confirmed, the tool refuses amendments or
-new target repositories; reconcile the retained intent. Review and amendment of a
-public GitHub issue itself is an independent operator action.
+Once a request is in flight, uncertain or confirmed, amendments are refused;
+reconcile the retained intent. Review and amendment of a public GitHub issue itself
+is an independent operator action. An unreadable local JSON file reports a file
+error and does not claim that preparation or publication succeeded.
 
 The REST contract was checked against the official [GitHub Issues API](https://docs.github.com/en/rest/issues/issues).
 No live issues were created to verify this implementation; local fake services
@@ -179,8 +191,14 @@ exercise transport and recovery without public test data.
   request in flight. Its eventual issue link remains recoverable. This is the same
   public-retention boundary as an independently published issue.
 
-Definitive GitHub refusals (such as authorization or validation rejections) leave
-a prepared intent eligible for another **explicit** publish action after correction.
+Definitive GitHub refusals (such as authorization or validation rejections) return
+an intact intent to `prepared`, including when a concurrent reconciliation marked
+the in-flight request `uncertain`. Another **explicit** publish is then possible
+after correction. If the source was withdrawn and its brief erased, the rejection
+settles as `cancelled`; it never restores an empty prepared brief. A concurrently
+verified issue link remains `published`. Publication rechecks settled states when
+claiming a request, so a completed operation returns its link instead of reporting
+an unknown outcome.
 Timeouts, incomplete responses, redirects, server failures or local link-commit
 failures remain uncertain. Errors retain safe diagnostics rather than upstream
 bodies. Search/list failures and enumeration-bound exhaustion never authorize a POST.

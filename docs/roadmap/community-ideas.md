@@ -1,7 +1,9 @@
 # In-game Ideas board: implementation design
 
 **Status:** Board/storage/moderation and explicit GitHub promotion implemented
-locally, 2026-09-13; not deployed.
+locally, 2026-09-13; PR #102/#103 review corrections implemented 2026-09-14;
+not merged or deployed. Promotion review findings and retained constraints are in
+[the review assessment](../evaluation/2026-09-14-promotion-review.md).
 Owner-approved visibility, retention and write limits are recorded in
 [ADR-026](../decisions/ADR-026-community-ideas-operations.md). Participant identity
 and credential rotation reuse merged ADR-024. The second change adds reviewed public preview, verified manual issue linking,

@@ -115,3 +115,15 @@ privacy fixture. Live GitHub writes
 remain limited to local fake-service fixtures in tests; no test issue is published.
 The only migration in this PR remains additive 0025; no world-history, birth pin,
 world-meta or era-bank changes accompany the review integration.
+
+
+## Follow-up after the PR #103 review
+
+The [promotion review assessment](2026-09-14-promotion-review.md) records the 12
+comment dispositions, six failing controls against the reviewed code, 22 new
+promotion regression cases and the retained repository-target constraint. The
+corrected stack passes **1,232 Python in 212.21s**, **113 Vitest**, **58 Playwright**
+(2.2 minutes), Ruff, fresh bundle and installed-wheel verification. The shared
+handler and attribution fixes are independently verified in #102 at `0e083a1`.
+GitHub's Markdown renderer verified a synthetic 11-line inert export; no live issue
+was created. Publication, deployment and merge remain separate operator actions.
