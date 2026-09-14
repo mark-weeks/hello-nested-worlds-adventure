@@ -11,7 +11,7 @@ ADR-023 adopts community contribution terms. Players need a shared feedback
 surface without creating GitHub accounts or putting operational community data
 in the world's permanent history. The Ideas design left visibility, retention
 and write limits for an owner decision. Migration 0023 was already on main when
-this work began, so the board uses additive migration 0024.
+this work began, so the board uses additive migration 0025 (renumbered from 0024 when main took that number for history read indexes in #101).
 
 ## Decision
 

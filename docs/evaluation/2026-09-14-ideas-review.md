@@ -83,7 +83,7 @@ assets changed in this follow-up.
 
 The correction diff adds no migration and changes no existing migration, birth
 bank/golden pin, chronicle write path, world-meta pin or era bank. The complete
-board PR retains the owner-approved additive migration 0024. Withdrawal semantics
+board PR retains the owner-approved additive migration 0025. Withdrawal semantics
 stay under the approved immediate-redaction policy. Browser receipt retention is
 disclosed before submission and removes the payload after confirmation; users may
 still clear browser data, which also removes its local recovery receipt.

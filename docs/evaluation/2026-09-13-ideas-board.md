@@ -7,7 +7,7 @@ This report describes executed fixture/browser evidence, not cohort use or deplo
 
 ## Board and moderation
 
-Migration 0024 adds six operational tables, reusing existing participants.
+Migration 0025 adds six operational tables, reusing existing participants.
 No migration rewrites world identity, chronicle, puzzles or agent memory.
 Owner-approved visibility, withdrawal and rolling limits are in ADR-026.
 
@@ -64,7 +64,7 @@ deployment was published. Prepared PR descriptions are local review artifacts.
 
 | Door | Evidence and result |
 | --- | --- |
-| Migration | Additive 0024 creates community operational tables only. Authorized in the implementation request; ownership, limits and redaction ratified in this task. Existing migrations are unchanged. |
+| Migration | Additive 0025 creates community operational tables only. Authorized in the implementation request; ownership, limits and redaction ratified in this task. Existing migrations are unchanged. |
 | Birth/golden pins | No changes to generator banks, generator version, stored node writers or continuity pins. |
 | Chronicle writes | No new world mutation call sites or SQL writes. Operational moderator decisions are separate. |
 | World metadata | No pinning, update or delete paths added. |
