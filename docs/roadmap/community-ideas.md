@@ -176,3 +176,9 @@ For the first cohort, record returns, participation, useful reports, and reporte
 verified improvements using the [community process](../community/maintaining-the-community.md).
 Report missing evidence as unknown. This design introduces no new analytics or
 scheduling automation.
+
+
+PR #102 review corrections and policy dispositions are recorded in
+[the 2026-09-14 review assessment](../evaluation/2026-09-14-ideas-review.md).
+The corrected board bounds reads separately from writes, retains pending receipts
+across tabs, and preserves immediate owner withdrawal of hidden content.

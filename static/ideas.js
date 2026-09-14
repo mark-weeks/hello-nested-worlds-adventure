@@ -17,9 +17,9 @@
   const credential = (() => { try { return localStorage.getItem('nw_beta_key') || ''; } catch { return ''; } })();
   const key = () => credential;
   let sort = 'recent', query = '', next = null, generation = 0, detailGeneration = 0;
-  let owner = '', draftKey = '', requestId = crypto.randomUUID(), pending = null, selected = null;
+  let owner = '', draftKey = '', receiptKey = '', messageSource = '', requestId = crypto.randomUUID(), pending = null, selected = null;
   let relatedGeneration = 0, relatedTimer;
-  function message(value, error = false) { $('message').textContent = value; $('message').className = error ? 'error' : ''; }
+  function message(value, error = false, source = 'action') { messageSource = source; $('message').textContent = value; $('message').className = error ? 'error' : ''; }
   async function api(path, body) {
     let response, data;
     try {
@@ -41,6 +41,44 @@
     }
     return data;
   }
+  // Only a submitted payload is durable across tabs. Unsubmitted drafts stay in
+  // session storage. One participant-scoped receipt and Web Lock fence all tabs.
+  const validId = value => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value);
+  function receipt() {
+    try { return JSON.parse(localStorage.getItem(receiptKey)); } catch { return null; }
+  }
+  function storeReceipt(value) {
+    try { localStorage.setItem(receiptKey, JSON.stringify(value)); }
+    catch { throw new Error('Browser storage is unavailable. Your draft is retained; restore storage before submitting.'); }
+  }
+  async function receiptLock(action) {
+    if (!navigator.locks) throw new Error('This browser cannot safely coordinate submission retries. Keep your draft here and use a current browser over HTTPS.');
+    return navigator.locks.request(receiptKey, action);
+  }
+  async function claimReceipt() {
+    return receiptLock(() => {
+      const current = receipt();
+      if (current?.state === 'pending') {
+        if (pending?.request_id === current.payload.request_id) return pending;
+        throw new Error('Another Ideas tab has a submission to confirm. Open Ideas in a new tab to recover it; this draft is retained.');
+      }
+      if (pending && current?.request_id === pending.request_id) {
+        if (current.state === 'confirmed') return {confirmed: current.id};
+        pending = null;
+      }
+      const payload = pending || draft();
+      storeReceipt({state: 'pending', payload});
+      pending = payload; saveDraft();
+      return payload;
+    });
+  }
+  async function settleReceipt(payload, state, id) {
+    await receiptLock(() => {
+      if (receipt()?.payload?.request_id === payload.request_id)
+        // Keep a small tombstone so a stale tab cannot resurrect a completed draft.
+        storeReceipt({state, request_id: payload.request_id, ...(id ? {id} : {})});
+    });
+  }
   function draft() { return {title: $('title').value, description: $('description').value,
     public_credit: $('credit').checked, request_id: requestId}; }
   function saveDraft() {
@@ -53,9 +91,15 @@
   }
   function restoreDraft(viewer) {
     if (owner === viewer.id) return;
-    owner = viewer.id; draftKey = 'nw_ideas_draft_' + owner;
+    owner = viewer.id; draftKey = 'nw_ideas_draft_' + owner; receiptKey = 'nw_ideas_receipt_' + owner;
     let saved;
     try { saved = JSON.parse(storage.get(draftKey)); } catch { saved = null; }
+    const current = receipt();
+    if (current?.state === 'pending') saved = {draft: current.payload, pending: current.payload};
+    else if (saved?.pending && current?.request_id === saved.pending.request_id) {
+      if (current.state === 'confirmed') saved = null;
+      else saved.pending = null;
+    }
     requestId = saved?.draft?.request_id || crypto.randomUUID();
     for (const field of ['title','description']) $(field).value = typeof saved?.draft?.[field] === 'string' ? saved.draft[field] : '';
     $('credit').checked = saved?.draft?.public_credit === true;
@@ -83,13 +127,13 @@
   }
   async function load(cursor = '') {
     const current = ++generation;
-    if (!owner) message('Loading ideas…');
+    if (!owner) message('Loading ideas…', false, 'load');
     $('results').setAttribute('aria-busy', 'true');
     $('result-status').textContent = 'Loading ideas…'; $('more').hidden = true; $('retry').hidden = true;
     try {
       const data = await api('/ideas/search', {sort, q: query, limit: 20, cursor});
       if (current !== generation) return;
-      if (!owner) message('');
+      if (messageSource === 'load') message('');
       restoreDraft(data.viewer);
       $('board').hidden = false; $('notice').hidden = true;
       $('attribution').textContent = `Your registered game name, ${data.viewer.name}, and this idea will be visible to active invited players. Voters remain private.`;
@@ -100,10 +144,11 @@
     } catch (error) {
       if (current !== generation) return;
       $('results').replaceChildren(); $('result-status').textContent = 'Ideas could not load.';
-      message(error.message, true); $('retry').hidden = false;
+      message(error.message, true, 'load'); $('retry').hidden = false;
     } finally { if (current === generation) $('results').setAttribute('aria-busy', 'false'); }
   }
   async function openDetail(id, focus = true) {
+    if (!validId(id)) return;
     const current = ++detailGeneration;
     selected = id;
     $('detail').hidden = false; $('detail').replaceChildren(element('p', 'Loading idea…'));
@@ -191,28 +236,35 @@
   $('idea-form').onsubmit = async event => {
     event.preventDefault();
     if (!pending && !$('idea-form').reportValidity()) return;
-    if (!pending) {
-      if (!$('title').value.trim() || !$('description').value.trim()) { message('Add a title and your experience before submitting.', true); (!$('title').value.trim() ? $('title') : $('description')).focus(); return; }
-      pending = draft(); saveDraft();
+    if (!pending && (!$('title').value.trim() || !$('description').value.trim())) {
+      message('Add a title and your experience before submitting.', true);
+      (!$('title').value.trim() ? $('title') : $('description')).focus(); return;
     }
-    freezeDraft(true); $('submit-button').disabled = true; message('Submitting your idea…');
+    $('submit-button').disabled = true;
+    let payload;
     try {
-      const data = await api('/ideas/submit', pending);
+      payload = await claimReceipt();
+      freezeDraft(true); message('Submitting your idea…');
+      const data = payload.confirmed ? {id: payload.confirmed} : await api('/ideas/submit', payload);
+      if (!payload.confirmed) await settleReceipt(payload, 'confirmed', data.id);
       pending = null; storage.remove(draftKey); requestId = crypto.randomUUID();
       $('idea-form').reset(); $('draft-state').textContent = ''; $('related').replaceChildren(); freezeDraft(false);
       message('Idea submitted. ');
       const link = element('a', 'Your stable idea link'); link.href = '/ideas?id=' + encodeURIComponent(data.id); $('message').append(link); link.focus();
       await load();
     } catch (error) {
-      if (error.status && error.status < 500 && error.status !== 403) {
+      if (payload && error.status && error.status < 500 && error.status !== 403 && error.status !== 429) {
+        try { await settleReceipt(payload, 'rejected'); }
+        catch { message('The retry receipt could not be updated. Keep this tab open and restore browser storage.', true); return; }
         pending = null; freezeDraft(false);
         if (error.status === 409) requestId = crypto.randomUUID();
-      } else $('draft-state').textContent = 'Your submission may have arrived. Retry to confirm it before editing; the same retry cannot create a second idea.';
+      } else if (payload) $('draft-state').textContent = 'Your submission may have arrived. Retry to confirm it before editing. This receipt survives closing the tab.';
       saveDraft(); message(error.message, true);
     } finally { $('submit-button').disabled = false; }
   };
-  const initial = new URLSearchParams(location.search).get('id');
+  const candidate = new URLSearchParams(location.search).get('id');
+  const initial = validId(candidate) ? candidate : null;
   // Strip accidental credential query strings rather than retaining/copying them.
-  history.replaceState(null, '', '/ideas' + (initial && /^[a-f0-9]{32}$/.test(initial) ? '?id=' + initial : ''));
+  history.replaceState(null, '', '/ideas' + (initial ? '?id=' + initial : ''));
   load().then(() => { if (initial && !$('board').hidden) openDetail(initial); });
 })();

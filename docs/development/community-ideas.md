@@ -74,3 +74,30 @@ Decision history and the minimal retry fence survive. This does not securely era
 SQLite pages/WAL, existing backups or a public GitHub issue. Backups remain private;
 follow existing backup retention and restore procedures. No world table is written,
 no seed is selected or born by board operations, and no agent receives a report.
+
+
+## Review corrections and operational boundaries
+
+PR #102 dispositions and the reasons for retaining withdrawal/read-quota policy
+are recorded in [the review assessment](../evaluation/2026-09-14-ideas-review.md).
+A hidden idea remains withdrawable by its owner. For operator changes, record a
+status decision before issuing a separate withdrawal command; combining withdrawal
+with status/duplicate/availability flags is rejected rather than silently ignored.
+
+List/detail and POST search share `NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN` (default
+120 requests/minute/IP) with the other expensive reads. These process-local read
+buckets do not consume the persistent community write quota. Unexpected Ideas
+failures emit a local `ideas_request_failed` record with the normalized route and
+exception class only; exception text, stack locals, bodies and credentials are
+excluded. This logger is excluded from Sentry.
+
+Unsubmitted browser drafts remain in session storage. A pending submitted payload
+and its stable ID are stored under the server-derived participant ID in local
+storage, coordinated across tabs with Web Locks. Confirmation removes that payload
+and retains only a small completion receipt so an old tab cannot recreate it.
+A different participant does not restore it. If another existing tab holds a distinct
+draft, submission pauses while a pending receipt needs recovery; that draft remains
+in its tab. Clearing browser data removes local recovery information. Submission
+requires working local storage and Web Locks in a secure context (HTTPS or local
+loopback); if either is unavailable, the board retains the draft and sends no new
+submission. These limits are shown in the form/error state.

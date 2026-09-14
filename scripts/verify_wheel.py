@@ -80,6 +80,11 @@ def main() -> None:
                     raise RuntimeError(f"built wheel has stale license/notice: {filename}")
         required = {
             "main.py",
+            "content_screen.py",
+            "persistence/ideas_cli.py",
+            "static/ideas.html",
+            "static/ideas.js",
+            "persistence/migrations/0024_community_ideas.sql",
             "persistence/migrations/0013_world_nodes.sql",
             "static/index.html",
             "static/nodesound.js",

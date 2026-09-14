@@ -192,3 +192,135 @@ test('Public shell, loading, network failure and keyboard retry', async ({page})
     await expect(page.locator('#board')).toBeVisible();
   } finally { await server.close(); }
 });
+
+for (const mobile of [false, true]) {
+  test(`Pending receipt survives tab loss and a stale retry on ${mobile ? 'mobile' : 'desktop'}`, async ({page, context}) => {
+    const server = await start();
+    try {
+      await page.setViewportSize(mobile ? {width:390,height:844} : {width:1280,height:900});
+      await enter(page, server);
+      await expect(page.locator('#board')).toBeVisible();
+      await page.getByLabel('Title', {exact:true}).fill('Recover across tabs');
+      await page.getByLabel('Your experience and desired outcome').fill('My submitted report should remain recoverable after tab loss.');
+      let posts = 0;
+      context.on('request', request => { if (new URL(request.url()).pathname === '/ideas/submit') posts++; });
+      await page.route('**/ideas/submit', async route => { await route.fetch(); await route.abort(); });
+      await page.locator('#submit-button').click();
+      await expect(page.locator('#draft-state')).toContainText('may have arrived');
+      const stale = await context.newPage();
+      await stale.goto(server.url + '/ideas');
+      await expect(stale.locator('#title')).toBeDisabled();
+      await page.close();
+      const recovered = await context.newPage();
+      await recovered.setViewportSize(mobile ? {width:390,height:844} : {width:1280,height:900});
+      await recovered.goto(server.url + '/ideas');
+      await expect(recovered.locator('#title')).toHaveValue('Recover across tabs');
+      await expect(recovered.locator('#title')).toBeDisabled();
+      await capture(recovered, `board-recovered-${mobile ? 'mobile' : 'desktop'}`);
+      // A throttled retry says nothing about whether the first request committed.
+      await recovered.route('**/ideas/submit', route => route.fulfill({status:429, contentType:'application/json', body:JSON.stringify({error:'Please retry after the limit resets.'})}));
+      await recovered.getByRole('button', {name:'Retry submission to confirm'}).click();
+      await expect(recovered.locator('#message')).toContainText('limit resets');
+      await expect(recovered.locator('#title')).toBeDisabled();
+      await recovered.unroute('**/ideas/submit');
+      await recovered.getByRole('button', {name:'Retry submission to confirm'}).click();
+      await expect(recovered.locator('#message')).toContainText('Idea submitted');
+      // An already open tab must consume the completed receipt, not resurrect it.
+      await stale.getByRole('button', {name:'Retry submission to confirm'}).click();
+      await expect(stale.locator('#message')).toContainText('Idea submitted');
+      expect(posts).toBe(3); // Original, intercepted throttle, and exactly one server retry.
+      expect((await (await recovered.request.get(server.url+'/ideas/list',{headers})).json()).ideas).toHaveLength(1);
+      const receipts = await recovered.evaluate(() => Object.entries(localStorage).filter(([k]) => k.startsWith('nw_ideas_receipt_')).map(([,v]) => JSON.parse(v)));
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0].state).toBe('confirmed');
+      expect(JSON.stringify(receipts)).not.toContain('Recover across tabs');
+      expect(receipts[0]).not.toHaveProperty('payload');
+      await stale.close(); await recovered.close();
+    } finally { await server.close(); }
+  });
+}
+
+test('Invalid idea IDs are removed before history updates or API requests', async ({page}) => {
+  const server = await start();
+  try {
+    const invalid = 'nw_do-not-retransmit';
+    const requests = [];
+    page.on('request', request => { if (!request.isNavigationRequest()) requests.push(request.url()); });
+    await page.addInitScript(() => {
+      window.__ideaHistory = [];
+      const replace = history.replaceState.bind(history);
+      history.replaceState = (...args) => { window.__ideaHistory.push(args[2]); return replace(...args); };
+    });
+    await enter(page, server, '/ideas?id=' + invalid);
+    await expect(page.locator('#board')).toBeVisible();
+    expect(page.url()).toBe(server.url + '/ideas');
+    expect(requests.every(url => !url.includes(invalid))).toBe(true);
+    expect((await page.evaluate(() => window.__ideaHistory)).every(url => !url.includes(invalid))).toBe(true);
+    await expect(page.locator('#detail')).toBeHidden();
+  } finally { await server.close(); }
+});
+
+test('Successful retry clears only the previous load error after the board has loaded', async ({page}) => {
+  const server = await start();
+  try {
+    await enter(page, server);
+    await expect(page.locator('#board')).toBeVisible();
+    await page.route('**/ideas/search', route => route.abort());
+    await page.getByRole('button', {name:'Most supported', exact:true}).click();
+    await expect(page.locator('#message')).toContainText('connection did not finish');
+    await page.unroute('**/ideas/search');
+    await page.locator('#retry').focus(); await page.keyboard.press('Enter');
+    await expect(page.locator('#result-status')).toContainText('No ideas yet');
+    await expect(page.locator('#message')).toBeEmpty();
+  } finally { await server.close(); }
+});
+
+test('A pending receipt cannot overwrite another account draft or another open tab', async ({page, context}) => {
+  const server = await start();
+  try {
+    await enter(page, server);
+    await expect(page.locator('#board')).toBeVisible();
+    const other = await context.newPage();
+    await other.goto(server.url+'/ideas');
+    await expect(other.locator('#board')).toBeVisible();
+    await other.getByLabel('Title',{exact:true}).fill('Keep this separate draft');
+    await other.getByLabel('Your experience and desired outcome').fill('A second report in an existing tab.');
+    await page.getByLabel('Title',{exact:true}).fill('Private pending report');
+    await page.getByLabel('Your experience and desired outcome').fill('I want to recover my original receipt.');
+    await page.route('**/ideas/submit',async route => { await route.fetch(); await route.abort(); });
+    await page.locator('#submit-button').click();
+    await expect(page.locator('#draft-state')).toContainText('may have arrived');
+    await other.locator('#submit-button').click();
+    await expect(other.locator('#message')).toContainText('Another Ideas tab');
+    await expect(other.locator('#title')).toHaveValue('Keep this separate draft');
+    expect((await (await other.request.get(server.url+'/ideas/list',{headers})).json()).ideas).toHaveLength(1);
+    // A different participant on the same browser must not restore this payload.
+    await other.evaluate(() => localStorage.setItem('nw_beta_key','nw_'+'b'.repeat(32)));
+    await other.reload();
+    await expect(other.locator('#attribution')).toContainText('Bea');
+    await expect(other.locator('#title')).toHaveValue('');
+    await expect(other.locator('#description')).toHaveValue('');
+    await other.close();
+  } finally { await server.close(); }
+});
+
+test('Unavailable durable storage prevents publication and retains the draft', async ({page}) => {
+  const server = await start();
+  try {
+    await enter(page, server);
+    await expect(page.locator('#board')).toBeVisible();
+    await page.getByLabel('Title',{exact:true}).fill('Retain this draft');
+    await page.getByLabel('Your experience and desired outcome').fill('Do not send without a durable retry receipt.');
+    await page.evaluate(() => {
+      const set = Storage.prototype.setItem;
+      Storage.prototype.setItem = function(key,value) {
+        if (key.startsWith('nw_ideas_receipt_')) throw new Error('Storage denied');
+        return set.call(this,key,value);
+      };
+    });
+    await page.locator('#submit-button').click();
+    await expect(page.locator('#message')).toContainText('Browser storage is unavailable');
+    await expect(page.locator('#title')).toHaveValue('Retain this draft');
+    expect((await (await page.request.get(server.url+'/ideas/list',{headers})).json()).ideas).toHaveLength(0);
+  } finally { await server.close(); }
+});

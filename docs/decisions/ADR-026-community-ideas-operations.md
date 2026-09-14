@@ -30,12 +30,15 @@ this work began, so the board uses additive migration 0024.
   cannot recreate withdrawn submissions and undertaken work stays explainable.
   This is logical application redaction, not secure erasure of SQLite pages,
   WAL files, backups or separately published GitHub issues. Hidden content is
-  retained for operators until explicit withdrawal/redaction. Community records
+  retained for operators until explicit withdrawal/redaction. Hiding does not
+  suspend the submitter’s withdrawal right; no moderation evidence hold is
+  authorized. Community records
   do not inherit the permanent-chronicle retention rule.
 - Allow 5 new submissions per participant per rolling 24 hours, 60 support
   changes per participant per hour, and 300 authenticated community write
   attempts per IP per hour. Retries/no-op support requests do not spend member
-  quotas. Store HMAC-derived IP buckets, not raw IP addresses, for this limiter.
+  quotas. List/detail/search use the existing per-IP read limiter instead of
+  consuming this write allowance. Store HMAC-derived IP buckets, not raw IP addresses, for this limiter.
   Short-lived limiter/ranking rows are pruned on subsequent relevant writes;
   an idle database can retain expired rows until its next write.
 - Submission request IDs bind normalized content to a participant; changed

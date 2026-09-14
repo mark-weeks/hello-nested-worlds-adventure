@@ -377,7 +377,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    from server.ideas_cli import add_parser as add_ideas_parser
+    from persistence.ideas_cli import add_parser as add_ideas_parser
     add_ideas_parser(sub)
 
     p_world = sub.add_parser("world", help="Generate and print the world hierarchy")
