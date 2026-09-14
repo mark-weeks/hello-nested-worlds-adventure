@@ -82,6 +82,19 @@ def cmd_situation(args):
     print(f"Opened situation {install(args.seed)} in world {args.seed}. Existing instances are preserved.")
 
 
+def cmd_work_report(args):
+    import json
+    import sqlite3
+    from persistence.recovery import format_report, work_report
+
+    try:
+        report = work_report(Path(args.db) if args.db else persistence._DB_PATH,
+                             seed=args.seed, limit=args.limit)
+    except (ValueError, sqlite3.Error) as exc:
+        raise SystemExit(f"Work report unavailable: {exc}") from exc
+    print(json.dumps(report, indent=2, sort_keys=True) if args.json else format_report(report))
+
+
 def cmd_history(args):
     worlds = persistence.list_worlds()
     if not worlds:
@@ -450,6 +463,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_redact.add_argument("--yes", action="store_true",
                           help="Skip the interactive confirmation")
     p_redact.set_defaults(func=cmd_redact)
+
+    p_work = sub.add_parser("work-report", help="Inspect pending work without changing the database")
+    p_work.add_argument("--db", help="Existing live database or backup (opened read-only)")
+    p_work.add_argument("--seed", type=int, default=None, help="Limit to one world; default is all worlds")
+    p_work.add_argument("--limit", type=int, default=20, help="Samples per queue, 1–100 (default: 20)")
+    p_work.add_argument("--json", action="store_true", help="Machine-readable report")
+    p_work.set_defaults(func=cmd_work_report)
 
     p_situation = sub.add_parser("situation", help="Install the authored first situation in existing world 382")
     p_situation.add_argument("--seed", type=int, default=382)

@@ -199,14 +199,13 @@ def recap(participant: str, seed: int) -> list[dict]:
                 CROSS JOIN world_mutations m NOT INDEXED
                 WHERE m.id=e.id AND m.world_seed=?""",
             (participant, seed, participant, seed, participant, seed, seed)).fetchall()
-        # Each place contributes at most eight candidates. The node index keeps
-        # unrelated world history out of these reads, including when fewer than
-        # eight relevant deltas exist and a global reverse scan would run to birth.
+        # The partial material index skips chatter even at the same saved place.
+        # Each place contributes at most eight candidates in event order.
         rows = []
         for (node,) in places:
             if node is not None:
                 rows.extend(conn.execute("""SELECT id,node_name,mutation_type,data FROM world_mutations
-                    INDEXED BY idx_world_mutations_seed_node
+                    INDEXED BY idx_world_mutations_material_node
                     WHERE world_seed=? AND node_name=? AND delta IS NOT NULL
                     ORDER BY id DESC LIMIT 8""", (seed, node)).fetchall())
         rows = sorted(rows, key=lambda row: row[0], reverse=True)[:8]

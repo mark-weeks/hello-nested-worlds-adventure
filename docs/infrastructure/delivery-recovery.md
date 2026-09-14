@@ -9,29 +9,70 @@ completed no-ops with a `SCALE_ACT_MATURED` explanation and no material delta.
 The canonical pump still drains only its configured world. Other seeds' work
 remains durable and paused.
 
-Use these read-only queries on an operator-approved database copy (or a live
-read connection). Queue payloads retain player attribution and should remain
-operator data, not a new public feed:
+## One operator report for all delayed work
+
+Use `python main.py work-report --seed 382` for the configured database, or
+`python main.py work-report --db /path/to/backup.db --seed 382 --json` for a copy.
+Omit `--seed` to include all worlds. `--limit 20` controls diagnostic samples per
+queue (1–100); it does not cap the pending counts. This command opens an existing
+schema-23-or-later database read-only, takes one consistent read snapshot, and
+never initializes, migrates, claims, retries, or completes work. A missing or
+incompatible database is an error, not an empty healthy report.
+
+The report covers `causal_queue`, `verb_maturation`, and `situation_work`:
+
+- `pending` includes scheduled, due, backed-off, and predecessor-blocked work.
+- `due` includes every pending item whose accepted due time has arrived.
+  `oldest_due_age_seconds` measures age from that due time, including backoff.
+- `eligible` means due, past its retry backoff, and without an unfinished earlier
+  situation step. It does not establish that a worker is running or that its
+  interpreter supports the stored version. The worker still rechecks everything.
+- `failed_pending` counts pending rows with a recorded error. A process death or
+  storage failure can leave no error record; zero is not proof of healthy delivery.
+- `backed_off` and `waiting_for_predecessor` explain possible waits; categories
+  overlap. Samples prioritize recorded errors, then due time and stable work ID.
+  Truncation is explicit. Counts scan pending records, not retained completions.
+- Unsettled situation decisions are listed separately, including passed deadlines
+  before any work has been queued. Ties can legitimately extend the decision window.
+
+Payloads, actor-identity fields, credentials, and journal text are not selected.
+Stored error strings are still operator data and may contain exception context;
+keep reports out of public feeds. These are diagnostics, not an alert service.
+The cheap `/health` endpoint remains a process-liveness check.
+
+For deeper inspection, these read-only queries can run on an operator-approved
+copy or live read connection. They include retained completion counts and can
+cost more than the pending-only report:
 
 ```sql
 SELECT status, outcome, COUNT(*) FROM causal_queue GROUP BY status, outcome;
 SELECT status, outcome, COUNT(*) FROM verb_maturation GROUP BY status, outcome;
+SELECT status, COUNT(*) FROM situation_work GROUP BY status;
 SELECT id, world_seed, node_name, attempts, last_error, retry_at
 FROM causal_queue WHERE status = 'pending' AND last_error IS NOT NULL;
 SELECT id, world_seed, node_name, attempts, last_error, retry_at
 FROM verb_maturation WHERE status = 'pending' AND last_error IS NOT NULL;
+SELECT id, situation_id, step, attempts, last_error, retry_at
+FROM situation_work WHERE status = 'pending' AND last_error IS NOT NULL;
 ```
 
 From the configured application environment, `persistence.inspect_work(queue, id)`
-returns the full preserved row. After inspecting and repairing a pending failure,
+returns the full preserved row for any of those three queue names. After inspecting
+and repairing a pending failure,
 `persistence.retry_work(queue, id)` clears its backoff. Accepted due time remains
-in force; the next pump tick rechecks it. Never reset completed status, edit a
-historical delta, or delete pending work to make an alert disappear. The last
-error is retained after eventual success as diagnostic context. Attempt counts
-cover recorded failures and completion, not every process-killed attempt.
+in force; the next pump tick rechecks it. A situation step must also wait for all
+earlier pending steps. Retrying a later step cannot bypass that ordering. These
+helpers use the configured application database, independently of a report's
+`--db` option; inspect and repair the intended database before any retry.
+Never reset completed status, edit a historical delta, or delete pending work
+to make an alert disappear. The report itself does not invoke these helpers.
 
-Without intervention, failures retry after 1, 2, 4, … seconds, capped at five
-minutes, without a discard ceiling. An invalid item does not suppress the rest
+The existing retry policies remain distinct. Causal/maturation failures retry
+after 1, 2, 4, … seconds, capped at five minutes; their last error survives eventual
+success and attempts include recorded failures plus completion. Situation failures
+retry after 30 seconds; attempts count recorded failures and success clears the
+last error. Neither counts every process-killed attempt or discards work after a
+retry ceiling. An invalid item does not suppress the rest
 of the eligible batch. A storage outage can also prevent error recording; that
 failure is logged and the worker still tries other candidates. Attempts/backoff
 can remain unchanged, so the item may be eligible again next tick. If the outage
@@ -39,6 +80,13 @@ also prevents reading or applying work, repair storage and resume the normal
 pump. Its pending row remains the recovery source. Notification failures require a reload/reconnect, not a queue reset.
 
 ## Upgrade and rollback
+
+Migration 0024 adds only two partial indexes for material-history and puzzle-renewal
+reads. It changes no world, history, active-content, queue, receipt, or ownership
+rows. Index creation still takes a write transaction and storage; follow the
+existing authorized backup/upgrade procedure and rehearse on a representative copy.
+Keep pending work and all completed fences through this upgrade. The report can
+also inspect a v23 copy without applying v24.
 
 Before any later authorized deployment, stop **all** application writers and
 take the runbook backup. Migrations 0018 and 0019 are additive, preserving

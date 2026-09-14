@@ -366,6 +366,16 @@ def _delivery_queue(queue: str) -> str:
     return queue
 
 
+_WORK_QUEUES = _DELIVERY_QUEUES | {"situation_work"}
+
+
+def _work_queue(queue: str) -> str:
+    """Operator inspection/retry scope; each worker retains its own interpreter."""
+    if queue not in _WORK_QUEUES:
+        raise ValueError("unknown work queue")
+    return queue
+
+
 @_with_db
 def enqueue_causal_hop(world_seed: int, node_name: str, kind: str,
                        strength: float, direction: str, payload: dict,
@@ -452,7 +462,7 @@ def due_work(queue: str, limit: int, world_seed: int | None = None) -> list[int]
 @_with_db
 def inspect_work(queue: str, work_id: int) -> dict | None:
     """Read the unchanged input, retries, linkage and terminal outcome."""
-    queue = _delivery_queue(queue)
+    queue = _work_queue(queue)
     with _connection() as conn:
         cur = conn.execute(f"SELECT * FROM {queue} WHERE id = ?", (work_id,))
         row = cur.fetchone()
@@ -526,7 +536,7 @@ def deliver_work(queue: str, work_id: int, apply: Callable[[dict], str], *,
 @_with_db
 def retry_work(queue: str, work_id: int) -> bool:
     """Operator retry after inspection/repair; never resets a completed item."""
-    queue = _delivery_queue(queue)
+    queue = _work_queue(queue)
     with _connection() as conn:
         return conn.execute(
             f"UPDATE {queue} SET retry_at = NULL WHERE id = ? AND status = 'pending'",
@@ -829,19 +839,21 @@ def count_node_mutations(world_seed: int, node_name: str,
 
 
 @_with_db
-def count_rearms_by_node(world_seed: int) -> dict[str, int]:
+def count_rearms_by_node(world_seed: int, node_name: str | None = None) -> dict[str, int]:
     """Per-node puzzle renewal counts — each node's current puzzle epoch.
 
     A PUZZLE_REARM lands when the world's entropy (a strong decay event)
     hits a node whose current puzzle is already solved; the epoch folds
     into puzzle generation so the node grows a fresh, unsolved puzzle.
     """
-    with _connect() as conn:
+    selected = "" if node_name is None else " AND node_name = ?"
+    params = (world_seed,) if node_name is None else (world_seed, node_name)
+    with _connection() as conn:
         rows = conn.execute(
-            """SELECT node_name, COUNT(*) FROM world_mutations
-               WHERE world_seed = ? AND mutation_type = 'PUZZLE_REARM'
-               GROUP BY node_name""",
-            (world_seed,),
+            f"""SELECT node_name, COUNT(*) FROM world_mutations
+                INDEXED BY idx_world_mutations_rearms
+                WHERE world_seed = ? AND mutation_type = 'PUZZLE_REARM'{selected}
+                GROUP BY node_name""", params,
         ).fetchall()
     return {name: count for name, count in rows}
 
@@ -1859,6 +1871,7 @@ def load_node_property_overrides(world_seed: int, names: list[str] | None = None
         ).fetchall()
         delta_versions = {name: int(version) for name, version in conn.execute(
             f"""SELECT node_name, MAX(node_version) FROM world_mutations
+               INDEXED BY idx_world_mutations_material_node
                WHERE world_seed = ? AND delta IS NOT NULL {selected}
                GROUP BY node_name""",
             args,
