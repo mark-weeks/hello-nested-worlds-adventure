@@ -94,7 +94,7 @@ def test_reads_survive_v23_restore_without_restart(busy_place, surface, tmp_path
     with closing(sqlite3.connect(backup)) as conn:
         conn.executescript('DROP INDEX idx_world_mutations_material_node; '
                            'DROP INDEX idx_world_mutations_rearms; '
-                           'DELETE FROM schema_version WHERE version=24;')
+                           'DELETE FROM schema_version WHERE version>=24;')
     assert db._DB_PATH in db._initialized
     def forbidden(*args):
         raise AssertionError('Restored schemas must remain readable without migration')
