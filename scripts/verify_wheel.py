@@ -81,6 +81,8 @@ def main() -> None:
         required = {
             "main.py",
             "persistence/migrations/0013_world_nodes.sql",
+            "persistence/migrations/0024_history_read_indexes.sql",
+            "persistence/recovery.py",
             "static/index.html",
             "static/nodesound.js",
             "static/clientlogic.js",
@@ -112,6 +114,9 @@ def main() -> None:
         )
         _run(str(python), "-c", smoke, cwd=tmp, env=smoke_env)
         _run(str(cli), "--help", cwd=tmp, env=smoke_env)
+        _run(str(cli), "work-report", "--db",
+             str(tmp / "home" / ".nested-worlds" / "worlds.db"), "--json",
+             cwd=tmp, env=smoke_env)
         print(f"verified wheel: {wheel.name}")
 
 

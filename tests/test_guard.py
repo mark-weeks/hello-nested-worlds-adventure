@@ -804,6 +804,47 @@ class TestReadRateLimit:
         assert _get_status(f"{base}/history?seed=42") == 200
         assert _get_status(f"{base}/history?seed=42") == 429
 
+    def test_evidence_is_limited_before_opening_a_question(self, srv, monkeypatch):
+        from multiverse import store
+        from persistence import puzzle_content
+        from urllib.parse import urlencode
+
+        monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, "1")
+        base, _ = srv
+        node = store.root_name(382)
+        query = urlencode({"seed": 382, "node_name": node})
+        assert _get_status(f"{base}/history?seed=382") == 200
+        assert _get_status(f"{base}/puzzle/evidence?{query}") == 429
+        assert puzzle_content.read(382, node, 0) is None
+        guard.READ_RATE_LIMITER.reset()
+        assert _get_status(f"{base}/puzzle/evidence?{query}") == 200
+        assert puzzle_content.read(382, node, 0) is not None
+        assert _get_status(f"{base}/puzzle/evidence?{query}") == 429
+
+    def test_api_reads_are_protected_by_default(self, srv, monkeypatch):
+        monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, "1")
+        base, _ = srv
+        assert _get_status(f"{base}/future-api") == 404
+        # New data routes inherit protection without joining an allow-list.
+        for path in ("/world", "/node", "/agent", "/observe", "/puzzle",
+                     "/puzzle/evidence", "/chronicle", "/history", "/wayback",
+                     "/me", "/profile", "/journal/data", "/situation", "/future-api"):
+            assert _get_status(base + path) == 429, path
+
+    def test_control_reads_assets_and_socket_keep_their_own_policy(self, srv, monkeypatch):
+        monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, "1")
+        base, port = srv
+        assert _get_status(f"{base}/history?seed=42") == 200
+        for path in ("/health", "/", "/app", "/journal", "/journal.js",
+                     "/clientlogic.js", "/position", "/players?seed=42", "/worlds"):
+            assert _get_status(base + path) == 200, path
+        code, sock = _ws_upgrade(port, "/ws?seed=42&name=ReadQuota", hold=True)
+        try:
+            assert code == 101
+        finally:
+            if sock:
+                sock.close()
+
     def test_deny_line_stays_in_fiction(self, srv, monkeypatch):
         monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, "1")
         base, _ = srv
