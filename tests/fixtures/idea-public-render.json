@@ -1,0 +1,6 @@
+{
+  "source": "GitHub POST /markdown; mode=gfm; repository context mark-weeks/hello-nested-worlds-adventure; synthetic fixture; 2026-09-14",
+  "input": "Ping @mark-weeks and @team. See https://example.test/x, www.example.test, mailto:person@example.test.\n<script>x()</script> ![image](https://example.test/a) <https://example.test/x>\n*emphasis* `code` ~~strike~~ | a | b |\n# heading\n- item\n1. item\n---\nLiteral &copy; and &#64; plus \\ backslash\n```\n~~~\n#123 @mark-weeks ```more`````",
+  "markdown": "``````\nPing @mark-weeks and @team. See https://example.test/x, www.example.test, mailto:person@example.test.\n<script>x()</script> ![image](https://example.test/a) <https://example.test/x>\n*emphasis* `code` ~~strike~~ | a | b |\n# heading\n- item\n1. item\n---\nLiteral &copy; and &#64; plus \\ backslash\n```\n~~~\n#123 @mark-weeks ```more`````\n``````",
+  "html": "<pre class=\"notranslate\"><code class=\"notranslate\">Ping @mark-weeks and @team. See https://example.test/x, www.example.test, mailto:person@example.test.\n&lt;script&gt;x()&lt;/script&gt; ![image](https://example.test/a) &lt;https://example.test/x&gt;\n*emphasis* `code` ~~strike~~ | a | b |\n# heading\n- item\n1. item\n---\nLiteral &amp;copy; and &amp;#64; plus \\ backslash\n```\n~~~\n#123 @mark-weeks ```more`````\n</code></pre>"
+}

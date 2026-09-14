@@ -14,7 +14,7 @@ async function capture(page, name) {
   await mkdir(evidence, {recursive: true});
   await page.screenshot({path: path.join(evidence, name + '.png'), fullPage: true});
 }
-async function start() {
+async function start(promoted = false) {
   const directory = await mkdtemp(path.join(tmpdir(), 'enfolded-ideas-browser-'));
   const child = spawn(python, ['-u','-c', `
 import sys
@@ -23,11 +23,23 @@ import persistence as db
 db._DB_PATH=Path(sys.argv[1])/'worlds.db'
 db.mint_invite_key('nw_'+'a'*32,'Ada')
 db.mint_invite_key('nw_'+'b'*32,'Bea')
+if sys.argv[2]=='promoted':
+    from persistence import ideas
+    from server import idea_promotion as p
+    idea=ideas.submit('nw_'+'a'*32,{'title':'A clearer destination cue','description':'A private report detail.', 'request_id':'fixture-idea'})['id']
+    data={field:'A reviewed public requirement.' for field in p.FIELDS}
+    data.update(public_title='Improve crossing cues',reviewed=True)
+    intent=p.prepare(idea,data,operator='Fixture operator')
+    class FakeGitHub:
+        def matches(self,*args): return []
+        def create(self,repository,title,body): return {'number':321,'body':body}
+    p.publish(idea,intent['review_hash'],operator='Fixture operator',github=FakeGitHub())
+    ideas.moderate(idea,operator='Fixture operator',explanation='Merged; a playable release is still pending.',status='merged')
 from server import _Handler,_ThreadedServer
 server=_ThreadedServer(('127.0.0.1',0),_Handler)
 print(server.server_port,flush=True)
 server.serve_forever()
-`, directory], {cwd: repo, env: {...process.env, NESTED_WORLDS_CANONICAL_SEED:'382',
+`, directory, promoted ? 'promoted' : 'empty'], {cwd: repo, env: {...process.env, NESTED_WORLDS_CANONICAL_SEED:'382',
     NESTED_WORLDS_DISABLE_AI:'1', NESTED_WORLDS_DISABLE_IMAGES:'1'}, stdio:['ignore','pipe','pipe']});
   let stderr = ''; child.stderr.on('data', chunk => { stderr += chunk; });
   const port = await new Promise((resolve,reject) => {
@@ -322,5 +334,33 @@ test('Unavailable durable storage prevents publication and retains the draft', a
     await expect(page.locator('#message')).toContainText('Browser storage is unavailable');
     await expect(page.locator('#title')).toHaveValue('Retain this draft');
     expect((await (await page.request.get(server.url+'/ideas/list',{headers})).json()).ideas).toHaveLength(0);
+  } finally { await server.close(); }
+});
+
+
+test('Reviewed issue link is visible, merged stays distinct from available, and outgoing URLs contain no private data', async ({page,context}) => {
+  const server = await start(true);
+  try {
+    await enter(page,server);
+    await page.getByRole('link',{name:'A clearer destination cue',exact:true}).click();
+    await expect(page.locator('#detail')).toContainText('Merged — awaiting release');
+    await expect(page.locator('#detail')).not.toContainText('Available to play');
+    const issue = page.getByRole('link',{name:'Follow the GitHub issue ↗'});
+    await expect(issue).toHaveAttribute('href','https://github.com/mark-weeks/hello-nested-worlds-adventure/issues/321');
+    await expect(issue).toHaveAttribute('rel','noopener noreferrer');
+    let outgoing;
+    await context.route('https://github.com/**', async route => {
+      outgoing = route.request();
+      await route.fulfill({contentType:'text/html',body:'<h1>Local issue-link fixture</h1>'});
+    });
+    const opened = context.waitForEvent('page'); await issue.click(); const remote = await opened;
+    await expect(remote.getByRole('heading',{name:'Local issue-link fixture'})).toBeVisible();
+    expect(outgoing.headers()['x-beta-key']).toBeUndefined();
+    expect(outgoing.headers().referer).toBeUndefined();
+    expect(outgoing.url()).not.toContain(key);
+    expect(outgoing.url()).not.toContain('private');
+    expect(await remote.evaluate(() => window.opener)).toBeNull();
+    await remote.close();
+    await capture(page,'board-promoted-merged');
   } finally { await server.close(); }
 });

@@ -130,8 +130,10 @@ def _summaries(conn, rows, me):
     votes = {idea: (count, supported) for idea, count, supported in conn.execute(f"""
         SELECT idea_id,count(*),max(member_id=?) FROM community_votes
         WHERE idea_id IN ({slots}) GROUP BY idea_id""", [me['id'], *[row['id'] for row in rows]])}
-    return [_summary(row, me, names.get(row['member_id'], 'Former player'),
-                     *votes.get(row['id'], (0, 0))) for row in rows]
+    links = dict(conn.execute(f"""SELECT idea_id,issue_url FROM community_promotions
+        WHERE idea_id IN ({slots}) AND state='published'""", [row['id'] for row in rows]))
+    return [{**_summary(row, me, names.get(row['member_id'], 'Former player'),
+                        *votes.get(row['id'], (0, 0))), 'issue_url': links.get(row['id'])} for row in rows]
 
 
 def _public(conn, row, me, *, detail=False):
@@ -139,6 +141,8 @@ def _public(conn, row, me, *, detail=False):
     count, supported = conn.execute('''SELECT count(*), coalesce(max(member_id=?),0)
         FROM community_votes WHERE idea_id=?''', (me['id'], row['id'])).fetchone()
     result = _summary(row, me, name, count, supported)
+    link = conn.execute("SELECT issue_url FROM community_promotions WHERE idea_id=? AND state='published'", (row['id'],)).fetchone()
+    result['issue_url'] = link[0] if link else None
     if detail:
         result.update(description=row['description'], response=row['response'], availability=row['availability'])
         target = conn.execute("SELECT id FROM community_ideas WHERE id=? AND visibility='visible'", (row['duplicate_id'],)).fetchone()
@@ -229,6 +233,11 @@ def vote(key, idea_id, supported):
 
 def _withdraw(conn, row, operator, explanation):
     stamp = now()
+    # Redact the public brief in this same storage transaction without loading
+    # the HTTP/GitHub adapter. Retain only recovery/link metadata.
+    conn.execute("""UPDATE community_promotions SET public_title='',brief='',
+        state=CASE WHEN state='prepared' THEN 'cancelled' ELSE state END,updated_at=? WHERE idea_id=?""",
+        (stamp, row['id']))
     conn.execute("""UPDATE community_ideas SET title='',description='',public_credit=0,
         response='',availability='',visibility='withdrawn',updated_at=? WHERE id=?""", (stamp, row['id']))
     conn.execute('DELETE FROM community_votes WHERE idea_id=?', (row['id'],))

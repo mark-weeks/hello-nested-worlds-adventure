@@ -1,10 +1,13 @@
 # In-game Ideas board: implementation design
 
-**Status:** Board/storage/moderation implemented locally, 2026-09-13; not deployed.
+**Status:** Board/storage/moderation and explicit GitHub promotion implemented
+locally, 2026-09-13; PR #102/#103 review corrections implemented 2026-09-14;
+not merged or deployed. Promotion review findings and retained constraints are in
+[the review assessment](../evaluation/2026-09-14-promotion-review.md).
 Owner-approved visibility, retention and write limits are recorded in
 [ADR-026](../decisions/ADR-026-community-ideas-operations.md). Participant identity
-and credential rotation reuse merged ADR-024. GitHub promotion is the second
-implementation change and remains pending in this first commit. See the
+and credential rotation reuse merged ADR-024. The second change adds reviewed public preview, verified manual issue linking,
+explicit GitHub publication and read-only interrupted-publication recovery. See the
 [operator/API guide](../development/community-ideas.md) for implemented behavior.
 
 ## Intended outcome
@@ -57,7 +60,7 @@ silently transferred or double-counted.
 
 Initial participation is for invited players, using the current server-side
 credential lookup in `server/guard.py` and `persistence.lookup_invite_key`.
-An Ideas write must require a valid, active credential even when the local
+Every Ideas data read or write must require a valid, active credential even when the local
 game's general invite gate is open. Never use a client-supplied name or the
 browser's local storage ID as the vote identity. Tests and local development
 can mint disposable named credentials.
@@ -84,7 +87,7 @@ and unrelated details. Raw submissions are never committed to the repository.
 Accept contributions under the published contribution terms, while handling
 material explicitly offered under different terms before reuse.
 
-## Proposed storage and API
+## Storage and API
 
 Add operational tables through one additive migration, using the next available
 migration number at implementation time. They live in the existing backed-up
@@ -133,11 +136,11 @@ version to keep the moderation and rights surface manageable.
    acceptance checks, applicable decisions, and unresolved questions. Votes are
    evidence; they do not assign work. Include credit only as permitted.
 2. An explicit operator publish action creates a GitHub issue using a repository-
-   scoped credential held outside the browser. The first implementation can
-   export a Markdown brief for manual GitHub creation, then record the verified
-   issue URL. It needs no resident GitHub credential or synchronization service.
-3. If automated issue creation is added, record a stable promotion intent before
-   the remote write and embed its token in the issue. On timeout or interrupted
+   scoped credential held outside the browser. The CLI can also export the reviewed Markdown brief for manual GitHub
+   creation, then verify and record its issue URL. Preparation and preview are
+   offline; remote actions use only an operator-side repository credential.
+3. The explicit publish command records a stable promotion intent before
+   the remote write and embeds its token in the issue. On timeout or interrupted
    response, reconcile by that token before retrying. GitHub issue creation and
    SQLite cannot commit atomically; never blindly retry and create duplicates.
    A local failure must retain pending work and must not mark promotion complete.
@@ -159,9 +162,9 @@ and keep community data outside world history. Inspect mobile and desktop,
 keyboard navigation, focus/error handling, and empty/loading/failure states.
 
 **Change set 2: selected-idea handoff.** Implement reviewed brief export and
-verified issue-link recording first. Add remote publication only with explicit
-scope and credential authorization. Prove interrupted promotion recovery before
-claiming automatic synchronization.
+verified issue-link recording first. Remote publication is implemented in this separately authorized scope; executing
+it requires an explicit operator publish action and operator-side credential. Interrupted promotion recovery is covered by local fake-GitHub transport and
+process-termination tests; no automatic synchronization or agent assignment exists.
 
 Required behavioral evidence includes concurrent vote uniqueness, vote undo and
 retry, duplicate submission retries, credential revocation/replacement, server-

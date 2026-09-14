@@ -221,7 +221,7 @@ def test_page_queries_are_bounded_and_preserve_names_votes_and_private_fields(ac
         assert len(result['ideas']) == limit
         assert all(row['author'] == 'Ada' and not row['own'] for row in result['ideas'])
         assert not any('member_id' in row or 'request_hash' in row for row in result['ideas'])
-    assert sizes[0] == sizes[1] <= 8
+    assert sizes[0] == sizes[1] <= 9  # One batch query for published issue links.
     assert result['ideas'][-1]['votes'] == 1 and result['ideas'][-1]['supported']
 
 
