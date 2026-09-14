@@ -132,4 +132,3 @@ def local_tier(text: str) -> str:
     if _DIGIT_RUN.search(re.sub(r"[\s\-.()]+", "", text)):
         return "escalate"
     return "clean"
-
