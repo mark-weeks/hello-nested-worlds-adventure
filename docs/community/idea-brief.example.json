@@ -1,0 +1,11 @@
+{
+  "public_title": "A concise title for the agreed improvement",
+  "problem": "Summarize the player problem without private conversations, credentials, names, device identifiers or unrelated details.",
+  "outcome": "Describe the improvement a player should notice.",
+  "scope": "State the accepted boundaries and exclusions.",
+  "acceptance_checks": "Specify observable behavior and the checks needed to verify it.",
+  "decisions": "List the applicable ADRs and other agreed constraints.",
+  "open_questions": "List unresolved questions, or state that none are recorded.",
+  "include_credit": false,
+  "reviewed": false
+}

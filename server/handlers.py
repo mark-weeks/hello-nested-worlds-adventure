@@ -412,9 +412,15 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._dispatch_get()
         except Exception as exc:
-            observability.capture_exception(exc)
+            community = urlparse(self.path).path.startswith('/ideas/')
+            if not community:
+                observability.capture_exception(exc)
             try:
-                self._send_error("internal server error", 500)
+                if community:
+                    self._private_response = True
+                    self._send_error('Ideas is temporarily unavailable. Please retry; your draft is retained.', 503)
+                else:
+                    self._send_error("internal server error", 500)
             except Exception:
                 pass
         finally:
@@ -719,9 +725,15 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._dispatch_post()
         except Exception as exc:
-            observability.capture_exception(exc)
+            community = urlparse(self.path).path.startswith('/ideas/')
+            if not community:
+                observability.capture_exception(exc)
             try:
-                self._send_error("internal server error", 500)
+                if community:
+                    self._private_response = True
+                    self._send_error('Ideas is temporarily unavailable. Please retry; your draft is retained.', 503)
+                else:
+                    self._send_error("internal server error", 500)
             except Exception:
                 pass
         finally:

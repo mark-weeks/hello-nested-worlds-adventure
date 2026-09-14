@@ -109,6 +109,8 @@ def _public(conn, row, me, *, detail=False):
     result = {k: row[k] for k in ('id','title','status','created_at','updated_at')}
     result.update(status_label=STATUSES[row['status']], author=name[0] if name else 'Former player',
                   votes=count, supported=bool(supported), own=row['member_id'] == me['id'])
+    link = conn.execute("SELECT issue_url FROM community_promotions WHERE idea_id=? AND state='published'", (row['id'],)).fetchone()
+    result['issue_url'] = link[0] if link else None
     if detail:
         result.update(description=row['description'], response=row['response'], availability=row['availability'])
         target = conn.execute("SELECT id FROM community_ideas WHERE id=? AND visibility='visible'", (row['duplicate_id'],)).fetchone()
@@ -198,6 +200,8 @@ def vote(key, idea_id, supported):
 
 
 def _withdraw(conn, row, operator, explanation):
+    from server.idea_promotion import withdraw_brief
+    withdraw_brief(conn, row['id'])
     stamp = now()
     conn.execute("""UPDATE community_ideas SET title='',description='',public_credit=0,
         response='',availability='',visibility='withdrawn',updated_at=? WHERE id=?""", (stamp, row['id']))

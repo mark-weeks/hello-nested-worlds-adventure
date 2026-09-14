@@ -42,7 +42,8 @@ this work began, so the board uses additive migration 0024.
   content with the same ID is a conflict. Support is a desired boolean state
   under a transaction and a unique `(idea, participant)` constraint.
 - Recent/own pages use a stable creation ceiling and keyset. Most-supported
-  pages freeze their ranking at the first page; support events allow reconstruction
+  pages freeze their ranking at the first page’s database snapshot; monotonic support
+  revisions allow reconstruction
   for a 15-minute signed cursor bound to viewer and query. Each request returns
   at most 50 ideas, displays current counts and rechecks current visibility.
 - Local moderation blocks the existing unequivocal blocklist without invoking
@@ -50,9 +51,11 @@ this work began, so the board uses additive migration 0024.
   decisions are separate operational rows. Duplicates link to visible survivors;
   votes are never transferred. Implemented and merged are distinct from available;
   available requires an operator's verified release/deployment evidence.
-- The separate promotion change must persist the reviewed public brief and
+- The separate promotion change (migration 0025) persists the reviewed public brief and
   reconciliation token before any GitHub write. A timed-out publication cannot
-  be blindly retried. Preparation/publication never assigns or launches an agent.
+  be blindly retried. The committed publish claim is the external-action boundary:
+  withdrawal cancels an unclaimed brief, while a request already in flight may
+  complete and retain its link after source/brief redaction. Preparation/publication never assigns or launches an agent.
 
 ## Trade-offs accepted
 

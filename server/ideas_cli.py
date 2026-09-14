@@ -1,5 +1,6 @@
 """Local operator commands; no player credential confers moderation rights."""
 import json
+from pathlib import Path
 
 from persistence import ideas
 
@@ -10,6 +11,8 @@ def run(args):
             result = ideas.operator_list(args.visibility, args.before, args.limit)
         elif args.action == 'show':
             result = ideas.operator_detail(args.id)
+        elif args.action in ('prepare','preview','publish','reconcile','record-link'):
+            return run_promotion(args)
         else:
             ideas.moderate(args.id, operator=args.operator, explanation=args.explanation,
                            status=args.status, visibility=args.visibility,
@@ -39,4 +42,55 @@ def add_parser(sub):
     decision.add_argument('--availability', help='Verified release/deployment evidence required for available status')
     for command in (listing, show, decision):
         command.set_defaults(func=run)
+    prepare = commands.add_parser('prepare', help='Store a reviewed public brief; does not contact GitHub')
+    prepare.add_argument('id')
+    prepare.add_argument('--brief', required=True, help='Local JSON file with the reviewed public fields')
+    prepare.add_argument('--repository', default='mark-weeks/hello-nested-worlds-adventure')
+    prepare.add_argument('--operator', required=True)
+    preview = commands.add_parser('preview', help='Print only the reviewed public artifact and its SHA256')
+    preview.add_argument('id')
+    publish = commands.add_parser('publish', help='Explicitly publish the exact reviewed brief as a GitHub issue')
+    publish.add_argument('id')
+    publish.add_argument('--reviewed-sha256', required=True)
+    publish.add_argument('--operator', required=True)
+    reconcile = commands.add_parser('reconcile', help='Read GitHub to recover an interrupted publication; never creates issues')
+    reconcile.add_argument('id')
+    reconcile.add_argument('--operator', required=True)
+    record = commands.add_parser('record-link', help='Verify and retain a matching manually published issue')
+    record.add_argument('id')
+    record.add_argument('url')
+    record.add_argument('--operator', required=True)
+    for command in (prepare,preview,publish,reconcile,record):
+        command.set_defaults(func=run)
     return commands
+
+
+def run_promotion(args):
+    from server import idea_promotion as promotion
+    try:
+        if args.action == 'prepare':
+            # This is operator-authored public text, never a dump of the source record.
+            with Path(args.brief).open('rb') as stream:
+                raw = stream.read(32 * 1024 + 1)
+            if len(raw) > 32 * 1024:
+                raise ValueError('The public brief JSON file must fit within 32 KiB.')
+            try:
+                data = json.loads(raw)
+            except (ValueError, UnicodeDecodeError):
+                raise ValueError('The public brief file must contain a valid JSON object.') from None
+            result = promotion.prepare(args.id, data, operator=args.operator, repository=args.repository)
+        elif args.action == 'preview':
+            print(promotion.preview(args.id))
+            return
+        elif args.action == 'publish':
+            result = promotion.publish(args.id, args.reviewed_sha256, operator=args.operator)
+        elif args.action == 'reconcile':
+            result = promotion.reconcile(args.id, operator=args.operator)
+        else:
+            result = promotion.record_link(args.id, args.url, operator=args.operator)
+        print(json.dumps(result, indent=2, ensure_ascii=True))
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
+    except Exception:
+        # Never echo file contents, HTTP responses, credentials or private local paths.
+        raise SystemExit('Promotion could not complete. Its stored intent is retained; inspect and reconcile before retrying.') from None

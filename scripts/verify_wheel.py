@@ -81,6 +81,11 @@ def main() -> None:
         required = {
             "main.py",
             "persistence/migrations/0013_world_nodes.sql",
+            "persistence/migrations/0024_community_ideas.sql",
+            "persistence/migrations/0025_idea_promotions.sql",
+            "server/idea_promotion.py",
+            "static/ideas.html",
+            "static/ideas.js",
             "static/index.html",
             "static/nodesound.js",
             "static/clientlogic.js",
@@ -108,7 +113,11 @@ def main() -> None:
             "persistence.init_db(); "
             "from server.handlers import _STATIC_DIR; "
             "assert (_STATIC_DIR / 'index.html').is_file(); "
-            "assert persistence._MIGRATIONS_DIR.is_dir()"
+            "assert persistence._MIGRATIONS_DIR.is_dir(); "
+            "from server import idea_promotion; "
+            "assert (_STATIC_DIR / 'ideas.html').is_file(); "
+            "assert (_STATIC_DIR / 'ideas.js').is_file(); "
+            "assert persistence._connect().execute(\"SELECT count(*) FROM community_promotions\").fetchone()[0] == 0"
         )
         _run(str(python), "-c", smoke, cwd=tmp, env=smoke_env)
         _run(str(cli), "--help", cwd=tmp, env=smoke_env)
