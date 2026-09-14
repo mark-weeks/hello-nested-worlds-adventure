@@ -1,4 +1,7 @@
 """Permanent history can grow without making sparse material reads scan chatter."""
+from contextlib import closing
+import sqlite3
+
 import pytest
 
 import persistence as db
@@ -81,3 +84,75 @@ def test_index_upgrade_preserves_populated_world_and_is_idempotent(busy_place):
         assert conn.execute('SELECT COUNT(*) FROM schema_version WHERE version=24').fetchone()[0] == 1
     with db.agent_work_budget(5_000):
         assert participants.recap(owner, 382) == expected['recap']
+
+
+@pytest.mark.parametrize('surface', ['recap', 'overlays', 'scoped_overlays', 'epochs'])
+def test_reads_survive_v23_restore_without_restart(busy_place, surface, tmp_path, monkeypatch):
+    owner, node, expected = busy_place
+    backup = tmp_path / 'v23.db'
+    db.backup_to(backup)
+    with closing(sqlite3.connect(backup)) as conn:
+        conn.executescript('DROP INDEX idx_world_mutations_material_node; '
+                           'DROP INDEX idx_world_mutations_rearms; '
+                           'DELETE FROM schema_version WHERE version=24;')
+    assert db._DB_PATH in db._initialized
+    def forbidden(*args):
+        raise AssertionError('Restored schemas must remain readable without migration')
+    monkeypatch.setattr(db, '_run_migrations', forbidden)
+    db.restore_from(backup)
+    if surface == 'recap':
+        assert participants.recap(owner, 382) == expected['recap']
+    elif surface == 'overlays':
+        assert db.load_node_property_overrides(382) == expected['overlays']
+    elif surface == 'scoped_overlays':
+        assert db.load_node_property_overrides(382, [node]) == expected['overlays']
+    else:
+        assert db.count_rearms_by_node(382) == expected['epochs']
+        assert db.count_rearms_by_node(382, node) == {node: 1}
+    with db._connection() as conn:
+        assert conn.execute('SELECT MAX(version) FROM schema_version').fetchone()[0] == 23
+        assert not conn.execute("SELECT 1 FROM sqlite_master WHERE name IN "
+                                "('idx_world_mutations_rearms','idx_world_mutations_material_node')").fetchall()
+
+
+@pytest.mark.parametrize('solved', [False, True])
+def test_puzzle_attempt_epoch_check_ignores_other_places(solved, monkeypatch):
+    from server.rooms import get_room, puzzle_attempt, PuzzleRenewed
+
+    node, puzzle = 'Place-1', 'The Lock'
+    db.record_mutation(382, node, 'PUZZLE_REARM', None, {})
+    if solved:
+        db.record_mutation(382, node, 'PUZZLE_SOLVED', 'Ada',
+                           {'puzzle': puzzle, 'contributors': ['Ada']})
+    with db.transaction() as conn:
+        conn.executemany("INSERT INTO world_mutations (world_seed,node_name,mutation_type,data) "
+                         "VALUES (382,'Elsewhere-1','PUZZLE_REARM','{}')", [()] * 10_000)
+    # Budget only epoch reads; co-op hydration has separate query contracts.
+    original = db._connect
+    epoch_reads = []
+    def connect():
+        conn = original()
+        steps, charge = 0, False
+        def trace(statement):
+            nonlocal steps, charge
+            steps = 0
+            charge = "mutation_type = 'PUZZLE_REARM'" in statement
+            if charge:
+                epoch_reads.append(statement)
+        def progress():
+            nonlocal steps
+            steps += 100
+            return charge and steps >= 5_000
+        conn.set_trace_callback(trace)
+        conn.set_progress_handler(progress, 100)
+        return conn
+    monkeypatch.setattr(db, '_connect', connect)
+    room = get_room(382)
+    with puzzle_attempt(room, node, puzzle, 'Bob', False, expected_epoch=1) as (session, just_solved):
+        assert not just_solved
+        assert session.solver == ('Ada' if solved else None)
+        assert 'Bob' in session.contributors
+    with pytest.raises(PuzzleRenewed):
+        with puzzle_attempt(room, node, puzzle, 'Bob', False, expected_epoch=0):
+            pytest.fail('An old epoch must never be accepted')
+    assert len(epoch_reads) == 2

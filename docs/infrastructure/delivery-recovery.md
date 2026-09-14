@@ -19,6 +19,14 @@ schema-23-or-later database read-only, takes one consistent read snapshot, and
 never initializes, migrates, claims, retries, or completes work. A missing or
 incompatible database is an error, not an empty healthy report.
 
+New `backup_to` / `python main.py backup` snapshots use SQLite's `DELETE` journal
+mode: they are complete database files and need no writable directory or WAL/SHM
+sidecars for reporting. The live database remains in WAL mode. An older completed
+backup may retain a WAL header; copy that backup into a private writable directory
+before reporting so SQLite can create its read sidecars. Do not raw-copy a running
+world database; use the online backup command. The report retains normal SQLite
+locking and never automatically treats an input as immutable.
+
 The report covers `causal_queue`, `verb_maturation`, and `situation_work`:
 
 - `pending` includes scheduled, due, backed-off, and predecessor-blocked work.
@@ -108,6 +116,18 @@ prefer a forward repair after continued play. M2 can restore and upgrade v18
 backups and recover mixed v1/v2 work from v19 backups, retaining completed
 duplicate-delivery fences. Rehearsals use disposable local databases only;
 they do not perform or authorize a production restore or deployment.
+
+### Older backups and history indexes
+
+When restoring a schema-23 backup while the current server is running, the new
+history indexes are absent until initialization after restart. Recap, overlay and
+epoch reads retry without an index hint only when that particular index is
+missing; results remain valid but reads can be slower in this window. Other SQL
+errors still propagate. Restore preserves the backup schema rather than
+immediately reapplying a migration an operator may be rolling back. Restart with
+a compatible build as required by the [restore runbook](fly-deployment.md#7-backups).
+This compatibility fallback concerns the two indexes added in migration 0024;
+it does not promise current application compatibility with arbitrary older schemas.
 
 ## M2 accepted meaning
 

@@ -1,7 +1,7 @@
 {
   "base_commit": "62e822ae03f1e6d80e3256880f6b2108d6b5b525",
   "branch": "codex/tech-debt-hardening",
-  "verified_at_utc": "2026-09-14T00:58:52.513294+00:00",
+  "verified_at_utc": "2026-09-14T02:26:11.665501+00:00",
   "environment": {
     "python": "3.11.15",
     "node": "20.19.0"
@@ -16,8 +16,8 @@
     "command": "ENFOLDED_E2E=1 ./scripts/check.sh",
     "result": "passed",
     "ruff": "passed",
-    "python_tests": 1127,
-    "python_seconds": 144.39,
+    "python_tests": 1135,
+    "python_seconds": 143.96,
     "vitest_tests": 113,
     "frontend_build": "passed",
     "bundle_freshness": "passed",
@@ -30,5 +30,46 @@
     "new_indexes": 2,
     "existing_table_data": "unchanged in populated-upgrade test"
   },
-  "boundary": "Local isolated databases only; no remote publication or production operation."
+  "boundary": "Verification uses local isolated databases only; PR publication is authorized, production operations are not part of this batch.",
+  "initial_canonical_gate": {
+    "command": "ENFOLDED_E2E=1 ./scripts/check.sh",
+    "result": "passed",
+    "ruff": "passed",
+    "python_tests": 1127,
+    "python_seconds": 144.39,
+    "vitest_tests": 113,
+    "frontend_build": "passed",
+    "bundle_freshness": "passed",
+    "installed_wheel_with_work_report": "passed",
+    "playwright_tests": 43,
+    "playwright_duration": "2.2m"
+  },
+  "review_followup": {
+    "pr": 101,
+    "reviewed_head": "100a8acd32670e0e96672a2c993281a27f7d4b77",
+    "findings_addressed": 4,
+    "focused_history_report_tests": 22,
+    "report_tests_from_tests_directory": 10,
+    "v23_restore_surfaces": [
+      "recap",
+      "overlays",
+      "scoped_overlays",
+      "epochs"
+    ],
+    "restore_migrations": "forbidden by regression; restored schema remains v23",
+    "readonly_backup_cases": [
+      "new destination",
+      "existing WAL destination"
+    ],
+    "readonly_permission_test_uid": 501,
+    "backup_journal_mode": "DELETE",
+    "live_journal_mode": "WAL",
+    "puzzle_attempt_epoch_branches": [
+      "unsolved",
+      "solved"
+    ],
+    "epoch_query_step_budget": 5000,
+    "unrelated_renewal_rows": 10000,
+    "history_probe": "Repeated after fixes; sampled SQL-step counts unchanged"
+  }
 }

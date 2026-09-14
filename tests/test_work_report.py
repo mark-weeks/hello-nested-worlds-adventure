@@ -1,5 +1,7 @@
 """Operator reports share a read snapshot and never claim or replay accepted work."""
+from contextlib import closing
 from datetime import datetime, timezone
+from pathlib import Path
 import json
 import sqlite3
 import subprocess
@@ -124,9 +126,10 @@ def test_inspection_and_retry_cover_all_queues_but_never_complete_work(queued_wo
         db.deliver_work('situation_work', situation, lambda row: 'applied')
 
 
-def test_cli_json_and_human_report_use_existing_copy(queued_work):
+def test_cli_json_and_human_report_use_existing_copy(queued_work, tmp_path, monkeypatch):
     before = snapshot()
-    command = [sys.executable, 'main.py', 'work-report', '--db', str(db._DB_PATH), '--seed', '382', '--limit', '1']
+    monkeypatch.chdir(tmp_path)
+    command = [sys.executable, str(Path(__file__).resolve().parents[1] / 'main.py'), 'work-report', '--db', str(db._DB_PATH), '--seed', '382', '--limit', '1']
     result = subprocess.run([*command, '--json'], capture_output=True, text=True, check=True)
     report = json.loads(result.stdout)
     assert report['world_seed'] == 382
@@ -135,7 +138,7 @@ def test_cli_json_and_human_report_use_existing_copy(queued_work):
     assert 'situation_work: pending=3' in result.stdout
     assert 'Unsettled decisions: open=1' in result.stdout
     assert snapshot() == before
-    missing = subprocess.run([sys.executable, 'main.py', 'work-report', '--db', str(db._DB_PATH.parent / 'absent.db')],
+    missing = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / 'main.py'), 'work-report', '--db', str(db._DB_PATH.parent / 'absent.db')],
                              capture_output=True, text=True)
     assert missing.returncode != 0 and 'Work report unavailable' in missing.stderr
     assert 'Traceback' not in missing.stderr
@@ -164,3 +167,32 @@ def test_report_handles_encoded_file_paths(queued_work, tmp_path):
     target = tmp_path / 'copy ?# world.db'
     db.backup_to(target)
     assert work_report(target, now=NOW)['queues']['situation_work']['pending'] == 3
+
+
+@pytest.mark.parametrize('existing_wal_copy', [False, True])
+def test_backup_report_needs_no_writable_directory(queued_work, tmp_path, existing_wal_copy):
+    directory = tmp_path / 'read-only'
+    directory.mkdir()
+    target = directory / 'backup.db'
+    if existing_wal_copy:
+        with closing(sqlite3.connect(target)) as conn:
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('CREATE TABLE old_copy (id INTEGER)')
+            conn.commit()
+    expected = work_report(db._DB_PATH, now=NOW)
+    db.backup_to(target)
+    # Assert the portable format even on root/Windows runners that bypass mode bits.
+    with closing(sqlite3.connect(target)) as conn:
+        assert conn.execute('PRAGMA journal_mode').fetchone()[0] == 'delete'
+    before = target.read_bytes()
+    target.chmod(0o444)
+    directory.chmod(0o555)
+    try:
+        assert work_report(target, now=NOW) == expected
+        assert sorted(p.name for p in directory.iterdir()) == ['backup.db']
+        assert target.read_bytes() == before
+    finally:
+        directory.chmod(0o755)
+        target.chmod(0o600)
+    with db._connection() as conn:
+        assert conn.execute('PRAGMA journal_mode').fetchone()[0] == 'wal'
