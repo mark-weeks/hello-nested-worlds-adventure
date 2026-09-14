@@ -1,0 +1,59 @@
+[
+  {
+    "same_place_chat_rows": 0,
+    "journal_recap": {
+      "sqlite_steps_approx": 100,
+      "ms": 0.96
+    },
+    "puzzle_epochs": {
+      "sqlite_steps_approx": 0,
+      "ms": 0.2
+    },
+    "property_overlays": {
+      "sqlite_steps_approx": 0,
+      "ms": 0.19
+    },
+    "activity_counts": {
+      "sqlite_steps_approx": 0,
+      "ms": 0.17
+    }
+  },
+  {
+    "same_place_chat_rows": 2000,
+    "journal_recap": {
+      "sqlite_steps_approx": 100,
+      "ms": 0.47
+    },
+    "puzzle_epochs": {
+      "sqlite_steps_approx": 0,
+      "ms": 0.2
+    },
+    "property_overlays": {
+      "sqlite_steps_approx": 0,
+      "ms": 0.21
+    },
+    "activity_counts": {
+      "sqlite_steps_approx": 16000,
+      "ms": 0.27
+    }
+  },
+  {
+    "same_place_chat_rows": 100000,
+    "journal_recap": {
+      "sqlite_steps_approx": 100,
+      "ms": 0.67
+    },
+    "puzzle_epochs": {
+      "sqlite_steps_approx": 0,
+      "ms": 0.22
+    },
+    "property_overlays": {
+      "sqlite_steps_approx": 0,
+      "ms": 0.22
+    },
+    "activity_counts": {
+      "sqlite_steps_approx": 800000,
+      "ms": 4.36
+    }
+  }
+]

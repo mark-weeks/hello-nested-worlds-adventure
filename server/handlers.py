@@ -172,16 +172,10 @@ _RATE_LIMITED_PATHS = frozenset({
     "/client-error", "/register", "/journal/note", "/profile/save", "/profile/home", "/situation/discover", "/situation/choose", "/situation/follow-up",
 })
 
-# Expensive reads: these rebuild (and for /world, fully serialize) the
-# canonical tree, or run an FSM traversal, on every hit. They cost no API
-# budget, so the cost caps never bound them — they get their own, looser
-# per-IP limiter (guard.READ_RATE_LIMITER) sized so gameplay-paced browsing
-# never trips it.
-_READ_LIMITED_PATHS = frozenset({
-    "/world", "/agent", "/observe", "/puzzle", "/chronicle", "/history",
-    "/wayback", "/node", "/me", "/profile", "/journal/data", "/situation",
-    "/ideas/list", "/ideas/detail", "/ideas/search",
-})
+# API reads are limited by default, including newly added routes. Static shells
+# and assets are exempt; these cheap control reads keep their existing policy.
+# WebSocket upgrades have a separate connection cap and message-rate guard.
+_READ_UNLIMITED_PATHS = frozenset({"/worlds", "/players", "/position", "/ws"})
 
 # The player-facing pace line (429). Rate limiting is a mechanical guard, but
 # the explorer renders this text verbatim in the speak/puzzle panels, so it
@@ -301,8 +295,8 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def _read_rate_ok(self, path: str) -> bool:
-        """Per-IP limit on the expensive GET endpoints; 429 on deny."""
-        if path not in _READ_LIMITED_PATHS:
+        """Protect API reads unless their exemption is explicit; 429 on deny."""
+        if self._is_public_asset(path) or path in _READ_UNLIMITED_PATHS:
             return True
         ip = guard.client_ip(self.client_address, self.headers)
         if guard.READ_RATE_LIMITER.allow(ip):
@@ -748,7 +742,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if not self._authorized(qs):
             return
-        if not self._rate_ok(path) or not self._read_rate_ok(path):
+        if not self._rate_ok(path):
+            return
+        # The read-shaped POST (search) shares the read limiter; other POSTs
+        # are bounded by the write/cost limiter above.
+        if path == "/ideas/search" and not self._read_rate_ok(path):
             return
 
         # The credential this request presented — used to charge paid calls
@@ -1263,7 +1261,7 @@ class Handler(BaseHTTPRequestHandler):
             node = _resolve_node(seed, qs.get("node_name", [""])[0])
             if node is None:
                 return self._send_error("No such place in this world.", 404)
-            current = persistence.count_rearms_by_node(seed).get(node.name, 0)
+            current = persistence.count_rearms_by_node(seed, node.name).get(node.name, 0)
             epoch = int(qs.get("epoch", [str(current)])[0])
             if epoch < 0 or epoch > current:
                 return self._send_error("That question has not opened here.", 404)

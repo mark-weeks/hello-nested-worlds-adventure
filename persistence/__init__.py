@@ -366,6 +366,16 @@ def _delivery_queue(queue: str) -> str:
     return queue
 
 
+_WORK_QUEUES = _DELIVERY_QUEUES | {"situation_work"}
+
+
+def _work_queue(queue: str) -> str:
+    """Operator inspection/retry scope; each worker retains its own interpreter."""
+    if queue not in _WORK_QUEUES:
+        raise ValueError("unknown work queue")
+    return queue
+
+
 @_with_db
 def enqueue_causal_hop(world_seed: int, node_name: str, kind: str,
                        strength: float, direction: str, payload: dict,
@@ -452,7 +462,7 @@ def due_work(queue: str, limit: int, world_seed: int | None = None) -> list[int]
 @_with_db
 def inspect_work(queue: str, work_id: int) -> dict | None:
     """Read the unchanged input, retries, linkage and terminal outcome."""
-    queue = _delivery_queue(queue)
+    queue = _work_queue(queue)
     with _connection() as conn:
         cur = conn.execute(f"SELECT * FROM {queue} WHERE id = ?", (work_id,))
         row = cur.fetchone()
@@ -526,7 +536,7 @@ def deliver_work(queue: str, work_id: int, apply: Callable[[dict], str], *,
 @_with_db
 def retry_work(queue: str, work_id: int) -> bool:
     """Operator retry after inspection/repair; never resets a completed item."""
-    queue = _delivery_queue(queue)
+    queue = _work_queue(queue)
     with _connection() as conn:
         return conn.execute(
             f"UPDATE {queue} SET retry_at = NULL WHERE id = ? AND status = 'pending'",
@@ -828,20 +838,37 @@ def count_node_mutations(world_seed: int, node_name: str,
         ).fetchone()[0]
 
 
+def _history_read(conn: sqlite3.Connection, sql: str, params, *, index: str) -> sqlite3.Cursor:
+    """Use a sparse index when present; tolerate an older live-restored schema.
+
+    A restore can remove an index while another process keeps its initialization
+    cache. Retry only that missing-index error, using the same read and parameters.
+    Do not reapply migrations during disaster rollback or hide other SQL failures.
+    """
+    try:
+        return conn.execute(sql, params)
+    except sqlite3.OperationalError as exc:
+        if str(exc) != f"no such index: {index}":
+            raise
+        return conn.execute(sql.replace(f"INDEXED BY {index}", ""), params)
+
+
 @_with_db
-def count_rearms_by_node(world_seed: int) -> dict[str, int]:
+def count_rearms_by_node(world_seed: int, node_name: str | None = None) -> dict[str, int]:
     """Per-node puzzle renewal counts — each node's current puzzle epoch.
 
     A PUZZLE_REARM lands when the world's entropy (a strong decay event)
     hits a node whose current puzzle is already solved; the epoch folds
     into puzzle generation so the node grows a fresh, unsolved puzzle.
     """
-    with _connect() as conn:
-        rows = conn.execute(
-            """SELECT node_name, COUNT(*) FROM world_mutations
-               WHERE world_seed = ? AND mutation_type = 'PUZZLE_REARM'
-               GROUP BY node_name""",
-            (world_seed,),
+    selected = "" if node_name is None else " AND node_name = ?"
+    params = (world_seed,) if node_name is None else (world_seed, node_name)
+    with _connection() as conn:
+        rows = _history_read(conn,
+            f"""SELECT node_name, COUNT(*) FROM world_mutations
+                INDEXED BY idx_world_mutations_rearms
+                WHERE world_seed = ? AND mutation_type = 'PUZZLE_REARM'{selected}
+                GROUP BY node_name""", params, index="idx_world_mutations_rearms",
         ).fetchall()
     return {name: count for name, count in rows}
 
@@ -1857,11 +1884,12 @@ def load_node_property_overrides(world_seed: int, names: list[str] | None = None
                {selected.replace('node_name', 'state.node_name')}""",
             args,
         ).fetchall()
-        delta_versions = {name: int(version) for name, version in conn.execute(
+        delta_versions = {name: int(version) for name, version in _history_read(conn,
             f"""SELECT node_name, MAX(node_version) FROM world_mutations
+               INDEXED BY idx_world_mutations_material_node
                WHERE world_seed = ? AND delta IS NOT NULL {selected}
                GROUP BY node_name""",
-            args,
+            args, index="idx_world_mutations_material_node",
         ).fetchall()}
         return rows, delta_versions
 
@@ -2608,7 +2636,9 @@ def backup_to(target: Path) -> None:
 
     Uses sqlite's `Connection.backup()` so concurrent readers/writers are
     safe — this is the supported way to copy a WAL-mode database while it's
-    in use. Operators wire this to a host cron / Fly cron / Render cron job
+    in use. The destination is finalized in DELETE journal mode so the snapshot
+    needs no sidecars or writable directory when read; the source stays in WAL.
+    Operators wire this to a host cron / Fly cron / Render cron job
     so the volume that holds `worlds.db` isn't a single point of failure.
     """
     target = Path(target)
@@ -2617,6 +2647,9 @@ def backup_to(target: Path) -> None:
         dst = sqlite3.connect(target)
         try:
             src.backup(dst)
+            # A snapshot has no concurrent writers: make it a self-contained
+            # file readable on read-only media without WAL/SHM sidecars.
+            dst.execute("PRAGMA journal_mode=DELETE")
         finally:
             dst.close()
     target.chmod(stat.S_IRUSR | stat.S_IWUSR)
