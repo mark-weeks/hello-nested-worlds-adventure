@@ -88,8 +88,10 @@ active-credential-before-quota behavior, all draft-recovery browser tests, and
 promotion's batched links and storage-only withdrawal redaction.
 
 Two populated upgrade regressions start at schema 24 (main) and 25 (board), then
-apply the integrated migrations twice. Both retain every pre-existing table row,
-including a private note and the board's idea/support, preserve the two history
+run the integrated migration runner twice, applying only the pending migrations
+on the first run and none on the second. The follow-up clears the process-local
+initialization cache between runs and asserts both runner results. Both retain
+every pre-existing table row, including a private note and the board's idea/support, preserve the two history
 indexes, and end at versions 24/25/26 with eight community tables. Offline public
 brief preparation succeeds after either upgrade. Fresh-database initialization
 is also exercised throughout the full suite.
@@ -106,8 +108,9 @@ on 2026-09-19; no issue was created. The captured input/body/HTML are retained i
 `tests/fixtures/idea-prepared-render.json`. The regression runs the real prepare
 and preview paths, normalizes only the random board reference, and checks the
 captured rendering: seven literal text blocks preserve their exact values,
-submitted HTML/mentions/links/references remain inert, only heading anchors are
-active, and the hidden token remains in the Markdown without displaying in HTML.
+submitted HTML/mentions/links/references remain inert, the rendered body contains
+no anchors at all, and the hidden token remains in the Markdown without displaying
+in HTML.
 The older helper-only rendering fixture remains useful as a separate fence probe.
 
 **Retained conservative reconciliation state.** A concurrent read may change a

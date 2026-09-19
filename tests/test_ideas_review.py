@@ -21,7 +21,10 @@ def test_read_paths_are_throttled_without_spending_write_quota(http, monkeypatch
     monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, '2')
     path = route + ('?id=' + idea_id if route.endswith('detail') else '')
     body = {} if route.endswith('search') else None
-    assert [http(path, body=body)[0] for _ in range(3)] == [200, 200, 429]
+    for expected in [200, 200, 429]:
+        status, _, headers = http(path, body=body)
+        assert status == expected
+        assert headers['Cache-Control'] == 'no-store'
     assert http('/ideas/vote', body={'id': idea_id, 'supported': True})[0] == 200
     with db._connection() as conn:
         assert conn.execute('SELECT count(*) FROM community_ip_writes').fetchone()[0] == 2
@@ -31,7 +34,8 @@ def test_read_budget_is_shared_across_get_and_post(http, monkeypatch):
     monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, '2')
     assert http('/ideas/list')[0] == 200
     assert http('/ideas/search', body={})[0] == 200
-    assert http('/ideas/list')[0] == 429
+    status, _, headers = http('/ideas/list')
+    assert status == 429 and headers['Cache-Control'] == 'no-store'
     with db._connection() as conn:
         assert conn.execute('SELECT count(*) FROM community_ip_writes').fetchone()[0] == 0
 
@@ -253,23 +257,80 @@ def test_unauthorized_reads_cannot_spend_the_shared_game_allowance(http, account
         db.revoke_invite_key(revoked)
     key = {'missing': '', 'malformed': 'invalid', 'unknown': 'nw_' + 'z' * 32, 'revoked': revoked}[credential]
     monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, '3')
+    monkeypatch.setenv(guard.IDEAS_AUTH_FAILURE_RATE_LIMIT_ENV, '3')
     path = route + ('?id=' + idea_id if route.endswith('detail') else '')
     body = {} if route.endswith('search') else None
-    for _ in range(5):
+    for expected in [403, 403, 403, 429, 429]:
         status, _, headers = http(path, key, body)
-        assert status == 403 and headers['Cache-Control'] == 'no-store'
+        assert status == expected and headers['Cache-Control'] == 'no-store'
     assert http('/me')[0] == 200
     assert http('/ideas/list')[0] == 200
     assert http('/ideas/search', body={})[0] == 200
-    assert http('/ideas/list')[0] == 429
+    status, _, headers = http('/ideas/list')
+    assert status == 429 and headers['Cache-Control'] == 'no-store'
     with db._connection() as conn:
         assert conn.execute('SELECT count(*) FROM community_ip_writes').fetchone()[0] == 1
+
+
+def test_keyless_flood_uses_only_the_default_ideas_failure_budget(http, monkeypatch):
+    monkeypatch.delenv(guard.IDEAS_AUTH_FAILURE_RATE_LIMIT_ENV, raising=False)
+    for number in range(125):
+        status, _, headers = http('/ideas/list', '')
+        assert status == (403 if number < 120 else 429)
+        assert headers['Cache-Control'] == 'no-store'
+    assert guard.READ_RATE_LIMITER._counts == {}
+    with db._connection() as conn:
+        assert conn.execute('SELECT count(*) FROM community_ip_writes').fetchone()[0] == 0
+    assert http('/me')[0] == 200
+
+
+@pytest.mark.parametrize('route', ['/ideas/submit', '/ideas/vote', '/ideas/withdraw'])
+def test_unauthorized_writes_use_only_the_ideas_failure_budget(http, monkeypatch, route):
+    monkeypatch.setenv(guard.IDEAS_AUTH_FAILURE_RATE_LIMIT_ENV, '1')
+    for expected in [403, 429]:
+        status, _, headers = http(route, 'invalid', {})
+        assert status == expected and headers['Cache-Control'] == 'no-store'
+    assert guard.READ_RATE_LIMITER._counts == {}
+    with db._connection() as conn:
+        assert conn.execute('SELECT count(*) FROM community_ip_writes').fetchone()[0] == 0
+
+
+def test_valid_ideas_credentials_neither_spend_nor_obey_the_failure_budget(http, monkeypatch):
+    monkeypatch.setenv(guard.IDEAS_AUTH_FAILURE_RATE_LIMIT_ENV, '2')
+    assert http('/ideas/list')[0] == 200
+    assert http('/ideas/list', '')[0] == 403
+    assert http('/ideas/search', body={})[0] == 200
+    idea_id = create(http)
+    assert http('/ideas/list', '')[0] == 403
+    status, _, headers = http('/ideas/list', '')
+    assert status == 429 and headers['Cache-Control'] == 'no-store'
+    assert http('/ideas/list')[0] == 200
+    assert http('/ideas/search', body={})[0] == 200
+    assert http('/ideas/vote', body={'id': idea_id, 'supported': True})[0] == 200
+
+
+def test_ideas_failure_budget_is_per_trusted_client_ip(accounts, monkeypatch):
+    monkeypatch.setenv(guard.IDEAS_AUTH_FAILURE_RATE_LIMIT_ENV, '1')
+    monkeypatch.setenv(guard.TRUST_PROXY_ENV, '1')
+    monkeypatch.setenv(guard.CLIENT_IP_HEADER_ENV, 'Fly-Client-IP')
+    with raw_client() as client:
+        for ip, expected in [('192.0.2.1', 403), ('192.0.2.1', 429), ('192.0.2.2', 403)]:
+            client.request('GET', '/ideas/list', headers={'Fly-Client-IP': ip})
+            response = client.getresponse()
+            assert response.status == expected
+            assert response.getheader('Cache-Control') == 'no-store'
+            response.read()
 
 
 def test_sentry_excludes_community_events_breadcrumbs_and_logs(monkeypatch):
     import logging
     import sentry_sdk
+    from sentry_sdk.integrations import logging as sentry_logging
     from sentry_sdk.integrations.logging import EventHandler, BreadcrumbHandler, SentryLogsHandler
+    # setup() mutates both SDK globals; patch copies so teardown restores the
+    # original set objects and their contents for later tests in this process.
+    for name in ('_IGNORED_LOGGERS', '_IGNORED_LOGGERS_SENTRY_LOGS'):
+        monkeypatch.setattr(sentry_logging, name, getattr(sentry_logging, name).copy())
     monkeypatch.setenv('SENTRY_DSN', 'https://fixture@example.invalid/1')
     monkeypatch.setattr(observability, '_sentry_ready', False)
     monkeypatch.setattr(sentry_sdk, 'init', lambda **kwargs: None)

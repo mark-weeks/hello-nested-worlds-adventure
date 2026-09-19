@@ -1,9 +1,8 @@
 # In-game Ideas board: implementation design
 
-**Status:** Board/storage/moderation and explicit GitHub promotion implemented
-locally, 2026-09-13; PR #102/#103 review corrections implemented 2026-09-14 and updated
-2026-09-19 against main `a133dcd` and board base `16de499`;
-not merged or deployed. Promotion review findings and retained constraints are in
+**Status:** Board/storage/moderation and explicit GitHub promotion merged on
+2026-09-19: #102 `a3db4d7` and #103 `4e8df96`; not deployed.
+Promotion review findings and retained constraints are in
 [the review assessment](../evaluation/2026-09-14-promotion-review.md).
 Owner-approved visibility, retention and write limits are recorded in
 [ADR-026](../decisions/ADR-026-community-ideas-operations.md). Participant identity
@@ -131,6 +130,13 @@ issue may remain public. Exclude file uploads and comments from the first
 version to keep the moderation and rights surface manageable.
 
 ## Promoting an idea into agent work
+
+**Accepted v1 limitation:** The target repository is fixed by the first successful
+preparation. There is no retarget or reset command. Safe correction would require
+retaining prior targets and reconciling across them, because a preview may already
+have been published manually. See the [September 19 review context](../evaluation/2026-09-14-promotion-review.md#september-19-base-integration-and-follow-up),
+the [retargeting rationale](../evaluation/2026-09-14-promotion-review.md#different-approaches-and-retained-limitations),
+and the [operator guide](../development/community-ideas.md#explicit-github-promotion).
 
 1. The maintainer selects an idea and prepares a local preview containing its
    stable ID, a reviewed public summary, desired outcome, accepted scope,

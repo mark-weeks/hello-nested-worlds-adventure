@@ -226,9 +226,19 @@ def test_promotion_upgrade_preserves_main_and_board_data(monkeypatch, base_versi
             names = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name!='schema_version'")]
             before = {name: conn.execute(f'SELECT * FROM "{name}"').fetchall() for name in names}
             assert conn.execute('SELECT max(version) FROM schema_version').fetchone()[0] == base_version
+    applied = []
+    run_migrations = db._run_migrations
+    def tracked(conn):
+        versions = run_migrations(conn)
+        applied.append(versions)
+        return versions
+    monkeypatch.setattr(db, '_run_migrations', tracked)
     db._initialized.discard(db._DB_PATH)
     db.init_db()
+    # Re-enter the migration runner rather than taking the process-local fast path.
+    db._initialized.discard(db._DB_PATH)
     db.init_db()
+    assert applied == [list(range(base_version + 1, 27)), []]
     with db._connection() as conn:
         assert {name: conn.execute(f'SELECT * FROM "{name}"').fetchall() for name in names} == before
         assert conn.execute('SELECT version FROM schema_version WHERE version>=24 ORDER BY version').fetchall() == [(24,), (25,), (26,)]
@@ -243,7 +253,7 @@ def test_promotion_upgrade_preserves_main_and_board_data(monkeypatch, base_versi
 class PreparedRendering(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.blocks, self.links, self.comments, self.tags = [], [], [], []
+        self.blocks, self.comments, self.tags = [], [], []
         self.current = None
     def handle_starttag(self, tag, attrs):
         self.tags.append(tag)
@@ -252,8 +262,6 @@ class PreparedRendering(HTMLParser):
             self.blocks.append(self.current)
         if self.current is not None:
             assert tag in ('pre', 'code')
-        if tag == 'a':
-            self.links.append(dict(attrs).get('href', ''))
     def handle_endtag(self, tag):
         if tag == 'pre':
             self.current = None
@@ -280,9 +288,9 @@ def test_prepared_brief_matches_verified_github_rendering(http, monkeypatch):
     expected.append('Ada — reporting/playtesting; public credit opted in.')
     assert [''.join(block).removesuffix('\n') for block in rendered.blocks] == expected
     assert not set(rendered.tags) & {'script', 'img', 'iframe', 'form', 'object', 'em', 'strong', 'del'}
-    # Only GitHub's own heading anchors may be active; submitted links/references
-    # and mentions remain literal text, including attempted closing fences.
-    assert all(href.startswith('#') for href in rendered.links)
+    # The captured body contains no anchors, including at its headings.
+    # Submitted links/references and mentions remain literal text.
+    assert 'a' not in rendered.tags
     assert fixture['idea_id'] in fixture['html']
     assert rendered.tags.count('h2') == len(expected)
     assert not any(fixture['token'] in comment for comment in rendered.comments)

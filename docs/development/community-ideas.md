@@ -1,8 +1,9 @@
 # Operating the Ideas board
 
-This is a local implementation of the [Ideas design](../roadmap/community-ideas.md)
-and [ADR-026](../decisions/ADR-026-community-ideas-operations.md), not a deployment
-announcement. Both clients open `/ideas` in a new tab and keep the active game.
+The [Ideas design](../roadmap/community-ideas.md) and
+[ADR-026](../decisions/ADR-026-community-ideas-operations.md) were implemented and
+merged on 2026-09-19 (#102 `a3db4d7`, #103 `4e8df96`); not deployed.
+Both clients open `/ideas` in a new tab and keep the active game.
 The board uses the same browser credential store, but sends credentials only in
 `X-Beta-Key` headers. Reload Ideas after rotating a credential. Drafts are scoped
 to the authenticated participant in session storage, with an in-memory fallback.
@@ -87,8 +88,24 @@ with status/duplicate/availability flags is rejected rather than silently ignore
 List/detail and POST search share `NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN` (default
 120 requests/minute/IP) with the other expensive reads. Credentials are validated
 before any Ideas read spends that shared allowance; missing, unknown and revoked
-credentials cannot exhaust it for other players. These process-local read buckets do not consume the persistent community write quota. Unexpected Ideas
-failures emit a local `ideas_request_failed` record with the normalized route and
+credentials cannot exhaust it for other players. These process-local read buckets
+do not consume the persistent community write quota.
+
+Failed Ideas credential checks use a separate process-local per-IP bucket,
+`NESTED_WORLDS_IDEAS_AUTH_FAILURES_PER_MIN` (default 120 per 60-second window).
+Missing, malformed, unknown and revoked credentials return 403 through that limit,
+then 429 until the window resets; both responses carry `Cache-Control: no-store`.
+Only an `identify` failure charges this bucket. Valid credentials remain usable
+from the same IP and do not consume it. The failure handler itself charges neither
+the shared read allowance nor the persistent community write quota. A write that
+passes initial authentication is charged before its transactional credential
+recheck; revocation between those checks can leave one write charge even though
+the request is rejected. As with the other IP limits, the server uses its
+configured trusted proxy header or the socket peer. Authentication still runs
+before failure accounting; this does not eliminate the indexed lookup for a
+supplied invalid credential.
+
+Unexpected Ideas failures emit a local `ideas_request_failed` record with the normalized route and
 exception class only; exception text, stack locals, bodies and credentials are
 excluded. This logger is excluded from Sentry events, breadcrumbs and the separate logs pipeline.
 

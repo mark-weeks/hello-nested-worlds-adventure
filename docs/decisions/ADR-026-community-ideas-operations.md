@@ -1,7 +1,8 @@
 # ADR-026: Private Ideas operations and explicit public handoff
 
 **Status:** Visibility, retention and write limits accepted by Mark Weeks in the
-2026-09-13 implementation task. Local implementation; not deployed. Identity and
+2026-09-13 implementation task. Board and promotion merged on 2026-09-19
+(#102 `a3db4d7`, #103 `4e8df96`); not deployed. Identity and
 credential replacement reuse ADR-024. GitHub publication is a separate explicit
 operator action, never permission to launch an agent.
 

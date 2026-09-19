@@ -422,6 +422,13 @@ READ_RATE_LIMIT_ENV       = "NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN"
 _DEFAULT_READ_RATE_PER_MIN = 120
 READ_RATE_LIMITER = RateLimiter(READ_RATE_LIMIT_ENV, _DEFAULT_READ_RATE_PER_MIN)
 
+# Failed Ideas credential checks have a separate budget: unauthenticated traffic
+# must not spend the shared gameplay read allowance or community write quota.
+IDEAS_AUTH_FAILURE_RATE_LIMIT_ENV = "NESTED_WORLDS_IDEAS_AUTH_FAILURES_PER_MIN"
+_DEFAULT_IDEAS_AUTH_FAILURES_PER_MIN = 120
+IDEAS_AUTH_FAILURE_RATE_LIMITER = RateLimiter(
+    IDEAS_AUTH_FAILURE_RATE_LIMIT_ENV, _DEFAULT_IDEAS_AUTH_FAILURES_PER_MIN)
+
 
 # ── WebSocket connection cap ─────────────────────────────────────────────────
 

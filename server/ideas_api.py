@@ -49,7 +49,11 @@ def handle(handler, path, qs, body=None):
                 data = ideas.withdraw(key, body.get('id'))
         handler._send_json(data)
     except participants.Unauthorized:
-        handler._send_error('Open your current personal game invite to participate in Ideas.', 403)
+        ip = guard.client_ip(handler.client_address, handler.headers)
+        if guard.IDEAS_AUTH_FAILURE_RATE_LIMITER.allow(ip):
+            handler._send_error('Open your current personal game invite to participate in Ideas.', 403)
+        else:
+            handler._send_error('Too many unsuccessful Ideas invite checks. Please wait a minute and retry.', 429)
     except ideas.Missing as exc:
         handler._send_error(str(exc), 404)
     except ideas.Conflict as exc:
