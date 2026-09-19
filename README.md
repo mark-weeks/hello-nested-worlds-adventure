@@ -181,6 +181,7 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_CAUSAL_PUMP` | Set to `0` to disable the pump thread that drains staged causal hops, matured verbs, and situation consequences (queued work then waits until a pump runs again; an expired shared decision still closes on the next choice). | on |
 | `NESTED_WORLDS_RATE_LIMIT_PER_MIN` | Hosted beta: per-IP requests/minute on `/speak`, `/agent/voice`, `/image`, `/puzzle/attempt`, `/act`, `/register`, `/client-error`. | `20` |
 | `NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN` | Hosted beta: per-IP API reads/minute, including `/puzzle/evidence` and future data routes by default. Static assets, `/health`, `/worlds`, `/players`, `/position`, and the separately guarded `/ws` upgrade are exempt. | `120` |
+| `NESTED_WORLDS_IDEAS_AUTH_FAILURES_PER_MIN` | Hosted beta: failed Ideas credential checks per 60-second window/IP. Excess failures return `429`; valid credentials remain usable. Process-local; authentication still runs first. See [Ideas limits](docs/development/community-ideas.md#review-corrections-and-operational-boundaries). | `120` |
 | `NESTED_WORLDS_MAX_WS_CONNECTIONS` | Hosted beta: max concurrent WebSocket connections process-wide. Excess upgrades get `503`. | `128` |
 | `NESTED_WORLDS_MAX_WS_PER_IP` | Hosted beta: max concurrent WebSocket connections per client IP. | `8` |
 | `NESTED_WORLDS_DISABLE_AI` | Set to `1` to disable `/speak` and `/agent/voice` without a redeploy. | unset |

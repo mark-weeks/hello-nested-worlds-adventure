@@ -96,11 +96,14 @@ Failed Ideas credential checks use a separate process-local per-IP bucket,
 Missing, malformed, unknown and revoked credentials return 403 through that limit,
 then 429 until the window resets; both responses carry `Cache-Control: no-store`.
 Only an `identify` failure charges this bucket. Valid credentials remain usable
-from the same IP and do not consume it. Failed checks never spend the shared read
-allowance or persistent community write quota. As with the other IP limits, the
-server uses its configured trusted proxy header or the socket peer. Authentication
-still runs before failure accounting; this does not eliminate the indexed lookup
-for a supplied invalid credential.
+from the same IP and do not consume it. The failure handler itself charges neither
+the shared read allowance nor the persistent community write quota. A write that
+passes initial authentication is charged before its transactional credential
+recheck; revocation between those checks can leave one write charge even though
+the request is rejected. As with the other IP limits, the server uses its
+configured trusted proxy header or the socket peer. Authentication still runs
+before failure accounting; this does not eliminate the indexed lookup for a
+supplied invalid credential.
 
 Unexpected Ideas failures emit a local `ideas_request_failed` record with the normalized route and
 exception class only; exception text, stack locals, bodies and credentials are
