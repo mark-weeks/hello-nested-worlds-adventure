@@ -324,3 +324,56 @@ test('Unavailable durable storage prevents publication and retains the draft', a
     expect((await (await page.request.get(server.url+'/ideas/list',{headers})).json()).ideas).toHaveLength(0);
   } finally { await server.close(); }
 });
+
+
+for (const mobile of [false, true]) {
+  test(`A distinct tab draft survives reload and earlier-submission recovery on ${mobile ? 'mobile' : 'desktop'}`, async ({page, context}) => {
+    const server = await start();
+    try {
+      await enter(page, server);
+      const other = await context.newPage();
+      await other.setViewportSize(mobile ? {width:390,height:844} : {width:1280,height:900});
+      await other.goto(server.url + '/ideas');
+      await expect(other.locator('#board')).toBeVisible();
+      await other.locator('#title').fill('Keep my separate draft');
+      await other.locator('#description').fill('This unfinished idea belongs to this tab.');
+      await other.locator('#credit').check();
+      await page.locator('#title').fill('Confirm the earlier idea');
+      await page.locator('#description').fill('This idea reached the server before its response was lost.');
+      let posts = 0;
+      context.on('request', request => { if (new URL(request.url()).pathname === '/ideas/submit') posts++; });
+      await page.route('**/ideas/submit', async route => { await route.fetch(); await route.abort(); });
+      await page.locator('#submit-button').click();
+      await expect(page.locator('#draft-state')).toContainText('may have arrived');
+      await page.close();
+      await other.reload();
+      await expect(other.locator('#other-pending')).toBeVisible();
+      await expect(other.locator('#title')).toHaveValue('Keep my separate draft');
+      await expect(other.locator('#title')).toBeEditable();
+      await expect(other.locator('#description')).toHaveValue('This unfinished idea belongs to this tab.');
+      await expect(other.locator('#credit')).toBeChecked();
+      expect(await other.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await capture(other, `board-separate-draft-${mobile ? 'mobile' : 'desktop'}`);
+      const link = other.getByRole('link', {name:'Confirm the earlier submission in a new tab'});
+      await link.focus();
+      const opened = context.waitForEvent('page');
+      await other.keyboard.press('Enter');
+      const recovered = await opened;
+      await expect(recovered.locator('#title')).toHaveValue('Confirm the earlier idea');
+      expect(await recovered.evaluate(() => window.opener)).toBeNull();
+      await recovered.locator('#submit-button').click();
+      await expect(recovered.locator('#message')).toContainText('Idea submitted');
+      await expect(other.locator('#other-pending')).toBeHidden();
+      await other.reload();
+      await expect(other.locator('#title')).toHaveValue('Keep my separate draft');
+      await expect(other.locator('#description')).toHaveValue('This unfinished idea belongs to this tab.');
+      await expect(other.locator('#credit')).toBeChecked();
+      await other.locator('#submit-button').click();
+      await expect(other.locator('#message')).toContainText('Idea submitted');
+      const results = (await (await other.request.get(server.url+'/ideas/list',{headers})).json()).ideas;
+      expect(results.map(idea => idea.title).sort()).toEqual(['Confirm the earlier idea','Keep my separate draft']);
+      expect(posts).toBe(3);
+      await recovered.close(); await other.close();
+    } finally { await server.close(); }
+  });
+}

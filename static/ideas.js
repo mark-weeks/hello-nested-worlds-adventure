@@ -95,7 +95,11 @@
     let saved;
     try { saved = JSON.parse(storage.get(draftKey)); } catch { saved = null; }
     const current = receipt();
-    if (current?.state === 'pending') saved = {draft: current.payload, pending: current.payload};
+    const separateDraft = current?.state === 'pending' && saved?.draft
+      && saved.draft.request_id !== current.payload.request_id
+      && (saved.draft.title || saved.draft.description || saved.draft.public_credit || saved.pending);
+    $('other-pending').hidden = !separateDraft;
+    if (current?.state === 'pending' && !separateDraft) saved = {draft: current.payload, pending: current.payload};
     else if (saved?.pending && current?.request_id === saved.pending.request_id) {
       if (current.state === 'confirmed') saved = null;
       else saved.pending = null;
@@ -107,6 +111,11 @@
     freezeDraft(!!pending);
     if (pending) $('draft-state').textContent = 'A submission may have arrived. Retry to confirm it before editing.';
   }
+  window.addEventListener('storage', event => {
+    if (!owner || event.key !== receiptKey) return;
+    const current = receipt();
+    $('other-pending').hidden = current?.state !== 'pending' || current.payload.request_id === requestId;
+  });
   function ideaLink(idea) {
     const link = element('a', idea.title);
     link.href = '/ideas?id=' + encodeURIComponent(idea.id);

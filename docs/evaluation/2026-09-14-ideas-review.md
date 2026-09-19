@@ -87,3 +87,41 @@ board PR retains the owner-approved additive migration 0025. Withdrawal semantic
 stay under the approved immediate-redaction policy. Browser receipt retention is
 disclosed before submission and removes the payload after confirmation; users may
 still clear browser data, which also removes its local recovery receipt.
+
+## September 19 follow-up
+
+The follow-up starts from #102 head `68ac40d`, which already incorporates main
+`a133dcd` and renumbers the community migration to 0025. The earlier broad POST
+read throttle and migration collision are therefore already corrected.
+
+- Authenticate list/detail/search before charging the shared read allowance.
+  Twelve cases cover missing, malformed, unknown and revoked credentials on all
+  three routes: five rejected requests leave all three allowed gameplay/Ideas
+  reads available; the next authenticated read is throttled. Reads still resolve
+  identity once, and writes retain their transactional revocation check.
+- Preserve a distinct tab's unsubmitted draft on reload while another submission
+  awaits confirmation. A keyboard-accessible link opens the original receipt in
+  a fresh tab. Desktop/mobile regressions preserve title, description and credit,
+  recover the committed original, then submit the separate draft: exactly two
+  ideas from three POSTs including the lost-response retry. Both layouts were
+  inspected with no horizontal overflow.
+- Exclude the community logger from Sentry's separate logs pipeline as well as
+  events/breadcrumbs. A regression uses the pinned SDK's real handler filters
+  without connecting to Sentry, and confirms unrelated logging remains enabled.
+
+**Retained compatibility boundary:** submission still requires Web Locks and
+working local storage in HTTPS or local loopback. This provides cross-tab receipt
+ownership; an unsafe fallback would allow ambiguous retries to create duplicates.
+Unsupported clients retain their draft and receive the existing explanation.
+Wider browser/plain-HTTP support would require an equivalent coordination design,
+not silently removing the fence. The operator guide documents this limitation.
+
+Targeted checks passed: **166 Python tests** and **16 Ideas Playwright tests**.
+The complete canonical gate passed Ruff, **1,214 Python tests in 186.22s**,
+**113 Vitest**, production bundle freshness, installed-wheel smoke with schema 25,
+and **59 Playwright tests in 2.2 minutes**. Local documentation links and diff
+whitespace checks also pass. No live issue, merge or deployment was performed.
+
+The follow-up diff adds no migration, golden re-pin, chronicle writer, world-meta
+pin or era-bank edit. The full PR retains only the already approved additive
+community migration 0025 and approved withdrawal policy.

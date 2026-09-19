@@ -85,11 +85,12 @@ status decision before issuing a separate withdrawal command; combining withdraw
 with status/duplicate/availability flags is rejected rather than silently ignored.
 
 List/detail and POST search share `NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN` (default
-120 requests/minute/IP) with the other expensive reads. These process-local read
-buckets do not consume the persistent community write quota. Unexpected Ideas
+120 requests/minute/IP) with the other expensive reads. Credentials are validated
+before any Ideas read spends that shared allowance; missing, unknown and revoked
+credentials cannot exhaust it for other players. These process-local read buckets do not consume the persistent community write quota. Unexpected Ideas
 failures emit a local `ideas_request_failed` record with the normalized route and
 exception class only; exception text, stack locals, bodies and credentials are
-excluded. This logger is excluded from Sentry.
+excluded. This logger is excluded from Sentry events, breadcrumbs and the separate logs pipeline.
 
 Unsubmitted browser drafts remain in session storage. A pending submitted payload
 and its stable ID are stored under the server-derived participant ID in local
@@ -97,7 +98,8 @@ storage, coordinated across tabs with Web Locks. Confirmation removes that paylo
 and retains only a small completion receipt so an old tab cannot recreate it.
 A different participant does not restore it. If another existing tab holds a distinct
 draft, submission pauses while a pending receipt needs recovery; that draft remains
-in its tab. Clearing browser data removes local recovery information. Submission
+in its tab across reloads. A separate link opens recovery of the earlier submission
+in a fresh tab, leaving the current draft and credit choice intact. Clearing browser data removes local recovery information. Submission
 requires working local storage and Web Locks in a secure context (HTTPS or local
 loopback); if either is unavailable, the board retains the draft and sends no new
 submission. These limits are shown in the form/error state.

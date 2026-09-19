@@ -12,28 +12,32 @@ def handle(handler, path, qs, body=None):
     handler._private_response = True
     key = handler.headers.get('X-Beta-Key', '').strip()
     try:
+        # Resolve active credentials before spending the shared read budget. The
+        # private read helpers reuse this server identity; no body/query identity
+        # can reach them. Writes still recheck the credential in their transaction.
+        me = participants.identify(key)
+        if (body is None or path == '/ideas/search') and not handler._read_rate_ok(path):
+            return True
         # Header only: neither identity nor credentials are accepted in URLs/bodies.
         if body is None:
             if path not in READS:
-                participants.identify(key)
                 return handler._send_error('This action requires a submission.', 405) or True
             if path == '/ideas/list':
                 try:
                     limit = int(qs.get('limit', ['20'])[0])
                 except ValueError:
                     raise ValueError('Choose a page size between 1 and 50.') from None
-                data = ideas.listing(key, sort=qs.get('sort', ['recent'])[0],
+                data = ideas._listing(me, sort=qs.get('sort', ['recent'])[0],
                                      q=qs.get('q', [''])[0], limit=limit,
                                      cursor=qs.get('cursor', [''])[0])
             else:
-                data = ideas.detail(key, qs.get('id', [''])[0])
+                data = ideas._detail(me, qs.get('id', [''])[0])
         elif path == '/ideas/search':
-            data = ideas.listing(key, sort=body.get('sort', 'recent'), q=body.get('q', ''),
+            data = ideas._listing(me, sort=body.get('sort', 'recent'), q=body.get('q', ''),
                                  limit=body.get('limit', 20), cursor=body.get('cursor', ''))
         else:
             # Authenticate before charging a write; persistence rechecks inside
             # the write transaction so revocation cannot race the commit.
-            participants.identify(key)
             if path not in WRITES:
                 return handler._send_error('This page is read-only.', 405) or True
             ideas.charge_ip(guard.client_ip(handler.client_address, handler.headers))

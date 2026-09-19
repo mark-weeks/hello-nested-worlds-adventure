@@ -49,8 +49,12 @@ def setup() -> None:
             "Reinstall with: pip install -e ."
         )
         return
-    from sentry_sdk.integrations.logging import ignore_logger
-    ignore_logger("nested_worlds.community")
+    from sentry_sdk.integrations import logging as sentry_logging
+    sentry_logging.ignore_logger("nested_worlds.community")
+    # The pinned SDK has a separate logs exclusion. Older SDKs still run with
+    # logs disabled by this setup, while events/breadcrumbs remain excluded.
+    if hasattr(sentry_logging, "ignore_logger_for_sentry_logs"):
+        sentry_logging.ignore_logger_for_sentry_logs("nested_worlds.community")
     sentry_sdk.init(
         dsn=dsn,
         traces_sample_rate=0.0,        # spans off by default — beta is small

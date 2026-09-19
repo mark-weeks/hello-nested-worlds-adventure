@@ -152,10 +152,14 @@ def _public(conn, row, me, *, detail=False):
 
 
 def detail(key, idea_id):
+    return _detail(participants.identify(key), idea_id)
+
+
+def _detail(me, idea_id):
+    """Read for a server-authenticated member; never accept this identity from input."""
     db.init_db()
     with db._connection() as conn:
         conn.execute('BEGIN')
-        me = participants.identify(key)
         row = _row(conn, idea_id)
         _readable(row)
         return {'idea': _public(conn, row, me, detail=True)}
@@ -256,7 +260,11 @@ def _cursor(payload, me, secret):
 
 
 def listing(key, *, sort='recent', q='', limit=20, cursor=''):
-    me = participants.identify(key)
+    return _listing(participants.identify(key), sort=sort, q=q, limit=limit, cursor=cursor)
+
+
+def _listing(me, *, sort='recent', q='', limit=20, cursor=''):
+    """Read for a server-authenticated member; API callers derive it from the header."""
     if sort not in ('recent', 'supported', 'own'):
         raise ValueError('Choose recent, most supported or your submissions.')
     q = text(q, 'Search', 120, empty=True)

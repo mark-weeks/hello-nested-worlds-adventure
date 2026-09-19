@@ -118,7 +118,7 @@ def test_failures_emit_only_local_safe_diagnostics(http, accounts, caplog, monke
     if point == 'auth':
         monkeypatch.setattr(participants, 'identify', broken)
     elif point == 'query':
-        monkeypatch.setattr(ideas, 'listing', broken)
+        monkeypatch.setattr(ideas, '_listing', broken)
     else:
         # Failure outside the adapter must have the same privacy boundary.
         monkeypatch.setattr(_Handler, '_dispatch_' + method.lower(), broken)
@@ -241,3 +241,41 @@ assert local_tier('A clearer crossing') == 'clean'
 assert 'server' not in sys.modules
 '''
     subprocess.run([sys.executable, '-c', probe], check=True, capture_output=True)
+
+
+@pytest.mark.parametrize('route', ['/ideas/list', '/ideas/detail', '/ideas/search'])
+@pytest.mark.parametrize('credential', ['missing', 'malformed', 'unknown', 'revoked'])
+def test_unauthorized_reads_cannot_spend_the_shared_game_allowance(http, accounts, monkeypatch, route, credential):
+    idea_id = create(http)
+    revoked = 'nw_' + 'c' * 32
+    if credential == 'revoked':
+        db.mint_invite_key(revoked, 'Revoked fixture')
+        db.revoke_invite_key(revoked)
+    key = {'missing': '', 'malformed': 'invalid', 'unknown': 'nw_' + 'z' * 32, 'revoked': revoked}[credential]
+    monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, '3')
+    path = route + ('?id=' + idea_id if route.endswith('detail') else '')
+    body = {} if route.endswith('search') else None
+    for _ in range(5):
+        status, _, headers = http(path, key, body)
+        assert status == 403 and headers['Cache-Control'] == 'no-store'
+    assert http('/me')[0] == 200
+    assert http('/ideas/list')[0] == 200
+    assert http('/ideas/search', body={})[0] == 200
+    assert http('/ideas/list')[0] == 429
+    with db._connection() as conn:
+        assert conn.execute('SELECT count(*) FROM community_ip_writes').fetchone()[0] == 1
+
+
+def test_sentry_excludes_community_events_breadcrumbs_and_logs(monkeypatch):
+    import logging
+    import sentry_sdk
+    from sentry_sdk.integrations.logging import EventHandler, BreadcrumbHandler, SentryLogsHandler
+    monkeypatch.setenv('SENTRY_DSN', 'https://fixture@example.invalid/1')
+    monkeypatch.setattr(observability, '_sentry_ready', False)
+    monkeypatch.setattr(sentry_sdk, 'init', lambda **kwargs: None)
+    observability.setup()
+    private = logging.LogRecord('nested_worlds.community', logging.ERROR, '', 0, 'fixture', (), None)
+    unrelated = logging.LogRecord('fixture.unrelated', logging.ERROR, '', 0, 'fixture', (), None)
+    for handler in (EventHandler(), BreadcrumbHandler(), SentryLogsHandler()):
+        assert not handler._can_record(private)
+        assert handler._can_record(unrelated)

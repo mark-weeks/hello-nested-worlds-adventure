@@ -439,7 +439,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if not self._authorized(qs):
             return
-        if not self._read_rate_ok(path):
+        # Ideas authenticates before charging reads inside its adapter.
+        if not path.startswith('/ideas/') and not self._read_rate_ok(path):
             return
 
         def param(key: str, default: str = "") -> str:
@@ -743,10 +744,6 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized(qs):
             return
         if not self._rate_ok(path):
-            return
-        # The read-shaped POST (search) shares the read limiter; other POSTs
-        # are bounded by the write/cost limiter above.
-        if path == "/ideas/search" and not self._read_rate_ok(path):
             return
 
         # The credential this request presented — used to charge paid calls
