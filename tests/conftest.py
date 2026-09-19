@@ -53,8 +53,10 @@ def _isolate_rate_limits():
     from server import guard
     guard.RATE_LIMITER.reset()
     guard.READ_RATE_LIMITER.reset()
+    guard.IDEAS_AUTH_FAILURE_RATE_LIMITER.reset()
     guard.WS_LIMITER.reset()
     yield
     guard.RATE_LIMITER.reset()
     guard.READ_RATE_LIMITER.reset()
+    guard.IDEAS_AUTH_FAILURE_RATE_LIMITER.reset()
     guard.WS_LIMITER.reset()
