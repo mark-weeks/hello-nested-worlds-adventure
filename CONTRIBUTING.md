@@ -16,9 +16,10 @@ the cause or propose a solution.
 - [Browse existing reports](https://github.com/mark-weeks/hello-nested-worlds-adventure/issues)
   and add a useful observation or a reaction when someone has already raised it.
 
-GitHub submissions require an account. An in-game Ideas board for submissions
-and voting is [planned](docs/roadmap/community-ideas.md); it is not available
-in this change. The
+GitHub submissions require an account. The in-game [Ideas board](docs/roadmap/community-ideas.md) is implemented in
+this revision; hosted availability depends on deployment. On a running revision
+with the board, invited players open Ideas beside the Player’s Guide to submit
+and support ideas without a GitHub account. The
 [community process](docs/community/maintaining-the-community.md) describes how
 feedback informs decisions and how selected ideas become implementation briefs.
 

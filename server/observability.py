@@ -30,6 +30,8 @@ from typing import Any
 _log    = logging.getLogger("nested_worlds")
 _access = logging.getLogger("nested_worlds.access")
 
+_community = logging.getLogger("nested_worlds.community")
+
 _sentry_ready: bool = False
 
 
@@ -47,6 +49,12 @@ def setup() -> None:
             "Reinstall with: pip install -e ."
         )
         return
+    from sentry_sdk.integrations import logging as sentry_logging
+    sentry_logging.ignore_logger("nested_worlds.community")
+    # The pinned SDK has a separate logs exclusion. Older SDKs still run with
+    # logs disabled by this setup, while events/breadcrumbs remain excluded.
+    if hasattr(sentry_logging, "ignore_logger_for_sentry_logs"):
+        sentry_logging.ignore_logger_for_sentry_logs("nested_worlds.community")
     sentry_sdk.init(
         dsn=dsn,
         traces_sample_rate=0.0,        # spans off by default — beta is small
@@ -91,3 +99,13 @@ def access_log(method: str, path: str, status: int, *,
         "len":    length,
     }
     _access.info(json.dumps(line))
+
+
+def community_failure(path: str, exc: BaseException) -> None:
+    """Local diagnostic only: no exception message, frames, body, identity or query."""
+    route = path.rstrip('/')
+    if route not in {'/ideas/list', '/ideas/detail', '/ideas/search',
+                     '/ideas/submit', '/ideas/vote', '/ideas/withdraw'}:
+        route = '/ideas/*'
+    _community.error('ideas_request_failed route=%s exception=%s',
+                     route, type(exc).__name__, exc_info=False)

@@ -37,7 +37,7 @@ dev = [
 ]
 
 [tool.setuptools]
-py-modules = ["main", "merge_patch"]
+py-modules = ["main", "merge_patch", "content_screen"]
 packages = [
     "agents",
     "causality",

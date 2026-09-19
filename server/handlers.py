@@ -217,7 +217,12 @@ class Handler(BaseHTTPRequestHandler):
     def _emit_access_log(self) -> None:
         if not getattr(self, "_started", None):
             return
-        path   = urlparse(self.path).path or "/"
+        try:
+            path = urlparse(self.path).path or "/"
+        except ValueError:
+            # Malformed absolute targets must not rethrow from request cleanup or
+            # put a supplied authority/query (possibly a credential) into logs.
+            path = "/[invalid-target]"
         ip     = guard.client_ip(self.client_address, self.headers)
         observability.access_log(
             self.command or "?", path,
@@ -244,6 +249,11 @@ class Handler(BaseHTTPRequestHandler):
         `/puzzle*`, `/speak`, `/image`, `/agent/voice`, `/players`,
         `/history`, `/wayback`, `/worlds`) stays gated.
         """
+        if urlparse(self.path).path.rstrip('/').startswith('/ideas/'):
+            self._private_response = True
+            # The Ideas adapter authenticates every operation using active credentials.
+            # Never fall back to the general (possibly open) gameplay gate.
+            return True
         if self._is_public_asset(urlparse(self.path).path):
             return True
         if guard.check_invite_key(self.headers, qs):
@@ -266,7 +276,7 @@ class Handler(BaseHTTPRequestHandler):
         if stripped in ("", "/health", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js", "/nodesound.js",
                         "/guide", "/register", "/register.js", "/favicon.ico",
-                        "/journal", "/journal.js"):
+                        "/journal", "/journal.js", "/ideas", "/ideas.js"):
             return True
         if stripped == "/app" or path.startswith("/app/"):
             return True
@@ -291,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
         ip = guard.client_ip(self.client_address, self.headers)
         if guard.READ_RATE_LIMITER.allow(ip):
             return True
-        self._send_error(_PACE_LINE, 429)
+        self._send_error("Too many Ideas reads. Please wait a moment and retry." if path.startswith("/ideas/") else _PACE_LINE, 429)
         return False
 
     # ── response helpers ──
@@ -389,6 +399,27 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
         self.wfile.flush()
 
+    def _fail_dispatch(self, exc):
+        """One privacy/error boundary for GET and POST, including invalid targets."""
+        try:
+            try:
+                path = urlparse(self.path).path
+            except ValueError:
+                self._private_response = True
+                self._send_error('invalid request target', 400)
+                return
+            if path.rstrip('/').startswith('/ideas/'):
+                observability.community_failure(path, exc)
+                self._private_response = True
+                self._send_error('Ideas is temporarily unavailable. Please retry; your draft is retained.', 503)
+            else:
+                observability.capture_exception(exc)
+                self._send_error('internal server error', 500)
+        except Exception:
+            # The connection may already have closed; never fail a second time
+            # while trying to report the original dispatch failure.
+            pass
+
     # ── GET ──
 
     def do_GET(self):
@@ -397,11 +428,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._dispatch_get()
         except Exception as exc:
-            observability.capture_exception(exc)
-            try:
-                self._send_error("internal server error", 500)
-            except Exception:
-                pass
+            self._fail_dispatch(exc)
         finally:
             self._emit_access_log()
 
@@ -412,18 +439,23 @@ class Handler(BaseHTTPRequestHandler):
 
         if not self._authorized(qs):
             return
-        if not self._read_rate_ok(path):
+        # Ideas authenticates before charging reads inside its adapter.
+        if not path.startswith('/ideas/') and not self._read_rate_ok(path):
             return
 
         def param(key: str, default: str = "") -> str:
             vals = qs.get(key)
             return vals[0] if vals else default
 
-        from server import participant_api, situation_api
-        if participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
+        from server import ideas_api, participant_api, situation_api
+        if ideas_api.handle(self, path, qs) or participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
             return
 
-        if path == "/journal":
+        if path == "/ideas":
+            self._send_file(_STATIC_DIR / "ideas.html")
+        elif path == "/ideas.js":
+            self._send_file(_STATIC_DIR / "ideas.js", content_type="application/javascript; charset=utf-8")
+        elif path == "/journal":
             self._send_file(_STATIC_DIR / "journal.html")
         elif path == "/journal.js":
             self._send_file(_STATIC_DIR / "journal.js", content_type="application/javascript; charset=utf-8")
@@ -700,11 +732,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._dispatch_post()
         except Exception as exc:
-            observability.capture_exception(exc)
-            try:
-                self._send_error("internal server error", 500)
-            except Exception:
-                pass
+            self._fail_dispatch(exc)
         finally:
             self._emit_access_log()
 
@@ -729,11 +757,11 @@ class Handler(BaseHTTPRequestHandler):
         # max(0, …): a negative Content-Length would pass the size cap and
         # turn rfile.read(length) into read-to-EOF on a held-open socket.
         length = max(0, length)
-        if length > _MAX_BODY:
+        if length > (8192 if path.startswith('/ideas/') else _MAX_BODY):
             return self._send_error("payload too large", 413)
         try:
             body = json.loads(self.rfile.read(length)) if length else {}
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
             return self._send_error("invalid JSON")
         # Valid JSON is not necessarily an object — `[1,2]` or `"hi"` parse
         # fine, then every body.get() below would AttributeError into the
@@ -741,8 +769,8 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._send_error("request body must be a JSON object")
 
-        from server import participant_api, situation_api
-        if participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
+        from server import ideas_api, participant_api, situation_api
+        if ideas_api.handle(self, path, qs, body) or participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
             return
 
         if path == "/speak":
