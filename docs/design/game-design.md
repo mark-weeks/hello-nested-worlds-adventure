@@ -1,5 +1,7 @@
 # Game Design Document — Enfolded: Nested World Adventure
 
+Interface and art direction: [Visual language](visual-language.md) and [beta scene-art strategy](beta-scene-art.md). These distinguish the owner’s interaction principles from proposed restyling and production work.
+
 **2026-09-20 corrected local review build:** The owner rejected the duplicated
 universal composer, forced delegation, gallery controller and similar soundscapes.
 [ADR-028](../decisions/ADR-028-scale-native-autonomy.md) replaces them with one Act

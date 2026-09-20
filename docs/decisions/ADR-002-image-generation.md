@@ -1,5 +1,7 @@
 # ADR-002: Image Generation Architecture
 
+> **2026-09-20 review:** The owner-endorsed curated artwork sets a higher reference bar than this historical automatic-generation baseline. See the [beta scene-art strategy](../design/beta-scene-art.md) for the current code audit and proposed replacement conditions. Current cache invalidation uses the style signature without the history-count bucket described below. Historical model prices have not been re-verified.
+
 **Status:** Revised 2026-05-03 — implementation diverged from the original decision; this revision records what shipped, what is deliberately deferred, and what remains an unmet Phase 1 commitment.
 
 ---

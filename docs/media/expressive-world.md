@@ -1,5 +1,7 @@
 # Expressive world media: provenance and direction
 
+Interface styling is defined in the [visual language](../design/visual-language.md); the [beta scene-art strategy](../design/beta-scene-art.md) distinguishes current assets from the proposed production pipeline.
+
 ## Visual direction
 
 Four 1672 × 941 generated PNG plates form a connected journey through seed 382's
