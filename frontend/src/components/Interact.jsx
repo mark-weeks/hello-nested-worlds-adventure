@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import "../../../static/intents.js";
 import { withKey } from "../auth.js";
 import Interventions from "./Interventions.jsx";
-import { displayName } from "../names.js";
 
 // Node interaction panel: the two core-loop mechanics the /app client was
 // missing — talk to a node (/speak, Claude-voiced) and solve its puzzle
@@ -105,7 +104,6 @@ function Speak({ node, seed, playerName }) {
 
   return (
     <div style={s.panel}>
-      <div style={s.hint} title={node.name}>Speak to {node.level} · {displayName(node.name)}</div>
       {presences.length > 0 && (
         <div style={s.targetRow}>
           <button

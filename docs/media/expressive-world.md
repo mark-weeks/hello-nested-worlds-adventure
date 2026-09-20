@@ -21,6 +21,11 @@ presented as verbatim transcripts. No third-party reference images were supplied
 | `instrument-v1.png` | Elder River Instrument: ancient damaged woven-light instrument, asymmetric filament ring, frost along its ridges, pressure-responsive exhalation, dark gallery background; retain the same copper/teal world. |
 | `chain-v1.png` | Distant River Chain: macro-scale photoreactive helical structure, three interlaced strands, static mapping the surface, deep optical depth; related luminous matter at molecular scale. |
 
+The scene does not overlay the current place’s scale, name or description. One
+identity block in the interaction panel holds scale, name, position and a description
+derived from current properties and persistent material traces. The original aspect
+remains unchanged in world data.
+
 The renderer uses node-derived atmosphere and material colors. New resonators,
 energy, polarity, coherent memory and dismantling scars have their own live
 presentation. Movement is subtle; reduced-motion preference removes time-driven

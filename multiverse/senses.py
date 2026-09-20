@@ -1,7 +1,8 @@
 """A shared, versioned interpretation of place, independent of media providers."""
 from multiverse.interventions_v2 import digest, read_state
+from multiverse.description import describe_place
 
-VERSION = 2
+VERSION = 3
 PLATES = {
     'Emberlit Orchard Terraces-111111': ('orchard', 'a lace of pollen hangs about it; it tightens when approached, and it is patient the way stone is patient.'),
     'Broken Ember Gallery-1111111': ('gallery', 'it carries a dusting of dew; it holds itself perfectly still, and it has forgiven whatever happened here.'),
@@ -57,7 +58,7 @@ def describe(node):
         ancestor = ancestor.parent
     # Identity may choose a tonal family; literal material/atmosphere never hash.
     family = int(digest(ancestor.name)[:4], 16) % 4
-    result = {'version': VERSION, 'aspect': aspect, 'material': str(p.get('material', texture)),
+    result = {'version': VERSION, 'aspect': aspect, 'description': describe_place(node.level, p, state), 'material': str(p.get('material', texture)),
               'texture': texture, 'atmosphere': atmosphere, 'shadow': shadow, 'light': light,
               'tension': round(tension, 3), 'energy': state['energy'] / 12,
               'polarity': state['polarity'], 'echo': state['echo'], 'woven': state['woven'],

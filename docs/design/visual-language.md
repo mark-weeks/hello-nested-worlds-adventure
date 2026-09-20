@@ -16,6 +16,12 @@ The scene carries wonder; the interface makes participation easy. Keep a stable,
 quiet visual language around a world that can become strange, turbulent or calm.
 Changes in the world's mood should not make controls harder to find or read.
 
+- Give the current place one identity block containing scale, readable name,
+  position identifier and its evolving description. Keep that block in the
+  interaction panel; do not repeat it over the scene or inside interaction tabs.
+  Reference the same description for accessible scene content. The description
+  reflects current conditions and persistent material traces; the born aspect
+  and historical state remain intact.
 - Preserve Speak | Puzzle | Act as the primary interaction structure.
 - Present four useful, scale-native actions as invitations into possibility.
   Four visible suggestions are not a permanent limit on the world's vocabulary.
@@ -44,9 +50,10 @@ material, a recurring light pattern. Let composition and physical properties mak
 scale legible. Avoid a universal glowing sphere, schematic, orbital sketch or
 particle field as the finished representation of unrelated places.
 
-Preserve negative space for titles and navigation in image composition. Artwork
-contains no interface text. Legibility must survive the brightest approved image,
-a different crop, a narrow screen and an unavailable image.
+Let the scene image stand on its own, without a title or description overlay.
+Compose for meaningful focal points and readable navigation at the edges. Artwork
+contains no interface text. Navigation must remain legible over bright and dark
+images; the identity block must remain readable independently of the artwork.
 
 ## Interface foundations
 
@@ -74,7 +81,7 @@ reduced opacity alone is insufficient.
   for addresses and technical identifiers, shown only when useful. Start with
   Georgia and the system sans stack to avoid a new font-loading dependency.
 - **Size:** 16px body text, 14–16px action labels, 12–13px secondary metadata,
-  responsive 30–64px scene titles. Do not use tiny spaced capitals for sentences
+  responsive 22–30px place names in the identity block. Do not use tiny spaced capitals for sentences
   or essential controls. Keep body line height around 1.5.
 - **Spacing:** a 4/8/12/16/24/32/48px scale. Group related content with space;
   borders are reserved for useful boundaries rather than every line of data.

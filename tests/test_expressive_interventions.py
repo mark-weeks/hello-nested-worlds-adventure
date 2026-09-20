@@ -162,6 +162,10 @@ def test_senses_follow_literal_properties_and_material_history(owner):
     node.properties=work.live(382,node)
     after=describe(node)
     assert after['woven'] and after['memory'] and after['revision'] != before['revision']
+    assert after['description'] != before['description']
+    assert 'woven resonator' in after['description'] and 'harmonic memory' in after['description']
+    assert node.properties['aspect'] == original['aspect']
+    assert store.resolve_node_by_name(382, node.name).properties == original
     node.properties={**original,'aspect':'A changed aspect that the curated plate no longer represents.'}
     assert describe(node)['plate'] is None
     assert before['family'] == after['family']
@@ -234,6 +238,9 @@ def test_wayback_keeps_birth_and_present_senses_distinct_and_receipts_survive_mo
     assert present['properties']['surface'] == 'engraved'
     assert birth['properties']['surface'] != 'engraved'
     assert present['senses']['revision'] != birth['senses']['revision']
+    assert 'surface is engraved' in present['senses']['description']
+    assert 'surface is engraved' not in birth['senses']['description']
+    assert present['properties']['aspect'] == birth['properties']['aspect']
     assert events() == before
 
 

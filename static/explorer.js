@@ -289,9 +289,8 @@ function drawSigil(data) {
   if (!sigil) return;
   // The art is meaning, not decoration — give non-visual users its content.
   sigil.setAttribute('role', 'img');
-  sigil.setAttribute('aria-label',
-    `Generative sigil of ${data.name}, a ${data.level}. ` +
-    ((data.properties && data.properties.aspect) || ''));
+  sigil.setAttribute('aria-labelledby', 'node-name');
+  sigil.setAttribute('aria-describedby', 'node-description');
   if (window.startSensory) {
     stopSensory?.();
     stopSensory = window.startSensory(sigil, data);
@@ -322,11 +321,9 @@ function selectNode(data, { refresh = false } = {}) {
   document.getElementById('node-name').title        = data.name;
   document.getElementById('node-name').style.color  = color;
   const address = nodeAddress(data.name);
-  let propsHtml = address
-    ? `<div class="prop-row" title="this place's address — its path from the root of the multiverse">` +
-      `<span class="prop-key">address</span><span class="prop-val">⌖ ${escHtml(address)}</span></div>`
-    : '';
-  propsHtml += Object.entries(data.properties || {}).map(
+  document.getElementById('node-address').textContent = address ? `⌖ ${address}` : '';
+  document.getElementById('node-description').textContent = data.senses?.description || data.properties?.aspect || '';
+  let propsHtml = Object.entries(data.properties || {}).filter(([key]) => key !== 'aspect').map(
     ([k, v]) => `<div class="prop-row"><span class="prop-key">${escHtml(String(k))}</span><span class="prop-val">${escHtml(String(v))}</span></div>`
   ).join('');
   if (data.ripple_score > 0) {

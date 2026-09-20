@@ -114,7 +114,7 @@ class InterventionComposer extends HTMLElement {
     section.append(el('p',null,{className:'pending quiet'}));this.renderPending();
     if(!this.data) { section.append(el('p',this.message || 'Listening to this place…')); return; }
     const blocked=this.busy || !!this.pending;
-    section.append(el('p',`What would you change in this ${this.ctx.node.level==='SubatomicParticle'?'particle':this.ctx.node.level.toLowerCase()}?`));
+    section.append(el('p','What would you change here?'));
     const choices=el('div',null,{className:'choices'});
     for(const choice of this.data.choices) {
       const chosen=this.steps.some(s=>s.op===choice.op);

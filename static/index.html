@@ -70,8 +70,10 @@
     /* The node's generative art is the hero of the location panel — the place
        itself, not a thumbnail beside its data. */
     #node-sigil { display: block; width: 100%; border: 1px solid #1a2038; margin-bottom: 10px; background: #07080f; }
+    #node-description { font:14px/1.6 system-ui; color:#b3c9c4; margin:8px 0 14px; }
+    #node-address { font-size:11px; color:#9aaac8; }
     #node-level { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
-    #node-name  { font-size: 20px; font-weight: bold; margin-bottom: 12px; line-height: 1.2; }
+    #node-name { margin-top: 0; font-size: 20px; font-weight: bold; margin-bottom: 12px; line-height: 1.2; }
 
     .prop-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 10px; padding: 3px 0; border-bottom: 1px solid #111828; }
     .prop-key { color: #304060; flex-shrink: 0; }
@@ -302,8 +304,12 @@
     <div class="panel">
       <div class="panel-title">Location</div>
       <canvas id="node-sigil" width="308" height="232"></canvas>
+      <section class="node-identity" aria-labelledby="node-name">
       <div id="node-level" style="color:#3a8eff">—</div>
-      <div id="node-name"  style="color:#3a8eff">Select a node</div>
+      <h1 id="node-name" style="color:#3a8eff">Select a node</h1>
+      <div id="node-address" title="this place's address — its path from the root of the multiverse"></div>
+      <p id="node-description"></p>
+      </section>
       <div id="node-props"></div>
       <button id="btn-wayback" title="See this node as it was, through today's art and sound">Wayback</button>
       <button id="btn-deepen" hidden>Look within ↓</button>

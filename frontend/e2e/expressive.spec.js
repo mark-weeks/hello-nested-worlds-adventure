@@ -176,3 +176,44 @@ test('unavailable recovery storage prevents an ambiguous commitment',async({page
     await expect(composer.getByRole('button',{name:'Act: Engrave',exact:true})).toBeEnabled();
   }finally{await server.close();}
 });
+
+for(const route of ['/app','/']) {
+  test(`${route}: one identity block follows another player's material change`,async({page})=>{
+    const server=await start();
+    try {
+      await enter(page,server,route,names.instrument);
+      const identity=page.locator('.node-identity');
+      await expect(identity).toHaveCount(1);
+      await expect(identity.getByRole('heading',{name:phrase(names.instrument),exact:true})).toBeVisible();
+      await expect(identity.locator('#node-level')).toHaveText('Object');
+      await expect(identity.locator('#node-address')).toContainText('11111111');
+      await expect(identity.locator('#node-description')).toContainText('surface is');
+      for(const id of ['node-name','node-level','node-address','node-description']) await expect(page.locator('#'+id)).toHaveCount(1);
+      if(route==='/app') {
+        const scene=page.getByRole('region',{name:'Living scene'});
+        await expect(scene.getByRole('heading')).toHaveCount(0);
+        await expect(page.getByText(phrase(names.instrument),{exact:true})).toHaveCount(1);
+        await expect(scene.locator('canvas')).toHaveAttribute('aria-describedby','node-description');
+        await page.getByText('Conditions here',{exact:true}).click();
+        await expect(page.getByText('aspect',{exact:true})).toHaveCount(0);
+      }
+      const before=await identity.locator('#node-description').textContent();
+      // A distinct player acts via the real endpoint. The first viewer receives
+      // the shared update without navigation, a reload or their own action.
+      const other={'X-Beta-Key':'nw_'+'b'.repeat(32)};
+      expect((await page.request.post(server.url+'/position',{headers:other,data:{node:names.instrument,seed:382,depth:9}})).ok()).toBe(true);
+      const plan=await(await page.request.post(server.url+'/interventions/preview',{headers:other,data:{node:names.instrument,steps:[{op:'engrave'}]}})).json();
+      const result=await page.request.post(server.url+'/interventions/commit',{headers:other,data:{node:names.instrument,steps:plan.steps,expected:plan.expected,version:2,request_id:'peer-description'}});
+      expect(result.ok()).toBe(true);
+      await expect(identity.locator('#node-description')).toContainText('surface is engraved');
+      expect(await identity.locator('#node-description').textContent()).not.toBe(before);
+      await expect(identity.getByRole('heading')).toHaveText(phrase(names.instrument));
+      await page.reload();
+      await expect(identity.locator('#node-description')).toContainText('surface is engraved');
+      await page.setViewportSize({width:390,height:844});
+      await expect(identity).toBeVisible();
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+      await page.screenshot({path:capture(`enfolded-identity-${route==='/app'?'scene':'map'}-mobile.png`),fullPage:true});
+    } finally {await server.close();}
+  });
+}

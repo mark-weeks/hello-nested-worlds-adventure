@@ -20,18 +20,19 @@ export default function TextPanel({ node, players, agents = {}, connected, event
   return (
     <div className="world-panel" style={s.panel}>
 
-      <div style={s.section}>
-        <div style={s.label}>{node.level}</div>
+      <section className="node-identity" aria-labelledby="node-name" style={s.section}>
+        <div id="node-level" style={s.identityScale}>{node.level}</div>
         {/* Display layer: the readable phrase carries the identity a player
             speaks; the address (path digits) sits beneath as its own field,
             and hovering the name reveals the full canonical form. */}
-        <div style={s.name} title={node.name}>{displayName(node.name)}</div>
+        <h1 id="node-name" style={s.name} title={node.name}>{displayName(node.name)}</h1>
         {nodeAddress(node.name) && (
-          <div style={s.address}
+          <div id="node-address" style={s.address}
                title="this place's address — its path from the root of the multiverse">
             ⌖ {nodeAddress(node.name)}
           </div>
         )}
+        <p id="node-description" style={s.description}>{node.senses?.description || node.properties?.aspect}</p>
         <div style={s.nodeActions}>
           <button
             style={s.waybackBtn}
@@ -47,7 +48,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
              title="Share and support ideas in a new tab">Ideas ↗</a>
           </span>
         </div>
-      </div>
+      </section>
 
       <div style={{padding:'10px 18px',display:'flex',alignItems:'center',gap:12}}>
         <button id="btn-sound" onClick={onToggleSound} aria-pressed={!!soundOn} style={{color:'#d5c59f',background:'#122622',border:'1px solid #627970',padding:9,cursor:'pointer'}}>{soundOn ? 'Pause score' : 'Listen to this world'}</button>
@@ -60,7 +61,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
       {Object.keys(node.properties).length > 0 && (
         <details style={s.section}>
           <summary style={{...s.label,cursor:"pointer"}}>Conditions here</summary>
-          {Object.entries(node.properties).map(([k, v]) => (
+          {Object.entries(node.properties).filter(([key]) => key !== "aspect").map(([k, v]) => (
             <div key={k} style={s.prop}>
               <span style={s.propKey}>{k}</span>
               <span style={s.propVal}>{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
@@ -119,7 +120,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
               onClick={() => p.node && onJump?.(p.node)}
             >
               <span style={s.travelerName}>◈ {p.name}</span>
-              <span style={s.travelerNode} title={p.node}>{p.node ? displayName(p.node) : "—"}</span>
+              <span style={s.travelerNode} title={p.node === node.name ? undefined : p.node}>{p.node === node.name ? "Here" : p.node ? displayName(p.node) : "—"}</span>
             </div>
           ))}
           {Object.entries(agents).map(([name, a]) => (
@@ -132,7 +133,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
               <span style={{ ...s.travelerName, color: "#f0c878" }}>
                 ✦ {name}{a.persona ? <span style={s.travelerPersona}> · {a.persona}</span> : null}
               </span>
-              <span style={s.travelerNode} title={a.node}>{a.node ? displayName(a.node) : "…arriving"}</span>
+              <span style={s.travelerNode} title={a.node === node.name ? undefined : a.node}>{a.node === node.name ? "Here" : a.node ? displayName(a.node) : "…arriving"}</span>
             </div>
           ))}
         </div>
@@ -216,8 +217,10 @@ const s = {
   chronicleBtn:{ background: "#0e1828", border: "1px solid #5268a8", color: "#9aaee8", padding: "4px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "10px", letterSpacing: "0.04em" },
   waybackBtn:  { alignSelf: "flex-start", background: "#111a30", border: "1px solid #5268a8", color: "#9aaee8", padding: "3px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase", marginTop: "3px" },
   label:       { fontSize: "10px", color: "#4a5580", textTransform: "uppercase", letterSpacing: "0.12em" },
-  name:        { fontSize: "18px", color: "#d0daf0", fontWeight: "bold", lineHeight: 1.2 },
-  address:     { fontSize: "10px", color: "#4a5580", letterSpacing: "0.08em" },
+  name:        { fontFamily: "Georgia, serif", fontSize: "26px", color: "#f3e5cf", fontWeight: "normal", lineHeight: 1.15, margin: "2px 0" },
+  identityScale: { fontFamily: "system-ui", fontSize: "11px", color: "#b3c9c4", textTransform: "uppercase", letterSpacing: ".12em" },
+  description: { fontFamily: "system-ui", fontSize: "14px", color: "#b3c9c4", lineHeight: 1.6, margin: "8px 0 12px" },
+  address:     { fontSize: "12px", color: "#9aaac8", letterSpacing: "0.08em" },
   prop:        { display: "flex", justifyContent: "space-between", fontSize: "12px", gap: "8px" },
   propKey:     { color: "#6878a8" },
   propVal:     { color: "#9aaac8", textAlign: "right", wordBreak: "normal", overflowWrap: "break-word", hyphens: "auto", maxWidth: "58%" },
