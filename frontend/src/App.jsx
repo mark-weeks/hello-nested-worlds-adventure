@@ -8,7 +8,7 @@ import { describeMutation, scaleActLine, causalNoticeLine } from "./mutations.js
 import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
 import { displayName } from "./names.js";
 import { createNodeRefresher } from "./nodeRefresh.js";
-import { NodeAmbience } from "../../static/nodesound.js";
+import { NodeAmbience } from "../../static/score.js";
 
 // Honor the OS-level motion preference: transient overlays (ripples,
 // sparkles, encounter glyphs) become no-ops instead of movement.
@@ -65,8 +65,8 @@ async function savePositionToServer(node, seed, depth) {
     });
     const data = await response.json();
     if (response.ok && data.saved) return;
-  } catch (_) { /* Keep a failed arrival retryable in the clue control. */ }
-  throw new Error("Your arrival has not settled here. Try the clue again.");
+  } catch (_) { /* Keep a failed arrival retryable from the action surface. */ }
+  throw new Error("Your arrival has not settled here. Try your action again.");
 }
 
 export default function App() {
@@ -90,6 +90,7 @@ export default function App() {
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || urlName() || "");
   const [introSeen, setIntroSeen] = useState(() => !!localStorage.getItem(INTRO_SEEN));
   const [soundOn, setSoundOn] = useState(false);
+  const [scoreVolume, setScoreVolume] = useState(.55);
   // Sound is the intended default. Browsers still require a user gesture
   // before WebAudio can start; the first gesture activates this preference.
   // Only an explicit mute opts out, and that choice survives reloads.
@@ -137,6 +138,7 @@ export default function App() {
       setPlayers([]);
       setEvents([]);
     }
+    const startedAt = refreshSerial.current;
     try {
       const response = await fetch(withKey(`/world?depth=${requestedDepth}`));
       const data = await response.json();
@@ -149,7 +151,14 @@ export default function App() {
       // the nav stack, so "back" walks the real ancestry.
       const name = localStorage.getItem(NAME_KEY) || urlName() || "";
       worldRootRef.current = data.world;
-      setNodeStack(entryPath(data.world, savedNode || data.entry_node, name));
+      // Any node refreshed while this tree was in flight is newer than the tree.
+      const path = entryPath(data.world, savedNode || data.entry_node, name).map(node => {
+        const fresh = refreshed.current.get(node.name);
+        if (!fresh || fresh.order <= startedAt) return node;
+        Object.assign(node, fresh.node);
+        return node;
+      });
+      setNodeStack(path);
       // A deep link selects this arrival once; later reloads resume actual travel.
       if (new URLSearchParams(location.search).has("node")) {
         const url = new URL(location.href);
@@ -197,6 +206,11 @@ export default function App() {
 
   const seedRef = useRef(seed);
   seedRef.current = seed;
+  // Node refreshes are ordered against world reloads: a background deepening
+  // requested before a refresh must not put the older tree state back on top
+  // of the fresher node when its (larger) reply lands later.
+  const refreshSerial = useRef(0);
+  const refreshed = useRef(new Map());
   const nodeRefresher = useRef(null);
   if (!nodeRefresher.current) {
     nodeRefresher.current = createNodeRefresher(async (worldSeed, name) => {
@@ -209,6 +223,7 @@ export default function App() {
       // the current navigation path, including when a response arrives late.
       const cached = findNodeByName(worldRootRef.current, name);
       if (cached) Object.assign(cached, node);
+      refreshed.current.set(name, { order: ++refreshSerial.current, node });
       setNodeStack(stack => stack.at(-1)?.name === name
         ? [...stack.slice(0, -1), { ...stack.at(-1), ...node }] : stack);
     });
@@ -217,6 +232,9 @@ export default function App() {
     if (!name) return Promise.resolve();
     return nodeRefresher.current(seed, name, notice).catch(() => {});
   }, [currentNodeName, seed]);
+  // The composer reports its own acceptance; keyed on the same event as the
+  // broadcast, the two refreshes become one read.
+  const onComposerChanged = useCallback(notice => refreshCurrentNode(undefined, notice), [refreshCurrentNode]);
 
   const { connected, sendMessage } = useWorldSocket(seed, playerName, {
     // The welcome roster: everyone already present when we connect. Without
@@ -309,6 +327,14 @@ export default function App() {
       }
     },
     onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${displayName(msg.node)}` }),
+    onIntervention: (msg) => {
+      pushEvent({type: 'system', text: msg.flavor || 'A new arrangement arrives.'});
+      // Like scale acts: only the place this client stands on is re-read.
+      if (msg.node === currentNodeName) {
+        refreshCurrentNode(msg.node, msg);
+        pushTransient({kind:'ripple',strength:.9,duration:2500});
+      }
+    },
     onScaleAct: (msg) => {
       pushEvent({ type: "system", text: `✦ ${scaleActLine(msg)}` });
       if (msg.node === currentNodeName) {
@@ -515,9 +541,9 @@ export default function App() {
     }
   }, [currentNode, seed, soundPreferred]);
 
-  // Ambient sound: each place hums its own deterministic tone
-  // (static/nodesound.js). The toggle click is the activation gesture
-  // browsers require for audio.
+  // Ambient sound: each scale plays its own sampled musical form, directed
+  // by the node's served senses (static/score.js). The toggle click is the
+  // activation gesture browsers require for audio.
   const toggleSound = useCallback(() => {
     if (!ambienceRef.current) ambienceRef.current = new NodeAmbience();
     const amb = ambienceRef.current;
@@ -540,6 +566,8 @@ export default function App() {
       ambienceRef.current.setNode(seed, currentNode);
     }
   }, [soundOn, waybackSoundPreview, seed, currentNode]);
+
+  useEffect(() => { ambienceRef.current?.setVolume(scoreVolume); }, [scoreVolume, soundOn]);
 
   if (!introSeen) {
     return <Intro onBegin={() => {
@@ -588,10 +616,11 @@ export default function App() {
         wrapPassage={wrapAffordance(currentNode, wrapInfo)}
         onWrapCross={crossWrap}
         onSolved={handleSolved}
-        onNodeChanged={refreshCurrentNode}
+        onNodeChanged={onComposerChanged}
         onEnsurePosition={ensurePosition}
         soundOn={soundPreferred}
         onToggleSound={toggleSound}
+        scoreVolume={scoreVolume} onScoreVolume={setScoreVolume}
         onWaybackListen={previewWaybackSound}
       />
     </div>
@@ -611,6 +640,7 @@ function Intro({ onBegin }) {
         <ul style={s.introList}>
           <li style={s.introItem}><b style={s.introVerb}>Explore</b> — step through the passages; every place contains worlds.</li>
           <li style={s.introItem}><b style={s.introVerb}>Speak</b> — talk to any place. It answers in character, and it remembers.</li>
+          <li style={s.introItem}><b style={s.introVerb}>Act</b> — change what matters to you. Each scale offers different possibilities; combine actions and follow their consequences.</li>
           <li style={s.introItem}><b style={s.introVerb}>Solve</b> — crack a node's puzzle; the ripple settles places far above and below.</li>
         </ul>
         <button onClick={onBegin} style={{ ...s.nameButton, alignSelf: "flex-start" }}>Begin</button>

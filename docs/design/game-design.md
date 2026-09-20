@@ -1,13 +1,20 @@
 # Game Design Document — Enfolded: Nested World Adventure
 
-The September 12 discovery/return slice implements one bounded shared signal
-investigation in existing places ([ADR-025](../decisions/ADR-025-first-situation.md)).
-Preserving keeper control and releasing the signal have different beneficiaries
-and costs. A shared decision window produces lasting consequences; late arrivals
-investigate the aftermath. The scene client leads this experience, with journals
-and selectively published profiles under [ADR-024](../decisions/ADR-024-participants-and-active-content.md).
-This is implemented scope, not evidence of retention or approval of rankings,
-guilds, disposition meters, voice input or a general inventory system.
+Interface and art direction: [Visual language](visual-language.md) and [beta scene-art strategy](beta-scene-art.md). These distinguish the owner’s interaction principles from proposed restyling and production work.
+
+**Action design correction (2026-09-20):** Players commit to attempted actions and
+discover consequences as they unfold. Clarify ambiguous intentions without revealing
+future outcomes; clear actions need no mandatory preview. Other players and changing
+conditions can affect results. The current preview-based browser flow still needs
+replacement; see [the interaction guidance](visual-language.md#intention-and-recognition).
+
+**2026-09-20 corrected local review build:** The owner rejected the duplicated
+universal composer, forced delegation, gallery controller and similar soundscapes.
+[ADR-028](../decisions/ADR-028-scale-native-autonomy.md) replaces them with one Act
+tab, 44 scale-native actions that may be combined, independent player agency, and
+eleven musical forms. Conditions and consequences appear on demand. The existing
+cinematic renderer remains shared across connected places. Earlier accepted work
+and history are retained. Artistic acceptance and live-model quality remain unverified.
 
 ---
 
@@ -22,7 +29,7 @@ identity, referential puzzles, optional spoken interaction, and multidimensional
 contribution leaderboards, plus a proposed collection and assembly direction.
 
 The mechanics below describe the existing implementation unless labeled planned.
-The first situation and new identity/speech capabilities are not shipped.
+The dated implementation notes above distinguish completed local behavior from planned extensions.
 
 ## Core Interaction Model
 
@@ -42,33 +49,32 @@ players free to explore, converse, or observe.
 
 ## Scale-Native Verbs
 
-Each of the 11 levels has exactly one verb — an act that only works at that scale (`multiverse/verbs.py`, POST `/act`, CLI `act`):
+Both browser clients extend the existing Act tab. A player chooses an action or
+forms an ordered combination, previews its actual physical consequences, then
+commits. The choices have different purposes and vary with current conditions.
+Nothing is selected by default. The guide lists the current vocabulary:
 
-| Scale | Verb | What it does |
-|---|---|---|
-| Multiverse | **attune** | repairs stability: collapsing → fraying → stable |
-| Universe | **calibrate** | nudges `dark_matter_ratio` toward 0.5 |
-| Galaxy | **kindle** | raises `star_density` ~5% |
-| Planetary System | **align** | flattens the ecliptic tilt 10% |
-| Planet | **seed** | wakes life on a barren world; swells it where it holds |
-| Region | **ward** | lowers `danger_level` (floor 1) |
-| Room | **inscribe** | increments a permanent `inscriptions` counter |
-| Object | **mend** | repairs condition: corrupted → damaged → worn → pristine |
-| Molecule | **catalyze** | adds a bond (cap 12) |
-| Atom | **excite** | ionizes; shifts resonance blueward |
-| SubatomicParticle | **observe** | collapses a superposed spin (deterministic per observer+particle) |
+| Scale | Actions |
+|---|---|
+| Multiverse | attune, shear, quicken, linger |
+| Universe | calibrate, condense, rarefy, modulate |
+| Galaxy | kindle, scatter, spiral, accelerate |
+| Planetary System | align, incline, gather, disperse |
+| Planet | seed, rewild, hasten, slow |
+| Region | ward, cultivate, overgrow, channel |
+| Room | inscribe, illuminate, shade, ventilate |
+| Object | mend, engrave, fracture, polish |
+| Molecule | catalyze, cleave, fold, branch |
+| Atom | excite, relax, ionize, neutralize |
+| SubatomicParticle | observe, superpose, flip, dephase |
 
-Design intent: every verb is the **restorative counterpart** to the decay events in `multiverse/effects.py` — STRUCTURAL_CHANGE corrodes, `mend` repairs; DANGER_ALERT roughens, `ward` calms. The world drifts toward entropy; players push back one scale at a time. The verb's material change applies exactly once at the origin (the producer owns the flavor line); the act then rides the standard causal rails — chronicle entry, ripple, staged cascade — so a mend is felt, faintly and later, by the room that holds the object and the molecules inside it.
-
-**Planned extension.** ADR-012 retains this scale vocabulary but adds contextual
-trade-offs through targets, sequence, and situation commitments. ADR-013 defines
-explicit contribution, one-time, and exclusive-action semantics; those changes
-are pending implementation and must preserve existing accepted work.
-The ADR-017 proposal requires legitimate destabilizing or opposing goals
-alongside preservation, with authored stakes and shared conflict rules. The
-current restorative verbs alone do not establish those new goals or authorities.
-
-**Implementation status.** Live in all three clients: `/app` gets a per-scale Act tab, the explorer an Act mode panel, the CLI an `act` command (typing the verb itself also works). Acts broadcast to the seed-room (`scale_act`), fold into watching clients' property panels and node art, and land in `/history` backfill.
+These actions change material properties, not another player's decisions or
+consent. The server enforces scale, current state, participant identity and receipt
+ownership. Opposing goals can change the same material; composition is ordered.
+The original eleven transitions and legacy `/act`/CLI remain compatible with old
+actors and delayed work. Current browser commitments use version 2 under ADR-028.
+New creative purposes should extend physical semantics through the same surface,
+not multiply control panels. A finite current vocabulary is not a world covenant.
 
 ---
 

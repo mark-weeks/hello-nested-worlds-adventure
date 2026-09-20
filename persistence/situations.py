@@ -140,8 +140,10 @@ def _settle_overdue(seed):
             _settle(conn, situation, _now())
 
 
-def choose(seed, participant, request_id, branch):
+def choose(seed, participant, request_id, branch, *, allow_new=True):
     def apply():
+        if not allow_new:
+            raise ValueError('This scripted choice is retired. Other travelers decide their own actions; you can speak with them or act for yourself.')
         with db._connection() as conn:
             situation = _read(conn, seed)
             if not situation:

@@ -129,15 +129,13 @@ class TestAssemblePrompt:
         assert "lighting" in out
         assert "flickering" in out
 
-    def test_property_summary_capped_at_six(self):
-        # Use single-letter keys so the sort order is unambiguous.
-        props = {k: i for i, k in enumerate("abcdefghij")}
+    def test_property_summary_keeps_material_state_beyond_the_old_six_property_cutoff(self):
+        props = {f"k{i:02}": i for i in range(40)}
         out = assemble_prompt("Room", "Vault", props, [])
-        # Sorted: a..f are kept (6 entries); g..j are dropped.
-        for k in ("a", "b", "c", "d", "e", "f"):
-            assert f"{k}: " in out
-        for k in ("g", "h", "i", "j"):
-            assert f"{k}: " not in out
+        assert "k31: " in out and "k32: " not in out
+        before = {"aspect": "frost", "resonance": {"woven": False}}
+        after = {"aspect": "pollen", "resonance": {"woven": True}}
+        assert style_signature("Object", before, []) != style_signature("Object", after, [])
 
     def test_distinct_levels_produce_distinct_prompts(self):
         a = assemble_prompt("Multiverse", "X", {}, [])
@@ -146,6 +144,19 @@ class TestAssemblePrompt:
 
 
 # ── style_signature ─────────────────────────────────────────────────────────
+
+class TestSignatureStaysCoarse:
+    def test_nested_state_and_trailing_properties_never_trigger_a_new_generation(self):
+        base = {"surface": "engraved", "material": "stone",
+                "acoustic_resonance": {"echo": 1, "last_wave": 0.2, "woven": False}}
+        drifted = {**base, "acoustic_resonance": {"echo": 9, "last_wave": 0.9, "woven": True}}
+        assert style_signature("Object", base, []) == style_signature("Object", drifted, [])
+        many = {f"k{i:02}": i for i in range(40)}
+        # The prompt reads the property, the paid cache key does not.
+        assert "k20: 99" in assemble_prompt("Room", "Vault", {**many, "k20": 99}, [])
+        assert style_signature("Room", many, []) == style_signature("Room", {**many, "k20": 99}, [])
+        assert style_signature("Room", many, []) != style_signature("Room", {**many, "k00": 99}, [])
+
 
 
 class TestStyleSignature:

@@ -70,8 +70,10 @@
     /* The node's generative art is the hero of the location panel — the place
        itself, not a thumbnail beside its data. */
     #node-sigil { display: block; width: 100%; border: 1px solid #1a2038; margin-bottom: 10px; background: #07080f; }
+    #node-description { font:14px/1.6 system-ui; color:#b3c9c4; margin:8px 0 14px; }
+    #node-address { font-size:11px; color:#9aaac8; }
     #node-level { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
-    #node-name  { font-size: 20px; font-weight: bold; margin-bottom: 12px; line-height: 1.2; }
+    #node-name { margin-top: 0; font-size: 20px; font-weight: bold; margin-bottom: 12px; line-height: 1.2; }
 
     .prop-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 10px; padding: 3px 0; border-bottom: 1px solid #111828; }
     .prop-key { color: #304060; flex-shrink: 0; }
@@ -255,7 +257,7 @@
       <li><b>Explore</b> — click a node in the map, then dive deeper into the worlds inside it.</li>
       <li><b>Speak</b> — talk to any place and it answers in character.</li>
       <li><b>Solve</b> — crack a node's puzzle; the ripple carries across scales.</li>
-      <li><b>Act</b> — every scale has one verb only it supports: mend, ward, kindle…</li>
+      <li><b>Act</b> — each scale offers different actions. Change a surface, reshape a molecule, or transform a landscape…</li>
     </ul>
     <button id="btn-begin" class="primary">Begin exploring</button>
     <a href="/guide" style="font-size:10px;color:#3a5070;letter-spacing:1px">read the full guide ↗</a>
@@ -285,6 +287,7 @@
   <button id="btn-sound" title="Ambient sound: every place hums its own deterministic tone"
           aria-pressed="false"
           style="font-size:10px;padding:3px 8px;letter-spacing:1px;white-space:nowrap">♪ off</button>
+  <label style="font-size:10px">Volume <input id="score-volume" aria-label="Score volume" type="range" min="0" max="1" step=".05" value=".55" style="width:65px"></label>
   <a href="/app" style="font-size:12px;color:#bce5dc">Investigate in scene view ↗</a>
   <a href="/journal" target="_blank" rel="noopener" style="font-size:12px;color:#9fcbea">Journal ↗</a>
   <span style="display:inline-flex;gap:12px;align-items:center">
@@ -301,14 +304,19 @@
     <div class="panel">
       <div class="panel-title">Location</div>
       <canvas id="node-sigil" width="308" height="232"></canvas>
+      <section class="node-identity" aria-labelledby="node-name">
       <div id="node-level" style="color:#3a8eff">—</div>
-      <div id="node-name"  style="color:#3a8eff">Select a node</div>
+      <h1 id="node-name" style="color:#3a8eff">Select a node</h1>
+      <div id="node-address" title="this place's address — its path from the root of the multiverse"></div>
+      <p id="node-description"></p>
+      </section>
       <div id="node-props"></div>
       <button id="btn-wayback" title="See this node as it was, through today's art and sound">Wayback</button>
       <button id="btn-deepen" hidden>Look within ↓</button>
       <button id="btn-wrap-down" hidden title="the way inward opens onto the whole">Descend into the whole ↓</button>
       <button id="btn-wrap-up" hidden title="the way beyond narrows to a single particle">Ascend beyond ↑</button>
     </div>
+
 
     <div class="panel" id="players-panel">
       <div class="panel-title">Explorers
@@ -364,9 +372,7 @@
 
       <!-- Act: the scale-native verb — the one thing you can only do here -->
       <div class="mode-panel" id="panel-act">
-        <div id="act-tagline" style="font-size:11px;color:#4a5580;line-height:1.5"></div>
-        <button id="btn-do-act">Act</button>
-        <div class="response-box" id="act-response"></div>
+        <enfolded-interventions id="composer"></enfolded-interventions>
       </div>
 
     </div>

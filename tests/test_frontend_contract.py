@@ -281,10 +281,35 @@ class TestGenerativeArtLayer:
         assert "Math.random" not in art
         assert "Date.now" not in art
 
-    def test_react_scene_renders_the_art_as_base_layer(self):
+    def test_shared_scene_and_score_modules_never_read_the_clock(self):
+        # Determinism contract: art and sound derive from the served state, so
+        # the same node draws the same frame N everywhere. Audio scheduling may
+        # read the AudioContext clock; nothing may read entropy or wall time.
+        for name in ("sensory.js", "score.js"):
+            src = (_ROOT / "static" / name).read_text()
+            for forbidden in ("Math.random", "Date.now", "performance.now"):
+                assert forbidden not in src, f"{name} reads {forbidden}"
+
+    def test_voice_mirrors_the_score_forms_the_client_plays(self):
+        # consciousness._SCORE_FORMS must equal static/score.js SCORE_PROFILES
+        # (voice and title per scale) so a place never describes music the
+        # player does not hear.
+        import re
+        from consciousness import _SCORE_FORMS
+        src = (_ROOT / "static" / "score.js").read_text()
+        block = src[src.index("SCORE_PROFILES = {"):src.index("};", src.index("SCORE_PROFILES = {"))]
+        played = {m.group(1): (m.group(2), m.group(3)) for m in re.finditer(
+            r"^\s*'?([A-Za-z ]+)'?:\s*\{voice:'([a-z_]+)'.*?title:'([^']+)'\}", block, re.M)}
+        assert len(played) == 11 and played == _SCORE_FORMS
+
+    def test_react_scene_uses_shared_state_driven_renderer(self):
         src = (_FRONTEND_SRC / "components" / "SceneView.jsx").read_text()
-        assert "drawNodeArt" in src
-        assert "_addArtBg" in src
+        assert "startSensory" in src
+        # One paid plate per visit: the image effect keys on the place and its
+        # curated plate, never on the material revision the renderer follows.
+        assert "[seed, node.name, plated]" in src
+        assert "node.senses?.revision" not in src
+        assert "AbortController" in src
 
     def test_explorer_draws_the_node_sigil(self):
         explorer = (_ROOT / "static" / "explorer.js").read_text()
@@ -296,11 +321,6 @@ class TestGenerativeArtLayer:
     @pytest.mark.skipif(not _BUILT_APP.exists(),
                         reason="static/app not built")
     def test_built_bundle_carries_the_art(self):
-        # Function names are minified away; the form-family string literals
-        # (LEVEL_BASE values in nodeart.js) survive minification.
         bundle = _all_text(_BUILT_APP, ".js")
-        for family in ("filaments", "speckle", "ridges", "shells"):
-            assert family in bundle, (
-                f"built bundle is missing the {family!r} art family — "
-                "rebuild the frontend so /app ships the generative art"
-            )
+        for marker in ("Living scene", "filament", "crystalline", "Scene navigation"):
+            assert marker in bundle, f"built bundle is missing {marker!r}; rebuild the frontend"

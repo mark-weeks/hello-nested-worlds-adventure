@@ -27,14 +27,18 @@ before reporting so SQLite can create its read sidecars. Do not raw-copy a runni
 world database; use the online backup command. The report retains normal SQLite
 locking and never automatically treats an input as immutable.
 
-The report covers `causal_queue`, `verb_maturation`, and `situation_work`:
+The report covers `causal_queue`, `verb_maturation`, `situation_work`, and
+`intervention_work` (expressive-action hops, present from schema 27; older
+databases report the first three):
 
 - `pending` includes scheduled, due, backed-off, and predecessor-blocked work.
 - `due` includes every pending item whose accepted due time has arrived.
   `oldest_due_age_seconds` measures age from that due time, including backoff.
 - `eligible` means due, past its retry backoff, and without an unfinished earlier
-  situation step. It does not establish that a worker is running or that its
-  interpreter supports the stored version. The worker still rechecks everything.
+  situation step or intervention hop. It does not establish that a worker is
+  running or that its interpreter supports the stored version. The worker still
+  rechecks everything. An intervention hop's `version` is its accepted
+  interpreter version and its `step` is the hop index.
 - `failed_pending` counts pending rows with a recorded error. A process death or
   storage failure can leave no error record; zero is not proof of healthy delivery.
 - `backed_off` and `waiting_for_predecessor` explain possible waits; categories
@@ -62,14 +66,19 @@ SELECT id, world_seed, node_name, attempts, last_error, retry_at
 FROM verb_maturation WHERE status = 'pending' AND last_error IS NOT NULL;
 SELECT id, situation_id, step, attempts, last_error, retry_at
 FROM situation_work WHERE status = 'pending' AND last_error IS NOT NULL;
+SELECT status, COUNT(*) FROM intervention_work GROUP BY status;
+SELECT w.id, i.world_seed, w.node_name, w.hop, i.version, w.attempts, w.last_error, w.retry_at
+FROM intervention_work w JOIN interventions i ON i.id = w.intervention_id
+WHERE w.status = 'pending' AND w.last_error IS NOT NULL;
 ```
 
 From the configured application environment, `persistence.inspect_work(queue, id)`
-returns the full preserved row for any of those three queue names. After inspecting
+returns the full preserved row for any of those four queue names. After inspecting
 and repairing a pending failure,
 `persistence.retry_work(queue, id)` clears its backoff. Accepted due time remains
-in force; the next pump tick rechecks it. A situation step must also wait for all
-earlier pending steps. Retrying a later step cannot bypass that ordering. These
+in force; the next pump tick rechecks it. A situation step or intervention hop
+must also wait for all earlier pending steps. Retrying a later step cannot bypass
+that ordering. These
 helpers use the configured application database, independently of a report's
 `--db` option; inspect and repair the intended database before any retry.
 Never reset completed status, edit a historical delta, or delete pending work

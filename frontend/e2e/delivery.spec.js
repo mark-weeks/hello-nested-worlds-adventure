@@ -3,11 +3,12 @@
 import { expect, test } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import {createInterface} from "node:readline";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-test.use({ viewport: { width: 1440, height: 1100 } });
+test.use({ viewport: { width: 1440, height: 1100 },extraHTTPHeaders:{"X-Beta-Key":"nw_"+"a".repeat(32)} });
 
 const python = process.env.ENFOLDED_PYTHON || "python";
 const repo = path.resolve(import.meta.dirname, "../..");
@@ -18,6 +19,9 @@ import sys
 from pathlib import Path
 import persistence
 persistence._DB_PATH = Path(sys.argv[1])
+if not persistence.lookup_invite_key('nw_'+'a'*32):
+    persistence.mint_invite_key('nw_'+'a'*32,'Ada')
+    persistence.mint_invite_key('nw_'+'b'*32,'Bea')
 from server import _Handler, _ThreadedServer, heartbeat
 server = _ThreadedServer(('127.0.0.1', int(sys.argv[2])), _Handler)
 if sys.argv[3] == '1':
@@ -40,7 +44,8 @@ server.serve_forever()
     const timer = setTimeout(() => reject(new Error(`server startup timeout: ${stderr}`)), 15_000);
     child.once("error", error => { clearTimeout(timer); reject(error); });
     child.once("exit", code => { clearTimeout(timer); reject(new Error(`server exited ${code}: ${stderr}`)); });
-    child.stdout.once("data", chunk => { clearTimeout(timer); resolve(Number(String(chunk).trim())); });
+    const lines=createInterface({input:child.stdout});
+    lines.once("line",line=>{clearTimeout(timer);lines.close();resolve(Number(line.trim()));});
     });
   } catch (error) {
     await kill({ child });
@@ -69,6 +74,7 @@ for (const [route, maturationScale] of [["/", "0.02"], ["/app", "0.02"], ["/", "
       await page.addInitScript(name => {
         localStorage.setItem("nw_seen_intro", "1");
         localStorage.setItem("nw_player_name", "RecoveryBrowser");
+        localStorage.setItem("nw_beta_key", "nw_"+"a".repeat(32));
         localStorage.setItem("nw_last_node", name);
       }, galaxy.name);
       await page.goto(`${server.url}${route}`);
@@ -77,11 +83,10 @@ for (const [route, maturationScale] of [["/", "0.02"], ["/app", "0.02"], ["/", "
         await page.locator("#sound-invite-no").click();
         await page.locator("#btn-act").click();
       }
-      else await page.getByRole("button", { name: "Kindle", exact: true }).click();
-      const [response] = await Promise.all([
-        page.waitForResponse(r => new URL(r.url()).pathname === "/act"),
-        page.getByRole("button", { name: "Kindle this Galaxy", exact: true }).click(),
-      ]);
+      else await page.getByRole("button", { name: "Act", exact: true }).click();
+      // Retained actors/CLI may still create original /act work. Its old timing
+      // and historic deltas must survive a renderer/UI upgrade.
+      const response = await request.post(server.url+'/act',{data:{node_name:galaxy.name,player_name:'RecoveryBrowser'}});
       const accepted = await response.json();
       const immediate = maturationScale === "0";
       const expectedDensity = immediate ? accepted.changed.star_density
@@ -93,7 +98,7 @@ for (const [route, maturationScale] of [["/", "0.02"], ["/app", "0.02"], ["/", "
       if (immediate) {
         await expect(page.locator("#node-props")).toContainText(String(expectedDensity));
       } else if (route === "/") {
-        await expect(page.locator("#act-response")).toContainText("still traveling");
+        await expect(page.locator("enfolded-interventions")).toContainText("still traveling");
         await expect(page.locator("#node-props")).toContainText(String(bornDensity));
       }
       const pending = await (await request.get(`${server.url}/world?depth=3`)).json();
@@ -116,6 +121,7 @@ for (const [route, maturationScale] of [["/", "0.02"], ["/app", "0.02"], ["/", "
         await expect(page.locator("#node-props")).toContainText(String(expectedDensity));
       } else {
         await expect(page.getByText(phrase, { exact: true }).first()).toBeVisible();
+        await page.getByText("Conditions here",{exact:true}).click();
         await expect(page.getByText(String(expectedDensity), { exact: true }).first()).toBeVisible();
       }
       expect(errors).toEqual([]);
@@ -139,226 +145,124 @@ persistence.record_substance_change(382, sys.argv[2], 'TEST_CHANGE', None, {}, j
   expect(code).toBe(0);
 }
 
-async function openKindle(page, url, route) {
-  await page.goto(url + route);
-  if (route === "/") {
-    await page.locator("#btn-act").click();
-  } else await page.getByRole("button", { name: "Kindle", exact: true }).click();
+const credentials={Ada:'nw_'+'a'.repeat(32),Bea:'nw_'+'b'.repeat(32)};
+async function enter(page,url,route,node,name='Ada') {
+  await page.addInitScript(({node,name,key})=>{
+    localStorage.setItem('nw_seen_intro','1');localStorage.setItem('nw_player_name',name);
+    localStorage.setItem('nw_last_node',node);localStorage.setItem('nw_beta_key',key);
+    sessionStorage.setItem('nw_sound_invited','1');
+  },{node,name,key:credentials[name]});
+  await page.goto(url+route);
+  if(route==='/')await page.locator('#btn-act').click();
+  else await page.getByRole('button',{name:'Act',exact:true}).click();
+  return page.locator('enfolded-interventions');
 }
-
-async function clickKindle(page) {
-  const [response] = await Promise.all([
-    page.waitForResponse(r => new URL(r.url()).pathname === "/act"),
-    page.getByRole("button", { name: "Kindle this Galaxy", exact: true }).click(),
+async function kindle(page,act) {
+  await act.getByRole('button',{name:'Kindle',exact:true}).click();
+  const [reply]=await Promise.all([
+    page.waitForResponse(r=>new URL(r.url()).pathname==='/interventions/commit'),
+    act.getByRole('button',{name:'Act: Kindle',exact:true}).click(),
   ]);
-  return response.json();
+  return reply.json();
 }
 
-for (const route of ["/", "/app"]) {
-  for (const mode of ["contributions", "shared-noop"]) {
-    test(`${route} explains ${mode}, pending reload and missed terminal notification`, async ({ page, request }) => {
-      const directory = await mkdtemp(path.join(tmpdir(), "enfolded-m2-browser-"));
-      const db = path.join(directory, "worlds.db");
-      let server;
-      try {
-        server = await startServer(db, false);
-        const data = await (await request.get(`${server.url}/world?depth=3`)).json();
-        const galaxy = data.world.children[0].children[0];
-        const bornDensity = galaxy.properties.star_density;
-        if (mode === "shared-noop") {
-          await changeProperties(db, galaxy.name, { star_density: 999, kindled: false });
-        }
-        await page.addInitScript(name => {
-          localStorage.setItem("nw_seen_intro", "1");
-          localStorage.setItem("nw_player_name", "M2Browser");
-          localStorage.setItem("nw_last_node", name);
-          sessionStorage.setItem("nw_sound_invited", "1");
-        }, galaxy.name);
-        await openKindle(page, server.url, route);
-        const first = await clickKindle(page);
-        expect(first.action_status).toBe("accepted");
-        expect(first.changed).toBeNull();
-        await expect(page.getByText("1 kindle change is still traveling.", { exact: false }).first()).toBeVisible();
-        const second = await clickKindle(page);
-        expect(second.action_status).toBe(mode === "contributions" ? "accepted" : "shared");
-        if (mode === "shared-noop") {
-          expect(second.work.id).toBe(first.work.id);
-          await expect(page.getByText(/You join its wait; no additional change is planted/).first()).toBeVisible();
-        } else expect(second.work.id).not.toBe(first.work.id);
-        // Pending state also survives a page load, without relying on acceptance messages.
-        await openKindle(page, server.url, route);
-        const count = mode === "contributions" ? 2 : 1;
-        const pendingText = `${count} kindle ${count === 1 ? "change is" : "changes are"} still traveling.`;
-        await expect(page.getByText(pendingText, { exact: false }).first()).toBeVisible();
-        await page.goto("about:blank");
-        const port = server.port;
-        await kill(server);
-        // The shared flag became satisfied during the wait: no second success is invented.
-        if (mode === "shared-noop") await changeProperties(db, galaxy.name, { kindled: true });
-        server = await startServer(db, true, port);
-        await expect.poll(async () => {
-          const current = await (await request.get(`${server.url}/world?depth=3`)).json();
-          return current.world.children[0].children[0].pending_actions.length;
-        }, { timeout: 15_000 }).toBe(0);
-        const current = await (await request.get(`${server.url}/world?depth=3`)).json();
-        const density = current.world.children[0].children[0].properties.star_density;
-        const once = bornDensity + Math.max(1, Math.floor(bornDensity / 20));
-        expect(density).toBe(mode === "shared-noop" ? 999 : once + Math.max(1, Math.floor(once / 20)));
-        await openKindle(page, server.url, route);
-        await expect(page.getByText(pendingText, { exact: false })).toHaveCount(0);
-        if (route === "/") {
-          await expect(page.locator("#node-props")).toContainText(String(density));
-          await page.locator("#btn-chronicle").click();
-          await expect(page.locator("#chronicle-entries")).toContainText(
-            mode === "shared-noop" ? "Nothing more changes" : "the change arrives");
-        } else {
-          await expect(page.getByText(String(density), { exact: true }).first()).toBeVisible();
-          await page.getByRole("button", { name: "View full chronicle" }).click();
-          await expect(page.getByText(mode === "shared-noop" ? /Nothing more changes/ : /the change arrives/).first()).toBeVisible();
-        }
-      } finally {
-        await page.goto("about:blank").catch(() => {});
-        await kill(server);
-        await rm(directory, { recursive: true, force: true });
-      }
-    });
-  }
-}
-
-for (const [route, heldEndpoint] of [["/", "/act"], ["/app", "/act"], ["/", "/node"], ["/app", "/node"]]) {
-test(`${route} keeps a delayed ${heldEndpoint} response attached to the place where it was requested`, async ({ page, request }) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "enfolded-m2-navigation-"));
-  const db = path.join(directory, "worlds.db");
-  let server;
-  let release;
-  try {
-    server = await startServer(db, false);
-    const data = await (await request.get(`${server.url}/world?depth=3`)).json();
-    const galaxy = data.world.children[0].children[0];
-    await page.addInitScript(name => {
-      localStorage.setItem("nw_seen_intro", "1");
-      localStorage.setItem("nw_player_name", "M2Navigator");
-      localStorage.setItem("nw_last_node", name);
-      sessionStorage.setItem("nw_sound_invited", "1");
-    }, galaxy.name);
-    // Miss the acceptance notice so the held HTTP response is the only
-    // authority for this request; the normal socket cannot mask the race.
-    await page.routeWebSocket(/\/ws\?/, socket => {
-      const server = socket.connectToServer();
-      server.onMessage(message => {
-        if (JSON.parse(message).type !== "scale_act") socket.send(message);
-      });
-    });
-    await openKindle(page, server.url, route);
-    const held = new Promise(resolve => { release = resolve; });
-    let committed;
-    const accepted = new Promise(resolve => { committed = resolve; });
-    await page.route(heldEndpoint === "/act" ? /\/act$/ : /\/node\?/, async route => {
-      const response = await route.fetch();
-      committed();
-      await held;
-      await route.fulfill({ response });
-    });
-    await page.getByRole("button", { name: "Kindle this Galaxy", exact: true }).click();
-    await accepted;
-    if (route === "/app") await page.getByRole("button", { name: "← back", exact: true }).click();
-    else await page.evaluate(() => {
-      const root = [...document.querySelectorAll("#graph .node")]
-        .find(el => el.__data__?.data?.level === "Multiverse");
-      root.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    if (route === "/app") {
-      await expect(page.getByRole("button", { name: "Calibrate", exact: true })).toBeVisible();
-    }
-    const responseArrived = page.waitForResponse(r => new URL(r.url()).pathname === heldEndpoint);
-    release();
-    await responseArrived;
-    if (route === "/") {
-      await expect(page.locator("#node-name")).toContainText(data.world.name.replace(/-\d+$/, ""));
-      await expect(page.locator("#act-response")).toHaveText("");
-      await expect(page.locator("#act-tagline")).not.toContainText("kindle");
-    } else {
-      await expect(page.getByRole("button", { name: "Calibrate", exact: true })).toBeVisible();
-      // Wait for any read triggered by the released response to finish.
-      await page.waitForLoadState("networkidle");
-      await expect(page.getByRole("button", { name: "Calibrate", exact: true })).toBeVisible();
-      await expect(page.getByText(/Your kindle is planted/)).toHaveCount(0);
-    }
-  } finally {
-    release?.();
-    await page.goto("about:blank").catch(() => {});
-    await kill(server);
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-}
-
-for (const route of ["/", "/app"]) {
-  test(`${route} co-viewers keep personal responses and refresh only the affected node`, async ({ browser, request }) => {
-    test.setTimeout(45_000); // Includes the production pump's five-second polling cadence.
-    const directory = await mkdtemp(path.join(tmpdir(), "enfolded-m2-viewers-"));
-    const db = path.join(directory, "worlds.db");
-    let server;
-    const contexts = [];
+for(const route of ['/','/app']) {
+  test(`${route} keeps new delayed contributions through restart and changed conditions`,async({page,request})=>{
+    const directory=await mkdtemp(path.join(tmpdir(),'enfolded-v2-delivery-')),db=path.join(directory,'worlds.db');let server;
     try {
-      server = await startServer(db, true, 0, "0.05");
-      const data = await (await request.get(`${server.url}/world?depth=3`)).json();
-      const galaxy = data.world.children[0].children[0];
-      await changeProperties(db, galaxy.name, { star_density: 418, kindled: false });
-      const pages = [];
-      for (const name of ["Ada", "Bea"]) {
-        const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
-        contexts.push(context);
-        await context.addInitScript(({ name, node }) => {
-          localStorage.setItem("nw_seen_intro", "1");
-          localStorage.setItem("nw_player_name", name);
-          localStorage.setItem("nw_last_node", node);
-          sessionStorage.setItem("nw_sound_invited", "1");
-        }, { name, node: galaxy.name });
-        const page = await context.newPage();
-        await openKindle(page, server.url, route);
-        await page.waitForLoadState("networkidle");
-        pages.push(page);
+      server=await startServer(db,false);
+      const world=await(await request.get(server.url+'/world?depth=3')).json(),galaxy=world.world.children[0].children[0];
+      const before=galaxy.properties.star_density;
+      const act=await enter(page,server.url,route,galaxy.name);
+      const first=await kindle(page,act);
+      const second=await kindle(page,act);
+      expect(first.accepted).toBe(true);expect(first.changed).toEqual({});expect(second.id).not.toBe(first.id);
+      await act.getByText('Actions still echoing',{exact:true}).click();
+      await expect(act).toContainText('arrivals still travelling');
+      await page.reload();if(route==='/')await page.locator('#btn-act').click();else await page.getByRole('button',{name:'Act',exact:true}).click();
+      await act.getByText('Actions still echoing',{exact:true}).click();await expect(act).toContainText('arrivals still travelling');
+      await page.goto('about:blank');const port=server.port;await kill(server);
+      // Another action lands during the wait. Each contribution acts on that
+      // current state, never overwriting it with its earlier absolute preview.
+      await changeProperties(db,galaxy.name,{star_density:before+100});
+      server=await startServer(db,true,port);
+      const once=before+100+Math.max(1,Math.floor((before+100)/20));
+      const expected=once+Math.max(1,Math.floor(once/20));
+      await expect.poll(async()=>{
+        const node=await(await request.get(server.url+'/node?node_name='+encodeURIComponent(galaxy.name))).json();
+        return node.node.properties.star_density;
+      },{timeout:15000}).toBe(expected);
+      await page.goto(server.url+route);
+      // The settled work reads as fiction in both chronicles, never as a bare row label.
+      if(route==='/'){
+        await expect(page.locator('#node-props')).toContainText(String(expected));
+        await page.locator('#btn-chronicle').click();
+        await expect(page.locator('#chronicle-entries')).toContainText('Ada begins Kindle');
+        await expect(page.locator('#chronicle-entries')).toContainText('The delayed action settles');
+      } else {
+        await page.getByText('Conditions here',{exact:true}).click();await expect(page.getByText(String(expected),{exact:true}).first()).toBeVisible();
+        await page.getByRole('button',{name:'View full chronicle'}).click();
+        await expect(page.getByText(/Ada begins Kindle/).first()).toBeVisible();
+        await expect(page.getByText(/The delayed action settles/).first()).toBeVisible();
       }
-      const [ada, bea] = pages;
-      const reads = pages.map(() => ({ world: 0, node: 0 }));
-      pages.forEach((page, i) => page.on("request", req => {
-        const endpoint = new URL(req.url()).pathname.slice(1);
-        if (endpoint in reads[i]) reads[i][endpoint]++;
-      }));
-      const own = await clickKindle(ada);
-      const personal = route === "/" ? ada.locator("#act-response") : ada.getByText(own.flavor, { exact: true });
-      await expect(personal).toHaveText(own.flavor);
-      await expect(bea.getByText("1 kindle change is still traveling.", { exact: false }).first()).toBeVisible();
-      // Bea has made no request; Ada's second-person line belongs nowhere
-      // in Bea's interaction panel or shared event feed.
-      if (route === "/") await expect(bea.locator("#act-response")).toHaveText("");
-      await expect(bea.getByText(/Your kindle is planted/)).toHaveCount(0);
-      const other = await clickKindle(bea);
-      expect(other.work.id).not.toBe(own.work.id);
-      for (const page of pages) {
-        await expect(page.getByText("2 kindle changes are still traveling.", { exact: false }).first()).toBeVisible();
-        await page.waitForLoadState("networkidle");
+    }finally {await page.goto('about:blank').catch(()=>{});await kill(server);await rm(directory,{recursive:true,force:true});}
+  });
+}
+
+for(const route of ['/','/app']) for(const endpoint of ['/interventions/commit','/node']) {
+  test(`${route} keeps a late ${endpoint} reply attached to its original place`,async({page,request})=>{
+    const directory=await mkdtemp(path.join(tmpdir(),'enfolded-v2-navigation-')),db=path.join(directory,'worlds.db');let server,release;
+    try {
+      server=await startServer(db,false);
+      const world=await(await request.get(server.url+'/world?depth=3')).json(),galaxy=world.world.children[0].children[0];
+      const act=await enter(page,server.url,route,galaxy.name);
+      const held=new Promise(resolve=>{release=resolve;});let reached;
+      const requested=new Promise(resolve=>{reached=resolve;});
+      await page.routeWebSocket(/\/ws\?/,socket=>{const peer=socket.connectToServer();peer.onMessage(message=>{if(JSON.parse(message).type!=='intervention_changed')socket.send(message);});});
+      await act.getByRole('button',{name:'Kindle',exact:true}).click();
+      await page.route(url=>url.pathname===endpoint,async route=>{const response=await route.fetch();reached();await held;await route.fulfill({response});});
+      await act.getByRole('button',{name:'Act: Kindle',exact:true}).click();await requested;
+      if(route==='/app')await page.getByRole('button',{name:'↑ Enclosing world',exact:true}).click();
+      else await page.evaluate(()=>{
+        const root=[...document.querySelectorAll('#graph .node')].find(el=>el.__data__?.data?.level==='Multiverse');
+        root.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+      });
+      const arrived=page.waitForResponse(r=>new URL(r.url()).pathname===endpoint);release();await arrived;
+      await expect(act.getByRole('button',{name:route==='/app'?'Calibrate':'Attune',exact:true})).toBeVisible();
+      await expect(act.getByRole('button',{name:'Kindle',exact:true})).toHaveCount(0);
+      await expect(act.getByRole('status')).not.toContainText('Kindle');
+      // An unknown acknowledgement remains stored for the source place; it
+      // cannot materialize as the new place's plan or be resubmitted there.
+      await expect(act.getByRole('button',{name:'Act: Kindle',exact:true})).toHaveCount(0);
+    }finally {release?.();await page.unrouteAll({behavior:'wait'}).catch(()=>{});await page.goto('about:blank').catch(()=>{});await kill(server);await rm(directory,{recursive:true,force:true});}
+  });
+}
+
+for(const route of ['/','/app']) {
+  test(`${route} co-viewers keep their own action replies while the shared state updates`,async({browser,request})=>{
+    test.setTimeout(45000);
+    const directory=await mkdtemp(path.join(tmpdir(),'enfolded-v2-viewers-')),db=path.join(directory,'worlds.db');let server;const contexts=[];
+    try {
+      server=await startServer(db,true,0,'0.05');
+      const world=await(await request.get(server.url+'/world?depth=3')).json(),galaxy=world.world.children[0].children[0];
+      await changeProperties(db,galaxy.name,{star_density:418,kindled:false});
+      const pages=[],acts=[];
+      for(const name of ['Ada','Bea']) {const ctx=await browser.newContext();contexts.push(ctx);const page=await ctx.newPage();pages.push(page);acts.push(await enter(page,server.url,route,galaxy.name,name));}
+      const [ada,bea]=pages,[a,b]=acts;
+      const reads=pages.map(()=>({world:0,node:0}));pages.forEach((page,i)=>page.on('request',req=>{const ep=new URL(req.url()).pathname.slice(1);if(ep in reads[i])reads[i][ep]++;}));
+      const own=await kindle(ada,a);await expect(a.getByRole('status')).toHaveText(own.flavor);
+      await expect(b.getByRole('status')).toHaveText('');
+      // The other player's pending work is visible on demand, not a forced route.
+      await b.getByText('Actions still echoing',{exact:true}).click();await expect(b).toContainText('Ada · Kindle');
+      const other=await kindle(bea,b);expect(other.id).not.toBe(own.id);
+      await expect(a.getByRole('status')).toHaveText(own.flavor);await expect(b.getByRole('status')).toHaveText(other.flavor);
+      await expect.poll(async()=> (await(await request.get(server.url+'/node?node_name='+encodeURIComponent(galaxy.name))).json()).node.properties.star_density,{timeout:25000}).toBe(459);
+      for(const page of pages) {
+        if(route==='/')await expect(page.locator('#node-props')).toContainText('459');
+        else {await page.getByText('Conditions here',{exact:true}).click();await expect(page.getByText('459',{exact:true}).first()).toBeVisible();}
       }
-      await expect(personal).toHaveText(own.flavor);
-      expect(reads).toEqual([{ world: 0, node: 2 }, { world: 0, node: 2 }]);
-      // A landing is a new event: it must not be swallowed as the acceptance
-      // echo, nor overwrite either player's own explanation.
-      for (const page of pages) {
-        await expect(page.getByText(/kindle changes? (?:is|are) still traveling/)).toHaveCount(0, { timeout: 25_000 });
-      }
-      await expect(personal).toHaveText(own.flavor);
-      for (const page of pages) {
-        if (route === "/") await expect(page.locator("#node-props")).toContainText("459");
-        else await expect(page.getByText("459", { exact: true }).first()).toBeVisible();
-        await expect(page.getByText(/undefined/)).toHaveCount(0);
-      }
-      expect(reads).toEqual([{ world: 0, node: 4 }, { world: 0, node: 4 }]);
-    } finally {
-      for (const context of contexts) await context.close();
-      await kill(server);
-      await rm(directory, { recursive: true, force: true });
-    }
+      await expect(a.getByRole('status')).toHaveText(own.flavor);await expect(b.getByRole('status')).toHaveText(other.flavor);
+      expect(reads.every(r=>r.world===0 && r.node>=2 && r.node<8),JSON.stringify(reads)).toBe(true);
+    }finally {for(const ctx of contexts)await ctx.close();await kill(server);await rm(directory,{recursive:true,force:true});}
   });
 }

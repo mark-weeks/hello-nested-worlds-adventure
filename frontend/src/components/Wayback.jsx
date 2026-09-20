@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { withKey } from "../auth.js";
 import { displayName } from "../names.js";
 import { waybackMomentLine, waybackNode } from "../wayback.js";
-import { drawNodeArt } from "../../../static/nodeart.js";
+import { startSensory } from "../../../static/sensory.js";
 
 const REDUCED_MOTION = typeof window !== "undefined" && window.matchMedia
   && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -131,7 +131,7 @@ export default function Wayback({ seed, node, onClose, onListen }) {
   useEffect(() => {
     if (!snapshot || !canvasRef.current) return;
     const historical = waybackNode(node, snapshot.node);
-    drawNodeArt(canvasRef.current, seed, historical);
+    return startSensory(canvasRef.current, historical);
   }, [node, seed, snapshot]);
 
   // Once a player chooses to hear the archive, each scrubbed state retunes the

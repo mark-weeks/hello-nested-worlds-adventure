@@ -82,8 +82,8 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
 
   // The scale-native verb affordance is wired.
   await page.click("#btn-act");
-  await expect(page.locator("#btn-do-act")).toContainText(
-    /attune|calibrate|kindle|align|seed|ward|inscribe|mend|catalyze|excite|observe/i);
+  await expect(page.locator('#panel-act enfolded-interventions')).toHaveCount(1);
+  await expect(page.locator('#panel-act')).toContainText('Enter with an invite');
 
   // The chronicle opens and reports the world's record.
   await page.click("#btn-chronicle");
@@ -210,8 +210,10 @@ test("/app refreshes canonical properties after an immediate node action", async
   });
 
   await page.goto("/app");
-  await page.getByRole("button", { name: "Ward" }).click();
-  await page.getByRole("button", { name: "Ward this Region" }).click();
+  // Other actors still use the original transition path. A broadcast must
+  // update this viewer's served properties without creating an action draft.
+  await request.post('/act',{data:{node_name:region.name,verb:'ward',player_name:'Another traveler'}});
+  await page.getByText("Conditions here",{exact:true}).click();
 
   await expect(page.getByText("warded", { exact: true })).toBeVisible();
   await expect.poll(() => worldLoads).toBeGreaterThanOrEqual(2);
@@ -229,16 +231,16 @@ test("/app defaults sound on and remembers an explicit mute", async ({ page }) =
   await page.goto("/app");
 
   const sound = page.locator("#btn-sound");
-  await expect(sound).toHaveText("♪ on");
+  await expect(sound).toHaveText("Pause score");
   await sound.click();
-  await expect(sound).toHaveText("♪ off");
+  await expect(sound).toHaveText("Listen to this world");
   await expect.poll(() => page.evaluate(() => localStorage.getItem("nw_sound_preference")))
     .toBe("off");
 
   await page.reload();
-  await expect(sound).toHaveText("♪ off");
+  await expect(sound).toHaveText("Listen to this world");
   await sound.click();
-  await expect(sound).toHaveText("♪ on");
+  await expect(sound).toHaveText("Pause score");
   await expect.poll(() => page.evaluate(() => localStorage.getItem("nw_sound_preference")))
     .toBe("on");
 });
@@ -261,19 +263,23 @@ test("/app opens a depth horizon automatically without losing the current node",
   await page.goto("/app");
   const horizonPhrase = horizon.name.replace(/-\d+$/, "");
   await expect(page.getByText(horizonPhrase, { exact: true }).first()).toBeVisible();
-  await expect(page.getByText(/Passages \(/)).toBeVisible();
+  await expect(page.getByRole("region",{name:"Passages",exact:true})).toBeVisible();
   await expect(page.getByRole("button", { name: "Look within ↓" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "View full chronicle" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Player's Guide ↗" })).toBeVisible();
 
-  // The list is an accessible fallback for the canvas hotspots, not passive
-  // duplicate copy: either surface can move into the same child.
-  await page.getByRole("button", { name: /\(Room\)/ }).first().click();
+  // Scene passages are real buttons, accessible even if the canvas fails.
+  await page.getByRole("region",{name:"Passages",exact:true}).getByRole("button").first().click();
   await expect(page.getByText("Room", { exact: true }).first()).toBeVisible();
   expect(errors).toEqual([]);
 });
 
 async function mockSavedPosition(page, position) {
+  // This fixture supplies only a position credential, not a minted participant.
+  // Composition ownership is exercised with real invites in expressive.spec.js.
+  await page.route('**/interventions?*', route => route.fulfill({
+    contentType:'application/json', body:JSON.stringify({error:'Enter with a personal invite to compose.'}),
+  }));
   await page.route("**/position?*", async route => {
     if (route.request().method() === "GET") {
       await route.fulfill({

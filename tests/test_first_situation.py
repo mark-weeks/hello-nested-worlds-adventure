@@ -164,6 +164,9 @@ def test_actual_http_requires_travel_and_preserves_choice_receipt(http, accounts
         persistence.save_player_position(key, NODES[role], 382, 9, 2, 3)
         assert http('/situation/discover', body={'node': NODES[role]})[0] == 200
     body = {'request_id': 'http-choice', 'branch': 'release'}
+    assert http('/situation/choose', body=body)[0] == 409
+    # A receipt accepted by the earlier implementation remains recoverable.
+    situations.choose(382, participants.identify(key)['id'], body['request_id'], body['branch'])
     first = http('/situation/choose', body=body)
     second = http('/situation/choose', body=body)
     assert first[:2] == second[:2]

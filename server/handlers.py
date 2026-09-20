@@ -1,6 +1,7 @@
 """HTTP request dispatch for the nested-worlds server."""
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import logging
@@ -144,8 +145,10 @@ def _actor_identity(user_key: str, player_name: str | None) -> str | None:
 
 def _node_to_dict(node: SpatialNode, activity: dict | None = None,
                   pending: dict | None = None, *, children: bool = True) -> dict:
+    from multiverse.senses import describe
     verb = verb_for_level(node.level)
     return {
+        "senses": describe(node),
         **({"id": node.id} if children else {}),
         "name": node.name,
         "level": node.level,
@@ -167,8 +170,35 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None,
 
 # ── Handler ────────────────────────────────────────────────────────────────
 
+_GZIP_MIN_BYTES = 1024
+_IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
+
+
+def _accepts_gzip(value: str) -> bool:
+    """Negotiate exact coding tokens and weights (RFC 9110 section 12.5.3)."""
+    weights = {}
+    for entry in value.split(','):
+        coding, *parameters = entry.lower().split(';')
+        coding = coding.strip()
+        if coding not in ('gzip', '*'):
+            continue
+        quality = 1.0
+        for parameter in parameters:
+            key, _, weight = parameter.partition('=')
+            if key.strip() == 'q':
+                try:
+                    quality = float(weight.strip())
+                except ValueError:
+                    quality = 0.0
+        # Invalid weights do not opt a client in. An explicit gzip entry,
+        # including q=0, takes precedence over the wildcard.
+        weights[coding] = quality if 0 <= quality <= 1 else 0.0
+    return weights.get('gzip', weights.get('*', 0.0)) > 0
+
+
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
+    "/interventions/preview", "/interventions/commit",
     "/client-error", "/register", "/journal/note", "/profile/save", "/profile/home", "/situation/discover", "/situation/choose", "/situation/follow-up",
 })
 
@@ -274,11 +304,12 @@ class Handler(BaseHTTPRequestHandler):
         """
         stripped = path.rstrip("/")
         if stripped in ("", "/health", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
-                        "/nodeart.js", "/nodeart-global.js", "/nodesound.js",
+                        "/nodeart.js", "/nodeart-global.js",
+                        "/score.js", "/sensory.js", "/interventions.js",
                         "/guide", "/register", "/register.js", "/favicon.ico",
                         "/journal", "/journal.js", "/ideas", "/ideas.js"):
             return True
-        if stripped == "/app" or path.startswith("/app/"):
+        if stripped == "/app" or path.startswith("/app/") or path.startswith("/media/"):
             return True
         if path.startswith("/easter-egg"):
             return True
@@ -320,6 +351,14 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(data, indent=2).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        # Tree reads carry per-node prose (senses) for every navigable place;
+        # both browser clients accept gzip, which folds that payload several
+        # times over. Small replies and non-accepting clients stay plain.
+        encodings = ','.join(self.headers.get_all("Accept-Encoding", []))
+        if len(body) >= _GZIP_MIN_BYTES and _accepts_gzip(encodings):
+            body = gzip.compress(body, compresslevel=5)
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(body)))
         if getattr(self, "_private_response", False):
             self.send_header("Cache-Control", "no-store")
@@ -332,7 +371,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"error": message}, status)
 
     def _send_file(self, path: Path,
-                   content_type: str = "text/html; charset=utf-8") -> None:
+                   content_type: str = "text/html; charset=utf-8", *,
+                   immutable: bool = False) -> None:
         try:
             path.resolve().relative_to(_STATIC_DIR.resolve())
         except ValueError:
@@ -343,6 +383,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if immutable:
+            # Content-versioned files (media "-v1", hashed bundle assets) never
+            # change under their name, so a returning browser re-downloads none.
+            self.send_header("Cache-Control", _IMMUTABLE_CACHE)
         self._send_security_headers()
         if "text/html" in content_type:
             self.send_header(
@@ -364,6 +408,11 @@ class Handler(BaseHTTPRequestHandler):
             file_path.resolve().relative_to(_FRONTEND_DIR.resolve())
         except ValueError:
             return self._send_error("forbidden", 403)
+        # Hashed assets are content-addressed: a missing one must never be
+        # answered with the SPA shell, which would then be cached immutably
+        # under a script URL. The fallback is for application routes only.
+        if rel.startswith("assets/") and (not file_path.exists() or file_path.is_dir()):
+            return self._send_error("not found", 404)
         # SPA fallback: unknown paths get index.html so client-side routing works
         if not file_path.exists() or file_path.is_dir():
             file_path = _FRONTEND_DIR / "index.html"
@@ -380,6 +429,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if rel.startswith("assets/"):
+            # Vite hashes every asset name, so its bytes never change in place.
+            self.send_header("Cache-Control", _IMMUTABLE_CACHE)
         self._send_security_headers()
         if "text/html" in content_type:
             self.send_header(
@@ -447,11 +499,21 @@ class Handler(BaseHTTPRequestHandler):
             vals = qs.get(key)
             return vals[0] if vals else default
 
-        from server import ideas_api, participant_api, situation_api
-        if ideas_api.handle(self, path, qs) or participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
+        from server import ideas_api, intervention_api, participant_api, situation_api
+        if intervention_api.handle(self, path, qs) or ideas_api.handle(self, path, qs) or participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
             return
 
-        if path == "/ideas":
+        if path.startswith("/media/"):
+            import mimetypes
+            media_root = (_STATIC_DIR / "media").resolve()
+            media_file = (_STATIC_DIR / path.lstrip("/")).resolve()
+            if not media_file.is_relative_to(media_root) or media_file.suffix not in (".png", ".wav", ".mp3", ".ogg"):
+                return self._send_error("no such scene", 404)
+            self._send_file(media_file, mimetypes.guess_type(media_file.name)[0] or "application/octet-stream",
+                            immutable=True)
+        elif path in ("/score.js", "/sensory.js", "/interventions.js"):
+            self._send_file(_STATIC_DIR / path.lstrip("/"), "application/javascript; charset=utf-8")
+        elif path == "/ideas":
             self._send_file(_STATIC_DIR / "ideas.html")
         elif path == "/ideas.js":
             self._send_file(_STATIC_DIR / "ideas.js", content_type="application/javascript; charset=utf-8")
@@ -476,10 +538,6 @@ class Handler(BaseHTTPRequestHandler):
             # The page's logic — external because the CSP (script-src 'self')
             # blocks inline scripts; ungated alongside its page.
             self._send_file(_STATIC_DIR / "register.js",
-                            content_type="application/javascript; charset=utf-8")
-
-        elif path == "/nodesound.js":
-            self._send_file(_STATIC_DIR / "nodesound.js",
                             content_type="application/javascript; charset=utf-8")
 
         elif path == "/intents.js":
@@ -594,9 +652,12 @@ class Handler(BaseHTTPRequestHandler):
                     seed, born.name, born.properties, at_step=at_step)
             except ValueError as exc:
                 return self._send_error(str(exc))
+            from multiverse.senses import describe
+            born.properties = state["properties"]
             self._send_json({
                 "seed": seed,
                 "node": {
+                    "senses": describe(born),
                     "name": born.name,
                     "level": born.level,
                     "properties": state["properties"],
@@ -769,8 +830,8 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._send_error("request body must be a JSON object")
 
-        from server import ideas_api, participant_api, situation_api
-        if ideas_api.handle(self, path, qs, body) or participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
+        from server import ideas_api, intervention_api, participant_api, situation_api
+        if intervention_api.handle(self, path, qs, body) or ideas_api.handle(self, path, qs, body) or participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
             return
 
         if path == "/speak":
@@ -923,16 +984,9 @@ class Handler(BaseHTTPRequestHandler):
                                                include_narration=False)
         ripple_score = node.ripple_score
 
-        # Cache key folds in:
-        #   - history bucket (every 5 interactions → fresh image even if
-        #     style modifiers don't shift), and
-        #   - style signature (modifier flips, including ripple_score crossing
-        #     its threshold → fresh image even if the bucket hasn't advanced).
-        history_bucket = len(history) // 5
-        sig            = imageprompt.style_signature(
-            node.level, node.properties, history, ripple_score=ripple_score,
-        )
-        node_key       = f"{seed_int}:{node.name}:{history_bucket}:{sig}"
+        # Media revisions follow material state, not the number of interactions.
+        sig = imageprompt.style_signature(node.level, node.properties, history, ripple_score=ripple_score)
+        node_key = f"{seed_int}:{node.name}:sensory-v1:{sig}"
         cached         = persistence.get_cached_image(node_key)
         if cached:
             return self._send_json({"url": cached})

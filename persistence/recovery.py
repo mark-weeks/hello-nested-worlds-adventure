@@ -4,11 +4,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
-QUEUES = ('causal_queue', 'verb_maturation', 'situation_work')
+QUEUES = ('causal_queue', 'verb_maturation', 'situation_work', 'intervention_work')
+# Migration 0027 added expressive interventions; older databases report without them.
+_QUEUE_SCHEMA = {'intervention_work': 27}
 
 
 def _pending_sql(queue, seed):
     scope = '' if seed is None else ' AND world_seed = :seed'
+    if queue == 'intervention_work':
+        # Hops settle in order per intervention, like situation steps; the
+        # accepted row carries the world and interpreter version.
+        return f'''SELECT w.id, i.world_seed, w.node_name, w.due_at, w.retry_at,
+            w.attempts, w.last_error, i.version AS version, NULL AS situation_id,
+            w.hop AS step, (SELECT p.id FROM intervention_work p
+                WHERE p.intervention_id = w.intervention_id AND p.hop < w.hop
+                    AND p.status = 'pending' ORDER BY p.hop LIMIT 1) AS blocked_by
+            FROM intervention_work w JOIN interventions i ON i.id = w.intervention_id
+            WHERE w.status = 'pending'{scope}'''
     if queue != 'situation_work':
         return f'''SELECT id, world_seed, node_name, due_at, retry_at, attempts,
             last_error, semantics_version AS version, NULL AS situation_id,
@@ -52,6 +64,8 @@ def work_report(db_path: Path, *, seed: int | None = None, limit: int = 20,
         report = {'as_of_utc': stamp + 'Z', 'world_seed': seed,
                   'schema_version': version, 'sample_limit_per_queue': limit, 'queues': {}}
         for queue in QUEUES:
+            if version < _QUEUE_SCHEMA.get(queue, 0):
+                continue
             sql = _pending_sql(queue, seed)
             params = {'seed': seed, 'now': stamp, 'limit': limit}
             counts = dict(conn.execute(f'''WITH pending AS ({sql})

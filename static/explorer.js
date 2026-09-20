@@ -283,15 +283,18 @@ function fitView() {
     .scale(scale));
 }
 
+let stopSensory = null;
 function drawSigil(data) {
   const sigil = document.getElementById('node-sigil');
   if (!sigil) return;
   // The art is meaning, not decoration — give non-visual users its content.
   sigil.setAttribute('role', 'img');
-  sigil.setAttribute('aria-label',
-    `Generative sigil of ${data.name}, a ${data.level}. ` +
-    ((data.properties && data.properties.aspect) || ''));
-  if (window.NodeArt) {
+  sigil.setAttribute('aria-labelledby', 'node-name');
+  sigil.setAttribute('aria-describedby', 'node-description');
+  if (window.startSensory) {
+    stopSensory?.();
+    stopSensory = window.startSensory(sigil, data);
+  } else if (window.NodeArt) {
     try { window.NodeArt.drawNodeArt(sigil, worldParams.seed, data); } catch (_) {}
   } else {
     // The art ships as a deferred ES module, so the initial entry selection
@@ -318,11 +321,9 @@ function selectNode(data, { refresh = false } = {}) {
   document.getElementById('node-name').title        = data.name;
   document.getElementById('node-name').style.color  = color;
   const address = nodeAddress(data.name);
-  let propsHtml = address
-    ? `<div class="prop-row" title="this place's address — its path from the root of the multiverse">` +
-      `<span class="prop-key">address</span><span class="prop-val">⌖ ${escHtml(address)}</span></div>`
-    : '';
-  propsHtml += Object.entries(data.properties || {}).map(
+  document.getElementById('node-address').textContent = address ? `⌖ ${address}` : '';
+  document.getElementById('node-description').textContent = data.senses?.description || data.properties?.aspect || '';
+  let propsHtml = Object.entries(data.properties || {}).filter(([key]) => key !== 'aspect').map(
     ([k, v]) => `<div class="prop-row"><span class="prop-key">${escHtml(String(k))}</span><span class="prop-val">${escHtml(String(v))}</span></div>`
   ).join('');
   if (data.ripple_score > 0) {
@@ -356,7 +357,7 @@ function selectNode(data, { refresh = false } = {}) {
   // properties, marked by history (pressure, effects, activity etchings).
   drawSigil(data);
 
-  refreshActPanel(data, { clearResponse: !refresh });
+  refreshActPanel(data);
   if (!refresh) {
     document.getElementById('speak-response').textContent = '';
     document.getElementById('speak-response').className = 'response-box';
@@ -380,9 +381,9 @@ function selectNode(data, { refresh = false } = {}) {
 }
 
 // ── Ambient sound ───────────────────────────────────────────────────────────
-// Deterministic per-node WebAudio hum (static/nodesound.js) — the audible
-// face of the node art. Off by default; the toggle is the activation gesture
-// browsers require anyway.
+// Each scale's sampled musical form, directed by the node's served senses
+// (static/score.js) — the audible face of the scene. Off by default; the
+// toggle is the activation gesture browsers require anyway.
 
 function toggleSound() {
   if (!window.NodeSound) return;
@@ -420,62 +421,8 @@ function maybeOfferSound() {
   }, 3000);
 }
 
-// ── Scale-native verb (POST /act) ───────────────────────────────────────────
-// Each level has exactly one act that only works at that scale — mend an
-// object, ward a region, observe a particle. The server owns the effect;
-// the flavor line is the fiction of what happened.
-
-function refreshActPanel(data, { clearResponse = true } = {}) {
-  const verb = data.verb;
-  const btn = document.getElementById('btn-do-act');
-  const tagline = document.getElementById('act-tagline');
-  const resp = document.getElementById('act-response');
-  if (!btn) return;
-  if (clearResponse) resp.textContent = '';
-  if (!verb) {
-    btn.disabled = true;
-    btn.textContent = 'Nothing can be done here';
-    tagline.textContent = '';
-    return;
-  }
-  btn.disabled = false;
-  btn.textContent = verb.name[0].toUpperCase() + verb.name.slice(1) +
-                    ' this ' + data.level;
-  tagline.textContent = verb.tagline + (data.pending_actions || []).map(p =>
-    ` ${p.count} ${p.verb} ${p.count === 1 ? 'change is' : 'changes are'} still traveling.`).join('');
-}
-
-let actBusy = false;
-async function doAct() {
-  if (actBusy || !selected || !selected.verb) return;
-  actBusy = true;
-  const target = selected;
-  const resp = document.getElementById('act-response');
-  resp.textContent = '…';
-  try {
-    const intent = await globalThis.EnfoldedIntents.begin('act', worldParams.seed, {node: target.name, verb: target.verb.name}, localStorage.getItem('nw_beta_key'));
-    const res = await fetch(withKey('/act'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        seed: worldParams.seed, depth: worldParams.depth,
-        node_name: target.name, verb: target.verb.name,
-        ...(intent ? {request_id: intent.request_id} : {}),
-        player_name: playerName || undefined,
-      }),
-    });
-    const data = await res.json();
-    if (res.status < 500) globalThis.EnfoldedIntents.finish(intent);
-    if (selected?.name !== target.name) return;
-    if (data.error) { resp.textContent = data.error; return; }
-    await refreshPendingAct(target.name, data);
-    if (selected?.name !== target.name) return;
-    document.getElementById('act-response').textContent =
-      data.flavor || '(nothing happened)';
-  } catch (e) {
-    if (selected?.name === target.name) resp.textContent = 'The signal is uncertain. Retry to recover this act: ' + e.message;
-  } finally { actBusy = false; }
-}
+// Act has one shared, scale-native surface in both clients.
+function refreshActPanel(data) { configureComposer(data); }
 
 const refreshActNode = createNodeRefresher(async (seed, name) => {
   const response = await fetch(withKey(`/node?seed=${seed}&node_name=${encodeURIComponent(name)}`));
@@ -599,12 +546,14 @@ function _resetWaybackView() {
   document.getElementById('wayback-listen').disabled = true;
 }
 
+let stopWaybackSensory = null;
 function renderWayback(data) {
   waybackSnapshot = data;
   const historical = _waybackHistoricalNode();
   const timeline = data.timeline;
   const canvas = document.getElementById('wayback-preview');
-  try { window.NodeArt?.drawNodeArt(canvas, worldParams.seed, historical); } catch (_) {}
+  stopWaybackSensory?.();
+  stopWaybackSensory = window.startSensory?.(canvas, historical);
   canvas.setAttribute('aria-label',
     `${displayName(historical.name)} at ${timeline.step === 0 ? 'birth' :
       timeline.present ? 'present' : `trace ${timeline.step}`}`);
@@ -693,6 +642,7 @@ function openWayback() {
 }
 
 function closeWayback() {
+  stopWaybackSensory?.(); stopWaybackSensory = null;
   waybackController?.abort();
   clearTimeout(waybackTimer);
   clearTimeout(waybackScrubTimer);
@@ -1242,6 +1192,10 @@ function handleWsMsg(msg) {
       flashNode(msg.node, msg.strength);
       break;
     }
+    case 'intervention_changed':
+      pushFeed(msg.flavor || 'A new arrangement arrives.');
+      if (selected?.name === msg.node) refreshPendingAct(msg.node, msg);
+      break;
     case 'scale_act': {
       pushFeed(`✦ ${scaleActLine(msg)}`);
       flashNode(msg.node, 0.8);
@@ -1418,7 +1372,6 @@ document.getElementById('btn-act'    ).addEventListener('click', () => setMode('
 document.getElementById('btn-do-speak'  ).addEventListener('click', speak);
 document.getElementById('btn-do-observe').addEventListener('click', observe);
 document.getElementById('btn-do-puzzle' ).addEventListener('click', fetchPuzzle);
-document.getElementById('btn-do-act'    ).addEventListener('click', doAct);
 document.getElementById('btn-chronicle' ).addEventListener('click', openChronicle);
 document.getElementById('btn-wayback'   ).addEventListener('click', openWayback);
 document.getElementById('btn-sound'     ).addEventListener('click', toggleSound);
@@ -1510,3 +1463,19 @@ if (!localStorage.getItem(INTRO_SEEN)) {
   if (egg)   egg.addEventListener('click',   e => { if (e.target === egg) hide(); });
   if (close) close.addEventListener('click', hide);
 })();
+
+function configureComposer(data) {
+  if (!customElements.get('enfolded-interventions')) return;
+  document.getElementById('composer').context = {
+    node:{...data},seed:worldParams.seed,key:localStorage.getItem('nw_beta_key') || '',
+    jump:name=>jumpTo(name),
+    changed:notice=>refreshPendingAct(data.name,notice || {}),
+    ensure:async()=>{
+      const response=await fetch(withKey('/position'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node:data.name,seed:worldParams.seed,depth:worldParams.depth})});
+      if(!response.ok || !(await response.json()).saved) throw new Error('Your arrival has not settled here. Try again.');
+    },
+  };
+}
+window.addEventListener('senses-ready',()=>{if(selected){drawSigil(selected);configureComposer(selected);}});
+
+document.getElementById('score-volume').addEventListener('input',event=>window._nwAmbience?.setVolume(Number(event.target.value)));

@@ -36,6 +36,21 @@ describe("mutationLine", () => {
       .toBe("Tessera and Karst spoke at Mire");
   });
 
+  it("keeps expressive actions and their arriving hops in fiction", () => {
+    expect(mutationLine({ type: "INTERVENTION_COMMITTED", player: "Ada", node: "Mire-112",
+      data: { flavor: "Ada acts: Engrave.", performer: "Ada" } })).toBe("At Mire, Ada acts: Engrave.");
+    expect(mutationLine({ type: "INTERVENTION_ARRIVED", node: "Vault-1121",
+      data: { flavor: "The arriving wave rises.", hop: 1 } })).toBe("At Vault, The arriving wave rises.");
+    expect(mutationLine({ type: "INTERVENTION_COMMITTED", player: "Ada", node: "Mire-112", data: {} }))
+      .toBe("Ada set an arrangement in motion at Mire.");
+    expect(mutationLine({ type: "INTERVENTION_ARRIVED", node: "Mire-112", data: { flavor: "  " } }))
+      .toBe("A change from an earlier arrangement reached Mire.");
+    // The server's evidence-bound projection still wins when it is present.
+    expect(mutationLine({ type: "INTERVENTION_ARRIVED", node: "Mire-112", data: {},
+      narration: { text: "At Mire [1.2], the wave settles. Source action #4." } }))
+      .toBe("At Mire [1.2], the wave settles. Source action #4.");
+  });
+
   it("falls back gracefully on missing actors, verbs, and speakers", () => {
     expect(mutationLine(FIXTURES[7])).toBe("A trace of act attributed to Ada was recorded at Mire. No material change is recorded.");
     expect(mutationLine(FIXTURES[9]))

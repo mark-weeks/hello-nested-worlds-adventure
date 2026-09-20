@@ -366,7 +366,7 @@ def _delivery_queue(queue: str) -> str:
     return queue
 
 
-_WORK_QUEUES = _DELIVERY_QUEUES | {"situation_work"}
+_WORK_QUEUES = _DELIVERY_QUEUES | {"situation_work", "intervention_work"}
 
 
 def _work_queue(queue: str) -> str:

@@ -127,7 +127,7 @@ distinct sound parameter fingerprints across 4,208 nodes**, and all 1,524
 sibling pairs differ. Art is always present; sound is offered once, then stays
 opt-in because the browser requires an activation gesture. Both cost zero API
 spend; a fal.ai image, when enabled, is only a translucent wash over the
-generative base (`static/{nodeart,nodesound}.js`; launch-world census).
+generative base (`static/{nodeart,sensory,score}.js`; launch-world census).
 
 ---
 

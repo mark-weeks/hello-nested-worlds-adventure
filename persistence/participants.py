@@ -199,6 +199,10 @@ def recap(participant: str, seed: int) -> list[dict]:
                 CROSS JOIN world_mutations m NOT INDEXED
                 WHERE m.id=e.id AND m.world_seed=?""",
             (participant, seed, participant, seed, participant, seed, seed)).fetchall()
+        intervention_places = conn.execute("""SELECT node_name FROM interventions WHERE participant_id=? AND world_seed=?
+            UNION SELECT w.node_name FROM intervention_work w JOIN interventions i ON i.id=w.intervention_id
+            WHERE i.participant_id=? AND i.world_seed=?""", (participant, seed, participant, seed)).fetchall()
+        places = list(set(places + intervention_places))
         # The partial material index skips chatter even at the same saved place.
         # Each place contributes at most eight candidates in event order.
         rows = []

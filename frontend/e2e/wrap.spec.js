@@ -78,10 +78,11 @@ test("explorer crosses the wrap in both directions", async ({ page, request }) =
   await page.goto("/");
   await expect(page.locator("#status")).toContainText("depth 11");
   // Display name in the sidebar; the canonical name survives as hover
-  // title and the address as its own property row.
+  // title and the address in the same identity block.
   await expect(page.locator("#node-name")).toHaveText(hingePhrase);
   await expect(page.locator("#node-name")).toHaveAttribute("title", wrap.hinge);
-  await expect(page.locator("#node-props")).toContainText("address");
+  await expect(page.locator(".node-identity #node-address")).toHaveText(`⌖ ${wrap.hinge.split("-").pop()}`);
+  await expect(page.locator("#node-props")).not.toContainText("address");
 
   // The particle offers the descent — and only the descent.
   await expect(page.locator("#btn-wrap-down")).toBeVisible();

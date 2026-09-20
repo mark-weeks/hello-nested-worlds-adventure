@@ -1,5 +1,14 @@
 # Discovery, Identity, and Return: Delivery Plan
 
+**2026-09-20 playtest correction:** The owner rejected the initial expressive build's
+universal composer, forced agent delegation, intrusive gallery controller and
+insufficient sound differentiation. [ADR-028](../decisions/ADR-028-scale-native-autonomy.md)
+implements one scale-native Act experience, independent player agency, retired
+scripted choice controls and distinct musical forms. Earlier accepted work remains
+recoverable. [Initial build evidence](../evaluation/2026-09-20-expressive-world.md)
+is historical verification, not evidence of product acceptance. The [correction evidence](../evaluation/2026-09-20-scale-native-correction.md) records the replacement and its checks. Artistic acceptance,
+live-model quality and M7 return evidence remain unverified. No deployment or rankings.
+
 **2026-09-12 review build:** The owner authorized implementation of the decision
 review. [ADR-024](../decisions/ADR-024-participants-and-active-content.md) and
 [ADR-025](../decisions/ADR-025-first-situation.md) now implement a bounded M0/M5

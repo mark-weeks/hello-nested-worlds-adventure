@@ -80,7 +80,8 @@ def _project_page(conn, seed, entries):
         source = sources.get(source_id)
         if source:
             data, original = data_of(entry), data_of(source)
-            expected = "SCALE_ACT" if entry["type"] == "SCALE_ACT_MATURED" else entry["type"]
+            expected = {"SCALE_ACT_MATURED": "SCALE_ACT",
+                        "INTERVENTION_ARRIVED": "INTERVENTION_COMMITTED"}.get(entry["type"], entry["type"])
             # An explicit link must still agree with the recorded kind/location
             # and point backward to an origin, never to another arriving hop.
             if (source["type"] != expected or source["id"] >= entry["id"]

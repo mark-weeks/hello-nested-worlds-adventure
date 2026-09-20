@@ -1,421 +1,47 @@
 import { useEffect, useRef, useState } from "react";
-import { Application, Assets, Container, Graphics, Sprite, Text, TextStyle, Texture } from "pixi.js";
 import { withKey } from "../auth.js";
-import { passageBadges } from "../badges.js";
 import { displayName } from "../names.js";
-import { drawNodeArt } from "../../../static/nodeart.js";
+import { passageBadges } from "../badges.js";
+import { startSensory } from "../../../static/sensory.js";
+import "./scene.css";
 
-export default function SceneView({
-  node, players, transients = [],
-  onNavigate, onNavigateUp, canGoUp, seed,
-}) {
-  const containerRef = useRef(null);
-  const appRef = useRef(null);
-  // The transient layer survives node changes; we only clear its children
-  // when the prop list changes, not on every other re-render.
-  const transientLayerRef = useRef(null);
-  const transientsRef = useRef(transients);
-  // `Application.init()` is async: in PixiJS v8 `app.screen`/`app.renderer`
-  // don't exist until it resolves, but the [node, players, bgUrl] effect below
-  // runs synchronously on the same mount commit — before init completes. Any
-  // read of `app.screen` before then throws, and with no error boundary that
-  // white-screens the whole app (observed in headless Chromium and on slow /
-  // mobile devices). This flag gates every draw on init having finished.
-  const readyRef = useRef(false);
-  const [bgUrl, setBgUrl] = useState(null);
+export default function SceneView({node, transients = [], onNavigate, onNavigateUp, canGoUp, seed}) {
+  const canvas = useRef(null), liveTransients = useRef(transients);
+  liveTransients.current = transients;
+  const [image, setImage] = useState(null);
   const [unavailable, setUnavailable] = useState(false);
-
-  // Fetch fal.ai background image URL whenever the node changes
+  // One generated plate per visit: a paid image is fetched when the place or
+  // its curated plate changes, never on every material revision. The shared
+  // renderer below reinterprets live senses on top of the stable plate.
+  const plated = !!node.senses?.plate;
   useEffect(() => {
-    setBgUrl(null);
-    // `/image` is a gated, rate-limited endpoint like every other data call —
-    // it must carry the invite key or it 403s under the beta gate, silently
-    // leaving the scene without its fal.ai background (the /app headline
-    // feature). All the other fetches already go through withKey(); this one
-    // was the lone exception.
-    // Node identity is server-derived: (seed, name) is the whole request.
-    fetch(withKey("/image"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        node_name: node.name,
-        seed: seed ?? 0,
-      }),
-    })
-      .then((r) => r.json())
-      .then((d) => { if (d.url) setBgUrl(d.url); })
-      .catch(() => {});
-  }, [node.id ?? node.name]);
-
-  // Keep the ref in sync so the ticker callback always sees the latest list.
-  useEffect(() => { transientsRef.current = transients; }, [transients]);
-
+    const abort = new AbortController(); let current = true;
+    setImage(null);
+    if (!plated) fetch(withKey("/image"), {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, signal: abort.signal,
+      body: JSON.stringify({node_name: node.name, seed: seed ?? 0}),
+    }).then(r => r.json()).then(data => { if (current && data.url) setImage(data.url); }).catch(() => {});
+    return () => { current = false; abort.abort(); };
+  }, [seed, node.name, plated]);
   useEffect(() => {
-    if (!containerRef.current) return;
-    const container = containerRef.current;
-
-    const app = new Application();
-    appRef.current = app;
-
-    let tickCallback = null;
-
-    const initPromise = app.init({
-      resizeTo: container,
-      background: 0x07080f,
-      antialias: true,
-    }).then(() => {
-      // The effect may have been torn down (or the app destroyed) while init
-      // was in flight — bail rather than touch a dead renderer.
-      if (appRef.current !== app || !app.renderer) return;
-      container.appendChild(app.canvas);
-
-      // Static layer (rebuilds when node/players change) + transient overlay
-      // that the ticker draws into every frame from the latest prop list.
-      const transientLayer = new Container();
-      transientLayer.eventMode = "none";
-      transientLayerRef.current = transientLayer;
-
-      readyRef.current = true;
-      renderScene(app, node, players, onNavigate, bgUrl, seed);
-      app.stage.addChild(transientLayer);
-
-      tickCallback = () => {
-        if (!app.renderer) return;
-        paintTransients(transientLayer, transientsRef.current, app.screen);
-      };
-      app.ticker.add(tickCallback);
-    }).catch((err) => {
-      // WebGL/WebGPU unavailable (headless without GPU, locked-down mobile).
-      // Keep a navigable text scene if the graphics backend is unavailable. Warn instead of going
-      // fully silent so a real init regression is distinguishable from a
-      // GPU-less environment.
-      if (appRef.current === app) setUnavailable(true);
-      console.warn("scene renderer unavailable:", err?.message ?? err);
-    });
-
-    return () => {
-      readyRef.current = false;
-      if (tickCallback && app.ticker) app.ticker.remove(tickCallback);
-      appRef.current = null;
-      transientLayerRef.current = null;
-      // Destroy only after init settles: PixiJS v8 throws from its resize
-      // plugin (`this._cancelResize is not a function`) when a mid-init app
-      // is destroyed — which is exactly what a fast unmount (or React
-      // StrictMode's dev double-mount) does.
-      initPromise.then(() => {
-        try { app.destroy(true, { children: true }); } catch (_) { /* torn down */ }
-      });
-    };
-  }, []);
-
-  useEffect(() => {
-    const app = appRef.current;
-    const transientLayer = transientLayerRef.current;
-    // Skip until init has finished — otherwise app.screen throws (see readyRef).
-    if (!app || !app.stage || !app.renderer || !readyRef.current) return;
-    // Rebuild static content; preserve the transient layer by detaching and
-    // re-attaching it on top of the rebuilt scene.
-    if (transientLayer && transientLayer.parent === app.stage) {
-      app.stage.removeChild(transientLayer);
-    }
-    app.stage.removeChildren();
-    renderScene(app, node, players, onNavigate, bgUrl, seed);
-    if (transientLayer) {
-      transientLayer.removeChildren();  // clear stale transient graphics
-      app.stage.addChild(transientLayer);
-    }
-  }, [node, players, onNavigate, bgUrl, seed]);
-
-  return (
-    <div className="scene-view" style={styles.wrapper}>
-      <div
-        ref={containerRef}
-        style={styles.canvas}
-        role="img"
-        aria-label={`Scene of ${node ? displayName(node.name) : "the world"}, a ${node?.level || "place"}. ${node?.properties?.aspect || ""}`}
-      />
-      {unavailable && <section aria-label="Text scene" style={{position: "absolute", inset: "100px 20px 44px", overflowY: "auto", color: "#cbd9e5", lineHeight: 1.6}}>
-        <h2>{displayName(node.name)}</h2>
-        <p>The view is quiet. The passages remain open to exploration.</p>
-        {node.children.map(child => <button key={child.name} style={{...styles.upBtn, position: "static", display: "block", marginTop: 10}} onClick={() => onNavigate(child)}>Enter {displayName(child.name)}</button>)}
-      </section>}
-      {canGoUp && (
-        <button style={styles.upBtn} onClick={onNavigateUp}>← back</button>
-      )}
-      <a href="/" style={styles.switchLink} title="Open the world map">World map ↗</a>
-    </div>
-  );
+    if (!canvas.current.getContext('2d')) { setUnavailable(true); return; }
+    setUnavailable(false);
+    return startSensory(canvas.current, node, {imageUrl: image, transients: () => liveTransients.current});
+  }, [node, image]);
+  return <section className="scene-view cinematic-scene" aria-label="Living scene">
+    <canvas ref={canvas} className="living-canvas" role="img" aria-labelledby="node-name" aria-describedby="node-description" />
+    <div className="scene-vignette" />
+    <nav className="scene-nav" aria-label="Scene navigation">
+      {canGoUp && <button onClick={onNavigateUp}>↑ Enclosing world</button>}
+      <a href="/">World map ↗</a>
+    </nav>
+    <section className="scene-passages" aria-label={unavailable ? "Text scene" : "Passages"}>
+      {unavailable && <p>The view is quiet. The passages remain open to exploration.</p>}
+      {!!node.children?.length && <span className="scene-kicker">WITHIN THIS PLACE</span>}
+      <div className="scene-passage-grid">{node.children?.map(child => <button key={child.name} onClick={() => onNavigate(child)} title={child.name}>
+        <span>{child.level} ↘</span><strong>{displayName(child.name)}</strong>
+        <small>{passageBadges(child).map(b => b.label).join(' · ')}</small>
+      </button>)}</div>
+    </section>
+  </section>;
 }
-
-// ── Static scene rendering ────────────────────────────────────────────────
-
-function renderScene(app, node, players, onNavigate, bgUrl, seed) {
-  // Guard against a not-yet-initialised or torn-down renderer — `app.screen`
-  // throws until init resolves, and an unguarded throw here has no error
-  // boundary above it and would blank the entire app.
-  if (!app || !app.renderer) return;
-  const { width, height } = app.screen;
-
-  // The node's own generative art — deterministic in (seed, name), shaped
-  // by its properties and marked by its history. Always present: this is
-  // the scene, with or without any image service (index 0).
-  _addArtBg(app, node, seed, width, height);
-
-  // Node name
-  const label = new Text({
-    text: `${node.level}: ${displayName(node.name)}`,
-    style: new TextStyle({ fill: 0xb0bcd0, fontSize: 18, fontFamily: "Courier New" }),
-  });
-  label.x = 24;
-  label.y = 24;
-  app.stage.addChild(label);
-
-  // Hotspots for child nodes
-  node.children.forEach((child, i) => {
-    const x = 80 + (i % 4) * 180;
-    const y = height / 2 + Math.floor(i / 4) * 80;
-    const hotspot = makeHotspot(app, child, x, y, onNavigate);
-    app.stage.addChild(hotspot);
-  });
-
-  // Player presence markers — each carries a name label so co-presence is
-  // legible at a glance, not just "a green dot is there."
-  players.filter((p) => p.node === node.name).forEach((p, i) => {
-    const group = new Container();
-    group.x = 28 + i * 70;
-    group.y = height - 36;
-
-    const marker = new Graphics();
-    marker.circle(0, 0, 6).fill(playerColor(p.name)).stroke({ width: 1, color: 0x07080f });
-    group.addChild(marker);
-
-    const tag = new Text({
-      text: p.name,
-      style: new TextStyle({ fill: 0xa0c0e0, fontSize: 11, fontFamily: "Courier New" }),
-    });
-    tag.x = 12;
-    tag.y = -6;
-    group.addChild(tag);
-
-    app.stage.addChild(group);
-  });
-
-  // Async enhancement: the fal.ai render washes over the generative art
-  // (never replaces it) — the node keeps its unique visual identity and the
-  // photographic layer deepens it when available.
-  if (bgUrl) {
-    Assets.load(bgUrl).then((texture) => {
-      if (!app.stage || app.stage.destroyed) return;
-      const sprite  = new Sprite(texture);
-      sprite.width  = width;
-      sprite.height = height;
-      sprite.alpha  = 0.6;
-      app.stage.addChildAt(sprite, 1);
-    }).catch(() => {});
-  }
-}
-
-// ── Transient overlay: ripples, encounters, solve sparkles ────────────────
-
-function paintTransients(layer, list, screen) {
-  if (!layer || layer.destroyed) return;
-  layer.removeChildren();
-  if (!list.length) return;
-
-  const cx  = screen.width  / 2;
-  const cy  = screen.height / 2;
-  const now = performance.now();
-
-  for (const t of list) {
-    const age      = (now - t.startedAt) / 1000;
-    const duration = (t.duration ?? 1500) / 1000;
-    if (age < 0 || age > duration) continue;
-    const progress = age / duration;
-
-    if (t.kind === "ripple") {
-      // Expanding concentric circle, color keyed off the EventKind so
-      // PUZZLE_SOLVED ripples read different from DANGER_ALERT etc.
-      const r = 30 + 220 * progress;
-      const alpha = (1 - progress) * (0.25 + 0.55 * (t.strength ?? 1));
-      const color = rippleColor(t.eventKind);
-      const g = new Graphics();
-      g.circle(0, 0, r).stroke({ width: 2, color, alpha });
-      g.x = cx;
-      g.y = cy;
-      layer.addChild(g);
-
-    } else if (t.kind === "encounter") {
-      // Two crossed glyphs converging at center, then fading. Reads as
-      // "two presences just met here."
-      const g = new Graphics();
-      const offset = 60 * (1 - progress);
-      const alpha  = 1 - progress;
-      g.circle(-offset, 0, 9).fill({ color: 0xff8a4a, alpha });
-      g.circle( offset, 0, 9).fill({ color: 0x4af0c8, alpha });
-      g.moveTo(-offset, 0).lineTo(offset, 0).stroke({ width: 1, color: 0xffffff, alpha: alpha * 0.5 });
-      g.x = cx;
-      g.y = cy - 40;
-      layer.addChild(g);
-
-    } else if (t.kind === "solve") {
-      // Four-pointed sparkle expanding outward in gold.
-      const r = 24 + 100 * progress;
-      const alpha = (1 - progress) ** 2;
-      const g = new Graphics();
-      for (let i = 0; i < 4; i++) {
-        const angle = (i * Math.PI) / 2 + Math.PI / 4;
-        const x = Math.cos(angle) * r;
-        const y = Math.sin(angle) * r;
-        g.moveTo(0, 0).lineTo(x, y).stroke({ width: 2, color: 0xf0c878, alpha });
-      }
-      g.circle(0, 0, 6).fill({ color: 0xf0c878, alpha });
-      g.x = cx;
-      g.y = cy;
-      layer.addChild(g);
-    }
-  }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-function _addArtBg(app, node, seed, width, height) {
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(64, Math.floor(width));
-  canvas.height = Math.max(64, Math.floor(height));
-  drawNodeArt(canvas, seed ?? 0, node);
-  const sprite = new Sprite(Texture.from(canvas));
-  sprite.width = width;
-  sprite.height = height;
-  if (app.stage) app.stage.addChildAt(sprite, 0);
-}
-
-// Hotspot affordance — closes design.md item #4. The visual treatment is
-// shared across every hotspot regardless of child level so players learn it
-// once: a recessed plate with a soft cast shadow, a single-pixel top-edge
-// highlight (light from above), and a border that brightens on hover. The
-// shadow lifts a hair when hovered so the plate reads as just-pressed.
-const _HOTSPOT = Object.freeze({
-  width:    120,
-  height:   40,
-  radius:   6,
-  // Surface colors — kept dark enough to sit calmly against any generated bg.
-  plateRest:  0x141826,
-  plateHover: 0x1c2342,
-  // Highlight + border tones; alpha is applied in the stroke calls so a
-  // single colour can serve both rest and hover with different intensity.
-  edgeRest:   0x3a4670,
-  edgeHover:  0x6a80c8,
-  borderRest: 0x4a5580,
-  borderHover: 0x7a90d8,
-  labelRest:  0x99aacc,
-  labelHover: 0xc8d8ff,
-  shadowYRest:  4,
-  shadowYHover: 3,
-});
-
-function makeHotspot(app, node, x, y, onNavigate) {
-  const W = _HOTSPOT.width, H = _HOTSPOT.height, R = _HOTSPOT.radius;
-
-  const group = new Container();
-  group.x = x;
-  group.y = y;
-  group.eventMode = "static";
-  group.cursor = "pointer";
-
-  // Cast shadow — sits below the plate to suggest the surface lifts off
-  // the background. Drawn first so everything else stacks above it.
-  const shadow = new Graphics();
-  shadow.roundRect(-W / 2 + 2, -H / 2 + 2, W - 4, H - 2, R).fill({ color: 0x000000, alpha: 0.5 });
-  shadow.y = _HOTSPOT.shadowYRest;
-  group.addChild(shadow);
-
-  // Plate — the apparent material surface.
-  const plate = new Graphics();
-  group.addChild(plate);
-
-  // Top-edge highlight — single-pixel bright line just inside the top edge
-  // suggests light falling from above on a slightly raised surface.
-  const topEdge = new Graphics();
-  group.addChild(topEdge);
-
-  // Border — an outline that keeps the plate legible against bright
-  // background images. Brightens on hover.
-  const border = new Graphics();
-  group.addChild(border);
-
-  const label = new Text({
-    text: displayName(node.name),
-    style: new TextStyle({ fill: _HOTSPOT.labelRest, fontSize: 12, fontFamily: "Courier New" }),
-  });
-  label.anchor.set(0.5);
-  group.addChild(label);
-
-  // Affordance markers: small colored studs on the plate's top edge signal
-  // what's notable through this passage (danger, corruption, pressure…)
-  // before the player commits to it. Learnable like the plate treatment
-  // itself — same colors as the text-panel badges.
-  passageBadges(node).slice(0, 3).forEach((b, bi) => {
-    const stud = new Graphics();
-    stud.circle(W / 2 - 10 - bi * 10, -H / 2 + 1, 3)
-        .fill({ color: b.color, alpha: 0.95 })
-        .stroke({ width: 1, color: 0x07080f, alpha: 0.8 });
-    group.addChild(stud);
-  });
-
-  const paint = (hovered) => {
-    const plateColor  = hovered ? _HOTSPOT.plateHover  : _HOTSPOT.plateRest;
-    const edgeColor   = hovered ? _HOTSPOT.edgeHover   : _HOTSPOT.edgeRest;
-    const borderColor = hovered ? _HOTSPOT.borderHover : _HOTSPOT.borderRest;
-    const edgeAlpha   = hovered ? 0.9 : 0.7;
-    const borderAlpha = hovered ? 0.9 : 0.7;
-
-    plate.clear().roundRect(-W / 2, -H / 2, W, H, R).fill({ color: plateColor });
-    topEdge.clear()
-      .moveTo(-W / 2 + 4, -H / 2 + 1)
-      .lineTo( W / 2 - 4, -H / 2 + 1)
-      .stroke({ width: 1, color: edgeColor, alpha: edgeAlpha });
-    border.clear()
-      .roundRect(-W / 2, -H / 2, W, H, R)
-      .stroke({ width: 1, color: borderColor, alpha: borderAlpha });
-    label.style.fill = hovered ? _HOTSPOT.labelHover : _HOTSPOT.labelRest;
-    shadow.y = hovered ? _HOTSPOT.shadowYHover : _HOTSPOT.shadowYRest;
-  };
-
-  paint(false);
-
-  group.on("pointerover", () => paint(true));
-  group.on("pointerout",  () => paint(false));
-  group.on("pointertap",  () => onNavigate(node));
-
-  return group;
-}
-
-const _PLAYER_PALETTE = [
-  0x4af0c8, 0xff8a4a, 0xa078ff, 0xf0c878, 0x4a8eff, 0xf04a8e, 0x88f04a, 0xc04ff0,
-];
-
-function playerColor(name) {
-  // Cheap deterministic hash → palette index, so the same name always gets
-  // the same color across sessions.
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
-  return _PLAYER_PALETTE[Math.abs(h) % _PLAYER_PALETTE.length];
-}
-
-function rippleColor(kind) {
-  switch (kind) {
-    case "PUZZLE_SOLVED":     return 0xf0c878;
-    case "PUZZLE_FAILED":     return 0xff5050;
-    case "DANGER_ALERT":      return 0xff8a4a;
-    case "STRUCTURAL_CHANGE": return 0xa078ff;
-    case "AGENT_VISIT":
-    default:                  return 0x4af0c8;
-  }
-}
-
-const styles = {
-  wrapper:    { flex: "1 1 60%", minWidth: 0, position: "relative", overflow: "hidden" },
-  canvas:     { width: "100%", height: "100%" },
-  upBtn:      { position: "absolute", top: 56, left: 16, background: "rgba(10,14,28,0.85)", border: "1px solid #2a4060", color: "#3a8eff", padding: "6px 14px", cursor: "pointer", fontFamily: "Courier New, monospace", fontSize: "12px", zIndex: 10, letterSpacing: "0.05em" },
-  switchLink: { position: "absolute", bottom: 12, left: 16, fontSize: "10px", color: "#a4bdd1", textDecoration: "none", letterSpacing: "0.08em" },
-};
