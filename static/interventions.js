@@ -64,6 +64,7 @@ class InterventionComposer extends HTMLElement {
     }
   }
   invalidate() { if (this.pending) return; this.preview=null; this.message=''; }
+  retry() { this.message=''; this.render(); return this.load(); }
   choose(choice) {
     if (this.busy || this.pending) return;
     if (!this.compose && choice.preview) {
@@ -137,17 +138,24 @@ class InterventionComposer extends HTMLElement {
     const root=this.shadowRoot; root.replaceChildren(el('style',STYLE));
     const section=el('section'); section.setAttribute('aria-label','Act here'); root.append(section);
     section.append(el('p',null,{className:'pending quiet'}));this.renderPending();
-    if(!this.data) { section.append(el('p',this.message || 'Listening to this place…')); return; }
+    if(!this.data) {
+      section.append(el('p',this.message || 'Listening to this place…'));
+      // A failed first read must not close the Act surface for the visit.
+      if(this.message && this.ctx?.key) { const again=el('button','Listen again'); again.onclick=()=>this.retry(); section.append(again); }
+      return;
+    }
     const blocked=this.busy || !!this.pending;
     section.append(el('p','What would you change here?'));
     const choices=el('div',null,{className:'choices'});
     for(const choice of this.data.choices) {
       const chosen=this.steps.some(s=>s.op===choice.op);
       const button=el('button',null,{disabled:blocked || (this.compose && this.steps.length>=4) || (!this.compose && !choice.available),className:chosen?'selected':''});
-      button.setAttribute('aria-label',choice.label);
-      button.title=choice.reason || choice.description;
+      const unavailable=!choice.available && !this.compose, why=choice.reason || 'Already as it would be.';
+      // Keyboard, touch and screen-reader users cannot read a tooltip on a
+      // disabled control: the reason is visible text and part of the name.
+      button.setAttribute('aria-label',unavailable ? `${choice.label}. ${why}` : choice.label);
       button.append(el('strong',choice.label),el('small',choice.description));
-      if(!choice.available && !this.compose) button.append(el('small','Already as it would be.'));
+      if(unavailable) button.append(el('small',why));
       button.onclick=()=>this.choose(choice); choices.append(button);
     }
     section.append(choices);

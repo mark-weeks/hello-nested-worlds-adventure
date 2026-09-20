@@ -21,6 +21,7 @@ from tests.test_participant_contracts import accounts, http  # noqa: F401
 
 START = datetime(2026, 9, 20, 12)
 SCORE = [{'op': 'weave'}, {'op': 'charge', 'amount': 3}, {'op': 'release'}]
+REPEAT = [{'op': 'charge', 'amount': 3}, {'op': 'invert'}, {'op': 'release'}]  # repeatable once a resonator holds: the polarity flip is its lasting change
 
 
 @pytest.fixture
@@ -469,3 +470,44 @@ def test_failed_consequences_back_off_exponentially_and_keep_the_promise(owner, 
     with db.transaction() as conn:
         conn.execute('UPDATE interventions SET version=1')
     assert work.advance(382, now=moment + timedelta(seconds=300)) == 3
+
+
+def test_blocked_successors_never_starve_independent_work(owner):
+    # Sixteen arrangements whose first hop keeps failing leave 32 due-but-blocked
+    # successors with lower ids than a healthy seventeenth arrangement's first hop.
+    accept(owner, request='starve-00')
+    for n in range(1, 17):  # the resonator holds; gathering and releasing repeats at will
+        accept(owner, steps=REPEAT, request=f'starve-{n:02}')
+    with db.transaction() as conn:
+        conn.execute('UPDATE interventions SET version=99 WHERE rowid < (SELECT MAX(rowid) FROM interventions)')
+    moment = START + timedelta(seconds=90)
+    settled = work.advance(382, now=moment)  # the failing first hops back off; the healthy one lands
+    assert settled >= 1
+    with db._connection() as conn:
+        healthy = conn.execute('''SELECT w.hop, w.status FROM intervention_work w JOIN interventions i ON i.id=w.intervention_id
+            WHERE i.version=1 ORDER BY w.hop''').fetchall()
+        assert healthy[0] == (1, 'completed')
+        blocked = conn.execute('''SELECT COUNT(*) FROM intervention_work w JOIN interventions i ON i.id=w.intervention_id
+            WHERE i.version=99 AND w.hop>1 AND w.attempts>0''').fetchone()[0]
+        assert blocked == 0  # successors behind a failing hop were never even attempted
+    # Later passes finish the healthy arrangement while the others stay pending, undiscarded.
+    for _ in range(2):
+        moment += timedelta(seconds=400)
+        work.advance(382, now=moment)
+    with db._connection() as conn:
+        assert conn.execute('''SELECT COUNT(*) FROM intervention_work w JOIN interventions i ON i.id=w.intervention_id
+            WHERE i.version=1 AND w.status='completed' ''').fetchone()[0] == 3
+        assert conn.execute("SELECT COUNT(*) FROM intervention_work WHERE status='pending'").fetchone()[0] == 48
+
+
+def test_recap_keeps_an_older_unsettled_commitment_visible(owner):
+    first = accept(owner, request='older-promise')
+    with db.transaction() as conn:
+        conn.execute('UPDATE interventions SET version=99 WHERE id=?', (first['id'],))
+    for n in range(8):
+        accept(owner, steps=REPEAT, request=f'newer-promise-{n}')
+    work.advance(382, now=START + timedelta(seconds=90))
+    recap = work.recent(382, NODES['instrument'], owner)
+    assert len(recap) == 8
+    assert recap[0]['id'] == first['id'] and recap[0]['pending'] == 3
+    assert all(r['pending'] == 0 for r in recap[1:])

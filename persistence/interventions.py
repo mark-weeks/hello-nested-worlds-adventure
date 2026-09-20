@@ -133,9 +133,17 @@ def advance(seed=None, *, now=None):
     db.init_db()
     now = now or _now()
     with db._connection() as conn:
+        # Work that nothing blocks sorts ahead of hops waiting on an earlier
+        # hop, so a run of failed first hops cannot fill the batch with their
+        # blocked successors and starve independent eligible work. Successors
+        # still ride in the same batch when there is room: once their
+        # predecessor lands earlier in this pass, the recheck below lets them go.
         rows = conn.execute('''SELECT w.id FROM intervention_work w JOIN interventions i ON i.id=w.intervention_id
             WHERE w.status='pending' AND w.due_at<=? AND (w.retry_at IS NULL OR w.retry_at<=?)
-            AND (? IS NULL OR i.world_seed=?) ORDER BY w.id LIMIT 32''', (_stamp(now), _stamp(now), seed, seed)).fetchall()
+            AND (? IS NULL OR i.world_seed=?)
+            ORDER BY EXISTS (SELECT 1 FROM intervention_work p WHERE p.intervention_id=w.intervention_id
+                             AND p.hop<w.hop AND p.status='pending'), w.id LIMIT 32''',
+            (_stamp(now), _stamp(now), seed, seed)).fetchall()
     count = 0
     for (work_id,) in rows:
         try:
@@ -197,11 +205,14 @@ def advance(seed=None, *, now=None):
 def recent(seed, name, participant=None):
     db.init_db()
     with db._connection() as conn:
-        rows = conn.execute('''SELECT i.id,i.node_name,i.performer,i.plan,i.source_event_id,
-            (SELECT COUNT(*) FROM intervention_work w WHERE w.intervention_id=i.id AND w.status='pending')
-            FROM interventions i WHERE i.world_seed=? AND (i.node_name=? OR i.participant_id=? OR
-            EXISTS(SELECT 1 FROM intervention_work w WHERE w.intervention_id=i.id AND w.node_name=?))
-            ORDER BY i.rowid DESC LIMIT 8''', (seed, name, participant, name)).fetchall()
+        # Unsettled commitments come first so the composer keeps polling for them
+        # even when eight newer, settled records exist.
+        rows = conn.execute('''SELECT id,node_name,performer,plan,source_event_id,pending FROM (
+                SELECT i.id,i.node_name,i.performer,i.plan,i.source_event_id,i.rowid AS position,
+                    (SELECT COUNT(*) FROM intervention_work w WHERE w.intervention_id=i.id AND w.status='pending') AS pending
+                FROM interventions i WHERE i.world_seed=? AND (i.node_name=? OR i.participant_id=? OR
+                EXISTS(SELECT 1 FROM intervention_work w WHERE w.intervention_id=i.id AND w.node_name=?)))
+            ORDER BY (pending>0) DESC, position DESC LIMIT 8''', (seed, name, participant, name)).fetchall()
         result = []
         for ident, origin, performer, plan, event, pending in rows:
             arrivals = [{'node': n, 'status': s, 'event_id': e} for n, s, e in conn.execute(

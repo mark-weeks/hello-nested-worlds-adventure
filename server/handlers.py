@@ -384,6 +384,11 @@ class Handler(BaseHTTPRequestHandler):
             file_path.resolve().relative_to(_FRONTEND_DIR.resolve())
         except ValueError:
             return self._send_error("forbidden", 403)
+        # Hashed assets are content-addressed: a missing one must never be
+        # answered with the SPA shell, which would then be cached immutably
+        # under a script URL. The fallback is for application routes only.
+        if rel.startswith("assets/") and (not file_path.exists() or file_path.is_dir()):
+            return self._send_error("not found", 404)
         # SPA fallback: unknown paths get index.html so client-side routing works
         if not file_path.exists() or file_path.is_dir():
             file_path = _FRONTEND_DIR / "index.html"

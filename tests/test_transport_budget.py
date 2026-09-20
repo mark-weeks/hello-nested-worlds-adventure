@@ -71,3 +71,12 @@ def test_versioned_media_and_hashed_bundle_assets_are_immutable(raw):
     for page in ('/', '/guide', '/score.js'):
         status, _, headers = raw(page)
         assert status == 200 and 'immutable' not in headers.get('Cache-Control', '')
+
+
+def test_missing_hashed_assets_are_404_and_routes_still_get_the_shell(raw):
+    status, body, headers = raw('/app/assets/index-doesnotexist.js')
+    assert status == 404 and 'immutable' not in headers.get('Cache-Control', '')
+    assert json.loads(body)['error'] == 'not found'
+    status, body, headers = raw('/app/some/client/route')
+    assert status == 200 and 'text/html' in headers['Content-Type']
+    assert 'immutable' not in headers.get('Cache-Control', '')
