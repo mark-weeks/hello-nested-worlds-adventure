@@ -173,6 +173,29 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None,
 _GZIP_MIN_BYTES = 1024
 _IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 
+
+def _accepts_gzip(value: str) -> bool:
+    """Negotiate exact coding tokens and weights (RFC 9110 section 12.5.3)."""
+    weights = {}
+    for entry in value.split(','):
+        coding, *parameters = entry.lower().split(';')
+        coding = coding.strip()
+        if coding not in ('gzip', '*'):
+            continue
+        quality = 1.0
+        for parameter in parameters:
+            key, _, weight = parameter.partition('=')
+            if key.strip() == 'q':
+                try:
+                    quality = float(weight.strip())
+                except ValueError:
+                    quality = 0.0
+        # Invalid weights do not opt a client in. An explicit gzip entry,
+        # including q=0, takes precedence over the wildcard.
+        weights[coding] = quality if 0 <= quality <= 1 else 0.0
+    return weights.get('gzip', weights.get('*', 0.0)) > 0
+
+
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
     "/interventions/preview", "/interventions/commit",
@@ -331,7 +354,8 @@ class Handler(BaseHTTPRequestHandler):
         # Tree reads carry per-node prose (senses) for every navigable place;
         # both browser clients accept gzip, which folds that payload several
         # times over. Small replies and non-accepting clients stay plain.
-        if len(body) >= _GZIP_MIN_BYTES and "gzip" in self.headers.get("Accept-Encoding", ""):
+        encodings = ','.join(self.headers.get_all("Accept-Encoding", []))
+        if len(body) >= _GZIP_MIN_BYTES and _accepts_gzip(encodings):
             body = gzip.compress(body, compresslevel=5)
             self.send_header("Content-Encoding", "gzip")
         self.send_header("Vary", "Accept-Encoding")
