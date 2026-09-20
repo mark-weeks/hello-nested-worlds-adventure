@@ -11,6 +11,19 @@ These are house taste, encoded once at a point of use and easy to break by a
 well-meaning change. Honour them; a reviewer would catch a violation, so catch
 it first.
 
+- **Every player owns their actions.** Human and AI players may suggest, invite,
+  persuade or refuse; one player cannot select another as the performer or force
+  their consent. Check this at acceptance, not only in the interface. A model
+  proposal is not another player's decision. Earlier recorded events stay truthful.
+- **Extend or replace an experience; never duplicate it.** One player purpose has
+  one interaction surface in each client. New action capabilities belong in Act,
+  conversation in Speak, and history in its existing views. Do not add a parallel
+  composer, quest controller, or status pane for the same function. Use progressive
+  disclosure; no preselected action plan or compulsory story route.
+- **Scale is meaning, not decoration.** New verbs must change real properties at
+  their own scale; sound must distinguish scales through musical form and timbre,
+  with within-scale differences grounded in node state. Generic operations renamed
+  per scale or one score transposed at every level do not satisfy this contract.
 - **The seal never imprisons.** A locked (sealed) subtree never traps someone
   already inside it. `puzzles/gates.py` (`# already inside — the seal never
   imprisons`).

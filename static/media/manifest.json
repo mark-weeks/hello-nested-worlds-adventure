@@ -23,6 +23,11 @@
       "sha256": "ea388130bb5b1641eab9a5b440b62cc45151a65fe01b2cf0e55a85084e9fa5a2"
     },
     {
+      "file": "score/bassoon.mp3",
+      "bytes": 132311,
+      "sha256": "97581df8668effef15b352a1ef03dddf71f909e0ea617d8e28950fee8d5e9655"
+    },
+    {
       "file": "score/cello.mp3",
       "bytes": 223233,
       "sha256": "e6ab178e4f909765561b07f84d92fd6d4395ef3ef5a172fb73c57cb4307be5fc"
@@ -33,6 +38,11 @@
       "sha256": "734fa524896368c17f311c4f5dd05224532cc7543e52711fb659d82b87fcd28a"
     },
     {
+      "file": "score/glock.mp3",
+      "bytes": 40584,
+      "sha256": "c9887817fa756f5609f977d237dc3937e522c7eec3abaae52a7cdc09c4c9654c"
+    },
+    {
       "file": "score/harp.mp3",
       "bytes": 216963,
       "sha256": "b4542a79f4b2eba501cd23d4bc1c047d0c6252cc5894c312d55c54c06422f09a"
@@ -41,6 +51,21 @@
       "file": "score/harp_high.mp3",
       "bytes": 169943,
       "sha256": "575401326dcc1766064b9f514a6ad1db067de386c00807725fa8718739689aea"
+    },
+    {
+      "file": "score/horn.mp3",
+      "bytes": 90405,
+      "sha256": "d99fb90fbdd95a10075187311428e8b0fd692259a3e25890c3b99330a7cfc7ba"
+    },
+    {
+      "file": "score/marimba.mp3",
+      "bytes": 21696,
+      "sha256": "6f7cc1375618d63223dadf2a9e3cbc392454ba82e26e333faddc310735dbf96c"
+    },
+    {
+      "file": "score/pizzicato.mp3",
+      "bytes": 16706,
+      "sha256": "57d1713870f3f91f72ee37f45b896d5d28f199dac46bd8f96bbc540afa14717e"
     },
     {
       "file": "score/tremolo.mp3",

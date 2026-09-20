@@ -101,6 +101,12 @@ def main() -> None:
             "static/media/places/chain-v1.png",
             "persistence/migrations/0027_expressive_interventions.sql",
             "multiverse/interventions_v1.py",
+            "multiverse/interventions_v2.py",
+            "static/media/score/horn.mp3",
+            "static/media/score/marimba.mp3",
+            "static/media/score/bassoon.mp3",
+            "static/media/score/glock.mp3",
+            "static/media/score/pizzicato.mp3",
             "static/clientlogic.js",
             "static/app/index.html",
         }

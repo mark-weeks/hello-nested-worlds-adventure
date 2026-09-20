@@ -46,7 +46,6 @@ for (const route of ["/", "/app"]) {
         const galaxy = world.world.children[0].children[0];
         const origin = mode === "delayed" ? galaxy : galaxy.children[0].children[0];
         const receiver = mode === "delayed" ? world.world.children[0] : galaxy.children[0];
-        const verb = mode === "delayed" ? "Kindle" : "Seed";
         await page.addInitScript(node => {
           if (location.protocol !== "http:") return;
           localStorage.setItem("nw_seen_intro", "1");
@@ -62,17 +61,16 @@ for (const route of ["/", "/app"]) {
         page.on("pageerror", error => errors.push(error.message));
         await page.goto(server.url + route);
         await page.waitForLoadState("networkidle");
-        if (route === "/") await page.locator("#btn-act").click();
-        else await page.getByRole("button", { name: verb, exact: true }).click();
         const reads = { world: 0, node: 0, history: 0 };
         page.on("request", req => {
           const endpoint = new URL(req.url()).pathname.slice(1);
           if (endpoint in reads) reads[endpoint]++;
         });
-        const [response] = await Promise.all([
-          page.waitForResponse(r => new URL(r.url()).pathname === "/act"),
-          page.getByRole("button", { name: `${verb} this ${origin.level}`, exact: true }).click(),
-        ]);
+        // Keep testing the retained /act causal protocol and its live/history
+        // presentation. New player interaction is covered in expressive.spec.
+        const response = await request.post(server.url + '/act', {
+          data: {seed:382,node_name:origin.name,player_name:'M3Visitor'},
+        });
         const accepted = await response.json();
         expect(accepted.action_status).toBe("accepted");
         const originPage = await (await request.get(`${server.url}/chronicle?before=${accepted.event_id + 1}&limit=1`)).json();

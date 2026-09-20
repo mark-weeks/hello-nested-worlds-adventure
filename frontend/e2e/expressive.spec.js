@@ -9,7 +9,6 @@ import path from 'node:path';
 const repo = path.resolve(import.meta.dirname, '../..');
 const python = process.env.ENFOLDED_PYTHON || 'python';
 const key = 'nw_' + 'a'.repeat(32);
-const otherKey = 'nw_' + 'b'.repeat(32);
 const headers = {'X-Beta-Key': key};
 const names = {
   region: 'Emberlit Orchard Terraces-111111',
@@ -75,24 +74,32 @@ for(const route of ['/app','/']) {
       await page.setViewportSize({width:1440,height:960});
       await enter(page,server,route,names.instrument);
       const composer=page.locator('enfolded-interventions');
-      await expect(composer.getByRole('heading',{name:'Shape this place'})).toBeVisible();
-      await composer.getByRole('button',{name:'A memory that can travel',exact:true}).click();
-      await composer.getByRole('button',{name:'Preview consequences',exact:true}).click();
-      await expect(composer).toContainText('A resonator will be woven here');
+      await expect(page.getByRole('region',{name:'Investigation'})).toHaveCount(0);
+      await expect(page.getByText('Shape this place',{exact:true})).toHaveCount(0);
+      if(route==='/') await page.locator('#btn-act').click();
+      else await page.getByRole('button',{name:'Act',exact:true}).click();
+      await expect(composer).toHaveCount(1);
+      await expect(composer.getByRole('button',{name:'Charge',exact:true})).toHaveCount(0);
+      await expect(composer.getByRole('button',{name:'Act: Engrave',exact:true})).toHaveCount(0);
+      await composer.getByRole('button',{name:'Engrave',exact:true}).click();
+      await expect(composer).toContainText('surface → engraved');
       let dropped=false;
       await page.route('**/interventions/commit',async intercept=>{
         if(!dropped){ dropped=true;await intercept.fetch();await intercept.abort('failed'); }
         else await intercept.continue();
       });
-      await composer.getByRole('button',{name:'Commit this arrangement',exact:true}).click();
-      await expect(composer.getByRole('button',{name:'Confirm earlier commitment',exact:true})).toBeEnabled();
+      await composer.getByRole('button',{name:'Act: Engrave',exact:true}).click();
+      await expect(composer.getByRole('button',{name:'Confirm earlier action',exact:true})).toBeEnabled();
       await page.reload();
-      await expect(composer.getByRole('button',{name:'Confirm earlier commitment',exact:true})).toBeVisible();
-      await composer.getByRole('button',{name:'Confirm earlier commitment',exact:true}).click();
+      if(route==='/') await page.locator('#btn-act').click();
+      else await page.getByRole('button',{name:'Act',exact:true}).click();
+      await expect(composer.getByRole('button',{name:'Confirm earlier action',exact:true})).toBeVisible();
+      await composer.getByRole('button',{name:'Confirm earlier action',exact:true}).click();
+      await composer.getByText('Actions still echoing',{exact:true}).click();
       await expect(composer).toContainText('All consequences settled',{timeout:15000});
       const result=await(await page.request.get(server.url+'/interventions?node='+names.instrument,{headers})).json();
       expect(result.recent.filter(r=>r.origin===names.instrument)).toHaveLength(1);
-      expect(result.state.woven).toBe(true);
+      expect(result.recent[0].summary).toBe('Engrave');
       expect(result.recent[0].arrivals).toHaveLength(3);
       await page.screenshot({path:capture(`enfolded-expressive-${route==='/app'?'scene':'map'}.png`)});
       await page.setViewportSize({width:390,height:844});
@@ -109,7 +116,7 @@ test('recorded score loads, stays on one transport and changes its harmony',asyn
     await enter(page,server,'/',names.instrument);
     await expect(page.locator('#node-name')).toHaveText(phrase(names.instrument));
     await page.click('#btn-sound');
-    await expect.poll(()=>page.evaluate(()=>Object.keys(window._nwAmbience?.buffers || {}).length)).toBe(6);
+    await expect.poll(()=>page.evaluate(()=>Object.keys(window._nwAmbience?.buffers || {}).length)).toBe(11);
     const evidence=await page.evaluate(()=>{
       const score=window._nwAmbience,ctx=score.ctx;
       const step=score.step;
@@ -145,7 +152,7 @@ test('the complete sampled graph renders non-silent audio without clipping', asy
     for(let c=0;c<2;c++)for(const x of result.getChannelData(c)){peak=Math.max(peak,Math.abs(x));squares+=x*x;finite=finite&&Number.isFinite(x);}
     return {peak,rms:Math.sqrt(squares/(result.length*2)),finite,samples:Object.keys(score.buffers).length};
   });
-  expect(metrics.samples).toBe(6);expect(metrics.finite).toBe(true);
+  expect(metrics.samples).toBe(11);expect(metrics.finite).toBe(true);
   expect(metrics.rms).toBeGreaterThan(.001);expect(metrics.peak).toBeLessThan(.99);
   console.log('Sampled score render:',JSON.stringify(metrics));
 });
@@ -161,10 +168,11 @@ test('unavailable recovery storage prevents an ambiguous commitment',async({page
     });
     await enter(page,server,'/app',names.instrument);
     const composer=page.locator('enfolded-interventions');
-    await composer.getByRole('button',{name:'Preview consequences',exact:true}).click();
-    await composer.getByRole('button',{name:'Commit this arrangement',exact:true}).click();
+    await page.getByRole('button',{name:'Act',exact:true}).click();
+    await composer.getByRole('button',{name:'Engrave',exact:true}).click();
+    await composer.getByRole('button',{name:'Act: Engrave',exact:true}).click();
     await expect(composer).toContainText('Nothing was submitted.');
     expect(submissions).toBe(0);
-    await expect(composer.getByRole('button',{name:'Commit this arrangement',exact:true})).toBeEnabled();
+    await expect(composer.getByRole('button',{name:'Act: Engrave',exact:true})).toBeEnabled();
   }finally{await server.close();}
 });

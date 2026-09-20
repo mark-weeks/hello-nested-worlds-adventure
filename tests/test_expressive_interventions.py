@@ -125,24 +125,31 @@ def test_delivery_failure_rolls_back_and_unknown_versions_remain_pending(owner, 
     assert work.advance(382, now=START+timedelta(seconds=220)) == 3
 
 
-def test_http_access_explicit_delegation_and_refresh(http, accounts):
-    name=NODES['instrument']
+def test_http_actions_are_scale_native_and_never_delegate(http, accounts):
+    name = NODES['instrument']
     assert http('/interventions?node='+quote(name), '')[0] == 403
     status, data, headers = http('/interventions?node='+quote(name))
     assert status == 200 and headers['Cache-Control'] == 'no-store'
-    agent=data['agents'][0]
-    status, preview, _ = http('/interventions/preview', body={'node':name,'steps':SCORE,'delegate':agent})
-    assert status == 200 and preview['delegate'] == agent
-    payload={'node':name,'steps':preview['steps'],'expected':preview['expected'],'delegate':agent,'request_id':'delegate-001'}
+    assert set(data['operators']) == {'mend', 'engrave', 'fracture', 'polish'}
+    assert 'agents' not in data
+    for field in ('delegate', 'performer', 'actor_identity'):
+        assert http('/interventions/preview', body={'node':name, 'steps':[{'op':'engrave'}], field:'Tessera'})[0] == 409
+    assert http('/interventions/preview', body={'node':name, 'steps':[{'op':'cleave'}]})[0] == 409
+    assert http('/interventions/preview', body={'node':name, 'steps':SCORE})[0] == 409
+    status, preview, _ = http('/interventions/preview', body={'node':name,'steps':[{'op':'engrave'}]})
+    assert status == 200 and preview['changed'] == {'surface':'engraved'}
+    payload={'node':name,'steps':preview['steps'],'expected':preview['expected'],'version':2,'request_id':'own-action-001'}
     assert http('/interventions/commit', body=payload)[0] == 409
     assert http('/position', body={'node':name,'seed':382,'depth':9})[0] == 200
-    status, result, _=http('/interventions/commit', body=payload)
+    for field in ('delegate', 'performer', 'actor_identity'):
+        assert http('/interventions/commit', body={**payload,field:'Tessera'})[0] == 409
+    assert not events()
+    status, result, _ = http('/interventions/commit', body=payload)
     assert status == 200 and result['accepted']
     assert http('/interventions/commit', body=payload)[1] == result
-    assert events()[0]['player'] == agent
-    status, node, _ = http('/node?node_name='+quote(name))
-    assert status == 200 and node['node']['senses']['woven']
-    assert http('/interventions/preview', body={'node':name,'intention':'do not release'})[0] == 409
+    assert events()[0]['player'] == participants.identify(accounts[0])['name']
+    assert http('/node?node_name='+quote(name))[1]['node']['properties']['surface'] == 'engraved'
+    assert http('/interventions/preview', body={'node':name,'intention':'do not engrave'})[0] == 409
 
 
 def test_senses_follow_literal_properties_and_material_history(owner):
@@ -166,18 +173,18 @@ def test_model_can_only_propose_bounded_operations(monkeypatch):
     from consciousness import interventions as proposal
     def response(text):
         return SimpleNamespace(stop_reason='end_turn',content=[SimpleNamespace(type='text',text=text)])
-    answers=iter([response('{"supported":true,"steps":[{"op":"invert","amount":1}]}'),response('{"supported":true,"steps":[{"op":"invent_canon","amount":1}]}'),response('{"supported":false,"steps":[]}')])
+    answers=iter([response('{"supported":true,"steps":[{"op":"engrave","amount":1}]}'),response('{"supported":true,"steps":[{"op":"invent_canon","amount":1}]}'),response('{"supported":false,"steps":[]}')])
     calls=[]
     def create(**kwargs):
         calls.append(kwargs)
         return next(answers)
     monkeypatch.setattr(proposal,'_get_client',lambda:SimpleNamespace(messages=SimpleNamespace(create=create)))
     monkeypatch.setattr(proposal,'_log_cache_usage',lambda *args:None)
-    assert proposal.propose('turn inward',{}) == [{'op':'invert','amount':1}]
+    assert proposal.propose('cut a pattern',{'level':'Object'}) == [{'op':'engrave','amount':1}]
     with pytest.raises(ValueError):
-        proposal.propose('invent a galaxy',{})
+        proposal.propose('invent a galaxy',{'level':'Object'})
     with pytest.raises(ValueError):
-        proposal.propose('ambiguous',{})
+        proposal.propose('ambiguous',{'level':'Object'})
     assert calls[0]['output_config']['format']['type'] == 'json_schema'
     assert events() == []
 
@@ -216,14 +223,83 @@ def test_process_death_backup_restore_and_future_proposals_keep_v1_promises(owne
 def test_wayback_keeps_birth_and_present_senses_distinct_and_receipts_survive_movement(http, accounts):
     name = NODES['instrument']
     http('/position', body={'node':name,'seed':382,'depth':9})
-    preview = http('/interventions/preview', body={'node':name,'steps':SCORE})[1]
-    payload = {'node':name,'steps':preview['steps'],'expected':preview['expected'],'request_id':'historical-01'}
+    preview = http('/interventions/preview', body={'node':name,'steps':[{'op':'engrave'}]})[1]
+    payload = {'node':name,'steps':preview['steps'],'expected':preview['expected'],'request_id':'historical-01','version':2}
     result = http('/interventions/commit', body=payload)[1]
     http('/position', body={'node':NODES['region'],'seed':382,'depth':9})
     assert http('/interventions/commit', body=payload)[1] == result
     before = events()
     present = http('/wayback?node_name='+quote(name))[1]['node']
     birth = http('/wayback?node_name='+quote(name)+'&at=0')[1]['node']
-    assert present['senses']['woven'] and not birth['senses']['woven']
+    assert present['properties']['surface'] == 'engraved'
+    assert birth['properties']['surface'] != 'engraved'
     assert present['senses']['revision'] != birth['senses']['revision']
     assert events() == before
+
+
+def test_old_delegated_receipt_recovers_but_cannot_authorize_new_work(http, accounts):
+    participant = participants.identify(accounts[0])['id']
+    name = NODES['instrument']
+    preview = work.preview(382, name, SCORE)
+    result = work.accept(382, participant, name, 'legacy-entrusted', preview['steps'], preview['expected'],
+                         performer='Tessera', actor_identity='Tessera', delegate='Tessera')
+    payload = {'node': name, 'request_id':'legacy-entrusted', 'steps':preview['steps'],
+               'expected':preview['expected'], 'delegate':'Tessera'}
+    assert http('/interventions/commit', body=payload)[1] == result
+    assert http('/interventions/commit', body={**payload,'request_id':'new-entrusted'})[0] == 409
+    assert len(events()) == 1
+
+
+def test_scale_spectra_change_materials_and_order_matters():
+    from multiverse import interventions_v2 as native
+    from multiverse.verbs import VERBS
+    for level in VERBS:
+        assert len(native.vocabulary(level)) == 4
+    object_props = {'condition':'damaged','surface':'rough hewn'}
+    engrave = native.simulate(object_props, [{'op':'engrave'}], 'Object')
+    polish = native.simulate(object_props, [{'op':'engrave'},{'op':'polish'}], 'Object')
+    assert engrave['changed']['surface'] == 'engraved'
+    assert polish['changed']['surface'] == 'mirror smooth'
+    assert object_props == {'condition':'damaged','surface':'rough hewn'}
+    with pytest.raises(ValueError, match='does not belong'):
+        native.simulate(object_props, [{'op':'seed'}], 'Object')
+    with pytest.raises(ValueError):
+        native.simulate(object_props, [{'op':'engrave','amount':2}], 'Object')
+    assert native.parse_score('do not engrave', 'Object') is None
+    assert native.parse_score('engrave, polish', 'Object') == [{'op':'engrave','amount':1},{'op':'polish','amount':1}]
+    assert native.simulate({'resonance':'3:5','ecliptic_tilt_deg':10}, [{'op':'incline'}], 'Planetary System')['changed'] == {'ecliptic_tilt_deg':13}
+    delta, _ = native.receive({'resonance':'3:5'}, {'strength':2,'coherent':True,'motif':'abc'}, 1)
+    assert 'resonance' not in delta
+    assert delta['acoustic_resonance']['memory'] == 'abc'
+    assert native.read_state({'resonance':'3:5', **delta})['echo'] > 0
+
+
+def test_v2_delayed_origin_and_receiving_work_settle_once(owner, monkeypatch):
+    monkeypatch.setenv('NESTED_WORLDS_MATURATION_SCALE', '0.01')
+    node = work.lineage(382, NODES['region'])[-1]  # Galaxy
+    assert node.level == 'Galaxy'
+    before = work.live(382,node)
+    preview = work.preview(382, node.name, [{'op':'scatter'}], version=2)
+    assert preview['matures_in'] == 3
+    args=(382, owner, node.name, 'new-delayed', preview['steps'], preview['expected'])
+    result = work.accept(*args, performer='Ada', actor_identity=owner, version=2)
+    assert result['changed'] == {}
+    assert work.live(382,node) == before
+    assert work.advance(382, now=START+timedelta(seconds=2)) == 0
+    assert work.advance(382, now=START+timedelta(seconds=100)) == 3
+    assert work.live(382,node)['star_density'] < before['star_density']
+    assert work.advance(382, now=START+timedelta(seconds=200)) == 0
+    assert work.accept(*args, performer='Ada', actor_identity=owner, version=2) == result
+
+
+def test_v2_changed_conditions_can_exhaust_delayed_action_without_false_waves(owner, monkeypatch):
+    monkeypatch.setenv('NESTED_WORLDS_MATURATION_SCALE', '0.01')
+    node = work.lineage(382, NODES['region'])[-1]
+    db.record_substance_change(382,node.name,'TEST',None,{}, {'shape':'irregular'})
+    preview=work.preview(382,node.name,[{'op':'spiral'}],version=2)
+    work.accept(382,owner,node.name,'shape-later',preview['steps'],preview['expected'],performer='Ada',actor_identity=owner,version=2)
+    db.record_substance_change(382,node.name,'TEST',None,{}, {'shape':'spiral'})
+    assert work.advance(382,now=START+timedelta(seconds=100)) == 3
+    arrivals = [r for r in events() if r['type']=='INTERVENTION_ARRIVED']
+    assert len(arrivals)==3 and all(not r['data']['materialized'] for r in arrivals)
+    assert work.advance(382,now=START+timedelta(seconds=200))==0

@@ -1,11 +1,10 @@
-"""Player-owned previews, explicit commitments, and bounded delegated agency."""
+"""One player's scale-native intentions, previews and explicit commitments."""
 import logging
 import os
 
 import persistence
 from persistence import participants, interventions
-from multiverse import interventions as physics
-from agents.roster import CAST_NAMES, profile_for
+from multiverse import interventions_v2 as physics
 from puzzles.gates import seal_check
 from server import guard
 
@@ -25,61 +24,60 @@ def handle(handler, path, qs, body=None):
         if not isinstance(name, str) or not name or len(name) > 128:
             raise ValueError('Choose a place in this world.')
         nodes = interventions.lineage(seed, name)
+        node = nodes[0]
         position = persistence.get_player_position(key)
-        if path != '/interventions/commit' and seal_check(seed, nodes[0], position['node'] if position and position['seed'] == seed else None):
+        if path != '/interventions/commit' and seal_check(seed, node, position['node'] if position and position['seed'] == seed else None):
             raise ValueError('The seal still guards this place.')
-        props = interventions.live(seed, nodes[0])
+        props = interventions.live(seed, node)
         if body is None and path == '/interventions':
-            data = {'participant': me['id'], 'operators': physics.OPERATORS, 'state': physics.read_state(props),
-                    'suggestions': physics.suggestions(props), 'agents': list(CAST_NAMES),
+            data = {'participant': me['id'], 'version': physics.VERSION,
+                    'operators': physics.vocabulary(node.level),
+                    'choices': physics.choices(props, node.level, name),
+                    'state': physics.read_state(props),
                     'recent': interventions.recent(seed, name, me['id'])}
         elif body is None:
             raise ValueError('This action needs a submission.')
         elif path == '/interventions/preview':
+            if any(body.get(field) is not None for field in ('delegate', 'performer', 'actor_identity')):
+                raise ValueError('You may choose your own actions. Other travelers decide for themselves.')
             steps = body.get('steps')
-            delegate = body.get('delegate')
-            if delegate is not None and delegate not in CAST_NAMES:
-                raise ValueError('Choose a traveler from the known cast.')
-            if delegate and steps is None and not body.get('intention'):
-                choices = physics.suggestions(props)
-                persona = profile_for(delegate).persona
-                index = 1 if persona == 'destabilizer' and len(choices) > 1 else 0
-                steps = choices[index]['steps']
             if steps is None:
                 intention = body.get('intention')
-                steps = physics.parse_score(intention)
+                steps = physics.parse_score(intention, node.level)
                 if steps is None:
                     if guard.ai_disabled() or not os.environ.get('ANTHROPIC_API_KEY'):
-                        raise ValueError('The intention is not clear enough to enact. Compose a sequence such as “weave, charge 2, invert, release”.')
+                        raise ValueError('That intention needs a clearer shape. Choose actions below, or name them in order, separated by commas.')
                     if not guard.consume_anthropic(user_key=key):
                         raise ValueError(guard.QUIET_RESPONSE)
                     from consciousness.interventions import propose
                     try:
-                        steps = propose(intention, {'name': name, 'level': nodes[0].level,
-                                                  'properties': props, 'state': physics.read_state(props)})
+                        steps = propose(intention, {'name': name, 'level': node.level, 'properties': props})
                     except ValueError:
                         raise
                     except Exception:
                         _log.exception('Intention proposal unavailable')
-                        raise ValueError('The intention has not settled into a dependable shape. Try composing a sequence.') from None
-            data = interventions.preview(seed, name, steps)
-            data['delegate'] = delegate
-            if delegate:
-                data['invitation'] = delegate + ' offers to enact this arrangement if you entrust it to them.'
+                        raise ValueError('The intention has not settled into a dependable shape. Try the actions below.') from None
+            data = interventions.preview(seed, name, steps, version=2)
         elif path == '/interventions/commit':
+            version = body.get('version', 1)  # Old clients may recover already accepted v1 receipts.
+            if type(version) is not int or version not in interventions.INTERPRETERS:
+                raise ValueError('Preview this action again with the current vocabulary.')
             def authorize():
+                # Runs inside receipt acceptance; an old receipt returns without
+                # re-enacting it or retroactively falsifying its historical actor.
+                if any(body.get(field) is not None for field in ('delegate', 'performer', 'actor_identity')):
+                    raise ValueError('You may choose your own actions. Other travelers decide for themselves.')
+                if version != 2:
+                    raise ValueError('This earlier vocabulary is closed to new actions. Preview a scale-native action instead.')
                 current = persistence.get_player_position(key)
                 if not current or current['seed'] != seed or current['node'] != name:
-                    raise ValueError('Arrive at this place before committing an intervention.')
-                if seal_check(seed, nodes[0], current['node']):
+                    raise ValueError('Arrive at this place before acting.')
+                if seal_check(seed, node, current['node']):
                     raise ValueError('The seal still guards this place.')
-            delegate = body.get('delegate')
-            if delegate is not None and delegate not in CAST_NAMES:
-                raise ValueError('Choose a traveler from the known cast.')
             from server.handlers import _actor_identity
             data = interventions.accept(seed, me['id'], name, body.get('request_id'), body.get('steps'),
-                body.get('expected'), performer=delegate or me['name'],
-                actor_identity=delegate if delegate else _actor_identity(key, me['name']), delegate=delegate, authorize=authorize)
+                body.get('expected'), performer=me['name'], actor_identity=_actor_identity(key, me['name']),
+                delegate=body.get('delegate'), authorize=authorize, version=version)
         else:
             raise ValueError('This page is read-only.')
         handler._send_json(data)

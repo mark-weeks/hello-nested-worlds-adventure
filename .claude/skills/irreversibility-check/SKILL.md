@@ -49,6 +49,11 @@ tripped one-way door whose decision has not already been ratified.
      `multiverse/chronicle.py` are read at render time and stay frozen
      (exact strings pinned) until eras are materialized (ADR-006).
 
+   For player-facing world changes, also check CLAUDE.md's autonomy and single-surface
+   covenants: invitations do not authorize another player's actions, and new powers
+   extend or replace an existing experience. Preserve accepted historical receipts
+   when closing an invalid new-action path; do not falsify their recorded actors.
+
 3. Write the check in the house format used throughout `docs/CHANGELOG.md`
    — 2–3 lines, starting `**Irreversibility check:**`. For most PRs:
    `none — no migration, no golden re-pin, no new world_mutations write

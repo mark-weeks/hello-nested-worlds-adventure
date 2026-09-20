@@ -5,6 +5,13 @@ implement the endorsed cinematic, expressive-agency milestone. This adopts the
 bounded contracts below; it does not ratify every candidate in ADR-012–018 or
 claim production deployment, artistic acceptance, or live-model verification.
 
+## Correction after playtesting — 2026-09-20
+
+The owner rejected the duplicated universal composer, delegated enactment,
+scripted gallery pane and insufficiently differentiated sound. The corrective
+contract in ADR-028 supersedes the proposal/UI/delegation portions below. Version
+1 remains only as a retained interpreter for already accepted promises and receipts.
+
 ## Context
 
 PR #93 and ADR-017 already endorse meaningful preserving and opposing purposes.

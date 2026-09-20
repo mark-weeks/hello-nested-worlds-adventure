@@ -118,15 +118,12 @@ for (const route of ['/', '/app']) {
       }));
       await page.goto(server.url + route);
       await page.waitForLoadState('networkidle');
-      if (route === '/') await page.locator('#btn-act').click();
-      else await page.getByRole('button', { name: 'Kindle', exact: true }).click();
-      const [response] = await Promise.all([
-        page.waitForResponse(r => new URL(r.url()).pathname === '/act'),
-        page.getByRole('button', { name: 'Kindle this Galaxy', exact: true }).click(),
-      ]);
-      const own = await response.json();
-      const personal = route === '/' ? page.locator('#act-response') : page.getByText(own.flavor, { exact: true });
-      await expect(personal).toHaveText(own.flavor);
+      // The heartbeat still uses the retained scale-act protocol. Simulate a
+      // prior player's accepted act through that API, then observe independent
+      // inhabitant work in the replacement UI and world history.
+      const response=await request.post(server.url+'/act',{data:{node_name:target.name,player_name:'M4Visitor'}});
+      const own=await response.json();expect(own.action_status).toBe('accepted');
+      await expect.poll(()=>notices.find(m=>m.type==='scale_act' && m.event_id===own.event_id)).toBeTruthy();
       await page.waitForLoadState('networkidle');
       const reads = { world: 0, node: 0, history: 0 };
       page.on('request', req => {
@@ -148,7 +145,8 @@ for (const route of ['/', '/app']) {
       expect(accepted.flavor).toBeUndefined();
       expect(accepted.narration.phase).toBe('accepted');
       await expect(page.getByText(accepted.narration.text, { exact: false }).first()).toBeVisible();
-      await expect(personal).toHaveText(own.flavor);
+      // No inhabitant event installs an action draft on behalf of the viewer.
+      await expect(page.getByRole('button',{name:'Act: Kindle',exact:true})).toHaveCount(0);
       await server.command('ripples');
       await expect.poll(() => notices.find(m => m.narration?.phase === 'arrival' &&
         m.narration.source_event_id === accepted.event_id)).toBeTruthy();

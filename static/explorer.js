@@ -360,8 +360,7 @@ function selectNode(data, { refresh = false } = {}) {
   // properties, marked by history (pressure, effects, activity etchings).
   drawSigil(data);
 
-  configureComposer(data);
-  refreshActPanel(data, { clearResponse: !refresh });
+  refreshActPanel(data);
   if (!refresh) {
     document.getElementById('speak-response').textContent = '';
     document.getElementById('speak-response').className = 'response-box';
@@ -425,62 +424,8 @@ function maybeOfferSound() {
   }, 3000);
 }
 
-// ── Scale-native verb (POST /act) ───────────────────────────────────────────
-// Each level has exactly one act that only works at that scale — mend an
-// object, ward a region, observe a particle. The server owns the effect;
-// the flavor line is the fiction of what happened.
-
-function refreshActPanel(data, { clearResponse = true } = {}) {
-  const verb = data.verb;
-  const btn = document.getElementById('btn-do-act');
-  const tagline = document.getElementById('act-tagline');
-  const resp = document.getElementById('act-response');
-  if (!btn) return;
-  if (clearResponse) resp.textContent = '';
-  if (!verb) {
-    btn.disabled = true;
-    btn.textContent = 'Nothing can be done here';
-    tagline.textContent = '';
-    return;
-  }
-  btn.disabled = false;
-  btn.textContent = verb.name[0].toUpperCase() + verb.name.slice(1) +
-                    ' this ' + data.level;
-  tagline.textContent = verb.tagline + (data.pending_actions || []).map(p =>
-    ` ${p.count} ${p.verb} ${p.count === 1 ? 'change is' : 'changes are'} still traveling.`).join('');
-}
-
-let actBusy = false;
-async function doAct() {
-  if (actBusy || !selected || !selected.verb) return;
-  actBusy = true;
-  const target = selected;
-  const resp = document.getElementById('act-response');
-  resp.textContent = '…';
-  try {
-    const intent = await globalThis.EnfoldedIntents.begin('act', worldParams.seed, {node: target.name, verb: target.verb.name}, localStorage.getItem('nw_beta_key'));
-    const res = await fetch(withKey('/act'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        seed: worldParams.seed, depth: worldParams.depth,
-        node_name: target.name, verb: target.verb.name,
-        ...(intent ? {request_id: intent.request_id} : {}),
-        player_name: playerName || undefined,
-      }),
-    });
-    const data = await res.json();
-    if (res.status < 500) globalThis.EnfoldedIntents.finish(intent);
-    if (selected?.name !== target.name) return;
-    if (data.error) { resp.textContent = data.error; return; }
-    await refreshPendingAct(target.name, data);
-    if (selected?.name !== target.name) return;
-    document.getElementById('act-response').textContent =
-      data.flavor || '(nothing happened)';
-  } catch (e) {
-    if (selected?.name === target.name) resp.textContent = 'The signal is uncertain. Retry to recover this act: ' + e.message;
-  } finally { actBusy = false; }
-}
+// Act has one shared, scale-native surface in both clients.
+function refreshActPanel(data) { configureComposer(data); }
 
 const refreshActNode = createNodeRefresher(async (seed, name) => {
   const response = await fetch(withKey(`/node?seed=${seed}&node_name=${encodeURIComponent(name)}`));
@@ -1430,7 +1375,6 @@ document.getElementById('btn-act'    ).addEventListener('click', () => setMode('
 document.getElementById('btn-do-speak'  ).addEventListener('click', speak);
 document.getElementById('btn-do-observe').addEventListener('click', observe);
 document.getElementById('btn-do-puzzle' ).addEventListener('click', fetchPuzzle);
-document.getElementById('btn-do-act'    ).addEventListener('click', doAct);
 document.getElementById('btn-chronicle' ).addEventListener('click', openChronicle);
 document.getElementById('btn-wayback'   ).addEventListener('click', openWayback);
 document.getElementById('btn-sound'     ).addEventListener('click', toggleSound);
@@ -1526,7 +1470,7 @@ if (!localStorage.getItem(INTRO_SEEN)) {
 function configureComposer(data) {
   if (!customElements.get('enfolded-interventions')) return;
   document.getElementById('composer').context = {
-    node:data,seed:worldParams.seed,key:localStorage.getItem('nw_beta_key') || '',
+    node:{...data},seed:worldParams.seed,key:localStorage.getItem('nw_beta_key') || '',
     jump:name=>jumpTo(name),
     changed:()=>refreshPendingAct(data.name,{}),
     ensure:async()=>{

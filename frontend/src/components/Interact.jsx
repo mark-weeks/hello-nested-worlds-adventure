@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import "../../../static/intents.js";
-import { betaKey, withKey } from "../auth.js";
+import { withKey } from "../auth.js";
+import Interventions from "./Interventions.jsx";
 import { displayName } from "../names.js";
 
 // Node interaction panel: the two core-loop mechanics the /app client was
@@ -8,7 +9,7 @@ import { displayName } from "../names.js";
 // (/puzzle + /puzzle/attempt). Kept in its own component so TextPanel stays
 // small; mirrors the request shapes the D3 explorer already uses.
 
-export default function Interact({ node, seed, depth, playerName, onSolved, onNodeChanged }) {
+export default function Interact({ node, seed, depth, playerName, onSolved, onNodeChanged, onJump, onEnsurePosition }) {
   const [tab, setTab] = useState("speak");
 
   // Reset the sub-panels whenever the player moves to a different node.
@@ -30,7 +31,7 @@ export default function Interact({ node, seed, depth, playerName, onSolved, onNo
           <button
             style={tab === "act" ? s.tabActive : s.tab}
             onClick={() => setTab("act")}
-          >{verb.name[0].toUpperCase() + verb.name.slice(1)}</button>
+          >Act</button>
         )}
       </div>
       {tab === "speak" &&
@@ -38,77 +39,7 @@ export default function Interact({ node, seed, depth, playerName, onSolved, onNo
       {tab === "puzzle" &&
         <Puzzle key={`pz-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} />}
       {tab === "act" && verb &&
-        <Act key={`act-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} onChanged={onNodeChanged} />}
-    </div>
-  );
-}
-
-// ── Scale-native verb (POST /act) ───────────────────────────────────────────
-// Every level has exactly one act that only works at that scale — mend an
-// object, ward a region, observe a particle. The server owns the effect;
-// the response's flavor line is the fiction of what happened.
-
-function Act({ node, seed, depth, playerName, onChanged }) {
-  const [busy, setBusy] = useState(false);
-  const [flavor, setFlavor] = useState("");
-  const [changed, setChanged] = useState(null);
-  const [error, setError] = useState("");
-  const verb = node.verb;
-  const active = useRef(true);
-  useEffect(() => {
-    active.current = true;
-    return () => { active.current = false; };
-  }, []);
-
-  const act = useCallback(async () => {
-    if (busy) return;
-    setBusy(true); setError("");
-    let intent;
-    try {
-      intent = await globalThis.EnfoldedIntents.begin("act", seed, {node: node.name, verb: verb.name}, betaKey());
-      const r = await fetch(withKey("/act"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          seed, depth, node_name: node.name, verb: verb.name,
-          ...(intent ? {request_id: intent.request_id} : {}),
-          player_name: playerName || undefined,
-        }),
-      });
-      const data = await r.json();
-      if (r.status < 500) globalThis.EnfoldedIntents.finish(intent);
-      if (!active.current) return;
-      if (data.error) { setError(data.error); }
-      else {
-        setFlavor(data.flavor || "");
-        setChanged(data.changed);
-        onChanged?.(node.name, data);
-      }
-    } catch (e) {
-      if (active.current) setError("Network error: " + e.message);
-    } finally {
-      if (active.current) setBusy(false);
-    }
-  }, [busy, seed, depth, node, verb, playerName, onChanged]);
-
-  return (
-    <div style={s.panel}>
-      <div style={s.hint}>{verb.tagline}</div>
-      {node.pending_actions?.map(pending => (
-        <div style={s.hint} key={pending.verb}>
-          {pending.count} {pending.verb} {pending.count === 1 ? "change is" : "changes are"} still traveling.
-        </div>
-      ))}
-      <button style={s.btn} onClick={act} disabled={busy}>
-        {busy ? "…" : `${verb.name[0].toUpperCase() + verb.name.slice(1)} this ${node.level}`}
-      </button>
-      {flavor && <div style={s.resp}>{flavor}</div>}
-      {changed && (
-        <div style={s.hint}>
-          {Object.entries(changed).map(([k, v]) => `${k} → ${v}`).join(" · ")}
-        </div>
-      )}
-      {error && <div style={s.respError}>{error}</div>}
+        <Interventions key={`act-${nodeKey}`} node={node} seed={seed} onJump={onJump} onNodeChanged={() => onNodeChanged?.(node.name, {})} onEnsurePosition={onEnsurePosition} />}
     </div>
   );
 }

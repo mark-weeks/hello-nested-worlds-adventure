@@ -1,24 +1,8 @@
-"""Scale-native verbs — the one thing you can only do at each scale.
+"""Original scale-native actions retained for existing actors and delayed work.
 
-Every level of the hierarchy has exactly one verb, and each verb is the
-restorative / creative counterpart to the decay events in
-`multiverse/effects.py`: STRUCTURAL_CHANGE corrodes objects, `mend`
-repairs them; DANGER_ALERT roughens regions, `ward` calms them; the
-world drifts toward entropy on its own and players push back one scale
-at a time. That asymmetry is the point — you can only tend the world at
-the scale you're standing in.
-
-`apply_verb(node, verb, rng_token)` mutates `node.properties` in place
-and returns `(changed, flavor)` — the property delta to persist (None
-when the verb had nothing left to do) and a one-line in-fiction result.
-It is called from the SCALE_ACT branch of `apply_event_effects`, so verb
-consequences ride the standard causal rails: recorded in the chronicle,
-rippled, persisted as a property overlay, staged across scales.
-
-Determinism: verbs that need a "random" outcome (observe collapsing a
-superposed spin) derive it from `rng_token`, a caller-supplied string
-(actor + node), hashed — same world, same actor, same moment shape, same
-collapse. No wall-clock, no global RNG.
+The current player vocabulary extends these eleven transitions in
+interventions_v2.py. Keep original meanings stable for historical promises;
+new actions and combinations belong in the versioned proposal vocabulary.
 """
 from __future__ import annotations
 

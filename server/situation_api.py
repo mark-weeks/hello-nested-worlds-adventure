@@ -32,7 +32,7 @@ def handle(handler, path, qs, body=None):
                 raise ValueError('The ordinary seal still guards this place.')
             result = situations.discover(seed, me['id'], name)
         elif path == '/situation/choose':
-            result = situations.choose(seed, me['id'], body.get('request_id'), body.get('branch'))
+            result = situations.choose(seed, me['id'], body.get('request_id'), body.get('branch'), allow_new=False)
         elif path == '/situation/follow-up':
             from server.handlers import _actor_identity
             result = situations.follow_up(seed, me['id'], body.get('request_id'),

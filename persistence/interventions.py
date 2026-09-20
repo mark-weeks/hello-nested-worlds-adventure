@@ -6,9 +6,10 @@ import secrets
 
 import persistence as db
 from persistence import intents
-from multiverse import interventions as physics, interventions_v1, store
+from multiverse import interventions_v1, interventions_v2, store
+from multiverse.verbs import maturation_seconds
 
-INTERPRETERS = {1: interventions_v1}
+INTERPRETERS = {1: interventions_v1, 2: interventions_v2}
 
 _log = logging.getLogger(__name__)
 HOP_SECONDS = 12
@@ -36,54 +37,84 @@ def live(seed, node):
     return db.json_merge_patch(node.properties, db.load_node_property_override(seed, node.name))
 
 
-def preview(seed, name, steps):
+def _record(seed, name, kind, performer, data, delta, actor_identity=None):
+    if delta:
+        db.record_substance_change(seed, name, kind, performer, data, delta, actor_identity=actor_identity)
+    else:
+        db.record_mutation(seed, name, kind, performer, data, actor_identity=actor_identity)
+
+
+def _plan(interpreter, props, steps, node):
+    if interpreter.VERSION == 1:
+        plan = interpreter.simulate(props, steps)
+        return {**plan, 'changed': {'resonance': plan['state']}}
+    return interpreter.simulate(props, steps, node.level, node.name)
+
+
+def preview(seed, name, steps, *, version=1):
     nodes = lineage(seed, name)
+    interpreter = INTERPRETERS[version]
     props = live(seed, nodes[0])
-    result = physics.simulate(props, steps)
-    result['expected'] = physics.digest({'properties': props, 'version': physics.VERSION})
+    result = _plan(interpreter, props, steps, nodes[0])
+    result['expected'] = interpreter.digest({'properties': props, 'version': version})
     result['node'] = name
-    result['version'] = physics.VERSION
-    result['route'] = [{'node': n.name, 'level': n.level, 'in_seconds': i * HOP_SECONDS}
+    result['version'] = version
+    delay = maturation_seconds(nodes[0].level) if version == 2 else 0
+    result['matures_in'] = delay
+    result['route'] = [{'node': n.name, 'level': n.level, 'in_seconds': delay + i * HOP_SECONDS}
                        for i, n in enumerate(nodes) if i == 0 or result['signal']['strength']]
-    result['tradeoff'] = ('The outward wave will brighten its surroundings and may increase regional danger.'
+    result['tradeoff'] = ('An outward disturbance will travel through enclosing places; it may increase danger.'
         if result['signal']['strength'] > 0 else
-        'The returning wave will quiet its surroundings, dimming its outward reach.'
-        if result['signal']['strength'] < 0 else 'This changes the local arrangement; no wave travels yet.')
+        'A quieting disturbance will travel through enclosing places; it may reduce danger.'
+        if result['signal']['strength'] < 0 else 'This changes the local material; no disturbance travels outward.')
+    if delay:
+        result['tradeoff'] += f' The first change takes about {round(delay / 60)} minutes, meeting the conditions then.'
     return result
 
 
-def accept(seed, participant, name, request_id, steps, expected, *, performer, actor_identity, delegate=None, authorize=None):
-    nodes = lineage(seed, name)  # Birth/resolve before acquiring acceptance lock.
-    steps = physics.normalize_steps(steps)
+def accept(seed, participant, name, request_id, steps, expected, *, performer, actor_identity,
+           delegate=None, authorize=None, version=1):
+    nodes = lineage(seed, name)
+    interpreter = INTERPRETERS.get(version)
+    if interpreter is None:
+        raise ValueError('This action belongs to an unavailable vocabulary.')
+    steps = interpreter.normalize_steps(steps)
     if not isinstance(expected, str) or len(expected) != 24:
-        raise ValueError('Listen to a preview before committing an intervention.')
+        raise ValueError('Preview the consequences before acting.')
+    # The v1 receipt shape must survive upgrades, including historical delegation.
     payload = {'node': name, 'steps': steps, 'expected': expected, 'delegate': delegate}
+    if version != 1:
+        payload['version'] = version
     def apply():
         if authorize:
             authorize()
         props = live(seed, nodes[0])
-        if physics.digest({'properties': props, 'version': physics.VERSION}) != expected:
+        if interpreter.digest({'properties': props, 'version': version}) != expected:
             raise ValueError('This place has changed since your preview. Listen again before committing.')
-        plan = physics.simulate(props, steps)
+        plan = _plan(interpreter, props, steps, nodes[0])
         ident = secrets.token_hex(16)
         now = _now()
-        flavor = performer + ' sets a new arrangement in motion: ' + plan['summary'] + '.'
-        data = {'intervention': ident, 'version': physics.VERSION, 'steps': steps,
+        delay = maturation_seconds(nodes[0].level) if version == 2 else 0
+        flavor = performer + (' begins ' if delay else ' acts: ') + plan['summary'] + '.'
+        if delay:
+            flavor += ' Its material change is still travelling.'
+        data = {'intervention': ident, 'version': version, 'steps': steps,
                 'flavor': flavor, 'performer': performer}
-        db.record_substance_change(seed, name, 'INTERVENTION_COMMITTED', performer,
-                                  data, {'resonance': plan['state']}, actor_identity=actor_identity)
+        changed = {} if delay else plan['changed']
+        _record(seed, name, 'INTERVENTION_COMMITTED', performer,
+                                  data, changed, actor_identity=actor_identity)
         source = db.latest_event_id()
         with db._connection() as conn:
             conn.execute('''INSERT INTO interventions(id,world_seed,participant_id,node_name,version,plan,signal,route,performer,source_event_id)
-                VALUES (?,?,?,?,?,?,?,?,?,?)''', (ident, seed, participant, name, physics.VERSION,
+                VALUES (?,?,?,?,?,?,?,?,?,?)''', (ident, seed, participant, name, version,
                 json.dumps(plan), json.dumps(plan['signal']), json.dumps([n.name for n in nodes]), performer, source))
-            if plan['signal']['strength']:
-                for hop, node in enumerate(nodes[1:], 1):
+            for hop, node in enumerate(nodes):
+                if (hop == 0 and delay) or (hop > 0 and plan['signal']['strength']):
                     conn.execute('''INSERT INTO intervention_work(intervention_id,hop,node_name,due_at)
-                        VALUES (?,?,?,?)''', (ident, hop, node.name, _stamp(now + timedelta(seconds=hop * HOP_SECONDS))))
+                        VALUES (?,?,?,?)''', (ident, hop, node.name, _stamp(now + timedelta(seconds=delay + hop * HOP_SECONDS))))
         return {'id': ident, 'accepted': True, 'event_id': source, 'node': name,
-                'changed': {'resonance': plan['state']}, 'flavor': flavor,
-                'pending_steps': len(nodes) - 1 if plan['signal']['strength'] else 0}
+                'changed': changed, 'flavor': flavor,
+                'pending_steps': (len(nodes) - 1 if plan['signal']['strength'] else 0) + bool(delay)}
     result, replayed = intents.execute(participant, seed, 'intervention', request_id, payload, apply)
     if not replayed:
         notify(seed, result)
@@ -110,9 +141,9 @@ def advance(seed=None, *, now=None):
         try:
             with db.transaction() as conn:
                 row = conn.execute('''SELECT w.intervention_id,w.hop,w.node_name,w.status,w.due_at,w.retry_at,
-                    i.world_seed,i.version,i.signal,i.source_event_id,i.performer
+                    i.world_seed,i.version,i.signal,i.source_event_id,i.performer,i.plan
                     FROM intervention_work w JOIN interventions i ON i.id=w.intervention_id WHERE w.id=?''', (work_id,)).fetchone()
-                ident, hop, name, status, due, retry, world, version, raw, source, performer = row
+                ident, hop, name, status, due, retry, world, version, raw, source, performer, raw_plan = row
                 if status != 'pending' or due > _stamp(now) or retry and retry > _stamp(now):
                     continue
                 if conn.execute("SELECT 1 FROM intervention_work WHERE intervention_id=? AND hop<? AND status='pending'", (ident, hop)).fetchone():
@@ -123,9 +154,26 @@ def advance(seed=None, *, now=None):
                 node = store.resolve_node_by_name(world, name)
                 if node is None:
                     raise ValueError('The receiving place is unavailable.')
-                delta, flavor = interpreter.receive(live(world, node), json.loads(raw), hop)
-                db.record_substance_change(world, name, 'INTERVENTION_ARRIVED', None,
-                    {'intervention': ident, 'source_event_id': source, 'hop': hop, 'flavor': flavor}, delta)
+                if hop == 0 and version == 2:
+                    plan = json.loads(raw_plan)
+                    try:
+                        settled = interpreter.simulate(live(world, node), plan['steps'], plan['level'], plan['token'])
+                        delta, flavor = settled['changed'], 'The delayed action settles: ' + settled['summary'] + '.'
+                    except ValueError:
+                        # Changed conditions can make an accepted action moot. Record that
+                        # outcome once; never keep retrying a physically impossible promise.
+                        delta, flavor = {}, 'The delayed action meets changed conditions and leaves no new material change.'
+
+                else:
+                    source_outcome = conn.execute("""SELECT m.data FROM intervention_work w
+                        JOIN world_mutations m ON m.id=w.event_id
+                        WHERE w.intervention_id=? AND w.hop=0 AND w.status='completed'""", (ident,)).fetchone()
+                    if source_outcome and not json.loads(source_outcome[0]).get('materialized'):
+                        delta, flavor = {}, 'No disturbance arrives: its source met changed conditions.'
+                    else:
+                        delta, flavor = interpreter.receive(live(world, node), json.loads(raw), hop)
+                _record(world, name, 'INTERVENTION_ARRIVED', None,
+                    {'intervention': ident, 'source_event_id': source, 'hop': hop, 'flavor': flavor, 'materialized': bool(delta)}, delta)
                 event = db.latest_event_id()
                 conn.execute("UPDATE intervention_work SET status='completed',event_id=?,last_error=NULL,retry_at=NULL WHERE id=?", (event, work_id))
             count += 1

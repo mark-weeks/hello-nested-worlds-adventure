@@ -255,7 +255,7 @@
       <li><b>Explore</b> — click a node in the map, then dive deeper into the worlds inside it.</li>
       <li><b>Speak</b> — talk to any place and it answers in character.</li>
       <li><b>Solve</b> — crack a node's puzzle; the ripple carries across scales.</li>
-      <li><b>Act</b> — every scale has one verb only it supports: mend, ward, kindle…</li>
+      <li><b>Act</b> — each scale offers different actions. Change a surface, reshape a molecule, or transform a landscape…</li>
     </ul>
     <button id="btn-begin" class="primary">Begin exploring</button>
     <a href="/guide" style="font-size:10px;color:#3a5070;letter-spacing:1px">read the full guide ↗</a>
@@ -311,7 +311,6 @@
       <button id="btn-wrap-up" hidden title="the way beyond narrows to a single particle">Ascend beyond ↑</button>
     </div>
 
-    <enfolded-interventions id="composer"></enfolded-interventions>
 
     <div class="panel" id="players-panel">
       <div class="panel-title">Explorers
@@ -367,9 +366,7 @@
 
       <!-- Act: the scale-native verb — the one thing you can only do here -->
       <div class="mode-panel" id="panel-act">
-        <div id="act-tagline" style="font-size:11px;color:#4a5580;line-height:1.5"></div>
-        <button id="btn-do-act">Act</button>
-        <div class="response-box" id="act-response"></div>
+        <enfolded-interventions id="composer"></enfolded-interventions>
       </div>
 
     </div>

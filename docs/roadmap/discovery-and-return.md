@@ -1,15 +1,13 @@
 # Discovery, Identity, and Return: Delivery Plan
 
-**2026-09-20 implementation:** The owner redirected the next major milestone
-around expressive agency and cinematic continuity over connected scales. This
-completes another portion of the earlier breadth-of-agency direction in PR #93 /
-ADR-017; it is not a new decision to allow opposing purposes. The local review
-build adds composable interventions, created resonators, delegated enactment,
-state-driven visuals/music and durable return traces under
-[ADR-027](../decisions/ADR-027-expressive-world.md). See the
-[playthrough and evidence](../evaluation/2026-09-20-expressive-world.md).
-Artistic acceptance, live-model quality and M7 human return evidence remain
-unverified. This is not a deployment or an implementation of ADR-017 rankings.
+**2026-09-20 playtest correction:** The owner rejected the initial expressive build's
+universal composer, forced agent delegation, intrusive gallery controller and
+insufficient sound differentiation. [ADR-028](../decisions/ADR-028-scale-native-autonomy.md)
+implements one scale-native Act experience, independent player agency, retired
+scripted choice controls and distinct musical forms. Earlier accepted work remains
+recoverable. [Initial build evidence](../evaluation/2026-09-20-expressive-world.md)
+is historical verification, not evidence of product acceptance. The [correction evidence](../evaluation/2026-09-20-scale-native-correction.md) records the replacement and its checks. Artistic acceptance,
+live-model quality and M7 return evidence remain unverified. No deployment or rankings.
 
 **2026-09-12 review build:** The owner authorized implementation of the decision
 review. [ADR-024](../decisions/ADR-024-participants-and-active-content.md) and

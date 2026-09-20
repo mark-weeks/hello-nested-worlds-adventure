@@ -289,8 +289,12 @@ revoke previously granted rights.
 
 Run `.venv/bin/python scripts/preview_expressive_world.py` for an isolated local
 world with four connected cinematic places, recorded adaptive music and
-composable interventions. The printed link includes a disposable local invite.
-No model key is needed for the composer, images or score. See the
+scale-native actions in a single Act tab. The printed link includes a disposable local invite.
+No model key is needed for choosing/combining actions, images or score.
+The player guide lists the current action vocabulary. Use `--resume /path/to/preview.db`
+to retain a saved local review world rather than starting over.
+`node scripts/render_score_audition.mjs http://127.0.0.1:8201 /tmp/enfolded-audition`
+creates eleven local listening excerpts with concealed scale labels. See the
 [walkthrough and acceptance evidence](docs/evaluation/2026-09-20-expressive-world.md)
 and [media provenance](docs/media/expressive-world.md). This does not change the
 production world, default invite destination, or release status.

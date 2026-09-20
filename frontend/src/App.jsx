@@ -65,8 +65,8 @@ async function savePositionToServer(node, seed, depth) {
     });
     const data = await response.json();
     if (response.ok && data.saved) return;
-  } catch (_) { /* Keep a failed arrival retryable in the clue control. */ }
-  throw new Error("Your arrival has not settled here. Try the clue again.");
+  } catch (_) { /* Keep a failed arrival retryable from the action surface. */ }
+  throw new Error("Your arrival has not settled here. Try your action again.");
 }
 
 export default function App() {
@@ -620,7 +620,7 @@ function Intro({ onBegin }) {
         <ul style={s.introList}>
           <li style={s.introItem}><b style={s.introVerb}>Explore</b> — step through the passages; every place contains worlds.</li>
           <li style={s.introItem}><b style={s.introVerb}>Speak</b> — talk to any place. It answers in character, and it remembers.</li>
-          <li style={s.introItem}><b style={s.introVerb}>Compose</b> — create a resonator, change its purpose, and follow what it sends into the enclosing worlds.</li>
+          <li style={s.introItem}><b style={s.introVerb}>Act</b> — change what matters to you. Each scale offers different possibilities; combine actions and follow their consequences.</li>
           <li style={s.introItem}><b style={s.introVerb}>Solve</b> — crack a node's puzzle; the ripple settles places far above and below.</li>
         </ul>
         <button onClick={onBegin} style={{ ...s.nameButton, alignSelf: "flex-start" }}>Begin</button>

@@ -1,5 +1,7 @@
 # Expressive world: implementation and acceptance evidence
 
+> **Superseded review result:** The owner rejected this build’s interaction and sound design. Its test results are historical engineering evidence, not product acceptance. See the [scale-native correction](2026-09-20-scale-native-correction.md) and [ADR-028](../decisions/ADR-028-scale-native-autonomy.md).
+
 **2026-09-20 · local review build · base `f87968b`**
 
 The owner authorized implementation of a demanding cinematic experience spanning

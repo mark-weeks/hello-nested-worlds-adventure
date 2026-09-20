@@ -1,7 +1,7 @@
 """A shared, versioned interpretation of place, independent of media providers."""
-from multiverse.interventions import digest, read_state
+from multiverse.interventions_v2 import digest, read_state
 
-VERSION = 1
+VERSION = 2
 PLATES = {
     'Emberlit Orchard Terraces-111111': ('orchard', 'a lace of pollen hangs about it; it tightens when approached, and it is patient the way stone is patient.'),
     'Broken Ember Gallery-1111111': ('gallery', 'it carries a dusting of dew; it holds itself perfectly still, and it has forgiven whatever happened here.'),
@@ -64,5 +64,5 @@ def describe(node):
               'memory': state['memory'], 'scar': state['scar'], 'last_wave': state['last_wave'],
               'family': family, 'plate': plate, 'lighting': str(p.get('lighting', 'ambient')),
               'geometry': str(p.get('geometry', '')), 'condition': str(p.get('condition', ''))}
-    result['revision'] = digest(result)
+    result['revision'] = digest({'senses': result, 'properties': p})
     return result

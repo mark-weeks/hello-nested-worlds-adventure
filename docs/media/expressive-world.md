@@ -35,7 +35,7 @@ rewrite world birth or historical deltas.
 
 ## Recorded score sources
 
-The six source performances are from **VSCO 2 Community Edition**, by Sam Gossner /
+The eleven source performances are from **VSCO 2 Community Edition**, by Sam Gossner /
 Versilian Studios and contributors. The project distributes these recordings under
 [CC0 1.0](https://github.com/sgossner/VSCO-2-CE/blob/440300901dfe9275fd84e0b7763af1f8443ae62e/LICENSE).
 The [official library page](https://versilian-studios.com/vsco-community/) describes
@@ -44,17 +44,26 @@ its scope and license. The full license is included as
 are retained in `static/media/score/sources.json`.
 
 Pinned source commit: `440300901dfe9275fd84e0b7763af1f8443ae62e`.
-The cello section, violin section, low/high harp, flute and tremolo violin recordings were
-converted from WAV to 192 kb/s MP3 using FFmpeg/libmp3lame for browser delivery.
-No source audio is synthesized or copied from commercial film scores.
+The cello section, violin section, low/high harp, flute, tremolo violin, French
+horn, bassoon, marimba, glockenspiel and pizzicato violin recordings are converted
+from WAV with FFmpeg/libmp3lame. Added samples use quality 3 VBR; originals use
+192 kb/s. Source recordings are CC0; no commercial film score is copied.
 
-`static/score.js` supplies the original arrangement: four motif contours evolving through a sixteen-phrase arc, scale-dependent register, a shared
-regional tonal family, polarity/tension-sensitive harmony, woven/energy-sensitive
-harp density, string and flute phrases, environmental noise filtered by weather,
-a deterministic room impulse, gain envelopes and a compressor. The transport
-persists across node changes; pending musical direction takes over at the next
-8-beat phrase boundary. A small harp cue can respond immediately to a local echo
-change. Play requires a user gesture and the score has mute and volume controls.
+`static/score.js` writes eleven distinct forms (see `SCORE_PROFILES` and the pure
+`scoreEvents` score), with a shared family motif. Long bowed membrane tides,
+vacuum wind chords, a stellar procession, orbital polyrhythms, planetary horn
+phrases, regional flute calls, enclosed harp echoes, close material gestures,
+molecular hockets, atomic bells and subatomic sparks differ in instrumentation,
+timing, register, articulation, silence, pan and reverberation. Sample peaks are
+normalized on decode before per-voice dynamics and a master compressor. Atomic
+partials and subatomic sparks also use sine synthesis.
+
+Material and current properties change the form: object material/finish/fracture,
+room lighting/ceiling/air, molecular bonds/geometry/reactivity, atomic ionization
+and resonance, particle spin/coherence, and cosmic rotation/density/drift/hum.
+A scale change fades old voices and starts the new language in 80ms; state changes
+keep the transport and adopt the next direction at a phrase boundary. Listening
+requires a gesture; mute and volume use one shared control per client.
 
 The samples and all four plates ship locally, so testing this presentation does
 not depend on a model key, external media provider, or per-visit generation cost.

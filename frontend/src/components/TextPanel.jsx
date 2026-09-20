@@ -1,10 +1,7 @@
-import Interventions from "./Interventions.jsx";
-import Investigation from "./Investigation.jsx";
 import { useState } from "react";
 import Chronicle from "./Chronicle.jsx";
 import Interact from "./Interact.jsx";
 import Wayback from "./Wayback.jsx";
-import { passageBadges } from "../badges.js";
 import { causalFeedLine, displayName, nodeAddress } from "../names.js";
 
 export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, passageLoadStatus = "idle", onPassageRetry, wrapPassage = null, onWrapCross, onSolved, onNodeChanged, onEnsurePosition, soundOn, onToggleSound, onWaybackListen, scoreVolume, onScoreVolume }) {
@@ -12,7 +9,6 @@ export default function TextPanel({ node, players, agents = {}, connected, event
   const [chronicleOpen, setChronicleOpen] = useState(false);
   const [waybackOpen, setWaybackOpen] = useState(false);
 
-  const here = players.filter(p => p.node === node.name);
 
   const handleChat = () => {
     const text = chatInput.trim();
@@ -54,16 +50,16 @@ export default function TextPanel({ node, players, agents = {}, connected, event
       </div>
 
       <div style={{padding:'10px 18px',display:'flex',alignItems:'center',gap:12}}>
-        <button onClick={onToggleSound} aria-pressed={!!soundOn} style={{color:'#d5c59f',background:'#122622',border:'1px solid #627970',padding:9,cursor:'pointer'}}>{soundOn ? 'Pause score' : 'Listen to this world'}</button>
+        <button id="btn-sound" onClick={onToggleSound} aria-pressed={!!soundOn} style={{color:'#d5c59f',background:'#122622',border:'1px solid #627970',padding:9,cursor:'pointer'}}>{soundOn ? 'Pause score' : 'Listen to this world'}</button>
         <label style={{fontSize:11,color:'#a6beb5'}}>Volume <input aria-label="Score volume" type="range" min="0" max="1" step=".05" value={scoreVolume} onChange={e=>onScoreVolume(Number(e.target.value))} style={{width:70}} /></label>
       </div>
-      <Interventions node={node} seed={seed} onJump={onJump} onNodeChanged={onNodeChanged} onEnsurePosition={onEnsurePosition} />
 
-      <Investigation key={`${seed}:${node.name}`} node={node} seed={seed} onJump={onJump} onNodeChanged={onNodeChanged} onEnsurePosition={onEnsurePosition} />
+
+      <Interact node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} onNodeChanged={onNodeChanged} onJump={onJump} onEnsurePosition={onEnsurePosition} />
 
       {Object.keys(node.properties).length > 0 && (
-        <div style={s.section}>
-          <div style={s.label}>Properties</div>
+        <details style={s.section}>
+          <summary style={{...s.label,cursor:"pointer"}}>Conditions here</summary>
           {Object.entries(node.properties).map(([k, v]) => (
             <div key={k} style={s.prop}>
               <span style={s.propKey}>{k}</span>
@@ -78,30 +74,10 @@ export default function TextPanel({ node, players, agents = {}, connected, event
               </span>
             </div>
           )}
-        </div>
+        </details>
       )}
 
-      <Interact node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} onNodeChanged={onNodeChanged} />
 
-      {node.children.length > 0 && (
-        <div style={s.section}>
-          <div style={s.label}>Passages ({node.children.length})</div>
-          {node.children.map(c => (
-            <button
-              key={c.id}
-              type="button"
-              style={s.passage}
-              title={`Travel to ${c.name}`}
-              onClick={() => onJump?.(c.name)}
-            >
-              → {displayName(c.name)} <span style={s.passageLevel}>({c.level})</span>
-              {passageBadges(c).map(b => (
-                <span key={b.key} style={{ ...s.badge, color: b.css, borderColor: b.css + "55" }}>{b.label}</span>
-              ))}
-            </button>
-          ))}
-        </div>
-      )}
 
       {passageLoadStatus === "loading" && (
         <div style={s.section}>
@@ -129,13 +105,6 @@ export default function TextPanel({ node, players, agents = {}, connected, event
             {wrapPassage.direction === "inward" ? "Descend into the whole ↓" : "Ascend beyond ↑"}
           </button>
           <div style={s.wrapHint}>{wrapPassage.passage}</div>
-        </div>
-      )}
-
-      {here.length > 0 && (
-        <div style={s.section}>
-          <div style={s.label}>Present here</div>
-          {here.map(p => <div key={p.session_id} style={s.player}>◈ {p.name}</div>)}
         </div>
       )}
 
@@ -215,15 +184,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
           {connected ? "● connected" : "○ disconnected"}
         </span>
         <span style={s.statusRight}>
-          {onToggleSound && (
-            <button
-              id="btn-sound"
-              style={s.soundBtn}
-              aria-pressed={!!soundOn}
-              title="Ambient sound: every place hums its own deterministic tone"
-              onClick={onToggleSound}
-            >♪ {soundOn ? "on" : "off"}</button>
-          )}
+
         </span>
       </div>
 

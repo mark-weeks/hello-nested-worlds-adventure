@@ -12,6 +12,10 @@
      material AI assistance, known limitations, and reporting/verification credit.
      See CONTRIBUTING.md for rights and third-party attribution requirements. -->
 
+<!-- For player-facing changes: identify the existing surface extended or replaced.
+     Check that no parallel control duplicates it and no player can force another
+     human or AI player's actions. Validate scale-native effects and presentation. -->
+
 ## Verification
 
 <!-- Report checks actually run and their outcomes. For documentation-only work,
