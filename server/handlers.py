@@ -144,8 +144,10 @@ def _actor_identity(user_key: str, player_name: str | None) -> str | None:
 
 def _node_to_dict(node: SpatialNode, activity: dict | None = None,
                   pending: dict | None = None, *, children: bool = True) -> dict:
+    from multiverse.senses import describe
     verb = verb_for_level(node.level)
     return {
+        "senses": describe(node),
         **({"id": node.id} if children else {}),
         "name": node.name,
         "level": node.level,
@@ -169,6 +171,7 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None,
 
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
+    "/interventions/preview", "/interventions/commit",
     "/client-error", "/register", "/journal/note", "/profile/save", "/profile/home", "/situation/discover", "/situation/choose", "/situation/follow-up",
 })
 
@@ -275,10 +278,11 @@ class Handler(BaseHTTPRequestHandler):
         stripped = path.rstrip("/")
         if stripped in ("", "/health", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js", "/nodesound.js",
+                        "/score.js", "/sensory.js", "/interventions.js",
                         "/guide", "/register", "/register.js", "/favicon.ico",
                         "/journal", "/journal.js", "/ideas", "/ideas.js"):
             return True
-        if stripped == "/app" or path.startswith("/app/"):
+        if stripped == "/app" or path.startswith("/app/") or path.startswith("/media/"):
             return True
         if path.startswith("/easter-egg"):
             return True
@@ -447,11 +451,20 @@ class Handler(BaseHTTPRequestHandler):
             vals = qs.get(key)
             return vals[0] if vals else default
 
-        from server import ideas_api, participant_api, situation_api
-        if ideas_api.handle(self, path, qs) or participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
+        from server import ideas_api, intervention_api, participant_api, situation_api
+        if intervention_api.handle(self, path, qs) or ideas_api.handle(self, path, qs) or participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
             return
 
-        if path == "/ideas":
+        if path.startswith("/media/"):
+            import mimetypes
+            media_root = (_STATIC_DIR / "media").resolve()
+            media_file = (_STATIC_DIR / path.lstrip("/")).resolve()
+            if not media_file.is_relative_to(media_root) or media_file.suffix not in (".png", ".wav", ".mp3", ".ogg"):
+                return self._send_error("no such scene", 404)
+            self._send_file(media_file, mimetypes.guess_type(media_file.name)[0] or "application/octet-stream")
+        elif path in ("/score.js", "/sensory.js", "/interventions.js"):
+            self._send_file(_STATIC_DIR / path.lstrip("/"), "application/javascript; charset=utf-8")
+        elif path == "/ideas":
             self._send_file(_STATIC_DIR / "ideas.html")
         elif path == "/ideas.js":
             self._send_file(_STATIC_DIR / "ideas.js", content_type="application/javascript; charset=utf-8")
@@ -594,9 +607,12 @@ class Handler(BaseHTTPRequestHandler):
                     seed, born.name, born.properties, at_step=at_step)
             except ValueError as exc:
                 return self._send_error(str(exc))
+            from multiverse.senses import describe
+            born.properties = state["properties"]
             self._send_json({
                 "seed": seed,
                 "node": {
+                    "senses": describe(born),
                     "name": born.name,
                     "level": born.level,
                     "properties": state["properties"],
@@ -769,8 +785,8 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._send_error("request body must be a JSON object")
 
-        from server import ideas_api, participant_api, situation_api
-        if ideas_api.handle(self, path, qs, body) or participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
+        from server import ideas_api, intervention_api, participant_api, situation_api
+        if intervention_api.handle(self, path, qs, body) or ideas_api.handle(self, path, qs, body) or participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
             return
 
         if path == "/speak":
@@ -923,16 +939,9 @@ class Handler(BaseHTTPRequestHandler):
                                                include_narration=False)
         ripple_score = node.ripple_score
 
-        # Cache key folds in:
-        #   - history bucket (every 5 interactions → fresh image even if
-        #     style modifiers don't shift), and
-        #   - style signature (modifier flips, including ripple_score crossing
-        #     its threshold → fresh image even if the bucket hasn't advanced).
-        history_bucket = len(history) // 5
-        sig            = imageprompt.style_signature(
-            node.level, node.properties, history, ripple_score=ripple_score,
-        )
-        node_key       = f"{seed_int}:{node.name}:{history_bucket}:{sig}"
+        # Media revisions follow material state, not the number of interactions.
+        sig = imageprompt.style_signature(node.level, node.properties, history, ripple_score=ripple_score)
+        node_key = f"{seed_int}:{node.name}:sensory-v1:{sig}"
         cached         = persistence.get_cached_image(node_key)
         if cached:
             return self._send_json({"url": cached})

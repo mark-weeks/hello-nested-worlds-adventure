@@ -1,3 +1,4 @@
+import Interventions from "./Interventions.jsx";
 import Investigation from "./Investigation.jsx";
 import { useState } from "react";
 import Chronicle from "./Chronicle.jsx";
@@ -6,7 +7,7 @@ import Wayback from "./Wayback.jsx";
 import { passageBadges } from "../badges.js";
 import { causalFeedLine, displayName, nodeAddress } from "../names.js";
 
-export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, passageLoadStatus = "idle", onPassageRetry, wrapPassage = null, onWrapCross, onSolved, onNodeChanged, onEnsurePosition, soundOn, onToggleSound, onWaybackListen }) {
+export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, onJump, passageLoadStatus = "idle", onPassageRetry, wrapPassage = null, onWrapCross, onSolved, onNodeChanged, onEnsurePosition, soundOn, onToggleSound, onWaybackListen, scoreVolume, onScoreVolume }) {
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
   const [waybackOpen, setWaybackOpen] = useState(false);
@@ -52,6 +53,12 @@ export default function TextPanel({ node, players, agents = {}, connected, event
         </div>
       </div>
 
+      <div style={{padding:'10px 18px',display:'flex',alignItems:'center',gap:12}}>
+        <button onClick={onToggleSound} aria-pressed={!!soundOn} style={{color:'#d5c59f',background:'#122622',border:'1px solid #627970',padding:9,cursor:'pointer'}}>{soundOn ? 'Pause score' : 'Listen to this world'}</button>
+        <label style={{fontSize:11,color:'#a6beb5'}}>Volume <input aria-label="Score volume" type="range" min="0" max="1" step=".05" value={scoreVolume} onChange={e=>onScoreVolume(Number(e.target.value))} style={{width:70}} /></label>
+      </div>
+      <Interventions node={node} seed={seed} onJump={onJump} onNodeChanged={onNodeChanged} onEnsurePosition={onEnsurePosition} />
+
       <Investigation key={`${seed}:${node.name}`} node={node} seed={seed} onJump={onJump} onNodeChanged={onNodeChanged} onEnsurePosition={onEnsurePosition} />
 
       {Object.keys(node.properties).length > 0 && (
@@ -60,7 +67,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
           {Object.entries(node.properties).map(([k, v]) => (
             <div key={k} style={s.prop}>
               <span style={s.propKey}>{k}</span>
-              <span style={s.propVal}>{String(v)}</span>
+              <span style={s.propVal}>{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
             </div>
           ))}
           {node.ripple_score > 0 && (

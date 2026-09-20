@@ -261,7 +261,7 @@ test(`${route} keeps a delayed ${heldEndpoint} response attached to the place wh
     });
     await page.getByRole("button", { name: "Kindle this Galaxy", exact: true }).click();
     await accepted;
-    if (route === "/app") await page.getByRole("button", { name: "← back", exact: true }).click();
+    if (route === "/app") await page.getByRole("button", { name: "↑ Enclosing world", exact: true }).click();
     else await page.evaluate(() => {
       const root = [...document.querySelectorAll("#graph .node")]
         .find(el => el.__data__?.data?.level === "Multiverse");

@@ -175,7 +175,7 @@ test('320px GPU-free scene offers keyboard navigation and investigation controls
 test('renderer initialization failure leaves a navigable text scene', async ({page}) => {
   const server = await start();
   try {
-    await page.route('**/assets/init-*.js', route => route.abort());
+    await page.addInitScript(() => { HTMLCanvasElement.prototype.getContext = () => null; });
     await enter(page, server);
     await expect(page.getByRole('region', {name: 'Text scene'})).toBeVisible();
     await page.getByRole('region', {name: 'Text scene'}).getByRole('button').first().click();
@@ -190,6 +190,7 @@ for (const saveFailure of [false, true]) {
     const held = new Promise(resolve => { release = resolve; });
     let blocked = false;
     let attempts = 0;
+    let canSave = !saveFailure;
     const discoveries = [];
     page.on('request', request => {
       if (new URL(request.url()).pathname === '/situation/discover') discoveries.push(request.postDataJSON());
@@ -197,10 +198,11 @@ for (const saveFailure of [false, true]) {
     try {
       await page.route('**/position*', async route => {
         const request = route.request();
-        if (request.method() === 'POST' && request.postDataJSON()?.node === names.instrument && ++attempts === 1) {
-          blocked = true;
-          await held;
-          if (saveFailure) return route.abort('failed');
+        if (request.method() === 'POST' && request.postDataJSON()?.node === names.instrument) {
+          if (++attempts === 1) { blocked = true; await held; }
+          // Depth expansion may queue another save. Keep the fixture outage
+          // active until the player's explicit retry, independent of timing.
+          if (!canSave) return route.abort('failed');
         }
         await route.continue();
       });
@@ -219,6 +221,7 @@ for (const saveFailure of [false, true]) {
       if (saveFailure) {
         await expect(panel).toContainText('Try the clue again.');
         expect(discoveries).toEqual([]);
+        canSave = true;
         await read.click();
       }
       await expect(panel.locator('blockquote')).toBeVisible();

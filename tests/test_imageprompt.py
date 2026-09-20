@@ -129,15 +129,13 @@ class TestAssemblePrompt:
         assert "lighting" in out
         assert "flickering" in out
 
-    def test_property_summary_capped_at_six(self):
-        # Use single-letter keys so the sort order is unambiguous.
-        props = {k: i for i, k in enumerate("abcdefghij")}
+    def test_property_summary_keeps_material_state_beyond_the_old_six_property_cutoff(self):
+        props = {f"k{i:02}": i for i in range(40)}
         out = assemble_prompt("Room", "Vault", props, [])
-        # Sorted: a..f are kept (6 entries); g..j are dropped.
-        for k in ("a", "b", "c", "d", "e", "f"):
-            assert f"{k}: " in out
-        for k in ("g", "h", "i", "j"):
-            assert f"{k}: " not in out
+        assert "k31: " in out and "k32: " not in out
+        before = {"aspect": "frost", "resonance": {"woven": False}}
+        after = {"aspect": "pollen", "resonance": {"woven": True}}
+        assert style_signature("Object", before, []) != style_signature("Object", after, [])
 
     def test_distinct_levels_produce_distinct_prompts(self):
         a = assemble_prompt("Multiverse", "X", {}, [])

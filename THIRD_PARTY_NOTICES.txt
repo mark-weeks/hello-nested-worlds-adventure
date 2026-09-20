@@ -1232,3 +1232,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+VSCO 2 Community Edition orchestral recordings
+---------------------------------------------
+Source: https://github.com/sgossner/VSCO-2-CE
+Pinned commit: 440300901dfe9275fd84e0b7763af1f8443ae62e
+Creators: Sam Gossner / Versilian Studios and contributors
+License: CC0 1.0 Universal (public domain dedication)
+The full license is included at static/media/score/VSCO-LICENSE.txt.
+Source file URLs and WAV hashes: static/media/score/sources.json.
+The shipped MP3 recordings were transcoded at 192 kb/s from those sources.
+Enfolded's runtime arrangement is separate from the source performances.

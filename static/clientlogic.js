@@ -294,6 +294,7 @@
       name: snapshotNode.name || liveNode.name,
       level: snapshotNode.level || liveNode.level,
       properties: { ...(snapshotNode.properties || {}) },
+      senses: snapshotNode.senses ? {...snapshotNode.senses} : undefined,
       ripple_score: Number(snapshotNode.ripple_score) || 0,
       activity: Math.max(0, Number(snapshotNode.activity) || 0),
     };

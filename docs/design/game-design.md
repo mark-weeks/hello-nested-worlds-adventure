@@ -1,5 +1,14 @@
 # Game Design Document — Enfolded: Nested World Adventure
 
+**2026-09-20 local review build:** [Expressive interventions](../decisions/ADR-027-expressive-world.md)
+add a shared grammar of weave, charge, invert, release, dampen and unweave beside
+the eleven existing scale verbs. Created structures, ordered acts and current
+receiving conditions produce persistent consequences. Four connected places now
+share generated cinematic plates, semantic live effects and a continuous sampled
+score. Both browser clients expose composition, previews, explicit agent delegation
+and recoverable outcomes. [Walkthrough and verification](../evaluation/2026-09-20-expressive-world.md).
+Human artistic/return acceptance and live-model quality remain unverified.
+
 The September 12 discovery/return slice implements one bounded shared signal
 investigation in existing places ([ADR-025](../decisions/ADR-025-first-situation.md)).
 Preserving keeper control and releasing the signal have different beneficiaries
@@ -22,7 +31,7 @@ identity, referential puzzles, optional spoken interaction, and multidimensional
 contribution leaderboards, plus a proposed collection and assembly direction.
 
 The mechanics below describe the existing implementation unless labeled planned.
-The first situation and new identity/speech capabilities are not shipped.
+The dated implementation notes above distinguish completed local behavior from planned extensions.
 
 ## Core Interaction Model
 

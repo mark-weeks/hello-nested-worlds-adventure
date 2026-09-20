@@ -347,7 +347,7 @@ def test_image_and_banter_keep_style_and_ordinal_without_projection(client, monk
         persistence.record_mutation(SEED, node.name, "AGENT_TALK" if index % 10 == 0 else "PLAYER_CHAT",
                                     "Ada" if index % 2 else "Bea", {})
     history = persistence.get_node_history(SEED, node.name, 1000)
-    expected_key = f"{SEED}:{node.name}:{len(history) // 5}:{imageprompt.style_signature(node.level, node.properties, history)}"
+    expected_key = f"{SEED}:{node.name}:sensory-v1:{imageprompt.style_signature(node.level, node.properties, history)}"
     ordinal = sum(h["type"] == "AGENT_TALK" for h in history[:50])
     with patch("persistence.history.project", side_effect=AssertionError("unused narration")), \
             patch.object(persistence, "get_cached_image", return_value="https://example.test/image.png") as cached, \

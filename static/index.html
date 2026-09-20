@@ -285,6 +285,7 @@
   <button id="btn-sound" title="Ambient sound: every place hums its own deterministic tone"
           aria-pressed="false"
           style="font-size:10px;padding:3px 8px;letter-spacing:1px;white-space:nowrap">♪ off</button>
+  <label style="font-size:10px">Volume <input id="score-volume" aria-label="Score volume" type="range" min="0" max="1" step=".05" value=".55" style="width:65px"></label>
   <a href="/app" style="font-size:12px;color:#bce5dc">Investigate in scene view ↗</a>
   <a href="/journal" target="_blank" rel="noopener" style="font-size:12px;color:#9fcbea">Journal ↗</a>
   <span style="display:inline-flex;gap:12px;align-items:center">
@@ -309,6 +310,8 @@
       <button id="btn-wrap-down" hidden title="the way inward opens onto the whole">Descend into the whole ↓</button>
       <button id="btn-wrap-up" hidden title="the way beyond narrows to a single particle">Ascend beyond ↑</button>
     </div>
+
+    <enfolded-interventions id="composer"></enfolded-interventions>
 
     <div class="panel" id="players-panel">
       <div class="panel-title">Explorers

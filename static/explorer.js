@@ -283,6 +283,7 @@ function fitView() {
     .scale(scale));
 }
 
+let stopSensory = null;
 function drawSigil(data) {
   const sigil = document.getElementById('node-sigil');
   if (!sigil) return;
@@ -291,7 +292,10 @@ function drawSigil(data) {
   sigil.setAttribute('aria-label',
     `Generative sigil of ${data.name}, a ${data.level}. ` +
     ((data.properties && data.properties.aspect) || ''));
-  if (window.NodeArt) {
+  if (window.startSensory) {
+    stopSensory?.();
+    stopSensory = window.startSensory(sigil, data);
+  } else if (window.NodeArt) {
     try { window.NodeArt.drawNodeArt(sigil, worldParams.seed, data); } catch (_) {}
   } else {
     // The art ships as a deferred ES module, so the initial entry selection
@@ -356,6 +360,7 @@ function selectNode(data, { refresh = false } = {}) {
   // properties, marked by history (pressure, effects, activity etchings).
   drawSigil(data);
 
+  configureComposer(data);
   refreshActPanel(data, { clearResponse: !refresh });
   if (!refresh) {
     document.getElementById('speak-response').textContent = '';
@@ -599,12 +604,14 @@ function _resetWaybackView() {
   document.getElementById('wayback-listen').disabled = true;
 }
 
+let stopWaybackSensory = null;
 function renderWayback(data) {
   waybackSnapshot = data;
   const historical = _waybackHistoricalNode();
   const timeline = data.timeline;
   const canvas = document.getElementById('wayback-preview');
-  try { window.NodeArt?.drawNodeArt(canvas, worldParams.seed, historical); } catch (_) {}
+  stopWaybackSensory?.();
+  stopWaybackSensory = window.startSensory?.(canvas, historical);
   canvas.setAttribute('aria-label',
     `${displayName(historical.name)} at ${timeline.step === 0 ? 'birth' :
       timeline.present ? 'present' : `trace ${timeline.step}`}`);
@@ -693,6 +700,7 @@ function openWayback() {
 }
 
 function closeWayback() {
+  stopWaybackSensory?.(); stopWaybackSensory = null;
   waybackController?.abort();
   clearTimeout(waybackTimer);
   clearTimeout(waybackScrubTimer);
@@ -1242,6 +1250,10 @@ function handleWsMsg(msg) {
       flashNode(msg.node, msg.strength);
       break;
     }
+    case 'intervention_changed':
+      pushFeed(msg.flavor || 'A new arrangement arrives.');
+      if (selected?.name === msg.node) refreshPendingAct(msg.node, msg);
+      break;
     case 'scale_act': {
       pushFeed(`✦ ${scaleActLine(msg)}`);
       flashNode(msg.node, 0.8);
@@ -1510,3 +1522,19 @@ if (!localStorage.getItem(INTRO_SEEN)) {
   if (egg)   egg.addEventListener('click',   e => { if (e.target === egg) hide(); });
   if (close) close.addEventListener('click', hide);
 })();
+
+function configureComposer(data) {
+  if (!customElements.get('enfolded-interventions')) return;
+  document.getElementById('composer').context = {
+    node:data,seed:worldParams.seed,key:localStorage.getItem('nw_beta_key') || '',
+    jump:name=>jumpTo(name),
+    changed:()=>refreshPendingAct(data.name,{}),
+    ensure:async()=>{
+      const response=await fetch(withKey('/position'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node:data.name,seed:worldParams.seed,depth:worldParams.depth})});
+      if(!response.ok || !(await response.json()).saved) throw new Error('Your arrival has not settled here. Try again.');
+    },
+  };
+}
+window.addEventListener('senses-ready',()=>{if(selected){drawSigil(selected);configureComposer(selected);}});
+
+document.getElementById('score-volume').addEventListener('input',event=>window._nwAmbience?.setVolume(Number(event.target.value)));

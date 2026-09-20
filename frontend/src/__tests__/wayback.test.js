@@ -76,3 +76,12 @@ describe("soundscapeKey", () => {
   });
 });
 
+
+
+it('historical presentation does not inherit the live sensory state', () => {
+  const live = {name:'A', senses:{woven:true,revision:'now'}, properties:{}};
+  const earlier = waybackNode(live,{name:'A',senses:{woven:false,revision:'then'},properties:{}});
+  expect(earlier.senses.woven).toBe(false);
+  expect(earlier.senses.revision).toBe('then');
+  expect(waybackNode(live,{name:'A',properties:{}}).senses).toBeUndefined();
+});

@@ -25,6 +25,7 @@ export function dispatchMessage(msg, h) {
     case "agent_enter":     h.onAgentEnter?.(msg); break;
     case "agent_move":      h.onAgentMove?.(msg); break;
     case "agent_leave":     h.onAgentLeave?.(msg); break;
+    case "intervention_changed": h.onIntervention?.(msg); break;
     case "scale_act":       h.onScaleAct?.(msg); break;
     case "agent_talk":      h.onAgentTalk?.(msg); break;
     default: break;

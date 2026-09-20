@@ -1,0 +1,25 @@
+import {describe,it,expect} from 'vitest';
+import {NodeAmbience,scoreDirection} from '../../../static/score.js';
+const place=(name,senses)=>({name,senses});
+describe('continuous orchestration',()=>{
+  it('shares a tonal family while material, polarity, memory and danger direct the music',()=>{
+    const a=scoreDirection(place('Gallery',{family:2,texture:'mineral',polarity:1,tension:.2}));
+    const b=scoreDirection(place('Instrument',{family:2,texture:'filament',polarity:-1,tension:.8,memory:'00ff',woven:true}));
+    expect(a.root).toBe(b.root);expect(a.third).toBe(4);expect(b.third).toBe(3);
+    expect(b.bright).toBe(true);expect(b.woven).toBe(true);expect(b.motif).toBe(3);
+  });
+  it('updates a pending direction without destroying voices or resetting the musical clock',()=>{
+    const score=new NodeAmbience(); score.step=19;score.next=14;score.enabled=true;score.ctx={currentTime:4};score.note=()=>{};
+    const voices=score.sources;
+    score.setNode(382,place('Instrument',{revision:'a',family:1}));
+    score.setNode(382,place('Instrument',{revision:'b',family:1,echo:3}));
+    expect(score.step).toBe(19);expect(score.next).toBe(14);expect(score.sources).toBe(voices);expect(score.pending.echo).toBe(3);
+  });
+  it('adopts the pending harmony on a phrase boundary and skips suspended backlog',()=>{
+    const score=new NodeAmbience();score.enabled=true;score.ctx={currentTime:100,state:'running'};score.step=8;score.next=1;
+    score.pending=scoreDirection(place('Chain',{family:3,polarity:-1}));score.direction=scoreDirection(place('Orchard',{family:0}));
+    const notes=[];score.note=(...args)=>notes.push(args);score.air=()=>{};
+    score.schedule();expect(score.step).toBe(9);expect(score.direction).toBe(score.pending);expect(notes.length).toBeLessThan(6);
+    expect(notes.every(n=>n[2]>=100)).toBe(true);
+  });
+});

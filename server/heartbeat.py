@@ -696,6 +696,11 @@ def run_pump_loop(stop: threading.Event) -> None:
             advance(hosted_seed)
         except Exception:  # noqa: BLE001 — other queues cannot block a commitment
             _log.exception("situation progression failed; continuing")
+        try:
+            from persistence.interventions import advance as advance_interventions
+            advance_interventions(hosted_seed)
+        except Exception:
+            _log.exception("intervention progression failed; continuing")
 
 
 def start_pump() -> threading.Event:

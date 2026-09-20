@@ -107,7 +107,7 @@ def derive_modifiers(properties: dict, history: list[dict],
     return mods
 
 
-def _prop_pairs(properties: dict, limit: int = 6) -> list[tuple[str, object]]:
+def _prop_pairs(properties: dict, limit: int = 32) -> list[tuple[str, object]]:
     """Stable, capped property listing for prompt + signature.
 
     `aspect` is excluded — it gets its own dedicated prompt line.
@@ -156,5 +156,5 @@ def style_signature(level: str, properties: dict,
     baseline  = HIERARCHY_STYLES.get(level, _DEFAULT_STYLE)
     modifiers = derive_modifiers(properties, history, ripple_score)
     pairs     = _prop_pairs(properties)
-    seed_str  = f"{baseline}|{'|'.join(modifiers)}|{pairs}"
+    seed_str  = f"sensory-v1|{baseline}|{'|'.join(modifiers)}|{pairs}|{properties.get('aspect', '')}"
     return hashlib.sha1(seed_str.encode("utf-8")).hexdigest()[:8]

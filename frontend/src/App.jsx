@@ -8,7 +8,7 @@ import { describeMutation, scaleActLine, causalNoticeLine } from "./mutations.js
 import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
 import { displayName } from "./names.js";
 import { createNodeRefresher } from "./nodeRefresh.js";
-import { NodeAmbience } from "../../static/nodesound.js";
+import { NodeAmbience } from "../../static/score.js";
 
 // Honor the OS-level motion preference: transient overlays (ripples,
 // sparkles, encounter glyphs) become no-ops instead of movement.
@@ -90,6 +90,7 @@ export default function App() {
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || urlName() || "");
   const [introSeen, setIntroSeen] = useState(() => !!localStorage.getItem(INTRO_SEEN));
   const [soundOn, setSoundOn] = useState(false);
+  const [scoreVolume, setScoreVolume] = useState(.55);
   // Sound is the intended default. Browsers still require a user gesture
   // before WebAudio can start; the first gesture activates this preference.
   // Only an explicit mute opts out, and that choice survives reloads.
@@ -309,6 +310,11 @@ export default function App() {
       }
     },
     onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${displayName(msg.node)}` }),
+    onIntervention: (msg) => {
+      pushEvent({type: 'system', text: msg.flavor || 'A new arrangement arrives.'});
+      refreshCurrentNode(msg.node, msg);
+      if (msg.node === currentNodeName) pushTransient({kind:'ripple',strength:.9,duration:2500});
+    },
     onScaleAct: (msg) => {
       pushEvent({ type: "system", text: `✦ ${scaleActLine(msg)}` });
       if (msg.node === currentNodeName) {
@@ -541,6 +547,8 @@ export default function App() {
     }
   }, [soundOn, waybackSoundPreview, seed, currentNode]);
 
+  useEffect(() => { ambienceRef.current?.setVolume(scoreVolume); }, [scoreVolume, soundOn]);
+
   if (!introSeen) {
     return <Intro onBegin={() => {
       enablePreferredSound();
@@ -592,6 +600,7 @@ export default function App() {
         onEnsurePosition={ensurePosition}
         soundOn={soundPreferred}
         onToggleSound={toggleSound}
+        scoreVolume={scoreVolume} onScoreVolume={setScoreVolume}
         onWaybackListen={previewWaybackSound}
       />
     </div>
@@ -611,6 +620,7 @@ function Intro({ onBegin }) {
         <ul style={s.introList}>
           <li style={s.introItem}><b style={s.introVerb}>Explore</b> — step through the passages; every place contains worlds.</li>
           <li style={s.introItem}><b style={s.introVerb}>Speak</b> — talk to any place. It answers in character, and it remembers.</li>
+          <li style={s.introItem}><b style={s.introVerb}>Compose</b> — create a resonator, change its purpose, and follow what it sends into the enclosing worlds.</li>
           <li style={s.introItem}><b style={s.introVerb}>Solve</b> — crack a node's puzzle; the ripple settles places far above and below.</li>
         </ul>
         <button onClick={onBegin} style={{ ...s.nameButton, alignSelf: "flex-start" }}>Begin</button>

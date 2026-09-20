@@ -1,0 +1,20 @@
+.cinematic-scene { flex:1 1 60%; min-width:0; min-height:420px; position:relative; overflow:hidden; background:#081316; color:#f3e5cf; }
+.living-canvas { position:absolute; inset:0; width:100%; height:100%; }
+.scene-vignette { position:absolute; inset:0; pointer-events:none; background:linear-gradient(180deg,rgba(2,8,12,.35),transparent 36%,rgba(2,8,12,.86)); }
+.scene-nav { position:absolute; top:24px; left:28px; right:28px; display:flex; justify-content:space-between; gap:12px; }
+.scene-nav a,.scene-nav button { color:#e7ded0; background:#081619aa; border:1px solid #e7ded040; border-radius:3px; padding:10px 14px; font:12px system-ui; text-decoration:none; cursor:pointer; }
+.scene-title { position:absolute; left:clamp(24px,4vw,64px); right:32px; top:20%; pointer-events:none; text-shadow:0 2px 25px #000; }
+.scene-kicker { font:10px system-ui; letter-spacing:.23em; color:#d5c4a4; }
+.scene-kicker span { color:#ecdfcb; }
+.scene-title h1 { font:normal clamp(30px,3.4vw,64px)/1.04 Georgia,serif; max-width:650px; margin:18px 0; letter-spacing:-.03em; }
+.scene-aspect { max-width:440px; font:italic 16px/1.6 Georgia,serif; color:#f0e5d6; }
+.scene-condition { max-width:440px; color:#c0e3df; font:12px/1.7 system-ui; }
+.scene-passages { position:absolute; left:28px; right:28px; bottom:30px; max-height:36%; overflow:auto; }
+.scene-passage-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:10px; margin-top:12px; }
+.scene-passage-grid button { text-align:left; background:#08171de8; color:#ecdfcd; border:1px solid #acc6bd50; border-radius:4px; padding:14px; cursor:pointer; transition:background .2s; }
+.scene-passage-grid button:hover { background:#254644ed; border-color:#d7c696; }
+.scene-passage-grid span,.scene-passage-grid small { display:block; font:10px/1.4 system-ui; color:#b3c9c4; }
+.scene-passage-grid strong { display:block; font:normal 16px/1.25 Georgia,serif; margin:7px 0; }
+.scene-presence { font:12px system-ui; color:#ccdad5; }
+.scene-nav :focus-visible,.scene-passage-grid button:focus-visible { outline:2px solid #e2c790; outline-offset:3px; }
+@media(max-width:700px) { .cinematic-scene { min-height:520px; } .scene-title { top:17%; } .scene-title h1 { max-width:320px; } .scene-aspect { font-size:14px; max-width:290px; } .scene-passages { max-height:30%; bottom:18px; } }

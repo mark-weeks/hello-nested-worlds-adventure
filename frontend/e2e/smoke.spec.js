@@ -274,6 +274,11 @@ test("/app opens a depth horizon automatically without losing the current node",
 });
 
 async function mockSavedPosition(page, position) {
+  // This fixture supplies only a position credential, not a minted participant.
+  // Composition ownership is exercised with real invites in expressive.spec.js.
+  await page.route('**/interventions?*', route => route.fulfill({
+    contentType:'application/json', body:JSON.stringify({error:'Enter with a personal invite to compose.'}),
+  }));
   await page.route("**/position?*", async route => {
     if (route.request().method() === "GET") {
       await route.fulfill({
