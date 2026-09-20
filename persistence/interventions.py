@@ -179,10 +179,18 @@ def advance(seed=None, *, now=None):
             count += 1
             notify(world, {'id': ident, 'node': name, 'event_id': event, 'changed': delta, 'flavor': flavor})
         except Exception as exc:
-            _log.exception('Intervention consequence remains pending: %s', work_id)
+            # Same retention policy as persistence.deliver_work: capped exponential
+            # backoff (1..300s) and no attempt limit, so a promise is never silently
+            # discarded. The traceback is logged once; later retries log a line.
             with db.transaction() as conn:
-                conn.execute("UPDATE intervention_work SET attempts=attempts+1,last_error=?,retry_at=? WHERE id=? AND status='pending'",
-                             (str(exc)[:500], _stamp(now + timedelta(seconds=30)), work_id))
+                attempts = conn.execute('SELECT attempts FROM intervention_work WHERE id=?', (work_id,)).fetchone()
+                conn.execute("""UPDATE intervention_work SET attempts=attempts+1,last_error=?,
+                    retry_at=datetime(?, '+' || min(300, (1 << min(attempts, 9))) || ' seconds')
+                    WHERE id=? AND status='pending'""", (str(exc)[:500], _stamp(now), work_id))
+            first = not attempts or attempts[0] == 0
+            _log.log(logging.ERROR if first else logging.WARNING,
+                     'Intervention consequence remains pending: %s (%s: %s)', work_id, type(exc).__name__, exc,
+                     exc_info=first)
     return count
 
 

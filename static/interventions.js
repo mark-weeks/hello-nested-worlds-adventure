@@ -30,11 +30,15 @@ class InterventionComposer extends HTMLElement {
   async load(fromPoll = false) {
     if (!this.ctx.key) { this.message='Enter with an invite to compose lasting changes.'; this.render(); return; }
     const generation = this.generation, sequence = ++this.loadSequence;
+    // Outcome polling must survive a failed poll: keep the last known pending
+    // count so the timer is re-armed from it, and slow down after a failure.
+    let pending = this.data?.recent?.reduce((n,r) => n+r.pending,0) || 0, failed = false;
     try {
       const data = await this.request('/interventions');
       if (generation !== this.generation || sequence !== this.loadSequence || !this.isConnected) return;
       const had = this.data?.recent?.reduce((n,r) => n+r.pending,0);
       this.data = data;
+      if (fromPoll && this.message && this.message === this.pollError) this.message = '';
       this.storageKey = `nw_arrangement:${data.participant}:${this.ctx.seed}:${this.ctx.node.name}`;
       if (!this.restored) {
         this.restored = true;
@@ -43,13 +47,19 @@ class InterventionComposer extends HTMLElement {
       // Poll outcomes without replacing focused controls or an in-progress draft.
       if (!this.shadowRoot.activeElement && !this.busy) this.render();
       else this.renderRecent();
-      const pending = data.recent.reduce((n,r) => n+r.pending,0);
+      pending = data.recent.reduce((n,r) => n+r.pending,0);
       // A node-triggered read already has fresh properties; only polling must
       // request them when it discovers a missed outcome notification.
       if (fromPoll && had != null && had !== pending) this.ctx.changed?.();
-      clearTimeout(this.poll);
-      if (pending) this.poll=setTimeout(() => this.load(true),4000);
-    } catch (error) { if (generation === this.generation && sequence === this.loadSequence) { this.message=error.message; this.render(); } }
+    } catch (error) {
+      failed = true;
+      if (generation === this.generation && sequence === this.loadSequence) { this.message=this.pollError=error.message; this.render(); }
+    } finally {
+      if (generation === this.generation && sequence === this.loadSequence && this.isConnected) {
+        clearTimeout(this.poll);
+        if (pending) this.poll=setTimeout(() => this.load(true), failed ? 8000 : 4000);
+      }
+    }
   }
   invalidate() { if (this.pending) return; this.preview=null; this.message=''; }
   async previewPlan(body) {

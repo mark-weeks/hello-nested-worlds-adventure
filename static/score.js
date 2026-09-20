@@ -177,7 +177,12 @@ export class NodeAmbience {
       // Hear the new scale on arrival, not after an old seven-second phrase.
       // Release old instruments gracefully; preserve the continuous transport.
       const t=this.ctx.currentTime;
-      for(const voice of this.voices) {voice.gain.gain.cancelAndHoldAtTime(t);voice.gain.gain.setTargetAtTime(0,t,.35);}
+      for(const voice of this.voices) {
+        const g=voice.gain.gain;
+        // Firefox has no cancelAndHoldAtTime; hold the current value explicitly there.
+        if (typeof g.cancelAndHoldAtTime==='function') g.cancelAndHoldAtTime(t); else {g.cancelScheduledValues(t);g.setValueAtTime(g.value,t);}
+        g.setTargetAtTime(0,t,.35);
+      }
       this.direction=next; this.phase=this.step; this.next=t+.08;
     }
     // A small change cue is immediate; harmony and the longer phrase stay intact.

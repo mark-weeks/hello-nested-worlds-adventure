@@ -254,6 +254,14 @@
       case "PLAYER_LEAVE": return `${who} departed from ${place}`;
       case "PLAYER_MOVE": return `${who} passed into ${place}`;
       case "PUZZLE_ATTEMPT": return `${who} worked at a puzzle in ${place}`;
+      // Expressive actions carry their authored line; a hop without one still
+      // stays in fiction rather than falling to the mechanical default.
+      case "INTERVENTION_COMMITTED": return label(data.flavor)
+        ? `At ${place}, ${data.flavor}`
+        : `${who} set an arrangement in motion at ${place}.`;
+      case "INTERVENTION_ARRIVED": return label(data.flavor)
+        ? `At ${place}, ${data.flavor}`
+        : `A change from an earlier arrangement reached ${place}.`;
       default: return `something happened at ${place}`;
     }
   }

@@ -38,6 +38,8 @@ def narrate(entry, source=None):
         return {"phase": "situation", "text": text, "origin": entry.get("node"),
                 "receiver": entry.get("node"), "actor_label": actor(entry),
                 "source_event_id": reference if type(reference) is int else None}
+    if kind in ("INTERVENTION_COMMITTED", "INTERVENTION_ARRIVED"):
+        return _narrate_intervention(entry, data, kind, source)
     ref = data.get("delivery") or {}
     arrival = bool(data.get("_origin") or data.get("_hop")
                    or (isinstance(ref, dict) and ref.get("queue") == "causal_queue"))
@@ -98,5 +100,37 @@ def narrate(entry, source=None):
         text += (f" Source action #{source_id}." if source_id else
                  " The original action is unrecorded." if not origin else
                  " The exact original action is unrecorded.")
+    return {"phase": phase, "text": text, "origin": origin, "receiver": receiver,
+            "actor_label": who, "source_event_id": source_id}
+
+
+def _narrate_intervention(entry, data, kind, source):
+    """Expressive actions speak their recorded flavor; hops cite their commit.
+
+    The stored flavor is the only authored line for these rows, so it leads.
+    Provenance follows the same evidence rule as other arrivals: a linked
+    source names the action, an unlinked hop admits the gap.
+    """
+    receiver = label(entry.get("node"))
+    flavor = label(data.get("flavor"))
+    who = actor(source) if source else actor(entry)
+    origin = source["node"] if source else None
+    source_id = source["id"] if source else None
+    if kind == "INTERVENTION_COMMITTED":
+        delta = any(isinstance(value, dict) and value
+                    for value in (entry.get("delta"), data.get("changed")))
+        phase = "action" if delta else "accepted"
+        text = (f"At {place(receiver)}, {flavor}" if flavor else
+                f"{who or 'Someone'} set an arrangement in motion at {place(receiver)}.")
+        if entry.get("id"):
+            text += f" Action #{entry['id']}."
+        return {"phase": phase, "text": text, "origin": receiver, "receiver": receiver,
+                "actor_label": who, "source_event_id": None}
+    hop = data.get("hop")
+    phase = "outcome" if type(hop) is int and hop == 0 else "arrival"
+    text = (f"At {place(receiver)}, {flavor}" if flavor else
+            f"A change from an earlier arrangement reached {place(receiver)}.")
+    text += (f" Source action #{source_id}." if source_id else
+             " The original action is unrecorded.")
     return {"phase": phase, "text": text, "origin": origin, "receiver": receiver,
             "actor_label": who, "source_event_id": source_id}

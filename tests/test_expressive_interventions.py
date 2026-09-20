@@ -310,3 +310,86 @@ def test_v2_changed_conditions_can_exhaust_delayed_action_without_false_waves(ow
     arrivals = [r for r in events() if r['type']=='INTERVENTION_ARRIVED']
     assert len(arrivals)==3 and all(not r['data']['materialized'] for r in arrivals)
     assert work.advance(382,now=START+timedelta(seconds=200))==0
+
+
+def test_committed_and_arrived_rows_speak_in_fiction(owner):
+    import consciousness
+    from multiverse.history import narrate
+    result = accept(owner)
+    assert work.advance(382, now=START + timedelta(seconds=90)) == 3
+    rows = events()
+    committed = [r for r in rows if r['type'] == 'INTERVENTION_COMMITTED']
+    arrivals = [r for r in rows if r['type'] == 'INTERVENTION_ARRIVED']
+    assert len(committed) == 1 and len(arrivals) == 3
+    # The chronicle projection leads with the authored flavor and cites the commit.
+    prose = committed[0]['narration']
+    assert prose['phase'] == 'action' and prose['actor_label'] == 'Ada'
+    assert prose['text'].startswith('At ') and result['flavor'] in prose['text']
+    assert prose['text'].endswith(f"Action #{result['event_id']}.")
+    for row in arrivals:
+        prose = row['narration']
+        assert prose['phase'] == 'arrival' and prose['origin'] == NODES['instrument']
+        assert row['data']['flavor'] in prose['text'] and prose['actor_label'] == 'Ada'
+        assert prose['text'].endswith(f"Source action #{result['event_id']}.")
+        assert prose['source_event_id'] == result['event_id']
+    # Node voices remember the same fiction, never the mechanical row label.
+    memory = consciousness._history_block(rows)
+    assert result['flavor'] in memory and arrivals[0]['data']['flavor'] in memory
+    assert 'intervention committed' not in memory and 'intervention arrived' not in memory
+    assert 'something happened' not in memory
+    # Raw rows without a flavor or a source still stay in fiction.
+    bare = narrate({'type': 'INTERVENTION_ARRIVED', 'node': 'Receiver-12', 'data': {'hop': 2}})
+    assert bare['text'] == 'A change from an earlier arrangement reached Receiver [12]. The original action is unrecorded.'
+    bare = narrate({'type': 'INTERVENTION_COMMITTED', 'node': 'Origin-11', 'player': 'Ada', 'data': {}})
+    assert bare['text'] == 'Ada set an arrangement in motion at Origin [11].' and bare['phase'] == 'accepted'
+
+
+def test_delayed_commit_and_settlement_take_accepted_and_outcome_phases(owner, monkeypatch):
+    monkeypatch.setenv('NESTED_WORLDS_MATURATION_SCALE', '0.01')
+    node = work.lineage(382, NODES['region'])[-1]
+    preview = work.preview(382, node.name, [{'op': 'scatter'}], version=2)
+    result = work.accept(382, owner, node.name, 'delayed-prose', preview['steps'], preview['expected'],
+                         performer='Ada', actor_identity=owner, version=2)
+    assert work.advance(382, now=START + timedelta(seconds=100)) == 3
+    rows = events()
+    committed = next(r for r in rows if r['type'] == 'INTERVENTION_COMMITTED')
+    assert committed['narration']['phase'] == 'accepted' and result['flavor'] in committed['narration']['text']
+    settled = next(r for r in rows if r['type'] == 'INTERVENTION_ARRIVED' and r['data']['hop'] == 0)
+    assert settled['narration']['phase'] == 'outcome'
+    assert 'The delayed action settles' in settled['narration']['text']
+    assert settled['narration']['text'].endswith(f"Source action #{result['event_id']}.")
+    later = [r for r in rows if r['type'] == 'INTERVENTION_ARRIVED' and r['data']['hop'] > 0]
+    assert later and all(r['narration']['phase'] == 'arrival' for r in later)
+
+
+def test_failed_consequences_back_off_exponentially_and_keep_the_promise(owner, caplog):
+    import logging
+    accept(owner)
+    with db.transaction() as conn:
+        conn.execute('UPDATE interventions SET version=99')
+    caplog.set_level(logging.WARNING, logger='persistence.interventions')
+    moment = START + timedelta(seconds=90)
+    waits = []
+    for _ in range(4):
+        assert work.advance(382, now=moment) == 0
+        with db._connection() as conn:
+            attempts, retry = conn.execute(
+                'SELECT attempts, retry_at FROM intervention_work WHERE hop=1').fetchone()
+            # Later hops wait for their predecessor and never accrue failures.
+            assert conn.execute('SELECT SUM(attempts) FROM intervention_work WHERE hop>1').fetchone()[0] == 0
+        waits.append((datetime.fromisoformat(retry) - moment).total_seconds())
+        moment = datetime.fromisoformat(retry)
+    assert waits == [1, 2, 4, 8] and attempts == 4
+    records = [r for r in caplog.records if r.name == 'persistence.interventions']
+    assert len(records) == 4 and [r.levelno for r in records] == [logging.ERROR] + [logging.WARNING] * 3
+    assert sum(1 for r in records if r.exc_info) == 1
+    # The backoff is capped and no attempt count ever discards the promise.
+    with db.transaction() as conn:
+        conn.execute('UPDATE intervention_work SET attempts=20, retry_at=NULL WHERE hop=1')
+    assert work.advance(382, now=moment) == 0
+    with db._connection() as conn:
+        retry = conn.execute('SELECT retry_at FROM intervention_work WHERE hop=1').fetchone()[0]
+    assert (datetime.fromisoformat(retry) - moment).total_seconds() == 300
+    with db.transaction() as conn:
+        conn.execute('UPDATE interventions SET version=1')
+    assert work.advance(382, now=moment + timedelta(seconds=300)) == 3

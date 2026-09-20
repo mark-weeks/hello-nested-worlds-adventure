@@ -35,6 +35,13 @@ def queued_work():
                          (step, PAST))
         conn.execute("UPDATE situation_work SET attempts=1,last_error='Storage unavailable',retry_at=? WHERE step=0",
                      (FUTURE,))
+        conn.execute('''INSERT INTO interventions(id,world_seed,participant_id,node_name,version,plan,signal,route,performer)
+            VALUES ('arrangement',382,'PRIVATE-PARTICIPANT','Place-1',2,'{"secret":"PRIVATE-PLAN"}','{}','[]','Ada')''')
+        for hop in range(2):
+            conn.execute('''INSERT INTO intervention_work(intervention_id,hop,node_name,due_at)
+                VALUES ('arrangement',?,?,?)''', (hop, f'Place-{hop + 1}', PAST))
+        conn.execute("UPDATE intervention_work SET attempts=1,last_error='Interpreter unavailable',retry_at=? WHERE hop=0",
+                     (FUTURE,))
         completed = conn.execute('''INSERT INTO causal_queue
             (world_seed,node_name,kind,strength,direction,payload,due_at,status,outcome)
             VALUES (382,'Place-1','SCALE_ACT',1,'down','{}',?,'completed','applied')''', (PAST,)).lastrowid
@@ -58,6 +65,11 @@ def test_report_counts_scopes_backoff_and_predecessors_without_writes(queued_wor
     assert (situation['pending'], situation['due'], situation['eligible']) == (3, 3, 0)
     assert (situation['backed_off'], situation['waiting_for_predecessor']) == (1, 2)
     assert situation['samples'][1]['blocked_by'] == situation['samples'][0]['id']
+    intervention = report['queues']['intervention_work']
+    assert (intervention['pending'], intervention['due'], intervention['eligible']) == (2, 2, 0)
+    assert (intervention['backed_off'], intervention['waiting_for_predecessor'], intervention['failed_pending']) == (1, 1, 1)
+    assert intervention['samples'][1]['blocked_by'] == intervention['samples'][0]['id']
+    assert (intervention['samples'][0]['version'], intervention['samples'][0]['world_seed']) == (2, 382)
     assert report['decisions']['due'] == 1
     scoped = work_report(db._DB_PATH, seed=382, limit=1, now=NOW)
     assert scoped['queues']['causal_queue']['pending'] == 1
@@ -70,7 +82,8 @@ def test_report_counts_scopes_backoff_and_predecessors_without_writes(queued_wor
     assert snapshot() == before
     text = json.dumps(report) + format_report(report)
     assert 'PRIVATE-ACTOR' not in text and 'PRIVATE-PAYLOAD' not in text
-    assert 'Storage unavailable' in text
+    assert 'PRIVATE-PARTICIPANT' not in text and 'PRIVATE-PLAN' not in text
+    assert 'Storage unavailable' in text and 'Interpreter unavailable' in text
 
 
 def test_report_does_not_wait_for_writer_or_initialize_database(queued_work, monkeypatch):
@@ -106,7 +119,9 @@ def test_inspection_and_retry_cover_all_queues_but_never_complete_work(queued_wo
     causal, maturation, _, completed = queued_work
     with db._connection() as conn:
         situation = conn.execute('SELECT id FROM situation_work WHERE step=0').fetchone()[0]
-    for queue, work_id in [('causal_queue', causal), ('verb_maturation', maturation), ('situation_work', situation)]:
+        intervention = conn.execute('SELECT id FROM intervention_work WHERE hop=0').fetchone()[0]
+    for queue, work_id in [('causal_queue', causal), ('verb_maturation', maturation),
+                           ('situation_work', situation), ('intervention_work', intervention)]:
         before = db.inspect_work(queue, work_id)
         assert db.retry_work(queue, work_id)
         after = db.inspect_work(queue, work_id)
@@ -121,9 +136,11 @@ def test_inspection_and_retry_cover_all_queues_but_never_complete_work(queued_wo
             db.inspect_work(queue, 1)
         with pytest.raises(ValueError):
             db.retry_work(queue, 1)
-    # The generic delivery interpreter must still reject situation work.
+    # The generic delivery interpreter must still reject situation and intervention work.
     with pytest.raises(ValueError):
         db.deliver_work('situation_work', situation, lambda row: 'applied')
+    with pytest.raises(ValueError):
+        db.deliver_work('intervention_work', intervention, lambda row: 'applied')
 
 
 def test_cli_json_and_human_report_use_existing_copy(queued_work, tmp_path, monkeypatch):

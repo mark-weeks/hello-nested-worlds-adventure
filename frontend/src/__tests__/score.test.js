@@ -64,4 +64,14 @@ describe('audible scale and node identity',()=>{
     score.setNode(382,{name:'Atom',level:'Atom'});
     expect(score.direction.level).toBe('Atom');expect(score.step).toBe(19);expect(score.next).toBe(4.08);expect(calls).toHaveLength(2);
   });
+  it('fades voices on a scale change where cancelAndHoldAtTime is missing, as in Firefox',()=>{
+    const score=new NodeAmbience();score.enabled=true;score.step=19;score.next=14;score.ctx={currentTime:4};
+    score.pending=score.direction=scoreDirection({name:'Room',level:'Room'});
+    const calls=[];
+    score.voices.add({gain:{gain:{value:.4,cancelScheduledValues:t=>calls.push(['cancel',t]),
+      setValueAtTime:(v,t)=>calls.push(['hold',v,t]),setTargetAtTime:(...v)=>calls.push(['target',...v])}}});
+    expect(()=>score.setNode(382,{name:'Atom',level:'Atom'})).not.toThrow();
+    expect(calls).toEqual([['cancel',4],['hold',.4,4],['target',0,4,.35]]);
+    expect(score.direction.level).toBe('Atom');expect(score.next).toBe(4.08);
+  });
 });

@@ -193,8 +193,18 @@ for(const route of ['/','/app']) {
         return node.node.properties.star_density;
       },{timeout:15000}).toBe(expected);
       await page.goto(server.url+route);
-      if(route==='/')await expect(page.locator('#node-props')).toContainText(String(expected));
-      else {await page.getByText('Conditions here',{exact:true}).click();await expect(page.getByText(String(expected),{exact:true}).first()).toBeVisible();}
+      // The settled work reads as fiction in both chronicles, never as a bare row label.
+      if(route==='/'){
+        await expect(page.locator('#node-props')).toContainText(String(expected));
+        await page.locator('#btn-chronicle').click();
+        await expect(page.locator('#chronicle-entries')).toContainText('Ada begins Kindle');
+        await expect(page.locator('#chronicle-entries')).toContainText('The delayed action settles');
+      } else {
+        await page.getByText('Conditions here',{exact:true}).click();await expect(page.getByText(String(expected),{exact:true}).first()).toBeVisible();
+        await page.getByRole('button',{name:'View full chronicle'}).click();
+        await expect(page.getByText(/Ada begins Kindle/).first()).toBeVisible();
+        await expect(page.getByText(/The delayed action settles/).first()).toBeVisible();
+      }
     }finally {await page.goto('about:blank').catch(()=>{});await kill(server);await rm(directory,{recursive:true,force:true});}
   });
 }
