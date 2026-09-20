@@ -178,6 +178,39 @@ test('unavailable recovery storage prevents an ambiguous commitment',async({page
 });
 
 for(const route of ['/app','/']) {
+  test(`${route}: failed action loading can be retried and unavailable reasons are readable`,async({page})=>{
+    const server=await start(); let reads=0, loaded;
+    try {
+      // Leave a real surface change, so repeating Polish has a real refusal.
+      expect((await page.request.post(server.url+'/position',{headers,data:{node:names.instrument,seed:382,depth:9}})).ok()).toBe(true);
+      const plan=await(await page.request.post(server.url+'/interventions/preview',{headers,data:{node:names.instrument,steps:[{op:'polish'}]}})).json();
+      expect((await page.request.post(server.url+'/interventions/commit',{headers,data:{node:names.instrument,steps:plan.steps,expected:plan.expected,version:2,request_id:'polished-surface'}})).ok()).toBe(true);
+      await page.route('**/interventions?**',async request=>{
+        if(++reads===1) return request.fulfill({status:429,contentType:'application/json',body:JSON.stringify({error:'The world keeps its own pace.'})});
+        const response=await request.fetch(); loaded=await response.json();
+        await request.fulfill({response});
+      });
+      await enter(page,server,route,names.instrument);
+      if(route==='/') await page.locator('#btn-act').click();
+      else await page.getByRole('button',{name:'Act',exact:true}).click();
+      const composer=page.locator('enfolded-interventions');
+      await expect(composer).toContainText('The world keeps its own pace.');
+      const retry=composer.getByRole('button',{name:'Listen again',exact:true});
+      await expect(retry).toBeVisible();
+      await retry.focus(); await page.keyboard.press('Enter');
+      await expect(composer.getByRole('button',{name:'Engrave',exact:true})).toBeVisible();
+      await expect(composer).not.toContainText('The world keeps its own pace.');
+      const unavailable=loaded.choices.find(choice=>!choice.available);
+      expect(unavailable).toBeTruthy();
+      const button=composer.getByRole('button',{name:`${unavailable.label}. ${unavailable.reason}`,exact:true});
+      await expect(button).toBeDisabled();
+      await expect(button.getByText(unavailable.reason,{exact:true})).toBeVisible();
+      await page.setViewportSize({width:390,height:844});
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+      await composer.screenshot({path:capture(`enfolded-action-retry-${route==='/app'?'scene':'map'}.png`)});
+    } finally {await server.close();}
+  });
+
   test(`${route}: one identity block follows another player's material change`,async({page})=>{
     const server=await start();
     try {
