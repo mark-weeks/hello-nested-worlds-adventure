@@ -1,6 +1,8 @@
 // Scale is an audible identity, not a transposition of one backing track.
 // The family motif connects places; each scale supplies its own musical form.
-const hash = text => { let h=2166136261; for(const c of String(text)) h=Math.imul(h^c.charCodeAt(0),16777619); return h>>>0; };
+// One FNV-1a for every surface: the shared helper is read lazily because the
+// explorer evaluates this module before clientlogic.js, but calls it after.
+const hash = text => globalThis.EnfoldedClient.entryHash(String(text));
 const clamp = (n,a,b) => Math.max(a,Math.min(b,Number(n)||0));
 export const SCORE_PROFILES = {
   Multiverse: {voice:'cello', beat:2.1, register:-12, wet:.85, cutoff:900, title:'Membrane tides'},

@@ -14,7 +14,7 @@ import pytest
 
 import persistence as db
 from persistence import participants, interventions as work
-from multiverse import interventions as physics, store
+from multiverse import interventions_v1 as physics, interventions_v2, store
 from multiverse.senses import describe
 from multiverse.situation import NODES
 from tests.test_participant_contracts import accounts, http  # noqa: F401
@@ -276,7 +276,8 @@ def test_process_death_backup_restore_and_future_proposals_keep_v1_promises(owne
     db._initialized.discard(backup)
     def future(*args):
         raise AssertionError('a current proposal interpreter must not redefine an accepted v1 signal')
-    monkeypatch.setattr(physics, 'receive', future)
+    # v2 is the current vocabulary; accepted v1 work keeps its own interpreter.
+    monkeypatch.setattr(interventions_v2, 'receive', future)
     assert work.advance(382, now=START + timedelta(seconds=90)) == 3
     assert work.advance(382, now=START + timedelta(seconds=120)) == 0
     assert {r['node'] for r in events()} == {NODES['chain'], NODES['instrument'], NODES['gallery'], NODES['region']}

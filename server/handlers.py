@@ -281,7 +281,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         stripped = path.rstrip("/")
         if stripped in ("", "/health", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
-                        "/nodeart.js", "/nodeart-global.js", "/nodesound.js",
+                        "/nodeart.js", "/nodeart-global.js",
                         "/score.js", "/sensory.js", "/interventions.js",
                         "/guide", "/register", "/register.js", "/favicon.ico",
                         "/journal", "/journal.js", "/ideas", "/ideas.js"):
@@ -509,10 +509,6 @@ class Handler(BaseHTTPRequestHandler):
             # The page's logic — external because the CSP (script-src 'self')
             # blocks inline scripts; ungated alongside its page.
             self._send_file(_STATIC_DIR / "register.js",
-                            content_type="application/javascript; charset=utf-8")
-
-        elif path == "/nodesound.js":
-            self._send_file(_STATIC_DIR / "nodesound.js",
                             content_type="application/javascript; charset=utf-8")
 
         elif path == "/intents.js":

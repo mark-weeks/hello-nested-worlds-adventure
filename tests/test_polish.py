@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import urllib.error
 import urllib.request
 
 import pytest
@@ -88,9 +89,9 @@ class TestClientErrorSink:
         assert "/client-error" in _RATE_LIMITED_PATHS
 
 
-class TestNodeSoundServing:
-    def test_nodesound_module_is_served(self, srv):
-        with urllib.request.urlopen(f"{srv}/nodesound.js") as resp:
+class TestScoreServing:
+    def test_score_module_is_served_and_the_old_hum_is_gone(self, srv):
+        with urllib.request.urlopen(f"{srv}/score.js") as resp:
             body = resp.read().decode()
         assert resp.status == 200
         assert "javascript" in resp.headers["Content-Type"]
@@ -98,6 +99,11 @@ class TestNodeSoundServing:
         # Determinism contract, same as the art module.
         assert "Math.random" not in body
         assert "Date.now" not in body
+        assert "performance.now" not in body
+        # nodesound.js was replaced by score.js; nothing serves it any more.
+        with pytest.raises(urllib.error.HTTPError) as gone:
+            urllib.request.urlopen(f"{srv}/nodesound.js")
+        assert gone.value.code == 404
 
 
 class TestSharedClientLogicServing:

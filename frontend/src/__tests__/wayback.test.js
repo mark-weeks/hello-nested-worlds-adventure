@@ -2,7 +2,7 @@
 // inputs replace live state without replacing navigation identity, and moment
 // narration never exposes an actor class.
 import { describe, expect, it } from "vitest";
-import { soundscapeKey } from "../../../static/nodesound.js";
+import { scoreDirection } from "../../../static/score.js";
 import { waybackMomentLine, waybackNode } from "../wayback.js";
 
 const live = {
@@ -63,16 +63,13 @@ describe("waybackMomentLine", () => {
   });
 });
 
-describe("soundscapeKey", () => {
-  it("is stable for equal state and changes when the same node evolves", () => {
-    const a = { ...live, properties: { lighting: "dim", danger_level: 8 } };
-    const reordered = {
-      ...live,
-      properties: { danger_level: 8, lighting: "dim" },
-    };
-    const past = { ...live, activity: 2, ripple_score: 0.1 };
-    expect(soundscapeKey(382, a)).toBe(soundscapeKey(382, reordered));
-    expect(soundscapeKey(382, a)).not.toBe(soundscapeKey(382, past));
+describe("score revision", () => {
+  it("follows the served senses revision, so a reconstructed state retunes the score", () => {
+    const now = { ...live, senses: { revision: "present", family: 1 } };
+    const same = { ...live, senses: { revision: "present", family: 1 } };
+    const past = { ...live, senses: { revision: "reconstructed", family: 1 } };
+    expect(scoreDirection(now).revision).toBe(scoreDirection(same).revision);
+    expect(scoreDirection(now).revision).not.toBe(scoreDirection(past).revision);
   });
 });
 

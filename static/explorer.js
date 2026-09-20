@@ -381,9 +381,9 @@ function selectNode(data, { refresh = false } = {}) {
 }
 
 // ── Ambient sound ───────────────────────────────────────────────────────────
-// Deterministic per-node WebAudio hum (static/nodesound.js) — the audible
-// face of the node art. Off by default; the toggle is the activation gesture
-// browsers require anyway.
+// Each scale's sampled musical form, directed by the node's served senses
+// (static/score.js) — the audible face of the scene. Off by default; the
+// toggle is the activation gesture browsers require anyway.
 
 function toggleSound() {
   if (!window.NodeSound) return;

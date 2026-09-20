@@ -91,7 +91,6 @@ def main() -> None:
             "persistence/migrations/0024_history_read_indexes.sql",
             "persistence/recovery.py",
             "static/index.html",
-            "static/nodesound.js",
             "static/score.js",
             "static/sensory.js",
             "static/interventions.js",

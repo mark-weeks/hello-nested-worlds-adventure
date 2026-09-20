@@ -339,6 +339,7 @@
     describeMutation,
     displayName,
     dropInNode,
+    entryHash,
     entryPath,
     findNodeByName,
     findPath,

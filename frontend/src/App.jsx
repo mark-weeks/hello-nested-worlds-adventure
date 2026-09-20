@@ -538,9 +538,9 @@ export default function App() {
     }
   }, [currentNode, seed, soundPreferred]);
 
-  // Ambient sound: each place hums its own deterministic tone
-  // (static/nodesound.js). The toggle click is the activation gesture
-  // browsers require for audio.
+  // Ambient sound: each scale plays its own sampled musical form, directed
+  // by the node's served senses (static/score.js). The toggle click is the
+  // activation gesture browsers require for audio.
   const toggleSound = useCallback(() => {
     if (!ambienceRef.current) ambienceRef.current = new NodeAmbience();
     const amb = ambienceRef.current;

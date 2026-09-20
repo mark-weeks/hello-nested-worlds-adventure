@@ -1,4 +1,5 @@
 import {describe,it,expect} from 'vitest';
+import '../../../static/clientlogic.js'; // score.js hashes through the shared EnfoldedClient helper
 import {NodeAmbience,scoreDirection,scoreEvents,SCORE_PROFILES} from '../../../static/score.js';
 const place=(name,senses)=>({name,senses});
 describe('continuous orchestration',()=>{
