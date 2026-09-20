@@ -55,6 +55,23 @@ def test_tree_reads_compress_only_for_accepting_clients(raw):
     assert status == 200 and 'Content-Encoding' not in headers and json.loads(small)
 
 
+@pytest.mark.parametrize('encoding,compressed', [
+    ('gzip;q=0, identity', False),
+    ('gzip;q=0, *;q=1', False),
+    ('br, *;q=0, identity;q=1', False),
+    ('notgzip', False),
+    ('GZip;Q=0.5', True),
+    ('br, *;q=0.5', True),
+    ('gzip;q=invalid', False),
+])
+def test_compression_respects_encoding_tokens_and_quality(raw, encoding, compressed):
+    status, body, headers = raw('/world?depth=4', **{'Accept-Encoding': encoding})
+    assert status == 200 and headers['Vary'] == 'Accept-Encoding'
+    assert (headers.get('Content-Encoding') == 'gzip') is compressed
+    content = gzip.decompress(body) if compressed else body
+    assert json.loads(content)['world']['level'] == 'Multiverse'
+
+
 def test_versioned_media_and_hashed_bundle_assets_are_immutable(raw):
     status, body, headers = raw('/media/places/orchard-v1.png')
     assert status == 200 and headers['Cache-Control'] == IMMUTABLE and body[:8] == b'\x89PNG\r\n\x1a\n'

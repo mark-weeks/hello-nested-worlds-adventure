@@ -10,7 +10,12 @@ const browser=await chromium.launch({headless:true});
 const metrics=[];
 try {
   const page=await browser.newPage();await page.goto(base+'/guide');
-  const levels=await page.evaluate(async()=>Object.keys((await import('/score.js')).SCORE_PROFILES));
+  const levels=await page.evaluate(async()=>{
+    // The guide has no game scripts; load the score's shared identity helper
+    // explicitly so an audition does not need to join or mutate the world.
+    await import('/clientlogic.js');
+    return Object.keys((await import('/score.js')).SCORE_PROFILES);
+  });
   for(const level of levels) {
     const result=await page.evaluate(async level=>{
       const {NodeAmbience,scoreDirection}=await import('/score.js');
