@@ -42,6 +42,19 @@ def _propose(intention, key, name, node, props):
         return None, _quiet(_UNSETTLED)
 
 
+def _choices(seed, name, level):
+    """Each single action with its full preview, so choosing one costs no write."""
+    result = []
+    for op, info in physics.vocabulary(level).items():
+        try:
+            preview = interventions.preview(seed, name, [{'op': op}], version=2)
+        except ValueError as exc:
+            result.append({'op': op, **info, 'available': False, 'reason': str(exc)})
+        else:
+            result.append({'op': op, **info, 'available': True, 'reason': None, 'preview': preview})
+    return result
+
+
 def handle(handler, path, qs, body=None):
     if path not in ROUTES:
         return False
@@ -62,7 +75,7 @@ def handle(handler, path, qs, body=None):
         if body is None and path == '/interventions':
             data = {'participant': me['id'], 'version': physics.VERSION,
                     'operators': physics.vocabulary(node.level),
-                    'choices': physics.choices(props, node.level, name),
+                    'choices': _choices(seed, name, node.level),
                     'state': physics.read_state(props),
                     'recent': interventions.recent(seed, name, me['id'])}
         elif body is None:

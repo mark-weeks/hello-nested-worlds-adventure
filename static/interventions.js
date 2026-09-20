@@ -7,12 +7,14 @@ class InterventionComposer extends HTMLElement {
   constructor() { super(); this.attachShadow({mode:'open'}); this.steps = []; this.generation = 0; this.loadSequence = 0; }
   set context(value) {
     const changed = this.ctx?.node?.name !== value.node.name || this.ctx?.seed !== value.seed || this.ctx?.key !== value.key;
-    const updated = this.ctx?.node !== value.node;
+    // Hosts hand over fresh node objects on every refresh; only a changed
+    // served revision means the choices may differ. Outcomes are polled.
+    const revised = this.revision !== value.node.senses?.revision;
     this.ctx = value;
     if (changed) {
       this.generation++; this.busy=false; this.data = null; this.preview = null; this.pending = null; this.message = ''; this.steps = []; this.compose = false; this.intention = ''; this.restored = false;
       this.render(); this.load();
-    } else if (updated || this.revision !== value.node.senses?.revision) this.load();
+    } else if (revised) this.load();
     this.renderPending();
     this.revision = value.node.senses?.revision;
   }
@@ -62,6 +64,16 @@ class InterventionComposer extends HTMLElement {
     }
   }
   invalidate() { if (this.pending) return; this.preview=null; this.message=''; }
+  choose(choice) {
+    if (this.busy || this.pending) return;
+    if (!this.compose && choice.preview) {
+      // A single action was previewed with the choices; no request is spent.
+      this.steps=choice.preview.steps; this.preview=choice.preview; this.message='';
+      this.render(); this.shadowRoot.querySelector('.preview')?.focus(); return;
+    }
+    this.steps=this.compose ? [...this.steps,{op:choice.op,amount:1}].slice(0,4) : [{op:choice.op,amount:1}];
+    return this.previewPlan({steps:this.steps});
+  }
   async previewPlan(body) {
     if (this.busy || this.pending) return;
     const generation=this.generation; this.busy=true; this.preview=null; this.message='Listening to the possible consequences…'; this.render();
@@ -135,10 +147,7 @@ class InterventionComposer extends HTMLElement {
       button.title=choice.reason || choice.description;
       button.append(el('strong',choice.label),el('small',choice.description));
       if(!choice.available && !this.compose) button.append(el('small','Already as it would be.'));
-      button.onclick=()=>{
-        this.steps=this.compose ? [...this.steps,{op:choice.op,amount:1}].slice(0,4) : [{op:choice.op,amount:1}];
-        this.previewPlan({steps:this.steps});
-      }; choices.append(button);
+      button.onclick=()=>this.choose(choice); choices.append(button);
     }
     section.append(choices);
     if(this.steps.length && !this.pending) {

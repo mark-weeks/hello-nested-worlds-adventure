@@ -10,15 +10,19 @@ export default function SceneView({node, transients = [], onNavigate, onNavigate
   liveTransients.current = transients;
   const [image, setImage] = useState(null);
   const [unavailable, setUnavailable] = useState(false);
+  // One generated plate per visit: a paid image is fetched when the place or
+  // its curated plate changes, never on every material revision. The shared
+  // renderer below reinterprets live senses on top of the stable plate.
+  const plated = !!node.senses?.plate;
   useEffect(() => {
     const abort = new AbortController(); let current = true;
     setImage(null);
-    if (!node.senses?.plate) fetch(withKey("/image"), {
+    if (!plated) fetch(withKey("/image"), {
       method: 'POST', headers: {'Content-Type': 'application/json'}, signal: abort.signal,
       body: JSON.stringify({node_name: node.name, seed: seed ?? 0}),
     }).then(r => r.json()).then(data => { if (current && data.url) setImage(data.url); }).catch(() => {});
     return () => { current = false; abort.abort(); };
-  }, [seed, node.name, node.senses?.revision]);
+  }, [seed, node.name, plated]);
   useEffect(() => {
     if (!canvas.current.getContext('2d')) { setUnavailable(true); return; }
     setUnavailable(false);

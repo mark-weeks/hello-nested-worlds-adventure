@@ -145,6 +145,19 @@ class TestAssemblePrompt:
 
 # ── style_signature ─────────────────────────────────────────────────────────
 
+class TestSignatureStaysCoarse:
+    def test_nested_state_and_trailing_properties_never_trigger_a_new_generation(self):
+        base = {"surface": "engraved", "material": "stone",
+                "acoustic_resonance": {"echo": 1, "last_wave": 0.2, "woven": False}}
+        drifted = {**base, "acoustic_resonance": {"echo": 9, "last_wave": 0.9, "woven": True}}
+        assert style_signature("Object", base, []) == style_signature("Object", drifted, [])
+        many = {f"k{i:02}": i for i in range(40)}
+        # The prompt reads the property, the paid cache key does not.
+        assert "k20: 99" in assemble_prompt("Room", "Vault", {**many, "k20": 99}, [])
+        assert style_signature("Room", many, []) == style_signature("Room", {**many, "k20": 99}, [])
+        assert style_signature("Room", many, []) != style_signature("Room", {**many, "k00": 99}, [])
+
+
 
 class TestStyleSignature:
     def test_signature_is_deterministic(self):

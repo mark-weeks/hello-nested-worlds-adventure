@@ -143,18 +143,34 @@ def assemble_prompt(level: str, name: str, properties: dict,
     return " ".join(parts)
 
 
+_SIGNATURE_PROPS = 6
+
+
+def _signature_pairs(properties: dict) -> list[tuple[str, object]]:
+    """The coarse subset of state a generated image is cached on.
+
+    The prompt reads every property, but a fresh generation is charged against
+    a small daily budget, so the cache key follows only the first few scalar
+    properties. Nested state (resonance echoes, waves) changes on every arrival
+    and would otherwise turn each hop into a new paid image; the shared
+    renderer reinterprets that live state on top of the stable plate.
+    """
+    return [(k, v) for k, v in _prop_pairs(properties)
+            if not isinstance(v, (dict, list))][:_SIGNATURE_PROPS]
+
+
 def style_signature(level: str, properties: dict,
                     history: list[dict], ripple_score: float = 0.0) -> str:
     """8-char hash of the style-determining inputs.
 
-    Two inputs that produce the same prompt produce the same signature; two
-    that produce visibly different prompts produce different signatures. The
-    server folds this into the image cache key so visuals refresh whenever
-    the style would actually change, not only when history count crosses a
-    fixed bucket boundary.
+    Two inputs that produce the same style produce the same signature; two
+    that produce visibly different styles produce different signatures. The
+    server folds this into the image cache key so visuals refresh when the
+    baseline, mood, aspect or a leading scalar property changes, not on
+    every material delta.
     """
     baseline  = HIERARCHY_STYLES.get(level, _DEFAULT_STYLE)
     modifiers = derive_modifiers(properties, history, ripple_score)
-    pairs     = _prop_pairs(properties)
+    pairs     = _signature_pairs(properties)
     seed_str  = f"sensory-v1|{baseline}|{'|'.join(modifiers)}|{pairs}|{properties.get('aspect', '')}"
     return hashlib.sha1(seed_str.encode("utf-8")).hexdigest()[:8]

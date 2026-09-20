@@ -1,6 +1,7 @@
 """HTTP request dispatch for the nested-worlds server."""
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import logging
@@ -169,6 +170,9 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None,
 
 # ── Handler ────────────────────────────────────────────────────────────────
 
+_GZIP_MIN_BYTES = 1024
+_IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
+
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
     "/interventions/preview", "/interventions/commit",
@@ -324,6 +328,13 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(data, indent=2).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        # Tree reads carry per-node prose (senses) for every navigable place;
+        # both browser clients accept gzip, which folds that payload several
+        # times over. Small replies and non-accepting clients stay plain.
+        if len(body) >= _GZIP_MIN_BYTES and "gzip" in self.headers.get("Accept-Encoding", ""):
+            body = gzip.compress(body, compresslevel=5)
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(body)))
         if getattr(self, "_private_response", False):
             self.send_header("Cache-Control", "no-store")
@@ -336,7 +347,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json({"error": message}, status)
 
     def _send_file(self, path: Path,
-                   content_type: str = "text/html; charset=utf-8") -> None:
+                   content_type: str = "text/html; charset=utf-8", *,
+                   immutable: bool = False) -> None:
         try:
             path.resolve().relative_to(_STATIC_DIR.resolve())
         except ValueError:
@@ -347,6 +359,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if immutable:
+            # Content-versioned files (media "-v1", hashed bundle assets) never
+            # change under their name, so a returning browser re-downloads none.
+            self.send_header("Cache-Control", _IMMUTABLE_CACHE)
         self._send_security_headers()
         if "text/html" in content_type:
             self.send_header(
@@ -384,6 +400,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if rel.startswith("assets/"):
+            # Vite hashes every asset name, so its bytes never change in place.
+            self.send_header("Cache-Control", _IMMUTABLE_CACHE)
         self._send_security_headers()
         if "text/html" in content_type:
             self.send_header(
@@ -461,7 +480,8 @@ class Handler(BaseHTTPRequestHandler):
             media_file = (_STATIC_DIR / path.lstrip("/")).resolve()
             if not media_file.is_relative_to(media_root) or media_file.suffix not in (".png", ".wav", ".mp3", ".ogg"):
                 return self._send_error("no such scene", 404)
-            self._send_file(media_file, mimetypes.guess_type(media_file.name)[0] or "application/octet-stream")
+            self._send_file(media_file, mimetypes.guess_type(media_file.name)[0] or "application/octet-stream",
+                            immutable=True)
         elif path in ("/score.js", "/sensory.js", "/interventions.js"):
             self._send_file(_STATIC_DIR / path.lstrip("/"), "application/javascript; charset=utf-8")
         elif path == "/ideas":

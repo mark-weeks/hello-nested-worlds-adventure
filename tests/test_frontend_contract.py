@@ -305,7 +305,10 @@ class TestGenerativeArtLayer:
     def test_react_scene_uses_shared_state_driven_renderer(self):
         src = (_FRONTEND_SRC / "components" / "SceneView.jsx").read_text()
         assert "startSensory" in src
-        assert "node.senses?.revision" in src
+        # One paid plate per visit: the image effect keys on the place and its
+        # curated plate, never on the material revision the renderer follows.
+        assert "[seed, node.name, plated]" in src
+        assert "node.senses?.revision" not in src
         assert "AbortController" in src
 
     def test_explorer_draws_the_node_sigil(self):

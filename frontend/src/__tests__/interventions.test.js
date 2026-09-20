@@ -64,3 +64,40 @@ describe("outcome polling", () => {
     expect(gone.c.request).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("choices and context", () => {
+  it("uses the shipped single-action preview without a request, and posts only for sequences", async () => {
+    const { c } = composer([
+      { participant: "p", recent: [] },
+      { steps: [{ op: "engrave", amount: 1 }, { op: "polish", amount: 1 }], summary: "Engrave, then polish" },
+    ]);
+    await c.load();
+    const preview = { steps: [{ op: "engrave", amount: 1 }], summary: "Engrave", expected: "e".repeat(24) };
+    c.choose({ op: "engrave", preview });
+    expect(c.preview).toBe(preview);
+    expect(c.steps).toEqual(preview.steps);
+    expect(c.request).toHaveBeenCalledTimes(1);
+    c.compose = true;
+    await c.choose({ op: "polish", preview: { steps: [{ op: "polish", amount: 1 }] } });
+    expect(c.request).toHaveBeenCalledTimes(2);
+    expect(c.request.mock.calls[1][1]).toEqual({ steps: [{ op: "engrave", amount: 1 }, { op: "polish", amount: 1 }] });
+    expect(c.preview.summary).toBe("Engrave, then polish");
+  });
+
+  it("reloads on a new served revision, never on a fresh node object", () => {
+    const c = new Composer();
+    c.isConnected = true;
+    c.render = () => {}; c.renderRecent = () => {}; c.renderPending = () => {};
+    c.request = vi.fn(async () => ({ participant: "p", recent: [] }));
+    const at = (name, revision) => ({ key: "invite", seed: 382, node: { name, senses: { revision } } });
+    c.context = at("Mire-112", "a");
+    expect(c.request).toHaveBeenCalledTimes(1);
+    c.context = at("Mire-112", "a");
+    c.context = at("Mire-112", "a");
+    expect(c.request).toHaveBeenCalledTimes(1);
+    c.context = at("Mire-112", "b");
+    expect(c.request).toHaveBeenCalledTimes(2);
+    c.context = at("Vault-1121", "b");
+    expect(c.request).toHaveBeenCalledTimes(3);
+  });
+});

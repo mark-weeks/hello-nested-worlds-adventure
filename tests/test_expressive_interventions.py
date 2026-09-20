@@ -155,6 +155,24 @@ def test_http_actions_are_scale_native_and_never_delegate(http, accounts):
     assert status == 200 and quiet['ai'] is False and quiet['steps'] == [] and 'clearer shape' in quiet['response']
 
 
+def test_single_action_previews_ride_the_choices_read(http):
+    name = NODES['instrument']
+    status, data, _ = http('/interventions?node=' + quote(name))
+    available = [c for c in data['choices'] if c['available']]
+    assert status == 200 and available
+    for choice in available:
+        preview = choice['preview']
+        assert preview['steps'] == [{'op': choice['op'], 'amount': 1}] and preview['version'] == 2
+        assert len(preview['expected']) == 24 and 'changed' in preview and preview['route'][0]['node'] == name
+    assert all('preview' not in c for c in data['choices'] if not c['available'])
+    # A shipped preview commits exactly like a posted one; no preview write is spent.
+    engrave = next(c['preview'] for c in available if c['op'] == 'engrave')
+    assert http('/position', body={'node': name, 'seed': 382, 'depth': 9})[0] == 200
+    status, result, _ = http('/interventions/commit', body={
+        'node': name, 'steps': engrave['steps'], 'expected': engrave['expected'], 'version': 2, 'request_id': 'from-choices-001'})
+    assert status == 200 and result['accepted'] and result['changed'] == {'surface': 'engraved'}
+
+
 def test_intention_failures_stay_in_fiction(http, monkeypatch):
     from server import guard, intervention_api
     from consciousness import interventions as proposal

@@ -262,7 +262,7 @@ for(const route of ['/','/app']) {
         else {await page.getByText('Conditions here',{exact:true}).click();await expect(page.getByText('459',{exact:true}).first()).toBeVisible();}
       }
       await expect(a.getByRole('status')).toHaveText(own.flavor);await expect(b.getByRole('status')).toHaveText(other.flavor);
-      expect(reads.every(r=>r.world===0 && r.node>=2 && r.node<9),JSON.stringify(reads)).toBe(true);
+      expect(reads.every(r=>r.world===0 && r.node>=2 && r.node<8),JSON.stringify(reads)).toBe(true);
     }finally {for(const ctx of contexts)await ctx.close();await kill(server);await rm(directory,{recursive:true,force:true});}
   });
 }

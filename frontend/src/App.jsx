@@ -312,8 +312,11 @@ export default function App() {
     onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${displayName(msg.node)}` }),
     onIntervention: (msg) => {
       pushEvent({type: 'system', text: msg.flavor || 'A new arrangement arrives.'});
-      refreshCurrentNode(msg.node, msg);
-      if (msg.node === currentNodeName) pushTransient({kind:'ripple',strength:.9,duration:2500});
+      // Like scale acts: only the place this client stands on is re-read.
+      if (msg.node === currentNodeName) {
+        refreshCurrentNode(msg.node, msg);
+        pushTransient({kind:'ripple',strength:.9,duration:2500});
+      }
     },
     onScaleAct: (msg) => {
       pushEvent({ type: "system", text: `✦ ${scaleActLine(msg)}` });
