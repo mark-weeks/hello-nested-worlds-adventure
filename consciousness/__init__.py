@@ -901,49 +901,69 @@ def _history_block(history: list[dict]) -> str:
             + "\n".join(lines))
 
 
-# Cross-modal self-knowledge: the node's visual form family (mirrors
-# static/nodeart.js LEVEL_BASE) and its ambient harmonic character (mirrors
-# static/nodesound.js _chooseMode), so the voice can allude to how it
-# appears and sounds — one personality across all three surfaces.
-_FORM_FAMILY = {
-    "Multiverse": "nested, enfolding rings", "Universe": "drifting filaments",
-    "Galaxy": "a slow spiral", "Planetary System": "concentric orbits",
-    "Planet": "a horizon under its own sky", "Region": "layered ridgelines",
-    "Room": "paneled walls and glow", "Object": "a close-worked sigil",
-    "Molecule": "a lattice of bonds", "Atom": "shells around a bright core",
-    "SubatomicParticle": "a scatter of probability",
+# Cross-modal self-knowledge mirrors what the clients actually present: the
+# served senses block (multiverse.senses.describe, drawn by static/sensory.js)
+# and the scale's musical form (static/score.js SCORE_PROFILES, pinned equal by
+# tests/test_frontend_contract.py) — one personality across all three surfaces.
+_SCORE_FORMS = {
+    "Multiverse": ("cello", "Membrane tides"), "Universe": ("bassoon", "Vacuum chorale"),
+    "Galaxy": ("tremolo", "Stellar procession"), "Planetary System": ("marimba", "Orbital clockwork"),
+    "Planet": ("horn", "Horizon song"), "Region": ("flute", "Open-air call and answer"),
+    "Room": ("harp", "Resonant enclosure"), "Object": ("pizzicato", "Close material gestures"),
+    "Molecule": ("marimba", "Bond hockets"), "Atom": ("glock", "Spectral bells"),
+    "SubatomicParticle": ("sine", "Discrete sparks"),
 }
-
-_MODE_FEEL = {
-    "insen": "a hollow, eerie scale",
-    "phrygian": "a dark mode with a looming half-step",
-    "lydian": "a bright, floating mode",
-    "aeolian": "a minor gravity",
-    "calm": "a quiet consonance",
-}
+_VOICE_WORDS = {"tremolo": "tremolo strings", "pizzicato": "pizzicato strings",
+                "glock": "glockenspiel", "sine": "sine tones"}
+_ATMOSPHERE_WORDS = {"rain": "under falling rain", "dust": "in drifting dust",
+                     "electric": "in static-charged air", "heat": "in shimmering heat",
+                     "still": "in still air"}
 
 
-def _ambient_mode(props: dict) -> str:
-    """Mirror of the sound layer's mode choice, in words."""
-    danger = props.get("danger_level") or 0
-    if props.get("condition") == "corrupted":
-        return _MODE_FEEL["insen"]
-    if (danger >= 7 or props.get("disturbed")) and not props.get("stabilized"):
-        return _MODE_FEEL["phrygian"]
-    if props.get("stabilized"):
-        return _MODE_FEEL["lydian"]
-    if isinstance(danger, int) and danger >= 4:
-        return _MODE_FEEL["aeolian"]
-    return _MODE_FEEL["calm"]
+def _senses_of(node: "SpatialNode") -> dict:
+    from multiverse.senses import describe
+    try:
+        return describe(node)
+    except Exception:  # a voice never fails on presentation; it simply says less
+        return {}
+
+
+def _scene_words(senses: dict) -> str:
+    """Mirror of static/sensory.js: plate or stratified bands, air, rings, motif, scars."""
+    if senses.get("plate"):
+        seen = "a curated scene of this place"
+    else:
+        bands = "helical bands" if senses.get("texture") in ("helical", "filament") else "stratified bands"
+        seen = f"{bands} of {senses.get('material') or 'mineral'}"
+    seen += " " + _ATMOSPHERE_WORDS.get(senses.get("atmosphere"), _ATMOSPHERE_WORDS["still"])
+    if senses.get("woven"):
+        seen += ", three woven rings turning"
+    if senses.get("memory"):
+        seen += ", a remembered motif traced across you"
+    scars = senses.get("scar") or 0
+    if scars:
+        seen += f", {scars} scar{'s' if scars != 1 else ''} across you"
+    return seen
+
+
+def _score_words(level: str, senses: dict) -> str:
+    """Mirror of static/score.js scoreDirection: form, instrument, key and figure."""
+    voice, title = _SCORE_FORMS[level]
+    minor = (senses.get("polarity") or 0) < 0 or (senses.get("tension") or 0) > .6
+    words = f"{title.lower()} on {_VOICE_WORDS.get(voice, voice)}, "
+    words += "turned to a minor key" if minor else "in a bright key"
+    if senses.get("woven"):
+        words += ", with a woven figure"
+    return words
 
 
 def _presentation_line(node: "SpatialNode") -> str:
-    family = _FORM_FAMILY.get(node.level)
-    if not family:
+    if node.level not in _SCORE_FORMS:
         return ""
+    senses = _senses_of(node)
     return (
-        f"\nTo those who look, you appear as {family}; to those who listen, "
-        f"your ambience hums in {_ambient_mode(node.properties or {})}. "
+        f"\nTo those who look, you appear as {_scene_words(senses)}; to those who listen, "
+        f"your ambience plays {_score_words(node.level, senses)}. "
         "You may allude to your own appearance and sound — they are yours."
     )
 
@@ -1132,11 +1152,11 @@ def _node_surroundings_block(node: SpatialNode) -> str:
     props = "; ".join(f"{k}={v}" for k, v in (node.properties or {}).items())
     if props:
         lines.append(f"The place around you reads: {props}.")
-    family = _FORM_FAMILY.get(node.level)
-    if family:
+    if node.level in _SCORE_FORMS:
+        senses = _senses_of(node)
         lines.append(
-            f"It shows itself as {family}; its ambience hums in "
-            f"{_ambient_mode(node.properties or {})}."
+            f"It shows itself as {_scene_words(senses)}; its ambience plays "
+            f"{_score_words(node.level, senses)}."
         )
     ripple = getattr(node, "ripple_score", 0.0) or 0.0
     if ripple >= 0.5:

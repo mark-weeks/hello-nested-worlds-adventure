@@ -16,6 +16,10 @@ SCHEMA = {
 }
 
 
+class Unsupported(ValueError):
+    """The model answered and declined: the intention exceeds this place's vocabulary."""
+
+
 def propose(intention, context):
     import copy
     allowed = vocabulary(context.get('level'))
@@ -46,5 +50,5 @@ def propose(intention, context):
     except (ValueError, StopIteration):
         raise ValueError('The intention did not settle into a readable arrangement. Try again.') from None
     if data.get('supported') is not True:
-        raise ValueError('That intention reaches beyond what this place can enact. Revise it or compose a sequence below.')
+        raise Unsupported('That intention reaches beyond what this place can enact. Revise it or compose a sequence below.')
     return normalize_steps(data.get('steps'), context['level'])

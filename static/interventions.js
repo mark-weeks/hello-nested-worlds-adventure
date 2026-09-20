@@ -68,7 +68,9 @@ class InterventionComposer extends HTMLElement {
     try {
       const preview = await this.request('/interventions/preview',body);
       if(generation!==this.generation) return;
-      this.preview=preview; this.steps=preview.steps; this.message='';
+      // A quiet reply (no steps) is the world's authored line, shown as status.
+      if(!Array.isArray(preview.steps) || !preview.steps.length) { this.preview=null; this.message=preview.response || 'The intention has not settled into a dependable shape. Try the actions below.'; }
+      else { this.preview=preview; this.steps=preview.steps; this.message=''; }
     } catch(error) { if(generation===this.generation) this.message=error.message; }
     finally { if(generation===this.generation) { this.busy=false; this.render(); this.shadowRoot.querySelector('.preview')?.focus(); } }
   }

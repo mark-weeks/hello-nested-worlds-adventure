@@ -220,16 +220,20 @@ class TestVerbCharacter:
 
 class TestVoiceSelfKnowledge:
     def test_presentation_line_matches_state(self):
+        # The voice mirrors what the clients present: the served senses block
+        # (static/sensory.js) and the scale's musical form (static/score.js).
         from consciousness import _presentation_line
         calm = SpatialNode("V-11", "Room", properties={})
         line = _presentation_line(calm)
-        assert "paneled walls" in line and "quiet consonance" in line
-        hot = SpatialNode("V-12", "Region",
-                          properties={"danger_level": 9})
-        assert "looming half-step" in _presentation_line(hot)
-        safe = SpatialNode("V-13", "Region",
-                           properties={"danger_level": 9, "stabilized": True})
-        assert "bright, floating" in _presentation_line(safe)
+        assert "stratified bands of mineral in still air" in line
+        assert "resonant enclosure on harp, in a bright key" in line
+        hot = SpatialNode("V-12", "Region", properties={"danger_level": 9, "weather": "rain"})
+        line = _presentation_line(hot)
+        assert "under falling rain" in line and "call and answer on flute, turned to a minor key" in line
+        chain = SpatialNode("V-13", "Molecule", properties={"geometry": "helical", "material": "helical"})
+        line = _presentation_line(chain)
+        assert "helical bands of helical" in line and "bond hockets on marimba" in line
+        assert _presentation_line(SpatialNode("V-14", "Nowhere", properties={})) == ""
 
     def test_image_prompt_carries_the_aspect(self):
         from server.imageprompt import assemble_prompt

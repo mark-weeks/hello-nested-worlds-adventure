@@ -1,24 +1,28 @@
 // Shared scene renderer: property-driven weather and material, with persistent
 // structures and remembered motifs. Media is never authoritative world state.
+// Motion runs on a frame counter, never the wall clock: the same served node
+// draws the same frame N everywhere, so screenshots follow the served state.
+const FRAMES_PER_SECOND = 60;
 export function startSensory(canvas, node, {transients = () => [], imageUrl} = {}) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return () => {};
   const s = node.senses || {}, motion = matchMedia('(prefers-reduced-motion: reduce)');
-  let stopped = false, raf, image, loaded = false;
+  let stopped = false, raf, image, loaded = false, frame = 0;
+  const seen = new WeakMap();  // transient -> the frame it first appeared on
   const url = imageUrl || s.plate;
   if (url) {
-    image = new Image(); image.onload = () => { loaded = true; if (!stopped) draw(performance.now()); };
+    image = new Image(); image.onload = () => { loaded = true; if (!stopped) draw(); };
     image.src = url;
   }
   function resize() {
     const box = canvas.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 1.5);
     canvas.width = Math.max(1, Math.round(box.width * dpr));
     canvas.height = Math.max(1, Math.round(box.height * dpr));
-    draw(performance.now());
+    draw();
   }
-  function draw(now) {
+  function draw() {
     if (stopped) return;
-    const w = canvas.width, h = canvas.height, t = motion.matches ? 0 : now / 1000;
+    const w = canvas.width, h = canvas.height, t = motion.matches ? 0 : frame / FRAMES_PER_SECOND;
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     const bg = ctx.createLinearGradient(0, 0, w, h); bg.addColorStop(0, s.shadow || '#091a20'); bg.addColorStop(1, '#03080c');
     ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
@@ -79,20 +83,21 @@ export function startSensory(canvas, node, {transients = () => [], imageUrl} = {
       ctx.globalAlpha = .25; ctx.beginPath(); ctx.moveTo(w * (.3 + i * .041), h * .28); ctx.lineTo(w * (.34 + i * .04), h * .62); ctx.stroke();
     }
     const waves = motion.matches ? [] : [...transients()];
-    if (s.echo && !motion.matches) waves.push({startedAt: now - (t % 6) * 1000, duration: 6000, strength: Math.abs(s.echo) / 12});
+    if (s.echo && !motion.matches) waves.push({phase: (t % 6) / 6, strength: Math.abs(s.echo) / 12});
     for (const event of waves) {
-      const p = (now - event.startedAt) / (event.duration || 1500);
+      if (event.phase == null && !seen.has(event)) seen.set(event, frame);
+      const p = event.phase ?? (frame - seen.get(event)) / ((event.duration || 1500) / 1000 * FRAMES_PER_SECOND);
       if (p < 0 || p > 1) continue;
       ctx.globalAlpha = (1 - p) * .3 * (event.strength ?? 1); ctx.lineWidth = 2;
       ctx.beginPath(); ctx.ellipse(w * .5, h * .52, w * (.03 + p * .45), h * (.02 + p * .3), 0, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   }
-  function loop(now) {
-    if (!document.hidden) draw(now);
+  function loop() {
+    if (!document.hidden) { frame++; draw(); }
     if (!motion.matches) raf = requestAnimationFrame(loop);
   }
-  function motionChanged() { cancelAnimationFrame(raf); draw(performance.now()); if (!motion.matches) raf = requestAnimationFrame(loop); }
+  function motionChanged() { cancelAnimationFrame(raf); draw(); if (!motion.matches) raf = requestAnimationFrame(loop); }
   motion.addEventListener('change', motionChanged);
   const observer = new ResizeObserver(resize); observer.observe(canvas);
   resize(); if (!motion.matches) raf = requestAnimationFrame(loop);

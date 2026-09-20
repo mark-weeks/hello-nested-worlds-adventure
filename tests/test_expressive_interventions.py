@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from copy import deepcopy
 from types import SimpleNamespace
+import json
 import multiprocessing
 import os
 from pathlib import Path
@@ -149,7 +150,46 @@ def test_http_actions_are_scale_native_and_never_delegate(http, accounts):
     assert http('/interventions/commit', body=payload)[1] == result
     assert events()[0]['player'] == participants.identify(accounts[0])['name']
     assert http('/node?node_name='+quote(name))[1]['node']['properties']['surface'] == 'engraved'
-    assert http('/interventions/preview', body={'node':name,'intention':'do not engrave'})[0] == 409
+    # Without a model the intention path answers in fiction, never as a conflict.
+    status, quiet, _ = http('/interventions/preview', body={'node':name,'intention':'do not engrave'})
+    assert status == 200 and quiet['ai'] is False and quiet['steps'] == [] and 'clearer shape' in quiet['response']
+
+
+def test_intention_failures_stay_in_fiction(http, monkeypatch):
+    from server import guard, intervention_api
+    from consciousness import interventions as proposal
+    name = NODES['instrument']
+    body = {'node': name, 'intention': 'let the surface remember the river'}
+    # Kill switch: the same authored shape as /speak, HTTP 200 with ai false.
+    monkeypatch.setenv('NESTED_WORLDS_DISABLE_AI', '1')
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'test-key')
+    status, data, _ = http('/interventions/preview', body=body)
+    assert status == 200 and data == {'ai': False, 'response': intervention_api._UNSHAPED, 'steps': []}
+    monkeypatch.delenv('NESTED_WORLDS_DISABLE_AI')
+    # Exhausted budget: the quiet line, no error field, no model call.
+    monkeypatch.setattr(guard, 'consume_anthropic', lambda **kwargs: False)
+    monkeypatch.setattr(proposal, 'propose', lambda *args: pytest.fail('budget must gate the model'))
+    status, data, _ = http('/interventions/preview', body=body)
+    assert status == 200 and data == {'ai': False, 'response': guard.QUIET_RESPONSE, 'steps': []}
+    # Provider or parsing failure: an authored line, never a 5xx or 409.
+    monkeypatch.setattr(guard, 'consume_anthropic', lambda **kwargs: True)
+    monkeypatch.setattr(proposal, 'propose', lambda *args: (_ for _ in ()).throw(RuntimeError('upstream 529')))
+    status, data, _ = http('/interventions/preview', body=body)
+    assert status == 200 and data == {'ai': False, 'response': intervention_api._UNSETTLED, 'steps': []}
+    assert 'upstream' not in json.dumps(data)
+    # The model's own refusal is the world's answer: ai true, declined, no steps.
+    def decline(*args):
+        raise proposal.Unsupported('That intention reaches beyond what this place can enact. Revise it or compose a sequence below.')
+    monkeypatch.setattr(proposal, 'propose', decline)
+    status, data, _ = http('/interventions/preview', body=body)
+    assert status == 200 and data['ai'] is True and data['declined'] is True and data['steps'] == []
+    assert 'reaches beyond' in data['response']
+    # A proposal still previews normally, and player-shaped mistakes stay 409.
+    monkeypatch.setattr(proposal, 'propose', lambda *args: [{'op': 'engrave', 'amount': 1}])
+    status, data, _ = http('/interventions/preview', body=body)
+    assert status == 200 and data['changed'] == {'surface': 'engraved'} and data['steps']
+    assert http('/interventions/preview', body={**body, 'performer': 'Tessera'})[0] == 409
+    assert not events()
 
 
 def test_senses_follow_literal_properties_and_material_history(owner):

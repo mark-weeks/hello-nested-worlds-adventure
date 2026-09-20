@@ -12,6 +12,36 @@ _log = logging.getLogger(__name__)
 ROUTES = {'/interventions', '/interventions/preview', '/interventions/commit'}
 
 
+_UNSHAPED = 'That intention needs a clearer shape. Choose actions below, or name them in order, separated by commas.'
+_UNSETTLED = 'The intention has not settled into a dependable shape. Try the actions below.'
+
+
+def _quiet(line, *, ai=False, declined=False):
+    # Failure stays in fiction: the model's absence, budget or silence answers
+    # HTTP 200 with an authored line and no steps, like /speak, never a conflict.
+    data = {'ai': ai, 'response': line, 'steps': []}
+    if declined:
+        data['declined'] = True
+    return data
+
+
+def _propose(intention, key, name, node, props):
+    """Ask the model for a score; return (steps, None) or (None, quiet reply)."""
+    if guard.ai_disabled() or not os.environ.get('ANTHROPIC_API_KEY'):
+        return None, _quiet(_UNSHAPED)
+    if not guard.consume_anthropic(user_key=key):
+        return None, _quiet(guard.QUIET_RESPONSE)
+    from consciousness.interventions import Unsupported, propose
+    try:
+        return propose(intention, {'name': name, 'level': node.level, 'properties': props}), None
+    except Unsupported as exc:
+        # The model answered; its refusal is the world's reply, not a failure.
+        return None, _quiet(str(exc), ai=True, declined=True)
+    except Exception:
+        _log.exception('Intention proposal unavailable')
+        return None, _quiet(_UNSETTLED)
+
+
 def handle(handler, path, qs, body=None):
     if path not in ROUTES:
         return False
@@ -41,23 +71,13 @@ def handle(handler, path, qs, body=None):
             if any(body.get(field) is not None for field in ('delegate', 'performer', 'actor_identity')):
                 raise ValueError('You may choose your own actions. Other travelers decide for themselves.')
             steps = body.get('steps')
+            quiet = None
             if steps is None:
                 intention = body.get('intention')
                 steps = physics.parse_score(intention, node.level)
                 if steps is None:
-                    if guard.ai_disabled() or not os.environ.get('ANTHROPIC_API_KEY'):
-                        raise ValueError('That intention needs a clearer shape. Choose actions below, or name them in order, separated by commas.')
-                    if not guard.consume_anthropic(user_key=key):
-                        raise ValueError(guard.QUIET_RESPONSE)
-                    from consciousness.interventions import propose
-                    try:
-                        steps = propose(intention, {'name': name, 'level': node.level, 'properties': props})
-                    except ValueError:
-                        raise
-                    except Exception:
-                        _log.exception('Intention proposal unavailable')
-                        raise ValueError('The intention has not settled into a dependable shape. Try the actions below.') from None
-            data = interventions.preview(seed, name, steps, version=2)
+                    steps, quiet = _propose(intention, key, name, node, props)
+            data = quiet or interventions.preview(seed, name, steps, version=2)
         elif path == '/interventions/commit':
             version = body.get('version', 1)  # Old clients may recover already accepted v1 receipts.
             if type(version) is not int or version not in interventions.INTERPRETERS:
