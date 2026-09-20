@@ -12,9 +12,11 @@ imaginatively. Guide through possibilities, present conditions and discoverable
 consequences as they occur.
 A player should feel invited to explore, not assigned a sequence to complete.
 
-The scene carries wonder; the interface makes participation easy. Keep a stable,
-quiet visual language around a world that can become strange, turbulent or calm.
-Changes in the world's mood should not make controls harder to find or read.
+The scene carries wonder; the interface makes participation easy and expresses
+the place's evolving character. Its initial appearance derives from the node's
+starting conditions and evolves with current conditions and lasting material
+traces. Keep interaction structure dependable as appearance changes; controls
+must remain easy to find and read.
 
 - Give the current place one identity block containing scale, readable name,
   position identifier and its evolving description. Keep that block in the
@@ -57,24 +59,45 @@ images; the identity block must remain readable independently of the artwork.
 
 ## Interface foundations
 
-Use named shared tokens when implementing these values, including inside the Act
-component's shadow root. Do not add another layer of hard-coded component colors.
-These are interface colors; node-derived scene colors remain independent.
+Use shared semantic token roles, including inside the Act component's shadow
+root. Their values come from the current node's visual interpretation rather
+than one universal palette. The same material and atmospheric evidence should
+inform scene and interface; contrast requirements may change the interface's
+exact shades. Do not add another layer of hard-coded component colors.
 
-| Token | Starting value | Role |
+| Token | Derivation | Role |
 |---|---|---|
-| Canvas | `#081316` | Deep neutral background |
-| Surface | `#122622` | Quiet panels and secondary controls |
-| Text | `#F3E5CF` | Main text |
-| Secondary text | `#B3C9C4` | Supporting copy that remains readable |
-| Accent | `#E2C790` | Focus and the current commitment |
-| Link | `#81C9D0` | Navigation and interactive references |
-| Attention | `#F3B9A3` | Recoverable problems or consequential caution |
+| Canvas | Current material and atmosphere, with controlled luminance | Background |
+| Surface | Related to Canvas, separated enough to read | Panels and secondary controls |
+| Text | Legible against the resolved surface | Main text |
+| Secondary text | Legible supporting tone within the local palette | Supporting copy |
+| Accent | Salient local property or combination, with sufficient contrast | Focus and selection |
+| Link | Distinct, readable interactive treatment in the local palette | Navigation and references |
+| Attention | Distinct local treatment paired with an explicit cue | Recoverable problems or caution |
 
-Color never carries meaning alone. Avoid coding restoration as virtuous green
-and disruption as morally bad red. Selected, unavailable, pending and failed
-states need text or shape as well as color. Unavailable actions should explain why;
+Color should carry learnable meaning, including associations with properties and
+their combinations. The owner's card-color analogy is a vocabulary reference,
+not a requirement to import another game's categories. Enfolded's associations
+must remain responsive to a changing world. Avoid assigning every node a fixed
+color class or treating restoration as morally good and disruption as morally bad.
+Meaningful distinctions also need a non-color cue for accessibility. Selected,
+unavailable, pending and failed states need text or shape as well as color;
 reduced opacity alone is insufficient.
+
+Scale, material, atmosphere and relevant state establish a node's initial palette,
+type treatment, contours, texture and motion. Two nodes at one scale can differ.
+Present conditions govern their evolution; retained physical traces can carry
+history into that appearance. A preserved birth record is not an appearance lock.
+Combine properties through accents, patterns and layering without reducing every
+place to one category. Minor changes should be subtle; profound transformations
+may substantially alter the expression. Only observed state should be signaled,
+without revealing hidden information or forecasting an action's outcome.
+
+The values below are reference ranges and usability constraints for the first
+implementation, not universal node styling. Exact semantic mappings still need
+design and comparative playtesting. **Current gap:** scene qualities already use
+some property mappings; the interface remains largely fixed. This section records
+the owner's direction and does not claim that adaptive interface styling exists.
 
 - **Type:** a restrained serif for place names and short atmospheric lines; a
   readable sans serif for controls, explanations and history. Reserve monospace
@@ -85,8 +108,8 @@ reduced opacity alone is insufficient.
   or essential controls. Keep body line height around 1.5.
 - **Spacing:** a 4/8/12/16/24/32/48px scale. Group related content with space;
   borders are reserved for useful boundaries rather than every line of data.
-- **Controls:** at least 44px interaction height as a design target, a consistent
-  4px corner radius, clear keyboard focus, and one visual hierarchy. A primary
+- **Controls:** at least 44px interaction height as a design target, locally
+  expressive contours, clear keyboard focus, and a recognizable visual hierarchy. A primary
   action button names what the player will attempt. Keep optional composition in
   the same surface; do not require every action to pass through a confirmation pane.
 - **Contrast:** target at least 4.5:1 for ordinary text on its actual background
@@ -146,8 +169,10 @@ guide introduces no scoring rules or retroactive classification of past players.
 
 ## First restyling pass
 
-Unify typography, spacing, controls, focus states and panel colors in the scene,
-map and shared Act component. Preserve the now-approved interaction structure.
+Define the shared visual vocabulary and demonstrate its changes across several
+contrasting nodes before fixing token mappings. Connect typography, spacing,
+controls, focus states and panel colors in the scene, map and shared Act component
+through that vocabulary. Preserve the now-approved interaction structure.
 Reduce the remaining terminal-like styling, improve secondary text legibility,
 and make the intention disclosure feel as considered as the four action choices.
 Reuse the same foundations in history and the guide when those surfaces are next
@@ -161,3 +186,5 @@ steps, competing controls or less room for imagination. Separately verify the
 commit-and-discover behavior: a direct action has no mandatory preview, an ambiguous
 intention clarifies only the attempted action, another player's intervening action
 can affect a delayed result, and no pre-commit surface exposes future outcomes.
+
+The next dedicated effort is scoped in [the session handoff](../roadmap/expressive-world-next-steps.md).
