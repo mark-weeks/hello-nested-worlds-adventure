@@ -138,6 +138,7 @@ export default function App() {
       setPlayers([]);
       setEvents([]);
     }
+    const startedAt = refreshSerial.current;
     try {
       const response = await fetch(withKey(`/world?depth=${requestedDepth}`));
       const data = await response.json();
@@ -150,7 +151,14 @@ export default function App() {
       // the nav stack, so "back" walks the real ancestry.
       const name = localStorage.getItem(NAME_KEY) || urlName() || "";
       worldRootRef.current = data.world;
-      setNodeStack(entryPath(data.world, savedNode || data.entry_node, name));
+      // Any node refreshed while this tree was in flight is newer than the tree.
+      const path = entryPath(data.world, savedNode || data.entry_node, name).map(node => {
+        const fresh = refreshed.current.get(node.name);
+        if (!fresh || fresh.order <= startedAt) return node;
+        Object.assign(node, fresh.node);
+        return node;
+      });
+      setNodeStack(path);
       // A deep link selects this arrival once; later reloads resume actual travel.
       if (new URLSearchParams(location.search).has("node")) {
         const url = new URL(location.href);
@@ -198,6 +206,11 @@ export default function App() {
 
   const seedRef = useRef(seed);
   seedRef.current = seed;
+  // Node refreshes are ordered against world reloads: a background deepening
+  // requested before a refresh must not put the older tree state back on top
+  // of the fresher node when its (larger) reply lands later.
+  const refreshSerial = useRef(0);
+  const refreshed = useRef(new Map());
   const nodeRefresher = useRef(null);
   if (!nodeRefresher.current) {
     nodeRefresher.current = createNodeRefresher(async (worldSeed, name) => {
@@ -210,6 +223,7 @@ export default function App() {
       // the current navigation path, including when a response arrives late.
       const cached = findNodeByName(worldRootRef.current, name);
       if (cached) Object.assign(cached, node);
+      refreshed.current.set(name, { order: ++refreshSerial.current, node });
       setNodeStack(stack => stack.at(-1)?.name === name
         ? [...stack.slice(0, -1), { ...stack.at(-1), ...node }] : stack);
     });
