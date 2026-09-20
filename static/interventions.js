@@ -108,7 +108,8 @@ class InterventionComposer extends HTMLElement {
       try { localStorage.removeItem(storage); } catch (_) { /* unavailable storage */ }
       if(generation!==this.generation) return;
       this.pending=null; this.preview=null; this.message=result.flavor;
-      this.steps=[]; this.compose=false; ctx.changed?.(); await this.load();
+      // The host's refresh carries the acceptance notice, so it coalesces with the broadcast.
+      this.steps=[]; this.compose=false; ctx.changed?.(result); await this.load();
     } catch(error) {
       if(generation!==this.generation) return;
       if(error.status===409 || error.status===403) {

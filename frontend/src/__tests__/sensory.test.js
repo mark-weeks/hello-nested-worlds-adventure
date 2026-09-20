@@ -51,6 +51,16 @@ describe("scene renderer determinism", () => {
     expect(render(40)).toEqual(render(40));
   });
 
+  it("keeps every alpha within range, including a fully energised glow", () => {
+    const charged = { ...node, senses: { ...node.senses, energy: 1 } };
+    const log = [];
+    const stop = startSensory(canvasFor(log), charged, {});
+    stop();
+    const alphas = log.filter(e => e[0] === "set" && e[1] === "globalAlpha").map(e => e[2]);
+    expect(alphas.length).toBeGreaterThan(5);
+    expect(alphas.every(a => a >= 0 && a <= 1)).toBe(true);
+  });
+
   it("advances motion by frame, so later frames differ from the first", () => {
     expect(render(40)).not.toEqual(render(0));
   });

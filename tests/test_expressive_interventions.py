@@ -173,6 +173,23 @@ def test_single_action_previews_ride_the_choices_read(http):
     assert status == 200 and result['accepted'] and result['changed'] == {'surface': 'engraved'}
 
 
+def test_malformed_requests_are_400_and_world_conflicts_stay_409(http):
+    name = NODES['instrument']
+    # Request-shape mistakes are the client's 400 (CLAUDE.md: malformed bodies).
+    assert http('/interventions/preview', body={'node': 7, 'steps': [{'op': 'engrave'}]})[0] == 400
+    assert http('/interventions/preview', body={'node': name, 'steps': 'engrave'})[0] == 400
+    assert http('/interventions/preview', body={'node': name, 'intention': ['engrave']})[0] == 400
+    assert http('/interventions/commit', body={'node': name, 'steps': [{'op': 'engrave'}], 'expected': 'x' * 24, 'version': 'two'})[0] == 400
+    assert http('/interventions/commit', body={'node': name, 'steps': 'engrave', 'expected': 'x' * 24, 'version': 2})[0] == 400
+    assert http('/interventions?node=' + quote('x' * 129))[0] == 400
+    # Valid shapes that conflict with the world remain 409.
+    assert http('/interventions/preview', body={'node': name, 'steps': [{'op': 'cleave'}]})[0] == 409
+    assert http('/interventions/preview', body={'node': name, 'steps': []})[0] == 409
+    assert http('/interventions/commit', body={'node': name, 'steps': [{'op': 'engrave'}], 'expected': 'x' * 24, 'version': 99})[0] == 409
+    assert http('/interventions/commit', body={'node': name, 'steps': [{'op': 'engrave'}], 'expected': 'stale', 'version': 2})[0] == 409
+    assert not events()
+
+
 def test_intention_failures_stay_in_fiction(http, monkeypatch):
     from server import guard, intervention_api
     from consciousness import interventions as proposal

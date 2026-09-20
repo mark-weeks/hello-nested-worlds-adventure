@@ -12,6 +12,10 @@ _log = logging.getLogger(__name__)
 ROUTES = {'/interventions', '/interventions/preview', '/interventions/commit'}
 
 
+class Malformed(ValueError):
+    """A request-shape mistake: the client's 400, never a world conflict (409)."""
+
+
 _UNSHAPED = 'That intention needs a clearer shape. Choose actions below, or name them in order, separated by commas.'
 _UNSETTLED = 'The intention has not settled into a dependable shape. Try the actions below.'
 
@@ -65,7 +69,7 @@ def handle(handler, path, qs, body=None):
         me = participants.identify(key)
         name = body.get('node') if body is not None else qs.get('node', [''])[0]
         if not isinstance(name, str) or not name or len(name) > 128:
-            raise ValueError('Choose a place in this world.')
+            raise Malformed('Choose a place in this world.')
         nodes = interventions.lineage(seed, name)
         node = nodes[0]
         position = persistence.get_player_position(key)
@@ -84,17 +88,25 @@ def handle(handler, path, qs, body=None):
             if any(body.get(field) is not None for field in ('delegate', 'performer', 'actor_identity')):
                 raise ValueError('You may choose your own actions. Other travelers decide for themselves.')
             steps = body.get('steps')
+            if steps is not None and not isinstance(steps, list):
+                raise Malformed('Steps must be a list of actions.')
             quiet = None
             if steps is None:
                 intention = body.get('intention')
+                if intention is not None and not isinstance(intention, str):
+                    raise Malformed('An intention is written in words.')
                 steps = physics.parse_score(intention, node.level)
                 if steps is None:
                     steps, quiet = _propose(intention, key, name, node, props)
             data = quiet or interventions.preview(seed, name, steps, version=2)
         elif path == '/interventions/commit':
             version = body.get('version', 1)  # Old clients may recover already accepted v1 receipts.
-            if type(version) is not int or version not in interventions.INTERPRETERS:
+            if type(version) is not int:
+                raise Malformed('The vocabulary version is a whole number.')
+            if version not in interventions.INTERPRETERS:
                 raise ValueError('Preview this action again with the current vocabulary.')
+            if not isinstance(body.get('steps'), list):
+                raise Malformed('Steps must be a list of actions.')
             def authorize():
                 # Runs inside receipt acceptance; an old receipt returns without
                 # re-enacting it or retroactively falsifying its historical actor.
@@ -116,6 +128,8 @@ def handle(handler, path, qs, body=None):
         handler._send_json(data)
     except participants.Unauthorized as exc:
         handler._send_error(str(exc), 403)
-    except (ValueError, TypeError) as exc:
+    except (Malformed, TypeError) as exc:
+        handler._send_error(str(exc), 400)
+    except ValueError as exc:
         handler._send_error(str(exc), 409)
     return True

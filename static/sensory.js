@@ -51,7 +51,7 @@ export function startSensory(canvas, node, {transients = () => [], imageUrl} = {
     ctx.globalCompositeOperation = 'screen';
     const glow = ctx.createRadialGradient(w * .5, h * .45, 0, w * .5, h * .45, w * .55);
     glow.addColorStop(0, s.polarity < 0 ? '#153e6640' : '#dbb77325'); glow.addColorStop(1, '#00000000');
-    ctx.globalAlpha = .3 + (s.energy || 0); ctx.fillStyle = glow; ctx.fillRect(0, 0, w, h);
+    ctx.globalAlpha = Math.min(1, .3 + (s.energy || 0)); ctx.fillStyle = glow; ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = s.light || '#dfc292'; ctx.fillStyle = s.light || '#dfc292';
     const count = s.atmosphere === 'still' ? 15 : 64;
     for (let i = 0; i < count; i++) {

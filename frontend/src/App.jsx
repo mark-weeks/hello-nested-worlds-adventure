@@ -232,6 +232,9 @@ export default function App() {
     if (!name) return Promise.resolve();
     return nodeRefresher.current(seed, name, notice).catch(() => {});
   }, [currentNodeName, seed]);
+  // The composer reports its own acceptance; keyed on the same event as the
+  // broadcast, the two refreshes become one read.
+  const onComposerChanged = useCallback(notice => refreshCurrentNode(undefined, notice), [refreshCurrentNode]);
 
   const { connected, sendMessage } = useWorldSocket(seed, playerName, {
     // The welcome roster: everyone already present when we connect. Without
@@ -613,7 +616,7 @@ export default function App() {
         wrapPassage={wrapAffordance(currentNode, wrapInfo)}
         onWrapCross={crossWrap}
         onSolved={handleSolved}
-        onNodeChanged={refreshCurrentNode}
+        onNodeChanged={onComposerChanged}
         onEnsurePosition={ensurePosition}
         soundOn={soundPreferred}
         onToggleSound={toggleSound}

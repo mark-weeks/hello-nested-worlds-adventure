@@ -10,7 +10,9 @@ beforeAll(async () => {
   globalThis.HTMLElement = FakeElement;
   globalThis.customElements = { get: () => undefined, define: (_, cls) => { Composer = cls; } };
   globalThis.document = { createElement: () => ({ append() {}, style: {} }) };
-  globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+  const stored = new Map();
+  globalThis.localStorage = { getItem: k => stored.get(k) ?? null, setItem: (k, v) => stored.set(k, v), removeItem: k => stored.delete(k) };
+  globalThis.EnfoldedIntents = { begin: async () => ({ request_id: "req-1" }), finish() {} };
   await import("../../../static/interventions.js");
 });
 
@@ -82,6 +84,19 @@ describe("choices and context", () => {
     expect(c.request).toHaveBeenCalledTimes(2);
     expect(c.request.mock.calls[1][1]).toEqual({ steps: [{ op: "engrave", amount: 1 }, { op: "polish", amount: 1 }] });
     expect(c.preview.summary).toBe("Engrave, then polish");
+  });
+
+  it("hands its acceptance to the host so the host's refresh coalesces with the broadcast", async () => {
+    const result = { accepted: true, event_id: 41, node: "Mire-112", flavor: "Ada acts: Engrave.", changed: { surface: "engraved" } };
+    const { c, changed } = composer([{ participant: "p", recent: [] }, result, { participant: "p", recent: [] }]);
+    c.ctx.ensure = async () => {};
+    await c.load();
+    c.preview = { steps: [{ op: "engrave", amount: 1 }], expected: "e".repeat(24), version: 2 };
+    await c.commit();
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(changed.mock.calls[0][0]).toBe(result);
+    expect(c.message).toBe("Ada acts: Engrave.");
+    expect(c.pending).toBeNull();
   });
 
   it("reloads on a new served revision, never on a fresh node object", () => {

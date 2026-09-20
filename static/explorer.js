@@ -1469,7 +1469,7 @@ function configureComposer(data) {
   document.getElementById('composer').context = {
     node:{...data},seed:worldParams.seed,key:localStorage.getItem('nw_beta_key') || '',
     jump:name=>jumpTo(name),
-    changed:()=>refreshPendingAct(data.name,{}),
+    changed:notice=>refreshPendingAct(data.name,notice || {}),
     ensure:async()=>{
       const response=await fetch(withKey('/position'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node:data.name,seed:worldParams.seed,depth:worldParams.depth})});
       if(!response.ok || !(await response.json()).saved) throw new Error('Your arrival has not settled here. Try again.');
