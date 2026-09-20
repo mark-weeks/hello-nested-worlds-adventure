@@ -2,6 +2,12 @@
 
 Interface and art direction: [Visual language](visual-language.md) and [beta scene-art strategy](beta-scene-art.md). These distinguish the owner’s interaction principles from proposed restyling and production work.
 
+**Action design correction (2026-09-20):** Players commit to attempted actions and
+discover consequences as they unfold. Clarify ambiguous intentions without revealing
+future outcomes; clear actions need no mandatory preview. Other players and changing
+conditions can affect results. The current preview-based browser flow still needs
+replacement; see [the interaction guidance](visual-language.md#intention-and-recognition).
+
 **2026-09-20 corrected local review build:** The owner rejected the duplicated
 universal composer, forced delegation, gallery controller and similar soundscapes.
 [ADR-028](../decisions/ADR-028-scale-native-autonomy.md) replaces them with one Act

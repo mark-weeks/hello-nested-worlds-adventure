@@ -8,7 +8,8 @@ Artwork production is covered in [the beta art strategy](beta-scene-art.md).
 ## Experience
 
 Make the interface as simple as possible while giving players room to act
-imaginatively. Guide through possibilities, context and readable consequences.
+imaginatively. Guide through possibilities, present conditions and discoverable
+consequences as they occur.
 A player should feel invited to explore, not assigned a sequence to complete.
 
 The scene carries wonder; the interface makes participation easy. Keep a stable,
@@ -20,9 +21,13 @@ Changes in the world's mood should not make controls harder to find or read.
   Four visible suggestions are not a permanent limit on the world's vocabulary.
 - Keep **Describe an intention** in Act. It is an equally valid way to begin,
   visually easy to discover without a second composer or persistent extra panel.
-- Reveal combinations, detailed conditions and causal routes when requested.
-- A preview shows the proposed action, material consequences and consequential
-  uncertainty. The player can revise or decline it before committing.
+- Reveal combinations, observable conditions and the history of actual consequences
+  when requested. Do not reveal an unobserved future causal route.
+- Let players commit to an action and discover what follows. A clearly labeled
+  action is itself a commitment; it does not need a mandatory preview/confirm step.
+  Clarify an intention only when ambiguity would materially change the action,
+  target or scope. Clarification establishes what the player attempts, not what
+  the world will do in response.
 - Every human and AI player chooses their own actions. Invitations never imply
   another player's agreement. Extend or replace existing UX; do not duplicate it.
 
@@ -75,7 +80,8 @@ reduced opacity alone is insufficient.
   borders are reserved for useful boundaries rather than every line of data.
 - **Controls:** at least 44px interaction height as a design target, a consistent
   4px corner radius, clear keyboard focus, and one visual hierarchy. A primary
-  button appears when a specific commitment is ready, not before an intention.
+  action button names what the player will attempt. Keep optional composition in
+  the same surface; do not require every action to pass through a confirmation pane.
 - **Contrast:** target at least 4.5:1 for ordinary text on its actual background
   and 3:1 for meaningful control boundaries and focus indicators. Put text on a
   reliable surface or scrim rather than assuming artwork will always be dark.
@@ -89,11 +95,29 @@ reduced opacity alone is insufficient.
 
 ## Intention and recognition
 
-Interpretation proposes a supported action or sequence, explains its likely
-consequences and leaves commitment with the player. An unclear or unsupported
-intention should invite clarification, not silently become an approximate action.
-For example, “open this object without destroying its pattern” must not silently
-map to Fracture when preserving the pattern has no implemented consequence.
+Interpret an intention into a supported attempted action or sequence. Players may
+understand ordinary mechanics, observe present conditions and develop expectations
+through experience. The interface must not supply exact property deltas, guaranteed
+success, future arrival routes or predicted alignment awards before commitment.
+
+A clear intention can proceed when the player submits it to act. Ask a concise
+clarifying question only when different interpretations would materially change
+what they attempt. An unsupported intention must remain unsupported rather than
+silently turning into another action. For example, “open this object without
+destroying its pattern” must not silently map to Fracture when preserving the
+pattern has no implemented expression.
+
+Outcomes emerge from the committed action, the world conditions when it takes
+effect, and other players' independent actions. Acceptance confirms an attempt
+has entered the world; it does not guarantee the requested result. Delayed actions
+may be aided, obstructed, overtaken or made moot as circumstances change. Describe
+what actually happens as evidence becomes available, and retain the distinction
+between an attempt, an ongoing consequence and a completed outcome in history.
+
+This is a rule for both presentation and simulation. Hiding a preview while
+freezing a forecast as the eventual outcome would not satisfy it. Preserve fair,
+dependable mechanics and receipt/retry safety; uncertainty comes from the living
+world and limited knowledge, not arbitrary changes to the rules after commitment.
 
 Recognition must distinguish intended purpose, the action actually chosen and
 what happened. Alignment can describe demonstrated tendencies across multiple
@@ -103,10 +127,15 @@ Do not reward eloquent intentions, assign a hidden morality total, or infer anot
 player's consent. Let a player understand and contest an interpretation. Keep
 scoring detail optional so it does not turn every action into score optimization.
 
-**Current limit:** intention-to-action proposal exists with a configured model;
-explicit supported action sequences work without one. Alignment and contribution
-scoring are not implemented by the current intervention path. This guide does not
-introduce scoring rules or retroactively classify past players.
+**Current implementation gap:** the browser still requires a preview and exposes
+material deltas and a future route. The owner's September 20 correction rejects
+that behavior; the design above replaces that requirement, but removing it from
+the runtime remains implementation work. Some delayed actions already resolve
+against live conditions, which must be retained and extended rather than replaced
+with promised outcomes. Intention-to-action proposal exists with a configured
+model; explicit supported action sequences work without one. Alignment and
+contribution scoring are not implemented by the current intervention path. This
+guide introduces no scoring rules or retroactive classification of past players.
 
 ## First restyling pass
 
@@ -121,4 +150,7 @@ Review the actual browser at narrow and wide widths, keyboard-only navigation,
 text zoom and reduced motion. Review bright and dark scenes, no artwork,
 unavailable actions, pending consequences and failed/retried submissions. A
 restyling pass succeeds when it is easier to read and explore without adding
-steps, competing controls or less room for imagination.
+steps, competing controls or less room for imagination. Separately verify the
+commit-and-discover behavior: a direct action has no mandatory preview, an ambiguous
+intention clarifies only the attempted action, another player's intervening action
+can affect a delayed result, and no pre-commit surface exposes future outcomes.

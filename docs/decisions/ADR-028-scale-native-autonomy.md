@@ -3,6 +3,20 @@
 **Status:** Implemented locally following the owner's explicit correction of the
 September 20 review build; supersedes the proposal/UI/delegation portions of ADR-027.
 
+## September 20 owner correction: commit, then discover
+
+The owner rejects seeing material consequences before acting. The
+[visual language](../design/visual-language.md#intention-and-recognition) now
+requires committing to an attempted action and discovering consequences as the
+shared world responds. A clarification may establish an ambiguous action, target
+or scope; it must not forecast property deltas, future causal routes or scoring.
+Clear actions do not require a mandatory preview/confirmation stage. Other players
+remain independent, and delayed outcomes depend on conditions when they occur.
+
+This supersedes the preview requirement in the implementation record below.
+The runtime still exposes previews; its replacement is pending implementation.
+Existing accepted actions, versioned semantics and recovery receipts stay intact.
+
 ## Context
 
 The first milestone review failed product requirements. A universal six-operation
