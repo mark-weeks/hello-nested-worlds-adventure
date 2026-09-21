@@ -1,3 +1,4 @@
+import { disclose } from "./disclosures.js";
 // Real browser actions, durable pending work, server process death/restart,
 // missed notification and authoritative reload in both shipped clients.
 import { expect, test } from "@playwright/test";
@@ -80,8 +81,8 @@ for (const [route, maturationScale] of [["/", "0.02"], ["/app", "0.02"], ["/", "
       await page.goto(`${server.url}${route}`);
       if (route === "/") {
         await expect(page.locator("#players-list")).not.toContainText("Not connected");
-        await page.locator("#sound-invite-no").click();
         await page.locator("#btn-act").click();
+        await expect.poll(()=>page.evaluate(()=>ws?.readyState)).toBe(1);
       }
       else await page.getByRole("button", { name: "Act", exact: true }).click();
       // Retained actors/CLI may still create original /act work. Its old timing
@@ -192,6 +193,7 @@ for(const route of ['/','/app']) {
         return node.node.properties.star_density;
       },{timeout:15000}).toBe(expected);
       await page.goto(server.url+route);
+      await disclose(page,'History & journal');
       // The settled work reads as fiction in both chronicles, never as a bare row label.
       if(route==='/'){
         await expect(page.locator('#node-props')).toContainText(String(expected));
@@ -220,7 +222,7 @@ for(const route of ['/','/app']) for(const endpoint of ['/interventions/commit',
       await page.routeWebSocket(/\/ws\?/,socket=>{const peer=socket.connectToServer();peer.onMessage(message=>{if(JSON.parse(message).type!=='intervention_changed')socket.send(message);});});
       await page.route(url=>url.pathname===endpoint,async route=>{const response=await route.fetch();reached();await held;await route.fulfill({response});});
       await act.getByRole('button',{name:'Kindle',exact:true}).click();await requested;
-      if(route==='/app')await page.getByRole('button',{name:'↑ Enclosing world',exact:true}).click();
+      if(route==='/app')await page.locator('enfolded-navigation .top button').first().click();
       else await page.evaluate(()=>{
         const root=[...document.querySelectorAll('#graph .node')].find(el=>el.__data__?.data?.level==='Multiverse');
         root.dispatchEvent(new MouseEvent('click',{bubbles:true}));

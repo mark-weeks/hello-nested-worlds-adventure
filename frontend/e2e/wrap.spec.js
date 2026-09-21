@@ -1,3 +1,4 @@
+import { disclose } from "./disclosures.js";
 // The wrap passage (ADR-008) in both real clients, against the real
 // Python server: standing on a particle offers the descent onto the
 // whole; standing on the root offers the ascent to the one hinge — and
@@ -50,6 +51,7 @@ test("/app crosses the wrap in both directions", async ({ page, request }) => {
   await descend.click();
   await expect(page.getByText(rootPhrase, { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Multiverse", { exact: true })).toBeVisible();
+  await disclose(page,"History & journal");
   await expect(page.getByText(/the particle does not end/)).toBeVisible();
 
   // Ascend beyond the root: land back at the hinge — the same monument.
@@ -101,11 +103,9 @@ test("explorer crosses the wrap in both directions", async ({ page, request }) =
   // The live observer flow also speaks display names: watch an agent
   // traverse from here and check the first row — the phrase shown, no
   // address riding it, the canonical name kept on hover.
+  await disclose(page,"Travelers & chat");
   await page.click("#btn-observe");
-  // The sidebar's dense layout can occlude the panel button at the test
-  // viewport; dispatch the click straight to its listener — the SSE flow
-  // and row rendering under test are unaffected by pointer physics.
-  await page.locator("#btn-do-observe").dispatchEvent("click");
+  await page.locator("#btn-do-observe").click();
   const obsName = page.locator(".obs-row .obs-name").first();
   await expect(obsName).toBeVisible({ timeout: 10_000 });
   await expect(obsName).not.toHaveText(/-\d+$/);

@@ -37,12 +37,6 @@ function withKey(url) {
   return url + (url.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(k);
 }
 
-const LEVEL_COLORS = {
-  Multiverse: '#dde8ff', Universe: '#00ccff', Galaxy: '#4488ff',
-  'Planetary System': '#cc55ff', Planet: '#33ee88', Region: '#ffcc33',
-  Room: '#ff4455', Object: '#909090', Molecule: '#33cccc',
-  Atom: '#4466ff', SubatomicParticle: '#cc33ff',
-};
 const LEVEL_R = {
   Multiverse: 18, Universe: 14, Galaxy: 12, 'Planetary System': 11,
   Planet: 10, Region: 9, Room: 8, Object: 7, Molecule: 6,
@@ -134,15 +128,17 @@ const svg       = d3.select(container).append('svg');
 const root_g    = svg.append('g');
 const zoom      = d3.zoom().scaleExtent([0.05, 6]).on('zoom', e => root_g.attr('transform', e.transform));
 svg.call(zoom);
+new ResizeObserver(() => { if(selected)centerOnNode(selected, {immediate:true}); }).observe(container);
 
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
 function setMode(mode) {
-  ['speak', 'observe', 'puzzle', 'act'].forEach(m => {
+  ['speak', 'puzzle', 'act'].forEach(m => {
     document.getElementById('panel-' + m).classList.toggle('active', m === mode);
     document.getElementById('btn-'   + m).classList.toggle('active', m === mode);
+    document.getElementById('btn-' + m).setAttribute('aria-pressed',String(m===mode));
   });
-  if (mode === 'observe' && observeES) { observeES.close(); observeES = null; }
+  if(mode==='puzzle' && selected) fetchPuzzle();
 }
 
 async function loadWorld() {
@@ -169,7 +165,6 @@ async function loadWorld() {
     renderTree(data.world, { preservePresence: sameWorld });
     if (playerName && !sameWorld) wsConnect(data.seed);
     if (!sameWorld) loadHistoryFeed(data.seed);
-    maybeOfferSound();
   } catch (e) {
     setStatus('Error: ' + e.message);
   } finally {
@@ -205,9 +200,9 @@ function renderTree(worldRoot, { preservePresence = false } = {}) {
 
   nodeG.append('circle')
     .attr('r',            d => LEVEL_R[d.data.level] || 7)
-    .attr('fill',         d => LEVEL_COLORS[d.data.level] || '#666')
+    .attr('fill',         d => window.EnfoldedInterface.resolve(d.data)['--accent'])
     .attr('fill-opacity', 0.8)
-    .attr('stroke',       d => LEVEL_COLORS[d.data.level] || '#666')
+    .attr('stroke',       d => window.EnfoldedInterface.resolve(d.data)['--accent'])
     .attr('stroke-opacity', 0.5);
 
   // Affordance rings: places worth a detour — danger, corruption, unrest,
@@ -219,7 +214,7 @@ function renderTree(worldRoot, { preservePresence = false } = {}) {
     .attr('class',        'affordance-ring')
     .attr('r',            d => (LEVEL_R[d.data.level] || 7) + 4)
     .attr('fill',         'none')
-    .attr('stroke',       d => nodeMark(d.data))
+    .attr('stroke',       d => window.EnfoldedInterface.resolve(d.data)['--accent'])
     .attr('stroke-width', 1.2)
     .attr('stroke-opacity', 0.85)
     .attr('pointer-events', 'none');
@@ -259,14 +254,15 @@ async function loadHistoryFeed(seed) {
   } catch (_) { /* history is a garnish — never block the load on it */ }
 }
 
-function centerOnNode(nodeData) {
+function centerOnNode(nodeData, {immediate=false} = {}) {
   if (!hierLayout) return;
   const d = hierLayout.descendants().find(n => n.data.id === nodeData.id
                                            || n.data.name === nodeData.name);
   if (!d) return;
   const W = container.clientWidth, H = container.clientHeight, scale = 0.8;
   // The tree is laid out horizontally: a node sits at screen point (d.y, d.x).
-  svg.transition().duration(600).call(
+  const view=immediate || REDUCED_MOTION ? svg.interrupt() : svg.transition().duration(600);
+  view.call(
     zoom.transform,
     d3.zoomIdentity.translate(W / 2 - d.y * scale, H / 2 - d.x * scale).scale(scale),
   );
@@ -306,20 +302,24 @@ function drawSigil(data) {
 
 function selectNode(data, { refresh = false } = {}) {
   selected = data;
-  const color = LEVEL_COLORS[data.level] || '#3a8eff';
+  window.EnfoldedInterface.apply(document.documentElement,data);
+  document.getElementById('visual-cue').textContent=window.EnfoldedInterface.cue(data);
 
   root_g.selectAll('.node').classed('selected', d => d.data.id === data.id);
   root_g.selectAll('.node circle')
     .attr('fill-opacity',   d => d.data.id === data.id ? 1.0 : 0.8)
     .attr('stroke-opacity', d => d.data.id === data.id ? 1.0 : 0.5);
 
+  // The selected marker follows observed changes without rebuilding the map.
+  const selectedMark = root_g.selectAll('.node').filter(d => d.data.id === data.id);
+  const tokens = window.EnfoldedInterface.resolve(data);
+  selectedMark.select('circle').attr('fill', tokens['--accent']).attr('stroke', tokens['--accent']);
+
   document.getElementById('node-level').textContent = data.level;
-  document.getElementById('node-level').style.color = color;
   // Display layer: the readable phrase is the shown name; hovering it
   // reveals the full canonical form, and the address gets its own row.
   document.getElementById('node-name').textContent  = displayName(data.name);
   document.getElementById('node-name').title        = data.name;
-  document.getElementById('node-name').style.color  = color;
   const address = nodeAddress(data.name);
   document.getElementById('node-address').textContent = address ? `⌖ ${address}` : '';
   document.getElementById('node-description').textContent = data.senses?.description || data.properties?.aspect || '';
@@ -328,30 +328,19 @@ function selectNode(data, { refresh = false } = {}) {
   ).join('');
   if (data.ripple_score > 0) {
     const bars = '▮'.repeat(Math.max(1, Math.round(data.ripple_score * 8)));
-    const hot = data.ripple_score >= 0.5 ? ' style="color:#c88af0"' : '';
+    const hot = data.ripple_score >= 0.5 ? ' style="color:var(--muted)"' : '';
     propsHtml += `<div class="prop-row" title="accumulated causal pressure">` +
       `<span class="prop-key">causal pressure</span>` +
       `<span class="prop-val"${hot}>${bars} ${data.ripple_score.toFixed(2)}</span></div>`;
   }
   document.getElementById('node-props').innerHTML = propsHtml;
-  // A depth-limited response makes its last rendered scale look like a dead
-  // end even though the canonical world continues five levels further. Make
-  // the boundary an in-fiction passage: one click deepens the view and keeps
-  // the player standing on this same materialized node.
-  const deepen = document.getElementById('btn-deepen');
-  deepen.hidden = !(
-    worldParams.depth < 11
-    && data.level !== 'SubatomicParticle'
-    && !(data.children || []).length
-  );
-
-  // The wrap passage (ADR-008): below any particle, the whole; beyond the
-  // root, the world's one hinge particle.
-  const passage = wrapAffordance(data, wrapInfo);
-  document.getElementById('btn-wrap-down').hidden =
-    !(passage && passage.direction === 'inward');
-  document.getElementById('btn-wrap-up').hidden =
-    !(passage && passage.direction === 'outward');
+  const suffix=data.name.split('-').pop();
+  const parent=nodesBySuffix[suffix.slice(0,-1)];
+  const horizon=worldParams.depth<11 && data.level!=='SubatomicParticle' && !data.children?.length;
+  document.getElementById('navigation').context={node:data,parent,seed:worldParams.seed,jump:jumpTo,
+    wrap:wrapAffordance(data,wrapInfo),cross:passage=>crossWrap(passage.direction),
+    deepen:horizon?deepenSelected:null,view:'Scene view ↗',href:'/app'};
+  document.getElementById('journal-link').href='/journal?seed='+worldParams.seed+'&node='+encodeURIComponent(data.name);
 
   // The node's own generative art: deterministic in (seed, name), shaped by
   // properties, marked by history (pressure, effects, activity etchings).
@@ -366,6 +355,7 @@ function selectNode(data, { refresh = false } = {}) {
     loadPresences(data.name);
     puzzleState = { attempt: 0, maxAttempts: 3, solved: false };
     if (observeES) { observeES.close(); observeES = null; }
+    if(document.getElementById('btn-puzzle').classList.contains('active'))fetchPuzzle();
 
     // Remember where the player is so they resume here next session — locally for
     // this browser, and on the server so it follows them to other devices.
@@ -387,38 +377,18 @@ function selectNode(data, { refresh = false } = {}) {
 
 function toggleSound() {
   if (!window.NodeSound) return;
-  const invite = document.getElementById('sound-invite');
-  if (invite) invite.classList.remove('visible');
   if (!window._nwAmbience) window._nwAmbience = new window.NodeSound.NodeAmbience();
   const amb = window._nwAmbience;
   const btn = document.getElementById('btn-sound');
   if (amb.enabled) {
     amb.disable();
-    btn.textContent = '♪ off';
+    btn.textContent = 'Listen to this world';
     btn.setAttribute('aria-pressed', 'false');
   } else {
     amb.enable(worldParams.seed, selected);
-    btn.textContent = '♪ on';
+    btn.textContent = 'Pause score';
     btn.setAttribute('aria-pressed', 'true');
   }
-}
-
-// The soundscape is off by default (browsers require an activation gesture),
-// which made it the game's least-discoverable rich surface. Offer it once per
-// session, in fiction, a moment after the world settles — the click IS the
-// gesture the browser requires. Declining leaves only the header toggle.
-const SOUND_INVITED = 'nw_sound_invited';
-
-function maybeOfferSound() {
-  if (sessionStorage.getItem(SOUND_INVITED)) return;
-  setTimeout(() => {
-    if (sessionStorage.getItem(SOUND_INVITED)) return;
-    if (!window.NodeSound) return;  // module not loaded — retry on next world load
-    if (window._nwAmbience && window._nwAmbience.enabled) return;  // already listening
-    sessionStorage.setItem(SOUND_INVITED, '1');
-    const bar = document.getElementById('sound-invite');
-    if (bar) bar.classList.add('visible');
-  }, 3000);
 }
 
 // Act has one shared, scale-native surface in both clients.
@@ -465,12 +435,12 @@ async function loadChroniclePage(reset) {
       if (e.era && e.era !== chronicleLastEra) {
         chronicleLastEra = e.era;
         const h = document.createElement('div');
-        h.style.cssText = 'font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#3a8eff;margin:10px 0 4px;border-bottom:1px solid #141828;padding-bottom:3px';
+        h.style.cssText = 'font-size:.875rem;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:10px 0 4px;border-bottom:1px solid var(--muted);padding-bottom:3px';
         h.textContent = e.era;
         box.appendChild(h);
       }
       const row = document.createElement('div');
-      row.style.cssText = 'font-size:10px;color:#5a7090;line-height:1.5';
+      row.style.cssText = 'font-size:.875rem;color:var(--muted);line-height:1.5';
       const when = (e.at || '').slice(5, 16).replace(' ', ' · ');
       row.textContent = `${when}  ${describeChronicleEntry(e)}`;
       box.appendChild(row);
@@ -480,7 +450,7 @@ async function loadChroniclePage(reset) {
       chronicleCursor ? '' : 'none';
     if (!data.entries || (!data.entries.length && reset)) {
       const empty = document.createElement('div');
-      empty.style.cssText = 'font-size:10px;color:#2a4060';
+      empty.style.cssText = 'font-size:.875rem;color:var(--muted)';
       empty.textContent = 'Nothing has happened here yet. You would be first.';
       box.appendChild(empty);
     }
@@ -491,8 +461,10 @@ async function loadChroniclePage(reset) {
 
 function openChronicle() {
   document.getElementById('chronicle-modal').classList.add('visible');
+  document.getElementById('chronicle-close').focus();
   loadChroniclePage(true);
 }
+function closeChronicle(){document.getElementById('chronicle-modal').classList.remove('visible');document.getElementById('btn-chronicle').focus();}
 
 // ── Wayback (ADR-011) ─────────────────────────────────────────────────────
 // A node-local event step is the exact cursor: 0 is birth, N is immediately
@@ -708,9 +680,8 @@ function toggleWaybackListen() {
   else ambience.enable(worldParams.seed, historical);
   waybackListening = true;
   document.getElementById('wayback-listen').textContent = 'return to present sound';
-  document.getElementById('btn-sound').textContent = '♪ on';
+  document.getElementById('btn-sound').textContent = 'Pause score';
   document.getElementById('btn-sound').setAttribute('aria-pressed', 'true');
-  document.getElementById('sound-invite')?.classList.remove('visible');
 }
 
 // ── Addressable presences ───────────────────────────────────────────────────
@@ -821,7 +792,7 @@ function observe() {
 }
 
 function appendObserveRow({ node, level, kind, strength }) {
-  const color = LEVEL_COLORS[level] || '#666';
+  const color = 'var(--accent)';
   // Shared display-layer row: the observer's table speaks display names
   // like every other narration surface (clientlogic.observationRow).
   const obs = observationRow({ node, kind, strength });
@@ -837,17 +808,23 @@ function appendObserveRow({ node, level, kind, strength }) {
   log.scrollTop = log.scrollHeight;
 }
 
+let puzzleRequest = 0;
 async function fetchPuzzle() {
   if (!selected) { setStatus('Select a node first.'); return; }
   const { seed, depth } = worldParams;
-  const url = `/puzzle?seed=${seed}&depth=${depth}&node_name=${encodeURIComponent(selected.name)}`;
+  const nodeName=selected.name, request=++puzzleRequest;
+  const current=()=>request===puzzleRequest && selected?.name===nodeName;
+  const url = `/puzzle?seed=${seed}&depth=${depth}&node_name=${encodeURIComponent(nodeName)}`;
+  document.getElementById('puzzle-content').textContent='Listening for the question…';
   setStatus('Searching for puzzle…');
   try {
     const res  = await fetch(withKey(url));
     const data = await res.json();
+    if(!current())return;
+    if(!res.ok)throw new Error();
     if (!data.found) {
       document.getElementById('puzzle-content').innerHTML =
-        '<div style="color:#2a4060;font-size:11px;margin-top:8px">No puzzle found in this subtree.</div>';
+        '<div style="color:var(--muted);font-size:.875rem;margin-top:8px">No puzzle found in this subtree.</div>';
       setStatus('Ready');
       return;
     }
@@ -856,7 +833,11 @@ async function fetchPuzzle() {
     renderPuzzle(data);
     setStatus('Ready');
   } catch (e) {
-    setStatus('Error: ' + e.message);
+    if(!current())return;
+    const content=document.getElementById('puzzle-content');
+    content.textContent='The question could not be reached. Try again.';
+    const retry=document.createElement('button');retry.textContent='Retry question';retry.onclick=fetchPuzzle;
+    content.append(retry);setStatus('The question could not be reached.');
   }
 }
 
@@ -873,7 +854,7 @@ function renderPuzzle(data) {
   // its rooms — show how much of what this place enfolds is resolved.
   const c = data.constellation;
   const constellationHtml = c
-    ? `<div class="attempt-info" style="color:${c.complete ? '#f0c878' : '#5a6a8a'}">` +
+    ? `<div class="attempt-info" style="color:${c.complete ? 'var(--muted)' : 'var(--muted)'}">` +
       (c.complete
         ? `✦ constellation complete — all ${c.total} ${escHtml(c.of)} resolved`
         : `constellation: ${c.solved} of ${c.total} ${escHtml(c.of)} resolved`) +
@@ -898,7 +879,7 @@ function renderPuzzle(data) {
     if (e.key === 'Enter') submitAnswer();
   });
   document.getElementById('puzzle-submit').addEventListener('click', submitAnswer);
-  document.getElementById('puzzle-answer').focus();
+  if(document.getElementById('btn-puzzle').classList.contains('active'))document.getElementById('puzzle-answer').focus();
 }
 
 async function submitAnswer() {
@@ -961,8 +942,8 @@ let players     = {};
 let agents      = {};   // name → { node, persona } — the ambient cast, live
 let colorIdx    = 0;
 
-const PLAYER_COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#ff9ff3','#ff9f43','#54a0ff','#a29bfe'];
-const AGENT_RING_COLOR = '#f0c878';  // the cast rings gold; humans ring bright
+const PLAYER_COLORS = ['var(--muted)','var(--muted)','var(--muted)','var(--muted)','var(--muted)','var(--muted)','var(--muted)','var(--muted)'];
+const AGENT_RING_COLOR = 'var(--muted)';  // the cast rings gold; humans ring bright
 const eventFeed = [];
 
 // ── Travelers: jump-to-presence ─────────────────────────────────────────────
@@ -1232,7 +1213,7 @@ function flashNode(nodeName, strength) {
   if (target.empty()) return;
   const datum   = target.datum();
   const baseR   = LEVEL_R[datum.data.level] || 7;
-  const color   = LEVEL_COLORS[datum.data.level] || '#3a8eff';
+  const color = window.EnfoldedInterface.resolve(datum.data)['--accent'];
   const peakR   = baseR + Math.round(strength * 28);
   target.append('circle')
     .attr('r',              baseR)
@@ -1252,7 +1233,7 @@ function renderPlayers() {
   const humans = Object.values(players);
   const cast   = Object.entries(agents);
   if (!humans.length && !cast.length) {
-    el.innerHTML = '<div style="color:#2a4060;font-size:10px">No other travelers abroad</div>';
+    el.innerHTML = '<div style="color:var(--muted);font-size:.875rem">No other travelers abroad</div>';
     return;
   }
   // Every row is a door: click a traveler to go where they are (below the
@@ -1273,7 +1254,7 @@ function renderPlayers() {
       `title="follow ${escHtml(name)}">` +
       `<span class="player-dot" style="background:${AGENT_RING_COLOR}"></span>` +
       `<span class="player-name">${escHtml(name)}` +
-      (a.persona ? ` <span style="color:#5a6a8a">· ${escHtml(a.persona)}</span>` : '') +
+      (a.persona ? ` <span style="color:var(--muted)">· ${escHtml(a.persona)}</span>` : '') +
       `</span>` +
       `<span class="player-node" title="${escHtml(a.node || '')}">${escHtml(a.node ? displayName(a.node) : '…arriving')}</span>` +
       `</div>`);
@@ -1358,26 +1339,18 @@ document.getElementById('player-name-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') joinModal();
 });
 document.getElementById('gen-btn').addEventListener('click', loadWorld);
-document.getElementById('btn-deepen').addEventListener('click', deepenSelected);
-document.getElementById('btn-wrap-down').addEventListener('click', () => crossWrap('inward'));
-document.getElementById('btn-wrap-up').addEventListener('click', () => crossWrap('outward'));
 document.getElementById('chat-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') sendChat();
 });
 document.getElementById('chat-btn').addEventListener('click', sendChat);
 document.getElementById('btn-speak'  ).addEventListener('click', () => setMode('speak'));
-document.getElementById('btn-observe').addEventListener('click', () => setMode('observe'));
 document.getElementById('btn-puzzle' ).addEventListener('click', () => setMode('puzzle'));
 document.getElementById('btn-act'    ).addEventListener('click', () => setMode('act'));
 document.getElementById('btn-do-speak'  ).addEventListener('click', speak);
 document.getElementById('btn-do-observe').addEventListener('click', observe);
-document.getElementById('btn-do-puzzle' ).addEventListener('click', fetchPuzzle);
 document.getElementById('btn-chronicle' ).addEventListener('click', openChronicle);
 document.getElementById('btn-wayback'   ).addEventListener('click', openWayback);
 document.getElementById('btn-sound'     ).addEventListener('click', toggleSound);
-document.getElementById('sound-invite-yes').addEventListener('click', toggleSound);
-document.getElementById('sound-invite-no').addEventListener('click',
-  () => document.getElementById('sound-invite').classList.remove('visible'));
 document.getElementById('btn-advanced').addEventListener('click', () => {
   // An optional presentation control: the world itself never changes here.
   const controls = document.querySelector('.controls');
@@ -1386,10 +1359,10 @@ document.getElementById('btn-advanced').addEventListener('click', () => {
 });
 document.getElementById('chronicle-older').addEventListener('click', () => loadChroniclePage(false));
 document.getElementById('chronicle-close').addEventListener('click',
-  () => document.getElementById('chronicle-modal').classList.remove('visible'));
+  closeChronicle);
 document.getElementById('chronicle-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('chronicle-modal'))
-    document.getElementById('chronicle-modal').classList.remove('visible');
+    closeChronicle();
 });
 document.getElementById('wayback-range').addEventListener('input', e =>
   queueWaybackStep(Number(e.target.value)));
@@ -1479,3 +1452,13 @@ function configureComposer(data) {
 window.addEventListener('senses-ready',()=>{if(selected){drawSigil(selected);configureComposer(selected);}});
 
 document.getElementById('score-volume').addEventListener('input',event=>window._nwAmbience?.setVolume(Number(event.target.value)));
+
+document.getElementById('chronicle-modal').addEventListener('keydown',event=>{
+  if(event.key==='Escape'){event.preventDefault();closeChronicle();}
+  if(event.key==='Tab'){
+    const buttons=[...event.currentTarget.querySelectorAll('button')].filter(b=>b.getClientRects().length && !b.disabled);
+    const first=buttons[0],last=buttons.at(-1);
+    if(event.shiftKey && document.activeElement===first){event.preventDefault();last.focus();}
+    if(!event.shiftKey && document.activeElement===last){event.preventDefault();first.focus();}
+  }
+});

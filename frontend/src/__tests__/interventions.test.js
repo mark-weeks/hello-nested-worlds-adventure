@@ -34,7 +34,7 @@ describe("outcome polling", () => {
     vi.useFakeTimers();
     const { c, changed } = composer([
       { participant: "p", recent: [{ pending: 2 }] },
-      new Error("The world keeps its own pace."),
+      Object.assign(new Error("The world keeps its own pace."), {status:429}),
       { participant: "p", recent: [{ pending: 0 }] },
     ]);
     await c.load();
@@ -127,14 +127,14 @@ function rendered(c) {
 
 describe("resilience and accessibility", () => {
   it("offers a retry when the first read fails, and recovers on it", async () => {
-    const { c } = composer([new Error("The world keeps its own pace."), { participant: "p", recent: [], choices: [] }]);
+    const { c } = composer([new Error("Failed to fetch"), { participant: "p", recent: [], choices: [] }]);
     delete c.render;
     await c.load();
     expect(c.data).toBeFalsy();
     const nodes = rendered(c);
     const again = nodes.find(n => n.tag === "button" && n.textContent === "Listen again");
     expect(again).toBeTruthy();
-    expect(nodes.some(n => n.textContent === "The world keeps its own pace.")).toBe(true);
+    expect(nodes.some(n => n.textContent === "This place could not be heard. Listen again.")).toBe(true);
     await again.onclick();
     expect(c.request).toHaveBeenCalledTimes(2);
     expect(c.data).toBeTruthy();

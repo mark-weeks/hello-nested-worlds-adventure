@@ -16,19 +16,19 @@ export default function Interact({ node, seed, depth, playerName, onSolved, onNo
   const verb = node?.verb; // the scale-native act, from /world
 
   return (
-    <div style={s.wrap}>
-      <div style={s.tabs}>
+    <section id="interactions" aria-label="Interact here" tabIndex={-1} style={s.wrap}>
+      <div className="interface-tabs" role="group" aria-label="Interaction mode">
         <button
-          style={tab === "speak" ? s.tabActive : s.tab}
+          aria-pressed={tab === "speak"}
           onClick={() => setTab("speak")}
         >Speak</button>
         <button
-          style={tab === "puzzle" ? s.tabActive : s.tab}
+          aria-pressed={tab === "puzzle"}
           onClick={() => setTab("puzzle")}
         >Puzzle</button>
         {verb && (
           <button
-            style={tab === "act" ? s.tabActive : s.tab}
+            aria-pressed={tab === "act"}
             onClick={() => setTab("act")}
           >Act</button>
         )}
@@ -39,7 +39,7 @@ export default function Interact({ node, seed, depth, playerName, onSolved, onNo
         <Puzzle key={`pz-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} />}
       {tab === "act" && verb &&
         <Interventions key={`act-${nodeKey}`} node={node} seed={seed} onJump={onJump} onNodeChanged={() => onNodeChanged?.(node.name, {})} onEnsurePosition={onEnsurePosition} />}
-    </div>
+    </section>
   );
 }
 
@@ -97,7 +97,7 @@ function Speak({ node, seed, playerName }) {
       setResponse(data.error || data.response || "(no response)");
       setState(data.error ? "error" : "ok");
     } catch (e) {
-      setResponse("Network error: " + e.message);
+      setResponse("Your words did not reach this place. Try speaking again.");
       setState("error");
     }
   }, [message, node, seed, playerName, state, target]);
@@ -121,6 +121,7 @@ function Speak({ node, seed, playerName }) {
         </div>
       )}
       <textarea
+        aria-label="Message to this place"
         style={s.textarea}
         maxLength={1024}
         value={message}
@@ -148,9 +149,10 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState(null); // {correct,result,hint,correct_answer,solver}
   const [busy, setBusy] = useState(false);
+  const [retryable, setRetryable] = useState(false);
 
   const find = useCallback(async () => {
-    setStatus("Searching…"); setResult(null); setPuzzle(null);
+    setStatus("Searching…"); setResult(null); setPuzzle(null); setRetryable(false);
     try {
       const url = `/puzzle?seed=${seed}&depth=${depth}&node_name=${encodeURIComponent(nodeName)}`;
       const r = await fetch(withKey(url));
@@ -167,7 +169,7 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
         persisted: true,
       } : null);
       setStatus("");
-    } catch (e) { setStatus("Error: " + e.message); }
+    } catch (e) { setStatus("The question could not be reached. Try again."); setRetryable(true); }
   }, [nodeName, seed, depth]);
 
   // The Puzzle tab is itself the player's request to see the puzzle. Because
@@ -200,7 +202,7 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
       // can miss. (A harmless re-move anywhere else.)
       if (data.correct) onSolved?.(node.name, data.changed);
     } catch (e) {
-      setStatus("Error: " + e.message);
+      setStatus("The question could not be reached. Try again.");
     } finally {
       setBusy(false);
     }
@@ -209,7 +211,8 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
   if (!puzzle) {
     return (
       <div style={s.panel}>
-        <div style={s.hint}>{status || "Searching…"}</div>
+        <div style={s.hint} role="status">{status || "Searching…"}</div>
+        {retryable && <button onClick={find}>Retry question</button>}
       </div>
     );
   }
@@ -227,9 +230,10 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
       </div>
       <div style={s.pName}>{puzzle.name}</div>
       <div style={s.pPrompt}>{puzzle.prompt}</div>
-      <a style={{color: "#a7cde0", fontSize: 12}} href={withKey(`/puzzle/evidence?seed=${seed}&epoch=${puzzle.epoch}&node_name=${encodeURIComponent(node.name)}`)} target="_blank" rel="noopener">Conditions when this question opened ↗</a>
+      <a style={{color: "var(--link)", fontSize: ".875rem"}} href={withKey(`/puzzle/evidence?seed=${seed}&epoch=${puzzle.epoch}&node_name=${encodeURIComponent(node.name)}`)} target="_blank" rel="noopener">Conditions when this question opened ↗</a>
       {status && <div role="status">{status} <button onClick={find}>Reopen question</button></div>}
       <input
+        aria-label="Puzzle answer"
         style={s.input}
         value={answer}
         maxLength={128}
@@ -264,27 +268,25 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
 }
 
 const s = {
-  wrap:     { display: "flex", flexDirection: "column", gap: "6px", flexShrink: 0, borderTop: "1px solid #1e2235", paddingTop: "10px" },
-  tabs:     { display: "flex", gap: "6px" },
-  tab:      { flex: 1, background: "#0b0f1a", border: "1px solid #1e2235", color: "#5a6a90", padding: "4px 0", cursor: "pointer", fontFamily: "inherit", fontSize: "11px" },
-  tabActive:{ flex: 1, background: "#10131f", border: "1px solid #3a8eff", color: "#3a8eff", padding: "4px 0", cursor: "pointer", fontFamily: "inherit", fontSize: "11px" },
-  panel:    { display: "flex", flexDirection: "column", gap: "6px" },
-  hint:     { fontSize: "10px", color: "#4a5580" },
-  targetRow:    { display: "flex", gap: "4px", flexWrap: "wrap" },
-  target:       { background: "#0b0f1a", border: "1px solid #1e2235", color: "#5a6a90", padding: "2px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "10px" },
-  targetActive: { background: "#10131f", border: "1px solid #4af0c8", color: "#4af0c8", padding: "2px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: "10px" },
-  textarea: { background: "#10131f", border: "1px solid #2a3050", color: "#b0bcd0", padding: "6px", fontFamily: "inherit", fontSize: "12px", resize: "none", height: "48px", lineHeight: 1.4 },
-  input:    { background: "#10131f", border: "1px solid #2a3050", color: "#b0bcd0", padding: "5px 6px", fontFamily: "inherit", fontSize: "12px" },
-  btn:      { background: "#0e1828", border: "1px solid #2a4060", color: "#3a8eff", padding: "5px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px" },
-  resp:     { fontSize: "12px", color: "#7a9ab8", fontStyle: "italic", lineHeight: 1.6, whiteSpace: "pre-wrap", borderLeft: "2px solid #2a4060", paddingLeft: "8px" },
-  respError:{ fontSize: "12px", color: "#a05555", lineHeight: 1.6, whiteSpace: "pre-wrap" },
-  pKind:    { fontSize: "9px", letterSpacing: "0.12em", textTransform: "uppercase", color: "#4a6080" },
-  pDiff:    { color: "#c8a13a", letterSpacing: "1px" },
-  pName:    { fontSize: "13px", fontWeight: "bold", color: "#c0d0e8" },
-  pPrompt:  { fontSize: "12px", color: "#8aaccc", lineHeight: 1.5 },
-  pHint:    { fontSize: "11px", color: "#4a8080", fontStyle: "italic", marginTop: "4px" },
-  correct:  { fontSize: "12px", color: "#44cc88" },
-  reward:   { marginTop: "4px", color: "#8ac8aa", lineHeight: 1.4 },
-  failed:   { fontSize: "12px", color: "#cc4444" },
-  wrong:    { fontSize: "12px", color: "#cc8844" },
+  wrap: { display:"flex", flexDirection:"column", gap:16 },
+  panel: { display:"flex", flexDirection:"column", gap:12 },
+  hint: { fontSize:".875rem", color:"var(--muted)" },
+  targetRow: { display:"flex", gap:8, flexWrap:"wrap" },
+  target: { fontSize:".875rem" },
+  targetActive: { color:"var(--accent)", borderColor:"var(--accent)", fontWeight:650 },
+  textarea: { width:"100%" },
+  btn: { width:"100%" },
+  resp: { color:"var(--text)", whiteSpace:"pre-wrap", lineHeight:1.6 },
+  respError: { color:"var(--attention)", whiteSpace:"pre-wrap" },
+  pKind: { fontSize:".875rem", color:"var(--muted)" },
+  pDiff: { marginLeft:8, color:"var(--accent)" },
+  pName: { font:"1.25rem/1.3 Georgia,serif" },
+  pPrompt: { lineHeight:1.6 },
+  attempts: { fontSize:".875rem", color:"var(--muted)" },
+  input: { width:"100%" },
+  correct: { color:"var(--text)" },
+  failed: { color:"var(--attention)" },
+  wrong: { color:"var(--attention)" },
+  pHint: { color:"var(--muted)", marginTop:8 },
+  reward: { color:"var(--muted)", marginTop:8 },
 };

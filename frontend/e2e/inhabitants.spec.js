@@ -1,3 +1,4 @@
+import {disclose} from "./disclosures.js";
 // M4: a real heartbeat in a saturated world, real clients and persisted restart.
 import { expect, test } from '@playwright/test';
 import { spawn } from 'node:child_process';
@@ -117,6 +118,7 @@ for (const route of ['/', '/app']) {
         try { notices.push(JSON.parse(payload)); } catch { /* transport frame */ }
       }));
       await page.goto(server.url + route);
+      await disclose(page,"History & journal");
       await page.waitForLoadState('networkidle');
       // The heartbeat still uses the retained scale-act protocol. Simulate a
       // prior player's accepted act through that API, then observe independent
@@ -165,6 +167,7 @@ for (const route of ['/', '/app']) {
         m.narration.source_event_id === accepted.event_id);
       expect(outcome.narration.actor_label).toBe('Tessera');
       await page.goto(server.url + route);
+      await disclose(page,"History & journal");
       await expect(page.getByText(outcome.narration.text, { exact: false }).first()).toBeVisible();
       const node = await (await request.get(`${server.url}/node?node_name=${encodeURIComponent(target.name)}`)).json();
       expect(node.node.pending_actions).toEqual([]);

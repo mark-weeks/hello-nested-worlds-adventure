@@ -14,6 +14,12 @@ export default function Chronicle({ seed, onClose }) {
   const [cursor, setCursor] = useState(null);
   const [done, setDone] = useState(false);
   const loading = useRef(false);
+  const dialog=useRef(null);
+  useEffect(()=>{
+    const focus=document.activeElement;
+    dialog.current.showModal();
+    return ()=>{if(focus?.isConnected)focus.focus();};
+  },[]);
 
   const loadPage = useCallback(async (before) => {
     if (loading.current) return;
@@ -53,8 +59,7 @@ export default function Chronicle({ seed, onClose }) {
   }
 
   return (
-    <div style={c.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={c.box}>
+    <dialog ref={dialog} className="world-dialog" aria-label="World Chronicle" style={c.box} onCancel={onClose}>
         <div style={c.title}>World Chronicle</div>
         <div style={c.meta}>{meta}</div>
         <div style={c.list}>
@@ -65,21 +70,19 @@ export default function Chronicle({ seed, onClose }) {
           {!done && <button style={c.btn} onClick={() => loadPage(cursor)}>further back</button>}
           <button style={c.btn} onClick={onClose}>close</button>
         </div>
-      </div>
-    </div>
+    </dialog>
   );
 }
 
 const c = {
-  overlay: { position: "fixed", inset: 0, background: "rgba(7,8,15,0.88)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" },
-  box:     { background: "#0b0d1a", border: "1px solid #2a4060", padding: "28px 32px", width: "min(520px, calc(100vw - 48px))", maxHeight: "80vh", display: "flex", flexDirection: "column", gap: "12px", fontFamily: "Courier New, monospace" },
-  title:   { fontSize: "13px", letterSpacing: "3px", textTransform: "uppercase", color: "#3a8eff" },
-  meta:    { fontSize: "10px", color: "#4a6080", letterSpacing: "1px" },
+  box:     { margin:"auto", color:"var(--text)", background: "var(--surface)", border: "1px solid var(--line)", padding: "28px 32px", width: "min(520px, calc(100vw - 48px))", maxHeight: "80vh", display: "flex", flexDirection: "column", gap: "12px", fontFamily: "system-ui, sans-serif" },
+  title:   { fontSize: ".875rem", letterSpacing: "3px", textTransform: "uppercase", color: "var(--muted)" },
+  meta:    { fontSize: ".875rem", color: "var(--muted)", letterSpacing: "1px" },
   list:    { overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "2px", minHeight: "120px" },
-  era:     { fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", color: "#3a8eff", margin: "10px 0 4px", borderBottom: "1px solid #141828", paddingBottom: "3px" },
-  row:     { fontSize: "10px", color: "#5a7090", lineHeight: 1.5 },
-  when:    { color: "#2a4050" },
-  empty:   { fontSize: "10px", color: "#2a4060" },
+  era:     { fontSize: ".875rem", letterSpacing: "2px", textTransform: "uppercase", color: "var(--muted)", margin: "10px 0 4px", borderBottom: "1px solid var(--line)", paddingBottom: "3px" },
+  row:     { fontSize: ".875rem", color: "var(--muted)", lineHeight: 1.5 },
+  when:    { color: "var(--muted)" },
+  empty:   { fontSize: ".875rem", color: "var(--muted)" },
   btnRow:  { display: "flex", gap: "10px" },
-  btn:     { background: "#0e1828", border: "1px solid #2a4060", color: "#3a8eff", padding: "5px 12px", cursor: "pointer", fontFamily: "inherit", fontSize: "11px" },
+  btn:     { background: "var(--surface)", border: "1px solid var(--line)", color: "var(--muted)", padding: "5px 12px", cursor: "pointer", fontFamily: "inherit", fontSize: ".875rem" },
 };

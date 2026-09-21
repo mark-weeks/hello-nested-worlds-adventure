@@ -322,5 +322,5 @@ class TestGenerativeArtLayer:
                         reason="static/app not built")
     def test_built_bundle_carries_the_art(self):
         bundle = _all_text(_BUILT_APP, ".js")
-        for marker in ("Living scene", "filament", "crystalline", "Scene navigation"):
+        for marker in ("Living scene", "filament", "crystalline", "Explore places"):
             assert marker in bundle, f"built bundle is missing {marker!r}; rebuild the frontend"

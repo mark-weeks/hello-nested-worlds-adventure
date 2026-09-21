@@ -1,6 +1,7 @@
 // One accessible composer shared by the scene and map. All player/model text is
 // inserted as textContent; only the fixed stylesheet below is parsed as markup.
-const STYLE = `:host{display:block;color:#dfded0;font:13px/1.55 system-ui}*{box-sizing:border-box}section{padding:8px 0}.choices{display:grid;grid-template-columns:1fr 1fr;gap:8px}.choices button{display:flex;flex-direction:column;gap:5px}.choices small{font-size:11px;color:#bacec8;font-weight:normal}.selected{border-color:#e7c98e;background:#254743}h2{font:24px Georgia,serif;margin:0 0 8px}p{margin:8px 0;color:#bacec8}button,input,select,textarea{font:inherit;color:#eee4cd;background:#0a191d;border:1px solid #617974;border-radius:3px;padding:9px;max-width:100%}button{cursor:pointer;text-align:left;min-height:42px}button:hover{background:#254743}button:disabled{opacity:.5;cursor:wait}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid #e7c98e;outline-offset:2px}label{display:block;margin:12px 0 4px;font-size:12px}textarea{width:100%;min-height:68px}.row{display:flex;gap:6px;margin:7px 0;align-items:center}.row select{flex:1;min-width:0}.row button{flex:none}.examples{display:flex;flex-wrap:wrap;gap:7px;margin:13px 0}.examples button{font-size:12px;flex:1 1 120px}.primary{background:#d6bf8d;color:#0b2022;border-color:#e5ce9b;font-weight:600;width:100%;margin:10px 0}.primary:hover{background:#f3dcac}.caption{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#d6bf8d}.error{color:#f3b9a3}.recent{border-top:1px solid #46635b;margin-top:18px;padding-top:12px}.recent article{margin:12px 0;font-size:12px}.recent strong{color:#e5d5b4}summary{cursor:pointer;min-height:42px;padding:8px 0}.quiet{font-size:12px;color:#a9c0b9}`;
+const STYLE = `:host{display:block;color:var(--text);font:1rem/1.5 system-ui}*{box-sizing:border-box;overflow-wrap:anywhere}section{padding:0}.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr));gap:8px;margin:12px 0}.choices button{display:flex;flex-direction:column;gap:8px}.choices small{font-size:.875rem;color:var(--muted);font-weight:normal}.selected{border:2px solid var(--accent)}p{margin:8px 0;color:var(--muted)}button,input,select,textarea{font:inherit;color:var(--text);background:var(--raised);border:1px solid var(--line);border-radius:var(--contour);padding:12px;max-width:100%}button{cursor:pointer;text-align:left;min-height:44px}button:hover{background:var(--canvas)}button:disabled{border-style:dashed;color:var(--muted);cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:3px}textarea{width:100%;min-height:100px;resize:vertical}textarea::placeholder{color:var(--muted)}.primary{background:var(--accent);color:var(--on-accent);font-weight:600;width:100%;margin:12px 0}.primary:hover{background:var(--text)}.caption{font-size:.8125rem;color:var(--muted)}.recent{margin-top:12px}.recent article{margin:16px 0;font-size:.875rem}.recent strong{color:var(--text)}summary{cursor:pointer;min-height:44px;padding:12px 0}.intention{border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:16px 0}.intention summary{color:var(--accent);font-weight:600}.quiet{font-size:.875rem;color:var(--muted)}.status:not(:empty){border-left:3px solid var(--attention);padding:12px;margin:16px 0;color:var(--text);background:var(--raised)}.combine{font-size:.875rem;background:transparent}@media(max-width:360px){.choices{grid-template-columns:1fr}}`;
+
 function el(tag, text, props = {}) { const n = document.createElement(tag); if (text != null) n.textContent = text; Object.assign(n, props); return n; }
 const display = name => globalThis.EnfoldedClient.displayName(name || '');
 class InterventionComposer extends HTMLElement {
@@ -57,7 +58,7 @@ class InterventionComposer extends HTMLElement {
       if (fromPoll && had != null && (had !== pending || priorObserved !== observed(data.recent))) this.ctx.changed?.();
     } catch (error) {
       failed = true;
-      if (generation === this.generation && sequence === this.loadSequence) { this.message=this.pollError=error.message; this.render(); }
+      if (generation === this.generation && sequence === this.loadSequence) { this.message=this.pollError=error.status ? error.message : 'This place could not be heard. Listen again.'; this.render(); }
     } finally {
       if (generation === this.generation && sequence === this.loadSequence && this.isConnected) {
         clearTimeout(this.poll);
@@ -124,6 +125,18 @@ class InterventionComposer extends HTMLElement {
     if(!this.data?.recent?.length) root.append(el('p','What you set in motion will remain here when you return.'));
   }
   render() {
+    const active=this.shadowRoot.activeElement;
+    const key=active?.getAttribute('data-focus-key') || active?.getAttribute('aria-label') || active?.textContent;
+    if(active && !active.classList.contains('status')) this.focusKey=key;
+    const selection=active?.tagName==='TEXTAREA' ? [active.selectionStart,active.selectionEnd] : null;
+    this.renderContent();
+    if(active) {
+      const target=this.busy ? null : [...this.shadowRoot.querySelectorAll('button,textarea,summary')].find(e=>(e.getAttribute('data-focus-key') || e.getAttribute('aria-label') || e.textContent)===this.focusKey && !e.disabled);
+      (target || this.shadowRoot.querySelector('.status'))?.focus({preventScroll:true});
+      if(selection && target?.tagName==='TEXTAREA')target.setSelectionRange(...selection);
+    }
+  }
+  renderContent() {
     const root=this.shadowRoot; root.replaceChildren(el('style',STYLE));
     const section=el('section'); section.setAttribute('aria-label','Act here'); root.append(section);
     section.append(el('p',null,{className:'pending quiet'}));this.renderPending();
@@ -137,12 +150,15 @@ class InterventionComposer extends HTMLElement {
     section.append(el('p','Choose an action to attempt it. Discover what follows.'));
     const combine=el('button',this.compose?'Leave combination':'Combine actions',{disabled:blocked});
     combine.onclick=()=>{this.compose=!this.compose;this.steps=[];this.render();};
-    section.append(combine);
+    combine.className='combine';
+    combine.setAttribute('data-focus-key','combination');
+    combine.setAttribute('aria-pressed',String(!!this.compose));
     const choices=el('div',null,{className:'choices'});
     for(const choice of this.data.choices) {
       const chosen=this.steps.some(s=>s.op===choice.op);
       const button=el('button',null,{disabled:blocked || (this.compose && this.steps.length>=4),className:chosen?'selected':''});
       button.setAttribute('aria-label',choice.label);
+      if(this.compose)button.setAttribute('aria-pressed',String(chosen));
       button.append(el('strong',choice.label),el('small',choice.description));
       button.onclick=()=>this.choose(choice); choices.append(button);
     }
@@ -154,18 +170,18 @@ class InterventionComposer extends HTMLElement {
       const reset=el('button','Start over',{disabled:blocked});reset.onclick=()=>{this.steps=[];this.render();};
       section.append(act,reset);
     }
-    const natural=el('details',null,{open:!!this.intentionOpen});natural.append(el('summary','Describe an intention'));
+    const natural=el('details',null,{open:!!this.intentionOpen,className:'intention'});natural.append(el('summary','Describe an intention'));
     natural.ontoggle=()=>this.intentionOpen=natural.open;
     const input=el('textarea',null,{value:this.intention,maxLength:600,placeholder:'What do you want to attempt here?'});input.setAttribute('aria-label','Your intention');input.disabled=blocked;input.oninput=()=>{this.intention=input.value;act.disabled=blocked || !this.intention.trim();};natural.append(input);
     const act=el('button','Act on this intention',{disabled:blocked || !this.intention?.trim()});act.onclick=()=>this.commit({intention:this.intention,version:3});
-    natural.append(act,el('p','Submitting authorizes the attempt. Name actions in order, or describe your purpose with a connected model. If the action, target, scope or order is unclear, you can revise it here.',{className:'quiet'}));section.append(natural);
+    natural.append(act,el('p','Submitting authorizes the attempt. Name actions in order, or describe your purpose with a connected model. If the action, target, scope or order is unclear, you can revise it here.',{className:'quiet'}));section.append(natural,combine);
     if(this.pending) {
       const recover=el('button','Recover earlier attempt',{className:'primary',disabled:this.busy});
       recover.onclick=()=>this.commit();section.append(recover);
     }
-    const status=el('p',this.message,{className:'status'});status.setAttribute('role','status');status.setAttribute('aria-live','polite');section.append(status);
+    const status=el('p',this.message,{className:'status',tabIndex:-1});status.setAttribute('role','status');status.setAttribute('aria-live','polite');section.append(status);
     if(this.data.recent?.length) {
-      const history=el('details');history.append(el('summary','Actions still echoing'),el('div',null,{className:'recent'}));section.append(history);this.renderRecent();
+      const history=el('details',null,{open:!!this.historyOpen});history.ontoggle=()=>this.historyOpen=history.open;history.append(el('summary','Actions still echoing'),el('div',null,{className:'recent'}));section.append(history);this.renderRecent();
     }
   }
 }

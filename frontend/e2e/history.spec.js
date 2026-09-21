@@ -1,3 +1,4 @@
+import { disclose } from "./disclosures.js";
 // M3 through real browsers, HTTP, WebSockets, the committed bundle and reload.
 import { expect, test } from "@playwright/test";
 import { spawn } from "node:child_process";
@@ -60,6 +61,7 @@ for (const route of ["/", "/app"]) {
         const errors = [];
         page.on("pageerror", error => errors.push(error.message));
         await page.goto(server.url + route);
+        await disclose(page,"History & journal");
         await page.waitForLoadState("networkidle");
         const reads = { world: 0, node: 0, history: 0 };
         page.on("request", req => {
@@ -105,6 +107,7 @@ for (const route of ["/", "/app"]) {
           return !!outcome;
         }, { timeout: 15_000 }).toBe(true);
         await page.goto(server.url + route);
+        await disclose(page,"History & journal");
         await expect(page.getByText(outcome.narration.text, { exact: false }).first()).toBeVisible();
         if (route === "/") await page.locator("#btn-chronicle").click();
         else await page.getByRole("button", { name: "View full chronicle" }).click();

@@ -305,7 +305,7 @@ class Handler(BaseHTTPRequestHandler):
         stripped = path.rstrip("/")
         if stripped in ("", "/health", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js",
-                        "/score.js", "/sensory.js", "/interventions.js",
+                        "/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js", "/interface.css", "/map.css",
                         "/guide", "/register", "/register.js", "/favicon.ico",
                         "/journal", "/journal.js", "/ideas", "/ideas.js"):
             return True
@@ -511,7 +511,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_error("no such scene", 404)
             self._send_file(media_file, mimetypes.guess_type(media_file.name)[0] or "application/octet-stream",
                             immutable=True)
-        elif path in ("/score.js", "/sensory.js", "/interventions.js"):
+        elif path in ("/interface.css", "/map.css"):
+            self._send_file(_STATIC_DIR / path.lstrip("/"), "text/css; charset=utf-8")
+        elif path in ("/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js"):
             self._send_file(_STATIC_DIR / path.lstrip("/"), "application/javascript; charset=utf-8")
         elif path == "/ideas":
             self._send_file(_STATIC_DIR / "ideas.html")
