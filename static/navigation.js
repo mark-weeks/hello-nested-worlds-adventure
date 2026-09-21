@@ -1,13 +1,14 @@
 // A single passage surface in each client, also the map's keyboard alternative.
 // The return trail is navigation convenience in this tab, never world history.
 (() => {
+  const conditions = node => globalThis.EnfoldedClient.passageBadges(node).filter(b=>b.key!=='locked').map(b=>b.label);
   const text = name => globalThis.EnfoldedClient.displayName(name || '');
   const el = (tag, content) => { const e=document.createElement(tag); if(content)e.textContent=content; return e; };
   const style = `:host{display:block;color:var(--text);font:1rem/1.5 system-ui}*{box-sizing:border-box;overflow-wrap:anywhere}nav{background:var(--surface);padding:16px;border-top:1px solid var(--line)}button,a,summary{font:inherit;color:var(--text);min-height:44px;padding:10px 12px;border-radius:var(--contour)}button,a{background:var(--raised);border:1px solid var(--line);text-decoration:none;cursor:pointer;text-align:left}button:hover,a:hover{background:var(--canvas)}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}.top,.children{display:flex;gap:8px;flex-wrap:wrap}.top{align-items:center}.children{margin-top:8px}.children button{flex:1 1 10rem;min-width:0}small,strong{display:block}strong{font:normal 1.125rem/1.3 Georgia;margin:4px 0}small,p{font-size:.875rem;color:var(--muted)}p{margin:12px 0 4px}summary{cursor:pointer;padding-left:0}details button{display:block;margin:8px 0;width:100%}`;
   class Navigation extends HTMLElement {
     constructor(){super();this.attachShadow({mode:'open'});this.trail=[];}
     set context(ctx){
-      const signature=JSON.stringify([ctx.seed,ctx.node.name,ctx.parent?.name,ctx.node.children?.map(n=>[n.name,n.level,n.properties?.locked]),ctx.wrap,ctx.status,!!ctx.deepen,ctx.view,ctx.href]);
+      const signature=JSON.stringify([ctx.seed,ctx.node.name,ctx.parent?.name,ctx.node.children?.map(n=>[n.name,n.level,n.properties?.locked,conditions(n)]),ctx.wrap,ctx.status,!!ctx.deepen,ctx.view,ctx.href]);
       // Roster notices and refreshed callbacks must not replace a button between
       // pointerdown and click, or take focus from a player reading its label.
       if(signature===this.signature){this.ctx=ctx;return;}
@@ -40,6 +41,8 @@
           const b=button('',child.name,()=>this.ctx.jump(child.name));
           b.append(el('small',child.level+' ↘'),el('strong',text(child.name)));
           if(child.properties?.locked)b.append(el('small','Sealed · puzzle at the threshold'));
+          const cues=conditions(child);
+          if(cues.length)b.append(el('small',cues.join(' · ')));
           children.append(b);
         }
       }

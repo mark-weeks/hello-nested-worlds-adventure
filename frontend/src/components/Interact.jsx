@@ -157,6 +157,7 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
       const url = `/puzzle?seed=${seed}&depth=${depth}&node_name=${encodeURIComponent(nodeName)}`;
       const r = await fetch(withKey(url));
       const data = await r.json();
+      if (!r.ok || data.error) { setStatus(data.error || "The question could not be reached. Try again."); setRetryable(true); return; }
       if (!data.found) { setStatus("No puzzle at this node."); return; }
       setPuzzle(data);
       setAttempt(data.attempt ?? 0);

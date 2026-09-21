@@ -1,40 +1,15 @@
 import { disclose } from "./disclosures.js";
 // M3 through real browsers, HTTP, WebSockets, the committed bundle and reload.
 import { expect, test } from "@playwright/test";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
+import {serveBrowser} from "./server.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-const repo = path.resolve(import.meta.dirname, "../..");
-const python = process.env.ENFOLDED_PYTHON || "python";
 test.use({ viewport: { width: 1440, height: 1100 } });
-
-async function serve(db) {
-  const child = spawn(python, ["-u", "-c", `
-import sys
-from pathlib import Path
-import persistence
-persistence._DB_PATH = Path(sys.argv[1])
-from server import _Handler, _ThreadedServer, heartbeat
-server = _ThreadedServer(('127.0.0.1', 0), _Handler)
-heartbeat.start_pump()
-print(server.server_address[1], flush=True)
-server.serve_forever()
-`, db], { cwd: repo, env: { ...process.env,
-    NESTED_WORLDS_CANONICAL_SEED: "382", NESTED_WORLDS_HOP_DELAY: "0",
-    NESTED_WORLDS_MATURATION_SCALE: "0.03", NESTED_WORLDS_DISABLE_AI: "1",
-    NESTED_WORLDS_DISABLE_IMAGES: "1" }, stdio: ["ignore", "pipe", "pipe"] });
-  let errors = "";
-  child.stderr.on("data", data => { errors += data; });
-  const port = await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", code => reject(new Error(`server ${code}: ${errors}`)));
-    child.stdout.once("data", data => resolve(Number(String(data).trim())));
-  });
-  return { child, url: `http://127.0.0.1:${port}` };
-}
+const serve=database=>serveBrowser({database,pump:true,env:{
+  NESTED_WORLDS_HOP_DELAY:'0',NESTED_WORLDS_MATURATION_SCALE:'0.03',
+}});
 
 for (const route of ["/", "/app"]) {
   for (const mode of ["immediate", "delayed"]) {
@@ -119,11 +94,7 @@ for (const route of ["/", "/app"]) {
         expect(errors).toEqual([]);
       } finally {
         await page.goto("about:blank").catch(() => {});
-        if (server && server.child.exitCode === null) {
-          const exited = once(server.child, "exit");
-          server.child.kill("SIGKILL");
-          await exited;
-        }
+        await server?.close();
         await rm(directory, { recursive: true, force: true });
       }
     });

@@ -69,7 +69,7 @@ retained traces affect appearance without permanent node categories or a moral
 palette. One readable interaction structure stays consistent across those states.
 
 See [the UX evaluation](../evaluation/2026-09-21-ux-visual-language.md) for captures,
-measured verification, implementation discoveries and limitations. This is a draft
+measured verification, implementation discoveries and limitations. This is an implementation
 review candidate, not a merged or deployed batch. The original playtest database
 was not used for writes; interactive exploration used a separate copy and browser
 regressions used temporary databases.
@@ -77,7 +77,7 @@ regressions used temporary databases.
 ## Separate behavioral and production gaps
 
 1. **UX validation:** playtest discovery of movement, returning and intention entry,
-   and whether players learn the color/trace meanings. Review the draft's narrow,
+   and whether players learn the color/trace meanings. Review the candidate's narrow,
    zoomed and degraded states. Physical mobile devices, Safari and assistive
    technology beyond Chromium keyboard/DOM checks remain unverified. The return
    trail is per client tab, not a saved itinerary. Standalone auxiliary pages still
@@ -92,8 +92,8 @@ regressions used temporary databases.
    not establish a world-wide production art pipeline or generation quality parity.
    The [beta artwork strategy](../design/beta-scene-art.md) remains a proposal.
 
-Next handoff: review this focused draft against its visual evidence and the agreed
-placement; gather player observations before assigning another implementation
+Next handoff: re-review the 17 fixes on PR #107 against its visual evidence and
+the agreed placement; gather player observations before assigning another implementation
 batch. Improved fallback art is a discovered production gap, not work silently
 absorbed here. Any follow-on implementation requires a new owner instruction and
 a refreshed merged base. Preserve the existing playtest history. No merge,

@@ -186,16 +186,30 @@ fixed-height mobile interaction well, or always-open event log remains.
 
 The shared passage surface labels the enclosing place with an up arrow and the
 places within with their scales. Sealed destinations say why they are sealed.
+Danger, corruption, disturbance, stabilization and causal pressure retain textual
+passage cues; conditions are observed facts, not moral judgments.
 Wrap passages and loading/retry feedback stay in this same surface. A disclosed
 return trail holds eight prior places in the current client tab; it is temporary
 navigation memory, not a durable journal. It clears on reload, world change, or
 switching clients. Saved position and the existing Journal retain their roles.
 Navigation updates preserve a focused control when its contents have not changed;
-travel from a passage button moves focus to the new identity heading.
+travel from a passage button or observed consequence moves focus to the new
+identity heading. Both exploration columns scroll with the document, so a long
+passage list remains reachable beside long disclosed history, including at 200%
+text size. The map says **You are here** beside its selected marker; the name,
+scale, address and description remain in the single identity block. Resizing keeps
+the current pan and zoom unless the selected marker would fall outside the map.
 
 Conditions, History & journal, Travelers & chat, and Sound & help are disclosed
 when needed. The map keeps its existing Observe capability inside Travelers.
-Opening Puzzle loads the question directly. Act keeps four suggestions, the
+Player presence uses a diamond and solid ring; inhabitants use a star and dashed
+ring. Presence below the visible horizon uses sparser patterns. Names and personas
+remain available; color supplements these cues. Observation meters keep both their
+length and numeric strength.
+Opening Puzzle loads the question directly. The map preserves its draft, hint and
+attempt state when switching modes, and reads recorded attempts/completion when
+opening a place. HTTP refusals retain their authored explanation and offer retry;
+transport failures use local player-facing copy. Act keeps four suggestions, the
 bordered intention disclosure, optional combination, and the same retry receipt.
 Controls target at least 44px height. Destination and suggestion grids use rem-based
 minimum widths, becoming one column at 200% text size on a narrow display.
@@ -203,7 +217,9 @@ minimum widths, becoming one column at 200% text size on a narrow display.
 ## Current semantic mappings
 
 `static/interface.js` resolves shared roles from the served node. CSS inheritance
-carries them into both clients and the Act/navigation shadow roots. The scene
+carries them into both clients and the Act/navigation shadow roots. The map
+resolves each rendered node once per tree build and updates the selected marker
+from current conditions; there is no permanent identity-based color cache. The scene
 renderer uses the same interpreted light and atmosphere. Identity is never hashed
 into a theme, and pending work never supplies a visual signal.
 
@@ -224,7 +240,9 @@ reading surface. The resolver targets 7:1 for primary text, 4.5:1 for supporting
 text and accent-button labels, and 3:1 for boundaries and focus. Unit coverage
 checks all three reading backgrounds with the ten comparison states and extreme
 input palettes. These figures concern resolved CSS colors, not text over artwork;
-controls are placed on opaque surfaces. Patterns stay below the raised-surface
+controls are placed on opaque surfaces. Check computed component styles too:
+Wayback play/listen use Text on Raised with a Line border. Replacing every color
+with one semantic token can erase a control even when the token palette passes. Patterns stay below the raised-surface
 brightness. An unavailable control uses a dashed boundary and readable label;
 selected mode uses an underline and `aria-pressed`; pending and failed requests
 use explicit prose. Attention is not a moral color.

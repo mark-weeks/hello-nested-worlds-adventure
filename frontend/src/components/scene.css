@@ -1,5 +1,5 @@
 .world-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(22rem,28rem); min-height:100dvh; background:var(--canvas);color:var(--text);font:1rem/1.5 system-ui,sans-serif; }
-.cinematic-scene { min-width:0; align-self:start; position:sticky;top:0; }
+.cinematic-scene { min-width:0; align-self:start; }
 .scene-art { height:calc(100dvh - 15rem); min-height:24rem; position:relative; background:var(--canvas); }
 .living-canvas { position:absolute; inset:0; width:100%; height:100%; }
 .scene-fallback { position:absolute;bottom:24px;left:24px;right:24px;padding:16px;background:var(--surface); }

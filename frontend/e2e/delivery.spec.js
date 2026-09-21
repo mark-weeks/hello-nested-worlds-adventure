@@ -80,7 +80,6 @@ for (const [route, maturationScale] of [["/", "0.02"], ["/app", "0.02"], ["/", "
       }, galaxy.name);
       await page.goto(`${server.url}${route}`);
       if (route === "/") {
-        await expect(page.locator("#players-list")).not.toContainText("Not connected");
         await page.locator("#btn-act").click();
         await expect.poll(()=>page.evaluate(()=>ws?.readyState)).toBe(1);
       }

@@ -606,10 +606,6 @@ export default function App() {
         playerName={playerName}
         onChat={sendChat}
         onJump={jumpTo}
-        passageLoadStatus={passageLoadStatus}
-        onPassageRetry={() => setPassageRetry(n => n + 1)}
-        wrapPassage={wrapAffordance(currentNode, wrapInfo)}
-        onWrapCross={crossWrap}
         onSolved={handleSolved}
         onNodeChanged={onComposerChanged}
         onEnsurePosition={ensurePosition}

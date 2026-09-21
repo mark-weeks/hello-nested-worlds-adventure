@@ -77,8 +77,8 @@ Chromium cases capture actual rendered UI at **1440 × 960** and **390 × 844**,
 **200% text** (32px root size), keyboard interaction and reduced motion. Screenshots
 were inspected directly; overflow assertions alone initially missed awkward word
 breaks at 200%. Rem-based card minimums now give those labels one column. The map
-also recenters the current marker after resize; reduced motion avoids its animated
-pan. Both corrections came from visual review, not a green-check aesthetic claim.
+now preserves player pan/zoom after resize when the marker stays visible, and
+repositions an off-screen marker without changing zoom. Both corrections came from visual review, not a green-check aesthetic claim.
 
 A real click failure appeared during testing: presence/score updates rebuilt the
 passage element between pointer-down and click. Its contents now have a change
@@ -113,6 +113,14 @@ size; it does not substitute for physical-device and browser-zoom testing.
 
 ## Verification
 
+**Final review-fix gate:** one complete `ENFOLDED_E2E=1 ./scripts/check.sh` invocation
+passed Ruff, **1,358 Python (246.96 s)**, **131 Vitest**, byte-fresh production build,
+installed-wheel smoke and **89 Playwright (2.3 min)**. The original 39 table
+fingerprints were rechecked and remain unchanged. Screenshots below were refreshed
+from this run; the reviewed-head Wayback capture is explicitly labeled.
+
+The following records the initial implementation gate before PR review:
+
 All required `ENFOLDED_E2E=1 ./scripts/check.sh` stages passed:
 
 - Ruff clean; **1,358 Python tests** in **246.53 s**.
@@ -142,6 +150,57 @@ fingerprints** still match the pre-work baseline, including **4,208 born nodes**
 and **1,697 history rows**. Browser fixtures create and discard their own databases.
 No original world reset or fixture installation occurred.
 
+## PR #107 review follow-up
+
+The 17 findings on reviewed head `5a36650` were read together with the four replies
+inside existing Copilot threads. Thirteen browser scenarios reproduced failures on
+that head, including the tall-column and observed-history focus cases previously
+reasoned from code. The follow-up adds those regressions plus a resolver-work bound.
+The PR's owner-changed ready-for-review state is retained; no merge is authorized.
+
+| Finding | Disposition and evidence |
+|---|---|
+| React puzzle HTTP ordering | Check HTTP/authored error before `found`. A 429 pace message remains visible with Retry question; successful retry opens the real puzzle. |
+| Wayback invisible buttons | Use Text on Raised, Line border, 44px height and rem labels. Computed label contrast is checked against the rendered background; both were 1:1 before. |
+| Map puzzle HTTP error loss | Preserve authored HTTP refusal separately from transport failure; same 429/retry scenario passes. |
+| Observation meter geometry | Restore 4px track and block fill; browser measures positive fill width/height and retains numeric strength. |
+| Map puzzle tab resets | Reuse the current question/draft/hint across tabs; initialize attempts and solved state from the server. Browser checks remaining attempts, one read across a tab round-trip, and disabled solved controls after reload. |
+| Missing passage badges | Restore shared danger/corruption/disturbance/stabilization/pressure labels. The render signature includes their values; a changed danger label updates in place. |
+| Indistinguishable travelers | Players use diamonds/solid rings; inhabitants use stars/dashed rings, with semantic colors and names. Rows are keyboard buttons. Selected-node refresh no longer fills an inserted presence ring. |
+| Tall sticky columns | Remove sticky positioning in both clients. At 1440 × 600 and 200% text, lower passages are reached while the artificially lengthened reading column continues below; no inner scroll well is added. |
+| Repeated palette resolution | Resolve once per hierarchy datum and reuse for fill/stroke/affordance ring. The 4,208-node browser fixture makes 4,210 calls including two selected-place calls; current selected refresh still uses fresh conditions. |
+| Focus lost on observed-history travel | Hand focus to the stable destination heading before replacing the composer and restore it after navigation. Both clients pass Enter-driven observed-consequence travel. Loading/error fallback remains focusable and renders choices after retry. |
+| Vacuous WebSocket readiness | Wayback and delivery fixtures wait for an open socket, not absent text in an initially empty roster. |
+| Raw map transport errors | World and puzzle-answer failures use authored local copy; status-bearing HTTP errors retain server copy. Browser aborts each request and checks the visible result. |
+| Resize resets pan/zoom | Leave an in-view transform unchanged. Only recenter a lost selection, retaining the player's zoom factor. |
+| Dead TextPanel passage props | Remove the four unused props and duplicate wrap calculation; SceneView remains the passage owner. |
+| Identical style conditionals | Remove dead constellation/pressure color branches; completion text/star and pressure magnitude remain meaningful non-color cues. |
+| Third server launcher | UX and history fixtures share `e2e/server.js` and `scripts/e2e_server.py`: newline port framing, bounded startup/error cleanup, caller-owned or disposable DB, explicit preseed/invite/pump options. |
+| Hidden selected map label | Show **You are here** at the marker. This restores orientation while honoring the single identity block instead of repeating its name/address. |
+
+The historical-state and failure scenarios use the real UI with controlled HTTP
+responses where noted in `ux-review.spec.js`. Passage badge and presence payloads
+are explicit browser fixtures, not claimed live-agent observations. The tall-column
+case deliberately extends the sidebar to 5,000px to expose the sticky failure;
+its screenshots show the scrolled viewport, not a naturally occurring long history.
+The instrumented resolver consumed **32.5 ms** in the full local browser run.
+That is a local diagnostic, not a performance SLA, total map-render time or a
+comparison with the review's separate Node benchmark.
+
+Direct inspection confirmed that the repaired Wayback buttons are recognizable,
+the selected map label connects the diagram to the identity panel, and the small
+passage-condition line is legible without competing with destination names. Narrow
+390px and 200% text captures were inspected separately. The shared test-server
+refactor retained history's delayed pump and restart behavior. During the follow-up,
+the new loading-focus fallback exposed a retry render suppression; both clients now
+allow loaded choices to replace that focused loading surface.
+
+| Representative review evidence | Capture |
+|---|---|
+| Wayback: unreadable → readable controls | [Reviewed head](media/ux-visual-language/review-wayback-before.jpg), [fixed](media/ux-visual-language/review-wayback-after.jpg) |
+| Distinct presence, selected marker and observation meter | [Map](media/ux-visual-language/review-presence.jpg) |
+| Tall passages, 200% text, scrolled viewport | [Scene](media/ux-visual-language/review-scene-tall-passages.jpg), [map](media/ux-visual-language/review-map-tall-passages.jpg) |
+
 ## Limitations and next handoff
 
 - **Art continuity:** the existing curated-plate selector withdraws misleading
@@ -158,7 +217,7 @@ No original world reset or fixture installation occurred.
   persistent itinerary was added. Historical v1/v2 receipts and v3 commitments use
   the same existing backend paths.
 
-Next: owner/development review of this draft, using the five comparison pairs and
+Next: re-review the fixes on PR #107, using the five comparison pairs and
 narrow/zoom/recovery captures, then a scoped playtest. Any further implementation
 requires a separate owner instruction after the appropriate reviewed merge.
 

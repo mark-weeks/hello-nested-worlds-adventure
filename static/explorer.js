@@ -128,7 +128,16 @@ const svg       = d3.select(container).append('svg');
 const root_g    = svg.append('g');
 const zoom      = d3.zoom().scaleExtent([0.05, 6]).on('zoom', e => root_g.attr('transform', e.transform));
 svg.call(zoom);
-new ResizeObserver(() => { if(selected)centerOnNode(selected, {immediate:true}); }).observe(container);
+new ResizeObserver(() => {
+  if(!selected || !hierLayout)return;
+  const d=hierLayout.descendants().find(d=>d.data.name===selected.name);
+  if(!d)return;
+  const t=d3.zoomTransform(svg.node()), [x,y]=t.apply([d.y,d.x]);
+  const w=container.clientWidth,h=container.clientHeight,margin=32;
+  if(x>=margin && x<=w-margin && y>=margin && y<=h-margin)return;
+  // Preserve the chosen zoom. Reposition only a selection lost to the resize.
+  svg.interrupt().call(zoom.transform,d3.zoomIdentity.translate(w/2-d.y*t.k,h/2-d.x*t.k).scale(t.k));
+}).observe(container);
 
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
@@ -138,7 +147,7 @@ function setMode(mode) {
     document.getElementById('btn-'   + m).classList.toggle('active', m === mode);
     document.getElementById('btn-' + m).setAttribute('aria-pressed',String(m===mode));
   });
-  if(mode==='puzzle' && selected) fetchPuzzle();
+  if(mode==='puzzle' && selected && puzzleState.nodeName!==selected.name) fetchPuzzle();
 }
 
 async function loadWorld() {
@@ -156,7 +165,7 @@ async function loadWorld() {
     // identity needed by subsequent requests and deterministic senses.
     const res  = await fetch(withKey(`/world?depth=${depth}`));
     const data = await res.json();
-    if (data.error) throw new Error(data.error);
+    if (!res.ok || data.error) throw Object.assign(new Error(data.error || 'The world could not be reached. Try opening the view again.'),{status:res.status});
     worldParams.seed = data.seed;
     wrapInfo = data.wrap || null;
     investigationEntry = data.entry_node || null;
@@ -166,7 +175,7 @@ async function loadWorld() {
     if (playerName && !sameWorld) wsConnect(data.seed);
     if (!sameWorld) loadHistoryFeed(data.seed);
   } catch (e) {
-    setStatus('Error: ' + e.message);
+    setStatus(e.status ? e.message : 'The world could not be reached. Try opening the view again.');
   } finally {
     document.getElementById('gen-btn').disabled = false;
   }
@@ -186,6 +195,7 @@ function renderTree(worldRoot, { preservePresence = false } = {}) {
   const rowH   = Math.max(20, Math.min(40, (container.clientHeight - 60) / leaves));
   d3.tree().nodeSize([rowH, 200])(hier);
   hierLayout = hier;
+  for(const d of hier.descendants())d.accent=window.EnfoldedInterface.resolve(d.data)['--accent'];
 
   root_g.append('g').selectAll('path')
     .data(hier.links()).join('path')
@@ -198,11 +208,11 @@ function renderTree(worldRoot, { preservePresence = false } = {}) {
     .attr('transform', d => `translate(${d.y},${d.x})`)
     .on('click', (_, d) => selectNode(d.data));
 
-  nodeG.append('circle')
+  nodeG.append('circle').attr('class','node-marker')
     .attr('r',            d => LEVEL_R[d.data.level] || 7)
-    .attr('fill',         d => window.EnfoldedInterface.resolve(d.data)['--accent'])
+    .attr('fill',         d => d.accent)
     .attr('fill-opacity', 0.8)
-    .attr('stroke',       d => window.EnfoldedInterface.resolve(d.data)['--accent'])
+    .attr('stroke',       d => d.accent)
     .attr('stroke-opacity', 0.5);
 
   // Affordance rings: places worth a detour — danger, corruption, unrest,
@@ -214,7 +224,7 @@ function renderTree(worldRoot, { preservePresence = false } = {}) {
     .attr('class',        'affordance-ring')
     .attr('r',            d => (LEVEL_R[d.data.level] || 7) + 4)
     .attr('fill',         'none')
-    .attr('stroke',       d => window.EnfoldedInterface.resolve(d.data)['--accent'])
+    .attr('stroke',       d => d.accent)
     .attr('stroke-width', 1.2)
     .attr('stroke-opacity', 0.85)
     .attr('pointer-events', 'none');
@@ -224,9 +234,9 @@ function renderTree(worldRoot, { preservePresence = false } = {}) {
     .attr('dx',               d => d.children ? '0' : '14px')
     .attr('text-anchor',      d => d.children ? 'middle' : 'start')
     .attr('dominant-baseline',d => d.children ? 'auto' : 'middle')
-    .text(d => displayName(d.data.name))
-    // Hover reveals the full canonical name — phrase plus address.
-    .append('title').text(d => d.data.name);
+    .text(d => displayName(d.data.name));
+  // Keep the hover identity separate so selection can change the visible label.
+  nodeG.append('title').text(d => d.data.name);
 
   fitView();
   // Non-linear entry: resume the player's last node, or drop a first-timer into
@@ -306,14 +316,15 @@ function selectNode(data, { refresh = false } = {}) {
   document.getElementById('visual-cue').textContent=window.EnfoldedInterface.cue(data);
 
   root_g.selectAll('.node').classed('selected', d => d.data.id === data.id);
-  root_g.selectAll('.node circle')
+  root_g.selectAll('.node .node-marker')
     .attr('fill-opacity',   d => d.data.id === data.id ? 1.0 : 0.8)
     .attr('stroke-opacity', d => d.data.id === data.id ? 1.0 : 0.5);
 
   // The selected marker follows observed changes without rebuilding the map.
   const selectedMark = root_g.selectAll('.node').filter(d => d.data.id === data.id);
   const tokens = window.EnfoldedInterface.resolve(data);
-  selectedMark.select('circle').attr('fill', tokens['--accent']).attr('stroke', tokens['--accent']);
+  selectedMark.select('.node-marker').attr('fill', tokens['--accent']).attr('stroke', tokens['--accent']);
+  root_g.selectAll('.node text').text(d=>d.data.id===data.id ? 'You are here' : displayName(d.data.name));
 
   document.getElementById('node-level').textContent = data.level;
   // Display layer: the readable phrase is the shown name; hovering it
@@ -328,10 +339,9 @@ function selectNode(data, { refresh = false } = {}) {
   ).join('');
   if (data.ripple_score > 0) {
     const bars = '▮'.repeat(Math.max(1, Math.round(data.ripple_score * 8)));
-    const hot = data.ripple_score >= 0.5 ? ' style="color:var(--muted)"' : '';
     propsHtml += `<div class="prop-row" title="accumulated causal pressure">` +
       `<span class="prop-key">causal pressure</span>` +
-      `<span class="prop-val"${hot}>${bars} ${data.ripple_score.toFixed(2)}</span></div>`;
+      `<span class="prop-val">${bars} ${data.ripple_score.toFixed(2)}</span></div>`;
   }
   document.getElementById('node-props').innerHTML = propsHtml;
   const suffix=data.name.split('-').pop();
@@ -815,27 +825,29 @@ async function fetchPuzzle() {
   const nodeName=selected.name, request=++puzzleRequest;
   const current=()=>request===puzzleRequest && selected?.name===nodeName;
   const url = `/puzzle?seed=${seed}&depth=${depth}&node_name=${encodeURIComponent(nodeName)}`;
+  puzzleState.nodeName=nodeName;
   document.getElementById('puzzle-content').textContent='Listening for the question…';
   setStatus('Searching for puzzle…');
   try {
     const res  = await fetch(withKey(url));
     const data = await res.json();
     if(!current())return;
-    if(!res.ok)throw new Error();
+    if(!res.ok || data.error)throw Object.assign(new Error(data.error || 'The question could not be reached. Try again.'),{status:res.status});
     if (!data.found) {
       document.getElementById('puzzle-content').innerHTML =
         '<div style="color:var(--muted);font-size:.875rem;margin-top:8px">No puzzle found in this subtree.</div>';
       setStatus('Ready');
       return;
     }
-    puzzleState = { attempt: 0, maxAttempts: data.max_attempts, solved: false,
+    puzzleState = { nodeName, attempt: data.attempt ?? 0, maxAttempts: data.max_attempts, solved: !!data.solved,
                     name: data.name, kind: data.kind };
     renderPuzzle(data);
     setStatus('Ready');
   } catch (e) {
     if(!current())return;
     const content=document.getElementById('puzzle-content');
-    content.textContent='The question could not be reached. Try again.';
+    const message=document.createElement('p');message.textContent=e.status ? e.message : 'The question could not be reached. Try again.';
+    content.replaceChildren(message);
     const retry=document.createElement('button');retry.textContent='Retry question';retry.onclick=fetchPuzzle;
     content.append(retry);setStatus('The question could not be reached.');
   }
@@ -854,12 +866,14 @@ function renderPuzzle(data) {
   // its rooms — show how much of what this place enfolds is resolved.
   const c = data.constellation;
   const constellationHtml = c
-    ? `<div class="attempt-info" style="color:${c.complete ? 'var(--muted)' : 'var(--muted)'}">` +
+    ? `<div class="attempt-info" style="color:var(--muted)">` +
       (c.complete
         ? `✦ constellation complete — all ${c.total} ${escHtml(c.of)} resolved`
         : `constellation: ${c.solved} of ${c.total} ${escHtml(c.of)} resolved`) +
       `</div>`
     : '';
+  const remaining=Math.max(0,puzzleState.maxAttempts-puzzleState.attempt);
+  const closed=puzzleState.solved || remaining===0;
   document.getElementById('puzzle-content').innerHTML = `
     <div class="puzzle-kind">${escHtml(data.kind.replace(/_/g, ' '))}
       <span class="puzzle-diff" title="difficulty: ${diffLabels[diff]}">${_diffStars(diff)}</span>
@@ -869,11 +883,11 @@ function renderPuzzle(data) {
     <div class="puzzle-prompt">${escHtml(data.prompt)}</div>
     <a href="${escHtml(withKey('/puzzle/evidence?seed=' + worldParams.seed + '&epoch=' + data.epoch + '&node_name=' + encodeURIComponent(selected.name)))}" target="_blank" rel="noopener">Conditions when this question opened ↗</a>
     <div class="attempt-info" id="attempt-info">
-      ${data.max_attempts} attempt${data.max_attempts !== 1 ? 's' : ''} allowed
+      ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining
     </div>
-    <input class="puzzle-input" id="puzzle-answer" type="text" placeholder="Your answer…" autocomplete="off">
-    <button id="puzzle-submit">Submit</button>
-    <div class="puzzle-result" id="puzzle-result"></div>
+    <input class="puzzle-input" id="puzzle-answer" ${closed ? 'disabled' : ''} type="text" placeholder="Your answer…" autocomplete="off">
+    <button id="puzzle-submit" ${closed ? 'disabled' : ''}>Submit</button>
+    <div class="puzzle-result" id="puzzle-result" role="status">${data.solved ? 'Solved'+(data.solver ? ' by '+escHtml(data.solver) : '')+'.' : closed ? 'No attempts remain for this question.' : ''}</div>
     <div class="puzzle-hint"   id="puzzle-hint"></div>`;
   document.getElementById('puzzle-answer').addEventListener('keydown', e => {
     if (e.key === 'Enter') submitAnswer();
@@ -883,20 +897,23 @@ function renderPuzzle(data) {
 }
 
 async function submitAnswer() {
-  if (puzzleState.solved) return;
+  if (puzzleState.solved || puzzleState.busy || puzzleState.attempt>=puzzleState.maxAttempts) return;
   const answer = (document.getElementById('puzzle-answer')?.value || '').trim();
   if (!answer) return;
 
   const { seed, depth } = worldParams;
+  const state=puzzleState,nodeName=selected.name;
+  state.busy=true;document.getElementById('puzzle-submit').disabled=true;
   try {
     const res  = await fetch(withKey('/puzzle/attempt'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ seed, depth,
-                             node_name: selected.name, answer, puzzle_name: puzzleState.name,
+                             node_name: nodeName, answer, puzzle_name: state.name,
                              player_name: playerName }),
     });
     const data = await res.json();
+    if(puzzleState!==state || selected?.name!==nodeName)return;
     const resultEl = document.getElementById('puzzle-result');
     const hintEl   = document.getElementById('puzzle-hint');
     const infoEl   = document.getElementById('attempt-info');
@@ -931,7 +948,13 @@ async function submitAnswer() {
       infoEl.textContent   = `${remaining} attempt${remaining !== 1 ? 's' : ''} remaining`;
     }
   } catch (e) {
-    setStatus('Error: ' + e.message);
+    if(puzzleState===state && selected?.name===nodeName) {
+      document.getElementById('puzzle-result').textContent='Your answer could not be heard. Try again.';
+      setStatus('Your answer could not be heard. Try again.');
+    }
+  } finally {
+    state.busy=false;
+    if(puzzleState===state && selected?.name===nodeName)document.getElementById('puzzle-submit').disabled=state.solved || state.attempt>=state.maxAttempts;
   }
 }
 
@@ -940,10 +963,9 @@ let ws          = null;
 let mySessionId = null;
 let players     = {};
 let agents      = {};   // name → { node, persona } — the ambient cast, live
-let colorIdx    = 0;
 
-const PLAYER_COLORS = ['var(--muted)','var(--muted)','var(--muted)','var(--muted)','var(--muted)','var(--muted)','var(--muted)','var(--muted)'];
-const AGENT_RING_COLOR = 'var(--muted)';  // the cast rings gold; humans ring bright
+const PLAYER_COLOR = 'var(--accent)';
+const AGENT_RING_COLOR = 'var(--attention)'; // Diamonds/solid rings: players; stars/dashed rings: inhabitants.
 const eventFeed = [];
 
 // ── Travelers: jump-to-presence ─────────────────────────────────────────────
@@ -1068,19 +1090,15 @@ function wsSend(msg) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
-function assignColor() {
-  return PLAYER_COLORS[(colorIdx++) % PLAYER_COLORS.length];
-}
 
 function handleWsMsg(msg) {
   switch (msg.type) {
     case 'welcome':
       mySessionId = msg.session_id;
       players = {};
-      colorIdx = 0;
       for (const p of (msg.players || [])) {
         if (p.session_id !== mySessionId)
-          players[p.session_id] = { name: p.name, node: p.node, color: assignColor() };
+          players[p.session_id] = { name: p.name, node: p.node, color: PLAYER_COLOR };
       }
       agents = {};
       for (const a of (msg.agents || []))
@@ -1119,7 +1137,7 @@ function handleWsMsg(msg) {
       break;
     case 'player_join':
       if (msg.session_id !== mySessionId) {
-        players[msg.session_id] = { name: msg.name, node: '', color: assignColor() };
+        players[msg.session_id] = { name: msg.name, node: '', color: PLAYER_COLOR };
         pushFeed(`${msg.name} joined`);
         renderPlayers();
         updatePresenceRings();
@@ -1241,23 +1259,23 @@ function renderPlayers() {
   const rows = [];
   for (const p of humans) {
     rows.push(
-      `<div class="player-row traveler-row" data-node="${escHtml(p.node || '')}" ` +
+      `<button class="player-row traveler-row" data-node="${escHtml(p.node || '')}" ` +
       `title="go to ${escHtml(p.name)}">` +
-      `<span class="player-dot" style="background:${p.color}"></span>` +
+      `<span class="player-dot" style="color:${p.color}" aria-label="Player">◆</span>` +
       `<span class="player-name">${escHtml(p.name)}</span>` +
       `<span class="player-node" title="${escHtml(p.node || '')}">${escHtml(p.node ? displayName(p.node) : '—')}</span>` +
-      `</div>`);
+      `</button>`);
   }
   for (const [name, a] of cast) {
     rows.push(
-      `<div class="player-row traveler-row" data-node="${escHtml(a.node || '')}" ` +
+      `<button class="player-row traveler-row" data-node="${escHtml(a.node || '')}" ` +
       `title="follow ${escHtml(name)}">` +
-      `<span class="player-dot" style="background:${AGENT_RING_COLOR}"></span>` +
+      `<span class="player-dot" style="color:${AGENT_RING_COLOR}" aria-label="Inhabitant">✦</span>` +
       `<span class="player-name">${escHtml(name)}` +
       (a.persona ? ` <span style="color:var(--muted)">· ${escHtml(a.persona)}</span>` : '') +
       `</span>` +
       `<span class="player-node" title="${escHtml(a.node || '')}">${escHtml(a.node ? displayName(a.node) : '…arriving')}</span>` +
-      `</div>`);
+      `</button>`);
   }
   el.innerHTML = rows.join('');
 }
@@ -1299,8 +1317,8 @@ function updatePresenceRings() {
   // Each traveler rings the node they stand at — or, when they're below
   // the rendered horizon, the deepest visible ancestor that enfolds them
   // (dotted sparser: presence sensed THROUGH the enclosing scale).
-  const ringsAt = {};  // nodeName → [{color, beneath}]
-  const place = (nodeName, color) => {
+  const ringsAt = {};  // nodeName → [{color, beneath, agent}]
+  const place = (nodeName, color, agent=false) => {
     if (!nodeName) return;
     let target = nodeName, beneath = false;
     if (!nodesBySuffix[(nodeName.split('-').pop())]) {
@@ -1309,20 +1327,20 @@ function updatePresenceRings() {
       target = anc.name;
       beneath = true;
     }
-    (ringsAt[target] = ringsAt[target] || []).push({ color, beneath });
+    (ringsAt[target] = ringsAt[target] || []).push({ color, beneath, agent });
   };
   for (const p of Object.values(players)) place(p.node, p.color);
-  for (const a of Object.values(agents))  place(a.node, AGENT_RING_COLOR);
+  for (const a of Object.values(agents))  place(a.node, AGENT_RING_COLOR, true);
   for (const [nodeName, rings] of Object.entries(ringsAt)) {
     const group = nodeG.filter(d => d.data.name === nodeName);
-    rings.forEach(({ color, beneath }, i) => {
+    rings.forEach(({ color, beneath, agent }, i) => {
       group.insert('circle', ':first-child')
         .attr('class',          'presence-ring')
         .attr('r',              d => (LEVEL_R[d.data.level] || 7) + 6 + i * 5)
         .attr('fill',           'none')
         .attr('stroke',         color)
         .attr('stroke-width',   beneath ? 1 : 1.5)
-        .attr('stroke-dasharray', beneath ? '2,6' : '4,3')
+        .attr('stroke-dasharray', beneath ? (agent ? '4,3,1,3' : '1,5') : (agent ? '4,3' : 'none'))
         .attr('opacity',        beneath ? 0.55 : 0.8)
         .attr('pointer-events', 'none');
     });

@@ -285,7 +285,7 @@ const w = {
   propertyKey: { color: "var(--muted)" },
   propertyValue: { color: "var(--muted)", textAlign: "right", overflowWrap: "anywhere" },
   buttons: { display: "flex", gap: 8, flexWrap: "wrap" },
-  button: { background: "var(--muted)", border: "1px solid var(--muted)", color: "var(--muted)", padding: "6px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: 10, letterSpacing: 1, textTransform: "uppercase" },
+  button: { background: "var(--raised)", border: "1px solid var(--line)", color: "var(--text)", padding: "10px 12px", minHeight: 44, cursor: "pointer", fontFamily: "inherit", fontSize: ".875rem", letterSpacing: 1, textTransform: "uppercase" },
   error: { color: "var(--muted)", fontSize: 11, fontStyle: "italic" },
   empty: { color: "var(--muted)", fontSize: 11 },
 };

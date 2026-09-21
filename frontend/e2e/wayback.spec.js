@@ -29,7 +29,7 @@ test("explorer scrubs a node from present to birth", async ({ page }) => {
   });
   await page.goto("/");
   await expect(page.locator("#node-name")).not.toHaveText("Select a node");
-  await expect(page.locator("#players-list")).not.toContainText("Not connected");
+  await expect.poll(()=>page.evaluate(()=>ws?.readyState)).toBe(1);
 
   await disclose(page,"History & journal");
   await page.click("#btn-wayback");

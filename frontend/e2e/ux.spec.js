@@ -26,7 +26,7 @@ for(const route of ['/app','/']){
       await expect(page.getByRole('group',{name:'Interaction mode'}).getByRole('button')).toHaveCount(3);
       await fits(page);await capture(page,client+'-wide');
       if(client==='map'){
-        const marker=page.locator('.node.selected circle').first();
+        const marker=page.locator('.node.selected .node-marker').first();
         const beforeColor=await marker.getAttribute('fill');
         await act(page).getByRole('button',{name:'Channel',exact:true}).click();
         await expect.poll(()=>marker.getAttribute('fill')).not.toBe(beforeColor);
@@ -60,7 +60,7 @@ for(const route of ['/app','/']){
       await expect(act(page).getByRole('button',{name:'Act on this intention'})).toBeFocused();
       await fits(page);
       if(client==='map'){
-        const marker=await page.locator('.node.selected circle').first().boundingBox();
+        const marker=await page.locator('.node.selected .node-marker').first().boundingBox();
         const graph=await page.locator('#graph').boundingBox();
         expect(marker.x).toBeGreaterThan(graph.x);expect(marker.x+marker.width).toBeLessThan(graph.x+graph.width);
         expect(marker.y).toBeGreaterThan(graph.y);expect(marker.y+marker.height).toBeLessThan(graph.y+graph.height);

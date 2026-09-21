@@ -50,7 +50,7 @@ class InterventionComposer extends HTMLElement {
         try { const saved = JSON.parse(localStorage.getItem(this.storageKey)); if (saved) { this.submission=saved.payload || {steps:saved.preview.steps,expected:saved.preview.expected,version:saved.preview.version || 1,...(saved.preview.delegate ? {delegate:saved.preview.delegate} : {})}; this.pending=saved.intent; this.steps=this.submission.steps || []; this.intention=this.submission.intention || ''; this.message='An earlier attempt is awaiting its receipt. Recover it safely before acting again.'; } } catch (_) { /* no stored draft */ }
       }
       // Poll outcomes without replacing focused controls or an in-progress draft.
-      if (!this.shadowRoot.activeElement && !this.busy) this.render();
+      if (!this.busy && (!this.shadowRoot.activeElement || !this.shadowRoot.querySelector('.choices'))) this.render();
       else this.renderRecent();
       pending = data.recent.reduce((n,r) => n+r.pending,0);
       // A node-triggered read already has fresh properties; only polling must
@@ -114,12 +114,19 @@ class InterventionComposer extends HTMLElement {
     const target=this.shadowRoot.querySelector('.pending');
     if(target) target.textContent=(this.ctx?.node?.pending_actions || []).map(p=>`${p.count} ${p.verb} ${p.count===1?'change is':'changes are'} still traveling.`).join(' ');
   }
+  async jumpToObserved(name) {
+    // Hand focus to a stable landmark before the host can replace this composer.
+    const focused=!!this.shadowRoot.activeElement;
+    if(focused)document.getElementById('node-name')?.focus();
+    await this.ctx.jump?.(name);
+    if(focused)requestAnimationFrame(()=>document.getElementById('node-name')?.focus());
+  }
   renderRecent() {
     const root=this.shadowRoot.querySelector('.recent'); if(!root) return;
     root.replaceChildren(el('span','YOUR THREADS THROUGH THE WORLD',{className:'caption'}));
     for(const r of this.data?.recent || []) {
       const item=el('article'); item.append(el('strong',`${r.performer} · ${r.summary}`),el('p',`${display(r.origin)} · Attempt accepted. ${r.pending ? 'Consequences pending' : 'All consequences settled'}`));
-      for(const a of r.arrivals) { const b=el('button',`Observed · ${display(a.node)}`); b.onclick=()=>this.ctx.jump?.(a.node); item.append(b,el('p',a.flavor || 'A consequence was observed.')); }
+      for(const a of r.arrivals) { const b=el('button',`Observed · ${display(a.node)}`); b.onclick=()=>this.jumpToObserved(a.node); item.append(b,el('p',a.flavor || 'A consequence was observed.')); }
       root.append(item);
     }
     if(!this.data?.recent?.length) root.append(el('p','What you set in motion will remain here when you return.'));
@@ -132,13 +139,13 @@ class InterventionComposer extends HTMLElement {
     this.renderContent();
     if(active) {
       const target=this.busy ? null : [...this.shadowRoot.querySelectorAll('button,textarea,summary')].find(e=>(e.getAttribute('data-focus-key') || e.getAttribute('aria-label') || e.textContent)===this.focusKey && !e.disabled);
-      (target || this.shadowRoot.querySelector('.status'))?.focus({preventScroll:true});
+      (target || this.shadowRoot.querySelector('.status') || this.shadowRoot.querySelector('section'))?.focus({preventScroll:true});
       if(selection && target?.tagName==='TEXTAREA')target.setSelectionRange(...selection);
     }
   }
   renderContent() {
     const root=this.shadowRoot; root.replaceChildren(el('style',STYLE));
-    const section=el('section'); section.setAttribute('aria-label','Act here'); root.append(section);
+    const section=el('section'); section.setAttribute('aria-label','Act here'); section.tabIndex=-1; root.append(section);
     section.append(el('p',null,{className:'pending quiet'}));this.renderPending();
     if(!this.data) {
       section.append(el('p',this.message || 'Listening to this place…'));
