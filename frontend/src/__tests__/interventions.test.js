@@ -141,21 +141,32 @@ describe("resilience and accessibility", () => {
     expect(c.message).toBe("");
   });
 
-  it("names why an action is unavailable, visibly and in the accessible name", async () => {
-    const { c } = composer([{ participant: "p", recent: [], choices: [
-      { op: "engrave", label: "Engrave", description: "Cut a pattern.", available: false, reason: "The surface is already engraved." },
-      { op: "polish", label: "Polish", description: "Smooth it.", available: true, reason: null },
-    ] }]);
+  it("offers four directly usable suggestions without predicted availability", async () => {
+    const choices = ["engrave", "polish", "mend", "fracture"].map(op => ({op,label:op,description:"Attempt it."}));
+    const {c} = composer([{participant:"p",recent:[],choices}]);
     delete c.render;
     await c.load();
     const buttons = rendered(c).filter(n => n.tag === "button" && n.attrs["aria-label"]);
-    const engrave = buttons.find(b => b.attrs["aria-label"].startsWith("Engrave"));
-    const polish = buttons.find(b => b.attrs["aria-label"] === "Polish");
-    expect(engrave.attrs["aria-label"]).toBe("Engrave. The surface is already engraved.");
-    expect(engrave.disabled).toBe(true);
-    expect(walk(engrave).some(n => n.tag === "small" && n.textContent === "The surface is already engraved.")).toBe(true);
-    expect(polish.disabled).toBe(false);
-    expect(walk(polish).every(n => n.textContent !== "Already as it would be.")).toBe(true);
+    expect(buttons).toHaveLength(4);
+    expect(buttons.every(b => !b.disabled)).toBe(true);
+    c.commit=vi.fn();await buttons[0].onclick();
+    expect(c.commit).toHaveBeenCalledWith({steps:[{op:"engrave",amount:1}],version:3});
+  });
+
+  it("blocks empty intentions before position, receipt or commit requests", async () => {
+    const {c} = composer([{participant:"p",recent:[],choices:[]}]);
+    c.ctx.ensure=vi.fn();
+    await c.load();delete c.render;
+    const nodes=rendered(c), input=nodes.find(n=>n.tag==="textarea");
+    const button=nodes.find(n=>n.tag==="button" && n.textContent==="Act on this intention");
+    expect(button.disabled).toBe(true);
+    input.value="  ";input.oninput();expect(button.disabled).toBe(true);
+    const begin=vi.spyOn(globalThis.EnfoldedIntents,"begin");
+    await c.commit({intention:"  ",version:3});
+    expect(c.ctx.ensure).not.toHaveBeenCalled();expect(begin).not.toHaveBeenCalled();
+    expect(c.request).toHaveBeenCalledTimes(1);
+    input.value="engrave";input.oninput();expect(button.disabled).toBe(false);
+    begin.mockRestore();
   });
 });
 

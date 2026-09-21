@@ -76,6 +76,8 @@ def preview(seed, name, steps, *, version=1):
 
 def accept(seed, participant, name, request_id, steps, expected, *, performer, actor_identity,
            delegate=None, authorize=None, version=1):
+    if version not in (1, 2):
+        raise ValueError('This vocabulary commits attempts without a forecast.')
     nodes = lineage(seed, name)
     interpreter = INTERPRETERS.get(version)
     if interpreter is None:
@@ -168,16 +170,27 @@ def _settle_attempt(conn, work_id, ident, hop, node, world, source, plan, now):
         if not delta and any(o['changed'] for o in outcomes):
             flavor += ' No net material change remains.'
     else:
-        previous = conn.execute("""SELECT m.data FROM intervention_work w JOIN world_mutations m ON m.id=w.event_id
-            WHERE w.intervention_id=? AND w.hop=? AND w.status='completed'""", (ident, hop - 1)).fetchone()
+        previous = conn.execute("""SELECT event_id FROM intervention_work
+            WHERE intervention_id=? AND hop=? AND status='completed'""", (ident, hop - 1)).fetchone()
         if not previous:
             raise ValueError('The preceding consequence has not yet arrived.')
-        delta, signal, flavor = physics.receive(live(world, node), json.loads(previous[0])['signal'])
+        signal = json.loads(conn.execute('SELECT signal FROM interventions WHERE id=?', (ident,)).fetchone()[0])
+        if not signal:
+            # Compatibility with v3 work accepted before observed signals were
+            # retained operationally. Never recompute a missing observed signal.
+            historical = conn.execute('SELECT data FROM world_mutations WHERE id=?', previous).fetchone()
+            if not historical:
+                raise ValueError('The preceding observed signal needs recovery.')
+            signal = json.loads(historical[0])['signal']
+        delta, signal, flavor = physics.receive(live(world, node), signal)
         outcomes = []
     data = {'intervention': ident, 'version': 3, 'source_event_id': source, 'hop': hop,
             'phase': 'observed', 'flavor': flavor, 'materialized': bool(delta), 'signal': signal, 'outcomes': outcomes}
     _record(world, node.name, 'INTERVENTION_ARRIVED', None, data, delta)
     event = db.latest_event_id()
+    # One ordered chain has at most one pending successor. Keep its input in
+    # operational storage, atomically with this observation and completion.
+    conn.execute('UPDATE interventions SET signal=? WHERE id=?', (json.dumps(signal), ident))
     if signal['strength'] and hop < 3 and node.parent is not None:
         conn.execute("""INSERT INTO intervention_work(intervention_id,hop,node_name,due_at)
             VALUES (?,?,?,?)""", (ident, hop + 1, node.parent.name, _stamp(now + timedelta(seconds=HOP_SECONDS))))
@@ -283,11 +296,13 @@ def recent(seed, name, participant=None):
             ORDER BY (pending>0) DESC, position DESC LIMIT 8''', (seed, name, participant, name)).fetchall()
         result = []
         for ident, origin, performer, plan, event, pending in rows:
-            arrivals = [{'node': n, 'status': 'completed', 'event_id': e,
-                         'flavor': json.loads(data).get('flavor', ''),
-                         'materialized': json.loads(data).get('materialized')} for n, e, data in conn.execute(
+            arrivals = []
+            for n, e, data in conn.execute(
                 """SELECT w.node_name,w.event_id,m.data FROM intervention_work w JOIN world_mutations m ON m.id=w.event_id
-                   WHERE w.intervention_id=? AND w.status='completed' ORDER BY w.hop""", (ident,))]
+                   WHERE w.intervention_id=? AND w.status='completed' ORDER BY w.hop""", (ident,)):
+                observed = json.loads(data)
+                arrivals.append({'node': n, 'status': 'completed', 'event_id': e,
+                                 'flavor': observed.get('flavor', ''), 'materialized': observed.get('materialized')})
             result.append({'id': ident, 'origin': origin, 'performer': performer, 'summary': json.loads(plan)['summary'],
                            'event_id': event, 'phase': 'pending' if pending else 'observed',
                            'pending': pending, 'arrivals': arrivals})

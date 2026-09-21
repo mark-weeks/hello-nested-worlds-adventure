@@ -41,7 +41,16 @@ It supersedes v2 previews for new work, without reinterpreting accepted work.
   absorption, feeds the next hop (at most three enclosing hops), including when the
   receiver's own state is already saturated and records no material change. A delayed pump
   starts the next hop's wait from actual settlement, never a precomputed route clock.
+- Observation prose follows the fields that actually changed. A partial action
+  must not claim all of its usual effects; stored outcome notes remain historical
+  facts and are never regenerated during reads.
 - Effect, observed signal, next work item and completion fence commit atomically.
+  The existing `interventions.signal` field retains the latest observed v3 signal
+  for its single ordered continuation, independently of chronicle retention. It is
+  empty until the first observation, never an acceptance-time forecast. Earlier v3
+  rows with an empty field recover their preceding signal from retained history
+  once, then keep it operationally. Missing historical input remains pending for
+  recovery rather than inventing a signal. Versions 1/2 keep their original usage.
   Worker failures keep the item pending with the existing backoff and no discard
   limit. Unknown versions remain pending. Old v1/v2 interpreters and receipt
   payloads are retained; new v1/v2 submissions are closed at HTTP acceptance.

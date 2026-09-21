@@ -18,18 +18,22 @@ def _fingerprint(request_id, payload):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def _find(conn, key, fingerprint):
+    row = conn.execute("""SELECT fingerprint,response FROM request_receipts
+        WHERE participant_id=? AND world_seed=? AND operation=? AND request_id=?""", key).fetchone()
+    if row is None:
+        return None
+    if row[0] != fingerprint:
+        raise ValueError("That request identifier belongs to a different action.")
+    return row[1]  # Keep a stored JSON null distinct from no row.
+
+
 def lookup(participant, seed, operation, request_id, payload):
     """Recover before any model call; execute rechecks under the writer lock."""
     fingerprint = _fingerprint(request_id, payload)
     with db._connection() as conn:
-        row = conn.execute("""SELECT fingerprint,response FROM request_receipts
-            WHERE participant_id=? AND world_seed=? AND operation=? AND request_id=?""",
-            (participant, seed, operation, request_id)).fetchone()
-    if row:
-        if row[0] != fingerprint:
-            raise ValueError("That request identifier belongs to a different action.")
-        return json.loads(row[1])
-    return None
+        response = _find(conn, (participant, seed, operation, request_id), fingerprint)
+        return json.loads(response) if response is not None else None
 
 
 def execute(participant: str, seed: int, operation: str, request_id: str,
@@ -37,12 +41,9 @@ def execute(participant: str, seed: int, operation: str, request_id: str,
     fingerprint = _fingerprint(request_id, payload)
     with db.transaction() as conn:
         key = (participant, seed, operation, request_id)
-        row = conn.execute("""SELECT fingerprint,response FROM request_receipts
-            WHERE participant_id=? AND world_seed=? AND operation=? AND request_id=?""", key).fetchone()
-        if row:
-            if row[0] != fingerprint:
-                raise ValueError("That request identifier belongs to a different action.")
-            return json.loads(row[1]), True
+        response = _find(conn, key, fingerprint)
+        if response is not None:
+            return json.loads(response), True
         response = apply()
         conn.execute("""INSERT INTO request_receipts
             (participant_id,world_seed,operation,request_id,fingerprint,response) VALUES (?,?,?,?,?,?)""",

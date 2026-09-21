@@ -20,7 +20,7 @@ const names = {
 const phrase = name => name.replace(/-\d+$/, '');
 const capture = name => path.join(tmpdir(), name);
 
-async function start(intentions = false) {
+async function start(intentions = false, partial = false) {
   const dir = await mkdtemp(path.join(tmpdir(), 'enfolded-expressive-'));
   const child = spawn(python, ['-u', '-c', `
 import sys
@@ -34,6 +34,8 @@ interventions.HOP_SECONDS=1
 situation.STEP_SECONDS=1
 from persistence.situations import install
 install(382)
+if sys.argv[3] == '1':
+    persistence.record_substance_change(382, situation.NODES['region'], 'TEST', None, {}, {'danger_level':1,'terrain':'plain'})
 persistence.mint_invite_key('nw_'+'a'*32,'Ada')
 persistence.mint_invite_key('nw_'+'b'*32,'Bea')
 # A deterministic provider fixture exercises the production parser and endpoints.
@@ -64,7 +66,7 @@ heartbeat._PUMP_INTERVAL=0.2  # Accelerate only this disposable browser fixture.
 heartbeat.start_pump()
 print(server.server_address[1],flush=True)
 server.serve_forever()
-`, dir, intentions ? '1' : '0'], {cwd: repo, env: {...process.env, NESTED_WORLDS_CANONICAL_SEED: '382', NESTED_WORLDS_DISABLE_AI: '1', NESTED_WORLDS_DISABLE_IMAGES: '1'}, stdio: ['ignore','pipe','pipe']});
+`, dir, intentions ? '1' : '0', partial ? '1' : '0'], {cwd: repo, env: {...process.env, NESTED_WORLDS_CANONICAL_SEED: '382', NESTED_WORLDS_DISABLE_AI: '1', NESTED_WORLDS_DISABLE_IMAGES: '1'}, stdio: ['ignore','pipe','pipe']});
   let stderr = '';
   child.stderr.on('data', chunk => { stderr += chunk; });
   const port = await new Promise((resolve, reject) => {
@@ -309,5 +311,44 @@ for(const route of ['/','/app']) {
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
       await page.screenshot({path:capture(`enfolded-commit-discover-${route==='/app'?'scene':'map'}.png`),fullPage:true});
     }finally{await server.close();}
+  });
+}
+
+
+for (const route of ['/app','/']) {
+  test(`${route}: empty intentions stay local and partial outcomes stay truthful`, async ({page}) => {
+    const server=await start(false,true);
+    try {
+      await enter(page,server,route,names.region);
+      if(route==='/') await page.locator('#btn-act').click();
+      else await page.getByRole('button',{name:'Act',exact:true}).click();
+      const act=page.locator('enfolded-interventions');
+      await expect(act.getByRole('button',{name:'Cultivate',exact:true})).toBeEnabled();
+      await act.getByText('Describe an intention',{exact:true}).click();
+      const entry=act.getByRole('textbox',{name:'Your intention'});
+      const submit=act.getByRole('button',{name:'Act on this intention',exact:true});
+      await expect(submit).toBeDisabled();
+      const writes=[];page.on('request',r=>{if(r.method()==='POST')writes.push(new URL(r.url()).pathname);});
+      await entry.fill('   ');await entry.press('Enter');
+      await expect(submit).toBeDisabled();
+      expect(writes).toEqual([]);
+      await entry.fill('cultivate');await expect(submit).toBeEnabled();
+      const [response]=await Promise.all([
+        page.waitForResponse(r=>new URL(r.url()).pathname==='/interventions/commit'),submit.click(),
+      ]);
+      const receipt=await response.json();expect(receipt.changed).toEqual({terrain:'terraced'});
+      await expect(act.getByRole('status')).toContainText('Cultivate: The land settles into terraces.');
+      await expect(act.getByRole('status')).not.toContainText('danger');
+      const current=await(await page.request.get(server.url+'/node?node_name='+encodeURIComponent(names.region),{headers})).json();
+      expect(current.node.properties.danger_level).toBe(1);
+      await page.reload();
+      if(route==='/') await page.locator('#btn-act').click();
+      else await page.getByRole('button',{name:'Act',exact:true}).click();
+      await act.getByText('Actions still echoing',{exact:true}).click();
+      await expect(act).toContainText('Cultivate: The land settles into terraces.');
+      await expect(act).not.toContainText('Less danger');
+      await act.getByText('The attempted action settles. Cultivate: The land settles into terraces.',{exact:true}).scrollIntoViewIfNeeded();
+      await page.screenshot({path:capture(`enfolded-partial-${route==='/app'?'scene':'map'}.png`),fullPage:true});
+    } finally {await server.close();}
   });
 }

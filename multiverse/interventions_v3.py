@@ -43,44 +43,68 @@ _ATTEMPTS = {
 
 _NOTHING = 'No new material change remains.'
 
-# What a settled step leaves behind, in the world's voice. Verb operators carry
-# their own authored result line from apply_verb (with the node's aspect
-# clause); the declarative operators are voiced here. Never a property literal.
+# Authored clauses are selected by the actual delta, not the whole operation.
+# A compound action can change only one field when another is already at its cap.
 _OBSERVED = {
-    'shear': 'The membranes slip out of phase; reality frays a little further.',
-    'quicken': 'The membrane hum quickens; its cycles turn faster.',
-    'linger': 'The membrane hum lengthens; longer intervals of stillness open.',
-    'condense': 'Dark matter thickens; the balance of the vacuum shifts.',
-    'rarefy': 'Dark matter thins; the unseen fabric loosens.',
-    'modulate': 'The vacuum hum rises in pitch.',
-    'scatter': 'The stars drift apart; open sky widens between them.',
-    'spiral': 'The stars gather into spiral arms.',
-    'accelerate': 'The drift through intergalactic space quickens.',
-    'incline': 'The orbital plane tilts; its alignment loosens.',
-    'gather': 'Drifting debris gathers into an asteroid belt.',
-    'disperse': 'The belt disperses; its debris thins along the orbits.',
-    'rewild': 'Vegetation reclaims the surface; the biome turns to forest.',
-    'hasten': 'The world turns faster; the day shortens.',
-    'slow': 'The world turns slower; the day lengthens.',
-    'cultivate': 'The land settles into terraces; less danger lies exposed.',
-    'overgrow': 'Growth runs wild over the terrain; the danger rises.',
-    'channel': 'Channels cut through the land; waterways carry a ground fog.',
-    'illuminate': 'Light fills the room; its concealment is gone.',
-    'shade': 'The room dims; shelter from the light returns.',
-    'ventilate': 'The enclosed air clears to a cool, mineral draft.',
-    'engrave': 'A pattern is cut into the surface; the mark will outlast whoever made it.',
-    'fracture': 'The structure breaks open; its inside shows at the cost of its condition.',
-    'polish': 'The surface turns mirror smooth; its previous finish is gone.',
-    'cleave': 'A bond breaks; the loosened structure turns reactive.',
-    'fold': 'The structure folds into a sheet; its bonds hold.',
-    'branch': 'The molecule reshapes into a branching chain.',
-    'relax': 'The shell settles; its resonance shifts redward.',
-    'ionize': 'An electron is stripped away; the atom is ionized.',
-    'neutralize': 'An electron returns; the shell is neutral again.',
-    'superpose': 'Both spin possibilities reopen; coherence loosens.',
-    'flip': 'The definite spin reverses.',
-    'dephase': 'The phase relationship scatters; coherence loosens.',
+    'shear': {'stability': 'The membranes slip out of phase; reality frays a little further.'},
+    'quicken': {'hum_period_years': 'The membrane hum quickens; its cycles turn faster.'},
+    'linger': {'hum_period_years': 'The membrane hum lengthens; longer intervals of stillness open.'},
+    'condense': {'dark_matter_ratio': 'Dark matter thickens; the balance of the vacuum shifts.'},
+    'rarefy': {'dark_matter_ratio': 'Dark matter thins; the unseen fabric loosens.'},
+    'modulate': {'vacuum_hum_hz': 'The vacuum hum rises in pitch.'},
+    'scatter': {'star_density': 'The stars drift apart; open sky widens between them.'},
+    'spiral': {'shape': 'The stars gather into spiral arms.'},
+    'accelerate': {'drift_kmps': 'The drift through intergalactic space quickens.'},
+    'incline': {'ecliptic_tilt_deg': 'The orbital plane tilts; its alignment loosens.'},
+    'gather': {'asteroid_belt': 'Drifting debris gathers into an asteroid belt.'},
+    'disperse': {'asteroid_belt': 'The belt disperses; its debris thins along the orbits.'},
+    'rewild': {'biome': 'Vegetation reclaims the surface; the biome turns to forest.'},
+    'hasten': {'day_length_hours': 'The world turns faster; the day shortens.'},
+    'slow': {'day_length_hours': 'The world turns slower; the day lengthens.'},
+    'cultivate': {'terrain': 'The land settles into terraces.', 'danger_level': 'Less danger lies exposed.'},
+    'overgrow': {'terrain': 'Growth runs wild over the terrain.', 'danger_level': 'The danger rises.'},
+    'channel': {'terrain': 'Channels cut through the land.', 'weather': 'A ground fog settles.'},
+    'illuminate': {'lighting': 'Light fills the room; its concealment is gone.'},
+    'shade': {'lighting': 'The room dims; shelter from the light returns.'},
+    'ventilate': {'air': 'The enclosed air clears to a cool, mineral draft.'},
+    'engrave': {'surface': 'A pattern is cut into the surface.'},
+    'fracture': {'condition': 'The material deteriorates.', 'fractured': 'The structure breaks open; its inside shows.'},
+    'polish': {'surface': 'The surface turns mirror smooth; its previous finish is gone.'},
+    'cleave': {'bond_count': 'A bond breaks.', 'reactive': 'The loosened structure turns reactive.'},
+    'fold': {'geometry': 'The structure folds into a sheet.'},
+    'branch': {'geometry': 'The molecule reshapes into a branching chain.', 'reactive': 'The structure turns reactive.'},
+    'relax': {'ionized': 'An electron returns; the shell is neutral again.', 'resonance_nm': 'Its resonance shifts redward.'},
+    'ionize': {'ionized': 'An electron is stripped away; the atom is ionized.'},
+    'neutralize': {'ionized': 'An electron returns; the shell is neutral again.'},
+    'superpose': {'spin': 'Both spin possibilities reopen.', 'coherence': 'Coherence loosens.'},
+    'flip': {'spin': 'The definite spin reverses.'},
+    'dephase': {'coherence': 'The phase relationship scatters; coherence loosens.'},
 }
+
+# These retained verbs also have compound effects. Their original notes can
+# claim a numeric change when only a flag changed. Correct v3's voice only;
+# the retained v1/v2 physics and their accepted commitments stay unchanged.
+_VERB_OBSERVED = {
+    'kindle': {'star_density': 'New stars catch along the dust lanes.', 'kindled': 'Kindling takes hold here.'},
+    'align': {'ecliptic_tilt_deg': 'The ecliptic flattens.', 'aligned': 'The orbits hold their alignment.'},
+    'ward': {'danger_level': 'The danger recedes.', 'warded': 'Ward lines settle along the boundary.'},
+    'catalyze': {'bond_count': 'A new bond snaps into place.', 'catalyzed': 'The lattice carries the reaction.'},
+    'excite': {'ionized': 'An electron is stripped away.', 'resonance_nm': 'The atom brightens; its resonance shifts blueward.'},
+}
+
+
+def _observed_note(op, changed, original, properties):
+    clauses = _OBSERVED.get(op, _VERB_OBSERVED.get(op))
+    if clauses is None:
+        return original
+    note = ' '.join(line for key, line in clauses.items() if key in changed)
+    if op in _VERB_OBSERVED:
+        aspect = properties.get('aspect')
+        if isinstance(aspect, str) and ';' in aspect:
+            clause = aspect.split(';')[0].strip().rstrip('.')
+            if clause:
+                note += f' {clause[0].upper()}{clause[1:]}.'
+    return note
 
 
 def vocabulary(level):
@@ -106,7 +130,7 @@ def settle(properties, plan):
             props.update(result['changed'])
             strength += result['signal']['strength']
             outcomes.append({'op': step['op'], 'changed': result['changed'], 'outcome': 'materialized',
-                             'note': _OBSERVED.get(step['op'], result['notes'][0])})
+                             'note': _observed_note(step['op'], result['changed'], result['notes'][0], props)})
     changed = {k: v for k, v in props.items() if properties.get(k) != v}
     signal = {'strength': strength if changed else 0, 'coherent': True,
               'motif': v2.digest([plan['level'], plan['steps']])}
@@ -117,7 +141,7 @@ def describe(outcome):
     """The world's voice for one settled step. Property literals never reach a reader."""
     if outcome.get('outcome') != 'materialized' or not outcome.get('changed'):
         return _NOTHING
-    return outcome.get('note') or _OBSERVED.get(outcome.get('op')) or 'A material change settles here.'
+    return outcome.get('note') or 'A material change settles here.'
 
 
 def receive(properties, signal):

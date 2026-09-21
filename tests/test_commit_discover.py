@@ -96,7 +96,7 @@ def test_direct_attempts_accept_current_state_and_noops_have_observed_history(ht
     first = commit(http, name, ['engrave'], 'bea-engraves', accounts[1])
     second = commit(http, name, ['engrave'], 'ada-engraves')
     assert before['version'] == 3 and first['changed'] and second['accepted']
-    assert f"Engrave: {physics._OBSERVED['engrave']}" in first['flavor'] and 'surface is' not in first['flavor']
+    assert f"Engrave: {physics._OBSERVED['engrave']['surface']}" in first['flavor'] and 'surface is' not in first['flavor']
     # An instant settlement that still queues outward hops reports the queue,
     # agreeing with what recent() says about the same attempt.
     assert first['phase'] == 'pending' and first['pending_steps'] == 1 and first['flavor'].endswith(' Consequences are pending.')
@@ -328,6 +328,8 @@ def test_attempt_and_observation_banks_cover_every_operator():
     from multiverse import interventions_v2
     assert set(physics._ATTEMPTS) == set(interventions_v2.OPERATORS)
     assert set(physics._OBSERVED) == set(interventions_v2._RULES)
+    for op, rule in interventions_v2._RULES.items():
+        assert set(physics._OBSERVED[op]) == set(rule[3])
     for level in {info['level'] for info in interventions_v2.OPERATORS.values()}:
         assert all(v['description'].startswith('Attempt to ') for v in physics.vocabulary(level).values())
 
@@ -336,11 +338,102 @@ def test_settled_steps_speak_in_the_worlds_voice_never_property_literals():
     plan = {'steps':[{'op':'gather'},{'op':'gather'}],'level':'Planetary System','token':'t'}
     changed, signal, outcomes = physics.settle({'asteroid_belt':False}, plan)
     assert changed == {'asteroid_belt':True} and signal['strength'] == 1
-    assert [physics.describe(o) for o in outcomes] == [physics._OBSERVED['gather'], 'No new material change remains.']
+    assert [physics.describe(o) for o in outcomes] == [physics._OBSERVED['gather']['asteroid_belt'], 'No new material change remains.']
     # Verb operators keep their authored line and the node's own aspect clause.
     plan = {'steps':[{'op':'mend'}],'level':'Object','token':'t'}
     _, _, outcomes = physics.settle({'condition':'damaged','aspect':'a brass astrolabe; it hums'}, plan)
     assert outcomes[0]['changed'] == {'condition':'worn'}
     assert physics.describe(outcomes[0]).endswith('A brass astrolabe.') and 'condition is' not in physics.describe(outcomes[0])
-    for text in [physics.describe(o) for o in outcomes] + list(physics._OBSERVED.values()):
+    for text in [physics.describe(o) for o in outcomes] + [line for clauses in physics._OBSERVED.values() for line in clauses.values()]:
         assert ' is True' not in text and ' is False' not in text and '_' not in text
+
+
+@pytest.mark.parametrize('op,level,props,expected,present,absent', [
+    ('cultivate','Region',{'terrain':'plain','danger_level':1}, {'terrain':'terraced'}, 'terraces', 'danger'),
+    ('cultivate','Region',{'terrain':'terraced','danger_level':3}, {'danger_level':2}, 'danger', 'terraces'),
+    ('overgrow','Region',{'terrain':'plain','danger_level':10}, {'terrain':'overgrown'}, 'Growth', 'danger'),
+    ('channel','Region',{'terrain':'plain','weather':'ground fog'}, {'terrain':'waterways'}, 'Channels', 'fog'),
+    ('fracture','Object',{'condition':'corrupted','fractured':False}, {'fractured':True}, 'breaks open', 'deteriorates'),
+    ('fracture','Object',{'condition':'pristine','fractured':True}, {'condition':'worn'}, 'deteriorates', 'breaks open'),
+    ('cleave','Molecule',{'bond_count':1,'reactive':False}, {'reactive':True}, 'reactive', 'bond'),
+    ('branch','Molecule',{'geometry':'branched chain','reactive':False}, {'reactive':True}, 'reactive', 'reshapes'),
+    ('relax','Atom',{'ionized':True,'resonance_nm':780}, {'ionized':False}, 'neutral', 'redward'),
+    ('relax','Atom',{'ionized':False,'resonance_nm':600}, {'resonance_nm':630}, 'redward', 'electron'),
+    ('superpose','SubatomicParticle',{'spin':'superposed','coherence':.5}, {'coherence':.35}, 'Coherence', 'reopen'),
+    ('kindle','Galaxy',{'star_density':999}, {'kindled':True}, 'Kindling', 'New stars'),
+    ('align','Planetary System',{'ecliptic_tilt_deg':0}, {'aligned':True}, 'alignment', 'flattens'),
+    ('ward','Region',{'danger_level':1}, {'warded':True}, 'Ward lines', 'danger'),
+    ('catalyze','Molecule',{'bond_count':12}, {'catalyzed':True}, 'reaction', 'new bond'),
+    ('excite','Atom',{'resonance_nm':180,'ionized':False}, {'ionized':True}, 'electron', 'blueward'),
+])
+def test_partial_outcome_narration_only_claims_materialized_changes(op, level, props, expected, present, absent):
+    changed, _, outcomes = physics.settle({**props,'aspect':'a brass astrolabe; it hums'}, physics.attempt([{'op':op}], level, 't'))
+    note = physics.describe(outcomes[0])
+    assert changed == expected and outcomes[0]['changed'] == expected
+    assert present in note and absent not in note
+    if op in physics._VERB_OBSERVED:
+        assert note.endswith('A brass astrolabe.')
+
+
+def test_partial_narration_reaches_receipt_history_and_recovery(http):
+    name = NODES['region']
+    db.record_substance_change(382, name, 'TEST', None, {}, {'danger_level':1,'terrain':'plain'})
+    arrive(http, name)
+    result = commit(http, name, ['cultivate'], 'cultivate-at-floor')
+    assert result['changed'] == {'terrain':'terraced'}
+    assert 'terraces' in result['flavor'] and 'danger' not in result['flavor']
+    observed = next(e for e in events() if e['type']=='INTERVENTION_ARRIVED')
+    assert 'terraces' in observed['data']['flavor'] and 'danger' not in observed['data']['flavor']
+    assert work.recent(382, name)[0]['arrivals'][0]['flavor'] == observed['data']['flavor']
+    db.record_substance_change(382, name, 'TEST', None, {}, {'danger_level':8})
+    assert commit(http, name, ['cultivate'], 'cultivate-at-floor') == result
+
+
+def test_legacy_accept_rejects_attempt_version_before_writes(owner):
+    with pytest.raises(ValueError, match='without a forecast'):
+        work.accept(382, owner, NODES['instrument'], 'wrong-entry-point', [{'op':'engrave'}], 'x'*24,
+                    performer='Ada', actor_identity='participant:'+owner, version=3)
+    assert not events()
+
+
+@pytest.mark.parametrize('legacy_signal', [False, True])
+def test_observed_signal_survives_restart_without_ledger_dependency(http, owner, legacy_signal):
+    name = NODES['instrument']
+    arrive(http, name)
+    result = commit(http, name, ['engrave'], 'signal-recovery')
+    with db._connection() as conn:
+        signal = json.loads(conn.execute('SELECT signal FROM interventions WHERE id=?',(result['id'],)).fetchone()[0])
+        assert signal['strength'] == 1
+        if legacy_signal:
+            # Simulate a pre-upgrade v3 row. Its first continuation can recover
+            # the retained observation, then becomes independent of history.
+            conn.execute("UPDATE interventions SET signal='{}' WHERE id=?", (result['id'],))
+        else:
+            # Fault injection on this disposable fixture only: observation data
+            # is unavailable after retention/recovery. Delivery must not read it.
+            conn.execute("UPDATE world_mutations SET data='{}' WHERE id=?", (result['observed']['event_id'],))
+    db._initialized.discard(db._DB_PATH)
+    assert work.advance(382, now=START+timedelta(seconds=20)) == 1
+    with db._connection() as conn:
+        signal = json.loads(conn.execute('SELECT signal FROM interventions WHERE id=?',(result['id'],)).fetchone()[0])
+        assert signal['strength'] == .65
+        previous = conn.execute('SELECT event_id FROM intervention_work WHERE intervention_id=? AND hop=1',(result['id'],)).fetchone()[0]
+        conn.execute("UPDATE world_mutations SET data='{}' WHERE id=?", (previous,))
+    assert work.advance(382, now=START+timedelta(seconds=40)) == 1
+    assert work.advance(382, now=START+timedelta(seconds=60)) == 1
+    assert work.advance(382, now=START+timedelta(seconds=80)) == 0
+    assert commit(http, name, ['engrave'], 'signal-recovery') == result
+
+
+def test_shared_receipt_lookup_preserves_a_stored_null_response(owner):
+    from persistence import intents
+    calls = []
+    def apply():
+        calls.append(1)
+        return None
+    args = (owner, 382, 'nullable-receipt', 'nullable-001', {'value':1})
+    assert intents.execute(*args, apply) == (None, False)
+    assert intents.execute(*args, apply) == (None, True)
+    assert calls == [1]
+    with pytest.raises(ValueError, match='different action'):
+        intents.lookup(owner, 382, 'nullable-receipt', 'nullable-001', {'value':2})

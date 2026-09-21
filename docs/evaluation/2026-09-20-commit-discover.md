@@ -110,3 +110,32 @@ history phases; ADR-028 records that scope. No migration, golden re-pin, generat
 or born-identity change, history rewrite, world-meta/hinge pin or era-bank change.
 No caller controls another player. Both clients retain one Act surface. No merge,
 deployment or Batch 2 work is included.
+
+
+## Final review follow-up
+
+The partial-effect review reproduced Cultivate reporting less danger at the minimum
+and Relax reporting a redward shift at the maximum wavelength. Declarative outcome
+clauses now follow the actual changed fields. Five retained compound verbs receive
+the same v3-only correction, keeping the node's aspect clause; v1/v2 semantics and
+stored historical notes remain unchanged. Engrave no longer guarantees the mark's
+future permanence.
+
+The six remaining threads are addressed: predicted availability fields and their
+client branch are removed, legacy `accept()` rejects v3 before writing, recap rows
+are decoded once, receipt lookup shares one mismatch check, and blank intention
+submission performs no position/receipt/commit request. The existing operational
+`interventions.signal` field stores the latest observed v3 signal atomically with
+completion; its single next hop no longer relies on chronicle content. Pre-upgrade
+v3 rows recover from the preceding historical observation when necessary. If that
+old input is already missing, recovery is still required; it is never recomputed.
+
+Recovery fault tests use disposable databases only: they remove observation data
+from the fixture after settlement and confirm that continuation and receipt replay
+survive reinitialization. Another variant starts with the old empty operational
+signal and verifies its transition to the independent delivery path. This makes no
+claim that erased history can be restored, and authorizes no history pruning.
+
+`ENFOLDED_E2E=1 ./scripts/check.sh` passed Ruff, **1,358 Python** (246.05 s), **123 Vitest** (13 files), byte-fresh production bundle, installed-wheel smoke and **70 Playwright** (2.6 min). The added coverage includes **16** partial-effect narration cases, endpoint/history/retry checks, operational-signal and pre-upgrade recovery, nullable receipt replay, and blank intentions plus truthful history in both real clients. Both corrected rendered views were inspected; documentation references and diff whitespace passed.
+No live model was invoked. The original playtest database was not opened by these
+follow-up tests; all endpoint and browser verification used disposable worlds.

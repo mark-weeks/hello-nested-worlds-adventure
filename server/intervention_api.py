@@ -67,10 +67,11 @@ def handle(handler, path, qs, body=None):
             if 'intention' in body and not isinstance(body['intention'], str):
                 raise Malformed('An intention is written in words.')
         if body is None and path == '/interventions':
+            vocabulary = physics.vocabulary(node.level)
             data = {'participant': me['id'], 'version': physics.VERSION,
-                    'operators': physics.vocabulary(node.level),
-                    'choices': [{'op': op, **info, 'available': True, 'reason': None}
-                                for op, info in physics.vocabulary(node.level).items()],
+                    'operators': vocabulary,
+                    'choices': [{'op': op, **info}
+                                for op, info in vocabulary.items()],
                     'state': physics.read_state(interventions.live(seed, node)),
                     'recent': interventions.recent(seed, name, me['id'])}
         elif body is None:

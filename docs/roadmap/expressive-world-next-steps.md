@@ -36,6 +36,9 @@ verification counts and the corrections that supersede the initial design.
 - Acceptance, pending consequences and observed outcomes are distinct in feedback
   and append-only history. Recaps reveal observed destinations only. Browser recovery
   retains the payload and request ID across lost replies, retries and reloads.
+  Outcome wording follows actual changed fields, including partial effects at a
+  property limit. Empty intentions remain local; suggestions have no predicted
+  availability state. Preserve these contracts during subsequent UX changes.
 - Accepted v1/v2 work, historical actors and receipts remain recoverable under their
   original semantics. No schema migration or world reset. The existing local playtest
   world was preserved; inspection used a separate database copy.

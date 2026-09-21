@@ -157,7 +157,7 @@ def test_choices_teach_attempts_without_forecasting(http):
     name = NODES['instrument']
     status, data, _ = http('/interventions?node=' + quote(name))
     assert status == 200 and data['version'] == 3 and len(data['choices']) == 4
-    assert all(c['available'] for c in data['choices'])
+    assert all('available' not in c and 'reason' not in c for c in data['choices'])
     assert not any(word in json.dumps(data) for word in ('"preview"', '"expected"', '"changed"', '"route"', '"signal"'))
     assert http('/interventions/preview', body={'node':name,'steps':[{'op':'engrave'}]})[0] == 409
     assert not events()

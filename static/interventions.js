@@ -75,6 +75,7 @@ class InterventionComposer extends HTMLElement {
   }
   async commit(submission) {
     if(this.busy || (!submission && !this.pending)) return;
+    if(!this.pending && submission?.intention != null && !submission.intention.trim()) return;
     const generation=this.generation, ctx=this.ctx, storage=this.storageKey;
     const payload=this.pending ? this.submission : submission;
     this.busy=true; this.message='Setting your attempt in motion…'; this.render();
@@ -140,13 +141,9 @@ class InterventionComposer extends HTMLElement {
     const choices=el('div',null,{className:'choices'});
     for(const choice of this.data.choices) {
       const chosen=this.steps.some(s=>s.op===choice.op);
-      const button=el('button',null,{disabled:blocked || (this.compose && this.steps.length>=4) || (!this.compose && !choice.available),className:chosen?'selected':''});
-      const unavailable=!choice.available && !this.compose, why=choice.reason || 'Already as it would be.';
-      // Keyboard, touch and screen-reader users cannot read a tooltip on a
-      // disabled control: the reason is visible text and part of the name.
-      button.setAttribute('aria-label',unavailable ? `${choice.label}. ${why}` : choice.label);
+      const button=el('button',null,{disabled:blocked || (this.compose && this.steps.length>=4),className:chosen?'selected':''});
+      button.setAttribute('aria-label',choice.label);
       button.append(el('strong',choice.label),el('small',choice.description));
-      if(unavailable) button.append(el('small',why));
       button.onclick=()=>this.choose(choice); choices.append(button);
     }
     section.append(choices);
@@ -159,8 +156,8 @@ class InterventionComposer extends HTMLElement {
     }
     const natural=el('details',null,{open:!!this.intentionOpen});natural.append(el('summary','Describe an intention'));
     natural.ontoggle=()=>this.intentionOpen=natural.open;
-    const input=el('textarea',null,{value:this.intention,maxLength:600,placeholder:'What do you want to attempt here?'});input.setAttribute('aria-label','Your intention');input.disabled=blocked;input.oninput=()=>this.intention=input.value;natural.append(input);
-    const act=el('button','Act on this intention',{disabled:blocked});act.onclick=()=>this.commit({intention:this.intention,version:3});
+    const input=el('textarea',null,{value:this.intention,maxLength:600,placeholder:'What do you want to attempt here?'});input.setAttribute('aria-label','Your intention');input.disabled=blocked;input.oninput=()=>{this.intention=input.value;act.disabled=blocked || !this.intention.trim();};natural.append(input);
+    const act=el('button','Act on this intention',{disabled:blocked || !this.intention?.trim()});act.onclick=()=>this.commit({intention:this.intention,version:3});
     natural.append(act,el('p','Submitting authorizes the attempt. Name actions in order, or describe your purpose with a connected model. If the action, target, scope or order is unclear, you can revise it here.',{className:'quiet'}));section.append(natural);
     if(this.pending) {
       const recover=el('button','Recover earlier attempt',{className:'primary',disabled:this.busy});
