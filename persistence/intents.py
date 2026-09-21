@@ -1,4 +1,10 @@
-"""An HTTP retry returns its committed receipt; distinct intentions stay distinct."""
+"""An HTTP retry returns its committed receipt; distinct intentions stay distinct.
+
+Every reply is a receipt, including a quiet one given while the interpreter
+was unavailable: a same-ID retry returns it without another model call, so a
+negative answer can never race a later acceptance of the same request. A
+later try is a new request ID (ADR-028).
+"""
 import hashlib
 import json
 import re

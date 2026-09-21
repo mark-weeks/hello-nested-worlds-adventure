@@ -123,8 +123,14 @@ def describe(outcome):
 def receive(properties, signal):
     # One step from the preceding OBSERVED wave. A receiver's resonator can
     # absorb energy before the remainder continues; never reuse a forecast.
+    # The remainder feeds the next hop whether or not this receiver's own
+    # state moved (ADR-028): a saturated echo records no material change
+    # here, yet the wave that reached it still travels on.
     received, flavor = v2.receive(properties, signal, 1)
     state = received.get('acoustic_resonance', received.get('resonance', {}))
     changed = {key: value for key, value in received.items() if properties.get(key) != value}
-    outgoing = {**signal, 'strength': state.get('last_wave', 0) if changed else 0}
-    return changed, outgoing, flavor if changed else 'The arriving disturbance leaves no new material change.'
+    outgoing = {**signal, 'strength': state.get('last_wave', 0)}
+    if not changed:
+        flavor = ('The arriving disturbance leaves no new material change here; what remains of it travels on.'
+                  if outgoing['strength'] else 'The arriving disturbance leaves no new material change.')
+    return changed, outgoing, flavor

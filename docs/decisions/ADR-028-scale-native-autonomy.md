@@ -38,7 +38,8 @@ It supersedes v2 previews for new work, without reinterpreting accepted work.
   only materialized steps; a sequence with no net material change sends no wave.
   A continuation is scheduled only from that observed signal. Each receiver uses
   current conditions; the observed remainder, after attenuation and any resonator
-  absorption, feeds the next hop (at most three enclosing hops). A delayed pump
+  absorption, feeds the next hop (at most three enclosing hops), including when the
+  receiver's own state is already saturated and records no material change. A delayed pump
   starts the next hop's wait from actual settlement, never a precomputed route clock.
 - Effect, observed signal, next work item and completion fence commit atomically.
   Worker failures keep the item pending with the existing backoff and no discard

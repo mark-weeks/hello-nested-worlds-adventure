@@ -251,6 +251,16 @@ def test_concurrent_quiet_reply_cannot_race_a_later_model_acceptance(http, monke
     assert second[1]['accepted'] is False and not events()
     assert http('/interventions/commit',body=body)[:2] == second[:2]
     assert len(calls) == 2
+    # The quiet reply is that request's committed receipt (ADR-028): a same-ID
+    # retry returns it without another model call; a new ID is a new attempt.
+    calls.clear()
+    def ready(*args):
+        calls.append(1)
+        return [{'op':'engrave','amount':1}], None
+    monkeypatch.setattr(intervention_api,'_propose',ready)
+    assert http('/interventions/commit',body=body)[:2] == second[:2] and not calls
+    status, accepted, _ = http('/interventions/commit',body={**body,'request_id':'race-a-model-2'})
+    assert status == 200 and accepted['accepted'] and len(calls) == 1 and len(events()) == 2
 
 
 def test_receiver_with_saturated_echo_passes_observed_remainder_after_other_changes():
@@ -264,6 +274,39 @@ def test_receiver_with_saturated_echo_passes_observed_remainder_after_other_chan
     bound = {**props,'resonance':{**props['resonance'],'woven':True}}
     _, caught, _ = physics.receive(bound,signal)
     assert 0 < caught['strength'] < outgoing['strength']
+    # With nothing else to move, the receiver records no change and still
+    # passes the same remainder on (ADR-028: the remainder feeds the next hop).
+    saturated = {'resonance':props['resonance']}
+    changed, onward, flavor = physics.receive(saturated,signal)
+    assert changed == {} and onward['strength'] == 0.65 and 'travels on' in flavor
+
+
+def test_saturated_receiver_records_no_change_and_still_passes_the_remainder_onward(http, owner, monkeypatch):
+    universe = store.world_tree(382).children[0]
+    galaxy = universe.children[0]
+    db.record_substance_change(382, galaxy.name, 'TEST', None, {}, {'star_density':400})
+    arrive(http, galaxy.name)
+    monkeypatch.setattr(work,'_now',lambda:START)
+    ada = commit(http, galaxy.name, ['scatter'], 'scatter-through-saturation')
+    due = START+timedelta(seconds=work.maturation_seconds(galaxy.level))
+    assert work.advance(382, now=due) == 1
+    origin = next(e for e in events() if e['type']=='INTERVENTION_ARRIVED' and e['data']['intervention']==ada['id'])
+    signal = origin['data']['signal']
+    assert signal['strength'] == -2 and 'danger_level' not in work.live(382, universe)
+    # The enclosing Universe already holds exactly the state this wave would
+    # leave: a saturated echo, the same remainder and the same motif memory.
+    remainder = round(signal['strength'] * .65, 3)
+    db.record_substance_change(382, universe.name, 'TEST', None, {}, {'resonance':{
+        **physics.read_state({}), 'echo':-12, 'last_wave':remainder, 'memory':signal['motif']}})
+    assert work.advance(382, now=due+timedelta(seconds=20)) == 1
+    arrival = next(e for e in events() if e['type']=='INTERVENTION_ARRIVED' and e['data']['hop']==1)
+    assert arrival['node'] == universe.name and arrival['data']['materialized'] is False
+    assert arrival['data']['signal']['strength'] == remainder and 'travels on' in arrival['data']['flavor']
+    with db._connection() as conn:
+        rows = conn.execute('SELECT hop,node_name,status FROM intervention_work WHERE intervention_id=? ORDER BY hop',(ada['id'],)).fetchall()
+    assert rows == [(0,galaxy.name,'completed'),(1,universe.name,'completed'),(2,store.world_tree(382).name,'pending')]
+    assert work.advance(382, now=due+timedelta(seconds=40)) == 1
+    assert work.advance(382, now=due+timedelta(seconds=60)) == 0
 
 
 def test_explicit_null_authority_fields_recover_the_same_receipt(http):
