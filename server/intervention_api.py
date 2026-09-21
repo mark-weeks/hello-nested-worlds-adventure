@@ -1,10 +1,10 @@
-"""One player's scale-native intentions, previews and explicit commitments."""
+"""One player's scale-native attempts, clarification and recoverable commitments."""
 import logging
 import os
 
 import persistence
-from persistence import participants, interventions
-from multiverse import interventions_v2 as physics
+from persistence import participants, interventions, intents
+from multiverse import interventions_v3 as physics
 from puzzles.gates import seal_check
 from server import guard
 
@@ -20,43 +20,30 @@ _UNSHAPED = 'That intention needs a clearer shape. Choose actions below, or name
 _UNSETTLED = 'The intention has not settled into a dependable shape. Try the actions below.'
 
 
-def _quiet(line, *, ai=False, declined=False):
-    # Failure stays in fiction: the model's absence, budget or silence answers
-    # HTTP 200 with an authored line and no steps, like /speak, never a conflict.
-    data = {'ai': ai, 'response': line, 'steps': []}
+def _quiet(line, *, ai=False, declined=False, clarification=False):
+    data = {'ai': ai, 'response': line, 'steps': [], 'accepted': False}
     if declined:
         data['declined'] = True
+    if clarification:
+        data['clarification'] = True
     return data
 
 
 def _propose(intention, key, name, node, props):
-    """Ask the model for a score; return (steps, None) or (None, quiet reply)."""
     if guard.ai_disabled() or not os.environ.get('ANTHROPIC_API_KEY'):
         return None, _quiet(_UNSHAPED)
     if not guard.consume_anthropic(user_key=key):
         return None, _quiet(guard.QUIET_RESPONSE)
-    from consciousness.interventions import Unsupported, propose
+    from consciousness.interventions import Clarification, Unsupported, propose
     try:
         return propose(intention, {'name': name, 'level': node.level, 'properties': props}), None
+    except Clarification as exc:
+        return None, _quiet(str(exc), ai=True, clarification=True)
     except Unsupported as exc:
-        # The model answered; its refusal is the world's reply, not a failure.
         return None, _quiet(str(exc), ai=True, declined=True)
     except Exception:
-        _log.exception('Intention proposal unavailable')
+        _log.exception('Intention interpretation unavailable')
         return None, _quiet(_UNSETTLED)
-
-
-def _choices(seed, name, level):
-    """Each single action with its full preview, so choosing one costs no write."""
-    result = []
-    for op, info in physics.vocabulary(level).items():
-        try:
-            preview = interventions.preview(seed, name, [{'op': op}], version=2)
-        except ValueError as exc:
-            result.append({'op': op, **info, 'available': False, 'reason': str(exc)})
-        else:
-            result.append({'op': op, **info, 'available': True, 'reason': None, 'preview': preview})
-    return result
 
 
 def handle(handler, path, qs, body=None):
@@ -70,59 +57,84 @@ def handle(handler, path, qs, body=None):
         name = body.get('node') if body is not None else qs.get('node', [''])[0]
         if not isinstance(name, str) or not name or len(name) > 128:
             raise Malformed('Choose a place in this world.')
-        nodes = interventions.lineage(seed, name)
-        node = nodes[0]
+        node = interventions.lineage(seed, name)[0]
         position = persistence.get_player_position(key)
         if path != '/interventions/commit' and seal_check(seed, node, position['node'] if position and position['seed'] == seed else None):
             raise ValueError('The seal still guards this place.')
-        props = interventions.live(seed, node)
+        if body is not None:
+            if 'steps' in body and not isinstance(body['steps'], list):
+                raise Malformed('Steps must be a list of actions.')
+            if 'intention' in body and not isinstance(body['intention'], str):
+                raise Malformed('An intention is written in words.')
         if body is None and path == '/interventions':
+            vocabulary = physics.vocabulary(node.level)
             data = {'participant': me['id'], 'version': physics.VERSION,
-                    'operators': physics.vocabulary(node.level),
-                    'choices': _choices(seed, name, node.level),
-                    'state': physics.read_state(props),
+                    'operators': vocabulary,
+                    'choices': [{'op': op, **info}
+                                for op, info in vocabulary.items()],
+                    'state': physics.read_state(interventions.live(seed, node)),
                     'recent': interventions.recent(seed, name, me['id'])}
         elif body is None:
             raise ValueError('This action needs a submission.')
         elif path == '/interventions/preview':
-            if any(body.get(field) is not None for field in ('delegate', 'performer', 'actor_identity')):
-                raise ValueError('You may choose your own actions. Other travelers decide for themselves.')
-            steps = body.get('steps')
-            if steps is not None and not isinstance(steps, list):
-                raise Malformed('Steps must be a list of actions.')
-            quiet = None
-            if steps is None:
-                intention = body.get('intention')
-                if intention is not None and not isinstance(intention, str):
-                    raise Malformed('An intention is written in words.')
-                steps = physics.parse_score(intention, node.level)
-                if steps is None:
-                    steps, quiet = _propose(intention, key, name, node, props)
-            data = quiet or interventions.preview(seed, name, steps, version=2)
+            raise ValueError('Choose an action or submit an intention to attempt it. Consequences are discovered as they occur.')
         elif path == '/interventions/commit':
-            version = body.get('version', 1)  # Old clients may recover already accepted v1 receipts.
+            version = body.get('version', 1)  # Missing version can recover historical v1 receipts.
             if type(version) is not int:
                 raise Malformed('The vocabulary version is a whole number.')
             if version not in interventions.INTERPRETERS:
-                raise ValueError('Preview this action again with the current vocabulary.')
-            if not isinstance(body.get('steps'), list):
-                raise Malformed('Steps must be a list of actions.')
+                raise ValueError('Choose an action from the current vocabulary.')
             def authorize():
-                # Runs inside receipt acceptance; an old receipt returns without
-                # re-enacting it or retroactively falsifying its historical actor.
                 if any(body.get(field) is not None for field in ('delegate', 'performer', 'actor_identity')):
                     raise ValueError('You may choose your own actions. Other travelers decide for themselves.')
-                if version != 2:
-                    raise ValueError('This earlier vocabulary is closed to new actions. Preview a scale-native action instead.')
+                if version != 3:
+                    raise ValueError('This earlier vocabulary is closed to new actions. Choose a scale-native action again.')
                 current = persistence.get_player_position(key)
                 if not current or current['seed'] != seed or current['node'] != name:
                     raise ValueError('Arrive at this place before acting.')
                 if seal_check(seed, node, current['node']):
                     raise ValueError('The seal still guards this place.')
             from server.handlers import _actor_identity
-            data = interventions.accept(seed, me['id'], name, body.get('request_id'), body.get('steps'),
-                body.get('expected'), performer=me['name'], actor_identity=_actor_identity(key, me['name']),
-                delegate=body.get('delegate'), authorize=authorize, version=version)
+            if version < 3:
+                if not isinstance(body.get('steps'), list):
+                    raise Malformed('Steps must be a list of actions.')
+                # Receipt lookup in accept precedes authorization. No historical
+                # actor, payload, signal or pending semantics is reinterpreted.
+                data = interventions.accept(seed, me['id'], name, body.get('request_id'), body.get('steps'),
+                    body.get('expected'), performer=me['name'], actor_identity=_actor_identity(key, me['name']),
+                    delegate=body.get('delegate'), authorize=authorize, version=version)
+            else:
+                if set(body) - {'node', 'seed', 'version', 'request_id', 'steps', 'intention', 'delegate', 'performer', 'actor_identity'}:
+                    raise Malformed('This attempt includes a choice that is not supported.')
+                if ('steps' in body) == ('intention' in body):
+                    raise Malformed('Submit actions or an intention, one at a time.')
+                submission = {'steps': physics.normalize_steps(body['steps'], node.level)} if 'steps' in body else {'intention': body['intention']}
+                if 'intention' in submission and not 1 <= len(submission['intention'].strip()) <= 600:
+                    raise ValueError('Describe your intention in at most 600 characters.')
+                # Include authority fields in the fingerprint: a changed retry
+                # cannot smuggle a different performer past receipt recovery. An
+                # explicit null is what authorize() ignores, so it matches an
+                # omitted key and a lost-ack retry still recovers its receipt.
+                payload = {'node': name, 'version': version, **submission,
+                           **{f: body[f] for f in ('delegate', 'performer', 'actor_identity') if body.get(f) is not None}}
+                request = body.get('request_id')
+                data = intents.lookup(me['id'], seed, 'intervention', request, payload)
+                if data is None:
+                    authorize()
+                    quiet = None
+                    steps = submission.get('steps')
+                    if steps is None:
+                        steps = physics.parse_score(submission['intention'], node.level)
+                        if steps is None:
+                            steps, quiet = _propose(submission['intention'], key, name, node, interventions.live(seed, node))
+                    if quiet:
+                        # Linearize ALL replies with concurrent submissions of
+                        # this ID, including provider silence. A reply saying no
+                        # attempt was accepted must never race a later acceptance.
+                        data, _ = intents.execute(me['id'], seed, 'intervention', request, payload, lambda: quiet)
+                    else:
+                        data = interventions.accept_attempt(seed, me['id'], name, request, payload, steps,
+                            performer=me['name'], actor_identity=_actor_identity(key, me['name']), authorize=authorize)
         else:
             raise ValueError('This page is read-only.')
         handler._send_json(data)

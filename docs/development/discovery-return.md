@@ -35,6 +35,15 @@ ID. A deliberate later act needs a new ID. Legacy no-ID requests remain distinct
 acts. Both clients persist IDs until an authoritative response, with an in-memory
 fallback when browser storage is unavailable; that fallback cannot survive reload.
 
+`POST /interventions/commit` follows the same receipt rules (ADR-028) with one
+addition: every reply is the committed receipt for its ID, including a
+clarification, a refusal, and a quiet reply given while the interpreter was
+unavailable (`ai: false`, `accepted: false`). A same-ID retry returns that reply
+without another model call, so a negative answer can never race a later
+acceptance of the same request. Retry the same ID only after a lost reply; after
+any non-accepted reply, a later try is a new ID. The browser client mints a new
+ID after every non-accepted reply for this reason; an agent client must do the same.
+
 Situation choices/follow-ups require IDs. Notifications are best effort after
 commit; reloading `/situation` and the current node recovers authoritative state.
 Neither a missed notification nor rereading a receipt replays effects.

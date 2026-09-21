@@ -14,8 +14,76 @@ Clear actions do not require a mandatory preview/confirmation stage. Other playe
 remain independent, and delayed outcomes depend on conditions when they occur.
 
 This supersedes the preview requirement in the implementation record below.
-The runtime still exposes previews; its replacement is pending implementation.
+The Commit, then discover batch implements its replacement for new version 3 actions.
 Existing accepted actions, versioned semantics and recovery receipts stay intact.
+
+## Commit, then discover: version 3 implementation
+
+The owner's settled decision authorizes the acceptance/consequence correction below.
+It supersedes v2 previews for new work, without reinterpreting accepted work.
+
+- A labeled suggestion commits immediately. Submitting an intention authorizes the
+  attempted action. Clarification concerns only material ambiguity in action,
+  target, scope or order. Unsupported purposes and constraints are refused.
+- The public preview endpoint is closed. Choices carry ordinary attempted-action
+  descriptions, not deltas, signal strengths, guaranteed outcomes or future routes.
+  Four suggestions remain; optional combinations and intention entry share Act.
+- Version 3 stores normalized steps, scale and origin identity, **no simulated
+  patch, precomputed signal or route**. Acceptance writes `INTERVENTION_COMMITTED`
+  with `phase=accepted`. Local settlement occurs in that same transaction; cosmic
+  settlement keeps the existing scale clock. Both write a separate
+  `INTERVENTION_ARRIVED` with `phase=observed`, including no-material outcomes.
+- Each ordered step meets current conditions at settlement. Moot steps leave an
+  explicit no-material result and the remaining steps run. Outgoing strength sums
+  only materialized steps; a sequence with no net material change sends no wave.
+  A continuation is scheduled only from that observed signal. Each receiver uses
+  current conditions; the observed remainder, after attenuation and any resonator
+  absorption, feeds the next hop (at most three enclosing hops), including when the
+  receiver's own state is already saturated and records no material change. A delayed pump
+  starts the next hop's wait from actual settlement, never a precomputed route clock.
+- Observation prose follows the fields that actually changed. A partial action
+  must not claim all of its usual effects; stored outcome notes remain historical
+  facts and are never regenerated during reads.
+- Effect, observed signal, next work item and completion fence commit atomically.
+  The existing `interventions.signal` field retains the latest observed v3 signal
+  for its single ordered continuation, independently of chronicle retention. It is
+  empty until the first observation, never an acceptance-time forecast. Earlier v3
+  rows with an empty field recover their preceding signal from retained history
+  once, then keep it operationally. Missing historical input remains pending for
+  recovery rather than inventing a signal. Versions 1/2 keep their original usage.
+  Worker failures keep the item pending with the existing backoff and no discard
+  limit. Unknown versions remain pending. Old v1/v2 interpreters and receipt
+  payloads are retained; new v1/v2 submissions are closed at HTTP acceptance.
+- Receipt lookup precedes interpretation and location checks. Model I/O remains
+  outside the SQLite transaction. The final accepted, clarification, refusal or
+  quiet response is serialized by the same request receipt, so concurrent retries
+  cannot receive a negative answer and later commit that same request. A revised
+  intention is a new submission. Lost acknowledgements preserve the original
+  payload and ID in browser storage, including old browser preview-shaped records.
+- Recaps expose completed destinations and actual narrative only; pending work is
+  labeled without destination names. An unvisited receiver cannot disclose a
+  commitment merely because work is queued there. Intention text is not copied
+  into public history; the interpreted attempted steps and observed results are.
+
+**Trade-offs:** repeated or already-moot suggestions are attempts, not disabled
+forecast results. Combinations are ordered attempts, not all-or-nothing promised
+outcomes. A quiet model reply resolves that request without world effects; the
+player can submit again with a new request. Intent interpretation is bounded model
+judgment, not unrestricted invention; fixture tests do not establish live quality.
+Version 3 adds acceptance/observation rows through the existing append-only writer,
+within the owner's instruction to distinguish these phases. No migration, history
+rewrite, born-world change, scoring, forced player actions or expanded vocabulary.
+Older binaries are unsuitable for processing new v3 work; prefer forward repair.
+
+**Revisit when:** real play reveals a missing physical constraint, repeated
+interpretation errors, or a need for negotiated joint actions. Extend versioned
+semantics deliberately and preserve independent consent. Do not restore privileged
+forecasts or change the meaning of pending older work.
+
+**Rejected alternatives:** hiding the preview while retaining a frozen plan;
+confirming every clear intention; treating outcome uncertainty as ambiguity;
+silently approximating unsupported constraints; sending a source's forecast after
+its material prerequisites have changed; rewriting old commitments as v3.
 
 ## Context
 
@@ -25,7 +93,7 @@ force an agent to enact a plan. The gallery pane exposed a scripted controller a
 play. A common orchestral backing track with small register changes failed to make
 scale audible. Passing durability tests did not establish a coherent experience.
 
-## Decision
+## Earlier v2 implementation record
 
 - Extend the existing **Speak | Puzzle | Act** interaction. Act is the only action
   surface in each browser client. It has no selected plan on entry. Conditions,

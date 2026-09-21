@@ -145,8 +145,7 @@ for (const saveFailure of [false,true]) {
       await enter(page,server,'/app?node='+encodeURIComponent(names.instrument));
       await page.getByRole('button',{name:'Act',exact:true}).click();
       const act=page.locator('enfolded-interventions');
-      await act.getByRole('button',{name:'Engrave',exact:true}).click();
-      const commit=act.getByRole('button',{name:'Act: Engrave',exact:true});
+      const commit=act.getByRole('button',{name:'Engrave',exact:true});
       await commit.click();await expect(commit).toBeDisabled();
       await expect.poll(()=>blocked).toBe(true);expect(submissions).toEqual([]);release();
       if(saveFailure){await expect(act.getByRole('status')).toContainText('arrival');expect(submissions).toEqual([]);canSave=true;await commit.click();}

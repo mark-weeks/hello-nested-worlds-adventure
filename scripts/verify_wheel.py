@@ -101,6 +101,7 @@ def main() -> None:
             "persistence/migrations/0027_expressive_interventions.sql",
             "multiverse/interventions_v1.py",
             "multiverse/interventions_v2.py",
+            "multiverse/interventions_v3.py",
             "static/media/score/horn.mp3",
             "static/media/score/marimba.mp3",
             "static/media/score/bassoon.mp3",
