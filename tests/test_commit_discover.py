@@ -96,6 +96,7 @@ def test_direct_attempts_accept_current_state_and_noops_have_observed_history(ht
     first = commit(http, name, ['engrave'], 'bea-engraves', accounts[1])
     second = commit(http, name, ['engrave'], 'ada-engraves')
     assert before['version'] == 3 and first['changed'] and second['accepted']
+    assert f"Engrave: {physics._OBSERVED['engrave']}" in first['flavor'] and 'surface is' not in first['flavor']
     assert second['changed'] == {} and second['pending_steps'] == 0
     assert 'No new material change' in second['flavor']
     records = [e for e in events() if e['data']['intervention'] == second['id']]
@@ -131,7 +132,14 @@ def test_intervening_player_changes_partial_settlement_and_actual_outward_signal
     # A recap reveals observed locations only, never the queued next receiver.
     record = next(r for r in work.recent(382,galaxy.name) if r['id']==ada['id'])
     assert record['pending'] == 1 and [a['node'] for a in record['arrivals']] == [galaxy.name]
+    # The participant recap draws the same line: a queued receiver with its own
+    # material history is not a place Ada has seen until her consequence lands.
+    from persistence import participants
+    universe = galaxy.parent
+    db.record_substance_change(382, universe.name, 'TEST', None, {}, {'dark_matter_ratio':0.3})
+    assert universe.name not in {r['node'] for r in participants.recap(owner, 382)}
     assert work.advance(382,now=due+timedelta(seconds=20)) == 2
+    assert universe.name in {r['node'] for r in participants.recap(owner, 382)}
     assert work.advance(382,now=due+timedelta(seconds=40)) == 2
     assert work.advance(382,now=due+timedelta(seconds=60)) == 0
 
@@ -251,3 +259,40 @@ def test_receiver_with_saturated_echo_passes_observed_remainder_after_other_chan
     bound = {**props,'resonance':{**props['resonance'],'woven':True}}
     _, caught, _ = physics.receive(bound,signal)
     assert 0 < caught['strength'] < outgoing['strength']
+
+
+def test_explicit_null_authority_fields_recover_the_same_receipt(http):
+    name = NODES['instrument']
+    arrive(http, name)
+    body = {'node':name,'steps':[{'op':'engrave'}],'version':3,'request_id':'null-authority-01',
+            'delegate':None,'performer':None,'actor_identity':None}
+    status, accepted, _ = http('/interventions/commit', body=body)
+    assert status == 200 and accepted['accepted']
+    # A lost-ack retry that omits the null keys recovers the same receipt...
+    retry = {k:v for k,v in body.items() if v is not None}
+    assert http('/interventions/commit', body=retry)[1] == accepted
+    # ...while a retry that names another performer is still a different action.
+    assert http('/interventions/commit', body={**retry,'delegate':'Bea'})[0] == 409
+    assert len([e for e in events() if e['type']=='INTERVENTION_COMMITTED']) == 1
+
+
+def test_attempt_and_observation_banks_cover_every_operator():
+    from multiverse import interventions_v2
+    assert set(physics._ATTEMPTS) == set(interventions_v2.OPERATORS)
+    assert set(physics._OBSERVED) == set(interventions_v2._RULES)
+    for level in {info['level'] for info in interventions_v2.OPERATORS.values()}:
+        assert all(v['description'].startswith('Attempt to ') for v in physics.vocabulary(level).values())
+
+
+def test_settled_steps_speak_in_the_worlds_voice_never_property_literals():
+    plan = {'steps':[{'op':'gather'},{'op':'gather'}],'level':'Planetary System','token':'t'}
+    changed, signal, outcomes = physics.settle({'asteroid_belt':False}, plan)
+    assert changed == {'asteroid_belt':True} and signal['strength'] == 1
+    assert [physics.describe(o) for o in outcomes] == [physics._OBSERVED['gather'], 'No new material change remains.']
+    # Verb operators keep their authored line and the node's own aspect clause.
+    plan = {'steps':[{'op':'mend'}],'level':'Object','token':'t'}
+    _, _, outcomes = physics.settle({'condition':'damaged','aspect':'a brass astrolabe; it hums'}, plan)
+    assert outcomes[0]['changed'] == {'condition':'worn'}
+    assert physics.describe(outcomes[0]).endswith('A brass astrolabe.') and 'condition is' not in physics.describe(outcomes[0])
+    for text in [physics.describe(o) for o in outcomes] + list(physics._OBSERVED.values()):
+        assert ' is True' not in text and ' is False' not in text and '_' not in text

@@ -134,10 +134,9 @@ def test_http_actions_are_scale_native_and_never_delegate(http, accounts):
     assert status == 200 and headers['Cache-Control'] == 'no-store'
     assert set(data['operators']) == {'mend', 'engrave', 'fracture', 'polish'}
     assert 'agents' not in data
-    for field in ('delegate', 'performer', 'actor_identity'):
-        assert http('/interventions/preview', body={'node':name, 'steps':[{'op':'engrave'}], field:'Tessera'})[0] == 409
-    assert http('/interventions/preview', body={'node':name, 'steps':[{'op':'cleave'}]})[0] == 409
-    assert http('/interventions/preview', body={'node':name, 'steps':SCORE})[0] == 409
+    # The forecast route is closed for every body; the refusal says why.
+    status, refusal, _ = http('/interventions/preview', body={'node':name, 'steps':[{'op':'engrave'}]})
+    assert status == 409 and 'Consequences are discovered as they occur' in refusal['error']
     payload={'node':name,'steps':[{'op':'engrave'}],'version':3,'request_id':'own-action-001'}
     assert http('/interventions/commit', body=payload)[0] == 409
     assert http('/position', body={'node':name,'seed':382,'depth':9})[0] == 200
@@ -172,6 +171,8 @@ def test_malformed_requests_are_400_and_world_conflicts_stay_409(http):
     assert http('/interventions/preview', body={'node': name, 'intention': ['engrave']})[0] == 400
     assert http('/interventions/commit', body={'node': name, 'steps': [{'op': 'engrave'}], 'expected': 'x' * 24, 'version': 'two'})[0] == 400
     assert http('/interventions/commit', body={'node': name, 'steps': 'engrave', 'expected': 'x' * 24, 'version': 2})[0] == 400
+    for version in (1, 2):
+        assert http('/interventions/commit', body={'node': name, 'expected': 'x' * 24, 'version': version})[0] == 400
     assert http('/interventions?node=' + quote('x' * 129))[0] == 400
     # Valid shapes that conflict with the world remain 409.
     assert http('/interventions/preview', body={'node': name, 'steps': [{'op': 'cleave'}]})[0] == 409

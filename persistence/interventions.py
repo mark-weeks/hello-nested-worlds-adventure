@@ -159,7 +159,7 @@ def _settle_attempt(conn, work_id, ident, hop, node, world, source, plan, now):
     if hop == 0:
         delta, signal, outcomes = physics.settle(live(world, node), plan)
         flavor = 'The attempted action settles. ' + ' '.join(
-            f"{interventions_v2.OPERATORS[o['op']]['label']}: {physics.describe(o['changed'])}" for o in outcomes)
+            f"{interventions_v2.OPERATORS[o['op']]['label']}: {physics.describe(o)}" for o in outcomes)
         if not delta and any(o['changed'] for o in outcomes):
             flavor += ' No net material change remains.'
     else:

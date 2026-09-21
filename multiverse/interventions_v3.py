@@ -41,6 +41,47 @@ _ATTEMPTS = {
     'flip': 'Reverse a definite spin', 'dephase': 'Scatter the phase relationship',
 }
 
+_NOTHING = 'No new material change remains.'
+
+# What a settled step leaves behind, in the world's voice. Verb operators carry
+# their own authored result line from apply_verb (with the node's aspect
+# clause); the declarative operators are voiced here. Never a property literal.
+_OBSERVED = {
+    'shear': 'The membranes slip out of phase; reality frays a little further.',
+    'quicken': 'The membrane hum quickens; its cycles turn faster.',
+    'linger': 'The membrane hum lengthens; longer intervals of stillness open.',
+    'condense': 'Dark matter thickens; the balance of the vacuum shifts.',
+    'rarefy': 'Dark matter thins; the unseen fabric loosens.',
+    'modulate': 'The vacuum hum rises in pitch.',
+    'scatter': 'The stars drift apart; open sky widens between them.',
+    'spiral': 'The stars gather into spiral arms.',
+    'accelerate': 'The drift through intergalactic space quickens.',
+    'incline': 'The orbital plane tilts; its alignment loosens.',
+    'gather': 'Drifting debris gathers into an asteroid belt.',
+    'disperse': 'The belt disperses; its debris thins along the orbits.',
+    'rewild': 'Vegetation reclaims the surface; the biome turns to forest.',
+    'hasten': 'The world turns faster; the day shortens.',
+    'slow': 'The world turns slower; the day lengthens.',
+    'cultivate': 'The land settles into terraces; less danger lies exposed.',
+    'overgrow': 'Growth runs wild over the terrain; the danger rises.',
+    'channel': 'Channels cut through the land; waterways carry a ground fog.',
+    'illuminate': 'Light fills the room; its concealment is gone.',
+    'shade': 'The room dims; shelter from the light returns.',
+    'ventilate': 'The enclosed air clears to a cool, mineral draft.',
+    'engrave': 'A pattern is cut into the surface; the mark will outlast whoever made it.',
+    'fracture': 'The structure breaks open; its inside shows at the cost of its condition.',
+    'polish': 'The surface turns mirror smooth; its previous finish is gone.',
+    'cleave': 'A bond breaks; the loosened structure turns reactive.',
+    'fold': 'The structure folds into a sheet; its bonds hold.',
+    'branch': 'The molecule reshapes into a branching chain.',
+    'relax': 'The shell settles; its resonance shifts redward.',
+    'ionize': 'An electron is stripped away; the atom is ionized.',
+    'neutralize': 'An electron returns; the shell is neutral again.',
+    'superpose': 'Both spin possibilities reopen; coherence loosens.',
+    'flip': 'The definite spin reverses.',
+    'dephase': 'The phase relationship scatters; coherence loosens.',
+}
+
 
 def vocabulary(level):
     return {op: {**info, 'description': 'Attempt to ' + _ATTEMPTS[op][0].lower() + _ATTEMPTS[op][1:] + '.'}
@@ -60,22 +101,23 @@ def settle(properties, plan):
         try:
             result = v2.simulate(props, [step], plan['level'], plan['token'])
         except ValueError:
-            outcomes.append({'op': step['op'], 'changed': {}, 'outcome': 'no_material_change'})
+            outcomes.append({'op': step['op'], 'changed': {}, 'outcome': 'no_material_change', 'note': _NOTHING})
         else:
             props.update(result['changed'])
             strength += result['signal']['strength']
-            outcomes.append({'op': step['op'], 'changed': result['changed'], 'outcome': 'materialized'})
+            outcomes.append({'op': step['op'], 'changed': result['changed'], 'outcome': 'materialized',
+                             'note': _OBSERVED.get(step['op'], result['notes'][0])})
     changed = {k: v for k, v in props.items() if properties.get(k) != v}
     signal = {'strength': strength if changed else 0, 'coherent': True,
               'motif': v2.digest([plan['level'], plan['steps']])}
     return changed, signal, outcomes
 
 
-def describe(changed):
-    if not changed:
-        return 'No new material change remains.'
-    visible = [f'{key.replace("_", " ")} is {value}' for key, value in changed.items() if not isinstance(value, dict)]
-    return 'Observed: ' + '; '.join(visible) + '.' if visible else 'An arriving disturbance leaves a material trace.'
+def describe(outcome):
+    """The world's voice for one settled step. Property literals never reach a reader."""
+    if outcome.get('outcome') != 'materialized' or not outcome.get('changed'):
+        return _NOTHING
+    return outcome.get('note') or _OBSERVED.get(outcome.get('op')) or 'A material change settles here.'
 
 
 def receive(properties, signal):

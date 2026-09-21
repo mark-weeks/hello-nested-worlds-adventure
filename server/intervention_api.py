@@ -95,6 +95,8 @@ def handle(handler, path, qs, body=None):
                     raise ValueError('The seal still guards this place.')
             from server.handlers import _actor_identity
             if version < 3:
+                if not isinstance(body.get('steps'), list):
+                    raise Malformed('Steps must be a list of actions.')
                 # Receipt lookup in accept precedes authorization. No historical
                 # actor, payload, signal or pending semantics is reinterpreted.
                 data = interventions.accept(seed, me['id'], name, body.get('request_id'), body.get('steps'),
@@ -109,9 +111,11 @@ def handle(handler, path, qs, body=None):
                 if 'intention' in submission and not 1 <= len(submission['intention'].strip()) <= 600:
                     raise ValueError('Describe your intention in at most 600 characters.')
                 # Include authority fields in the fingerprint: a changed retry
-                # cannot smuggle a different performer past receipt recovery.
+                # cannot smuggle a different performer past receipt recovery. An
+                # explicit null is what authorize() ignores, so it matches an
+                # omitted key and a lost-ack retry still recovers its receipt.
                 payload = {'node': name, 'version': version, **submission,
-                           **{f: body[f] for f in ('delegate', 'performer', 'actor_identity') if f in body}}
+                           **{f: body[f] for f in ('delegate', 'performer', 'actor_identity') if body.get(f) is not None}}
                 request = body.get('request_id')
                 data = intents.lookup(me['id'], seed, 'intervention', request, payload)
                 if data is None:
