@@ -157,15 +157,24 @@ Do not reward eloquent intentions, assign a hidden morality total, or infer anot
 player's consent. Let a player understand and contest an interpretation. Keep
 scoring detail optional so it does not turn every action into score optimization.
 
-**Current implementation gap:** the browser still requires a preview and exposes
-material deltas and a future route. The owner's September 20 correction rejects
-that behavior; the design above replaces that requirement, but removing it from
-the runtime remains implementation work. Some delayed actions already resolve
-against live conditions, which must be retained and extended rather than replaced
-with promised outcomes. Intention-to-action proposal exists with a configured
-model; explicit supported action sequences work without one. Alignment and
-contribution scoring are not implemented by the current intervention path. This
-guide introduces no scoring rules or retroactive classification of past players.
+**Implemented in the Commit, then discover batch:** both clients commit labeled
+suggestions directly in Act. Intention submission authorizes the attempted action;
+material ambiguity returns a question in the same entry surface. The public preview
+route is closed. New version 3 work stores an attempt, then computes material results
+against live conditions at settlement. Only observed effects produce subsequent
+work. Earlier accepted version 1/2 work and receipts retain their original meaning.
+
+Four suggestions remain available even when a repeat attempt may be moot. A no-op
+is an observed outcome, not a forecasted refusal. Combinations are optional and run
+in order; a moot step does not cancel the remaining steps. History separates
+acceptance, pending consequences and observed changes. Pending destination names
+are not disclosed. Ordinary mechanics and present conditions remain available.
+
+Intention parsing, clarification and refusal have deterministic provider-fixture
+coverage; live-model interpretation quality remains unvalidated. The vocabulary
+still bounds what an intention can attempt. Alignment and contribution scoring,
+expanded agent/CLI vocabulary and interface restyling remain outside this batch.
+This guide introduces no scoring rules or retroactive classification of players.
 
 ## First restyling pass
 

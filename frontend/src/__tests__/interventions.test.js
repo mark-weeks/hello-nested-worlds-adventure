@@ -69,22 +69,16 @@ describe("outcome polling", () => {
 });
 
 describe("choices and context", () => {
-  it("uses the shipped single-action preview without a request, and posts only for sequences", async () => {
-    const { c } = composer([
-      { participant: "p", recent: [] },
-      { steps: [{ op: "engrave", amount: 1 }, { op: "polish", amount: 1 }], summary: "Engrave, then polish" },
-    ]);
-    await c.load();
-    const preview = { steps: [{ op: "engrave", amount: 1 }], summary: "Engrave", expected: "e".repeat(24) };
-    c.choose({ op: "engrave", preview });
-    expect(c.preview).toBe(preview);
-    expect(c.steps).toEqual(preview.steps);
+  it("commits a suggestion directly and composes only when requested", async () => {
+    const { c } = composer([{ participant: "p", recent: [] }]);
+    await c.load(); c.commit = vi.fn();
+    await c.choose({op:"engrave"});
+    expect(c.commit).toHaveBeenCalledWith({steps:[{op:"engrave",amount:1}],version:3});
+    c.compose=true;
+    await c.choose({op:"polish"});
+    expect(c.steps).toEqual([{op:"polish",amount:1}]);
+    expect(c.commit).toHaveBeenCalledTimes(1);
     expect(c.request).toHaveBeenCalledTimes(1);
-    c.compose = true;
-    await c.choose({ op: "polish", preview: { steps: [{ op: "polish", amount: 1 }] } });
-    expect(c.request).toHaveBeenCalledTimes(2);
-    expect(c.request.mock.calls[1][1]).toEqual({ steps: [{ op: "engrave", amount: 1 }, { op: "polish", amount: 1 }] });
-    expect(c.preview.summary).toBe("Engrave, then polish");
   });
 
   it("hands its acceptance to the host so the host's refresh coalesces with the broadcast", async () => {
@@ -92,8 +86,7 @@ describe("choices and context", () => {
     const { c, changed } = composer([{ participant: "p", recent: [] }, result, { participant: "p", recent: [] }]);
     c.ctx.ensure = async () => {};
     await c.load();
-    c.preview = { steps: [{ op: "engrave", amount: 1 }], expected: "e".repeat(24), version: 2 };
-    await c.commit();
+    await c.commit({steps:[{op:"engrave",amount:1}],version:3});
     expect(changed).toHaveBeenCalledTimes(1);
     expect(changed.mock.calls[0][0]).toBe(result);
     expect(c.message).toBe("Ada acts: Engrave.");
@@ -163,5 +156,32 @@ describe("resilience and accessibility", () => {
     expect(walk(engrave).some(n => n.tag === "small" && n.textContent === "The surface is already engraved.")).toBe(true);
     expect(polish.disabled).toBe(false);
     expect(walk(polish).every(n => n.textContent !== "Already as it would be.")).toBe(true);
+  });
+});
+
+describe("receipt and observed-history recovery", () => {
+  it("recovers an older saved preview-shaped commitment without previewing or moving again", async () => {
+    const preview={steps:[{op:"engrave",amount:1}],expected:"e".repeat(24),version:2};
+    const intent={key:"old-key",request_id:"old-accepted"};
+    localStorage.setItem("nw_arrangement:p:382:Mire-112",JSON.stringify({intent,preview}));
+    const receipt={accepted:true,event_id:12,node:"Mire-112",flavor:"Ada acts: Engrave."};
+    const {c}=composer([{participant:"p",recent:[]},receipt,{participant:"p",recent:[]}]);
+    c.ctx.ensure=vi.fn();
+    await c.load();
+    expect(c.pending).toEqual(intent);
+    await c.commit();
+    expect(c.request.mock.calls[1]).toEqual(["/interventions/commit",{...preview,request_id:"old-accepted"}]);
+    expect(c.ctx.ensure).not.toHaveBeenCalled();
+    expect(c.pending).toBeNull();
+    expect(localStorage.getItem("nw_arrangement:p:382:Mire-112")).toBeNull();
+  });
+
+  it("refreshes missed observations even when one pending hop replaces another", async () => {
+    const {c,changed}=composer([
+      {participant:"p",recent:[{pending:1,event_id:1,arrivals:[]}]},
+      {participant:"p",recent:[{pending:1,event_id:1,arrivals:[{event_id:2}]}]},
+    ]);
+    await c.load(); await c.load(true); c.disconnectedCallback();
+    expect(changed).toHaveBeenCalledTimes(1);
   });
 });

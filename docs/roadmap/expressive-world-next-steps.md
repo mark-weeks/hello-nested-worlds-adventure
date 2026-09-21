@@ -1,6 +1,6 @@
 # Expressive world: review boundary and next work
 
-**September 20, 2026.** The owner asked to package the session's changes for review
+**Updated September 20, 2026 after the Commit, then discover batch.** The owner asked to package the session's changes for review
 and undertake further UI/UX, navigation and placement work as a dedicated effort.
 This checkpoint is not a claim that the production-quality milestone is complete.
 
@@ -23,7 +23,29 @@ See [ADR-027](../decisions/ADR-027-expressive-world.md),
 The evaluations describe successive builds; the CHANGELOG holds the final local
 verification counts and the corrections that supersede the initial design.
 
-## Dedicated UI/UX effort
+## Batch 1: Commit, then discover — implemented for review
+
+- Four scale-native suggestions commit directly in both clients. Optional
+  combinations and discoverable intention entry remain in the existing Act surface.
+- Intention submission authorizes the attempt. Only material action/target/scope/
+  order ambiguity clarifies; unsupported purposes remain unsupported. The forecast
+  endpoint and pre-commit deltas, signals and route listings are removed.
+- Version 3 accepts attempts and settles against current conditions. Ordered steps
+  can become moot independently. Only observed material effects produce further
+  work; receivers pass on their observed remainder. Other players act independently.
+- Acceptance, pending consequences and observed outcomes are distinct in feedback
+  and append-only history. Recaps reveal observed destinations only. Browser recovery
+  retains the payload and request ID across lost replies, retries and reloads.
+- Accepted v1/v2 work, historical actors and receipts remain recoverable under their
+  original semantics. No schema migration or world reset. The existing local playtest
+  world was preserved; inspection used a separate database copy.
+
+Evidence and limitations: [batch verification](../evaluation/2026-09-20-commit-discover.md).
+Intention interpretation is provider-fixture tested, not live-model validated.
+Model absence remains an authored quiet reply; explicit action sequences work offline.
+This batch does not implement scoring, agent/CLI vocabulary parity or styling.
+
+## Subsequent UX batch — handoff only, not started
 
 Start with the owner's next concrete feedback on navigation paths, placements and
 visual hierarchy. Inspect the current browser before proposing a layout. Preserve
@@ -47,12 +69,11 @@ Automated checks support this review; they do not establish aesthetic acceptance
 
 ## Separate behavioral and production gaps
 
-1. **Commit, then discover:** the runtime still requires previews and reveals
-   property deltas and future routes. Replace this behavior in a separately
-   reviewable change. Clear actions commit directly; ambiguity may clarify only
-   the attempted action, target or scope. Delayed outcomes must meet current
-   conditions and independent players' actions. Preserve old receipts and pending
-   work; hiding the existing forecast is insufficient.
+1. **Adaptive interface styling:** the behavioral contract above is implemented;
+   preserve it while addressing the visual-language guide's still-unimplemented
+   node-derived interface styling. Do not add previews, extra confirmation steps,
+   competing composers or another identity block. Keep recovery and clarification
+   visible at narrow widths and through keyboard use.
 2. **Intention and recognition:** configured-model interpretation exists but its
    live quality has not been evaluated. Intervention alignment/contribution scoring
    is not implemented. Agent and CLI access still uses the original verb path;
@@ -63,8 +84,8 @@ Automated checks support this review; they do not establish aesthetic acceptance
    not establish a world-wide production art pipeline or generation quality parity.
    The [beta artwork strategy](../design/beta-scene-art.md) remains a proposal.
 
-Keep UI cleanup and changes to action acceptance independently reviewable. If a
-new effort starts before this checkpoint merges, base it on this branch and make
-the dependency explicit; after merge, start from refreshed main. Preserve the
+Keep subsequent UI cleanup independently reviewable. Start only with a new owner
+instruction. After this behavioral PR merges, start from refreshed main; if a UX
+effort is explicitly requested before then, make its dependency on this PR clear. Preserve the
 existing local playtest world's history across preview restarts. No new session,
 merge, deployment or production operation is implied by this handoff.

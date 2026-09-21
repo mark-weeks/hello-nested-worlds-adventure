@@ -138,9 +138,7 @@ def test_http_actions_are_scale_native_and_never_delegate(http, accounts):
         assert http('/interventions/preview', body={'node':name, 'steps':[{'op':'engrave'}], field:'Tessera'})[0] == 409
     assert http('/interventions/preview', body={'node':name, 'steps':[{'op':'cleave'}]})[0] == 409
     assert http('/interventions/preview', body={'node':name, 'steps':SCORE})[0] == 409
-    status, preview, _ = http('/interventions/preview', body={'node':name,'steps':[{'op':'engrave'}]})
-    assert status == 200 and preview['changed'] == {'surface':'engraved'}
-    payload={'node':name,'steps':preview['steps'],'expected':preview['expected'],'version':2,'request_id':'own-action-001'}
+    payload={'node':name,'steps':[{'op':'engrave'}],'version':3,'request_id':'own-action-001'}
     assert http('/interventions/commit', body=payload)[0] == 409
     assert http('/position', body={'node':name,'seed':382,'depth':9})[0] == 200
     for field in ('delegate', 'performer', 'actor_identity'):
@@ -149,29 +147,21 @@ def test_http_actions_are_scale_native_and_never_delegate(http, accounts):
     status, result, _ = http('/interventions/commit', body=payload)
     assert status == 200 and result['accepted']
     assert http('/interventions/commit', body=payload)[1] == result
-    assert events()[0]['player'] == participants.identify(accounts[0])['name']
+    assert next(e for e in events() if e['type']=='INTERVENTION_COMMITTED')['player'] == participants.identify(accounts[0])['name']
     assert http('/node?node_name='+quote(name))[1]['node']['properties']['surface'] == 'engraved'
     # Without a model the intention path answers in fiction, never as a conflict.
-    status, quiet, _ = http('/interventions/preview', body={'node':name,'intention':'do not engrave'})
+    status, quiet, _ = http('/interventions/commit', body={'node':name,'intention':'do not engrave','version':3,'request_id':'negative-001'})
     assert status == 200 and quiet['ai'] is False and quiet['steps'] == [] and 'clearer shape' in quiet['response']
 
 
-def test_single_action_previews_ride_the_choices_read(http):
+def test_choices_teach_attempts_without_forecasting(http):
     name = NODES['instrument']
     status, data, _ = http('/interventions?node=' + quote(name))
-    available = [c for c in data['choices'] if c['available']]
-    assert status == 200 and available
-    for choice in available:
-        preview = choice['preview']
-        assert preview['steps'] == [{'op': choice['op'], 'amount': 1}] and preview['version'] == 2
-        assert len(preview['expected']) == 24 and 'changed' in preview and preview['route'][0]['node'] == name
-    assert all('preview' not in c for c in data['choices'] if not c['available'])
-    # A shipped preview commits exactly like a posted one; no preview write is spent.
-    engrave = next(c['preview'] for c in available if c['op'] == 'engrave')
-    assert http('/position', body={'node': name, 'seed': 382, 'depth': 9})[0] == 200
-    status, result, _ = http('/interventions/commit', body={
-        'node': name, 'steps': engrave['steps'], 'expected': engrave['expected'], 'version': 2, 'request_id': 'from-choices-001'})
-    assert status == 200 and result['accepted'] and result['changed'] == {'surface': 'engraved'}
+    assert status == 200 and data['version'] == 3 and len(data['choices']) == 4
+    assert all(c['available'] for c in data['choices'])
+    assert not any(word in json.dumps(data) for word in ('"preview"', '"expected"', '"changed"', '"route"', '"signal"'))
+    assert http('/interventions/preview', body={'node':name,'steps':[{'op':'engrave'}]})[0] == 409
+    assert not events()
 
 
 def test_malformed_requests_are_400_and_world_conflicts_stay_409(http):
@@ -195,37 +185,33 @@ def test_intention_failures_stay_in_fiction(http, monkeypatch):
     from server import guard, intervention_api
     from consciousness import interventions as proposal
     name = NODES['instrument']
-    body = {'node': name, 'intention': 'let the surface remember the river'}
-    # Kill switch: the same authored shape as /speak, HTTP 200 with ai false.
+    http('/position', body={'node':name,'seed':382,'depth':9})
+    counter = iter(range(20))
+    def submit():
+        return http('/interventions/commit', body={'node':name,'intention':'let the surface remember the river',
+                    'version':3,'request_id':f'quiet-{next(counter):08d}'})
     monkeypatch.setenv('NESTED_WORLDS_DISABLE_AI', '1')
     monkeypatch.setenv('ANTHROPIC_API_KEY', 'test-key')
-    status, data, _ = http('/interventions/preview', body=body)
-    assert status == 200 and data == {'ai': False, 'response': intervention_api._UNSHAPED, 'steps': []}
+    status, data, _ = submit()
+    assert status == 200 and data == {'ai':False,'response':intervention_api._UNSHAPED,'steps':[],'accepted':False}
     monkeypatch.delenv('NESTED_WORLDS_DISABLE_AI')
-    # Exhausted budget: the quiet line, no error field, no model call.
     monkeypatch.setattr(guard, 'consume_anthropic', lambda **kwargs: False)
     monkeypatch.setattr(proposal, 'propose', lambda *args: pytest.fail('budget must gate the model'))
-    status, data, _ = http('/interventions/preview', body=body)
-    assert status == 200 and data == {'ai': False, 'response': guard.QUIET_RESPONSE, 'steps': []}
-    # Provider or parsing failure: an authored line, never a 5xx or 409.
+    assert submit()[1]['response'] == guard.QUIET_RESPONSE
     monkeypatch.setattr(guard, 'consume_anthropic', lambda **kwargs: True)
     monkeypatch.setattr(proposal, 'propose', lambda *args: (_ for _ in ()).throw(RuntimeError('upstream 529')))
-    status, data, _ = http('/interventions/preview', body=body)
-    assert status == 200 and data == {'ai': False, 'response': intervention_api._UNSETTLED, 'steps': []}
+    status, data, _ = submit()
+    assert status == 200 and not data['accepted'] and data['response'] == intervention_api._UNSETTLED
     assert 'upstream' not in json.dumps(data)
-    # The model's own refusal is the world's answer: ai true, declined, no steps.
     def decline(*args):
-        raise proposal.Unsupported('That intention reaches beyond what this place can enact. Revise it or compose a sequence below.')
+        raise proposal.Unsupported('That intention reaches beyond what this place can enact.')
     monkeypatch.setattr(proposal, 'propose', decline)
-    status, data, _ = http('/interventions/preview', body=body)
-    assert status == 200 and data['ai'] is True and data['declined'] is True and data['steps'] == []
-    assert 'reaches beyond' in data['response']
-    # A proposal still previews normally, and player-shaped mistakes stay 409.
-    monkeypatch.setattr(proposal, 'propose', lambda *args: [{'op': 'engrave', 'amount': 1}])
-    status, data, _ = http('/interventions/preview', body=body)
-    assert status == 200 and data['changed'] == {'surface': 'engraved'} and data['steps']
-    assert http('/interventions/preview', body={**body, 'performer': 'Tessera'})[0] == 409
+    status, data, _ = submit()
+    assert status == 200 and data['ai'] and data['declined'] and not data['accepted']
     assert not events()
+    monkeypatch.setattr(proposal, 'propose', lambda *args: [{'op':'engrave','amount':1}])
+    status, data, _ = submit()
+    assert status == 200 and data['accepted'] and data['changed'] == {'surface':'engraved'}
 
 
 def test_senses_follow_literal_properties_and_material_history(owner):
@@ -253,7 +239,7 @@ def test_model_can_only_propose_bounded_operations(monkeypatch):
     from consciousness import interventions as proposal
     def response(text):
         return SimpleNamespace(stop_reason='end_turn',content=[SimpleNamespace(type='text',text=text)])
-    answers=iter([response('{"supported":true,"steps":[{"op":"engrave","amount":1}]}'),response('{"supported":true,"steps":[{"op":"invent_canon","amount":1}]}'),response('{"supported":false,"steps":[]}')])
+    answers=iter([response('{"status":"ready","ambiguity":"none","steps":[{"op":"engrave","amount":1}]}'),response('{"status":"ready","ambiguity":"none","steps":[{"op":"invent_canon","amount":1}]}'),response('{"status":"unsupported","ambiguity":"none","steps":[]}')])
     calls=[]
     def create(**kwargs):
         calls.append(kwargs)
@@ -304,8 +290,7 @@ def test_process_death_backup_restore_and_future_proposals_keep_v1_promises(owne
 def test_wayback_keeps_birth_and_present_senses_distinct_and_receipts_survive_movement(http, accounts):
     name = NODES['instrument']
     http('/position', body={'node':name,'seed':382,'depth':9})
-    preview = http('/interventions/preview', body={'node':name,'steps':[{'op':'engrave'}]})[1]
-    payload = {'node':name,'steps':preview['steps'],'expected':preview['expected'],'request_id':'historical-01','version':2}
+    payload = {'node':name,'steps':[{'op':'engrave'}],'request_id':'historical-01','version':3}
     result = http('/interventions/commit', body=payload)[1]
     http('/position', body={'node':NODES['region'],'seed':382,'depth':9})
     assert http('/interventions/commit', body=payload)[1] == result

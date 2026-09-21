@@ -158,10 +158,9 @@ async function enter(page,url,route,node,name='Ada') {
   return page.locator('enfolded-interventions');
 }
 async function kindle(page,act) {
-  await act.getByRole('button',{name:'Kindle',exact:true}).click();
   const [reply]=await Promise.all([
     page.waitForResponse(r=>new URL(r.url()).pathname==='/interventions/commit'),
-    act.getByRole('button',{name:'Act: Kindle',exact:true}).click(),
+    act.getByRole('button',{name:'Kindle',exact:true}).click(),
   ]);
   return reply.json();
 }
@@ -178,9 +177,9 @@ for(const route of ['/','/app']) {
       const second=await kindle(page,act);
       expect(first.accepted).toBe(true);expect(first.changed).toEqual({});expect(second.id).not.toBe(first.id);
       await act.getByText('Actions still echoing',{exact:true}).click();
-      await expect(act).toContainText('arrivals still travelling');
+      await expect(act).toContainText('Consequences pending');
       await page.reload();if(route==='/')await page.locator('#btn-act').click();else await page.getByRole('button',{name:'Act',exact:true}).click();
-      await act.getByText('Actions still echoing',{exact:true}).click();await expect(act).toContainText('arrivals still travelling');
+      await act.getByText('Actions still echoing',{exact:true}).click();await expect(act).toContainText('Consequences pending');
       await page.goto('about:blank');const port=server.port;await kill(server);
       // Another action lands during the wait. Each contribution acts on that
       // current state, never overwriting it with its earlier absolute preview.
@@ -197,13 +196,13 @@ for(const route of ['/','/app']) {
       if(route==='/'){
         await expect(page.locator('#node-props')).toContainText(String(expected));
         await page.locator('#btn-chronicle').click();
-        await expect(page.locator('#chronicle-entries')).toContainText('Ada begins Kindle');
-        await expect(page.locator('#chronicle-entries')).toContainText('The delayed action settles');
+        await expect(page.locator('#chronicle-entries')).toContainText('Ada attempts Kindle');
+        await expect(page.locator('#chronicle-entries')).toContainText('The attempted action settles');
       } else {
         await page.getByText('Conditions here',{exact:true}).click();await expect(page.getByText(String(expected),{exact:true}).first()).toBeVisible();
         await page.getByRole('button',{name:'View full chronicle'}).click();
-        await expect(page.getByText(/Ada begins Kindle/).first()).toBeVisible();
-        await expect(page.getByText(/The delayed action settles/).first()).toBeVisible();
+        await expect(page.getByText(/Ada attempts Kindle/).first()).toBeVisible();
+        await expect(page.getByText(/The attempted action settles/).first()).toBeVisible();
       }
     }finally {await page.goto('about:blank').catch(()=>{});await kill(server);await rm(directory,{recursive:true,force:true});}
   });
@@ -219,9 +218,8 @@ for(const route of ['/','/app']) for(const endpoint of ['/interventions/commit',
       const held=new Promise(resolve=>{release=resolve;});let reached;
       const requested=new Promise(resolve=>{reached=resolve;});
       await page.routeWebSocket(/\/ws\?/,socket=>{const peer=socket.connectToServer();peer.onMessage(message=>{if(JSON.parse(message).type!=='intervention_changed')socket.send(message);});});
-      await act.getByRole('button',{name:'Kindle',exact:true}).click();
       await page.route(url=>url.pathname===endpoint,async route=>{const response=await route.fetch();reached();await held;await route.fulfill({response});});
-      await act.getByRole('button',{name:'Act: Kindle',exact:true}).click();await requested;
+      await act.getByRole('button',{name:'Kindle',exact:true}).click();await requested;
       if(route==='/app')await page.getByRole('button',{name:'↑ Enclosing world',exact:true}).click();
       else await page.evaluate(()=>{
         const root=[...document.querySelectorAll('#graph .node')].find(el=>el.__data__?.data?.level==='Multiverse');
@@ -264,5 +262,47 @@ for(const route of ['/','/app']) {
       await expect(a.getByRole('status')).toHaveText(own.flavor);await expect(b.getByRole('status')).toHaveText(other.flavor);
       expect(reads.every(r=>r.world===0 && r.node>=2 && r.node<8),JSON.stringify(reads)).toBe(true);
     }finally {for(const ctx of contexts)await ctx.close();await kill(server);await rm(directory,{recursive:true,force:true});}
+  });
+}
+
+for(const route of ['/','/app']) {
+  test(`${route}: another player's action changes an accepted delayed combination`,async({page,request})=>{
+    const directory=await mkdtemp(path.join(tmpdir(),'enfolded-live-conditions-')),db=path.join(directory,'worlds.db');let server;
+    try {
+      server=await startServer(db,false);
+      const world=await(await request.get(server.url+'/world?depth=3')).json(),galaxy=world.world.children[0].children[0];
+      await changeProperties(db,galaxy.name,{shape:'elliptical',star_density:400});
+      const other={'X-Beta-Key':'nw_'+'b'.repeat(32)};
+      expect((await request.post(server.url+'/position',{headers:other,data:{node:galaxy.name,seed:382,depth:3}})).ok()).toBe(true);
+      const first=await request.post(server.url+'/interventions/commit',{headers:other,data:{node:galaxy.name,version:3,steps:[{op:'spiral'}],request_id:'peer-spiral'}});
+      expect((await first.json()).accepted).toBe(true);
+      const act=await enter(page,server.url,route,galaxy.name);
+      await act.getByRole('button',{name:'Combine actions',exact:true}).click();
+      await act.getByRole('button',{name:'Spiral',exact:true}).click();
+      await act.getByRole('button',{name:'Scatter',exact:true}).click();
+      const [reply]=await Promise.all([
+        page.waitForResponse(r=>new URL(r.url()).pathname==='/interventions/commit'),
+        act.getByRole('button',{name:'Attempt combination',exact:true}).click(),
+      ]);
+      const accepted=await reply.json();expect(accepted.phase).toBe('pending');expect(accepted.changed).toEqual({});
+      await expect(act.getByRole('status')).toContainText('Consequences are pending');
+      // A real restart keeps both accepted actions. The first one changes the
+      // conditions before the second settles; no injected mutation during wait.
+      await page.goto('about:blank');const port=server.port;await kill(server);server=await startServer(db,true,port);
+      await expect.poll(async()=>{
+        const record=await(await request.get(server.url+'/interventions?node='+encodeURIComponent(galaxy.name))).json();
+        return record.recent.find(r=>r.id===accepted.id)?.arrivals[0]?.flavor || '';
+      },{timeout:15000}).toContain('Spiral: No new material change remains');
+      const node=await(await request.get(server.url+'/node?node_name='+encodeURIComponent(galaxy.name))).json();
+      expect(node.node.properties.shape).toBe('spiral');expect(node.node.properties.star_density).toBe(360);
+      await page.goto(server.url+route);
+      if(route==='/')await page.locator('#btn-act').click();else await page.getByRole('button',{name:'Act',exact:true}).click();
+      await act.getByText('Actions still echoing',{exact:true}).click();
+      await expect(act).toContainText('Attempt accepted');await expect(act).toContainText('Observed ·');
+      await expect(act).toContainText('Spiral: No new material change remains');
+      await expect(act).toContainText('star density is 360');
+      const recovery=await request.post(server.url+'/interventions/commit',{data:{node:galaxy.name,version:3,steps:[{op:'spiral'},{op:'scatter'}],request_id:reply.request().postDataJSON().request_id}});
+      expect(await recovery.json()).toEqual(accepted);
+    }finally{await page.goto('about:blank').catch(()=>{});await kill(server);await rm(directory,{recursive:true,force:true});}
   });
 }

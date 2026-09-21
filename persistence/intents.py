@@ -6,11 +6,29 @@ import re
 import persistence as db
 
 
-def execute(participant: str, seed: int, operation: str, request_id: str,
-            payload: dict, apply):
+def _fingerprint(request_id, payload):
     if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", request_id):
         raise ValueError("Supply a stable request identifier of 8–80 letters, digits, '_' or '-'.")
-    fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def lookup(participant, seed, operation, request_id, payload):
+    """Recover before any model call; execute rechecks under the writer lock."""
+    fingerprint = _fingerprint(request_id, payload)
+    with db._connection() as conn:
+        row = conn.execute("""SELECT fingerprint,response FROM request_receipts
+            WHERE participant_id=? AND world_seed=? AND operation=? AND request_id=?""",
+            (participant, seed, operation, request_id)).fetchone()
+    if row:
+        if row[0] != fingerprint:
+            raise ValueError("That request identifier belongs to a different action.")
+        return json.loads(row[1])
+    return None
+
+
+def execute(participant: str, seed: int, operation: str, request_id: str,
+            payload: dict, apply):
+    fingerprint = _fingerprint(request_id, payload)
     with db.transaction() as conn:
         key = (participant, seed, operation, request_id)
         row = conn.execute("""SELECT fingerprint,response FROM request_receipts
