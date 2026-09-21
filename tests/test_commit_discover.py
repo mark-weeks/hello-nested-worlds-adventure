@@ -97,6 +97,11 @@ def test_direct_attempts_accept_current_state_and_noops_have_observed_history(ht
     second = commit(http, name, ['engrave'], 'ada-engraves')
     assert before['version'] == 3 and first['changed'] and second['accepted']
     assert f"Engrave: {physics._OBSERVED['engrave']}" in first['flavor'] and 'surface is' not in first['flavor']
+    # An instant settlement that still queues outward hops reports the queue,
+    # agreeing with what recent() says about the same attempt.
+    assert first['phase'] == 'pending' and first['pending_steps'] == 1 and first['flavor'].endswith(' Consequences are pending.')
+    assert second['phase'] == 'observed' and 'Consequences are pending' not in second['flavor']
+    assert {r['id']: r['phase'] for r in work.recent(382, name)}[first['id']] == 'pending'
     assert second['changed'] == {} and second['pending_steps'] == 0
     assert 'No new material change' in second['flavor']
     records = [e for e in events() if e['data']['intervention'] == second['id']]

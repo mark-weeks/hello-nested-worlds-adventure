@@ -143,10 +143,15 @@ def accept_attempt(seed, participant, name, request_id, payload, steps, *, perfo
                 VALUES (?,0,?,?)""", (ident, name, _stamp(now + timedelta(seconds=delay)))).lastrowid
             observed = None if delay else _settle_attempt(conn, work_id, ident, 0, node, seed, source, plan, now)
             pending = conn.execute("SELECT COUNT(*) FROM intervention_work WHERE intervention_id=? AND status='pending'", (ident,)).fetchone()[0]
-        return {'id': ident, 'accepted': True, 'phase': 'pending' if delay else 'observed',
+        # An instant local settlement can still queue outward hops: the phase
+        # and the pending line follow the queue, not the origin's delay alone.
+        if observed:
+            flavor += ' ' + observed['flavor']
+        if pending:
+            flavor += ' Consequences are pending.'
+        return {'id': ident, 'accepted': True, 'phase': 'pending' if pending else 'observed',
                 'event_id': source, 'node': name, 'changed': observed['changed'] if observed else {},
-                'flavor': flavor + (' Consequences are pending.' if delay else ' ' + observed['flavor']),
-                'observed': observed, 'pending_steps': pending}
+                'flavor': flavor, 'observed': observed, 'pending_steps': pending}
     result, replayed = intents.execute(participant, seed, 'intervention', request_id, payload, apply)
     if not replayed:
         notify(seed, result)

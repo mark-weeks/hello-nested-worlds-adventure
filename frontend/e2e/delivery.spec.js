@@ -300,7 +300,7 @@ for(const route of ['/','/app']) {
       await act.getByText('Actions still echoing',{exact:true}).click();
       await expect(act).toContainText('Attempt accepted');await expect(act).toContainText('Observed ·');
       await expect(act).toContainText('Spiral: No new material change remains');
-      await expect(act).toContainText('star density is 360');
+      await expect(act).toContainText('Scatter: The stars drift apart');
       const recovery=await request.post(server.url+'/interventions/commit',{data:{node:galaxy.name,version:3,steps:[{op:'spiral'},{op:'scatter'}],request_id:reply.request().postDataJSON().request_id}});
       expect(await recovery.json()).toEqual(accepted);
     }finally{await page.goto('about:blank').catch(()=>{});await kill(server);await rm(directory,{recursive:true,force:true});}

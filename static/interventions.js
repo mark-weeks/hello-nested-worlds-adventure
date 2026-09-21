@@ -161,7 +161,7 @@ class InterventionComposer extends HTMLElement {
     natural.ontoggle=()=>this.intentionOpen=natural.open;
     const input=el('textarea',null,{value:this.intention,maxLength:600,placeholder:'What do you want to attempt here?'});input.setAttribute('aria-label','Your intention');input.disabled=blocked;input.oninput=()=>this.intention=input.value;natural.append(input);
     const act=el('button','Act on this intention',{disabled:blocked});act.onclick=()=>this.commit({intention:this.intention,version:3});
-    natural.append(act,el('p','Submitting authorizes the attempt. Name actions in order, or describe your purpose with a connected model. If the action, target or scope is unclear, you can revise it here.',{className:'quiet'}));section.append(natural);
+    natural.append(act,el('p','Submitting authorizes the attempt. Name actions in order, or describe your purpose with a connected model. If the action, target, scope or order is unclear, you can revise it here.',{className:'quiet'}));section.append(natural);
     if(this.pending) {
       const recover=el('button','Recover earlier attempt',{className:'primary',disabled:this.busy});
       recover.onclick=()=>this.commit();section.append(recover);

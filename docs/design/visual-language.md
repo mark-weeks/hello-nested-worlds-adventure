@@ -34,7 +34,7 @@ must remain easy to find and read.
 - Let players commit to an action and discover what follows. A clearly labeled
   action is itself a commitment; it does not need a mandatory preview/confirm step.
   Clarify an intention only when ambiguity would materially change the action,
-  target or scope. Clarification establishes what the player attempts, not what
+  target, scope or order. Clarification establishes what the player attempts, not what
   the world will do in response.
 - Every human and AI player chooses their own actions. Invitations never imply
   another player's agreement. Extend or replace existing UX; do not duplicate it.
