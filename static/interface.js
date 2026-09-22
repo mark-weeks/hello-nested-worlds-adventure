@@ -53,7 +53,9 @@
       '--world-light':hex(pigment),'--world-shadow':hex(shadow),
     };
   }
-  function apply(element,node) { Object.entries(resolve(node)).forEach(([k,v])=>element.style.setProperty(k,v)); }
+  // Callers that already resolved pass their tokens in; otherwise resolution goes
+  // through the exported reference, so every resolution on this path is visible.
+  function apply(element,node,tokens) { Object.entries(tokens || globalThis.EnfoldedInterface.resolve(node)).forEach(([k,v])=>element.style.setProperty(k,v)); }
   function cue(node={}) {
     const s=node.senses || {}, p=node.properties || {};
     return [s.material, `${atmosphere(node)} atmosphere`, p.surface,

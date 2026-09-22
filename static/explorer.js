@@ -312,7 +312,9 @@ function drawSigil(data) {
 
 function selectNode(data, { refresh = false } = {}) {
   selected = data;
-  window.EnfoldedInterface.apply(document.documentElement,data);
+  // One resolution per selected place, reused for the page tokens and the marker.
+  const tokens = window.EnfoldedInterface.resolve(data);
+  window.EnfoldedInterface.apply(document.documentElement,data,tokens);
   document.getElementById('visual-cue').textContent=window.EnfoldedInterface.cue(data);
 
   root_g.selectAll('.node').classed('selected', d => d.data.id === data.id);
@@ -322,7 +324,6 @@ function selectNode(data, { refresh = false } = {}) {
 
   // The selected marker follows observed changes without rebuilding the map.
   const selectedMark = root_g.selectAll('.node').filter(d => d.data.id === data.id);
-  const tokens = window.EnfoldedInterface.resolve(data);
   selectedMark.select('.node-marker').attr('fill', tokens['--accent']).attr('stroke', tokens['--accent']);
   root_g.selectAll('.node text').text(d=>d.data.id===data.id ? 'You are here' : displayName(d.data.name));
 

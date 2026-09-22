@@ -19,7 +19,12 @@
       const focus=this.shadowRoot.activeElement?.dataset.target;
       const wasOpen=this.shadowRoot.querySelector('details')?.open;
       this.ctx=ctx;this.render(wasOpen);
-      if(focus && !changed) [...this.shadowRoot.querySelectorAll('button,a,summary')].find(e=>e.dataset.target===focus)?.focus();
+      if(focus && !changed) {
+        // A control that a status change removed (retry → loading) must not drop
+        // the player at the top of the document; hand over the destination heading.
+        const target=[...this.shadowRoot.querySelectorAll('button,a,summary')].find(e=>e.dataset.target===focus);
+        (target || document.getElementById('node-name'))?.focus();
+      }
       if(changed && focus) document.getElementById('node-name')?.focus();
     }
     render(open){

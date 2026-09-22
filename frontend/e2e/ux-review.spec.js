@@ -123,6 +123,26 @@ test('map transport failures use authored status copy',async({page})=>{
  }finally{await server.close();}
 });
 
+// A probe on the exported resolver must see every resolution on the styling path,
+// including the one apply() performs for a caller that did not resolve already.
+test('applying interface tokens resolves through the observable reference',async({page})=>{
+ const server=await start(page,'/');try{
+  const counts=await page.evaluate(()=>{
+   const original=EnfoldedInterface.resolve;let calls=0;
+   EnfoldedInterface.resolve=node=>{calls++;return original(node);};
+   const element=document.createElement('div');
+   try{
+    EnfoldedInterface.apply(element,selected);const resolving=calls;
+    EnfoldedInterface.apply(element,selected,original(selected));
+    return {resolving,reusing:calls-resolving,accent:element.style.getPropertyValue('--accent')};
+   }finally{EnfoldedInterface.resolve=original;}
+  });
+  expect(counts.resolving).toBe(1);   // apply() without tokens is visible to the probe
+  expect(counts.reusing).toBe(0);     // apply() with tokens does not resolve again
+  expect(counts.accent).not.toBe(''); // and either way it still writes the tokens
+ }finally{await server.close();}
+});
+
 // Counts resolver work on the real 4,208-node world, including selected refresh.
 test('map resolves its evolving palette once per rendered node',async({page})=>{
  const server=await start(page,'/');try{
@@ -134,6 +154,25 @@ test('map resolves its evolving palette once per rendered node',async({page})=>{
    return {nodes,calls,milliseconds};
   });
   console.log('Map palette work:',JSON.stringify(metrics));
-  expect(metrics.nodes).toBe(4208);expect(metrics.calls).toBeLessThanOrEqual(metrics.nodes+2);
+  // Exact, not a bound: one resolution per rendered node, plus the selected
+  // place (reused for its page tokens and marker) and the scene renderer.
+  expect(metrics.nodes).toBe(4208);expect(metrics.calls).toBe(metrics.nodes+2);
+ }finally{await server.close();}
+});
+
+// A retry control removed by a status change must not strand the keyboard.
+// The navigation element is shared, so both clients are covered.
+for(const route of ['/app','/'])
+test(`${route==='/app'?'scene':'map'} navigation keeps the player located when a focused control disappears`,async({page})=>{
+ const server=await start(page,route);try{
+  const nav=page.locator('enfolded-navigation');
+  await nav.evaluate(el=>{el.context={...el.ctx,status:'error',retry(){}};});
+  const retry=nav.getByRole('button',{name:'Retry passages'});
+  await expect(retry).toBeVisible();await retry.focus();
+  await expect.poll(()=>nav.evaluate(el=>el.shadowRoot.activeElement?.dataset.target)).toBe('retry');
+  await nav.evaluate(el=>{el.context={...el.ctx,status:'loading',retry(){}};});
+  await expect(retry).toHaveCount(0);
+  await expect(page.locator('#node-name')).toBeFocused();
+  expect(await page.evaluate(()=>document.activeElement===document.body)).toBe(false);
  }finally{await server.close();}
 });
