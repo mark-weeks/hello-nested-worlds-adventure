@@ -156,6 +156,8 @@ The 17 findings on reviewed head `5a36650` were read together with the four repl
 inside existing Copilot threads. Thirteen browser scenarios reproduced failures on
 that head, including the tall-column and observed-history focus cases previously
 reasoned from code. The follow-up adds those regressions plus a resolver-work bound.
+The last two rows are not from that head: they are open findings raised against this
+fix commit `65b9429` and are not yet addressed in code.
 The PR's owner-changed ready-for-review state is retained; no merge is authorized.
 
 | Finding | Disposition and evidence |
@@ -168,7 +170,7 @@ The PR's owner-changed ready-for-review state is retained; no merge is authorize
 | Missing passage badges | Restore shared danger/corruption/disturbance/stabilization/pressure labels. The render signature includes their values; a changed danger label updates in place. |
 | Indistinguishable travelers | Players use diamonds/solid rings; inhabitants use stars/dashed rings, with semantic colors and names. Rows are keyboard buttons. Selected-node refresh no longer fills an inserted presence ring. |
 | Tall sticky columns | Remove sticky positioning in both clients. At 1440 × 600 and 200% text, lower passages are reached while the artificially lengthened reading column continues below; no inner scroll well is added. |
-| Repeated palette resolution | Resolve once per hierarchy datum and reuse for fill/stroke/affordance ring. The 4,208-node browser fixture makes 4,210 calls including two selected-place calls; current selected refresh still uses fresh conditions. |
+| Repeated palette resolution | Resolve once per hierarchy datum and reuse for fill/stroke/affordance ring. The 4,208-node browser fixture makes 4,210 calls including two selected-place calls; current selected refresh still uses fresh conditions. These two counts are understated — see *Resolver instrumentation undercount* below. |
 | Focus lost on observed-history travel | Hand focus to the stable destination heading before replacing the composer and restore it after navigation. Both clients pass Enter-driven observed-consequence travel. Loading/error fallback remains focusable and renders choices after retry. |
 | Vacuous WebSocket readiness | Wayback and delivery fixtures wait for an open socket, not absent text in an initially empty roster. |
 | Raw map transport errors | World and puzzle-answer failures use authored local copy; status-bearing HTTP errors retain server copy. Browser aborts each request and checks the visible result. |
@@ -177,6 +179,8 @@ The PR's owner-changed ready-for-review state is retained; no merge is authorize
 | Identical style conditionals | Remove dead constellation/pressure color branches; completion text/star and pressure magnitude remain meaningful non-color cues. |
 | Third server launcher | UX and history fixtures share `e2e/server.js` and `scripts/e2e_server.py`: newline port framing, bounded startup/error cleanup, caller-owned or disposable DB, explicit preseed/invite/pump options. |
 | Hidden selected map label | Show **You are here** at the marker. This restores orientation while honoring the single identity block instead of repeating its name/address. |
+| Resolver instrumentation undercount (**open**, `65b9429`) | `apply` calls the module-local `resolve` (`static/interface.js:56`) while the export is assembled separately (`:62`), so patching the exported property cannot observe it: a standalone check counts **1** for one `resolve` plus one `apply`. The selected place therefore resolves three times — `apply` (`static/explorer.js:315`), the explicit call (`:325`) and `startSensory` (`static/sensory.js:10`) — making the true total **4,211**, so the asserted `nodes + 2` bound and the "two selected-place calls" above are understated. The O(n) result stands: the tree loop is one call per node, down from three. Fix by resolving once in `selectNode` and passing the tokens to both marker styling and application, then asserting the full path. |
+| Navigation retry focus loss (**open**, `65b9429`) | On a same-node `error` → `loading` change the retry button is not re-rendered (`static/navigation.js:34-35`), so nothing carries `data-target="retry"`, `?.focus()` no-ops and focus falls to `<body>`; the `#node-name` handoff runs only when the node changed. Same defect class as the Act composer, fixed there in this commit through the `.status` / `section[tabindex="-1"]` fallback; the shared navigation still needs the equivalent. |
 
 The historical-state and failure scenarios use the real UI with controlled HTTP
 responses where noted in `ux-review.spec.js`. Passage badge and presence payloads
