@@ -160,6 +160,50 @@ test('map resolves its evolving palette once per rendered node',async({page})=>{
  }finally{await server.close();}
 });
 
+// A presence row is a door only once its traveler has somewhere to be. Making
+// these rows keyboard-reachable must not expose a control that does nothing.
+test('map presence rows are inert until their traveler has a destination',async({page})=>{
+ const server=await start(page,'/');try{
+  await disclose(page,'Travelers & chat');
+  await page.evaluate(()=>{
+   players={arriving:{name:'Arriving traveler',node:'',color:'var(--accent)'}};
+   agents={'Arriving inhabitant':{node:'',persona:'wanderer'}};
+   renderPlayers();
+  });
+  const traveler=page.getByRole('button',{name:/Arriving traveler/});
+  const inhabitant=page.getByRole('button',{name:/Arriving inhabitant/});
+  await expect(traveler).toBeDisabled();
+  await expect(inhabitant).toBeDisabled();
+  // Once a destination arrives the same row becomes a working door.
+  const destination=await page.evaluate(()=>{
+   const child=hierLayout.descendants().find(d=>d.data.name!==selected.name).data.name;
+   players.arriving.node=child;agents['Arriving inhabitant'].node=child;renderPlayers();
+   return EnfoldedClient.displayName(child);
+  });
+  await expect(traveler).toBeEnabled();
+  await expect(inhabitant).toBeEnabled();
+  await traveler.click();
+  await expect(page.locator('#node-name')).toHaveText(destination);
+ }finally{await server.close();}
+});
+
+// Combination appends a step; it does not toggle one. The controls must not
+// announce a pressed state that activating them never releases.
+test('map combination choices announce no pressed state they cannot release',async({page})=>{
+ const server=await start(page,'/');try{
+  await page.getByRole('button',{name:'Act',exact:true}).click();
+  await act(page).getByRole('button',{name:'Combine actions',exact:true}).click();
+  const choice=act(page).getByRole('button',{name:'Channel',exact:true});
+  await expect(choice).toBeVisible();
+  expect(await choice.getAttribute('aria-pressed')).toBeNull();
+  // Two activations append two steps, which is why a pressed state would lie.
+  await choice.click();
+  expect(await choice.getAttribute('aria-pressed')).toBeNull();
+  await choice.click();
+  await expect(act(page).getByText('Channel \u2192 Channel',{exact:false})).toBeVisible();
+ }finally{await server.close();}
+});
+
 // A retry control removed by a status change must not strand the keyboard.
 // The navigation element is shared, so both clients are covered.
 for(const route of ['/app','/'])

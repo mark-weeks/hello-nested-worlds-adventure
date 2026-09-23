@@ -119,8 +119,9 @@ size; it does not substitute for physical-device and browser-zoom testing.
 correction, including reopening and closing again. One complete
 `ENFOLDED_E2E=1 ./scripts/check.sh` invocation passed Ruff, **1,358 Python
 (246.08 s)**, **131 Vitest**, byte-fresh production build, installed-wheel smoke
-and **94 Playwright (2.3 min)**. The two new cases account for the increase from
-92. All **42 local Markdown targets** in the updated evaluation/design/roadmap
+and, after the pre-merge accessibility pass, **96 Playwright (3.9 min)** with
+**1,358 Python (335.81 s)**. Four new cases account for the increase from 92: two
+development StrictMode cases and two for the presence/combination findings. All **42 local Markdown targets** in the updated evaluation/design/roadmap
 files and the consolidated CHANGELOG evaluation link resolve; diff whitespace is
 clean. The rebuilt scene was inspected directly in the in-app browser against a
 disposable world: both Close and Escape restore its opener, and Enter reopens it.
@@ -173,8 +174,10 @@ reasoned from code. The follow-up adds those regressions plus a resolver-work bo
 The two findings raised against fix commit `65b9429` were corrected in `5283559`.
 The Chronicle report was resolved as nonblocking: the alleged crash was not
 reproduced, while its development-only focus cleanup warranted a small follow-up.
-The owner authorized that remaining cleanup on September 23. All **20 review
-threads were resolved** when refreshed that day; this follow-up still needs review.
+The owner authorized that remaining cleanup on September 23. A further review pass
+on that head raised **three accessibility findings**, all confirmed and fixed before
+merge; two were regressions introduced by this batch's own presence fix, which made
+the traveler rows keyboard-reachable buttons. **23 review threads** exist in total.
 The PR's owner-changed ready-for-review state is retained. There is no formal
 APPROVED review recorded and no merge is authorized.
 
@@ -199,6 +202,8 @@ APPROVED review recorded and no merge is authorized.
 | Hidden selected map label | Show **You are here** at the marker. This restores orientation while honoring the single identity block instead of repeating its name/address. |
 | Resolver instrumentation undercount (raised on `65b9429`) | `apply` resolved through the module-local binding while the export was assembled separately, so a probe on the exported reference could not see it and the selected place resolved three times for a true total of **4,211**, not the asserted **4,210**. `selectNode` now resolves once and hands those tokens to both the page application and the marker; `apply` resolves through the exported reference when a caller supplies none. The selected place resolves twice — its own call and the scene renderer — so **4,210** calls for **4,208** nodes is now exact and fully observable, asserted as equality rather than a bound. A separate case pins that `apply` without tokens is counted and `apply` with tokens does not resolve again; it fails on the unfixed source, reporting **0** observed resolutions. |
 | Navigation retry focus loss (raised on `65b9429`) | A same-node `error` → `loading` change removed the focused retry button, and with nothing carrying `data-target="retry"` the keyed lookup no-opped and focus fell to `<body>`; the destination-heading handoff ran only when the node changed. The keyed lookup now falls back to that same heading, matching the Act composer fallback. A browser case focuses Retry passages, drives the status change, then asserts the heading holds focus and the body does not; it fails on the unfixed source. |
+| Presence rows focusable before arrival (raised on `d324275`) | Making the traveler rows keyboard-reachable buttons — this batch's own fix for indistinguishable presence — left them focusable while `player_join` and `agent_enter` still hold an empty destination, and the delegated handler ignores an empty `data-node`. A keyboard player could reach a control that did nothing, and the React client already guarded this with `disabled={!p.node}`. Both map rows are now disabled until a destination arrives, restoring parity. A browser case seeds an arriving traveler and inhabitant, asserts both rows are disabled, then supplies a destination and walks through the now-working door; it fails on `d324275` reporting **enabled**. |
+| Combination choices announced a pressed state (raised on `d324275`) | In combination mode each choice carried `aria-pressed`, but `choose` appends a step rather than toggling one, so activating a control reported as pressed appended a duplicate and left it pressed. The attribute is removed; the chosen set is still announced by the step sequence, and the accessible name deliberately stays `choice.label` because the composer matches retained focus by that string. A browser case asserts the attribute is absent and that two activations append two steps; it fails on `d324275` reporting **"false"**. |
 | Chronicle development StrictMode cleanup | The reported `showModal()` crash was not reproduced and was not treated as a production blocker. A real React development fixture does reproduce lost opener focus on both Close and Escape: effect cleanup tried to focus the opener while it was still outside an active modal, so the repeated setup captured an inner element instead. Cleanup now closes the retained dialog element before restoring its opener; setup opens only a closed dialog. Two browser regressions verify actual doubled effect setup, modal state, both close paths, reopening and no page errors. Both fail against `5283559` at the opener-focus assertion and pass with the fix. |
 
 The historical-state and failure scenarios use the real UI with controlled HTTP

@@ -165,7 +165,10 @@ class InterventionComposer extends HTMLElement {
       const chosen=this.steps.some(s=>s.op===choice.op);
       const button=el('button',null,{disabled:blocked || (this.compose && this.steps.length>=4),className:chosen?'selected':''});
       button.setAttribute('aria-label',choice.label);
-      if(this.compose)button.setAttribute('aria-pressed',String(chosen));
+      // No aria-pressed: combination APPENDS a step rather than toggling one, so a
+      // pressed state would promise a release that activating never performs. The
+      // chosen set is announced by the step sequence below, and the accessible name
+      // stays `choice.label` because render() matches retained focus by that string.
       button.append(el('strong',choice.label),el('small',choice.description));
       button.onclick=()=>this.choose(choice); choices.append(button);
     }

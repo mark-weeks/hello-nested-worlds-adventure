@@ -1260,7 +1260,7 @@ function renderPlayers() {
   const rows = [];
   for (const p of humans) {
     rows.push(
-      `<button class="player-row traveler-row" data-node="${escHtml(p.node || '')}" ` +
+      `<button class="player-row traveler-row" data-node="${escHtml(p.node || '')}"${p.node ? '' : ' disabled'} ` +
       `title="go to ${escHtml(p.name)}">` +
       `<span class="player-dot" style="color:${p.color}" aria-label="Player">◆</span>` +
       `<span class="player-name">${escHtml(p.name)}</span>` +
@@ -1269,7 +1269,7 @@ function renderPlayers() {
   }
   for (const [name, a] of cast) {
     rows.push(
-      `<button class="player-row traveler-row" data-node="${escHtml(a.node || '')}" ` +
+      `<button class="player-row traveler-row" data-node="${escHtml(a.node || '')}"${a.node ? '' : ' disabled'} ` +
       `title="follow ${escHtml(name)}">` +
       `<span class="player-dot" style="color:${AGENT_RING_COLOR}" aria-label="Inhabitant">✦</span>` +
       `<span class="player-name">${escHtml(name)}` +
