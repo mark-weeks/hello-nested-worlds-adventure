@@ -1,3 +1,4 @@
+import { disclose } from "./disclosures.js";
 // Batch 4 in both shipped clients, against the real Python server: a selected
 // node opens at its present event step, scrubs exactly back to birth, and
 // redraws through the deterministic art surface without browser errors.
@@ -28,8 +29,9 @@ test("explorer scrubs a node from present to birth", async ({ page }) => {
   });
   await page.goto("/");
   await expect(page.locator("#node-name")).not.toHaveText("Select a node");
-  await expect(page.locator("#players-list")).not.toContainText("Not connected");
+  await expect.poll(()=>page.evaluate(()=>ws?.readyState)).toBe(1);
 
+  await disclose(page,"History & journal");
   await page.click("#btn-wayback");
   await expect(page.locator("#wayback-modal")).toBeVisible();
   await expect(page.locator("#wayback-x")).toBeFocused();
@@ -86,9 +88,10 @@ test("/app scrubs a node from present to birth", async ({ page }) => {
     if (new URL(request.url()).pathname === "/wayback") waybackRequests += 1;
   });
   await page.goto("/app");
-  await expect(page.getByText("● connected")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("● Connected to the shared world")).toBeVisible({ timeout: 10_000 });
 
   const trigger = page.getByRole("button", { name: "Replay History" });
+  await disclose(page,"History & journal");
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: /Replay History/ });
   await expect(dialog).toBeVisible();
@@ -151,6 +154,7 @@ test("explorer clears an old snapshot before a failed reopen", async ({ page }) 
   await page.goto("/");
   await expect(page.locator("#node-name")).not.toHaveText("Select a node");
 
+  await disclose(page,"History & journal");
   await page.click("#btn-wayback");
   await expect(page.locator("#wayback-meta")).toContainText("first witnessed");
   await page.click("#wayback-close");
@@ -160,6 +164,7 @@ test("explorer clears an old snapshot before a failed reopen", async ({ page }) 
     contentType: "application/json",
     body: JSON.stringify({ error: "archive unavailable" }),
   }));
+  await disclose(page,"History & journal");
   await page.click("#btn-wayback");
   await expect(page.locator("#wayback-moment"))
     .toHaveText("The archive is unreadable right now.");

@@ -1,6 +1,6 @@
 # Expressive world: review boundary and next work
 
-**Updated September 20, 2026 after the Commit, then discover batch.** The owner asked to package the session's changes for review
+**Updated September 23, 2026 after the UX review follow-up.** The owner asked to package the session's changes for review
 and undertake further UI/UX, navigation and placement work as a dedicated effort.
 This checkpoint is not a claim that the production-quality milestone is complete.
 
@@ -23,7 +23,7 @@ See [ADR-027](../decisions/ADR-027-expressive-world.md),
 The evaluations describe successive builds; the CHANGELOG holds the final local
 verification counts and the corrections that supersede the initial design.
 
-## Batch 1: Commit, then discover — implemented for review
+## Batch 1: Commit, then discover — reviewed and merged
 
 - Four scale-native suggestions commit directly in both clients. Optional
   combinations and discoverable intention entry remain in the existing Act surface.
@@ -43,40 +43,45 @@ verification counts and the corrections that supersede the initial design.
   original semantics. No schema migration or world reset. The existing local playtest
   world was preserved; inspection used a separate database copy.
 
+PR #106 was reviewed and merged into main as `e038d19015a51e6111ee50a2e82441a0f576c6c8`
+on September 21 (UTC); all 15 review threads were resolved before UX work began.
+
 Evidence and limitations: [batch verification](../evaluation/2026-09-20-commit-discover.md).
 Intention interpretation is provider-fixture tested, not live-model validated.
 Model absence remains an authored quiet reply; explicit action sequences work offline.
 This batch does not implement scoring, agent/CLI vocabulary parity or styling.
 
-## Subsequent UX batch — handoff only, not started
+## Batch 2: UX, navigation and evolving visual language — implemented for review
 
-Start with the owner's next concrete feedback on navigation paths, placements and
-visual hierarchy. Inspect the current browser before proposing a layout. Preserve
-Speak | Puzzle | Act, four discoverable suggestions, open intention entry, a single
-identity block and independent player agency. Extend or replace each experience;
-do not introduce a second control for the same purpose.
+The owner confirmed the starting placement: movement beside the scene, one
+identity block, Speak | Puzzle | Act immediately below it, and secondary detail
+through disclosure. The initial scene/map inspection found competing utility
+links, tiny secondary text, fixed-height mobile scrolling and no coherent return
+surface. Both clients now share navigation and semantic interface foundations,
+with an eight-place temporary return trail, visible sealed destinations and
+keyboard focus carried to the new place. Map Puzzle opens without a separate
+Find Puzzle step. Existing action commitment, clarification and recovery remain.
 
-The [visual-language guide](../design/visual-language.md) now records the latest
-decision: starting values derive from each node's initial conditions and evolve
-with current conditions and lasting traces. Color carries learnable meaning.
-The interface shares the world's visual vocabulary while retaining readable text,
-recognizable controls and stable interaction targets. It must not be themed with
-one universal set of colors across all nodes. This is a design requirement; the
-current interface is still largely fixed.
+The [visual-language guide](../design/visual-language.md) describes the implemented
+mappings. Region, Room, two Objects and Molecule were compared before/after actual
+local actions before generalizing. Material/atmosphere, terrain, geometry and
+retained traces affect appearance without permanent node categories or a moral
+palette. One readable interaction structure stays consistent across those states.
 
-Before implementing global mappings, compare several contrasting scales, two
-different places at the same scale, and their states before and after meaningful
-actions. Judge semantic correspondence and expressive quality, then verify narrow
-and wide layouts, keyboard use, text zoom, reduced motion and missing artwork.
-Automated checks support this review; they do not establish aesthetic acceptance.
+See [the UX evaluation](../evaluation/2026-09-21-ux-visual-language.md) for captures,
+measured verification, implementation discoveries and limitations. This is an implementation
+review candidate, not a merged or deployed batch. The original playtest database
+was not used for writes; interactive exploration used a separate copy and browser
+regressions used temporary databases.
 
 ## Separate behavioral and production gaps
 
-1. **Adaptive interface styling:** the behavioral contract above is implemented;
-   preserve it while addressing the visual-language guide's still-unimplemented
-   node-derived interface styling. Do not add previews, extra confirmation steps,
-   competing composers or another identity block. Keep recovery and clarification
-   visible at narrow widths and through keyboard use.
+1. **UX validation:** playtest discovery of movement, returning and intention entry,
+   and whether players learn the color/trace meanings. Review the candidate's narrow,
+   zoomed and degraded states. Physical mobile devices, Safari and assistive
+   technology beyond Chromium keyboard/DOM checks remain unverified. The return
+   trail is per client tab, not a saved itinerary. Standalone auxiliary pages still
+   need a separate consistency pass if prioritized.
 2. **Intention and recognition:** configured-model interpretation exists but its
    live quality has not been evaluated. Intervention alignment/contribution scoring
    is not implemented. Agent and CLI access still uses the original verb path;
@@ -87,8 +92,12 @@ Automated checks support this review; they do not establish aesthetic acceptance
    not establish a world-wide production art pipeline or generation quality parity.
    The [beta artwork strategy](../design/beta-scene-art.md) remains a proposal.
 
-Keep subsequent UI cleanup independently reviewable. Start only with a new owner
-instruction. After this behavioral PR merges, start from refreshed main; if a UX
-effort is explicitly requested before then, make its dependency on this PR clear. Preserve the
-existing local playtest world's history across preview restarts. No new session,
-merge, deployment or production operation is implied by this handoff.
+Next handoff: final review of PR #107, including the development-only Chronicle
+focus cleanup and reconciled verification record. All 20 review threads were
+resolved at the September 23 refresh; that is not a formal approval or merge.
+Review against the visual evidence and agreed placement, then gather player
+observations before assigning another implementation
+batch. Improved fallback art is a discovered production gap, not work silently
+absorbed here. Any follow-on implementation requires a new owner instruction and
+a refreshed merged base. Preserve the existing playtest history. No merge,
+deployment, reset or automatic next batch is authorized.

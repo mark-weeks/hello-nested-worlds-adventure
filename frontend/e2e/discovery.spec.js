@@ -123,8 +123,9 @@ test('renderer initialization failure leaves a navigable text scene', async ({pa
   try {
     await page.addInitScript(() => { HTMLCanvasElement.prototype.getContext = () => null; });
     await enter(page, server);
-    await expect(page.getByRole('region', {name: 'Text scene'})).toBeVisible();
-    await page.getByRole('region', {name: 'Text scene'}).getByRole('button').first().click();
+    await expect(page.getByRole('region', {name: 'Living scene'})).toBeVisible();
+    await expect(page.getByText('The view is quiet. The passages remain open to exploration.')).toBeVisible();
+    await page.locator('enfolded-navigation .children button').first().click();
     await expect(page.locator('[title="Broken Ember Gallery-1111111"]').first()).toBeVisible();
   } finally { await server.close(); }
 });

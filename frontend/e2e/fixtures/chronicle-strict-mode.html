@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8"><title>Chronicle lifecycle fixture</title></head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import React, { useEffect, useState } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import Chronicle from '../../src/components/Chronicle.jsx';
+      import '../../../static/interface.css';
+
+      function OpenChronicle({ onClose }) {
+        const [setups, setSetups] = useState(0);
+        useEffect(() => { setSetups(n => n + 1); }, []);
+        return React.createElement(React.Fragment, null,
+          React.createElement('output', { 'data-testid': 'effect-setups' }, setups),
+          React.createElement(Chronicle, { seed: 382, onClose }));
+      }
+      function Harness() {
+        const [open, setOpen] = useState(false);
+        return React.createElement(React.Fragment, null,
+          React.createElement('button', { onClick: () => setOpen(true) }, 'View full chronicle'),
+          open && React.createElement(OpenChronicle, { onClose: () => setOpen(false) }));
+      }
+      createRoot(document.getElementById('root')).render(
+        React.createElement(React.StrictMode, null, React.createElement(Harness)));
+    </script>
+  </body>
+</html>

@@ -1,3 +1,4 @@
+import './interface.js';
 // Shared scene renderer: property-driven weather and material, with persistent
 // structures and remembered motifs. Media is never authoritative world state.
 // Motion runs on a frame counter, never the wall clock: the same served node
@@ -6,7 +7,8 @@ const FRAMES_PER_SECOND = 60;
 export function startSensory(canvas, node, {transients = () => [], imageUrl} = {}) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return () => {};
-  const s = node.senses || {}, motion = matchMedia('(prefers-reduced-motion: reduce)');
+  const tokens=globalThis.EnfoldedInterface.resolve(node);
+  const s = {...node.senses, atmosphere:globalThis.EnfoldedInterface.atmosphere(node), light:tokens['--world-light'], shadow:tokens['--world-shadow']}, motion = matchMedia('(prefers-reduced-motion: reduce)');
   let stopped = false, raf, image, loaded = false, frame = 0;
   const seen = new WeakMap();  // transient -> the frame it first appeared on
   const url = imageUrl || s.plate;
@@ -32,6 +34,8 @@ export function startSensory(canvas, node, {transients = () => [], imageUrl} = {
       ctx.drawImage(image, (w - image.width * scale) / 2 + dx, (h - image.height * scale) / 2, image.width * scale, image.height * scale);
       ctx.fillStyle = s.polarity < 0 ? 'rgba(4,20,39,.30)' : `rgba(30,10,0,${Math.min(.22, Math.max(0, s.echo || 0) / 50)})`;
       ctx.fillRect(0, 0, w, h);
+      if(s.lighting==='bright') { ctx.fillStyle=s.light+'24';ctx.fillRect(0,0,w,h); }
+      if(s.lighting==='dim') { ctx.fillStyle='#03080c60';ctx.fillRect(0,0,w,h); }
     } else {
       // Stratified material fields, not a generic planetary sketch. Geometry and
       // material choose the silhouette; stable phase gives each depth continuity.

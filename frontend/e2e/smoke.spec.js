@@ -1,3 +1,4 @@
+import { disclose } from "./disclosures.js";
 // Both clients must actually render in a real browser, served by the real
 // Python server under the production CSP. Any pageerror or console.error is
 // a failure — the PixiJS-vs-CSP blank scene shipped precisely because
@@ -39,9 +40,11 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
   // view depth; neither seed nor breadth/world-generation controls exist.
   await expect(page.locator("#seed")).toHaveCount(0);
   await expect(page.locator("#min_b")).toHaveCount(0);
+  await disclose(page,"Sound & help");
   await page.click("#btn-advanced");
   await expect(page.locator("#depth")).toBeVisible();
   await expect(page.locator("#gen-btn")).toBeVisible();
+  await disclose(page,"Sound & help");
   await page.click("#btn-advanced");
   await expect(page.locator("#depth")).toBeHidden();
 
@@ -68,6 +71,7 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
   expect(historyLoads).toBe(1);
   expect(socketOpens).toBe(1);
 
+  await disclose(page,"Conditions here");
   // The generative-art sigil actually painted: opaque pixels on the canvas.
   await expect
     .poll(async () => page.evaluate(() => {
@@ -86,23 +90,18 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
   await expect(page.locator('#panel-act')).toContainText('Enter with an invite');
 
   // The chronicle opens and reports the world's record.
+  await disclose(page,"History & journal");
   await page.click("#btn-chronicle");
   await expect(page.locator("#chronicle-meta")).toContainText("recorded events");
   await page.click("#chronicle-close");
 
-  // The sound invitation appears once per session, in fiction, a moment
-  // after the world settles — and accepting it IS the WebAudio activation
-  // gesture: the full graph (pad, sub, texture, music box, delay space)
-  // builds in a real browser without throwing.
-  await expect(page.locator("#sound-invite")).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator("#sound-invite .invite-line"))
-    .toContainText("The world hums");
-  await page.click("#sound-invite-yes");
-  await expect(page.locator("#sound-invite")).toBeHidden();
-  await expect(page.locator("#btn-sound")).toHaveText("♪ on");
-  await page.waitForTimeout(600);   // let the scheduler tick
+  // Sound has one disclosed control; its gesture starts the existing transport.
+  await disclose(page,"Sound & help");
   await page.click("#btn-sound");
-  await expect(page.locator("#btn-sound")).toHaveText("♪ off");
+  await expect(page.locator("#btn-sound")).toHaveText("Pause score");
+  await expect.poll(()=>page.evaluate(()=>window._nwAmbience?.enabled)).toBe(true);
+  await page.click("#btn-sound");
+  await expect(page.locator("#btn-sound")).toHaveText("Listen to this world");
 
   expect(errors).toEqual([]);
 });
@@ -232,6 +231,7 @@ test("/app defaults sound on and remembers an explicit mute", async ({ page }) =
 
   const sound = page.locator("#btn-sound");
   await expect(sound).toHaveText("Pause score");
+  await disclose(page,"Sound & help");
   await sound.click();
   await expect(sound).toHaveText("Listen to this world");
   await expect.poll(() => page.evaluate(() => localStorage.getItem("nw_sound_preference")))
@@ -239,6 +239,7 @@ test("/app defaults sound on and remembers an explicit mute", async ({ page }) =
 
   await page.reload();
   await expect(sound).toHaveText("Listen to this world");
+  await disclose(page,"Sound & help");
   await sound.click();
   await expect(sound).toHaveText("Pause score");
   await expect.poll(() => page.evaluate(() => localStorage.getItem("nw_sound_preference")))
@@ -263,13 +264,15 @@ test("/app opens a depth horizon automatically without losing the current node",
   await page.goto("/app");
   const horizonPhrase = horizon.name.replace(/-\d+$/, "");
   await expect(page.getByText(horizonPhrase, { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("region",{name:"Passages",exact:true})).toBeVisible();
+  await expect(page.locator("enfolded-navigation .children")).toBeVisible();
   await expect(page.getByRole("button", { name: "Look within ↓" })).toHaveCount(0);
+  await disclose(page,"History & journal");
   await expect(page.getByRole("button", { name: "View full chronicle" })).toBeVisible();
+  await disclose(page,"Sound & help");
   await expect(page.getByRole("link", { name: "Player's Guide ↗" })).toBeVisible();
 
   // Scene passages are real buttons, accessible even if the canvas fails.
-  await page.getByRole("region",{name:"Passages",exact:true}).getByRole("button").first().click();
+  await page.locator("enfolded-navigation .children").getByRole("button").first().click();
   await expect(page.getByText("Room", { exact: true }).first()).toBeVisible();
   expect(errors).toEqual([]);
 });

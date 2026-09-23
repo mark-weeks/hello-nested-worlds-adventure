@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { withKey } from "../auth.js";
-import { displayName } from "../names.js";
-import { passageBadges } from "../badges.js";
+import "../../../static/navigation.js";
 import { startSensory } from "../../../static/sensory.js";
 import "./scene.css";
 
-export default function SceneView({node, transients = [], onNavigate, onNavigateUp, canGoUp, seed}) {
+export default function SceneView({node, transients = [], parent, onJump, passageLoadStatus, onPassageRetry, wrapPassage, onWrapCross, seed}) {
+  const navigation=useRef(null);
+  useEffect(()=>{ navigation.current.context={node,parent,seed,jump:onJump,status:passageLoadStatus,retry:onPassageRetry,wrap:wrapPassage,cross:onWrapCross,view:"World map ↗",href:"/"}; },[node,parent,seed,onJump,passageLoadStatus,onPassageRetry,wrapPassage,onWrapCross]);
   const canvas = useRef(null), liveTransients = useRef(transients);
   liveTransients.current = transients;
   const [image, setImage] = useState(null);
@@ -29,19 +30,10 @@ export default function SceneView({node, transients = [], onNavigate, onNavigate
     return startSensory(canvas.current, node, {imageUrl: image, transients: () => liveTransients.current});
   }, [node, image]);
   return <section className="scene-view cinematic-scene" aria-label="Living scene">
-    <canvas ref={canvas} className="living-canvas" role="img" aria-labelledby="node-name" aria-describedby="node-description" />
-    <div className="scene-vignette" />
-    <nav className="scene-nav" aria-label="Scene navigation">
-      {canGoUp && <button onClick={onNavigateUp}>↑ Enclosing world</button>}
-      <a href="/">World map ↗</a>
-    </nav>
-    <section className="scene-passages" aria-label={unavailable ? "Text scene" : "Passages"}>
-      {unavailable && <p>The view is quiet. The passages remain open to exploration.</p>}
-      {!!node.children?.length && <span className="scene-kicker">WITHIN THIS PLACE</span>}
-      <div className="scene-passage-grid">{node.children?.map(child => <button key={child.name} onClick={() => onNavigate(child)} title={child.name}>
-        <span>{child.level} ↘</span><strong>{displayName(child.name)}</strong>
-        <small>{passageBadges(child).map(b => b.label).join(' · ')}</small>
-      </button>)}</div>
-    </section>
+    <div className="scene-art">
+      <canvas ref={canvas} className="living-canvas" role="img" aria-labelledby="node-name" aria-describedby="node-description" />
+      {unavailable && <p className="scene-fallback">The view is quiet. The passages remain open to exploration.</p>}
+    </div>
+    <enfolded-navigation ref={navigation} />
   </section>;
 }

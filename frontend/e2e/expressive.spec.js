@@ -1,3 +1,4 @@
+import { disclose } from "./disclosures.js";
 import { expect, test } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -138,6 +139,7 @@ test('recorded score loads, stays on one transport and changes its harmony',asyn
   try {
     await enter(page,server,'/',names.instrument);
     await expect(page.locator('#node-name')).toHaveText(phrase(names.instrument));
+    await disclose(page,'Sound & help');
     await page.click('#btn-sound');
     await expect.poll(()=>page.evaluate(()=>Object.keys(window._nwAmbience?.buffers || {}).length)).toBe(11);
     const evidence=await page.evaluate(()=>{
@@ -148,6 +150,7 @@ test('recorded score loads, stays on one transport and changes its harmony',asyn
     });
     expect(evidence.sameContext).toBe(true);expect(evidence.stepUnchanged).toBe(true);expect(evidence.third).toBe(3);
     expect(evidence.durations.every(d=>d>1)).toBe(true);
+    await disclose(page,'Sound & help');
     await page.click('#btn-sound');
     expect(await page.evaluate(()=>window._nwAmbience.enabled)).toBe(false);
   }finally{await server.close();}

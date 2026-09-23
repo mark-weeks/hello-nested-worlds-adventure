@@ -1,3 +1,4 @@
+import {disclose} from "./disclosures.js";
 import { expect, test } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -75,6 +76,7 @@ for (const mobile of [false,true]) {
       try {
         await page.setViewportSize(mobile ? {width:390,height:844} : {width:1440,height:1000});
         await enter(page,server,route);
+        await disclose(page,"Sound & help");
         const link = page.getByRole('link',{name:'Ideas ↗',exact:true});
         await expect(link).toBeVisible();
         await expect(page.getByRole('link',{name:"Player's Guide ↗",exact:true})).toBeVisible();

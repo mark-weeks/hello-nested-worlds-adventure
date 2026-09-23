@@ -1,8 +1,8 @@
 # Enfolded visual language
 
-**2026-09-20 · first style guide.** The interaction principles below reflect the
-owner's explicit direction. Palette, typography and composition are proposed
-restyling targets; they are not a claim that both clients already implement them.
+**2026-09-21 · first implemented interface vocabulary.** The scene, map, navigation
+and shared Act surface now use the foundations below. This is a reviewed-in-browser
+implementation candidate, not evidence of production art quality or player acceptance.
 Artwork production is covered in [the beta art strategy](beta-scene-art.md).
 
 ## Experience
@@ -93,11 +93,10 @@ place to one category. Minor changes should be subtle; profound transformations
 may substantially alter the expression. Only observed state should be signaled,
 without revealing hidden information or forecasting an action's outcome.
 
-The values below are reference ranges and usability constraints for the first
-implementation, not universal node styling. Exact semantic mappings still need
-design and comparative playtesting. **Current gap:** scene qualities already use
-some property mappings; the interface remains largely fixed. This section records
-the owner's direction and does not claim that adaptive interface styling exists.
+The values below are implemented in the shared interface foundations. The mappings
+were compared in-browser across Region, Room, Object and Molecule, including two
+different Objects and five meaningful state changes. They still need comparative
+player testing; readable colors alone do not prove that players learn their meaning.
 
 - **Type:** a restrained serif for place names and short atmospheric lines; a
   readable sans serif for controls, explanations and history. Reserve monospace
@@ -172,28 +171,109 @@ are not disclosed. Ordinary mechanics and present conditions remain available.
 
 Intention parsing, clarification and refusal have deterministic provider-fixture
 coverage; live-model interpretation quality remains unvalidated. The vocabulary
-still bounds what an intention can attempt. Alignment and contribution scoring,
-expanded agent/CLI vocabulary and interface restyling remain outside this batch.
+still bounds what an intention can attempt. Alignment/contribution scoring
+and expanded agent/CLI vocabulary remain separate work. Interface styling is
+implemented by the following UX batch.
 This guide introduces no scoring rules or retroactive classification of players.
 
-## First restyling pass
+## Implemented UX arrangement
 
-Define the shared visual vocabulary and demonstrate its changes across several
-contrasting nodes before fixing token mappings. Connect typography, spacing,
-controls, focus states and panel colors in the scene, map and shared Act component
-through that vocabulary. Preserve the now-approved interaction structure.
-Reduce the remaining terminal-like styling, improve secondary text legibility,
-and make the intention disclosure feel as considered as the four action choices.
-Reuse the same foundations in history and the guide when those surfaces are next
-changed; do not block the focused pass on redesigning every auxiliary page.
+The owner confirmed this arrangement after the baseline browser inspection:
+scene and movement together, a single identity block at the head of the adjacent
+interaction panel, then Speak | Puzzle | Act. At widths below 900px these become
+one scrolling document in that order. No scene title overlay, duplicated map link,
+fixed-height mobile interaction well, or always-open event log remains.
 
-Review the actual browser at narrow and wide widths, keyboard-only navigation,
-text zoom and reduced motion. Review bright and dark scenes, no artwork,
-unavailable actions, pending consequences and failed/retried submissions. A
-restyling pass succeeds when it is easier to read and explore without adding
-steps, competing controls or less room for imagination. Separately verify the
-commit-and-discover behavior: a direct action has no mandatory preview, an ambiguous
-intention clarifies only the attempted action, another player's intervening action
-can affect a delayed result, and no pre-commit surface exposes future outcomes.
+The shared passage surface labels the enclosing place with an up arrow and the
+places within with their scales. Sealed destinations say why they are sealed.
+Danger, corruption, disturbance, stabilization and causal pressure retain textual
+passage cues; conditions are observed facts, not moral judgments.
+Wrap passages and loading/retry feedback stay in this same surface. A disclosed
+return trail holds eight prior places in the current client tab; it is temporary
+navigation memory, not a durable journal. It clears on reload, world change, or
+switching clients. Saved position and the existing Journal retain their roles.
+Navigation updates preserve a focused control when its contents have not changed;
+travel from a passage button or observed consequence moves focus to the new
+identity heading. Both exploration columns scroll with the document, so a long
+passage list remains reachable beside long disclosed history, including at 200%
+text size. The map says **You are here** beside its selected marker; the name,
+scale, address and description remain in the single identity block. Resizing keeps
+the current pan and zoom unless the selected marker would fall outside the map.
 
-The next dedicated effort is scoped in [the session handoff](../roadmap/expressive-world-next-steps.md).
+Conditions, History & journal, Travelers & chat, and Sound & help are disclosed
+when needed. The map keeps its existing Observe capability inside Travelers.
+Player presence uses a diamond and solid ring; inhabitants use a star and dashed
+ring. Presence below the visible horizon uses sparser patterns. Names and personas
+remain available; color supplements these cues. Observation meters keep both their
+length and numeric strength.
+Opening Puzzle loads the question directly. The map preserves its draft, hint and
+attempt state when switching modes, and reads recorded attempts/completion when
+opening a place. HTTP refusals retain their authored explanation and offer retry;
+transport failures use local player-facing copy. Act keeps four suggestions, the
+bordered intention disclosure, optional combination, and the same retry receipt.
+Controls target at least 44px height. Destination and suggestion grids use rem-based
+minimum widths, becoming one column at 200% text size on a narrow display.
+
+## Current semantic mappings
+
+`static/interface.js` resolves shared roles from the served node. CSS inheritance
+carries them into both clients and the Act/navigation shadow roots. The map
+resolves each rendered node once per tree build and updates the selected marker
+from current conditions; there is no permanent identity-based color cache. The scene
+renderer uses the same interpreted light and atmosphere. Identity is never hashed
+into a theme, and pending work never supplies a visual signal.
+
+| Observed input | Interface expression | Non-color evidence |
+|---|---|---|
+| Material light/shadow and current air/weather | Related canvas, reading surfaces and accents; current weather takes priority over an inherited atmospheric aspect | Evolving description and Conditions |
+| Waterways / overgrown / terraced terrain | Blue / green / ochre contributions mixed into the local material color | Named terrain, never a node category |
+| Branched molecular geometry | A restrained green contribution to existing light | Named geometry |
+| Physical echo, energy and polarity | Bounded warm/cool shift; neither direction means good or bad | Observed condition/history |
+| Mineral, metallic, crystalline or sheet-like substance | 4px control contours; organic forms use 12px | Material/geometry description |
+| Open fracture or lasting scar | Dashed identity rule of fixed thickness | Fracture description and Conditions |
+| Woven resonance | Double identity rule | Woven condition |
+| Engraved surface or retained memory | Faint stationary diagonal grain in the identity block | Named surface/trace and history |
+| Bright light | Lighter reading surface and scene illumination | Description names the light |
+
+Text, secondary text, links and attention are resolved against the brightest
+reading surface. The resolver targets 7:1 for primary text, 4.5:1 for supporting
+text and accent-button labels, and 3:1 for boundaries and focus. Unit coverage
+checks all three reading backgrounds with the ten comparison states and extreme
+input palettes. These figures concern resolved CSS colors, not text over artwork;
+controls are placed on opaque surfaces. Check computed component styles too:
+Wayback play/listen use Text on Raised with a Line border. Replacing every color
+with one semantic token can erase a control even when the token palette passes. Patterns stay below the raised-surface
+brightness. An unavailable control uses a dashed boundary and readable label;
+selected mode uses an underline and `aria-pressed`; pending and failed requests
+use explicit prose. Attention is not a moral color.
+
+Type, control order, sizes, hit targets and spacing stay stable when a node changes.
+Description length may reflow the page. Meaningful physical changes affect color,
+contour or trace; many other state changes intentionally have no extra motif.
+Reduced motion freezes the scene and removes transient motion without hiding
+controls or conditions. No motion is required to interpret the vocabulary.
+
+Modal history returns keyboard focus to the control that opened it. Close the
+native dialog before restoring focus so its background is no longer inert; retain
+that element through cleanup, including React development effect replay. Both the
+Close button and Escape must preserve this return path when reopened.
+
+## Comparison and acceptance boundary
+
+See the [measured UX evaluation](../evaluation/2026-09-21-ux-visual-language.md)
+for five before/after pairs, wide/narrow views, failure/recovery and missing-art
+captures. The mappings were explored in a temporary browser study before being
+applied generally; this caught inherited pollen overriding current ground fog.
+The final browser review then caught poor word wrapping at 200% text size despite
+passing overflow tests, and reduced the engraved grain so it did not compete with
+prose. These judgments are part of the evidence, separate from automated results.
+
+The curated image selector already falls back when changed material would make a
+plate misleading. Several after states therefore show abstract material fields.
+The controls remain legible and the text truthful, but that fallback does not
+match the cinematic quality of the four curated images. Broader scene vocabulary,
+production assets/audio, live-model interpretation and player comprehension of
+color remain separate work. Auxiliary standalone Journal, Guide and Ideas pages
+have not been comprehensively restyled. No new semantics or scoring is introduced.
+
+The next handoff is recorded in [the roadmap](../roadmap/expressive-world-next-steps.md).

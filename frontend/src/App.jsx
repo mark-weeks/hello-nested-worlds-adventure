@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import "../../static/interface.js";
+import "../../static/interface.css";
 import SceneView from "./components/SceneView.jsx";
 import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
@@ -383,7 +385,7 @@ export default function App() {
 
   // Broadcast our position whenever it changes or we (re)connect, so other
   // players see us where we actually are — including the initial drop-in /
-  // resume node, which isn't reached through navigateTo().
+  // resume node, which may arrive through a restored position.
   useEffect(() => {
     if (connected && currentNodeName) sendMessage({ type: "move", node: currentNodeName });
   }, [connected, currentNodeName, sendMessage]);
@@ -413,16 +415,6 @@ export default function App() {
       setWalkThrough(null);
     }
   }, [walkThrough, connected, currentNodeName, sendMessage]);
-
-  // Position is broadcast by the effect above (keyed on currentNodeName), so
-  // navigation only has to update the stack — no direct send here.
-  const navigateTo = useCallback((node) => {
-    setNodeStack(s => [...s, node]);
-  }, []);
-
-  const navigateUp = useCallback(() => {
-    setNodeStack(s => (s.length <= 1 ? s : s.slice(0, -1)));
-  }, []);
 
   // Jump to a traveler: rebuild the real ancestry stack from the node name
   // (names encode their path — "…-1121" lies under 1→1→2→1). If the traveler
@@ -590,14 +582,17 @@ export default function App() {
   }
 
   return (
-    <div className="world-layout" style={s.layout}>
+    <main className="world-layout" style={globalThis.EnfoldedInterface.resolve(currentNode)}>
+      <a className="skip-link" href="#interactions">Skip to interactions</a>
       <SceneView
         node={currentNode}
-        players={players}
         transients={transients}
-        onNavigate={navigateTo}
-        onNavigateUp={navigateUp}
-        canGoUp={nodeStack.length > 1}
+        parent={nodeStack.at(-2)}
+        onJump={jumpTo}
+        passageLoadStatus={passageLoadStatus}
+        onPassageRetry={() => setPassageRetry(n => n + 1)}
+        wrapPassage={wrapAffordance(currentNode, wrapInfo)}
+        onWrapCross={crossWrap}
         seed={seed}
       />
       <TextPanel
@@ -611,10 +606,6 @@ export default function App() {
         playerName={playerName}
         onChat={sendChat}
         onJump={jumpTo}
-        passageLoadStatus={passageLoadStatus}
-        onPassageRetry={() => setPassageRetry(n => n + 1)}
-        wrapPassage={wrapAffordance(currentNode, wrapInfo)}
-        onWrapCross={crossWrap}
         onSolved={handleSolved}
         onNodeChanged={onComposerChanged}
         onEnsurePosition={ensurePosition}
@@ -623,7 +614,7 @@ export default function App() {
         scoreVolume={scoreVolume} onScoreVolume={setScoreVolume}
         onWaybackListen={previewWaybackSound}
       />
-    </div>
+    </main>
   );
 }
 
@@ -677,16 +668,15 @@ function NameEntry({ onSubmit }) {
 }
 
 const s = {
-  layout:  { display: "flex", height: "100vh", overflow: "hidden", background: "#07080f" },
-  loading: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontSize: "1.1rem", color: "#4a5580", fontFamily: "Courier New, monospace" },
-  nameWrap: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#07080f", fontFamily: "Courier New, monospace" },
-  nameBox: { background: "#0d1020", border: "1px solid #2a4060", padding: "32px 28px", width: "min(420px, calc(100vw - 32px))", textAlign: "center" },
-  nameTitle: { fontSize: "1.1rem", color: "#3a8eff", letterSpacing: "2px", marginBottom: 8 },
-  nameDesc: { fontSize: "0.85rem", color: "#6a7090", marginBottom: 18 },
-  nameInput: { width: "100%", background: "#07080f", border: "1px solid #2a4060", color: "#b0bcd0", padding: "8px 10px", fontFamily: "inherit", fontSize: "0.9rem", marginBottom: 12, outline: "none" },
-  nameButton: { background: "#1a3060", border: "1px solid #3a8eff", color: "#b0bcd0", padding: "8px 22px", fontFamily: "inherit", fontSize: "0.9rem", cursor: "pointer" },
-  introBody: { fontSize: "0.85rem", color: "#7a9ab8", lineHeight: 1.6, marginBottom: 14 },
+  loading: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontSize: "1.1rem", color: "var(--muted)", fontFamily: "system-ui, sans-serif" },
+  nameWrap: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "var(--canvas)", fontFamily: "system-ui, sans-serif" },
+  nameBox: { background: "var(--surface)", border: "1px solid var(--line)", padding: "32px 28px", width: "min(420px, calc(100vw - 32px))", textAlign: "center" },
+  nameTitle: { fontSize: "1.1rem", color: "var(--accent)", letterSpacing: "2px", marginBottom: 8 },
+  nameDesc: { fontSize: "0.85rem", color: "var(--muted)", marginBottom: 18 },
+  nameInput: { width: "100%", background: "var(--canvas)", border: "1px solid var(--line)", color: "var(--text)", padding: "8px 10px", fontFamily: "inherit", fontSize: "0.9rem", marginBottom: 12 },
+  nameButton: { background: "var(--raised)", border: "1px solid var(--accent)", color: "var(--text)", padding: "8px 22px", fontFamily: "inherit", fontSize: "0.9rem", cursor: "pointer" },
+  introBody: { fontSize: "0.85rem", color: "var(--text)", lineHeight: 1.6, marginBottom: 14 },
   introList: { listStyle: "none", margin: "0 0 18px", padding: 0, display: "flex", flexDirection: "column", gap: 8 },
-  introItem: { fontSize: "0.78rem", color: "#5a7090", lineHeight: 1.5 },
-  introVerb: { color: "#8aaccc" },
+  introItem: { fontSize: ".875rem", color: "var(--muted)", lineHeight: 1.5 },
+  introVerb: { color: "var(--text)" },
 };
