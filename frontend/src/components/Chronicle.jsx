@@ -17,8 +17,13 @@ export default function Chronicle({ seed, onClose }) {
   const dialog=useRef(null);
   useEffect(()=>{
     const focus=document.activeElement;
-    dialog.current.showModal();
-    return ()=>{if(focus?.isConnected)focus.focus();};
+    const modal=dialog.current;
+    if(!modal.open)modal.showModal();
+    return ()=>{
+      // Release modal focus before restoring the opener, including effect replay.
+      if(modal.open)modal.close();
+      if(focus?.isConnected)focus.focus();
+    };
   },[]);
 
   const loadPage = useCallback(async (before) => {

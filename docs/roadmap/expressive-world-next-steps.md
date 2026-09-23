@@ -1,6 +1,6 @@
 # Expressive world: review boundary and next work
 
-**Updated September 21, 2026 after the UX implementation.** The owner asked to package the session's changes for review
+**Updated September 23, 2026 after the UX review follow-up.** The owner asked to package the session's changes for review
 and undertake further UI/UX, navigation and placement work as a dedicated effort.
 This checkpoint is not a claim that the production-quality milestone is complete.
 
@@ -92,8 +92,11 @@ regressions used temporary databases.
    not establish a world-wide production art pipeline or generation quality parity.
    The [beta artwork strategy](../design/beta-scene-art.md) remains a proposal.
 
-Next handoff: re-review the 17 fixes on PR #107 against its visual evidence and
-the agreed placement; gather player observations before assigning another implementation
+Next handoff: final review of PR #107, including the development-only Chronicle
+focus cleanup and reconciled verification record. All 20 review threads were
+resolved at the September 23 refresh; that is not a formal approval or merge.
+Review against the visual evidence and agreed placement, then gather player
+observations before assigning another implementation
 batch. Improved fallback art is a discovered production gap, not work silently
 absorbed here. Any follow-on implementation requires a new owner instruction and
 a refreshed merged base. Preserve the existing playtest history. No merge,

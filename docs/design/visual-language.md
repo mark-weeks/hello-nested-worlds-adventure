@@ -253,6 +253,11 @@ contour or trace; many other state changes intentionally have no extra motif.
 Reduced motion freezes the scene and removes transient motion without hiding
 controls or conditions. No motion is required to interpret the vocabulary.
 
+Modal history returns keyboard focus to the control that opened it. Close the
+native dialog before restoring focus so its background is no longer inert; retain
+that element through cleanup, including React development effect replay. Both the
+Close button and Escape must preserve this return path when reopened.
+
 ## Comparison and acceptance boundary
 
 See the [measured UX evaluation](../evaluation/2026-09-21-ux-visual-language.md)

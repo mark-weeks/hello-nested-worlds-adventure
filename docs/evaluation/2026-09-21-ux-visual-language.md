@@ -1,6 +1,7 @@
 # UX, navigation and evolving visual language
 
-September 21, 2026. Review candidate based on refreshed main `e038d19`, after
+September 21, 2026; review follow-up updated September 23. Review candidate based
+on refreshed main `e038d19`, after
 [Commit, then discover #106](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/106)
 was reviewed and merged. All 15 review threads were resolved. This batch changes
 presentation and navigation; accepted action semantics, consent and recovery
@@ -113,11 +114,24 @@ size; it does not substitute for physical-device and browser-zoom testing.
 
 ## Verification
 
-**Final review-fix gate:** one complete `ENFOLDED_E2E=1 ./scripts/check.sh` invocation
-passed Ruff, **1,358 Python (246.96 s)**, **131 Vitest**, byte-fresh production build,
-installed-wheel smoke and **89 Playwright (2.3 min)**. The original 39 table
-fingerprints were rechecked and remain unchanged. Screenshots below were refreshed
-from this run; the reviewed-head Wayback capture is explicitly labeled.
+**September 23 follow-up:** both development StrictMode regressions fail against
+`5283559` because the Chronicle opener loses focus, then pass after the cleanup
+correction, including reopening and closing again. One complete
+`ENFOLDED_E2E=1 ./scripts/check.sh` invocation passed Ruff, **1,358 Python
+(246.08 s)**, **131 Vitest**, byte-fresh production build, installed-wheel smoke
+and **94 Playwright (2.3 min)**. The two new cases account for the increase from
+92. All **42 local Markdown targets** in the updated evaluation/design/roadmap
+files and the consolidated CHANGELOG evaluation link resolve; diff whitespace is
+clean. The rebuilt scene was inspected directly in the in-app browser against a
+disposable world: both Close and Escape restore its opener, and Enter reopens it.
+
+**Earlier review gates:** `5283559` passed Ruff, **1,358 Python (328.78 s)**,
+**131 Vitest**, byte-fresh production build, installed-wheel smoke and
+**92 Playwright (3.7 min)**. The preceding `65b9429` gate passed the same stages
+with **1,358 Python (246.96 s)** and **89 Playwright (2.3 min)**. The original 39
+table fingerprints were rechecked at that earlier review-fix stage. Screenshots
+below are from that stage, not newly captured September 23; the reviewed-head
+Wayback capture is explicitly labeled.
 
 The following records the initial implementation gate before PR review:
 
@@ -156,9 +170,13 @@ The 17 findings on reviewed head `5a36650` were read together with the four repl
 inside existing Copilot threads. Thirteen browser scenarios reproduced failures on
 that head, including the tall-column and observed-history focus cases previously
 reasoned from code. The follow-up adds those regressions plus a resolver-work bound.
-The last two rows are not from that head: they were raised against the fix commit
-`65b9429` and are addressed here.
-The PR's owner-changed ready-for-review state is retained; no merge is authorized.
+The two findings raised against fix commit `65b9429` were corrected in `5283559`.
+The Chronicle report was resolved as nonblocking: the alleged crash was not
+reproduced, while its development-only focus cleanup warranted a small follow-up.
+The owner authorized that remaining cleanup on September 23. All **20 review
+threads were resolved** when refreshed that day; this follow-up still needs review.
+The PR's owner-changed ready-for-review state is retained. There is no formal
+APPROVED review recorded and no merge is authorized.
 
 | Finding | Disposition and evidence |
 |---|---|
@@ -181,15 +199,20 @@ The PR's owner-changed ready-for-review state is retained; no merge is authorize
 | Hidden selected map label | Show **You are here** at the marker. This restores orientation while honoring the single identity block instead of repeating its name/address. |
 | Resolver instrumentation undercount (raised on `65b9429`) | `apply` resolved through the module-local binding while the export was assembled separately, so a probe on the exported reference could not see it and the selected place resolved three times for a true total of **4,211**, not the asserted **4,210**. `selectNode` now resolves once and hands those tokens to both the page application and the marker; `apply` resolves through the exported reference when a caller supplies none. The selected place resolves twice — its own call and the scene renderer — so **4,210** calls for **4,208** nodes is now exact and fully observable, asserted as equality rather than a bound. A separate case pins that `apply` without tokens is counted and `apply` with tokens does not resolve again; it fails on the unfixed source, reporting **0** observed resolutions. |
 | Navigation retry focus loss (raised on `65b9429`) | A same-node `error` → `loading` change removed the focused retry button, and with nothing carrying `data-target="retry"` the keyed lookup no-opped and focus fell to `<body>`; the destination-heading handoff ran only when the node changed. The keyed lookup now falls back to that same heading, matching the Act composer fallback. A browser case focuses Retry passages, drives the status change, then asserts the heading holds focus and the body does not; it fails on the unfixed source. |
+| Chronicle development StrictMode cleanup | The reported `showModal()` crash was not reproduced and was not treated as a production blocker. A real React development fixture does reproduce lost opener focus on both Close and Escape: effect cleanup tried to focus the opener while it was still outside an active modal, so the repeated setup captured an inner element instead. Cleanup now closes the retained dialog element before restoring its opener; setup opens only a closed dialog. Two browser regressions verify actual doubled effect setup, modal state, both close paths, reopening and no page errors. Both fail against `5283559` at the opener-focus assertion and pass with the fix. |
 
 The historical-state and failure scenarios use the real UI with controlled HTTP
 responses where noted in `ux-review.spec.js`. Passage badge and presence payloads
 are explicit browser fixtures, not claimed live-agent observations. The tall-column
 case deliberately extends the sidebar to 5,000px to expose the sticky failure;
 its screenshots show the scrolled viewport, not a naturally occurring long history.
-The instrumented resolver consumed **32.5 ms** in the full local browser run.
-That is a local diagnostic, not a performance SLA, total map-render time or a
-comparison with the review's separate Node benchmark.
+The original **32.5 ms** resolver measurement at `65b9429` omitted the hidden
+`apply` call, just as its count did; it must not be read as a measurement of all
+resolver work. The corrected equality and observability regressions establish
+**4,210 fully observable calls** for **4,208 nodes**, taking **31.4 ms** in the
+September 23 full browser run. Resolver timing is a local diagnostic, not a
+performance SLA, total map-render time or a comparison with the review's separate
+Node benchmark.
 
 Direct inspection confirmed that the repaired Wayback buttons are recognizable,
 the selected map label connects the diagram to the identity panel, and the small
@@ -221,9 +244,10 @@ allow loaded choices to replace that focused loading surface.
   persistent itinerary was added. Historical v1/v2 receipts and v3 commitments use
   the same existing backend paths.
 
-Next: re-review the fixes on PR #107, using the five comparison pairs and
-narrow/zoom/recovery captures, then a scoped playtest. Any further implementation
-requires a separate owner instruction after the appropriate reviewed merge.
+Next: final review of PR #107, including the Chronicle cleanup and reconciled
+verification record, using the five comparison pairs and narrow/zoom/recovery
+captures; then a scoped playtest after the appropriate reviewed merge. Any new
+implementation batch requires a separate owner instruction and refreshed merged base.
 
 **Irreversibility check:** none — no migration, golden re-pin, generator/birth
 change, new chronicle writer, world-meta/hinge pin or era-bank edit. The runtime
