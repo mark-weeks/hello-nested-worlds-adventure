@@ -1,5 +1,16 @@
 # Discovery, Identity, and Return: Delivery Plan
 
+**2026-10-03 readiness revision:** The active M7 study follows the revised
+[pilot protocol](../evaluation/2026-09-12-pilot-protocol.md), protocol version 2:
+curiosity, understanding an attempted action, understanding an observed consequence,
+unprompted return, and useful return. The historical M0/M5 signal branches and
+shared decision window below are not instructions for new participants. M7's
+compatibility trial exercises an additive application update and accepted v3 work;
+it does not require installing another scripted situation. The
+[readiness record](../evaluation/2026-10-03-beta-readiness.md) separates completed
+local work from hosted and human gates. October 31 is a conditional target.
+Invites retain the explorer default; switching it still needs ADR-005's evidence.
+
 **2026-09-20 playtest correction:** The owner rejected the initial expressive build's
 universal composer, forced agent delegation, intrusive gallery controller and
 insufficient sound differentiation. [ADR-028](../decisions/ADR-028-scale-native-autonomy.md)

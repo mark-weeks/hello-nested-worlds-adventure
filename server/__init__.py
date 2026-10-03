@@ -20,6 +20,10 @@ from server.handlers import Handler as _Handler
 
 class _ThreadedServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
+    # Python 3.11 defaults to five waiting connections. An invited cohort can
+    # exceed that in one burst before handlers start, causing TCP resets rather
+    # than an HTTP response. This backlog is separate from the guarded WS cap.
+    request_queue_size = 64
 
 
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:

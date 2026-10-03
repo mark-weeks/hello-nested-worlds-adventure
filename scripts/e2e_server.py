@@ -2,12 +2,23 @@
 import argparse
 from contextlib import ExitStack
 from pathlib import Path
+from socketserver import TCPServer
 import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import persistence  # noqa: E402
 from server import _Handler, _ThreadedServer, heartbeat  # noqa: E402
+
+
+class _LoopbackServer(_ThreadedServer):
+    def server_bind(self):
+        # The fixture binds a numeric loopback address. HTTPServer's reverse DNS
+        # lookup is only for server_name metadata and can stall on host DNS.
+        # Keep local browser/recovery tests independent of external resolution.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
@@ -26,7 +37,7 @@ if __name__ == '__main__':
         if args.preseed is not None:
             from multiverse import store
             store.ensure_born(args.preseed)
-        server = _ThreadedServer(('127.0.0.1', args.port), _Handler)
+        server = _LoopbackServer(('127.0.0.1', args.port), _Handler)
         if args.pump:
             heartbeat.start_pump()
         print(server.server_address[1], flush=True)

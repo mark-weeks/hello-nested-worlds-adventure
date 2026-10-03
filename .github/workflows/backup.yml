@@ -3,34 +3,42 @@ name: Off-host backup
 # The volume holding worlds.db is the only live copy of the permanent
 # chronicle; Fly's automatic snapshots retain just 5 days and live on the
 # same platform. This schedule pulls an application-level backup off-host
-# into a GitHub artifact every hour — the continuity promise makes data
-# loss a broken covenant, not an outage, so the loss window is kept to an
-# hour (ADR-005; Litestream-style continuous replication is the recorded
-# post-launch follow-up that shrinks it to seconds). Hourly full copies
+# into a GitHub artifact on an hourly schedule. Scheduling can be delayed or
+# dropped; artifact freshness and a restore rehearsal establish readiness,
+# not a green workflow badge. ADR-005's one-hour recovery target still applies.
+# Litestream-style continuous replication remains the post-launch follow-up.
+# Hourly full copies
 # are cheap at beta scale; revisit the cadence if the DB outgrows a quick
 # sftp pull. Requires the FLY_API_TOKEN repo secret (fly tokens create
-# deploy); until it is set, runs no-op with a notice instead of failing.
+# deploy). Before launch set ENFOLDED_BACKUP_REQUIRED=true as a repository
+# variable: a missing token then fails instead of returning a green no-op.
 on:
   schedule:
     - cron: '17 * * * *'   # hourly at :17 (off the top-of-hour congestion)
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: off-host-backup
+  cancel-in-progress: false
+
 jobs:
   backup:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-      FLY_APP: enfolded-beta
+      FLY_APP: ${{ vars.ENFOLDED_BACKUP_APP || 'enfolded-beta' }}
+      BACKUP_REQUIRED: ${{ vars.ENFOLDED_BACKUP_REQUIRED == 'true' && '1' || '0' }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Check for the Fly token
         id: gate
-        run: |
-          if [ -n "$FLY_API_TOKEN" ]; then
-            echo "ready=yes" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::FLY_API_TOKEN secret not set — skipping off-host backup."
-            echo "ready=no" >> "$GITHUB_OUTPUT"
-          fi
+        run: bash scripts/backup_gate.sh
 
       - name: Set up flyctl
         if: steps.gate.outputs.ready == 'yes'
@@ -39,7 +47,7 @@ jobs:
       - name: Take an online backup on the machine
         if: steps.gate.outputs.ready == 'yes'
         run: |
-          STAMP="$(date -u +%Y%m%d-%H00)"
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
           flyctl ssh console -a "$FLY_APP" -C \
             "python main.py backup --to /data/backups/offhost-$STAMP.db"
@@ -50,11 +58,25 @@ jobs:
           flyctl ssh sftp get "/data/backups/offhost-$STAMP.db" -a "$FLY_APP"
           ls -la "offhost-$STAMP.db"
 
+      - name: Validate the downloaded SQLite snapshot
+        if: steps.gate.outputs.ready == 'yes'
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, sqlite3
+          path = pathlib.Path('offhost-' + os.environ['STAMP'] + '.db').resolve()
+          with sqlite3.connect(path.as_uri() + '?mode=ro') as db:
+              assert db.execute('PRAGMA integrity_check').fetchall() == [('ok',)]
+              assert db.execute('PRAGMA journal_mode').fetchone() == ('delete',)
+              for table in ('world_nodes', 'world_mutations', 'invite_keys', 'intervention_work'):
+                  db.execute('SELECT 1 FROM ' + table + ' LIMIT 1').fetchall()
+          print('Self-contained snapshot passed integrity and schema checks; restore rehearsal still required.')
+          PY
+
       - name: Store as a workflow artifact (90-day retention)
         if: steps.gate.outputs.ready == 'yes'
         uses: actions/upload-artifact@v4
         with:
-          name: worlds-backup-${{ env.STAMP }}
+          name: worlds-backup-${{ env.FLY_APP }}-${{ env.STAMP }}
           path: offhost-*.db
           retention-days: 90
           if-no-files-found: error
@@ -65,3 +87,11 @@ jobs:
           flyctl ssh console -a "$FLY_APP" -C \
             "sh -c 'ls -t /data/backups/offhost-*.db 2>/dev/null | tail -n +7 | xargs -r rm'" \
             || echo "prune skipped"
+
+      - name: Check off-host artifact freshness
+        if: always() && env.BACKUP_REQUIRED == '1'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/backup_health.py --repository "$GITHUB_REPOSITORY" --app "$FLY_APP" | tee -a "$GITHUB_STEP_SUMMARY"
