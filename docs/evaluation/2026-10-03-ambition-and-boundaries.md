@@ -540,9 +540,9 @@ the world; all of it is a transport layer around the same database.
 | D9 | Process re-tune | Keep five covenants; demote the rest to guidance; add the ambition covenant | Velocity | Re-reading CLAUDE.md with the team |
 
 Decisions D1–D5 each warrant an ADR in house style. At the owner's request,
-D1 is drafted as [ADR-029](../decisions/ADR-029-evolution-grammar.md)
-(Proposed); the others wait on direction because their *scope* is the owner's
-call.
+D1 is drafted as [ADR-029](../decisions/ADR-029-evolution-grammar.md) and D3
+as [ADR-030](../decisions/ADR-030-render-contract.md) (both Proposed); the
+others wait on direction because their *scope* is the owner's call.
 
 ---
 
