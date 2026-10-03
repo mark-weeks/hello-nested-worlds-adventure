@@ -61,3 +61,9 @@ def test_legacy_results_are_labeled_and_not_reinterpreted():
     assert result['protocol_version'] == 1
     assert 'not comparable' in result['interpretation']
     assert 'understood_action' not in result['metrics']
+
+
+def test_current_protocol_rejects_notes_in_the_envelope_without_echoing_them():
+    with pytest.raises(ValueError, match='Unknown top-level field') as error:
+        report({'protocol_version': 2, 'participants': [], 'notes': 'Private fixture evidence'})
+    assert 'Private fixture evidence' not in str(error.value)

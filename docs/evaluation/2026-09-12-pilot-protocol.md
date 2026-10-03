@@ -98,7 +98,9 @@ Run `python scripts/pilot_report.py /absolute/path/to/observations.json`. It rea
 only that file, reports yes/observed/unknown for each metric, and never reads notes
 or changes the world. Protocol 2 rejects the old `understood_choice` field and
 ineligible observations; legacy list input is still reported as protocol 1.
-Do not pool the two protocols.
+Protocol 2 also rejects extra top-level fields so evidence notes cannot be attached
+to the report envelope. This does not replace the research owner's responsibility
+to use pseudonyms and exclude identifying details. Do not pool the two protocols.
 
 ## Decision after the window
 

@@ -17,10 +17,15 @@ Two pieces of test isolation:
 """
 from __future__ import annotations
 
+import json
+import threading
+import urllib.error
+import urllib.request
+
 import pytest
 
 import persistence
-from server import rooms as _rooms_module
+from server import _Handler, _ThreadedServer, rooms as _rooms_module
 
 
 @pytest.fixture(autouse=True)
@@ -60,3 +65,35 @@ def _isolate_rate_limits():
     guard.READ_RATE_LIMITER.reset()
     guard.IDEAS_AUTH_FAILURE_RATE_LIMITER.reset()
     guard.WS_LIMITER.reset()
+
+
+@pytest.fixture
+def accounts():
+    persistence.mint_invite_key('nw_' + 'a' * 32, 'Ada')
+    persistence.mint_invite_key('nw_' + 'b' * 32, 'Bea')
+    return 'nw_' + 'a' * 32, 'nw_' + 'b' * 32
+
+
+@pytest.fixture
+def http(accounts, monkeypatch):
+    monkeypatch.setenv('NESTED_WORLDS_CANONICAL_SEED', '382')
+    server = _ThreadedServer(('127.0.0.1', 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    def request(path, key=accounts[0], body=None):
+        req = urllib.request.Request(f'http://127.0.0.1:{server.server_port}{path}',
+            data=json.dumps(body).encode() if body is not None else None,
+            headers={'X-Beta-Key': key, 'Content-Type': 'application/json'})
+        try:
+            response = urllib.request.urlopen(req, timeout=10)
+        except urllib.error.HTTPError as exc:
+            response = exc
+        with response:
+            data = json.load(response) if response.headers.get_content_type() == 'application/json' else response.read().decode()
+            return response.status, data, dict(response.headers)
+    try:
+        yield request
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-case "${BACKUP_REQUIRED:-0}" in
-  0|1) ;;
-  *) echo '::error::BACKUP_REQUIRED must be 0 or 1.'; exit 2 ;;
+case "${BACKUP_REQUIRED:-false}" in
+  true|false) ;;
+  *) echo '::error::ENFOLDED_BACKUP_REQUIRED must be true, false, or unset.'; exit 2 ;;
 esac
 if [ -n "${FLY_API_TOKEN:-}" ]; then
   echo 'ready=yes' >> "$GITHUB_OUTPUT"
-elif [ "${BACKUP_REQUIRED:-0}" = 1 ]; then
+elif [ "${BACKUP_REQUIRED:-false}" = true ]; then
   echo '::error::Off-host backup is required, but FLY_API_TOKEN is unavailable.'
   exit 1
 else

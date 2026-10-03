@@ -11,7 +11,6 @@ from persistence import ideas, ideas_cli, participants
 from server import idea_promotion as p
 from tests.test_idea_promotion import brief, github, intent  # noqa: F401
 from tests.test_ideas import create
-from tests.test_participant_contracts import accounts, http  # noqa: F401
 
 
 def settle(idea_id, state, key):

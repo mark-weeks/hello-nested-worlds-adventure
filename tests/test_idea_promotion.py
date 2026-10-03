@@ -15,7 +15,6 @@ import pytest
 import persistence as db
 from persistence import ideas, participants
 from server import idea_promotion as p
-from tests.test_participant_contracts import accounts, http  # noqa: F401
 from tests.test_ideas import create, submission
 
 

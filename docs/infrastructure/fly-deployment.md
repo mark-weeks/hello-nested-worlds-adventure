@@ -375,12 +375,14 @@ backups. The manual equivalent:
 fly ssh console -C "python main.py backup --to /data/backups/worlds-$(date -u +%Y%m%d).db"
 ```
 
-**Off-host copies (hourly schedule; freshness must be checked).** ADR-005 targets
+**Off-host copies (every 30 minutes; freshness must be checked).** ADR-005 targets
 at most one hour of lost history. A schedule alone does not establish that bound:
 [GitHub documents delayed and dropped scheduled jobs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 The workflow takes an online backup, downloads a self-contained SQLite file,
-checks integrity and required tables, and uploads it with 90-day retention.
-A successful upload is not yet a restore rehearsal.
+checks integrity and required tables, and retains it with 90-day retention even
+when validation fails. A failed check keeps the run failed and labels the artifact
+`unvalidated-worlds-backup-<app>-<UTC snapshot-start>` for operator salvage. These
+copies never count as healthy backups. A successful upload is not yet a restore rehearsal.
 
 Before a separately authorized launch, configure the repository:
 
@@ -389,7 +391,9 @@ Before a separately authorized launch, configure the repository:
   Use the staging app during rehearsal; switch deliberately before production.
 - Variable `ENFOLDED_BACKUP_REQUIRED`: exactly `true` before permanent history is
   accepted. Missing credentials then fail the workflow. Before activation, a
-  missing token produces an explicit inactive warning and no recovery claim.
+  missing token with the variable unset or exactly `false` produces an explicit
+  inactive warning and no recovery claim. Any other value fails configuration;
+  a typo cannot silently turn enforcement off.
 
 Manually dispatch `backup.yml`; inspect the artifact, not just the job badge.
 Artifacts are named `worlds-backup-<app>-<UTC snapshot-start>`; staging copies
@@ -400,19 +404,26 @@ GitHub CLI access (`actions:read`):
 python scripts/backup_health.py --repository mark-weeks/hello-nested-worlds-adventure --app enfolded-beta
 ```
 
-It queries all artifact pages and exits 0 for a nonempty, nonexpired artifact
-whose snapshot-start is no more than 60 minutes old; 1 for missing/stale; 2 when
-status cannot be determined. It does not download data, validate contents, or
-restore anything. Old artifact names without an app/snapshot timestamp are not
-counted as proof. API fields follow the [GitHub artifact API](https://docs.github.com/en/rest/actions/artifacts).
+It queries artifact pages and checks the candidate's originating run. Only a
+completed, successful `backup.yml` run on `main`, triggered by the schedule or a
+manual dispatch from the same repository, qualifies. Workflow identity, branch,
+repository and commit metadata must match; an expected filename alone is not proof.
+It exits 0 for a qualifying nonempty, nonexpired artifact whose snapshot-start is
+no more than 60 minutes old; 1 for missing/stale; 2 when status cannot be determined.
+It does not download data, validate contents, or restore anything. Old artifact names
+and quarantined copies are not counted. Metadata follows the
+[GitHub artifact API](https://docs.github.com/en/rest/actions/artifacts) and
+[workflow-run API](https://docs.github.com/en/rest/actions/workflow-runs).
 
-The active workflow runs this check even after backup failure. Also arrange an
-independent scheduled check and operator notification before launch: a workflow
-cannot detect its own scheduler stopping. This batch provides the command, not
-an external monitor. Keep the one-hour threshold visible; do not silently widen
-it to accommodate schedule delays. If measured cadence cannot meet the accepted
-loss window, resolve the backup schedule/transport or explicitly revisit ADR-005.
-Record several subsequent scheduled artifacts before calling automation proven.
+Run this check independently after workflow completion. A workflow cannot certify
+its own successful conclusion while still running, and cannot detect its own
+scheduler stopping. The backup job itself fails on invalid configuration,
+validation or upload failure. Arrange the independent check and operator notification
+before launch; this batch provides the command, not an external monitor.
+The `:17` and `:47` schedule leaves 30 minutes of nominal slack within the unchanged
+one-hour freshness limit; it does not guarantee timely scheduling. If measured
+cadence cannot meet that loss window, fix the transport/cadence or explicitly
+revisit ADR-005. Record several subsequent artifacts before calling automation proven.
 
 Download the selected artifact through GitHub, retain its run ID, snapshot time,
 app, release SHA and file checksum, and rehearse the restore below on an isolated

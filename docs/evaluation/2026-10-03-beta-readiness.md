@@ -4,7 +4,7 @@
 **Status:** readiness implementation and local rehearsal; not launch approval.
 The owner requested the actions available now after reviewing the readiness
 findings. This batch changes instructions, research reporting, backup verification,
-the server's waiting-connection backlog, and tests. It does not deploy, change credentials/access, recruit participants,
+the server's startup and waiting-connection backlog, and tests. It does not deploy, change credentials/access, recruit participants,
 ratify proposed ADRs, or change the public client default.
 
 ## Assessment of the attached review
@@ -77,22 +77,27 @@ October 3; all remain open. No issue was edited or closed.
   recovery cases rather than opening a scripted situation. It distinguishes
   local checks, hosted rehearsal, real model quality, and human observations.
 - `backup.yml` can target an explicitly configured app. With repository variable
-  `ENFOLDED_BACKUP_REQUIRED=true`, missing Fly credentials fail. Prelaunch no-ops
-  are labeled inactive. Downloaded SQLite files must pass integrity, self-contained
-  journal-mode, and required-table checks before upload. Artifact names identify
-  the app and snapshot-start time.
+  `ENFOLDED_BACKUP_REQUIRED=true`, missing Fly credentials fail; malformed values
+  also fail instead of disabling enforcement. Prelaunch no-ops are labeled inactive.
+  Backups run every 30 minutes against the unchanged 60-minute freshness limit.
+  Downloaded SQLite files are retained even if integrity, journal-mode or schema
+  validation fails; those copies have a quarantine prefix and leave the run failed.
+  Healthy artifact names identify the app and snapshot-start time.
 - `scripts/backup_health.py` checks all GitHub artifact pages, ignores other apps,
-  expired/empty copies and future timestamps, and uses snapshot time rather than
-  upload time. It exits nonzero for missing, stale, or unavailable evidence. The
-  active workflow invokes it even after backup failure; an independent scheduler
-  still needs configuration to detect GitHub's scheduler stopping.
+  expired/empty/quarantined copies and future timestamps, and uses snapshot time
+  rather than upload time. It also verifies successful completed `backup.yml` run
+  provenance on `main` in the same repository. It exits nonzero for missing, stale,
+  or unavailable evidence. It runs independently after completion: requiring a
+  running workflow to prove its own final success would prevent first activation.
+  The independent scheduler and notification destination still need configuration.
 - The server accepts a waiting-connection backlog of 64 rather than Python 3.11's
   default 5. The existing 12-client concurrent-voting test reproduced connection
   resets before this change; the complete Ideas suite and final release checks
   pass afterward. This is local burst evidence, not a hosted capacity claim.
-- The disposable browser/recovery server avoids a reverse-DNS lookup for its
-  numeric loopback address. A captured startup traceback identified that lookup
-  as the cause of a 15-second rehearsal timeout; production DNS is unchanged.
+- The shared server avoids reverse DNS when setting its display name, so the fix
+  covers production, direct test constructors, and the browser/recovery launcher.
+  A captured startup traceback identified the lookup as the cause of a 15-second
+  rehearsal timeout. Bound addresses and port behavior remain unchanged.
 
 ## Recovery evidence and its limits
 
@@ -172,7 +177,7 @@ No Fly CLI, Fly API token, or model API key was present in the current process o
 checked checkout configuration. This does not establish that production does not
 exist or that credentials do not exist elsewhere. No secret values were printed.
 
-## Verification
+## Verification before PR review
 
 On Python 3.11 and Node 20.19.0, `ENFOLDED_E2E=1 ./scripts/check.sh` completed with
 exit 0: Ruff passed; **1,382 Python tests passed in 245.90 seconds**; **131 Vitest
@@ -205,8 +210,35 @@ from this batch, not declaring the package safe. Update it before introducing
 that worker path and recheck dependencies when selecting the release. No lockfile
 or dependency versions changed here.
 
+## PR #109 review corrections
+
+All 11 inline findings were accepted, including the non-blocking test/tooling gaps.
+
+| Review concern | Correction and evidence |
+|---|---|
+| Repository-variable typos silently disable enforcement | Pass the raw value into the shell gate; test unset, false, true, typo, uppercase and numeric values, with and without a token. Invalid values fail even with credentials present. |
+| A matching artifact name can come from an unrelated run | Match trusted workflow ID/path, completed success, main branch, schedule/manual event, repository identity and commit metadata. Tests reject foreign, failed and in-progress runs; a real subprocess with a fixture GitHub CLI exercises the API calls. |
+| Validation failure loses the downloaded off-host copy | Retain every successfully downloaded file through an always-run upload. Failed validation uses `unvalidated-worlds-backup-...`, keeps the workflow failed and cannot satisfy freshness. Current, older-schema and damaged SQLite fixtures remain byte-identical after validation. Hosted upload remains unexercised without Fly credentials. |
+| Read-only URI handling and connection cleanup | Use explicit `uri=True` and `closing()` in validation and rehearsal; missing paths are not created, and filenames containing URI metacharacters work. |
+| Hourly cadence leaves no freshness slack | Run at :17 and :47, retaining the one-hour recovery threshold. This improves headroom without weakening ADR-005; scheduling failure still needs independent monitoring. |
+| Reverse DNS still blocks shared/production constructors | Move the bind override into `_ThreadedServer`; loopback and wildcard listeners bind/connect when `getfqdn` is forced to fail. |
+| Hidden startup errors and fixture coupling | Capture bounded stderr diagnostics, distinguish early exit/bad port/timeout, and clean up failed children. Move shared accounts/HTTP fixtures to `conftest.py`; the reusable Python helper and Playwright both invoke `scripts/e2e_server.py`. |
+| Top-level pilot fields bypass row validation | Reject extra envelope fields without echoing private content. |
+| Backlog change lacks portable regression coverage | Queue 32 real HTTP requests before starting accept and verify connections remain open. A handshake-only control could pass before asynchronous resets; the corrected test passes at backlog 64 and fails with backlog 5 restored in memory. |
+
+Review verification: focused backup/protocol validation passed **55 tests**;
+server, recovery, participant, Ideas and intervention checks passed **83 tests**.
+The corrected startup/burst checks passed **6 tests**, and the old-backlog control
+failed as intended. The final canonical gate exited 0: Ruff passed; **1,417 Python
+tests passed in 246.97 seconds**; **131 Vitest tests passed**; the production bundle
+was byte-fresh; installed-wheel smoke passed; **96 Playwright tests passed in
+2.7 minutes**. Actionlint 1.7.12 validated the workflow structure and expressions;
+shell syntax, 83 local Markdown targets, protocol JSON and diff whitespace passed.
+The revised live read-only checker returned missing. Hosted checks run on the
+published PR revision; hosted recovery and participant gates remain outstanding.
+
 **Irreversibility check:** none — no migration, golden re-pin, generator/born-row
 change, new application chronicle writer, world-meta/hinge pin, or era-bank edit.
 The diff contains documentation, research/backup tooling, workflow checks, one guide
-sentence, connection-backlog sizing, and test infrastructure. All rehearsal effects
+sentence, shared server startup/backlog behavior, and test infrastructure. All rehearsal effects
 are confined to disposable databases.

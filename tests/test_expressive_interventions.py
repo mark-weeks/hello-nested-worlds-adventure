@@ -17,7 +17,6 @@ from persistence import participants, interventions as work
 from multiverse import interventions_v1 as physics, interventions_v2, store
 from multiverse.senses import describe
 from multiverse.situation import NODES
-from tests.test_participant_contracts import accounts, http  # noqa: F401
 
 START = datetime(2026, 9, 20, 12)
 SCORE = [{'op': 'weave'}, {'op': 'charge', 'amount': 3}, {'op': 'release'}]

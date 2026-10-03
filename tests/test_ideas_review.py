@@ -12,7 +12,6 @@ import persistence as db
 from persistence import ideas, participants
 from server import _Handler, _ThreadedServer, guard, observability
 from tests.test_ideas import create, submission
-from tests.test_participant_contracts import accounts, http  # noqa: F401
 
 
 @pytest.mark.parametrize('route', ['/ideas/list', '/ideas/search', '/ideas/detail'])

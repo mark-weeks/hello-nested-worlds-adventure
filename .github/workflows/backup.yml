@@ -3,18 +3,18 @@ name: Off-host backup
 # The volume holding worlds.db is the only live copy of the permanent
 # chronicle; Fly's automatic snapshots retain just 5 days and live on the
 # same platform. This schedule pulls an application-level backup off-host
-# into a GitHub artifact on an hourly schedule. Scheduling can be delayed or
+# into a GitHub artifact every 30 minutes. Scheduling can be delayed or
 # dropped; artifact freshness and a restore rehearsal establish readiness,
 # not a green workflow badge. ADR-005's one-hour recovery target still applies.
 # Litestream-style continuous replication remains the post-launch follow-up.
-# Hourly full copies
+# Half-hourly full copies leave slack within the one-hour freshness limit and
 # are cheap at beta scale; revisit the cadence if the DB outgrows a quick
 # sftp pull. Requires the FLY_API_TOKEN repo secret (fly tokens create
 # deploy). Before launch set ENFOLDED_BACKUP_REQUIRED=true as a repository
 # variable: a missing token then fails instead of returning a green no-op.
 on:
   schedule:
-    - cron: '17 * * * *'   # hourly at :17 (off the top-of-hour congestion)
+    - cron: '17,47 * * * *'   # off the top-of-hour congestion
   workflow_dispatch: {}
 
 permissions:
@@ -32,7 +32,8 @@ jobs:
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       FLY_APP: ${{ vars.ENFOLDED_BACKUP_APP || 'enfolded-beta' }}
-      BACKUP_REQUIRED: ${{ vars.ENFOLDED_BACKUP_REQUIRED == 'true' && '1' || '0' }}
+      # Preserve typos so the gate can reject them instead of silently disabling backups.
+      BACKUP_REQUIRED: ${{ vars.ENFOLDED_BACKUP_REQUIRED }}
     steps:
       - uses: actions/checkout@v4
 
@@ -53,30 +54,24 @@ jobs:
             "python main.py backup --to /data/backups/offhost-$STAMP.db"
 
       - name: Download the backup off-host
+        id: download
         if: steps.gate.outputs.ready == 'yes'
         run: |
           flyctl ssh sftp get "/data/backups/offhost-$STAMP.db" -a "$FLY_APP"
           ls -la "offhost-$STAMP.db"
 
       - name: Validate the downloaded SQLite snapshot
+        id: validate
         if: steps.gate.outputs.ready == 'yes'
-        run: |
-          python3 - <<'PY'
-          import os, pathlib, sqlite3
-          path = pathlib.Path('offhost-' + os.environ['STAMP'] + '.db').resolve()
-          with sqlite3.connect(path.as_uri() + '?mode=ro') as db:
-              assert db.execute('PRAGMA integrity_check').fetchall() == [('ok',)]
-              assert db.execute('PRAGMA journal_mode').fetchone() == ('delete',)
-              for table in ('world_nodes', 'world_mutations', 'invite_keys', 'intervention_work'):
-                  db.execute('SELECT 1 FROM ' + table + ' LIMIT 1').fetchall()
-          print('Self-contained snapshot passed integrity and schema checks; restore rehearsal still required.')
-          PY
+        run: python3 scripts/validate_backup.py "offhost-$STAMP.db"
 
-      - name: Store as a workflow artifact (90-day retention)
-        if: steps.gate.outputs.ready == 'yes'
+      # Retain even an invalid/older snapshot for operator salvage. Failed validation
+      # still fails the run; quarantine names never satisfy backup_health.py.
+      - name: Retain the snapshot, quarantining validation failures (90 days)
+        if: always() && steps.download.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: worlds-backup-${{ env.FLY_APP }}-${{ env.STAMP }}
+          name: ${{ steps.validate.outcome == 'success' && 'worlds-backup' || 'unvalidated-worlds-backup' }}-${{ env.FLY_APP }}-${{ env.STAMP }}
           path: offhost-*.db
           retention-days: 90
           if-no-files-found: error
@@ -88,10 +83,5 @@ jobs:
             "sh -c 'ls -t /data/backups/offhost-*.db 2>/dev/null | tail -n +7 | xargs -r rm'" \
             || echo "prune skipped"
 
-      - name: Check off-host artifact freshness
-        if: always() && env.BACKUP_REQUIRED == '1'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 scripts/backup_health.py --repository "$GITHUB_REPOSITORY" --app "$FLY_APP" | tee -a "$GITHUB_STEP_SUMMARY"
+      # Check freshness independently after run completion. This run cannot certify
+      # its own successful conclusion; doing so would make first activation fail.

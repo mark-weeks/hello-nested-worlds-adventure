@@ -1,8 +1,7 @@
 """Summarize separately consented pilot observations; never reads/writes the world DB.
 
 Input: a protocol-2 JSON object (or a legacy list), one pseudonymous participant
-per row. Missing observations
-remain unknown. Return measurements distinguish an unprompted second visit from
+per row. Missing observations remain unknown. Return measurements distinguish an unprompted second visit from
 an answer to a reminder. The operator chooses the evidence window before recruiting.
 """
 import argparse
@@ -20,6 +19,8 @@ def report(observations):
     if legacy:
         rows, metrics = observations, LEGACY_METRICS
     elif isinstance(observations, dict) and observations.get('protocol_version') == 2:
+        if set(observations) - {'protocol_version', 'participants'}:
+            raise ValueError('Unknown top-level field; keep evidence notes separately.')
         rows, metrics = observations.get('participants'), METRICS
     else:
         raise ValueError('Expected protocol_version=2 with participants, or a legacy list.')

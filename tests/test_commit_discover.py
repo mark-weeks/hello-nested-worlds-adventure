@@ -11,7 +11,6 @@ from persistence import interventions as work
 from multiverse import interventions_v3 as physics, store
 from multiverse.situation import NODES
 from tests.test_expressive_interventions import START, events, owner  # noqa: F401
-from tests.test_participant_contracts import accounts, http  # noqa: F401
 
 
 def arrive(http, name, key=None):

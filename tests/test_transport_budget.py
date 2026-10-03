@@ -8,7 +8,6 @@ import urllib.request
 
 import pytest
 
-from tests.test_participant_contracts import accounts  # noqa: F401
 
 IMMUTABLE = 'public, max-age=31536000, immutable'
 

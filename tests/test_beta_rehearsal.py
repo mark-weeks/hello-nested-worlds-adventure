@@ -1,57 +1,20 @@
 """Cold-process recovery on disposable worlds, not evidence of hosted restore."""
-from contextlib import contextmanager
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import hashlib
-import json
-import os
 from pathlib import Path
-import select
 import shutil
 import sqlite3
-import subprocess
-import sys
-import urllib.error
-import urllib.request
 from urllib.parse import quote
 
 import persistence as db
 from persistence import interventions, participants
 from multiverse import store
-from tests.test_participant_contracts import accounts  # noqa: F401
-
-
-@contextmanager
-def server(database):
-    child = subprocess.Popen([sys.executable, '-u', 'scripts/e2e_server.py', '0',
-                              '--database', str(database)],
-        cwd=Path(__file__).resolve().parents[1], stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL, text=True, env={**os.environ,
-            'NESTED_WORLDS_CANONICAL_SEED': '382', 'NESTED_WORLDS_DISABLE_AI': '1',
-            'NESTED_WORLDS_DISABLE_IMAGES': '1', 'NESTED_WORLDS_HEARTBEAT': '0',
-            'NESTED_WORLDS_CAUSAL_PUMP': '0'})
-    try:
-        assert select.select([child.stdout], [], [], 15)[0], 'Server startup timed out'
-        port = int(child.stdout.readline())
-        def request(path, key='', body=None):
-            req = urllib.request.Request(f'http://127.0.0.1:{port}{path}',
-                data=json.dumps(body).encode() if body is not None else None,
-                headers={'X-Beta-Key': key, 'Content-Type': 'application/json'})
-            try:
-                response = urllib.request.urlopen(req, timeout=10)
-            except urllib.error.HTTPError as exc:
-                response = exc
-            with response:
-                return response.status, json.load(response)
-        yield request
-    finally:
-        if child.poll() is None:
-            child.kill()
-        child.wait(timeout=10)
-        child.stdout.close()
+from tests.server_helpers import server
 
 
 def logical_digest(path):
-    with sqlite3.connect(path.as_uri() + '?mode=ro') as conn:
+    with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as conn:
         return hashlib.sha256('\n'.join(conn.iterdump()).encode()).hexdigest()
 
 
@@ -81,7 +44,7 @@ def test_cold_restore_keeps_identity_privacy_puzzles_and_one_pending_attempt(acc
     download = tmp_path / 'downloaded.db'
     shutil.copyfile(snapshot, download)
     download.chmod(0o400)
-    with sqlite3.connect(download.as_uri() + '?mode=ro') as conn:
+    with closing(sqlite3.connect(download.as_uri() + '?mode=ro', uri=True)) as conn:
         assert conn.execute('PRAGMA integrity_check').fetchone() == ('ok',)
         assert conn.execute('PRAGMA journal_mode').fetchone() == ('delete',)
         # A read-time name-to-path join identifies every fixture history row.
