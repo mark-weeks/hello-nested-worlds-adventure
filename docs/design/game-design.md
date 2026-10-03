@@ -2,13 +2,14 @@
 
 Interface and art direction: [Visual language](visual-language.md) and [beta scene-art strategy](beta-scene-art.md). These distinguish the owner’s interaction principles from proposed restyling and production work.
 
-**Action design correction (2026-09-20):** Players commit to attempted actions and
-discover consequences as they unfold. Clarify ambiguous intentions without revealing
-future outcomes; clear actions need no mandatory preview. Other players and changing
-conditions can affect results. The current preview-based browser flow still needs
-replacement; see [the interaction guidance](visual-language.md#intention-and-recognition).
+**Action design (2026-09-20 correction, implemented in #106):** Players commit to
+attempted actions and discover consequences as they unfold. Ambiguous intentions
+are clarified without revealing future outcomes; clear actions need no preview.
+Other players and changing conditions can affect results. The earlier
+preview-based browser flow and its forecast endpoint were removed in #106; see
+[the interaction guidance](visual-language.md#intention-and-recognition).
 
-**2026-09-20 corrected local review build:** The owner rejected the duplicated
+**2026-09-20 correction (merged in #105–#107):** The owner rejected the duplicated
 universal composer, forced delegation, gallery controller and similar soundscapes.
 [ADR-028](../decisions/ADR-028-scale-native-autonomy.md) replaces them with one Act
 tab, 44 scale-native actions that may be combined, independent player agency, and
@@ -34,25 +35,31 @@ The dated implementation notes above distinguish completed local behavior from p
 ## Core Interaction Model
 
 The scene client (`/app`) presents the current place with local generative art,
-optional generated imagery, and clickable passages. The explorer (`/`) remains
-the default invite destination under ADR-005. Both access the same world; neither
-has character movement within a node.
+optional generated imagery, and clickable passages. The explorer (`/`) is the map
+view and remains the invite destination under ADR-005; its 2026-09-12 revision
+makes `/app` the primary development surface. Both access the same world; neither
+has character movement within a node. Since #107 both clients share one
+navigation vocabulary (named enclosing/within/wrap passages, an eight-place return
+trail, one identity block, Speak | Puzzle | Act directly below it).
 
-Planned under [ADR-012](../decisions/ADR-012-discovery-and-return.md): develop the
-next experience primarily in the scene client, emphasizing an active situation,
-presences, and legible interventions. Promote it to the default only after the
-specified device/accessibility checks and an explicit ADR-005 update. Curated
-entry must reflect current shared state, preserve per-node difficulty, and leave
-players free to explore, converse, or observe.
+Under [ADR-012](../decisions/ADR-012-discovery-and-return.md) and that ADR-005
+revision, the next experience is developed primarily in the scene client: the
+first situation, journal and Act surface landed there in #100–#107. Promote it
+to the default only after the specified device/accessibility checks and an
+explicit ADR-005 update (decision D7 of the 2026-10-03 assessment proposes
+exactly that). Curated entry must reflect current shared state, preserve per-node
+difficulty, and leave players free to explore, converse, or observe.
 
 ---
 
 ## Scale-Native Verbs
 
-Both browser clients extend the existing Act tab. A player chooses an action or
-forms an ordered combination, previews its actual physical consequences, then
-commits. The choices have different purposes and vary with current conditions.
-Nothing is selected by default. The guide lists the current vocabulary:
+Both browser clients extend the existing Act tab. A player chooses an action,
+forms an ordered combination, or types an intention; the attempt commits directly
+and the world's response is discovered as it settles. Only a materially ambiguous
+intention is clarified first, and nothing forecasts outcomes. The choices have
+different purposes and vary with current conditions. Nothing is selected by
+default. The guide lists the current vocabulary:
 
 | Scale | Actions |
 |---|---|
@@ -72,7 +79,9 @@ These actions change material properties, not another player's decisions or
 consent. The server enforces scale, current state, participant identity and receipt
 ownership. Opposing goals can change the same material; composition is ordered.
 The original eleven transitions and legacy `/act`/CLI remain compatible with old
-actors and delayed work. Current browser commitments use version 2 under ADR-028.
+actors and delayed work. Current browser commitments use version 3 (commit, then
+discover; `multiverse/interventions_v3.py`) under ADR-028; accepted v1 and v2 work
+keeps its own frozen interpreter.
 New creative purposes should extend physical semantics through the same surface,
 not multiply control panels. A finite current vocabulary is not a world covenant.
 
@@ -124,7 +133,7 @@ Node visual style is programmatically determined by a property matrix. Style dri
 
 - Nodes persist but evolve over time based on interaction history
 - Ripple effects from actions at one node propagate to connected nodes with dampening
-- The canonical world is finite and materialized at birth; born identities stay fixed. Ongoing substance uses recorded overlays. The traversal loop closes the hierarchy without creating new geography. Deliberate new situations and active-work versioning are planned under ADR-013.
+- The canonical world is finite and materialized at birth; born identities stay fixed. Ongoing substance uses recorded overlays. The traversal loop closes the hierarchy without creating new geography. The first authored situation and versioned active content shipped in bounded form (ADR-024/025, #100); the broader grammar remains ADR-013, with ADR-029 a Proposed draft for a world that changes shape.
 - Players can return to previously visited nodes; those nodes may look different
 
 ---
@@ -142,9 +151,10 @@ The original Myst suffered from unclear navigation and opaque objectives. Four d
 ## Planned capabilities and collection proposal
 
 - [ADR-014](../decisions/ADR-014-player-identity-and-journal.md): private journal
-  plus selective public bio/goals, home bookmark, and chosen avatar. Badges,
-  dynamic disposition meters, avatar creation/upload, and guilds are staged
-  candidates. Proposed opposing tendencies remain separate from achievement;
+  plus selective public bio/goals, home bookmark, and chosen avatar. The bounded
+  M6 path (private notes, published bio/goals, preset avatar, home bookmark,
+  `/journal`) shipped in #100 under ADR-024. Badges, dynamic disposition meters,
+  avatar creation/upload, and guilds remain staged candidates. Proposed opposing tendencies remain separate from achievement;
   mixed evidence and unknown disposition must not be presented as equivalent.
 - [ADR-015](../decisions/ADR-015-referential-puzzles.md): occasional relevant
   fictional/nonfictional references, initially optional, with verified sources,

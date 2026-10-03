@@ -1,3 +1,12 @@
+> **Archived 2026-10-03.** Formerly `docs/roadmap/ensemble-action-plan.md`.
+> Tracks 0–2 shipped and the 2026-09-07 sequencing update below handed the
+> product sequence to the discovery-and-return plan. The items still open at
+> archive time (1.2, 1.3, 3.3, 4.1–4.6, 4.8, 4.9) are carried, with their
+> current status, into [`docs/roadmap/README.md`](../roadmap/README.md)
+> ("Standing commitments"); 3.2 is now the Proposed
+> [ADR-029](../decisions/ADR-029-evolution-grammar.md) draft. Relative links
+> below were rewritten for the new location; the text is otherwise as it stood.
+
 # Ensemble Action Plan (2026-07-19)
 
 The execution plan for the findings and recommendations of
@@ -11,7 +20,7 @@ before launch), and the pivot has shipped.** Track 0 is complete; items
 formerly gated on it (⚑) are unblocked.
 
 **Sequencing update, 2026-09-07:** the
-[discovery-and-return plan](discovery-and-return.md) now governs the next product
+[discovery-and-return plan](../roadmap/discovery-and-return.md) now governs the next product
 milestone. Its M1–M7 supersede the older timing/size assumptions for evolution
 (3.2), return recap (3.4), agent renewal (3.5), and the scene-client validation
 (4.2). The remaining items here are a historical inventory or still-applicable

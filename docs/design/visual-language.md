@@ -1,9 +1,10 @@
 # Enfolded visual language
 
-**2026-09-21 · first implemented interface vocabulary.** The scene, map, navigation
-and shared Act surface now use the foundations below. This is a reviewed-in-browser
-implementation candidate, not evidence of production art quality or player acceptance.
-Artwork production is covered in [the beta art strategy](beta-scene-art.md).
+**2026-09-21 · first implemented interface vocabulary** (merged to `main` in #107).
+The scene, map, navigation and shared Act surface use the foundations below. The
+merge is not evidence of production art quality or player acceptance; those remain
+open in the [roadmap index](../roadmap/README.md). Artwork production is covered
+in [the beta art strategy](beta-scene-art.md).
 
 ## Experience
 

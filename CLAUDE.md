@@ -57,8 +57,8 @@ it first.
   `docs/evaluation/2026-07-04-deep-evaluation.md` G1.
 - **Agent solves don't count as human progress.** An ambient/FSM agent standing
   on a puzzle never claims a co-op session, opens a seal, or lights a
-  constellation. `persistence/__init__.py` (`Agent solves … carry "agent"`),
-  CHANGELOG constellations entry.
+  constellation. `persistence/__init__.py` (`Agent solves (payload carries
+  "agent")`), CHANGELOG constellations entry.
 - **The chronicle is append-only; three sanctioned mechanisms, no more.**
   Never delete or rewrite `world_mutations` rows in application code. Abuse is
   handled by content-level redaction (`python main.py redact`, runbook §7 —
@@ -94,8 +94,10 @@ a harmless view option.
   application code may regenerate or rewrite `world_nodes` rows for a seed
   that has them. Existing state changes use overlays and chronicled deltas
   (ADR-009); they do not rewrite birth identity. The broader evolution grammar
-  remains ADR-gated (ADR-006 "Revisit when", ADR-013). Any code path that would
-  mutate a stored node's name/level/base properties is a bug.
+  remains ADR-gated (ADR-006 "Revisit when", ADR-013; ADR-029 through ADR-033
+  are Proposed drafts of that grammar and its neighbours, not ratified, and
+  authorize nothing). Any code path that would mutate a stored node's
+  name/level/base properties is a bug.
 - **The wrap hinge is pinned, not computed** (ADR-008, ratified at the
   batch-2 merge gate). The traversal loop's one root-ascent landing is
   selected once per world by a seed-pure rule (`multiverse/wrap.py`,
@@ -211,6 +213,8 @@ Consequences:
   revisit triggers. New decisions use Context / Decision / Trade-offs accepted /
   Revisit when / Rejected alternatives. Resolve unsettled architectural questions before
   building; an already settled decision does not require another interview.
+  `docs/roadmap/README.md` lists which plans and decisions govern now and which are
+  archived; check it before citing a roadmap document as current.
 - **Discovery/return product work:** `docs/roadmap/discovery-and-return.md` for dependencies,
   acceptance gates, and the separate puzzle and speech tracks; ADR-012 through ADR-018
   for the relevant direction. Respect each record's status, including ADR-013's broader
@@ -226,8 +230,10 @@ Consequences:
   current official docs or a live run before implementation (including Anthropic, fly.io,
   CSP, WebSocket, and PixiJS contracts). Keep the check limited to the changed interface.
 - **Deployment or launch work:** `docs/infrastructure/fly-deployment.md` (including §8),
-  `docs/roadmap/pre-launch-window.md`, and the relevant continuity policy in
-  `docs/roadmap/phase-2-scale.md`. Backups and deployment gates remain mandatory.
+  the standing commitments and declined items in `docs/roadmap/README.md`, and the
+  continuity policy in `docs/roadmap/phase-2-scale.md`. Backups and deployment gates
+  remain mandatory. The pre-launch window plan is archived at
+  `docs/archive/roadmap-pre-launch-window.md`; its "Declined" list still binds.
 - **Substantial audit driving a batch:** record it in `docs/evaluation/YYYY-MM-DD-<name>.md`
   in that batch; read historical evaluations only when they inform the current question.
 

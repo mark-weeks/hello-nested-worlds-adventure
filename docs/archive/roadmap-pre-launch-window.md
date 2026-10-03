@@ -1,3 +1,18 @@
+> **Archived 2026-10-03.** Formerly `docs/roadmap/pre-launch-window.md`. All
+> four pre-launch batches shipped (PRs #77, #78, #80, #81) and the 2026-09-07
+> addendum below already handed sequencing to the discovery-and-return plan.
+> Two parts remain binding and are restated in
+> [`docs/roadmap/README.md`](../roadmap/README.md): the "Declined in the
+> window" list, and the fact that the window is still open (nothing is
+> deployed; the chronicle is empty). The one pre-launch requirement that now
+> applies — an identity/alias and provenance schema before first production
+> history — is recorded as decision D6 of the
+> [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md),
+> not here. Standing continuity rules live in
+> [`docs/roadmap/phase-2-scale.md`](../roadmap/phase-2-scale.md). Relative
+> links below were rewritten for the new location; the text is otherwise as
+> it stood.
+
 # The Pre-Launch Window
 
 Nothing is deployed: the hosted server does not exist yet, the chronicle
@@ -22,7 +37,7 @@ synthesis in `docs/evaluation/2026-08-10-recursion-and-time.md`.
 ## Current planning addendum (2026-09-07)
 
 The four historical batches below have shipped. Following assessment PR #92,
-the owner endorsed the [discovery-and-return plan](discovery-and-return.md) as
+the owner endorsed the [discovery-and-return plan](../roadmap/discovery-and-return.md) as
 the next product sequence, with journal/identity direction and separate
 referential-puzzle and spoken-interaction tracks. The original opening describes
 the 2026-08-10 window, not a fresh verification of deployment state today.

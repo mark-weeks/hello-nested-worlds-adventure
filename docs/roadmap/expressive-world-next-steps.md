@@ -1,8 +1,11 @@
 # Expressive world: review boundary and next work
 
-**Updated September 23, 2026 after the UX review follow-up.** The owner asked to package the session's changes for review
-and undertake further UI/UX, navigation and placement work as a dedicated effort.
-This checkpoint is not a claim that the production-quality milestone is complete.
+**Updated October 3, 2026.** Batch 1 merged as #106 (2026-09-20) and Batch 2 as
+#107 (2026-09-23); neither is deployed. The owner had asked to package the
+session's changes for review and to undertake further UI/UX, navigation and
+placement work as a dedicated effort. This checkpoint is not a claim that the
+production-quality milestone is complete; the gaps listed at the end remain open
+and the [roadmap index](README.md) carries them forward.
 
 ## What the current change delivers
 
@@ -51,7 +54,7 @@ Intention interpretation is provider-fixture tested, not live-model validated.
 Model absence remains an authored quiet reply; explicit action sequences work offline.
 This batch does not implement scoring, agent/CLI vocabulary parity or styling.
 
-## Batch 2: UX, navigation and evolving visual language — implemented for review
+## Batch 2: UX, navigation and evolving visual language — reviewed and merged
 
 The owner confirmed the starting placement: movement beside the scene, one
 identity block, Speak | Puzzle | Act immediately below it, and secondary detail
@@ -69,8 +72,7 @@ retained traces affect appearance without permanent node categories or a moral
 palette. One readable interaction structure stays consistent across those states.
 
 See [the UX evaluation](../evaluation/2026-09-21-ux-visual-language.md) for captures,
-measured verification, implementation discoveries and limitations. This is an implementation
-review candidate, not a merged or deployed batch. The original playtest database
+measured verification, implementation discoveries and limitations. PR #107 merged on 2026-09-23 after all 20 review threads were resolved; it is not deployed. The original playtest database
 was not used for writes; interactive exploration used a separate copy and browser
 regressions used temporary databases.
 
@@ -92,12 +94,12 @@ regressions used temporary databases.
    not establish a world-wide production art pipeline or generation quality parity.
    The [beta artwork strategy](../design/beta-scene-art.md) remains a proposal.
 
-Next handoff: final review of PR #107, including the development-only Chronicle
-focus cleanup and reconciled verification record. All 20 review threads were
-resolved at the September 23 refresh; that is not a formal approval or merge.
-Review against the visual evidence and agreed placement, then gather player
-observations before assigning another implementation
-batch. Improved fallback art is a discovered production gap, not work silently
-absorbed here. Any follow-on implementation requires a new owner instruction and
-a refreshed merged base. Preserve the existing playtest history. No merge,
+Next: no implementation batch is assigned. The
+[2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md)
+(#108) put a decision agenda to the owner, including the render contract
+(ADR-030, Proposed) that would absorb the art-quality gap above; the
+[roadmap index](README.md) tracks it. Gather player observations before
+assigning another implementation batch. Improved fallback art is a discovered
+production gap, not work silently absorbed here. Any follow-on implementation
+requires a new owner instruction. Preserve the existing playtest history. No
 deployment, reset or automatic next batch is authorized.

@@ -1,3 +1,9 @@
+> **Archived 2026-10-03.** Formerly `docs/roadmap/phase-1-beta.md`. Every item
+> in this scope shipped (see the `0.1.0-beta` and earlier sections of
+> [`docs/CHANGELOG.md`](../CHANGELOG.md)); nothing here governs current work.
+> Kept as the record of what the Phase 1 beta scope was. Current direction:
+> [`docs/roadmap/README.md`](../roadmap/README.md).
+
 # Phase 1 Beta Scope
 
 Status reflects what shipped to `main`. See the [CHANGELOG](../CHANGELOG.md) for commit-level detail.
