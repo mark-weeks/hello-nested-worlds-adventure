@@ -62,7 +62,7 @@ browser client; both share the static modules listed under **Frontend**.
 - **`description.py`**, **`senses.py`** — read-only descriptions of current substance (including retained material traces) and the versioned sensory interpretation both clients render from
 - **`verbs.py`** — the original eleven scale-native verbs, retained for existing actors and delayed work; cosmic-scale verbs mature on a slow clock (`NESTED_WORLDS_MATURATION_SCALE`)
 - **`interventions_v1.py` / `interventions_v2.py` / `interventions_v3.py`** — frozen interpreters for accepted expressive work by version; v3 is the current commit-then-discover rule set (ADR-028). **`delayed_v2.py`** is the frozen M2 operation interpreter (ADR-020)
-- **`situation.py`** — the authored first situation (ADR-025), deliberately not a generic quest engine
+- **`situation.py`** — the authored first situation (ADR-025), deliberately not a generic quest engine; its scripted choice is retired from new play (#109), its clues and receipts remain readable
 - **`quality.py`** — the executable launch census behind `scripts/world_quality.py`
 - **`utils.py`** — tree helpers: `count_nodes`, `find_node`, `build_depth_map`, `build_distance_map`, `apply_ripple_scores`, `apply_property_overrides`
 
@@ -98,7 +98,7 @@ SQLite-backed store, WAL mode, 27 additive migrations (`persistence/migrations/`
 - **`puzzle_content.py`** (with `puzzles/instances.py`) — stored first-use puzzle definitions and their public observational evidence
 - **`intents.py`** — request-ID receipts: a retry returns its committed response; a changed intent under the same ID is refused
 - **`interventions.py`** — atomic expressive commitments and recoverable, versioned consequences (migration 0027)
-- **`situations.py`** — bounded, atomic progression for the first shared situation (ADR-025)
+- **`situations.py`** — bounded, atomic progression for the first shared situation (ADR-025); new scripted choices are refused, existing receipts and consequences stay recoverable
 - **`ideas.py`** / **`ideas_cli.py`** — community Ideas storage and operator moderation commands (ADR-026); no world, puzzle, chronicle or agent writes
 - **`history.py`** — bounded, read-only provenance for narration (never searches by actor or time)
 - **`recovery.py`** — read-only operator diagnostics behind `python main.py work-report`
@@ -106,7 +106,7 @@ SQLite-backed store, WAL mode, 27 additive migrations (`persistence/migrations/`
 ### `server/` — API Layer
 Threaded `http.server` with REST + WebSocket (HTTP/1.1 handshake), security headers (CSP, X-Frame-Options, …), POST/frame size caps. `/speak`, `/image`, `/agent/voice`, `/wayback`, `/node` and every write route resolve node identity server-side against the canonical world; every path sits behind `server.guard.world_seed` (ADR-007).
 - **`handlers.py`** — HTTP dispatch and endpoint orchestration (the routing extraction into the sub-API pattern below is a standing commitment)
-- **Sub-APIs:** `intervention_api.py` (`/interventions`, `/interventions/commit`), `participant_api.py` (`/me`, `/profile`, `/profile/save`, `/profile/home`, `/journal/data`, `/journal/note`), `situation_api.py` (`/situation`, `/situation/discover`, `/situation/choose`, `/situation/follow-up`), `ideas_api.py` (`/ideas/list`, `/ideas/detail`, `/ideas/search`, `/ideas/submit`, `/ideas/vote`, `/ideas/withdraw`), `idea_promotion.py` (operator publication with durable intent)
+- **Sub-APIs:** `intervention_api.py` (`/interventions`, `/interventions/commit`), `participant_api.py` (`/me`, `/profile`, `/profile/save`, `/profile/home`, `/journal/data`, `/journal/note`), `situation_api.py` (`/situation`, `/situation/discover`, `/situation/choose`, `/situation/follow-up` — legacy continuity: `/situation/choose` refuses new choices while retaining existing receipts, #109), `ideas_api.py` (`/ideas/list`, `/ideas/detail`, `/ideas/search`, `/ideas/submit`, `/ideas/vote`, `/ideas/withdraw`), `idea_promotion.py` (operator publication with durable intent)
 - **`guard.py`** — the invite gate, canonical-seed boundary, rate limiters, cost caps, kill switches; **`moderation.py`** — the fail-open two-tier input screen (ADR-004 §2); **`observability.py`** — JSON access log and Sentry
 - **`heartbeat.py`** — the world runs unattended: a daemon loop sends the roster on paced traversals (FSM-driven, zero API spend) and a pump drains the four durable queues (staged causal hops, matured verbs, situation consequences, expressive work)
 - **REST (core):** `/health`, `/worlds`, `/world`, `/node`, `/players`, `/history`, `/chronicle`, `/wayback`, `/agent`, `/observe` (SSE), `/puzzle`, `/puzzle/evidence`, `/image`, `GET`/`POST /position`, plus `POST /speak`, `/puzzle/attempt`, `/act`, `/agent/voice`, `/register`, `/client-error`

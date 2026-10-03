@@ -1,6 +1,6 @@
 # Roadmap index — what governs now
 
-*Verified against `main` at #108 (`9be903d`, 2026-10-03).* This is the one
+*Verified against `main` at #109 (`8cfa6cb`, 2026-10-03).* This is the one
 place that says which roadmap documents are live, which decisions are open,
 and which plans are archived. Update it whenever a plan ships, a decision is
 ratified, or a document moves to [`docs/archive/`](../archive/README.md).
@@ -10,10 +10,17 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 - **Not deployed.** The hosted world at enfolded.world has never run, the
   chronicle is empty, and there are no external players. Two QA prereleases
   (`v0.1.1-qa.1`, `v0.1.1-qa.2`) were cut from `main` on 2026-08-31 for local
-  QA; no production release has been cut.
+  QA; no production release has been cut. The
+  [beta readiness record](../evaluation/2026-10-03-beta-readiness.md) (#109)
+  names October 31 as a conditional target for an 8–12 person invited study
+  and lists the hosted and human gates still open: backup activation, hosted
+  restore, freshness alerting, live models, hosted runtime and devices,
+  first-session observations, the seven-day return.
 - **Shipped on `main` since `0.1.0-beta`** (newest first; the `[Unreleased]`
   section of [`docs/CHANGELOG.md`](../CHANGELOG.md) holds the measured record):
-  the ambition assessment and five Proposed ADR drafts (#108); unified
+  beta readiness — pilot protocol 2, validated half-hourly backups with an
+  independent freshness check, the scripted situation choice retired from
+  onboarding (#109); the ambition assessment and five Proposed ADR drafts (#108); unified
   exploration UX and node-condition styling (#107); commit-then-discover
   actions (#106); 44 scale-native actions, local plates and eleven sampled
   musical forms (#105); the Ideas board, GitHub promotion and their review
@@ -34,6 +41,8 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 | [Phase 2 scale plan](phase-2-scale.md) | The standing continuity policy; capacity triggers at 100 users and beyond | Standing; edit in place as triggers fire |
 | [Community Ideas board](community-ideas.md) | Player-submitted ideas, support votes, moderation, explicit GitHub promotion | Merged (#102–#104); not deployed |
 | [Expressive world: next steps](expressive-world-next-steps.md) | The boundary of the #105–#107 batches and their remaining gaps | Checkpoint; the gaps feed the decision agenda |
+| [Beta readiness record](../evaluation/2026-10-03-beta-readiness.md) | Beta scope and promise, the remaining launch gates and their owners, the October 31 conditional target | Current (#109); not launch approval |
+| [Pilot protocol 2](../evaluation/2026-09-12-pilot-protocol.md) | The M7 study: curiosity, attempted-action and observed-consequence understanding, unprompted and useful return | Ready to run; no cohort observed |
 | [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md) | The decision agenda and a proposed 90-day sequence | Findings for the owner; ratifies nothing |
 
 ## Decision agenda (the owner's; nothing here is ratified)
@@ -62,10 +71,14 @@ both claim migration number 0028.
 Still open when the ensemble action plan was archived; its item numbers are
 kept so the archived text can be cross-read.
 
-- **1.2** Set `FLY_API_TOKEN` and verify one dispatched off-host backup run
-  (`.github/workflows/backup.yml`; runbook §8).
+- **1.2** Activate hosted backups: set `FLY_API_TOKEN`, `ENFOLDED_BACKUP_APP`
+  and, before permanent history, `ENFOLDED_BACKUP_REQUIRED=true`; dispatch
+  `.github/workflows/backup.yml` (now every 30 minutes with SQLite validation),
+  inspect the artifact, and prove freshness with `scripts/backup_health.py`
+  (runbook §7–§8; readiness record "Remaining gates").
 - **1.3** Run the ADR-005 staging rehearsal on the disposable twin (runbook §3a):
-  onboarding watch, WebSocket soak, live-voice probe, restore rehearsal.
+  2–3 observed newcomer sessions, WebSocket soak, live-voice and intention
+  probes, and a restore of a downloaded hosted artifact into isolated staging.
 - **3.3** Cohort rhythm: a recurring gathering and a weekly read of
   `scripts/beta_metrics.py`. The
   [pilot protocol](../evaluation/2026-09-12-pilot-protocol.md) defines the
