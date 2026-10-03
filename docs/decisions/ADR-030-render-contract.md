@@ -122,7 +122,8 @@ art is revised; it is never done by overwriting.
 ### D3. Canonical by cache, recorded by provenance
 
 - The first **accepted** render for an asset identity is the render for every
-  viewer, at every later visit, until a version bump. Generation may sample;
+  viewer, at every later visit, until a version bump retires its key or a
+  later rejection decision ends its canonicity (below). Generation may sample;
   canonicity does not depend on reproducibility. This is the pattern that works
   in shipped generative products (generate once per canonical key, cache
   forever) and it is what keeps N viewers in one place agreeing.
@@ -132,10 +133,13 @@ art is revised; it is never done by overwriting.
   **determinism contract is restated as a recording contract**: procedural
   renderers stay entropy-free and the existing test keeps its scope; any
   renderer that samples must record how, and is canonical by cache.
-- Assets are immutable and append-only. Supersession is a new row carrying
-  `supersedes`; an operator may mark a render `rejected` (condition 2's
-  review hook), which routes viewers to the next accepted render or the
-  procedural layer. Nothing is overwritten. Purging retired renderer versions
+- Assets are immutable and append-only, and so are decisions about them. An
+  additive `render_decisions(asset_id, decision, decided_by, reason, at)`
+  table records `accepted` and `rejected` as rows; an asset's canonicity is
+  its latest decision. A later `rejected` row (condition 2's review hook)
+  ends canonicity and routes viewers to the next accepted render or the
+  procedural layer. Supersession is a new asset row carrying `supersedes`.
+  No asset row and no decision row is ever updated. Purging retired renderer versions
   is an explicit operator maintenance command recorded in the CHANGELOG; it is
   not a chronicle mechanism, because assets are derived caches like
   `ripple_score`, not chronicle rows. The chronicle never records a pixel.
@@ -143,7 +147,7 @@ art is revised; it is never done by overwriting.
 ### D4. First-party asset store
 
 An additive table `render_assets(world_seed, path, renderer_id,
-renderer_version, direction_version, render_key, status, uri, content_hash,
+renderer_version, direction_version, render_key, uri, content_hash,
 bytes, width, height, duration_ms, provenance JSON, supersedes, created_at)`
 plus first-party object storage, content-addressed, with the delivery sizes
 beta-scene-art condition 4 names. Delivery is same-origin (`/media/<hash>`) or
@@ -193,12 +197,16 @@ a `direction_version` bump, recorded, never silently.
 
 ### D8. Composition in the client
 
-Layers compose in a fixed order: procedural canvas (always present, drawn from
-`revision`), then `plate` if an accepted asset exists for the current
-`material` key, then `volume` if an accepted asset exists for the current
-`structural` key and the device can run the WebGL2 splat layer, then live
-transients; the procedural score plays, with `cue` layered under it when
-present. Imagery contains no interface text; the identity block remains the
+Layers compose in a fixed order, generated media beneath and exact state on
+top, as `static/sensory.js` already does with a plate: `volume` first if an
+accepted asset exists for the current `structural` key and the device can run
+the WebGL2 splat layer, else `plate` if an accepted asset exists for the
+current `material` key, else the procedural material field; then the
+procedural canvas draws the exact present from `revision` over it (tints,
+weather, memory, scars); then live transients. The canvas is always present
+and is never covered by a generated layer, because it is the only layer that
+carries fine-grained current state. The procedural score plays, with `cue`
+layered under it when present. Imagery contains no interface text; the identity block remains the
 accessible description; reduced motion freezes the canvas and disables volume
 camera motion; nothing hashes identity into a theme (visual language). The
 splat layer is three.js-based; the currently unused PixiJS dependency is

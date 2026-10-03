@@ -76,8 +76,10 @@ today remains the floor, so an operator with no key still has a living world.
 
 An additive, append-only table `inhabitant_memory(agent_name, world_seed,
 kind, claim, hedge, event_ids, subject_path, subject_participant, created_id,
-expires_id, superseded_by)` with `kind ∈ {episode, belief, relationship,
-commitment, rumour}`. Rules the validator enforces before a row is written:
+expires_id, supersedes)` with `kind ∈ {episode, belief, relationship,
+commitment, rumour}`. Rows are written through ADR-031's proposal pipeline and
+validator; this table, not `authored_text`, owns memory claims. Rules the
+validator enforces before a row is written:
 
 - every `event_ids` entry resolves to an existing chronicle row;
 - `hedge` is one of an enumerated vocabulary (`witnessed`, `told`, `inferred`,
@@ -90,10 +92,13 @@ commitment, rumour}`. Rules the validator enforces before a row is written:
   (ADR-024);
 - nothing from a private journal ever enters an inhabitant's prompt or memory
   (ADR-014);
-- memories expire unless re-witnessed; supersession is a new row.
+- memories expire unless re-witnessed; supersession is a new row carrying
+  `supersedes`; no memory row is ever updated.
 
-Rumours are held and passed between inhabitants and to players only in Speak
-and the travelers panel. They never appear in `/chronicle` or Wayback. The
+Rumours are held and passed between inhabitants, and reach a player only as
+speech in Speak; the travelers panel shows presence and routes to Speak and
+carries no rumour text, because conversation has one surface. They never
+appear in `/chronicle` or Wayback. The
 chronicle stays the only truth surface. `agent_memory.visited_ids` remains the
 discovery record and ADR-022's attention markers remain the scan policy.
 
@@ -104,10 +109,16 @@ discovery record and ADR-022's attention markers remain the scan policy.
   the same seals, receipts and rate limits, with the full version-3 scale
   vocabulary. This closes the asymmetry [ADR-028](ADR-028-scale-native-autonomy.md)
   recorded ("agent/CLI vocabulary parity" not claimed).
-- Each cast member gains a participant identity of kind `inhabitant`:
-  additive rows in `participants` and `participant_credentials` with a
-  server-minted, non-invite credential, so every act carries an
-  `actor_identity` the covenants already expect.
+- Each cast member gains a participant identity of kind `inhabitant`. The
+  tables carry no discriminator today
+  (`persistence/migrations/0021_participants.sql`), so batch 1 adds an
+  additive `participants.kind TEXT NOT NULL DEFAULT 'human'` with values
+  `human`, `inhabitant` and `visitor-agent`; every existing row defaults to
+  `human`; an inhabitant's row is created with a server-minted, non-invite
+  credential in `participant_credentials`, so every act carries an
+  `actor_identity` the covenants already expect, and an acceptance path may
+  read the kind where a rule differs (no human progress from an inhabitant
+  solve).
 - Delegation stays impossible in both directions: humans cannot select an
   inhabitant as performer (unchanged), and an inhabitant's intention schema
   has no field for acting on another's behalf. An invitation is a line of
@@ -134,8 +145,9 @@ data rather than by assertion.
 ### D5. Speaking first, bounded
 
 An on-stage inhabitant may address a player unprompted: at most one
-unsolicited line per inhabitant per player per visit, in the travelers panel
-or Speak, moderated like any output, opt-out per player, never a chronicle
+unsolicited line per inhabitant per player per visit, landing in Speak as a
+conversation turn (the travelers panel may show that an inhabitant has spoken
+and route there; it carries no dialogue), moderated like any output, opt-out per player, never a chronicle
 row beyond the existing `AGENT_TALK` kind. The world may speak first; it may
 not nag.
 
@@ -201,9 +213,9 @@ independent players, which ADR-028 names as its own revisit.
 
 | Batch | Scope | Doors (irreversibility check) |
 |---|---|---|
-| **1 — minds, dark** | `inhabitant_memory` migration; inhabitant participant rows; full vocabulary parity through the existing acceptance APIs; the intention schema and on-stage deliberation behind a flag; Batch reflection; the memory validator; kill switches, ceiling, repetition monitor and dashboard | Additive migration; **no new chronicle write path** (acts land through existing `SCALE_ACT`, `INTERVENTION_*` and `AGENT_TALK` kinds with an inhabitant `actor_identity`); a stated contract changes: the heartbeat may spend money when the flag is on |
+| **1 — minds, dark** | `inhabitant_memory` migration; the additive `participants.kind` discriminator (default `human`) and inhabitant participant rows; full vocabulary parity through the existing acceptance APIs; the intention schema and on-stage deliberation behind a flag; Batch reflection; the memory validator; kill switches, ceiling, repetition monitor and dashboard | Additive migration; **no new chronicle write path** (acts land through existing `SCALE_ACT`, `INTERVENTION_*` and `AGENT_TALK` kinds with an inhabitant `actor_identity`); a stated contract changes: the heartbeat may spend money when the flag is on |
 | **2 — attempts, promises, first words** | real puzzle attempts replacing the dice roll; commitments generalized from ADR-022's keeper seam; bounded unsolicited speech with per-player opt-out; travelers panel affordances | None beyond batch 1 |
-| **3 — the open roster** | the MCP server over the player surface; `visitor-agent` credentials and allowlist; per-world concurrency cap; presence tagging | Additive credential kind; no new world write path |
+| **3 — the open roster** | the MCP server over the player surface; `visitor-agent` credentials and allowlist; per-world concurrency cap; presence tagging | The `visitor-agent` value of the `participants.kind` discriminator added in batch 1; no new world write path |
 
 Tests that gain cases: the reflex layer's authority (an intention cannot name
 a target the FSM did not offer, cross a seal, or ignore danger); consent (no

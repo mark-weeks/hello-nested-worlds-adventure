@@ -6,8 +6,8 @@
 migration, or write path. On ratification it supersedes the exclusion clause in
 [ADR-013](ADR-013-versioned-situations-and-delivery.md) ("Do not add renames,
 reparenting, new scales, era-bank changes, or new geography to this first
-contract") for everything except new scales, which belong to the scale-registry
-decision (D5, not yet drafted), and depth growth, which
+contract") for everything except new scales, which belong to
+[ADR-033](ADR-033-scale-registry.md), and depth growth, which
 [ADR-008](ADR-008-wrap-passage.md) forecloses.
 
 ---
@@ -94,12 +94,20 @@ the *silent* change ADR-006 says memory cannot survive.
   under a named version, births record the version actually used, and frontier
   births (D2.a) are pure functions of `(seed, path, generator_version)`.
 
-### D2. Seven structural event kinds, each a chronicle row through the atomic path
+### D2. Seven structural event kinds, each one transaction through the atomic path
 
-Every kind below is one `world_mutations` row written inside the ADR-009
-atomic transaction (`_insert_substance_row` or a sibling sharing its
-transaction), with a `node_version`, an `authority` (D4) and a `reason`. None
-rewrites a born row or an earlier row. Redaction, double-gated pruning and
+A structural event is one ADR-009 atomic transaction that may write several
+`world_mutations` rows, because a row names one node: a birth writes the
+child's `NODE_BORN` and the parent's `FRONTIER_GROWN`; a passage writes one
+row per endpoint; a law shift writes the Universe's delta and a `PUZZLE_REARM`
+row per re-armed augury node. Every row of one event carries the same
+`event_id` inside its payload (`authority.event_id`), its own node's next
+`node_version` allocated under that node's key, the `authority` (D4) and the
+`reason`; the subject's row is the primary row and the others are linked rows.
+All rows commit or none do (`_insert_substance_row` or a sibling sharing its
+transaction). Wayback shows each node its own row as its moment; the shared
+`event_id` lets history readers present the whole event. None rewrites a born
+row or an earlier row. Redaction, double-gated pruning and
 whole-DB restore remain the only maintenance mechanisms.
 
 | Kind | Recorded on | Payload | What it changes | Invariants |
@@ -140,8 +148,9 @@ deletion (ADR-013: "Corrections use explicit compensating events").
 
 - Structural events are never player traces. Each carries `authority` in its
   payload: `{"kind": "operator", "ref": <CLI invocation id>}` now, and
-  `{"kind": "ratified", "ref": <proposal ledger id>}` once a model-authorship
-  decision (D2 of the assessment, not yet drafted) exists. This is provenance of
+  `{"kind": "ratified", "ref": <proposal ledger id>}` once
+  [ADR-031](ADR-031-model-authorship.md), drafted alongside this record, is
+  ratified; until then no path may write the `ratified` kind. This is provenance of
   the *decision*, not a taxonomy of participants. `/chronicle` and Wayback keep
   carrying no human/agent flag on traces; a structural moment renders as a
   mechanical change exactly as a delta does today.

@@ -86,7 +86,7 @@ Nothing in this pipeline duplicates an existing door. It routes through them.
 | Tier | What the model may propose | Where it lands | Validators (deterministic) | Default ratification |
 |---|---|---|---|---|
 | **0 — voice and classification** (exists) | replies in a place's or inhabitant's voice; intent classification into the scale's verbs; moderation | the `PLAYER_SPEAK` trace, the Act pipeline, nowhere | unchanged | automatic (unchanged) |
-| **1 — interpretation** | the evolving description of a place (today rule-based in `multiverse/description.py`); era annals extending ADR-021; inhabitant reflections and memories as cited claims with hedges preserved; the sensory conditioning text ADR-030's paid renderers consume | a new versioned `authored_text` store, never `world_mutations`, never properties | every citation resolves to an existing chronicle row; the hedge vocabulary is enumerated and preserved; no sentence classifies a trace as human or agent; no participant is named beyond what the cited rows show; length caps; the moderation screen; and for memories, every fact resolvable from the database is pre-resolved into the prompt so the model restates rather than recalls | automatic after validation, with a sampled human audit (D4); on any failure, the rule-based text serves |
+| **1 — interpretation** | the evolving description of a place (today rule-based in `multiverse/description.py`); era annals extending ADR-021; inhabitant reflections as outward prose (the memory claims they draw on belong to [ADR-032](ADR-032-inhabitant-cognition.md)'s `inhabitant_memory`, produced through this same pipeline and validator but stored there, never here); the sensory conditioning text ADR-030's paid renderers consume | a new versioned `authored_text` store for outward text; memory claims in ADR-032's `inhabitant_memory`; never `world_mutations`, never properties | every citation resolves to an existing chronicle row; the hedge vocabulary is enumerated and preserved; no sentence classifies a trace as human or agent; no participant is named beyond what the cited rows show; length caps; the moderation screen; and for memories, every fact resolvable from the database is pre-resolved into the prompt so the model restates rather than recalls | automatic after validation, with a sampled human audit (D4); on any failure, the rule-based text serves |
 | **2 — bounded canon** | puzzle definitions at `definition_version` 2; situations seeded from real history in ADR-025's shape (existing places, clues, two interventions, an inhabitant promise fulfilled by a recorded property change); re-aspecting and renames through ADR-029; art-direction text per scale under an ADR-030 `direction_version` | `puzzle_instances`, the situation tables, ADR-029 events, ADR-030 versions | the assessment §6.6 runtime puzzle validator (leak screen against node and ancestor properties, format and determinism, per-node difficulty and attempt limits, independent solvability, procedural fallback); ADR-029's validator; numeric bounds in code; uniqueness; for art direction, the ADR-028 differentiation gate before it becomes a default | **operator queue**, graduating to automatic per proposal kind only after a measured audit rejection rate below a threshold the owner sets over a sample size the owner sets |
 | **3 — structure and physics** | frontier births, passages, era turns; retirements and law shifts | ADR-029 events | ADR-029's validator plus per-world rate limits (so the world changes at world speed, not model speed) | **operator only**; births, passages and era turns may graduate under rate limits; retirement and law shift require a human decision permanently |
 
@@ -102,9 +102,13 @@ input_digest, proposal JSON, validator_report JSON, created_at)` and
 decided_at)` with `decision ∈ {validated, rejected, ratified, committed,
 refused, corrected, superseded}` and `decided_by ∈ {validator, auto,
 operator:<id>, model-review}`. The ledger is operational data like the
-community records, not the chronicle: it is never a `world_mutations` write,
-and its retention is an operational policy. Every committed canon row points
-back to its proposal; every proposal points forward to what it became. The
+community records, not the chronicle: it is never a `world_mutations` write.
+Its retention is split: a proposal that committed canon, and every decision
+on it, is retained at least as long as any canon row that references it,
+which for chronicle-referenced proposals means indefinitely; only proposals
+that never committed fall under a shorter operational policy. Every committed
+canon row points back to its proposal; every proposal points forward to what
+it became. The
 `input_digest` makes Tier 1 and Tier 2 generation content-addressed: the same
 inputs do not pay twice, and the first ratified output for a digest is the
 canonical one.
@@ -208,7 +212,7 @@ and may change by configuration.
 
 | Batch | Scope | Doors (irreversibility check) |
 |---|---|---|
-| **1 — the pipeline and Tier 1** | `proposals`, `proposal_decisions`, `authored_text` migrations; the validator framework (reusing ADR-029's where present); Tier 1 kinds: place descriptions, era annals, inhabitant reflections; model default moved to the current Opus for authorship with the voice evaluation on record; dollar budgets and per-tier kill switches; the disclosure page; `proposals list / approve / reject / correct` CLI | Additive migrations; **no chronicle write path** (Tier 1 writes none); a model-default change recorded in the CHANGELOG |
+| **1 — the pipeline and Tier 1** | `proposals`, `proposal_decisions`, `authored_text` migrations; the validator framework (reusing ADR-029's where present); Tier 1 kinds: place descriptions, era annals, outward inhabitant reflections (memory claims land in ADR-032's store when that decision's batch 1 ships); model default moved to the current Opus for authorship with the voice evaluation on record; dollar budgets and per-tier kill switches; the disclosure page; `proposals list / approve / reject / correct` CLI | Additive migrations; **no chronicle write path** (Tier 1 writes none); a model-default change recorded in the CHANGELOG |
 | **2 — Tier 2** | puzzle definitions at `definition_version` 2 behind the runtime validator with procedural fallback; situations seeded from history; re-aspect and rename through ADR-029 (requires its batches 1 and 2); art-direction proposals under ADR-030 versions | The chronicle write paths are ADR-029's, not new ones here; `puzzle_instances` gains a definition version (additive) |
 | **3 — Tier 3 and graduation** | tripwires, audit sampling dashboards, per-kind graduation to automatic ratification where the owner allows; births, passages and era turns under rate limits | None beyond ADR-029's |
 

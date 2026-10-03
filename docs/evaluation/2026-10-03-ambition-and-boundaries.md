@@ -379,9 +379,9 @@ writes, which is what "every part enfolds the whole" should mean mechanically.
 ### 6.2 Inhabitants with minds, and an open roster
 
 Tiered cognition: the FSM keeps locomotion and safety (cheap, reproducible);
-a model forms intentions at a cadence (every tick for the cast member on
-stage, every N ticks otherwise), through a single decision bottleneck per tick
-in the PIANO sense; nightly Batch reflection writes structured memory as cited
+a model forms one intention per tick only while a human is on stage, through
+a single decision bottleneck per tick in the PIANO sense, and makes no
+interactive call off stage; hourly or nightly Batch reflection writes structured memory as cited
 claims with hedges preserved (`{claim, hedge, event_ids, expires}`), and facts
 resolvable from the database are pre-resolved before prompting. Inhabitants
 gain full vocabulary parity with humans (today agents use the original verb
