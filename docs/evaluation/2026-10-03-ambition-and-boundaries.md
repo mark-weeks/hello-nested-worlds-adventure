@@ -18,9 +18,10 @@ could not open; **inferred** is this document's judgment.
 ## 0. Verdict
 
 1. **The permanence architecture is not the box.** The sacred layer is small and
-   correct: an append-only chronicle written through one atomic API, immutable
-   born rows as identity, write-time deltas with a per-node version cursor, one
-   canonical seed, one pinned hinge. Every serious 2026 multiplayer world-model
+   correct: an append-only chronicle (plain traces append through
+   `record_mutation`; every substance change goes through one atomic delta API),
+   immutable born rows as identity, write-time deltas with a per-node version
+   cursor, one canonical seed, one pinned hinge. Every serious 2026 multiplayer world-model
    result (Odyssey's Agora-1, the MASS and Magpie papers, Nvidia's Gamma-World)
    converged on the same shape: a canonical state server with per-client
    rendering. Enfolded already owns the hard part.
@@ -42,9 +43,10 @@ could not open; **inferred** is this document's judgment.
    API (Genie), cost about $72 per viewer-hour (Decart), drift after roughly a
    minute, and cannot share state across viewers. What is production-grade today
    is persistent generative 3D (World Labs Marble at ~$1.20 per place, rendered
-   in-browser by MIT-licensed splat renderers), cheap model cognition (a fully
-   model-driven living world at Enfolded's scale costs $700–3,500 per month
-   depending on tier), structured outputs, 1M-token context, and commodity
+   in-browser by MIT-licensed splat renderers), cheap model cognition (an
+   attention-gated living world at Enfolded's scale has a fixed floor of about
+   $60–210 per month plus $0.18–0.86 per player-hour; $700–3,500 per month is
+   the always-on ceiling), structured outputs, 1M-token context, and commodity
    voice. The ambitious move is to make the model a sanctioned *author* of the
    world and the renderer a *function of recorded state*, not to replace the
    world with pixels.
@@ -163,10 +165,15 @@ tool GA. The run-rate of a *fully* model-driven Enfolded at current scale:
 | 12 ambient inhabitants thinking once per minute, 24/7, per month | $674 | $1,348 | $2,385 |
 | Re-narrating 50 places per hour via Batch, per month | $50 | $101 | $191 |
 | One-hour player session, 40 exchanges | $0.10 | $0.19 (+thinking ≈ $0.31) | $0.34 (+thinking ≈ $0.58) |
-| Whole living world: 12 inhabitants, ~4,200 places, 1,000 sessions/month | ≈ $700–900 | ≈ $1,600–2,000 | ≈ $2,900–3,500 |
+| Whole living world, always on: 12 inhabitants, ~4,200 places, 1,000 sessions/month | ≈ $700–900 | ≈ $1,600–2,000 | ≈ $2,900–3,500 |
+| **Attention-gated (the §6.2 design): inhabitants reflect hourly via Batch, 50 places/hour via Batch, cognition on stage only while a player is present** | fixed ≈ $60/month + ≈ $0.18 per player-hour | fixed ≈ $110/month + ≈ $0.35–0.47 per player-hour | fixed ≈ $210/month + ≈ $0.62–0.86 per player-hour |
 
-Output tokens dominate once caching is on (77% of the Haiku ambient bill is the
-200 output tokens); a 60-token structured "thought" halves it, and nightly
+The always-on rows are the ceiling, not the recommendation. Gating cognition on
+attention moves nearly all spend onto player-hours, where a subscription can
+carry it (a subscriber at $8–12 per month playing 5–15 hours costs $1–13 to
+serve on Opus and under $3 on Haiku), and leaves a fixed floor in the low
+hundreds of dollars per month. Output tokens dominate once caching is on (77% of
+the Haiku ambient bill is the 200 output tokens); a 60-token structured "thought" halves it, and nightly
 reflection via Batch halves it again. The per-session cost is small enough that
 model choice for Speak should be decided by latency and quality, not cost.
 (Arithmetic reproducible from the research scratch script; inferred totals.)
@@ -190,8 +197,9 @@ provenance is.
 
 The house rules are optimized against a threat that has not materialized: a
 careless change rewriting a precious production history. In their service the
-project produced reference-quality continuity engineering, 908 passing tests,
-and a decision record of unusual honesty, while the owner's own playtesting
+project produced reference-quality continuity engineering, 1,358 Python tests
+(collected on this branch) plus about 120 Vitest tests, and a decision record of
+unusual honesty, while the owner's own playtesting
 found the experience wanting twice in September (the universal composer,
 delegation, gallery pane and undifferentiated sound; then the preview). The
 instructions reward "bounded," "minimum," "no new write paths," and interpreter
@@ -498,7 +506,7 @@ the world; all of it is a transport layer around the same database.
 | D1 | Ratify an evolution grammar covering births, renames, re-aspect, traversal reparenting, merge/retire, era turns, law shifts, as chronicled events | **Yes, all of them**, operator- and World-Mind-triggered under ratification | The world can change shape, not only properties | Displaces M5/M6 situation and journal polish for roughly one batch |
 | D2 | May the model author persistent canon under ratification, with provenance? | **Yes**, with a deterministic validator, proposal ledger, human audit sample, and disclosure | The World Mind; model-authored puzzles, situations, charters | Governance work; a new class of bug (bad canon) that redaction already handles |
 | D3 | Replace renderer determinism with a recorded, addressable render contract | **Yes** | Image models, splats, generative music, future video; Wayback unchanged | Asset storage and a job queue |
-| D4 | Budgeted inhabitant cognition and an open agent roster via MCP | **Yes**; start at a ~$1k/month ceiling on Sonnet-class with Haiku ambient | The README's thesis; a growth loop | Collusion/drift governance; re-examining the agent-progress covenant |
+| D4 | Budgeted inhabitant cognition and an open agent roster via MCP | **Yes, after pilot evidence**; attention-gated with a hard dollar ceiling (fixed floor ≈ $60–210/month, variable ≈ $0.18–0.86 per player-hour) | The README's thesis; a growth loop | The only decision with ongoing model spend; collusion/drift governance; re-examining the agent-progress covenant |
 | D5 | Scale registry and lateral kinds; no twelfth depth | **Yes** to the registry; **keep ADR-008** | New kinds without new verticals | A refactor across ~20 modules; golden re-pin for births only |
 | D6 | What must precede first production history? | **Only** the identity/alias and provenance schema | Launch | None; it is additive |
 | D7 | One client | **`/app` primary**; explorer retired after the device gates | Every future UX batch | A deliberate ADR-005 update |
