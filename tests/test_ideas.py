@@ -10,7 +10,6 @@ import pytest
 
 import persistence as db
 from persistence import ideas, participants
-from tests.test_participant_contracts import accounts, http  # noqa: F401
 
 
 def submission(title='A clearer crossing', request='submission-0001', **kwargs):

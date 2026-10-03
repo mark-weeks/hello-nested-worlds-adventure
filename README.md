@@ -1,5 +1,22 @@
 # Enfolded: Nested World Adventure
 
+Both browser clients offer **Speak | Puzzle | Act** in one shared world. Act has
+four actions at each of eleven scales, optional ordered combinations, and an
+intention entry. A clear submission commits an attempt; consequences emerge from
+the conditions when it settles. There is no consequence preview or compulsory
+scripted route. Accepted retries recover the original receipt.
+
+`/journal` holds private notes, a home bookmark, return recaps, and a selectively
+published profile. Invited participants can submit, support, and withdraw feedback
+at `/ideas`. Personal invites and credential rotation preserve participant ownership.
+Existing scripted situations and earlier accepted work remain readable/recoverable;
+new scripted choices are retired and opening a situation is not beta onboarding.
+
+See the [action contract](docs/decisions/ADR-028-scale-native-autonomy.md),
+[current pilot protocol](docs/evaluation/2026-09-12-pilot-protocol.md), and
+[beta readiness record](docs/evaluation/2026-10-03-beta-readiness.md).
+Human pilot evidence, hosted recovery, and live-model quality remain launch gates.
+
 **A shared persistent multiverse inhabited simultaneously by human players and AI agents.**
 
 *The title "Enfolded" derives from David Bohm's [implicate order](https://en.wikipedia.org/wiki/Implicate_and_explicate_order) — the idea that every part of the universe enfolds the whole, and what we perceive as separate objects are unfolded projections of a deeper connected reality. This game is a playable version of that idea.*
@@ -30,8 +47,19 @@ decisions govern now; the [2026-10-03 assessment](docs/evaluation/2026-10-03-amb
 puts a decision agenda to the owner, with [ADR-029](docs/decisions/ADR-029-evolution-grammar.md)
 through [ADR-033](docs/decisions/ADR-033-scale-registry.md) drafted as Proposed,
 not ratified. The [discovery-and-return plan](docs/roadmap/discovery-and-return.md)
-still carries the open product milestones: the M7 pilot cohort and M8. Human
-pilot evidence is pending.
+still carries the open product milestones: the M7 pilot cohort and M8. The
+[beta readiness record](docs/evaluation/2026-10-03-beta-readiness.md) (#109)
+separates completed local work from the hosted and human gates that remain.
+---
+
+## Next milestone: observed play and return
+
+The next step is a small invited study of curiosity, comprehensible consequences,
+and a meaningful return to the same world. The journal/profile and action systems
+are implemented; their value to new players is not established by automated tests.
+Rankings, optional spoken input/playback, crafting, guilds, Hyperleap, and expanded
+agent cognition remain outside this beta-readiness batch. The
+[delivery plan](docs/roadmap/discovery-and-return.md) retains their separate decisions.
 
 ---
 
@@ -134,10 +162,10 @@ to return. You do not need to write code to contribute.
 
 [Share playtesting feedback or an idea](https://github.com/mark-weeks/hello-nested-worlds-adventure/issues/new?template=playtesting.yml),
 [report a bug](https://github.com/mark-weeks/hello-nested-worlds-adventure/issues/new?template=bug_report.yml),
-or read the [contribution guide](CONTRIBUTING.md). On a running revision, invited
-players can also submit and support ideas from the in-game
-[Ideas board](docs/roadmap/community-ideas.md) at `/ideas` without a GitHub
-account; until the hosted world is deployed, GitHub is the public reporting route.
+or read the [contribution guide](CONTRIBUTING.md). Invited players can use the
+in-game Ideas board at `/ideas` for submissions, support,
+withdrawal, and maintainer decisions. GitHub remains an external reporting route.
+A reviewed idea or vote does not itself publish an issue or authorize implementation.
 
 Maintainers use feedback to guide priorities, explain decisions, and invite
 players to verify improvements. Coding agents support implementation; outside
@@ -173,7 +201,7 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_HEARTBEAT` | Set to `0` to disable the ambient world heartbeat (background agent life). | on |
 | `NESTED_WORLDS_HEARTBEAT_INTERVAL` | Seconds between heartbeat ticks. Heartbeat agents are FSM-driven — no API spend. | `180` |
 | `NESTED_WORLDS_HOP_DELAY` | Seconds a staged causal cascade waits between rings — how fast consequences travel across scales. `0` makes staged hops due immediately (they still run through the queue). | `12` |
-| `NESTED_WORLDS_CAUSAL_PUMP` | Set to `0` to disable the pump thread that drains staged causal hops, matured verbs, situation consequences and expressive work (queued work then waits until a pump runs again; an expired shared decision still closes on the next choice). | on |
+| `NESTED_WORLDS_CAUSAL_PUMP` | Set to `0` to disable the pump thread that drains staged causal hops, matured verbs, situation consequences and expressive work (accepted work waits durably until a compatible pump runs again). | on |
 | `NESTED_WORLDS_MATURATION_SCALE` | Multiplier on the cosmic-scale verb maturation clocks (Multiverse 1800s, Universe 900s, Galaxy 300s, Planetary System 120s). For tests and impatient operators; `0` makes every verb instant. | unset (×1) |
 | `NESTED_WORLDS_RATE_LIMIT_PER_MIN` | Hosted beta: per-IP requests/minute on the write routes — `/speak`, `/agent/voice`, `/image`, `/puzzle/attempt`, `/act`, `/interventions/commit`, `/journal/note`, `/profile/save`, `/profile/home`, `/situation/{discover,choose,follow-up}`, `/register`, `/client-error`. | `20` |
 | `NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN` | Hosted beta: per-IP API reads/minute, including `/puzzle/evidence` and future data routes by default. Static assets, `/health`, `/worlds`, `/players`, `/position`, and the separately guarded `/ws` upgrade are exempt. | `120` |

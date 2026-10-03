@@ -3,34 +3,43 @@ name: Off-host backup
 # The volume holding worlds.db is the only live copy of the permanent
 # chronicle; Fly's automatic snapshots retain just 5 days and live on the
 # same platform. This schedule pulls an application-level backup off-host
-# into a GitHub artifact every hour — the continuity promise makes data
-# loss a broken covenant, not an outage, so the loss window is kept to an
-# hour (ADR-005; Litestream-style continuous replication is the recorded
-# post-launch follow-up that shrinks it to seconds). Hourly full copies
+# into a GitHub artifact every 30 minutes. Scheduling can be delayed or
+# dropped; artifact freshness and a restore rehearsal establish readiness,
+# not a green workflow badge. ADR-005's one-hour recovery target still applies.
+# Litestream-style continuous replication remains the post-launch follow-up.
+# Half-hourly full copies leave slack within the one-hour freshness limit and
 # are cheap at beta scale; revisit the cadence if the DB outgrows a quick
 # sftp pull. Requires the FLY_API_TOKEN repo secret (fly tokens create
-# deploy); until it is set, runs no-op with a notice instead of failing.
+# deploy). Before launch set ENFOLDED_BACKUP_REQUIRED=true as a repository
+# variable: a missing token then fails instead of returning a green no-op.
 on:
   schedule:
-    - cron: '17 * * * *'   # hourly at :17 (off the top-of-hour congestion)
+    - cron: '17,47 * * * *'   # off the top-of-hour congestion
   workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: off-host-backup
+  cancel-in-progress: false
 
 jobs:
   backup:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-      FLY_APP: enfolded-beta
+      FLY_APP: ${{ vars.ENFOLDED_BACKUP_APP || 'enfolded-beta' }}
+      # Preserve typos so the gate can reject them instead of silently disabling backups.
+      BACKUP_REQUIRED: ${{ vars.ENFOLDED_BACKUP_REQUIRED }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Check for the Fly token
         id: gate
-        run: |
-          if [ -n "$FLY_API_TOKEN" ]; then
-            echo "ready=yes" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::FLY_API_TOKEN secret not set — skipping off-host backup."
-            echo "ready=no" >> "$GITHUB_OUTPUT"
-          fi
+        run: bash scripts/backup_gate.sh
 
       - name: Set up flyctl
         if: steps.gate.outputs.ready == 'yes'
@@ -39,22 +48,30 @@ jobs:
       - name: Take an online backup on the machine
         if: steps.gate.outputs.ready == 'yes'
         run: |
-          STAMP="$(date -u +%Y%m%d-%H00)"
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
           flyctl ssh console -a "$FLY_APP" -C \
             "python main.py backup --to /data/backups/offhost-$STAMP.db"
 
       - name: Download the backup off-host
+        id: download
         if: steps.gate.outputs.ready == 'yes'
         run: |
           flyctl ssh sftp get "/data/backups/offhost-$STAMP.db" -a "$FLY_APP"
           ls -la "offhost-$STAMP.db"
 
-      - name: Store as a workflow artifact (90-day retention)
+      - name: Validate the downloaded SQLite snapshot
+        id: validate
         if: steps.gate.outputs.ready == 'yes'
+        run: python3 scripts/validate_backup.py "offhost-$STAMP.db"
+
+      # Retain even an invalid/older snapshot for operator salvage. Failed validation
+      # still fails the run; quarantine names never satisfy backup_health.py.
+      - name: Retain the snapshot, quarantining validation failures (90 days)
+        if: always() && steps.download.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: worlds-backup-${{ env.STAMP }}
+          name: ${{ steps.validate.outcome == 'success' && 'worlds-backup' || 'unvalidated-worlds-backup' }}-${{ env.FLY_APP }}-${{ env.STAMP }}
           path: offhost-*.db
           retention-days: 90
           if-no-files-found: error
@@ -65,3 +82,6 @@ jobs:
           flyctl ssh console -a "$FLY_APP" -C \
             "sh -c 'ls -t /data/backups/offhost-*.db 2>/dev/null | tail -n +7 | xargs -r rm'" \
             || echo "prune skipped"
+
+      # Check freshness independently after run completion. This run cannot certify
+      # its own successful conclusion; doing so would make first activation fail.

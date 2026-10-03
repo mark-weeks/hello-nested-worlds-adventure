@@ -12,7 +12,6 @@ import pytest
 import persistence
 from persistence import participants, situations
 from multiverse.situation import NODES
-from tests.test_participant_contracts import accounts, http  # noqa: F401
 
 START = datetime(2026, 9, 12, 12)
 

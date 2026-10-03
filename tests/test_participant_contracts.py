@@ -3,8 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import threading
-import urllib.error
-import urllib.request
 from urllib.parse import quote
 
 import pytest
@@ -13,14 +11,6 @@ import persistence
 from persistence import intents, participants
 from multiverse import store
 from puzzles.instances import get_puzzle
-from server import _Handler, _ThreadedServer
-
-
-@pytest.fixture
-def accounts():
-    persistence.mint_invite_key('nw_' + 'a' * 32, 'Ada')
-    persistence.mint_invite_key('nw_' + 'b' * 32, 'Bea')
-    return 'nw_' + 'a' * 32, 'nw_' + 'b' * 32
 
 
 def test_concurrent_first_use_and_rotation_keep_one_person(accounts):
@@ -125,31 +115,6 @@ def test_open_puzzle_keeps_definition_through_code_change_and_new_epoch(monkeypa
     monkeypatch.setattr(instances, 'DEFINITION_VERSION', 1)
     assert get_puzzle(382, root, 1).answer == 'a new answer'
     assert persistence.get_mutations(382) == []
-
-
-@pytest.fixture
-def http(accounts, monkeypatch):
-    monkeypatch.setenv('NESTED_WORLDS_CANONICAL_SEED', '382')
-    server = _ThreadedServer(('127.0.0.1', 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    def request(path, key=accounts[0], body=None):
-        req = urllib.request.Request(f'http://127.0.0.1:{server.server_port}{path}',
-            data=json.dumps(body).encode() if body is not None else None,
-            headers={'X-Beta-Key': key, 'Content-Type': 'application/json'})
-        try:
-            response = urllib.request.urlopen(req, timeout=10)
-        except urllib.error.HTTPError as exc:
-            response = exc
-        with response:
-            data = json.load(response) if response.headers.get_content_type() == 'application/json' else response.read().decode()
-            return response.status, data, dict(response.headers)
-    try:
-        yield request
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(5)
 
 
 def test_http_private_access_rotation_and_retry(http, accounts):

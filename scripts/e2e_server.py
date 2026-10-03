@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import persistence  # noqa: E402
 from server import _Handler, _ThreadedServer, heartbeat  # noqa: E402
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('port', nargs='?', type=int, default=0)
