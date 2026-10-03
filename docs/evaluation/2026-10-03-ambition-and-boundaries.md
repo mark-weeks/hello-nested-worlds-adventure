@@ -418,10 +418,15 @@ storage keyed by `(id, render key, renderer, version)`; a current image model
 with reference conditioning replacing the wash, keyed on material class so it
 regenerates at cents per class change rather than per property delta; Marble
 splats for visited places with Spark in the client, keyed per place and
-regenerated only on a structural event (rename, re-aspect, retirement), at about
+regenerated when the place's shape changes by any path, meaning an ADR-029
+structural event or a change to a scene-defining anchor such as terrain,
+geometry, material or a fracture, because an ordinary action can fracture an
+object and tints cannot repaint that, at about
 $1.20 per generation (World Labs bills per generation, not per place), lazily on
 first visit, so a first pass over the whole world is roughly $5k and the
-recurring line is the structural-event rate times $1.20. Music: Stable Audio 3
+recurring line is the rate of structural events and anchor changes times
+$1.20, with a volume whose anchors no longer match suppressed until the new
+render lands. Music: Stable Audio 3
 (open weights, commercial under $1M revenue) or Lyria 3.5 cues conditioned on
 the scale's musical form and the place's state, generated once per form-and-
 state class and cached, so "scale is meaning" is expressed by conditioning
@@ -531,7 +536,7 @@ the world; all of it is a transport layer around the same database.
 |---|---|---|---|---|
 | D1 | Ratify an evolution grammar covering births, renames, re-aspect, traversal reparenting, merge/retire, era turns, law shifts, as chronicled events | **Yes, all of them**, operator- and World-Mind-triggered under ratification | The world can change shape, not only properties | Displaces M5/M6 situation and journal polish for roughly one batch |
 | D2 | May the model author persistent canon under ratification, with provenance? | **Yes**, with a deterministic validator, proposal ledger, human audit sample, and disclosure | The World Mind; model-authored puzzles, situations, charters | Governance work, and a correction mechanism that must ship with the first authored change: redaction scrubs five text fields and never repairs applied deltas, born rows or pinned definitions, so a ratified but wrong change is reversed by a new chronicled compensating event carrying its reason (ADR-013 already names this), and a bad authored definition or charter is superseded by a new version with a forward pointer; a player who already acted on wrong canon is recorded, not undone |
-| D3 | Replace renderer determinism with a recorded, addressable render contract | **Yes** | Image models, splats, generative music, future video; Wayback unchanged | Asset storage, a job queue, and a recurring media line set by the reuse policy (per structural event for splats, per material-class change for plates and cues), which the decision must budget explicitly |
+| D3 | Replace renderer determinism with a recorded, addressable render contract | **Yes** | Image models, splats, generative music, future video; Wayback unchanged | Asset storage, a job queue, and a recurring media line set by the reuse policy (per structural event or scene-anchor change for splats, per material-class change for plates and cues), which the decision must budget explicitly |
 | D4 | Budgeted inhabitant cognition and an open agent roster via MCP | **Yes, after pilot evidence**; attention-gated with a hard dollar ceiling (fixed floor ≈ $60–210/month, variable ≈ $0.18–0.86 per player-hour) | The README's thesis; a growth loop | The only decision with ongoing model-cognition spend (D3 carries the media regeneration line); collusion/drift governance; re-examining the agent-progress covenant |
 | D5 | Scale registry and lateral kinds; no twelfth depth | **Yes** to the registry; **keep ADR-008** | New kinds without new verticals | A refactor across ~20 modules; golden re-pin for births only |
 | D6 | What must precede first production history? | **Only** the identity/alias and provenance schema | Launch | None; it is additive |

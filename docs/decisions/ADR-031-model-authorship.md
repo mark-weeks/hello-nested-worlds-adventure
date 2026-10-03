@@ -154,15 +154,33 @@ canonical one.
 ### D6. Correction: compensating events, never deletion
 
 A ratified proposal that proves wrong is corrected by a new proposal of kind
-`correction` whose commit is the inverse of the original through the same
-door: an inverse delta for substance, ADR-029's inverse kind for structure, a
+`correction` whose commit reverses the original through the same door: an
+inverse delta for substance, ADR-029's inverse kind for structure, a
 superseding version with a forward pointer for authored text, puzzle
 definitions and art direction. The correction row carries `corrects:
-<proposal id>` and a reason; the original rows stay. Redaction remains
-content-level and is not a correction mechanism. A player who acted on wrong
-canon is recorded, not undone. An operator command (`python main.py proposals
-correct <id>`) performs this; the model may propose a correction like any
-other kind, under the same tiers.
+<proposal id>` and a reason; the original rows stay.
+
+An inverse is never applied blindly, because an RFC 7396 inverse restores
+old values rather than undoing one contribution: if the proposal changed a
+field from A to B and a player then changed it to C, restoring A would erase
+the player's result. A correction therefore commits only through the
+state-dependent path (`record_substance_transition`, under the same writer
+lock) with **transactional preconditions**: every field the correction
+touches must still hold the value the original proposal wrote, every alias
+it would revert must still be the current one, and no intervening structural
+event may have touched the subject. If any precondition fails, the correction
+is refused as a ledger decision (`decided_by = validator`, reason
+`conflict`), nothing is written to the chronicle, and the case is routed to
+an explicit **compensating decision against current state**: a new proposal
+that takes the present values as input and describes the intended repair,
+reviewed under the kind's tier. The same rule governs ADR-029 inverses (a
+rename back checks the current alias; a reopening checks that nothing was
+built on the retirement) and never applies to authored-text supersession,
+which conflicts with nothing. Redaction remains content-level and is not a
+correction mechanism. A player who acted on wrong canon is recorded, not
+undone. An operator command (`python main.py proposals correct <id>`)
+performs this, dry-run by default and printing the precondition check; the
+model may propose a correction like any other kind, under the same tiers.
 
 ### D7. Covenants, restated against authorship
 

@@ -123,8 +123,8 @@ document at load and keeps the current literals as the keyless fallback.
   generation identity and the pinned puzzle instance are unaffected, because
   all three derive from the born name.
 - ADR-030's `material` key includes `kind`, so a kind change re-renders the
-  plate and cue; its `structural` key does not, unless ADR-029 counts the
-  re-aspect as structural, which it does.
+  plate and cue, and its `structural` key counts `kind` among the
+  scene-defining anchors, so a kind change regenerates the volume as well.
 
 ### D4. Versioning and the births it governs
 

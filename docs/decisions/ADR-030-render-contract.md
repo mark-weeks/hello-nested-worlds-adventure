@@ -109,11 +109,23 @@ on the server so clients and Wayback address assets without recomputation:
   not bought from a provider. Beta-scene-art condition 5 is the rule for what
   belongs here: a destroyed bridge, changed terrain or fractured object changes
   the key; weather, transient motion and small live effects do not.
-- **`structural`**: the node's path plus its structural epoch, which counts
-  the structural events of [ADR-029](ADR-029-evolution-grammar.md) recorded on
-  it (rename, re-aspect, retirement); before ADR-029 lands it is the path plus
-  the born aspect. A volume regenerates when the place itself changes, never
-  when its weather does.
+- **`structural`**: the node's path, its structural epoch (the count of
+  [ADR-029](ADR-029-evolution-grammar.md) events recorded on it: rename,
+  re-aspect, retirement; zero until ADR-029 lands), and a digest of the
+  scale's **scene-defining anchors**: the properties that fix a place's
+  silhouette and geometry, today the `PLATE_SHAPES` anchor set in
+  `multiverse/senses.py` generalized per scale (terrain or biome, geometry,
+  material, condition and fracture state, exits and ceiling, bond count and
+  compound type), later the registry's identity-bearing keys. Ordinary
+  actions change these through intervention deltas (`cultivate`, `fracture`,
+  `fold`), and tints, weather and scars cannot turn an intact object into a
+  fractured one, so a volume regenerates when the place's shape changes by
+  any path, never when its weather does. Until the new render lands, a volume
+  whose recorded anchors no longer match the served state is **suppressed**
+  even if it is the latest accepted asset, and the plate or the procedural
+  field serves; this is the plate rule `senses.py` already applies ("a plate
+  may stand for a changing arrangement, but never contradict a changed
+  material/silhouette"), extended to volumes.
 
 The full asset identity is `(world_seed, path, renderer_id, renderer_version,
 direction_version, render_key)`. Bumping a renderer or direction version is how
@@ -240,7 +252,7 @@ by ADR-016's track.
 | Batch | Scope | Doors (irreversibility check) |
 |---|---|---|
 | **1 — the contract and the plate** | `render_keys` in `describe` (senses `VERSION` 4); migration 0028-series `render_assets`; object storage and `/media`; job queue; the `plate` renderer replacing the synchronous fast-sdxl call; `node_images` read-only; curated plates imported with provenance; dollar budgets per renderer | Additive migration; no chronicle write path; no golden re-pin; env aliases kept; CSP unchanged if same-origin |
-| **2 — volume** | the `volume` renderer with export-on-generation, the splat layer, the `structural` key (path plus born aspect until ADR-029) | None beyond batch 1; provider risk noted below |
+| **2 — volume** | the `volume` renderer with export-on-generation, the splat layer, the `structural` key (path plus scene-defining anchors, plus the structural epoch once ADR-029 lands) and the anchor-mismatch suppression rule | None beyond batch 1; provider risk noted below |
 | **3 — cue and the archive** | the `cue` renderer; Wayback asset lookup and the second honesty clause; direction-version bump for molecule and atom baselines | None beyond batch 1 |
 
 Tests that gain cases: `tests/test_frontend_contract.py` (scope of the
@@ -264,7 +276,7 @@ extended to `plate` and `cue`.
   deletion does not.
 - **Paid media is a recurring line, bounded by policy, not by player-hours.**
   Plates and cues cost cents per material-class change; volumes about $1.20
-  per structural event. The budget per renderer must state the regeneration
+  per structural event or scene-anchor change. The budget per renderer must state the regeneration
   rate it accepts; the assessment's D3 row says so.
 - **Provider dependence.** The splat provider is under acquisition; export on
   generation and first-party storage are the mitigation. Prompt and model
@@ -276,8 +288,9 @@ extended to `plate` and `cue`.
 
 ## Revisit when…
 
-- **ADR-029 lands** → the `structural` key becomes path plus structural
-  epoch; a rename, re-aspect or retirement regenerates the volume.
+- **ADR-029 lands** → the `structural` key's epoch component starts
+  counting; a rename, re-aspect or retirement regenerates the volume exactly
+  as an anchor change already does.
 - **The scale registry lands** → `direction_version` and the per-scale
   conditioning move into the registry record.
 - **A real-time world-model renderer costs under roughly $0.50 per
