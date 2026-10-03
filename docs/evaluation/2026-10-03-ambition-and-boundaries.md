@@ -42,7 +42,7 @@ could not open; **inferred** is this document's judgment.
    under ratification, now.** Frame-generating world models have no developer
    API (Genie), cost about $72 per viewer-hour (Decart), drift after roughly a
    minute, and cannot share state across viewers. What is production-grade today
-   is persistent generative 3D (World Labs Marble at ~$1.20 per place, rendered
+   is persistent generative 3D (World Labs Marble at ~$1.20 per generation, rendered
    in-browser by MIT-licensed splat renderers), cheap model cognition (an
    attention-gated living world at Enfolded's scale has a fixed floor of about
    $60–210 per month plus $0.18–0.86 per player-hour; $700–3,500 per month is
@@ -304,9 +304,17 @@ place *is*; a model decides what it *looks and sounds like*, keyed to the
 served state. **Adopt now, in parts.** The seam already exists:
 `multiverse/senses.py` produces a versioned sensory description with a
 `revision` digest, and `startSensory(canvas, node, {imageUrl})` consumes it.
-Define a render contract: `(node id, senses.revision, renderer id, renderer
-version) → asset`, cached in first-party storage, with provenance. Then plug
-in, in order of maturity: (i) a current image model with reference conditioning
+Define a render contract: `(node id, render key, renderer id, renderer
+version) → asset`, cached in first-party storage, with provenance, where each
+renderer declares how coarse its key is. `senses.revision` hashes the current
+properties (`multiverse/senses.py:68`), so a renderer keyed on it regenerates
+on every material change. That is right for the free procedural canvas and
+wrong for paid media, which would otherwise bill per delta. Paid renderers key
+on a coarser material class (the existing `style_signature` pattern) or on
+structural events only, and the procedural layer draws the fine-grained state
+over them. That is the asset-reuse policy and its fidelity trade-off: generated
+layers show what kind of place this is; the canvas shows its exact present.
+Then plug in, in order of maturity: (i) a current image model with reference conditioning
 to the four curated plates, replacing the SDXL wash with *the* scene; (ii) a
 Marble splat volume per visited place, viewed in Spark, giving the "character
 movement within a node" that neither client has; (iii) short image-to-video
@@ -406,14 +414,20 @@ richness possible without a twelfth depth, which ADR-008 rightly forecloses.
 ### 6.4 Senses
 
 The render contract of §5, implemented in three steps: first-party asset
-storage keyed by `(id, revision, renderer, version)`; a current image model with
-reference conditioning replacing the wash; Marble splats for visited places with
-Spark in the client (one-time cost per place, ~$1.20, lazily on first visit; the
-full world is ~$5k if ever generated entirely). Music: Stable Audio 3 (open
-weights, commercial under $1M revenue) or Lyria 3.5 cues conditioned on the
-scale's musical form and the place's state, generated once per revision and
-cached, so "scale is meaning" is expressed by conditioning rather than by eleven
-hand-sampled forms. Voice: ElevenLabs or Inworld TTS-2 for places and
+storage keyed by `(id, render key, renderer, version)`; a current image model
+with reference conditioning replacing the wash, keyed on material class so it
+regenerates at cents per class change rather than per property delta; Marble
+splats for visited places with Spark in the client, keyed per place and
+regenerated only on a structural event (rename, re-aspect, retirement), at about
+$1.20 per generation (World Labs bills per generation, not per place), lazily on
+first visit, so a first pass over the whole world is roughly $5k and the
+recurring line is the structural-event rate times $1.20. Music: Stable Audio 3
+(open weights, commercial under $1M revenue) or Lyria 3.5 cues conditioned on
+the scale's musical form and the place's state, generated once per form-and-
+state class and cached, so "scale is meaning" is expressed by conditioning
+rather than by eleven hand-sampled forms. Media therefore carries a recurring
+line of its own, bounded by the reuse policy rather than by player-hours; the
+budget for D3 must state the regeneration rate it accepts. Voice: ElevenLabs or Inworld TTS-2 for places and
 inhabitants, at cents per spoken minute; speech input stays explicit-submission
 per ADR-016.
 
@@ -428,10 +442,22 @@ per universe. Seasons emerge from the ledger, not from a cron schedule.
 ### 6.6 Puzzles as instruments
 
 `puzzle_instances.definition` is already a stored, versioned JSON object.
-A `definition_version` 2 whose definition is model-authored at first use,
-leak-screened and solvability-checked by the existing quality gate, is served
-identically to today's. The ecology gate, per-node difficulty, server-held
-answers, and seals all survive. Referential puzzles (ADR-015) and situations
+A `definition_version` 2 whose definition is model-authored at first use would
+be served identically to today's. Validating it is new work, not a reuse: the
+existing gate (`puzzles/quality.py`) is a census of family balance and
+prompt/answer uniqueness over the procedural population, and leak screening
+(`puzzles/generators.py:329`) lives inside the procedural generator; neither
+proves an arbitrary authored definition solvable. Before any authored
+definition is pinned, a runtime validator must (a) run the leak screen against
+the node's and its ancestors' current properties, (b) check answer format,
+determinism and the per-node difficulty and attempt limits, (c) establish
+solvability independently, by a deterministic check where the family's answer
+is computable and otherwise by a second model solving from prompt and hints
+alone without the answer, and (d) on any failure fall back to the procedural
+version-1 definition. An unvalidated definition must never be pinned, because
+seals and constellations key on puzzles and a broken one becomes a durable
+gate. Per-node difficulty, server-held answers, and seals all survive; the
+ecology census keeps running over the mixed population. Referential puzzles (ADR-015) and situations
 seeded from real history follow. The Causal Augury's purity claim (ADR-010)
 must be re-stated once lineages can change; that is a revisit the ADR already
 names.
@@ -504,9 +530,9 @@ the world; all of it is a transport layer around the same database.
 | # | Decision | Recommendation | What it unblocks | Opportunity cost |
 |---|---|---|---|---|
 | D1 | Ratify an evolution grammar covering births, renames, re-aspect, traversal reparenting, merge/retire, era turns, law shifts, as chronicled events | **Yes, all of them**, operator- and World-Mind-triggered under ratification | The world can change shape, not only properties | Displaces M5/M6 situation and journal polish for roughly one batch |
-| D2 | May the model author persistent canon under ratification, with provenance? | **Yes**, with a deterministic validator, proposal ledger, human audit sample, and disclosure | The World Mind; model-authored puzzles, situations, charters | Governance work; a new class of bug (bad canon) that redaction already handles |
-| D3 | Replace renderer determinism with a recorded, addressable render contract | **Yes** | Image models, splats, generative music, future video; Wayback unchanged | Asset storage and a job queue |
-| D4 | Budgeted inhabitant cognition and an open agent roster via MCP | **Yes, after pilot evidence**; attention-gated with a hard dollar ceiling (fixed floor ≈ $60–210/month, variable ≈ $0.18–0.86 per player-hour) | The README's thesis; a growth loop | The only decision with ongoing model spend; collusion/drift governance; re-examining the agent-progress covenant |
+| D2 | May the model author persistent canon under ratification, with provenance? | **Yes**, with a deterministic validator, proposal ledger, human audit sample, and disclosure | The World Mind; model-authored puzzles, situations, charters | Governance work, and a correction mechanism that must ship with the first authored change: redaction scrubs five text fields and never repairs applied deltas, born rows or pinned definitions, so a ratified but wrong change is reversed by a new chronicled compensating event carrying its reason (ADR-013 already names this), and a bad authored definition or charter is superseded by a new version with a forward pointer; a player who already acted on wrong canon is recorded, not undone |
+| D3 | Replace renderer determinism with a recorded, addressable render contract | **Yes** | Image models, splats, generative music, future video; Wayback unchanged | Asset storage, a job queue, and a recurring media line set by the reuse policy (per structural event for splats, per material-class change for plates and cues), which the decision must budget explicitly |
+| D4 | Budgeted inhabitant cognition and an open agent roster via MCP | **Yes, after pilot evidence**; attention-gated with a hard dollar ceiling (fixed floor ≈ $60–210/month, variable ≈ $0.18–0.86 per player-hour) | The README's thesis; a growth loop | The only decision with ongoing model-cognition spend (D3 carries the media regeneration line); collusion/drift governance; re-examining the agent-progress covenant |
 | D5 | Scale registry and lateral kinds; no twelfth depth | **Yes** to the registry; **keep ADR-008** | New kinds without new verticals | A refactor across ~20 modules; golden re-pin for births only |
 | D6 | What must precede first production history? | **Only** the identity/alias and provenance schema | Launch | None; it is additive |
 | D7 | One client | **`/app` primary**; explorer retired after the device gates | Every future UX batch | A deliberate ADR-005 update |
@@ -538,8 +564,9 @@ places; Marble splats for 50 of them, viewed in Spark.
 
 **Phase 2 (six weeks): make the world authorable.** Scale registry refactor
 behind the existing tests; model-authored puzzle instances at `definition_
-version` 2 through the ecology gate; agent participant identity and the MCP
-server; generative music cues per revision; promote `/app`. Read the pilot
+version` 2 behind the new runtime validator with procedural fallback (§6.6);
+agent participant identity and the MCP server; generative music cues per
+form-and-state class; promote `/app`. Read the pilot
 evidence and decide D4's budget ceiling from it.
 
 Opportunity cost, stated plainly: this sequence displaces the remaining
