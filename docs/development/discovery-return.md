@@ -1,5 +1,11 @@
 # Discovery/return interfaces
 
+**Current browser contract (2026-10-03):** New work uses Act and v3
+`/interventions/commit`, described in [ADR-028](../decisions/ADR-028-scale-native-autonomy.md).
+The situation routes below document legacy continuity: `/situation/choose` refuses
+new choices while retaining existing receipts. They are not a new-player route or
+a pilot setup procedure. Research uses [protocol 2](../evaluation/2026-09-12-pilot-protocol.md).
+
 These routes use the existing canonical-seed guard and `X-Beta-Key` invite
 credential. A private-data or situation-write route always requires a current
 personal invite, even in local mode with the general game gate open. The server

@@ -11,7 +11,7 @@ import logging
 import signal
 import threading
 from http.server import HTTPServer
-from socketserver import ThreadingMixIn
+from socketserver import TCPServer, ThreadingMixIn
 
 import persistence
 from server import guard, observability
@@ -20,6 +20,16 @@ from server.handlers import Handler as _Handler
 
 class _ThreadedServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
+    # Python 3.11 defaults to five waiting connections. An invited cohort can
+    # exceed that in one burst before handlers start, causing TCP resets rather
+    # than an HTTP response. This backlog is separate from the guarded WS cap.
+    request_queue_size = 64
+
+    def server_bind(self):
+        # HTTPServer resolves a display hostname with getfqdn on bind. We use the
+        # bound address instead, so unavailable reverse DNS cannot stall startup.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:

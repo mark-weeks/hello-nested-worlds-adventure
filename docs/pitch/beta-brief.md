@@ -1,12 +1,11 @@
 # Enfolded — Beta Design-Partner Brief
 
-*A demo-first buy-in document. Read it top to bottom: the first half is a tour
-you can run yourself in about five minutes; the second half pre-answers the
-questions a skeptical engineer will raise before they raise them. Everything
-here is grounded in the shipped code — every claim names the file, the CHANGELOG
-batch, and the test that guards it, so you can check any of it.*
-
-*Last re-verified against the code and canonical launch captures: 2026-08-04.*
+**Historical design-partner brief.** The tour below was last re-verified on
+2026-08-04 and contains superseded implementation/status claims. Do not use it as
+current onboarding or launch evidence. For the present experience use the
+[player guide](../../static/guide.html), [pilot protocol](../evaluation/2026-09-12-pilot-protocol.md),
+and [readiness record](../evaluation/2026-10-03-beta-readiness.md). Preserving this
+brief does not restore the retired scripted-choice experience or certify deployment.
 
 ---
 

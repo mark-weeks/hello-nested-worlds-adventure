@@ -26,3 +26,44 @@ def test_whitespace_aliases_cannot_inflate_participant_denominators():
     with pytest.raises(ValueError, match='one row per participant'):
         report([{'participant': 'P01', 'curiosity': True},
                 {'participant': ' P01\t', 'curiosity': True}])
+
+
+def test_current_protocol_separates_action_from_observed_consequence():
+    result = report({'protocol_version': 2, 'participants': [
+        {'participant': 'A', 'curiosity': True, 'acted': True,
+         'understood_action': True, 'understood_consequence': False,
+         'return_window_complete': True, 'unprompted_return': True,
+         'reminded': False, 'observed_return': True, 'useful_return': True},
+        {'participant': 'B', 'acted': False},
+    ]})
+    assert result['protocol_version'] == 2
+    assert 'understood_choice' not in result['metrics']
+    assert result['metrics']['understood_action'] == {'yes': 1, 'observed': 1, 'unknown': 1}
+    assert result['metrics']['understood_consequence'] == {'yes': 0, 'observed': 1, 'unknown': 1}
+
+
+@pytest.mark.parametrize('fields', [
+    {'understood_choice': True},
+    {'understood_action': False, 'acted': False},
+    {'understood_consequence': True},
+    {'unprompted_return': False, 'return_window_complete': False},
+    {'useful_return': False, 'observed_return': False},
+    {'unprompted_return': True, 'return_window_complete': True, 'reminded': True},
+    {'acted': 'yes'},
+])
+def test_current_protocol_cannot_count_ineligible_or_legacy_observations(fields):
+    with pytest.raises(ValueError):
+        report({'protocol_version': 2, 'participants': [{'participant': 'P01', **fields}]})
+
+
+def test_legacy_results_are_labeled_and_not_reinterpreted():
+    result = report([{'participant': 'P01', 'understood_choice': True}])
+    assert result['protocol_version'] == 1
+    assert 'not comparable' in result['interpretation']
+    assert 'understood_action' not in result['metrics']
+
+
+def test_current_protocol_rejects_notes_in_the_envelope_without_echoing_them():
+    with pytest.raises(ValueError, match='Unknown top-level field') as error:
+        report({'protocol_version': 2, 'participants': [], 'notes': 'Private fixture evidence'})
+    assert 'Private fixture evidence' not in str(error.value)

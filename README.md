@@ -1,19 +1,21 @@
 # Enfolded: Nested World Adventure
 
-The discovery/return review build adds an opt-in authored investigation in the
-existing shared world. An operator opens it with `python main.py situation --seed
-382`; new arrivals then reach its entry in either client. `/app` presents its
-clues, opposing choices and delayed aftermath. `/journal` holds private notes,
-home bookmarks and an explicitly published profile. `python main.py invite rotate
-<key-or-unique-digest-prefix>` replaces an invite while preserving participant
-ownership. Installations do not open the situation automatically.
+Both browser clients offer **Speak | Puzzle | Act** in one shared world. Act has
+four actions at each of eleven scales, optional ordered combinations, and an
+intention entry. A clear submission commits an attempt; consequences emerge from
+the conditions when it settles. There is no consequence preview or compulsory
+scripted route. Accepted retries recover the original receipt.
 
-Opened puzzles now retain their definition and original observational evidence;
-clients link to `/puzzle/evidence` and reject answers to superseded questions.
-Authenticated acts carry retry IDs, and a replay returns the original accepted
-result. [Implementation contract](docs/decisions/ADR-024-participants-and-active-content.md)
-and [first situation](docs/decisions/ADR-025-first-situation.md) describe the
-continuity and privacy boundaries; [interface notes](docs/development/discovery-return.md) describe the routes and retry contract. Human pilot evidence is still pending.
+`/journal` holds private notes, a home bookmark, return recaps, and a selectively
+published profile. Invited participants can submit, support, and withdraw feedback
+at `/ideas`. Personal invites and credential rotation preserve participant ownership.
+Existing scripted situations and earlier accepted work remain readable/recoverable;
+new scripted choices are retired and opening a situation is not beta onboarding.
+
+See the [action contract](docs/decisions/ADR-028-scale-native-autonomy.md),
+[current pilot protocol](docs/evaluation/2026-09-12-pilot-protocol.md), and
+[beta readiness record](docs/evaluation/2026-10-03-beta-readiness.md).
+Human pilot evidence, hosted recovery, and live-model quality remain launch gates.
 
 **A shared persistent multiverse inhabited simultaneously by human players and AI agents.**
 
@@ -35,16 +37,14 @@ Interaction is multi-modal: natural language for depth, visual navigation for mo
 
 ---
 
-## Planned next milestone
+## Next milestone: observed play and return
 
-The [discovery-and-return plan](docs/roadmap/discovery-and-return.md) formalizes
-one compelling first session and one meaningful return to the same world, with
-a private journal, a player-controlled public identity, and planned contribution
-leaderboards across multiple dimensions with human/agent opportunity controls.
-It also records occasional referential puzzles and optional spoken interaction
-as separate planned tracks, plus a proposed collection and assembly experiment.
-These are decisions and staged recommendations, not shipped capabilities; the
-existing implementation is described below.
+The next step is a small invited study of curiosity, comprehensible consequences,
+and a meaningful return to the same world. The journal/profile and action systems
+are implemented; their value to new players is not established by automated tests.
+Rankings, optional spoken input/playback, crafting, guilds, Hyperleap, and expanded
+agent cognition remain outside this beta-readiness batch. The
+[delivery plan](docs/roadmap/discovery-and-return.md) retains their separate decisions.
 
 ---
 
@@ -142,8 +142,10 @@ to return. You do not need to write code to contribute.
 
 [Share playtesting feedback or an idea](https://github.com/mark-weeks/hello-nested-worlds-adventure/issues/new?template=playtesting.yml),
 [report a bug](https://github.com/mark-weeks/hello-nested-worlds-adventure/issues/new?template=bug_report.yml),
-or read the [contribution guide](CONTRIBUTING.md). An in-game Ideas board with
-submissions and voting is planned; GitHub is the current reporting route.
+or read the [contribution guide](CONTRIBUTING.md). Invited players can use the
+in-game Ideas board at `/ideas` for submissions, support,
+withdrawal, and maintainer decisions. GitHub remains an external reporting route.
+A reviewed idea or vote does not itself publish an issue or authorize implementation.
 
 Maintainers use feedback to guide priorities, explain decisions, and invite
 players to verify improvements. Coding agents support implementation; outside
@@ -178,7 +180,7 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_HEARTBEAT` | Set to `0` to disable the ambient world heartbeat (background agent life). | on |
 | `NESTED_WORLDS_HEARTBEAT_INTERVAL` | Seconds between heartbeat ticks. Heartbeat agents are FSM-driven — no API spend. | `180` |
 | `NESTED_WORLDS_HOP_DELAY` | Seconds a staged causal cascade waits between rings — how fast consequences travel across scales. `0` makes staged hops due immediately (they still run through the queue). | `12` |
-| `NESTED_WORLDS_CAUSAL_PUMP` | Set to `0` to disable the pump thread that drains staged causal hops, matured verbs, and situation consequences (queued work then waits until a pump runs again; an expired shared decision still closes on the next choice). | on |
+| `NESTED_WORLDS_CAUSAL_PUMP` | Set to `0` to disable the pump thread that drains staged causal hops, matured verbs, and situation consequences (accepted work waits durably until a compatible pump runs again). | on |
 | `NESTED_WORLDS_RATE_LIMIT_PER_MIN` | Hosted beta: per-IP requests/minute on `/speak`, `/agent/voice`, `/image`, `/puzzle/attempt`, `/act`, `/register`, `/client-error`. | `20` |
 | `NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN` | Hosted beta: per-IP API reads/minute, including `/puzzle/evidence` and future data routes by default. Static assets, `/health`, `/worlds`, `/players`, `/position`, and the separately guarded `/ws` upgrade are exempt. | `120` |
 | `NESTED_WORLDS_IDEAS_AUTH_FAILURES_PER_MIN` | Hosted beta: failed Ideas credential checks per 60-second window/IP. Excess failures return `429`; valid credentials remain usable. Process-local; authentication still runs first. See [Ideas limits](docs/development/community-ideas.md#review-corrections-and-operational-boundaries). | `120` |

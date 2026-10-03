@@ -375,22 +375,59 @@ backups. The manual equivalent:
 fly ssh console -C "python main.py backup --to /data/backups/worlds-$(date -u +%Y%m%d).db"
 ```
 
-**Off-host copies (hourly, automated).** The continuity promise makes
-data loss a broken covenant, not an outage — the loss window is kept to
-one hour (ADR-005; continuous Litestream-style replication, which
-shrinks it to seconds, is the recorded post-launch follow-up).
-`.github/workflows/backup.yml` runs hourly (or on demand via
-workflow_dispatch), takes an online backup on the machine, downloads
-it, and stores it as a GitHub artifact with 90-day retention. It
-activates the moment you add a `FLY_API_TOKEN` repository secret
-(`fly tokens create deploy`); **until the secret is set it no-ops with a
-notice — set it before launch and manually dispatch one run to verify
-the artifact appears.** The manual equivalent:
+**Off-host copies (every 30 minutes; freshness must be checked).** ADR-005 targets
+at most one hour of lost history. A schedule alone does not establish that bound:
+[GitHub documents delayed and dropped scheduled jobs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+The workflow takes an online backup, downloads a self-contained SQLite file,
+checks integrity and required tables, and retains it with 90-day retention even
+when validation fails. A failed check keeps the run failed and labels the artifact
+`unvalidated-worlds-backup-<app>-<UTC snapshot-start>` for operator salvage. These
+copies never count as healthy backups. A successful upload is not yet a restore rehearsal.
+
+Before a separately authorized launch, configure the repository:
+
+- Secret `FLY_API_TOKEN`: deployment-scoped access to the intended Fly app.
+- Variable `ENFOLDED_BACKUP_APP`: the exact app name (default `enfolded-beta`).
+  Use the staging app during rehearsal; switch deliberately before production.
+- Variable `ENFOLDED_BACKUP_REQUIRED`: exactly `true` before permanent history is
+  accepted. Missing credentials then fail the workflow. Before activation, a
+  missing token with the variable unset or exactly `false` produces an explicit
+  inactive warning and no recovery claim. Any other value fails configuration;
+  a typo cannot silently turn enforcement off.
+
+Manually dispatch `backup.yml`; inspect the artifact, not just the job badge.
+Artifacts are named `worlds-backup-<app>-<UTC snapshot-start>`; staging copies
+cannot satisfy the production check. Run this read-only check with authenticated
+GitHub CLI access (`actions:read`):
 
 ```bash
-fly ssh sftp get /data/backups/worlds-YYYYMMDD.db ./local-backups/
-fly ssh console -C "sh -c 'ls -t /data/backups/*.db | tail -n +6 | xargs -r rm'"
+python scripts/backup_health.py --repository mark-weeks/hello-nested-worlds-adventure --app enfolded-beta
 ```
+
+It queries artifact pages and checks the candidate's originating run. Only a
+completed, successful `backup.yml` run on `main`, triggered by the schedule or a
+manual dispatch from the same repository, qualifies. Workflow identity, branch,
+repository and commit metadata must match; an expected filename alone is not proof.
+It exits 0 for a qualifying nonempty, nonexpired artifact whose snapshot-start is
+no more than 60 minutes old; 1 for missing/stale; 2 when status cannot be determined.
+It does not download data, validate contents, or restore anything. Old artifact names
+and quarantined copies are not counted. Metadata follows the
+[GitHub artifact API](https://docs.github.com/en/rest/actions/artifacts) and
+[workflow-run API](https://docs.github.com/en/rest/actions/workflow-runs).
+
+Run this check independently after workflow completion. A workflow cannot certify
+its own successful conclusion while still running, and cannot detect its own
+scheduler stopping. The backup job itself fails on invalid configuration,
+validation or upload failure. Arrange the independent check and operator notification
+before launch; this batch provides the command, not an external monitor.
+The `:17` and `:47` schedule leaves 30 minutes of nominal slack within the unchanged
+one-hour freshness limit; it does not guarantee timely scheduling. If measured
+cadence cannot meet that loss window, fix the transport/cadence or explicitly
+revisit ADR-005. Record several subsequent artifacts before calling automation proven.
+
+Download the selected artifact through GitHub, retain its run ID, snapshot time,
+app, release SHA and file checksum, and rehearse the restore below on an isolated
+instance. Treat downloaded data as private operator data, never a public fixture.
 
 ### Restoring from a backup
 
@@ -403,8 +440,8 @@ backup; everything recorded since that backup is lost, so read the
 event counts it prints.
 
 ```bash
-# 1. Restore (uses the sqlite backup API in reverse — safe against the
-#    running server's per-operation connections; --yes skips the prompt).
+# 1. Stop all application/heartbeat writers while retaining maintenance access.
+#    Restore uses SQLite backup in reverse; --yes skips the confirmation prompt.
 fly ssh console -C "python main.py restore --from /data/backups/worlds-YYYYMMDD.db --yes"
 
 # 2. Restart so in-memory state (rooms, puzzle sessions, rate buckets)
@@ -414,8 +451,14 @@ fly machine restart <machine-id>
 
 If the backup only exists off-host, upload it first:
 `fly ssh sftp shell` then `put ./local-backups/worlds-YYYYMMDD.db /data/backups/`.
-This procedure was rehearsed against a live server in the
-pre-deployment review (backup → mutate → restore → verified rollback).
+Earlier local rehearsals covered backup → mutate → restore. They do not prove
+that this deployment's off-host artifact can be recovered. On isolated staging,
+verify born rows/hinge and historical deltas, rotated identities and private-note
+access, pinned puzzles, saved positions, pending inputs and completed fences.
+Start a compatible build, confirm pending effects complete once, retry the original
+request IDs, and check that no other account can read private notes. Record the
+artifact checksum and elapsed recovery time. Never rehearse by rolling back the
+continuing participant world.
 
 ### Redaction — the sanctioned exception to append-only
 
@@ -455,28 +498,33 @@ and the launch-readiness findings in
 `docs/evaluation/2026-07-04-deep-evaluation.md`. Work through it top to
 bottom on the day.
 
-**Discovery/return compatibility rehearsal (2026-09-12):** Before deploying
-migrations 0021–0023, stop all writers and verify a complete backup. On the
-separate disposable staging database, exercise key rotation with private notes,
-an opened puzzle across content change, duplicate `/act` requests, both signal
-branches, a process death during a pending promise, and restore with that promise
-still pending. Use a compatible application build after restore; an older build
-that cannot interpret situation version 1 must not resume its work. The tests
-in `test_first_situation.py` exercise local crash/restore behavior; they are not
-proof of an off-host deployment rehearsal. Reverting to a pre-deploy database
-would discard newly accepted history and is the exceptional disaster path.
+**Current experience rehearsal (2026-10-03):** Record the selected commit,
+bundled client, database schema, target app, canonical seed, client default,
+browser/device list, operator, and time in the readiness record. Local fixtures,
+hosted staging, and participant evidence are separate entries.
 
-Opening `python main.py situation --seed 382` appends the situation's opening
-record; it is a separate deliberate operator action after deployment, never an
-automatic startup hook. Do not open it on production during acceptance testing.
-The existing backup-before-deploy requirement and explicit deploy authorization
-remain in force.
+Before any upgrade, stop all writers and verify a complete backup. On disposable
+staging, exercise invite gating/rotation, private notes, pinned puzzles, saved
+position, direct Act submission, independently overlapping delayed v3 attempts,
+lost acknowledgements and retries, reconnect, process death with pending work,
+and recovery from the downloaded backup. Use a compatible application build;
+older binaries must not interpret newer accepted work. Retain legacy v1/v2
+receipts and pending outcomes without opening new scripted choices.
+
+Do not run `python main.py situation` as onboarding. The scripted controller is
+retired; follow the [current pilot protocol](../evaluation/2026-09-12-pilot-protocol.md)
+for exploration and return. A production restore discards intervening history
+and remains an exceptional disaster operation, not an ordinary release rollback.
 
 **T-1 week:**
 
-- [ ] `FLY_API_TOKEN` repo secret set; one manual `workflow_dispatch` of
-      the backup workflow verified to produce an artifact.
-- [ ] Restore rehearsed once against a downloaded production backup.
+- [ ] Backup target and token configured; `ENFOLDED_BACKUP_REQUIRED=true`.
+      Manual dispatch and subsequent scheduled runs produce fresh app-specific artifacts.
+- [ ] Isolated restore rehearsed from a downloaded artifact of the intended app;
+      before first production, use its staging twin, then verify production backup
+      immediately after first deploy and before inviting participants.
+- [ ] Independent artifact-freshness monitoring and failure notification exercised.
+      A green no-op and an uptime ping cannot satisfy this gate.
 - [ ] `SENTRY_DSN` set; `fly logs` shows `Sentry initialized` on boot.
 - [ ] External uptime ping pointed at `/guide` (ungated, exercises the
       full serving path). Any free checker works.
@@ -497,7 +545,10 @@ remain in force.
 
 - [ ] **Deploy freeze** — one machine means every deploy drops all live
       sessions. Nothing ships during the window short of a fire.
-- [ ] **Live-voice probe** — quiet degradation hides outages by design,
+- [ ] **Live-model probes** — verify both node conversation and intention
+      interpretation on disposable staging, including clarification/refusal and
+      an observed explicit-action equivalent. Keep credentials and private text out
+      of evidence. Optional audio is separate. Quiet degradation hides outages by design,
       so verify the voice is LIVE, not just answering: a `/speak` reply
       must carry `"ai": true`. `"ai": false` means the failure voice is
       covering for a missing key or an exhausted budget (the probe spends
@@ -513,9 +564,9 @@ remain in force.
       rejected at mint. Say so in the invite message.
 - [ ] Onboard the cohort in the same window, not a trickle — encounters,
       co-op puzzles, and live cascades only exist when people overlap.
-      Give the cohort a shared first errand (e.g. "somewhere under
-      <region> is a sealed room; the key is written one scale up" — a
-      LOCK expedition forces travel and co-presence).
+      Keep the initial curiosity observation unprompted. After recording it, an
+      optional exploration prompt may help; record assistance and reminders under
+      protocol 2. Do not force a scripted route or another traveler's action.
 
 **T+1 day and weekly:**
 
