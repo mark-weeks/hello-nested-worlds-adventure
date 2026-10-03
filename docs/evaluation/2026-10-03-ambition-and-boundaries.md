@@ -541,9 +541,10 @@ the world; all of it is a transport layer around the same database.
 
 Decisions D1–D5 each warrant an ADR in house style. At the owner's request,
 D1 is drafted as [ADR-029](../decisions/ADR-029-evolution-grammar.md), D3 as
-[ADR-030](../decisions/ADR-030-render-contract.md) and D2 as
-[ADR-031](../decisions/ADR-031-model-authorship.md) (all Proposed); D4 and D5
-wait on direction because their *scope* is the owner's call.
+[ADR-030](../decisions/ADR-030-render-contract.md), D2 as
+[ADR-031](../decisions/ADR-031-model-authorship.md) and D4 as
+[ADR-032](../decisions/ADR-032-inhabitant-cognition.md) (all Proposed); D5
+waits on direction because its *scope* is the owner's call.
 
 ---
 
