@@ -1,6 +1,6 @@
 # Architecture Overview
 
-*Refreshed against `main` at #108 (2026-10-03). The system map is unchanged;
+*Refreshed against `main` at #109 (2026-10-03). The system map is unchanged;
 the component notes name the modules that exist today. The README's
 "Current State" matrix carries the measured claims; this page says where the
 code lives.*

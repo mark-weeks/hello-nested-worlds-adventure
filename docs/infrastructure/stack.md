@@ -1,6 +1,6 @@
 # Infrastructure Stack
 
-The as-built stack, refreshed against `main` at #108 (2026-10-03). It diverges
+The as-built stack, refreshed against `main` at #109 (2026-10-03). It diverges
 from the original ADRs in three places (FastAPI → stdlib `http.server`, Redis →
 SQLite, Cloudflare R2 → fal.ai-hosted URL caching). See ADR-001 and ADR-002 for
 the rationale and revisit triggers, and ADR-003 for the persistence contract.

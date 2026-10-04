@@ -244,7 +244,7 @@ moving while you stand still, act on a place and discover what your act set in
 motion — most of it with no API key at all, and none of it
 breaking character when a key or a budget runs out. It is deliberately quiet,
 contemplative, and honest about what it is: the infrastructure is real and
-tested (**1,358 passing Python tests**, `pytest tests/ -q`, plus **131 Vitest**
+tested (**1,417 passing Python tests**, `pytest tests/ -q`, plus **131 Vitest**
 cross-client tests and **96 Playwright** browser cases under the production CSP),
 the world is a genuine append-only
 chronicle, and the hardest engineering questions — canonical worlds, truthful
