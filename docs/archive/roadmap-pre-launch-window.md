@@ -4,11 +4,13 @@
 > Two parts remain binding and are restated in
 > [`docs/roadmap/README.md`](../roadmap/README.md): the "Declined in the
 > window" list, and the fact that the window is still open (nothing is
-> deployed; the chronicle is empty). The one pre-launch requirement that now
-> applies — an identity/alias and provenance schema before first production
-> history — is recorded as decision D6 of the
-> [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md),
-> not here. Standing continuity rules live in
+> deployed; the chronicle is empty). Decision D6 of the
+> [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md)
+> proposes one further prerequisite before first production history — an
+> identity/alias and provenance schema — as a recommendation pending the
+> owner's decision; it binds nothing until ratified, and the existing
+> operational launch gates (runbook §8 and the readiness record) apply
+> unchanged. Standing continuity rules live in
 > [`docs/roadmap/phase-2-scale.md`](../roadmap/phase-2-scale.md). Relative
 > links below were rewritten for the new location; the text is otherwise as
 > it stood.

@@ -29,9 +29,14 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
   and Apache-2.0 (#99); M1–M4 delivery, delayed choices, history narration and
   responsive inhabitants (#94–#97); the four pre-launch batches (#77–#81).
 - **Open:** M7 (pilot cohort) and M8; deployment and its launch gates;
-  ratification of ADR-012 through ADR-022 (their code is merged, their status
-  is still Proposed) and of the ADR-029 through ADR-033 drafts; the decision
-  agenda below.
+  ratification of the implemented-but-Proposed contracts — ADR-019 through
+  ADR-022 (M1–M4) and the bounded parts of ADR-013 and ADR-014 realised under
+  ADR-024/025 — whose code is merged while their status is still Proposed;
+  ADR-012's direction, realised so far only as that bounded first situation;
+  ADR-015 through ADR-018 (referential puzzles, spoken interaction,
+  multidimensional leaderboards, collectibles), which remain unimplemented
+  directions pending both implementation and ratification; ratification of
+  the ADR-029 through ADR-033 drafts; the decision agenda below.
 
 ## Live documents
 
