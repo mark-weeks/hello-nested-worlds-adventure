@@ -49,6 +49,7 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 | [Beta readiness record](../evaluation/2026-10-03-beta-readiness.md) | Beta scope and promise, the remaining launch gates and their owners, the October 31 conditional target | Current (#109); not launch approval |
 | [Pilot protocol 2](../evaluation/2026-09-12-pilot-protocol.md) | The M7 study: curiosity, attempted-action and observed-consequence understanding, unprompted and useful return | Ready to run; no cohort observed |
 | [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md) | The decision agenda and a proposed 90-day sequence | Findings for the owner; ratifies nothing |
+| [Next steps, Q4 2026](next-steps-2026-q4.md) | The dated critical path to the M7 pilot, the owner's decisions and their needed-by dates, the parallel maintenance track, and the November–January batch order for ADR-029 to ADR-033 as ratified | Plan (2026-10-04); ratifies nothing |
 
 ## Decision agenda (the owner's; nothing here is ratified)
 
