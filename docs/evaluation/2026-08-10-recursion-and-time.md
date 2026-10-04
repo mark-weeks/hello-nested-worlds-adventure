@@ -6,7 +6,8 @@ time relate to the game — and whether pursuing them now is core work or
 distraction. This is the synthesis: what was asked, what the code showed,
 what was decided, and what was deliberately declined. Decisions land in
 ADR-008 and ADR-009; the batch sequence lands in
-`docs/roadmap/pre-launch-window.md`.
+`docs/roadmap/pre-launch-window.md` (since archived as
+`docs/archive/roadmap-pre-launch-window.md`).
 
 Context that shaped everything: **nothing is deployed.** The project
 lives entirely in the repository; the chronicle is empty. Several

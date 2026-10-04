@@ -14,8 +14,9 @@ describe outcomes.
 
 Add each batch under the first `## [Unreleased]` in `docs/CHANGELOG.md`, newest
 first within `### Added` for new capabilities or `### Fixed` for corrections to
-existing behavior or guidance. The file also has older bullets above `[Unreleased]`;
-leave those historical entries in place, but do not use them as the insertion point.
+existing behavior or guidance. The bullets above `[Unreleased]` record the
+`v0.1.1-qa.*` QA prereleases cut on 2026-08-31 (the layout note under the title
+explains them); leave them in place and never use them as the insertion point.
 Keep the release-section scheme. Each batch is one bullet:
 
 1. **Bold headline** — a sentence naming what changed and why it matters,

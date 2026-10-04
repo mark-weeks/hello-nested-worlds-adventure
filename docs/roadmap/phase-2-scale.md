@@ -8,7 +8,9 @@ that justifies pulling it forward.
 
 The 20-user readiness work is shipped — see `[Unreleased]` in
 [`docs/CHANGELOG.md`](../CHANGELOG.md). The two beyond-now sections below
-describe future work.
+describe future work. Nothing is deployed yet (see the
+[roadmap index](README.md)); the continuity policy at the end of this file is
+standing and is cited by `CLAUDE.md`, `scripts/deploy.sh` and `persistence/`.
 
 ---
 
@@ -208,14 +210,16 @@ database is a continuous chronicle. Operationally that means:
 * **Never wipe the DB between cohorts.** A new beta wave joins the same
   world history the last one left behind.
 * **Migrations are additive.** New tables and new columns with defaults;
-  no destructive rewrites of `world_mutations`,
-  `agent_memory`, or `puzzle_results`. The migration runner
-  (`persistence/migrations/`) already applies files in order — a
-  migration that would drop accumulated history needs an explicit
-  data-preserving backfill plan in review.
+  no destructive rewrites of `world_mutations`, `agent_memory`,
+  `puzzle_results`, or `world_nodes` (the born rows are identity, ADR-006).
+  The migration runner (`persistence/migrations/`, 27 files as of #105)
+  applies files in order, atomically per file — a migration that would
+  drop accumulated history needs an explicit data-preserving backfill plan
+  in review.
 * **Back up before every deploy.** `python main.py backup` does an online
-  SQLite backup; make it the first step of the deploy script, so a bad
-  migration is a restore, not a lost epoch.
+  SQLite backup; `scripts/deploy.sh` runs it first and refuses to deploy
+  over an unbacked chronicle, so a bad migration is a restore, not a lost
+  epoch.
 
 ---
 

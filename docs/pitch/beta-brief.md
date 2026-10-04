@@ -5,7 +5,10 @@
 current onboarding or launch evidence. For the present experience use the
 [player guide](../../static/guide.html), [pilot protocol](../evaluation/2026-09-12-pilot-protocol.md),
 and [readiness record](../evaluation/2026-10-03-beta-readiness.md). Preserving this
-brief does not restore the retired scripted-choice experience or certify deployment.
+brief does not restore the retired scripted-choice experience or certify deployment. A 2026-10-03 documentation pass corrected the
+test counts, puzzle-ecology figures, delivery-recovery note and senses
+description below and added an Act step; the tour itself was not re-run.
+
 
 ---
 
@@ -31,8 +34,9 @@ is exactly the top of that same stored depth-11 world.
 `https://enfolded.world/?key=nw_…&name=<you>` — minted per person with
 `python main.py invite mint --name <you>` and revocable individually
 (`main.py::invite_share_url`, `main.py::cmd_invite`). The link lands you on `/`
-(the D3 explorer — no WebGL dependency, works first-click on any device);
-`/app` is the richer React + PixiJS view. On first arrival you are **dropped in
+(the D3 map explorer — no WebGL dependency, works first-click on any device);
+`/app` is the richer React + PixiJS scene view and, since the ADR-005 revision of
+2026-09-12, the primary development surface. On first arrival you are **dropped in
 at a node in the middle of the world, chosen deterministically from your name**
 — same name, same arrival point, every time (`frontend/src/entry.js`,
 mirrored in `static/explorer.js`). Return later and you resume exactly where you
@@ -88,9 +92,11 @@ sessions" / "travelers panel"). Difficulty is a per-node ★ rating spread acros
 the full 1–4 range at *every* scale — never a depth curve — so you pick your
 challenge, not your altitude. The answer is validated server-side and never
 appears in the prompt, hints, or the node's shipped properties. The full
-seed-382 ecology is release-gated: decode families are **37.81%**, world-reading
-families **61.50%**, and no single family exceeds **21.91%**
-(`scripts/puzzle_quality.py`; CHANGELOG "The world becomes the puzzle").
+seed-382 ecology is release-gated: decode families are **33.75%**, world-reading
+families **65.59%**, and no single family exceeds **19.94%**
+(`scripts/puzzle_quality.py`; CHANGELOG "The world becomes the puzzle" and
+"The laws become learnable"). The question a node first served is stored with
+its evidence, so a renewal never silently swaps the puzzle under you.
 
 **4. Watch a consequence travel — ring by ring, at world speed.** *(keyless)*
 When you solve that puzzle, the origin changes instantly — but the cascade does
@@ -101,12 +107,10 @@ broadcast live as it lands. Solve in a Room and watch the Region settle ~12s
 later in the feed, then the Planet, then the Galaxy — a consequence rippling
 outward over a minute rather than blinking everywhere at once
 (`causality/staging.py`; CHANGELOG "Consequences travel at world speed"). Pending
-hops survive a restart while they remain queued, but the
-[assessment](../evaluation/2026-09-07-concept-and-implementation.md) reproduced
-a loss window after work is claimed and before its effect is applied. Recovery
-across that window is the first engineering milestone in the
-[discovery-and-return plan](../roadmap/discovery-and-return.md); it is not yet a
-delivery guarantee.
+hops survive a restart, and since M1 (`causality/delivery.py`, CHANGELOG
+"Accepted consequences survive interrupted delivery") claim and application are
+fenced atomically, so a process killed mid-delivery neither loses nor duplicates
+the effect; `python main.py work-report` shows what is still due.
 
 **5. Stand still and watch the world move without you.** *(keyless)*
 Leave the tab open. Within a few minutes a named wanderer — **Tessera, Halden,
@@ -118,15 +122,28 @@ talking. This is the ambient heartbeat: a daemon loop (default every 180s,
 the world runs unattended and costs nothing to keep alive. Returning players find
 it changed (README world-heartbeat row; CHANGELOG "The world runs unattended").
 
+**6. Act on the place — commit first, discover what follows.** *(keyless for the
+labeled actions; a typed intention is interpreted by Claude and answers with an
+authored quiet line without a key)*
+Open **Act** beside Speak and Puzzle. Every scale offers four actions of its own
+(mend, engrave, fracture, polish for an Object; kindle, scatter, spiral,
+accelerate for a Galaxy — 44 in all), which you can combine in order or describe
+in your own words. Nothing previews the result: you commit, the world answers as
+it settles, and another player's act or a changed condition can alter what lands.
+The receipt carries a retry ID, so a lost reply never double-acts
+(`multiverse/interventions_v3.py`, `server/intervention_api.py`; CHANGELOG
+"Commit to attempts, then discover the shared world's response").
+
 **The art and sound are the place** *(keyless, ambient throughout).* Every node
-paints one of eleven per-scale canvas families and composes its own WebAudio
-soundscape from `(seed, name, properties, history)`. Causal pressure, danger,
-condition, atmosphere, and activity bend both senses; seed 382 has **4,208
-distinct sound parameter fingerprints across 4,208 nodes**, and all 1,524
-sibling pairs differ. Art is always present; sound is offered once, then stays
-opt-in because the browser requires an activation gesture. Both cost zero API
-spend; a fal.ai image, when enabled, is only a translucent wash over the
-generative base (`static/{nodeart,sensory,score}.js`; launch-world census).
+is drawn deterministically from its served senses (`static/sensory.js`), and its
+score is one of eleven sampled musical forms directed by scale and state
+(`static/score.js`, CC0 VSCO 2 Community Edition recordings shipped locally).
+Causal pressure, danger, condition, atmosphere, material and retained traces bend
+both senses. Art is always present; in `/app` sound is the intended default once
+the browser has its activation gesture (an explicit mute persists), and the map
+view keeps a toggle. Both cost zero API spend; a fal.ai image, when enabled, is
+only a translucent wash over the local rendering, and four curated plates ship
+for the first situation's places (`docs/media/expressive-world.md`).
 
 ---
 
@@ -223,11 +240,13 @@ Enfolded is a pre-launch, persistent, eleven-scale multiverse you enter by
 invite link and drop into mid-world by name. You can talk to places that remember
 you, solve puzzles cooperatively, watch your consequences travel outward ring by
 ring at world speed, and see a cast of Claude-adjacent agents keep the world
-moving while you stand still — most of it with no API key at all, and none of it
+moving while you stand still, act on a place and discover what your act set in
+motion — most of it with no API key at all, and none of it
 breaking character when a key or a budget runs out. It is deliberately quiet,
 contemplative, and honest about what it is: the infrastructure is real and
-tested (**828 passing Python tests**, `pytest tests/ -q`, plus 77 Vitest
-cross-client parity tests), the world is a genuine append-only
+tested (**1,417 passing Python tests**, `pytest tests/ -q`, plus **131 Vitest**
+cross-client tests and **96 Playwright** browser cases under the production CSP),
+the world is a genuine append-only
 chronicle, and the hardest engineering questions — canonical worlds, truthful
 cascade physics, server-derived identity, unattended life, durable agent memory,
 graceful keyless degradation — are each answered, shipped, and pinned by a named

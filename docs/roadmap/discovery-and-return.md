@@ -10,6 +10,16 @@ it does not require installing another scripted situation. The
 [readiness record](../evaluation/2026-10-03-beta-readiness.md) separates completed
 local work from hosted and human gates. October 31 is a conditional target.
 Invites retain the explorer default; switching it still needs ADR-005's evidence.
+**2026-10-03 status:** M4 merged in #97. The bounded M0/M5/M6 implementation
+([ADR-024](../decisions/ADR-024-participants-and-active-content.md),
+[ADR-025](../decisions/ADR-025-first-situation.md)) merged in #100 with review
+fixes in #101. The expressive world, commit-then-discover and UX batches merged
+in #105–#107. #108 recorded the
+[ambition assessment](../evaluation/2026-10-03-ambition-and-boundaries.md),
+which proposes displacing the remaining M5/M6 polish, ADR-017 and ADR-018 by
+about a quarter; that is an owner decision in front of the owner, not a change
+to this plan. M7 has not been run; its protocol is now version 2 (readiness revision above). ADR-012 through ADR-022 remain Proposed.
+The [roadmap index](README.md) tracks what governs now.
 
 **2026-09-20 playtest correction:** The owner rejected the initial expressive build's
 universal composer, forced agent delegation, intrusive gallery controller and
@@ -111,10 +121,14 @@ M3 merged in PR #96 at `d97ea1422d0a0c307d952ac1044e8607a5fad502`
 on 2026-09-08 at 22:12:28 UTC, with an [evidence-bound narration policy](../decisions/ADR-021-m3-history-narration.md)
 and [endpoint/browser evidence](../evaluation/2026-09-08-m3-history.md); it changes
 existing presentation and read projections, not historical facts or delivery semantics.
-These are repository merges, not deployment evidence. Bounded M4 is prepared for
-review with [ADR-022](../decisions/ADR-022-m4-responsive-inhabitants.md) and
+These are repository merges, not deployment evidence. Bounded M4 merged in PR #97
+with [ADR-022](../decisions/ADR-022-m4-responsive-inhabitants.md) and
 [heartbeat, restart and browser evidence](../evaluation/2026-09-08-m4-responsive.md).
-M0/M5 situations, commitments and broader ADR-013 proposals remain separate.
+Bounded M0/M5/M6 (one operator-installed situation, participant ownership, the
+private journal and published profile) merged in PR #100 at `62e822a` with review
+fixes in #101; see the
+[decision renewal record](../evaluation/2026-09-12-decision-renewal.md). The
+broader ADR-013 proposals remain separate and Proposed.
 
 ## First-situation review checklist
 

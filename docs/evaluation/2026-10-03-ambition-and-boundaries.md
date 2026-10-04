@@ -636,7 +636,7 @@ ADR-028; `docs/evaluation/2026-07-19-expert-ensemble-evaluation.md` §2.3;
 `docs/evaluation/2026-08-10-recursion-and-time.md`;
 `docs/evaluation/2026-09-07-concept-and-implementation.md`;
 `docs/evaluation/2026-09-12-pilot-protocol.md`; `docs/pitch/beta-brief.md`;
-`docs/roadmap/pre-launch-window.md`; `docs/roadmap/discovery-and-return.md`.
+`docs/roadmap/pre-launch-window.md` (archived 2026-10-03 as `docs/archive/roadmap-pre-launch-window.md`); `docs/roadmap/discovery-and-return.md`.
 
 ## Appendix B — external sources consulted (same-day; secondary unless confirmed)
 
