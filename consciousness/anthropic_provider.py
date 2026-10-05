@@ -1,11 +1,29 @@
 """Anthropic-specific transport and wire format; no world or player rules."""
 from __future__ import annotations
 
-import os
+import re
 import threading
 from typing import Any
 
 from consciousness.runtime import Completion, SystemBlock, TokenUsage
+
+
+# Claude API cache minima, verified 2026-10-05:
+# https://platform.claude.com/docs/en/build-with-claude/prompt-caching#cache-limitations
+# Match known versions only, not an entire family or future versions.
+_CACHE_REFERENCES = {
+    "claude-opus-4-5": 4096,
+    "claude-opus-4-6": 4096,
+    "claude-opus-4-7": 2048,
+    "claude-opus-4-8": 1024,
+    "claude-sonnet-4-5": 1024,
+    "claude-sonnet-4-6": 1024,
+    "claude-haiku-4-5": 4096,
+}
+_FINISH_REASONS = {
+    "end_turn": "complete", "stop_sequence": "stop", "max_tokens": "length",
+    "refusal": "refusal", "tool_use": "tool", "pause_turn": "pause",
+}
 
 
 class AnthropicProvider:
@@ -16,12 +34,20 @@ class AnthropicProvider:
         self._client_lock = threading.Lock()
 
     def configured(self) -> bool:
-        return bool(os.environ.get("ANTHROPIC_API_KEY"))
+        # SDK construction resolves local credentials without making a request.
+        # Include its bearer-token and profile/federation sources, so this gate
+        # agrees with the client that will actually send the call.
+        try:
+            client = self._get_client()
+        except Exception:
+            return False
+        return bool(client.api_key or client.auth_token or getattr(client, "credentials", None))
 
     def cache_reference_tokens(self, model: str) -> int | None:
-        # Retain the existing integration's reference guard, not a claim that
-        # this ID is currently available. Other IDs need verified cache metadata.
-        return 4096 if model == "claude-opus-4-8" else None
+        # A dated snapshot of a known version uses that version's reference.
+        # This advisory metadata does not certify that an ID is available.
+        version = re.sub(r"-\d{8}$", "", model)
+        return _CACHE_REFERENCES.get(version)
 
     def _get_client(self) -> Any:
         if self._client is None:
@@ -59,8 +85,9 @@ class AnthropicProvider:
             cache_read_tokens=getattr(raw, "cache_read_input_tokens", None),
             cache_write_tokens=getattr(raw, "cache_creation_input_tokens", None),
         )
-        return Completion(text=text, complete=getattr(response, "stop_reason", None) == "end_turn",
-                          usage=usage)
+        stop = getattr(response, "stop_reason", None)
+        return Completion(text=text, complete=stop == "end_turn", usage=usage,
+                          finish_reason=_FINISH_REASONS.get(stop, "unknown"))
 
 
 provider = AnthropicProvider()

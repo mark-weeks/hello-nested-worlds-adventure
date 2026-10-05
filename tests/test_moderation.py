@@ -261,6 +261,7 @@ class TestSpeakScreening:
     def test_declined_speak_leaves_no_trace(self, srv, monkeypatch):
         import consciousness
         spoken, charged = [], []
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "speak",
                             lambda *a, **k: spoken.append(1) or "reply")
         monkeypatch.setattr(guard, "consume_anthropic",
@@ -282,6 +283,7 @@ class TestSpeakScreening:
 
     def test_clean_speak_flows_through(self, srv, monkeypatch):
         import consciousness
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "speak", lambda *a, **k: "reply")
         seed = 272
         root = generate_node_hierarchy(seed=seed, max_depth=1)
@@ -296,6 +298,7 @@ class TestSpeakScreening:
     def test_declined_agent_voice_leaves_no_trace(self, srv, monkeypatch):
         import consciousness
         charged = []
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "voice_agent",
                             lambda *a, **k: "reply")
         monkeypatch.setattr(guard, "consume_anthropic",

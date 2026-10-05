@@ -38,7 +38,8 @@ def model(monkeypatch, answers):
     def create(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(stop_reason='end_turn', content=[SimpleNamespace(type='text',text=json.dumps(next(iterator)))])
-    monkeypatch.setattr(provider, '_get_client', lambda: SimpleNamespace(messages=SimpleNamespace(create=create)))
+    monkeypatch.setattr(provider, '_get_client', lambda: SimpleNamespace(
+        api_key='fixture-only', auth_token=None, messages=SimpleNamespace(create=create)))
     return calls
 
 

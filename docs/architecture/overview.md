@@ -68,7 +68,7 @@ browser client; both share the static modules listed under **Frontend**.
 
 ### `consciousness/` — Node Voice Layer
 Model-backed persona system. The current provider is Anthropic; this is an implementation choice under [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md), not a world contract. The model is called in exactly four places: node voice, agent voice, moderation classify, and intention interpretation.
-- `LEVEL_VOICES` and `LEVEL_LORE` — per-scale character notes and deep lore for all 11 levels, assembled into cached prompt bibles that exceed the model's cache minimum (`cached_prefix_meets_minimum`, `warn_if_cache_ineffective`)
+- `LEVEL_VOICES` and `LEVEL_LORE` — per-scale character notes and deep lore for all 11 levels, assembled into prompt bibles with cache markers. `cached_prefix_meets_minimum` and `warn_if_cache_ineffective` compare rough length estimates with adapter metadata; unknown models report unknown eligibility. Actual cache use requires provider usage evidence
 - `speak(node, message, history, transcript, ripple_score, speaker)` — two system blocks (cached bible + dynamic node context) plus a real multi-turn message list from the per-(node, speaker) transcript
 - `voice_agent(persona, agent_name, node, message, history)` — speaks AS an agent visiting a node, framed by its archetype and grounded in the node's real history
 - `LEVEL_FALLBACKS` / `fallback_voice(node)` — the authored failure voice: when the API is unavailable, every scale answers with an in-register line of silence instead of an error (HTTP 200, `ai: false`)

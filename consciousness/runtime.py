@@ -12,7 +12,8 @@ import threading
 from typing import Protocol
 
 
-VOICE_MODEL = os.environ.get("NESTED_WORLDS_MODEL", "claude-opus-4-8")
+DEFAULT_VOICE_MODEL = "claude-opus-4-8"
+VOICE_MODEL = os.environ.get("NESTED_WORLDS_MODEL", DEFAULT_VOICE_MODEL)
 DEFAULT_MODERATION_MODEL = "claude-haiku-4-5"
 
 
@@ -30,11 +31,28 @@ class TokenUsage:
     cache_write_tokens: int | None = None
 
 
+class NoTextError(ValueError):
+    """Safe diagnostic containing only normalized completion metadata."""
+
+
 @dataclass(frozen=True)
 class Completion:
     text: str | None
     complete: bool
     usage: TokenUsage | None = None
+    finish_reason: str = "unknown"
+
+    def require_text(self) -> str:
+        # Preserve voice behavior for partial text; only a missing block fails.
+        if self.text is None:
+            raise NoTextError(f"No text in model response (complete={self.complete}, finish={self.finish_reason})")
+        return self.text
+
+
+def failure_summary(exc: Exception) -> str:
+    # SDK error bodies can contain submitted text or credentials. Keep operator
+    # diagnostics to an error class or our own normalized completion metadata.
+    return str(exc) if isinstance(exc, NoTextError) else type(exc).__name__
 
 
 class TextProvider(Protocol):

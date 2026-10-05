@@ -51,3 +51,50 @@ the configured-model wording; final interface/boundary checks passed 49 cases.
 write path, world-meta pin, hinge or era-bank edit. The diff changes selection
 policy, documentation and the existing text integration; world ownership,
 autonomy, accepted actions and append-only history remain unchanged.
+
+## PR #112 review corrections — 2026-10-05
+
+The review had nine threads. Reproduced the reported environment-dependent failure:
+`NESTED_WORLDS_MODEL=claude-sonnet-4-5` made two cache tests fail on `199f31b`.
+The corrected tests pin their reference or supply metadata explicitly and cover
+sufficient, insufficient and unknown eligibility. They also check that the code
+default has adapter metadata. Both the known alternative and an unknown override
+are verified so expanding the metadata table cannot conceal the isolation bug.
+
+- The architecture overview now describes estimates, not guaranteed cache hits.
+  ADR-031 D5 no longer prescribes Opus, Sonnet or Haiku for proposed surfaces;
+  task evidence and ADR-034 govern those selections without ratifying the proposal.
+- Rechecked the [official cache limits](https://platform.claude.com/docs/en/build-with-claude/prompt-caching#cache-limitations).
+  The retained 4096-token Opus 4.8 reference was stale: the current reference is
+  1024. The adapter records bounded, documented versions and dated suffixes;
+  unknown/future versions remain unknown. Family-wide prefixes were rejected
+  because documented minima differ within the Opus family. The unknown warning
+  now includes the estimated smaller prefix size. No live cache savings are claimed.
+- Checked the [pinned SDK credential resolution](https://github.com/anthropics/anthropic-sdk-python/blob/v0.120.2/src/anthropic/_client.py).
+  Availability uses its resolved API key, bearer token or credentials provider.
+  Both HTTP voice routes now check availability before reserving existing global
+  and per-user budgets; unconfigured fallbacks produce no speech chronicle row.
+  Real SDK construction plus stubbed generation exercises missing, key-only and
+  token-only cases without reading local credential profiles or sending paid calls.
+- Both CLI speech paths emit safe operator diagnostics through an opt-in logging
+  handler, preserving authored stdout and silent stderr by default. A shared
+  completion helper retains partial voice text and reports normalized no-text
+  finish reasons, including refusal, without leaking raw SDK payloads.
+
+These corrections introduce no new persistence writer, migration, world birth
+change, golden pin, world-meta/hinge or era-bank edit. Budget bucket names and
+caps, prompt content, accepted actions and durable history remain unchanged.
+
+Review verification: 266 affected cases passed on the first focused run;
+four new CLI tests needed a test-only `FileHandler` cleanup correction and then
+passed 4/4. Both model-override runs pass 32/32. The first full Python run found
+seven older fixture failures (1,461 passed): mocked voices lacked configured
+availability, a mocked SDK client lacked credential fields, and one budget test
+relied on changing the environment after client creation. The corrected intention
+suites pass 64/64, and agent recording plus token-intention checks pass 3/3.
+
+The final canonical gate passed with `NESTED_WORLDS_MODEL=fixture-unknown` and
+`ENFOLDED_E2E=1`: Ruff, **1,469 Python tests** (251.49s), **131 Vitest tests**,
+production build and byte-fresh bundle, installed-wheel smoke, and **96 Playwright
+tests** (2.7m). All **73 local documentation targets**, including three fragments,
+resolved; `git diff --check` passed. Verification used fixtures, not paid model calls.

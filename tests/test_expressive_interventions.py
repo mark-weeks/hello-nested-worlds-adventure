@@ -191,7 +191,7 @@ def test_intention_failures_stay_in_fiction(http, monkeypatch):
         return http('/interventions/commit', body={'node':name,'intention':'let the surface remember the river',
                     'version':3,'request_id':f'quiet-{next(counter):08d}'})
     monkeypatch.setenv('NESTED_WORLDS_DISABLE_AI', '1')
-    monkeypatch.setenv('ANTHROPIC_API_KEY', 'test-key')
+    monkeypatch.setattr('consciousness.runtime.configured', lambda: True)
     status, data, _ = submit()
     assert status == 200 and data == {'ai':False,'response':intervention_api._UNSHAPED,'steps':[],'accepted':False}
     monkeypatch.delenv('NESTED_WORLDS_DISABLE_AI')

@@ -1,4 +1,5 @@
 import argparse
+import logging
 import secrets
 from pathlib import Path
 
@@ -8,6 +9,10 @@ from multiverse import store, wrap
 from multiverse.generator import BREADTH_ENVELOPE, DEFAULT_WORLD_SEED
 from multiverse.utils import apply_property_overrides, count_nodes, find_node
 from puzzles.engine import PuzzleEngine
+
+_log = logging.getLogger("nested_worlds.cli")
+if not _log.handlers:
+    _log.addHandler(logging.NullHandler())
 
 
 def cmd_world(args):
@@ -340,7 +345,8 @@ def cmd_invite(args):
 def cmd_speak(args):
     try:
         import consciousness
-    except ImportError:
+    except ImportError as exc:
+        _log.warning("speak fallback: %s", type(exc).__name__)
         print("The worlds are silent today.")
         return
 
@@ -365,7 +371,8 @@ def cmd_speak(args):
             args.seed, target.name, "PLAYER_SPEAK", None,
             {"message": args.message[:128], "reply": response[:200]},
         )
-    except Exception:
+    except Exception as exc:
+        _log.warning("speak fallback: %s", consciousness.runtime.failure_summary(exc))
         # In-fiction silence — never an SDK error at the player.
         print(consciousness.fallback_voice(target))
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import logging
 
 import causality
 import persistence
@@ -17,6 +18,10 @@ from multiverse.utils import (
 from puzzles.engine import PuzzleEngine
 from puzzles.types import PuzzleResult
 from agents.agent import Agent
+
+_log = logging.getLogger("nested_worlds.cli")
+if not _log.handlers:
+    _log.addHandler(logging.NullHandler())
 
 _RESET = "\033[0m"
 _BOLD = "\033[1m"
@@ -223,7 +228,8 @@ def _speak_to(node: SpatialNode, message: str, seed: int = 0,
     print(f"\n{_fmt(node)} responds…\n")
     try:
         import consciousness
-    except ImportError:
+    except ImportError as exc:
+        _log.warning("speak fallback: %s", type(exc).__name__)
         print(f"  {_DIM}(The worlds are silent today.){_RESET}\n")
         return
     history = persistence.get_node_history(seed, node.name)
@@ -246,7 +252,8 @@ def _speak_to(node: SpatialNode, message: str, seed: int = 0,
             seed, node.name, "PLAYER_SPEAK", player_name, data,
             actor_identity=player_name,
         )
-    except Exception:
+    except Exception as exc:
+        _log.warning("speak fallback: %s", consciousness.runtime.failure_summary(exc))
         # The world goes quiet in character. Never an SDK error, never a
         # billing warning — an authored silence in the node's register.
         print(f"  {consciousness.fallback_voice(node)}\n")

@@ -670,14 +670,15 @@ def _warn_if_cache_ineffective() -> None:
     _cache_warned = True
     provider = runtime.get_provider()
     minimum = provider.cache_reference_tokens(runtime.VOICE_MODEL)
+    est = min(_estimate_tokens(_WORLD_BIBLE), _estimate_tokens(_AGENT_BIBLE))
     if minimum is None:
         _log.warning(
             "prompt cache eligibility UNKNOWN for provider=%s model=%r; "
+            "smaller cached prefix ~%d tokens, threshold unknown; "
             "verify provider capabilities and actual usage before assuming savings",
-            provider.name, runtime.VOICE_MODEL,
+            provider.name, runtime.VOICE_MODEL, est,
         )
     elif not cached_prefix_meets_minimum(minimum):
-        est = min(_estimate_tokens(_WORLD_BIBLE), _estimate_tokens(_AGENT_BIBLE))
         _log.warning(
             "prompt cache likely INACTIVE: cached prefix ~%d tokens < %d reference "
             "for provider=%s model=%r; verify token counts and actual usage",
@@ -1012,9 +1013,7 @@ def speak(node: SpatialNode, message: str,
         endpoint="speak", model=runtime.VOICE_MODEL, max_tokens=256,
         system=system_blocks, messages=messages,
     )
-    if response.text is not None:
-        return response.text
-    raise ValueError("No text in model response")
+    return response.require_text()
 
 
 def _agent_memory_block(agent_memory: dict | None, node: SpatialNode) -> str:
@@ -1109,9 +1108,7 @@ def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
         system=(SystemBlock(_AGENT_BIBLE, cacheable=True), SystemBlock(agent_context)),
         messages=[{"role": "user", "content": message}],
     )
-    if response.text is not None:
-        return response.text
-    raise ValueError("No text in model response")
+    return response.require_text()
 
 
 # ── Input-moderation classify (ADR-004 §2) ──────────────────────────────────

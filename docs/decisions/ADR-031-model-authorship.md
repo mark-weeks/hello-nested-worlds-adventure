@@ -147,11 +147,15 @@ canonical one.
   mid-run go in mid-conversation system messages so the cached prefix survives.
   Tier 1 work that nobody is waiting for (annals, reflections, descriptions of
   unvisited places) runs through the Batch API at half price.
-- **Models pinned per surface and changed only with a CHANGELOG entry.** The
-  authorship surfaces move to the current Opus; reflection and review run on
-  the current Sonnet or Haiku; low effort for ambient work. A model change on
-  a voice surface first passes the comparative voice evaluation the runtime
-  guide requires, because players notice a silent swap.
+- **Models selected per task and changed only with evidence and a CHANGELOG entry.**
+  Authorship, reflection and review each follow [ADR-034](ADR-034-provider-and-model-optionality.md):
+  compare required capability, quality, reliability, latency and total cost;
+  no provider, family or newest version is prescribed. Record exact versions
+  where available, configuration and rollback choices. Evaluate review
+  independence as well as cost; using a different model alone does not prove it.
+  A voice change first passes the runtime guide's comparative voice evaluation,
+  because players notice a silent swap. This selection policy does not ratify
+  these proposed surfaces.
 - **Refusals stay in fiction.** A `refusal` stop reason records the proposal
   as `refused` and serves the fallback; no classifier text reaches a client.
   Forced tool choice is not used; structured outputs are.

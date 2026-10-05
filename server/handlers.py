@@ -19,6 +19,7 @@ from causality.delivery import accept_event, accept_verb
 from causality.wiring import (
     wire_world_handlers,
 )
+from consciousness import runtime
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
 from multiverse import store, wrap
@@ -869,7 +870,8 @@ class Handler(BaseHTTPRequestHandler):
                                         "ai": False, "declined": True})
 
             import consciousness
-            if not guard.consume_anthropic(user_key=user_key):
+            voice_ready = runtime.configured()
+            if voice_ready and not guard.consume_anthropic(user_key=user_key):
                 return self._send_json({"response": guard.QUIET_RESPONSE,
                                         "ai": False})
 
@@ -878,6 +880,8 @@ class Handler(BaseHTTPRequestHandler):
             node = _resolve_node(seed, node_name)
             if node is None:
                 return self._send_error("no such place in this world", 404)
+            if not voice_ready:
+                return self._send_json({"response": consciousness.fallback_voice(node), "ai": False})
             try:
                 history = persistence.get_node_history(seed, node.name)
                 transcript = persistence.get_player_exchanges(
@@ -1075,7 +1079,8 @@ class Handler(BaseHTTPRequestHandler):
                                     "persona": persona.name,
                                     "node": node_name,
                                     "ai": False, "declined": True})
-        if not guard.consume_anthropic(user_key=user_key):
+        voice_ready = runtime.configured()
+        if voice_ready and not guard.consume_anthropic(user_key=user_key):
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})
@@ -1083,6 +1088,13 @@ class Handler(BaseHTTPRequestHandler):
         node = _resolve_node(seed, node_name)
         if node is None:
             return self._send_error("no such place in this world", 404)
+        if not voice_ready:
+            return self._send_json({
+                "agent": agent_name, "persona": persona.name, "node": node.name,
+                "response": f"{agent_name} does not answer. Only the traces of a "
+                            f"{persona.name} remain here, already cooling.",
+                "ai": False,
+            })
         try:
             import consciousness
             history = persistence.get_node_history(seed, node.name)

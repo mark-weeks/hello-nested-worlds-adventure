@@ -420,6 +420,7 @@ class TestHingeLore:
             seen[node.name] = hinge
             return "spoken"
 
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "speak", fake_speak)
         hinge = wrap.hinge_name(SEED)
         root_name = store.root_name(SEED)
@@ -444,6 +445,7 @@ class TestHingeLore:
             seen[node.name] = hinge
             return "spoken"
 
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "speak", fake_speak)
         hinge = wrap.hinge_name(SEED)
         root_name = store.root_name(SEED)

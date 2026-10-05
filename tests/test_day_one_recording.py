@@ -360,6 +360,7 @@ class TestPuzzleAttempts:
 class TestAgentVoiceRecording:
     def test_exchange_persists_into_node_memory(self, srv, monkeypatch):
         import consciousness
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(
             consciousness, "voice_agent",
             lambda *a, **k: "The dust remembers your question.")
