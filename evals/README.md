@@ -17,6 +17,11 @@ candidate's previous answers; inhabitant turns append witnessed speech to the
 synthetic history, matching that production prompt's memory shape. It never births
 a world, executes an action, writes a chronicle or opens a player's database.
 Routing overrides are process-local: do not import this tool into a running server.
+Every request must name the selected candidate model before budget reservation or
+provider dispatch. Routing drift stops the run with `routing_mismatch`. All four
+production entry points have regression coverage for this guard. Centralizing
+production routing behind a shared task-model accessor is deferred until routing
+changes; that change must update these tests and the moderation screen probe.
 
 Deterministic grades cover intentions and classification. Voice grades remain
 unknown until a named human supplies scores. Reports retain raw normalized replies,
@@ -50,15 +55,24 @@ owner-only directory access. Publish only a deliberately reviewed summary.
 
 | File | Purpose |
 |---|---|
-| run.json | Completed manifest, all trials and an integrity hash |
-| trials.jsonl | Flushed observations retained on interruption |
+| run.json | Completed manifest, all trials, unique system blocks and an integrity hash |
+| trials.jsonl | Flushed observations retained on interruption; live trials also use fsync |
+| prompts/*.json | Unique cacheable system blocks, written before dispatch for journal recovery |
 | corpus.json, rubric.json | Exact input and grading snapshots |
 | report.md, summary.json | Human-readable and structured evidence |
 
 Interrupted runs remain marked running and cannot support completed comparisons.
-Budget stops retain partial evidence and exit 2. Completed runs exit 0 even when
+Budget stops retain partial answers and exit 2 with `spend_limit_reached`,
+`call_limit_reached` or `pricing_bound_exceeded`. A routing mismatch also exits 2. Completed runs exit 0 even when
 a candidate fails: measurement finished, not qualification. Hash checks detect
 accidental edits; they are not tamper-proof signatures.
+
+Schema 2 manifests store cacheable system blocks once in `system_blocks`; request
+blocks refer to their UTF-8 JSON SHA-256. `evals.harness.expand_request` reconstructs
+the full request, whose hash is checked against the original rendered request.
+For an unfinished manifest, load the block map from `prompts/<hash>.json` and
+reconstruct journal requests the same way. Dynamic context remains inline.
+All JSON, journals, review packets and reports use explicit UTF-8.
 
 ## Freeze the brief before live measurement
 
@@ -100,7 +114,7 @@ model name is evidence of what the API reports, not immutable backend identity.
 
 The price map must cover every model. Rates are USD per million tokens: ordinary
 input, output, cache read and **one-hour cache write**, plus the documented maximum
-input tokens. Use upper rates covering any long-context surcharge or token price
+input tokens as a positive integer. Use upper rates covering any long-context surcharge or token price
 tier. Accounting follows the adapter's disjoint Anthropic usage fields; future
 providers need their own verified accounting semantics.
 
@@ -139,6 +153,10 @@ retry behavior. They do not certify production capacity or reliability.
   --output evals/runs/incumbent-development-review
 ~~~
 
+The CLI uses the run directory's saved corpus and rubric by default and checks
+their hashes. Evolving the repository rubric does not prevent reviewing an older
+run. Validation finishes before creating the review output directory.
+
 Give the reviewer only review.json. Keep key.json and the manifest separate until
 grades are sealed. Packets randomize opaque identifiers and omit provider/model
 names; stylistic cues may still make blinding imperfect. Balance reviewer
@@ -147,6 +165,12 @@ assignment across candidates and use the same rubric.
 Fill the reviewer name, integer scores from 1–5, critical_violation and evidence
 notes. Null means unjudged. Never delete difficult cases. Import rejects changed
 context/output, missing/duplicate items and mismatched runs or rubrics.
+Items marked `grading_required=false` retain partial/invalid outputs for inspection;
+leave their scores and critical flag null. They need no invented human score.
+`quality_mean` covers valid, complete voice trials only and remains unknown until
+all eligible trials are graded. Reports show both eligible and graded counts.
+Invalid completions still fail task success; a conditional quality mean cannot
+rescue their success-rate penalty.
 
 ~~~sh
 .venv/bin/python scripts/model_eval.py report evals/runs/incumbent-development/run.json \
@@ -197,6 +221,14 @@ fresh held-out comparison.
 Reports distinguish valid output, correct task behavior and application screening.
 They separate unknowns from failures and successes; classifier false blocks/misses
 from local-filter bypasses; and graded quality from required correctness.
+Budget prevention (`not_run`), mid-dialogue budget interruption (`interrupted`),
+transport failures and harness errors have separate operational counters. They
+remain unknown for semantic success, never pass or become critical semantic
+failures, and block qualification. Refusal, truncation and missing text are invalid
+completions and count as task failures. Moderation classifier/screen correctness
+requires an actual completed verdict; observed screen fail-open behavior is counted
+separately, so a timeout cannot masquerade as a model's false allow or false block.
+No-dispatch trials contribute no latency sample.
 
 Cost per success includes all attempts and is unknown until usage and grading are
 complete. Task-call latency and observed cache reads do not establish hosted tail

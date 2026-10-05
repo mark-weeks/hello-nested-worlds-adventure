@@ -30,7 +30,7 @@ def main():
     execute.add_argument("--brief", type=Path)
     review = commands.add_parser("review")
     review.add_argument("run", type=Path)
-    review.add_argument("--corpus", type=Path, default=ROOT / "evals/corpus.json")
+    review.add_argument("--corpus", type=Path)
     review.add_argument("--output", type=Path, required=True)
     summary = commands.add_parser("report")
     summary.add_argument("run", type=Path)
@@ -62,17 +62,18 @@ def main():
                          max_usd=args.max_usd, max_calls=args.max_calls,
                          brief=read_json(args.brief) if args.brief else None)
             text, data = report(result)
-            (args.output / "report.md").write_text(text)
+            (args.output / "report.md").write_text(text, encoding="utf-8")
             write_json(args.output / "summary.json", data)
             print(f"{result['status']}: {len(result['trials'])}/{result['planned_trials']} trials; {args.output}")
             return 0 if result["status"] == "completed" else 2
         elif args.command == "review":
-            review_packet(checked_run(args.run), load_corpus(args.corpus), args.output)
+            review_packet(checked_run(args.run), load_corpus(args.corpus or args.run.parent / "corpus.json"),
+                          args.output, rubric=read_json(args.run.parent / "rubric.json"))
             print(f"Blind packet: {args.output / 'review.json'}; keep key.json separate")
         elif args.command == "report":
             result = checked_run(args.run)
             text, data = report(result, load_review(result, args.review, args.key))
-            (args.run.parent / "report.md").write_text(text)
+            (args.run.parent / "report.md").write_text(text, encoding="utf-8")
             write_json(args.run.parent / "summary.json", data)
             print(text)
         elif args.command == "compare":

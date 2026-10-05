@@ -35,18 +35,18 @@ SOURCE_FILES = ("consciousness/__init__.py", "consciousness/interventions.py",
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,
-                                     allow_nan=False).encode()).hexdigest()
+                                     allow_nan=False).encode("utf-8")).hexdigest()
 
 
 def read_json(path):
     def bad_constant(value):
         raise ValueError(f"non-finite JSON number: {value}")
-    return json.loads(Path(path).read_text(), parse_constant=bad_constant)
+    return json.loads(Path(path).read_text(encoding="utf-8"), parse_constant=bad_constant)
 
 
 def write_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2, ensure_ascii=False,
-                                   allow_nan=False) + "\n")
+                                   allow_nan=False) + "\n", encoding="utf-8")
 
 
 def load_corpus(path):
@@ -56,6 +56,7 @@ def load_corpus(path):
     corpus = read_json(path)
     if corpus.get("schema_version") != 1 or corpus.get("data_class") != "synthetic":
         raise ValueError("v1 accepts only explicitly synthetic corpora")
+    validate_corpus_version(corpus)
     cases = corpus.get("cases", [])
     ids = set()
     groups = {}
@@ -86,18 +87,27 @@ def load_corpus(path):
             raise ValueError(f"invalid persona: {key}")
         expected = case.get("expected", {})
         if case["task"] == "intention":
-            if len(case["messages"]) != 1 or expected.get("status") not in ("ready", "clarify", "unsupported"):
-                raise ValueError(f"invalid intention expectation: {key}")
-            if expected["status"] == "ready":
-                normalize_steps(expected["steps"], case["node"]["level"])
-            if expected.get("ambiguity") not in ("none", "action", "target", "scope", "order"):
-                raise ValueError(f"missing ambiguity expectation: {key}")
+            if (len(case["messages"]) != 1 or not isinstance(expected, dict) or
+                    set(expected) != {"status", "ambiguity", "steps"}):
+                raise ValueError(f"invalid intention expectation shape: {key}")
+            status, ambiguity, steps = (expected[k] for k in ("status", "ambiguity", "steps"))
+            if status == "ready" and ambiguity == "none":
+                if normalize_steps(steps, case["node"]["level"]) != steps:
+                    raise ValueError(f"intention expectation must use normalized steps: {key}")
+            elif not (steps == [] and (status == "unsupported" and ambiguity == "none" or
+                      status == "clarify" and ambiguity in ("action", "target", "scope", "order"))):
+                raise ValueError(f"unreachable intention expectation: {key}")
         elif case["task"] == "moderation":
             if len(case["messages"]) != 1 or type(expected.get("allowed")) is not bool:
                 raise ValueError(f"invalid moderation expectation: {key}")
         elif not case.get("rubric_notes"):
             raise ValueError(f"voice needs case-specific grading notes: {key}")
     return corpus
+
+
+def validate_corpus_version(corpus):
+    if not isinstance(corpus.get("version"), str) or not corpus["version"].strip():
+        raise ValueError("corpus version must be a nonempty string")
 
 
 class FixtureProvider:
@@ -166,14 +176,26 @@ def validate_candidate(config, live=False):
     for model in set(config["models"].values()):
         price = config.get("pricing", {}).get(model, {})
         for key in ("input_per_million", "output_per_million", "cache_read_per_million",
-                    "cache_write_per_million", "max_input_tokens"):
+                    "cache_write_per_million"):
             positive(price.get(key), key)
+        if type(price.get("max_input_tokens")) is not int or price["max_input_tokens"] < 1:
+            raise ValueError("max_input_tokens must be a positive integer")
         if not price.get("source") or not price.get("verified_on"):
             raise ValueError("pricing and maximum input bound need dated official evidence")
 
 
+STOP_REASONS = {"spend_limit_reached", "call_limit_reached", "pricing_bound_exceeded", "routing_mismatch"}
+OPERATIONAL_OUTCOMES = {"not_run", "interrupted", "transport_error", "harness_error"}
+
+
 class BudgetExceeded(RuntimeError):
-    pass
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+class RoutingMismatch(RuntimeError):
+    """The production entry point did not request the selected candidate model."""
 
 
 class Meter:
@@ -196,8 +218,12 @@ class Meter:
         maximum = (p["max_input_tokens"] * max(p["input_per_million"],
                    p["cache_read_per_million"], p["cache_write_per_million"])
                    + request["max_tokens"] * p["output_per_million"]) / 1_000_000
-        if self.halted or self.calls >= self.max_calls or self.accounted + maximum > self.limit:
-            raise BudgetExceeded("remaining budget cannot cover a worst-case request")
+        if self.halted:
+            raise BudgetExceeded("pricing_bound_exceeded")
+        if self.calls >= self.max_calls:
+            raise BudgetExceeded("call_limit_reached")
+        if self.accounted + maximum > self.limit:
+            raise BudgetExceeded("spend_limit_reached")
         self.calls += 1
         self.accounted += maximum
         return maximum
@@ -220,10 +246,49 @@ class Meter:
         return cost
 
 
+class PromptStore:
+    """Content-address cacheable blocks, including before a live journal write."""
+    def __init__(self, directory, *, durable=False):
+        self.directory, self.durable = Path(directory), durable
+        self.blocks = {}
+
+    def compact(self, request):
+        system = []
+        for block in request["system"]:
+            if not block["cacheable"]:
+                system.append(block)
+                continue
+            key = digest(block["text"])
+            if key not in self.blocks:
+                self.directory.mkdir(exist_ok=True)
+                with (self.directory / f"{key}.json").open("x", encoding="utf-8") as handle:
+                    handle.write(json.dumps(block["text"], ensure_ascii=False) + "\n")
+                    if self.durable:
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                self.blocks[key] = block["text"]
+            system.append({"text_sha256": key, "cacheable": True})
+        return {**request, "system": system}
+
+
+def expand_request(request, blocks):
+    system = []
+    for block in request["system"]:
+        if "text_sha256" not in block:
+            system.append(block)
+            continue
+        key = block["text_sha256"]
+        if key not in blocks or digest(blocks[key]) != key:
+            raise ValueError("missing or changed system prompt block")
+        system.append({"text": blocks[key], "cacheable": block["cacheable"]})
+    return {**request, "system": system}
+
+
 class RecordingProvider:
-    def __init__(self, provider, records, meter=None):
+    def __init__(self, provider, records, meter=None, *, expected_model=None, prompts=None):
         self.provider, self.records, self.meter = provider, records, meter
         self.name = provider.name
+        self.expected_model, self.prompts = expected_model, prompts
 
     def configured(self):
         return self.provider.configured()
@@ -232,9 +297,12 @@ class RecordingProvider:
         return self.provider.cache_reference_tokens(model)
 
     def generate(self, **kwargs):
+        if self.expected_model is not None and kwargs["model"] != self.expected_model:
+            raise RoutingMismatch("production request differs from selected candidate model")
         request = {**kwargs, "system": [asdict(x) for x in kwargs["system"]]}
+        stored = self.prompts.compact(request) if self.prompts else request
         reservation = self.meter.reserve(kwargs) if self.meter else 0
-        record = {"request": request, "request_sha256": digest(request), "response": None,
+        record = {"request": stored, "request_sha256": digest(request), "response": None,
                   "error": None, "cost_usd": None, "reserved_usd": reservation}
         self.records.append(record)
         start = time.perf_counter()
@@ -261,12 +329,13 @@ def task_routing(provider, model):
         yield
 
 
-def execute(case):
+def execute(case, outputs=None):
     import consciousness
     from consciousness import interventions
     from agents.personas import by_name
     from multiverse.node import SpatialNode
-    outputs, transcript = [], []
+    outputs = [] if outputs is None else outputs
+    transcript = []
     history = list(case.get("history", []))
     node = SpatialNode(**case["node"]) if "node" in case else None
     if node:
@@ -301,7 +370,7 @@ def execute(case):
             try:
                 allowed = consciousness.classify_content(message)
                 error = None
-            except BudgetExceeded:
+            except (BudgetExceeded, RoutingMismatch):
                 raise
             except Exception as exc:
                 allowed, error = True, type(exc).__name__
@@ -316,36 +385,62 @@ def execute(case):
 
 def grade(case, outputs, calls, error):
     responses = [c["response"] for c in calls]
-    valid = (not error and len(responses) == len(case["messages"]) and
+    valid = (len(responses) == len(case["messages"]) and
              all(r and r["complete"] and isinstance(r["text"], str) and r["text"].strip()
                  for r in responses))
     result = {"valid_completion": bool(valid), "task_correct": None, "screen_correct": None,
-              "human_required": case["task"].endswith("voice")}
+              "classifier_verdict_valid": False, "human_required": case["task"].endswith("voice"),
+              "outcome": "awaiting_human" if case["task"].endswith("voice") else "completed"}
+    if error == "BudgetExceeded":
+        result["outcome"] = "interrupted" if calls else "not_run"
+    elif any(c["error"] for c in calls):
+        result["outcome"] = "transport_error"
+    elif any(r and (not r["complete"] or not isinstance(r["text"], str) or not r["text"].strip())
+             for r in responses):
+        result.update(task_correct=False, outcome="invalid_completion")
+        return result
+    elif error == "RoutingMismatch" or not calls or len(calls) != len(case["messages"]):
+        result["outcome"] = "harness_error"
+    if result["outcome"] in OPERATIONAL_OUTCOMES:
+        return result
     if not valid:
-        result["task_correct"] = False
-    elif case["task"] == "intention":
+        result.update(task_correct=False, outcome="invalid_completion")
+        return result
+    if error:
+        if case["task"] == "intention" and error == "ValueError":
+            result.update(task_correct=False, outcome="model_failure")
+        else:
+            result["outcome"] = "harness_error"
+        return result
+    if case["task"] == "intention":
         try:
             raw = json.loads(responses[0]["text"])
             expected = case["expected"]
             result["task_correct"] = (raw == expected and outputs[0]["status"] == expected["status"])
-            # Compare parsed semantics, never key order or formatting.
             if expected["status"] == "ready":
                 result["task_correct"] &= outputs[0]["steps"] == expected["steps"]
         except (ValueError, KeyError, TypeError, IndexError):
             result["task_correct"] = False
     elif case["task"] == "moderation":
         verdict = responses[0]["text"].strip().upper()
-        result["task_correct"] = (verdict in ("ALLOW", "BLOCK") and
+        result["classifier_verdict_valid"] = (verdict in ("ALLOW", "BLOCK") and
+                                               bool(outputs) and not outputs[0]["error"])
+        result["task_correct"] = (result["classifier_verdict_valid"] and
                                   outputs[0]["allowed"] == case["expected"]["allowed"])
-    if case["task"] == "moderation" and outputs:
-        result["screen_correct"] = outputs[0]["screen"]["allowed"] == case["expected"]["allowed"]
+        if result["classifier_verdict_valid"]:
+            result["screen_correct"] = outputs[0]["screen"]["allowed"] == case["expected"]["allowed"]
+    if result["task_correct"] is False:
+        result["outcome"] = "model_failure"
     return result
 
 
 def provenance():
     def git(*args):
-        return subprocess.check_output(["git", "-c", "core.fsmonitor=false", *args],
-                                       cwd=ROOT, text=True).strip()
+        try:
+            return subprocess.check_output(["git", "-c", "core.fsmonitor=false", *args],
+                                           cwd=ROOT, text=True, stderr=subprocess.PIPE).strip()
+        except (subprocess.CalledProcessError, OSError) as exc:
+            raise ValueError("evaluation provenance requires a readable Git worktree") from exc
     files = {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in SOURCE_FILES}
     return {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain")),
             "source_sha256": files, "source_bundle_sha256": digest(files),
@@ -355,6 +450,7 @@ def provenance():
 def run(corpus, config, output, *, split="development", repeats=1, seed=0,
         tasks=TASKS, live=False, max_usd=None, max_calls=None, provider=None, brief=None):
     validate_candidate(config, live)
+    validate_corpus_version(corpus)
     if type(repeats) is not int or repeats < 1 or split not in ("development", "holdout"):
         raise ValueError("positive repeats and one explicit split required")
     cases = [c for c in corpus["cases"] if c["split"] == split and c["task"] in tasks]
@@ -374,47 +470,54 @@ def run(corpus, config, output, *, split="development", repeats=1, seed=0,
         if not provider.configured():
             raise ValueError("provider is unconfigured")
     output = Path(output)
-    output.mkdir(parents=True, exist_ok=False)
-    os.chmod(output, 0o700)
     schedule = [(c, repeat) for repeat in range(repeats) for c in cases]
     random.Random(seed).shuffle(schedule)
-    result = {"schema_version": 1, "evidence": "live" if live else "fixture",
+    rubric = read_json(ROOT / "evals/rubric.json")
+    result = {"schema_version": 2, "evidence": "live" if live else "fixture",
               "started_at": datetime.now(timezone.utc).isoformat(), "candidate": config,
               "corpus_version": corpus["version"], "corpus_sha256": digest(corpus),
-              "rubric_sha256": digest(read_json(ROOT / "evals/rubric.json")),
+              "rubric_sha256": digest(rubric), "rubric": rubric,
               "provenance": provenance(), "split": split, "repeats": repeats, "seed": seed,
               "selection_brief": brief,
               "case_ids": [c["id"] for c in cases], "planned_trials": len(schedule),
               "budget": {"max_usd": max_usd, "max_calls": max_calls},
               "trials": [], "status": "running"}
+    output.mkdir(parents=True, exist_ok=False)
+    os.chmod(output, 0o700)
+    prompts = PromptStore(output / "prompts", durable=live)
+    result["system_blocks"] = prompts.blocks
     write_json(output / "run.json", result)
     write_json(output / "corpus.json", corpus)
-    write_json(output / "rubric.json", read_json(ROOT / "evals/rubric.json"))
-    with (output / "trials.jsonl").open("x") as journal:
+    write_json(output / "rubric.json", rubric)
+    with (output / "trials.jsonl").open("x", encoding="utf-8") as journal:
         for case, repeat in schedule:
-            calls, outputs, error = [], [], None
+            calls, outputs, error, stop_reason = [], [], None, None
             selected = provider if live else FixtureProvider(case["fixture"])
-            recording = RecordingProvider(selected, calls, meter)
+            model = config["models"][case["task"]]
+            recording = RecordingProvider(selected, calls, meter, expected_model=model, prompts=prompts)
             started = time.perf_counter()
             try:
-                with task_routing(recording, config["models"][case["task"]]):
-                    outputs = execute(case)
-            except BudgetExceeded:
-                error = "BudgetExceeded"
+                with task_routing(recording, model):
+                    execute(case, outputs)
+            except BudgetExceeded as exc:
+                error, stop_reason = "BudgetExceeded", exc.reason
+            except RoutingMismatch:
+                error, stop_reason = "RoutingMismatch", "routing_mismatch"
             except Exception as exc:
                 error = type(exc).__name__
             trial = {"id": f"{case['id']}:{repeat}", "case_id": case["id"], "repeat": repeat,
                      "task": case["task"], "category": case["category"], "critical": case["critical"],
                      "expected": case.get("expected"),
-                     "outputs": outputs, "calls": calls, "error": error,
+                     "outputs": outputs, "calls": calls, "error": error, "stop_reason": stop_reason,
                      "latency_ms": (time.perf_counter() - started) * 1000,
                      "grade": grade(case, outputs, calls, error)}
             result["trials"].append(trial)
             journal.write(json.dumps(trial, ensure_ascii=False, allow_nan=False) + "\n")
             journal.flush()
-            os.fsync(journal.fileno())
-            if error == "BudgetExceeded" or (meter and meter.halted):
-                result["status"] = "budget_stopped"
+            if live:
+                os.fsync(journal.fileno())
+            if stop_reason or (meter and meter.halted):
+                result["status"] = stop_reason or "pricing_bound_exceeded"
                 break
     if result["status"] == "running":
         result["status"] = "completed"

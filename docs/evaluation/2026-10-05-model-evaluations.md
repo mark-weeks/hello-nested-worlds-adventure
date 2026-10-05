@@ -89,6 +89,40 @@ All **6 local documentation targets** in the guide, runtime guidance and this
 record resolved; diff whitespace passed. The generated fixture report and blind
 packet were inspected, with voice scores still null and screen failures visible.
 
+## PR review corrections
+
+The 15 review threads exposed operational failures being scored as semantic
+failures, lost earlier replies after a later-turn failure, historical reviews
+coupled to the current rubric, malformed inputs escaping validation, and repeated
+cacheable prompt storage. The fixes separate operational outcomes from semantic
+scores, retain partial replies, grade voice quality only over eligible completions,
+load saved corpus/rubric snapshots, validate before creating directories, use
+explicit UTF-8, and distinguish spend, call and pricing-bound stops. A request-model
+guard stops routing drift before dispatch across all four production tasks.
+The broader shared task-model accessor remains deferred until production routing
+changes; the guard and its four-task regression make silent drift fail closed.
+
+The same 114-trial / 147-call development fixture workload now stores a **547,094-byte
+manifest and 342,759-byte journal**, versus 1,901,962 and 1,739,548 bytes before
+review, plus 37,372 bytes of journal-recovery prompt blobs. Cacheable text is unique
+within the manifest, and every compact request reconstructs to its original hash.
+Fixture trials flush without fsync; live journals and new prompt blobs retain it.
+The expanded evaluation suite passes **78 tests**, including interruption,
+transport, malformed inputs, prompt reconstruction, wrong-model prevention and
+an actual CLI run/review under an ASCII locale. These are synthetic provider tests;
+no paid calls or human grades were made.
+
+Review verification passed Ruff, **1,547 Python tests** (252.10s), **131 Vitest**,
+byte-fresh production build and installed-wheel smoke. The first browser run
+passed 95/96: the recovery-storage test timed out before its storage assertion
+because action loading showed "This place could not be heard." Three isolated
+repeats passed without code changes. An initial diagnostic command used a relative
+Python path that its nested server could not resolve; the corrected command uses
+the canonical absolute path. The full concurrent browser rerun passed **96/96** in **2.5m**.
+The final fixture runs repeat both splits (165 trials / 210 calls), plus a paired
+51-trial held-out run and an 18-item ungraded blind packet. Their source hashes
+match the implementation. Six local documentation targets and diff whitespace pass.
+
 ## Irreversibility check
 
 None — no migration, golden/birth change, new chronicle writer, world-meta/hinge
