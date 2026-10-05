@@ -15,6 +15,11 @@ pipeline decides whether canon is made.
 
 ---
 
+**2026-10-04 selection clarification:** Provider/model choices follow
+[ADR-034](ADR-034-provider-and-model-optionality.md). The dated comparison below
+is historical context, not a standing Opus preference or current pricing evidence.
+This clarification does not ratify the authorship proposal.
+
 ## Context
 
 The model is called in exactly four places today: node voice
@@ -142,11 +147,15 @@ canonical one.
   mid-run go in mid-conversation system messages so the cached prefix survives.
   Tier 1 work that nobody is waiting for (annals, reflections, descriptions of
   unvisited places) runs through the Batch API at half price.
-- **Models pinned per surface and changed only with a CHANGELOG entry.** The
-  authorship surfaces move to the current Opus; reflection and review run on
-  the current Sonnet or Haiku; low effort for ambient work. A model change on
-  a voice surface first passes the comparative voice evaluation the runtime
-  guide requires, because players notice a silent swap.
+- **Models selected per task and changed only with evidence and a CHANGELOG entry.**
+  Authorship, reflection and review each follow [ADR-034](ADR-034-provider-and-model-optionality.md):
+  compare required capability, quality, reliability, latency and total cost;
+  no provider, family or newest version is prescribed. Record exact versions
+  where available, configuration and rollback choices. Evaluate review
+  independence as well as cost; using a different model alone does not prove it.
+  A voice change first passes the runtime guide's comparative voice evaluation,
+  because players notice a silent swap. This selection policy does not ratify
+  these proposed surfaces.
 - **Refusals stay in fiction.** A `refusal` stop reason records the proposal
   as `refused` and serves the fallback; no classifier text reaches a client.
   Forced tool choice is not used; structured outputs are.
@@ -230,7 +239,7 @@ and may change by configuration.
 
 | Batch | Scope | Doors (irreversibility check) |
 |---|---|---|
-| **1 — the pipeline and Tier 1** | `proposals`, `proposal_decisions`, `authored_text` migrations; the validator framework (reusing ADR-029's where present); Tier 1 kinds: place descriptions, era annals, outward inhabitant reflections (memory claims land in ADR-032's store when that decision's batch 1 ships); model default moved to the current Opus for authorship with the voice evaluation on record; dollar budgets and per-tier kill switches; the disclosure page; `proposals list / approve / reject / correct` CLI | Additive migrations; **no chronicle write path** (Tier 1 writes none); a model-default change recorded in the CHANGELOG |
+| **1 — the pipeline and Tier 1** | `proposals`, `proposal_decisions`, `authored_text` migrations; the validator framework (reusing ADR-029's where present); Tier 1 kinds: place descriptions, era annals, outward inhabitant reflections (memory claims land in ADR-032's store when that decision's batch 1 ships); provider and exact model/version selected for authorship under ADR-034, with task and voice evaluation on record; dollar budgets and per-tier kill switches; the disclosure page; `proposals list / approve / reject / correct` CLI | Additive migrations; **no chronicle write path** (Tier 1 writes none); a model-default change recorded in the CHANGELOG |
 | **2 — Tier 2** | puzzle definitions at `definition_version` 2 behind the runtime validator with procedural fallback; situations seeded from history; re-aspect and rename through ADR-029 (requires its batches 1 and 2); art-direction proposals under ADR-030 versions | The chronicle write paths are ADR-029's, not new ones here; `puzzle_instances` gains a definition version (additive) |
 | **3 — Tier 3 and graduation** | tripwires, audit sampling dashboards, per-kind graduation to automatic ratification where the owner allows; births, passages and era turns under rate limits | None beyond ADR-029's |
 

@@ -51,6 +51,10 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 | [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md) | The decision agenda and a proposed 90-day sequence | Findings for the owner; ratifies nothing |
 | [Next steps, Q4 2026](next-steps-2026-q4.md) | The dated critical path to the M7 pilot, the owner's decisions and their needed-by dates, the parallel maintenance track, and the November–January batch order for ADR-029 to ADR-033 as ratified | Plan (2026-10-04); ratifies nothing |
 
+The owner's 2026-10-04 provider/model optionality direction is recorded in
+[ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). It supersedes
+ADR-005's vendor-family preference, not the release gates or the open decisions below.
+
 ## Decision agenda (the owner's; nothing here is ratified)
 
 The 2026-10-03 assessment put nine decisions to the owner. Five are drafted as
@@ -94,8 +98,10 @@ kept so the archived text can be cross-read.
 - **4.2** The `/app` device, accessibility and onboarding gate that precedes any
   change to the invite default (ADR-005, 2026-09-12 revision; decision D7).
 - **4.3** The world-speaks-first experiment, now subsumed by the ADR-032 draft.
-- **4.4** A model A/B on live transcripts; the assessment recommends moving the
-  default voice model off `claude-opus-4-8` in its Phase 0.
+- **4.4** A task-specific comparison of suitable providers, models and versions
+  under [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). The
+  assessment's model recommendation is a candidate, not a standing preference;
+  select on observed quality, capability, latency, reliability and total cost.
 - **4.5** Routing extraction from `server/handlers.py` (1,612 lines). The
   sub-API modules (`server/intervention_api.py`, `ideas_api.py`,
   `participant_api.py`, `situation_api.py`) are the pattern to follow.

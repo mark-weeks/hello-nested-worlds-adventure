@@ -1,4 +1,5 @@
 import argparse
+import logging
 import secrets
 from pathlib import Path
 
@@ -8,6 +9,10 @@ from multiverse import store, wrap
 from multiverse.generator import BREADTH_ENVELOPE, DEFAULT_WORLD_SEED
 from multiverse.utils import apply_property_overrides, count_nodes, find_node
 from puzzles.engine import PuzzleEngine
+
+_log = logging.getLogger("nested_worlds.cli")
+if not _log.handlers:
+    _log.addHandler(logging.NullHandler())
 
 
 def cmd_world(args):
@@ -340,8 +345,9 @@ def cmd_invite(args):
 def cmd_speak(args):
     try:
         import consciousness
-    except ImportError:
-        print("The worlds are silent — install the 'anthropic' package to hear them.")
+    except ImportError as exc:
+        _log.warning("speak fallback: %s", type(exc).__name__)
+        print("The worlds are silent today.")
         return
 
     root = store.world_tree(seed=args.seed)
@@ -365,10 +371,10 @@ def cmd_speak(args):
             args.seed, target.name, "PLAYER_SPEAK", None,
             {"message": args.message[:128], "reply": response[:200]},
         )
-    except Exception:
+    except Exception as exc:
+        _log.warning("speak fallback: %s", consciousness.runtime.failure_summary(exc))
         # In-fiction silence — never an SDK error at the player.
         print(consciousness.fallback_voice(target))
-        print("(The voices need ANTHROPIC_API_KEY to wake.)")
 
 
 def _accept_seed(subparser: argparse.ArgumentParser) -> None:
@@ -524,7 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
                                  help="The registration token to cancel")
     p_invite_cancel.set_defaults(func=cmd_invite)
 
-    p_speak = sub.add_parser("speak", help="Speak to a node using Claude consciousness")
+    p_speak = sub.add_parser("speak", help="Speak to a node using the configured voice model")
     _accept_seed(p_speak)
     p_speak.add_argument("--node", type=str, default=None,
                          help="Node name to address (default: root of world)")

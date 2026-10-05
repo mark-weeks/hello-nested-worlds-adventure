@@ -13,6 +13,8 @@ The invariants that matter, each pinned by behavior:
 """
 from __future__ import annotations
 
+from consciousness.anthropic_provider import provider
+
 import json
 import struct
 import threading
@@ -178,7 +180,7 @@ class TestClassifyCall:
         class _FakeClient:
             messages = _FakeMessages()
 
-        monkeypatch.setattr(consciousness, "_client", _FakeClient())
+        monkeypatch.setattr(provider, "_client", _FakeClient())
         assert consciousness.classify_content("some text") is True
         # Haiku tier by default, env-overridable.
         assert "haiku" in recorded["model"]
@@ -204,7 +206,7 @@ class TestClassifyCall:
         class _FakeClient:
             messages = _FakeMessages()
 
-        monkeypatch.setattr(consciousness, "_client", _FakeClient())
+        monkeypatch.setattr(provider, "_client", _FakeClient())
         assert consciousness.classify_content("text") is True
 
 
@@ -259,6 +261,7 @@ class TestSpeakScreening:
     def test_declined_speak_leaves_no_trace(self, srv, monkeypatch):
         import consciousness
         spoken, charged = [], []
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "speak",
                             lambda *a, **k: spoken.append(1) or "reply")
         monkeypatch.setattr(guard, "consume_anthropic",
@@ -280,6 +283,7 @@ class TestSpeakScreening:
 
     def test_clean_speak_flows_through(self, srv, monkeypatch):
         import consciousness
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "speak", lambda *a, **k: "reply")
         seed = 272
         root = generate_node_hierarchy(seed=seed, max_depth=1)
@@ -294,6 +298,7 @@ class TestSpeakScreening:
     def test_declined_agent_voice_leaves_no_trace(self, srv, monkeypatch):
         import consciousness
         charged = []
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "voice_agent",
                             lambda *a, **k: "reply")
         monkeypatch.setattr(guard, "consume_anthropic",

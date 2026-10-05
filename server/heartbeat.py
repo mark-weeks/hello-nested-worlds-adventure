@@ -15,8 +15,8 @@ record/ripple/effects handlers plus a live room broadcast. Consequences:
   * Traversals are paced (seconds per hop), so ambient motion unfolds over
     observable time instead of microseconds.
 
-Costs nothing per tick: heartbeat agents are FSM-driven — no Anthropic or
-fal.ai calls — so ambient life never touches the daily budgets.
+Costs nothing per tick: heartbeat agents are FSM-driven — no text-model or
+image-generation calls — so ambient life never touches the daily budgets.
 
 Env:
   NESTED_WORLDS_HEARTBEAT=0                 disable entirely

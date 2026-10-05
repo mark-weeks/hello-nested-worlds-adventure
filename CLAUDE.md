@@ -162,6 +162,19 @@ Consequences:
 
 ---
 
+## Provider and model optionality
+
+Providers, models and model versions must earn their place through task-specific
+quality, capability, reliability and cost evidence. No vendor or model family is a
+product invariant. Keep world rules and player-facing language independent of them;
+isolate provider-specific behavior where practical and preserve useful capabilities
+without imposing them on every integration. Current defaults are implementation
+facts, not standing endorsements. Follow
+[ADR-034](docs/decisions/ADR-034-provider-and-model-optionality.md) and
+[the runtime guidance](docs/development/agent-runtime.md) for selection, replacement,
+compatibility and evaluation. Do not claim multi-provider support from neutral
+wording or a model-name override. Existing release and deployment gates still apply.
+
 ## Verification and completion
 
 - Complete the requested deliverable: advice or a plan ends with findings or decisions;

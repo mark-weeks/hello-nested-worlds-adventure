@@ -244,7 +244,8 @@ def test_node_and_agent_speech_receive_arrival_evidence(client):
         captured.append(consciousness._history_block(kwargs["history"]))
         return "The ripple is remembered."
 
-    with patch.object(consciousness, "speak", side_effect=voice), \
+    with patch.object(consciousness.runtime, "configured", return_value=True), \
+            patch.object(consciousness, "speak", side_effect=voice), \
             patch.object(consciousness, "voice_agent", side_effect=voice):
         client.post(node.parent, endpoint="/speak", message="What happened here?")
         client.post(node.parent, endpoint="/agent/voice", agent_name="Tessera", message="What arrived?")

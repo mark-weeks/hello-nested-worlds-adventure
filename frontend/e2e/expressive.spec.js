@@ -44,10 +44,10 @@ persistence.mint_invite_key('nw_'+'b'*32,'Bea')
 if sys.argv[2] == '1':
     import os,json
     from types import SimpleNamespace
-    from consciousness import interventions as interpretation
+    from consciousness import runtime
+    from consciousness.runtime import Completion
     from server import guard
     os.environ['NESTED_WORLDS_DISABLE_AI']='0'
-    os.environ['ANTHROPIC_API_KEY']='fixture-only'
     guard.consume_anthropic=lambda **kwargs: True
     calls={}
     def create(**kwargs):
@@ -58,9 +58,9 @@ if sys.argv[2] == '1':
             answer={'status':'clarify','ambiguity':'action','steps':[]}
         if intention=='cut a pattern in this surface' and calls[intention]==1:
             answer={'status':'ready','ambiguity':'none','steps':[{'op':'engrave','amount':1}]}
-        return SimpleNamespace(stop_reason='end_turn',content=[SimpleNamespace(type='text',text=json.dumps(answer))])
-    interpretation._get_client=lambda: SimpleNamespace(messages=SimpleNamespace(create=create))
-    interpretation._log_cache_usage=lambda *args: None
+        return Completion(json.dumps(answer), True)
+    fixture=SimpleNamespace(name='fixture',configured=lambda:True,generate=create,cache_reference_tokens=lambda model:None)
+    runtime.get_provider=lambda: fixture
 from server import _Handler,_ThreadedServer,heartbeat
 server=_ThreadedServer(('127.0.0.1',0),_Handler)
 heartbeat._PUMP_INTERVAL=0.2  # Accelerate only this disposable browser fixture.

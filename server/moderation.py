@@ -8,7 +8,7 @@ chronicle (`/speak`, `/agent/voice`, WS chat) or the name registry:
      match against the broader watch list, an evasion-shaped sequence hit
      (spaced/leet-spelled slurs), or a long digit run (doxxing shape) marks
      the input AMBIGUOUS.
-  2. **Haiku classify** — only ambiguous inputs escalate to one short,
+  2. **Model classification** — only ambiguous inputs escalate to one short,
      uncached Messages-API call (`consciousness.classify_content`), charged
      to moderation's own daily budget (`guard.consume_moderation`), never
      the voice budget.

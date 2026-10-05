@@ -20,6 +20,8 @@ here, as behavior:
 """
 from __future__ import annotations
 
+from consciousness.anthropic_provider import provider
+
 import json
 import threading
 import urllib.request
@@ -373,7 +375,7 @@ class TestCliLoop:
 
 @pytest.fixture
 def captured_speak_call():
-    """consciousness._get_client stub capturing .messages.create kwargs."""
+    """provider._get_client stub capturing .messages.create kwargs."""
     from unittest.mock import MagicMock
     captured: dict = {}
 
@@ -386,12 +388,12 @@ def captured_speak_call():
 
     fake_client = MagicMock()
     fake_client.messages = _FakeMessages()
-    original = consciousness._client
-    consciousness._client = fake_client
+    original = provider._client
+    provider._client = fake_client
     try:
         yield captured
     finally:
-        consciousness._client = original
+        provider._client = original
 
 
 class TestHingeLore:
@@ -418,6 +420,7 @@ class TestHingeLore:
             seen[node.name] = hinge
             return "spoken"
 
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "speak", fake_speak)
         hinge = wrap.hinge_name(SEED)
         root_name = store.root_name(SEED)
@@ -442,6 +445,7 @@ class TestHingeLore:
             seen[node.name] = hinge
             return "spoken"
 
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "speak", fake_speak)
         hinge = wrap.hinge_name(SEED)
         root_name = store.root_name(SEED)

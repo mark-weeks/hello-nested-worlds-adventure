@@ -30,7 +30,7 @@ A shared persistent multiverse inhabited simultaneously by human players and AI 
 ┌────▼────┐  ┌──────▼──────┐  ┌───▼──────────┐
 │ agents/ │  │consciousness│  │  causality/  │
 │ FSM     │  │ node voice  │  │ propagation  │
-│ personas│  │ Claude layer│  │ engine       │
+│ personas│  │ Voice layer │  │ engine       │
 └────┬────┘  └──────┬──────┘  └───┬──────────┘
      │              │              │
 ┌────▼──────────────▼──────────────▼──────────┐
@@ -67,13 +67,13 @@ browser client; both share the static modules listed under **Frontend**.
 - **`utils.py`** — tree helpers: `count_nodes`, `find_node`, `build_depth_map`, `build_distance_map`, `apply_ripple_scores`, `apply_property_overrides`
 
 ### `consciousness/` — Node Voice Layer
-Claude-powered persona system. The model is called in exactly four places: node voice, agent voice, moderation classify, and intention interpretation.
-- `LEVEL_VOICES` and `LEVEL_LORE` — per-scale character notes and deep lore for all 11 levels, assembled into cached prompt bibles that exceed the model's cache minimum (`cached_prefix_meets_minimum`, `warn_if_cache_ineffective`)
+Model-backed persona system. The current provider is Anthropic; this is an implementation choice under [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md), not a world contract. The model is called in exactly four places: node voice, agent voice, moderation classify, and intention interpretation.
+- `LEVEL_VOICES` and `LEVEL_LORE` — per-scale character notes and deep lore for all 11 levels, assembled into prompt bibles with cache markers. `cached_prefix_meets_minimum` and `warn_if_cache_ineffective` compare rough length estimates with adapter metadata; unknown models report unknown eligibility. Actual cache use requires provider usage evidence
 - `speak(node, message, history, transcript, ripple_score, speaker)` — two system blocks (cached bible + dynamic node context) plus a real multi-turn message list from the per-(node, speaker) transcript
 - `voice_agent(persona, agent_name, node, message, history)` — speaks AS an agent visiting a node, framed by its archetype and grounded in the node's real history
 - `LEVEL_FALLBACKS` / `fallback_voice(node)` — the authored failure voice: when the API is unavailable, every scale answers with an in-register line of silence instead of an error (HTTP 200, `ai: false`)
 - **`interventions.py`** — interprets a submitted intention into enum-bounded ordered steps; never predicts outcomes or writes patches
-- Thread-safe lazy `Anthropic` client init; concurrency semaphore; sanitised inbound text. The moderation screen itself lives in `server/moderation.py` and `content_screen.py`
+- The task-facing boundary in `consciousness/runtime.py` owns shared concurrency and normalized results; `consciousness/anthropic_provider.py` owns the current SDK, lazy client, credentials and wire format. Inbound text is sanitised. The moderation screen itself lives in `server/moderation.py` and `content_screen.py`
 
 ### `causality/` — Causal Engine
 - `EventKind`, `CausalEvent`, `CausalityBus`, `emit(...)`, `propagate(origin, kind, dampening, direction)` — origin fires once, then cascades up and/or down with per-hop dampening until `MIN_STRENGTH`; each fire bumps the persisted `ripple_score` atomically
@@ -154,13 +154,13 @@ Participant (human or agent) enters world
         ▼
 Navigate hierarchy (spatial / conversational / ambient)
         │
-        ├──► Interact with node ──► consciousness/ ──► Claude response in character
+        ├──► Interact with node ──► consciousness/ ──► in-character model response
         │
         ├──► Act on the place ──► persistence/interventions ──► commit now, discover as it settles
         │
         ├──► Trigger action ──► causality/ ──► propagate effects across scales, ring by ring
         │
-        ├──► Encounter agent ──► agents/ ──► deterministic in-character banter (Claude-voiced only via /agent/voice)
+        ├──► Encounter agent ──► agents/ ──► deterministic in-character banter (model-voiced only via /agent/voice)
         │
         └──► All state changes ──► persistence/ ──► append-only chronicle; the world evolves for all participants
 ```

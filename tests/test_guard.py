@@ -366,6 +366,7 @@ class TestCostCap:
     def test_anthropic_cap_blocks_speak(self, srv, monkeypatch):
         # Cap of zero → first call already over budget; speak returns the
         # fallback without calling Anthropic.
+        monkeypatch.setattr("consciousness.runtime.configured", lambda: True)
         monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "0")
         base, _ = srv
         data, status = _post(f"{base}/speak", {"node_name": "X", "message": "hi"})

@@ -1,6 +1,8 @@
 """Tests for the consciousness module: thread-safety, level voicing, etc."""
 from __future__ import annotations
 
+from consciousness.anthropic_provider import provider
+
 import sys
 import threading
 import types
@@ -9,7 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import consciousness
-from consciousness import LEVEL_VOICES, _level_voice
+from consciousness import LEVEL_VOICES, _level_voice, runtime
 from multiverse.generator import LEVELS
 from multiverse.node import SpatialNode
 
@@ -56,11 +58,9 @@ def test_get_client_thread_safety():
     fake_anthropic = types.ModuleType("anthropic")
     fake_anthropic.Anthropic = counting_anthropic  # type: ignore[attr-defined]
 
-    import consciousness
-
     original_module = sys.modules.get("anthropic")
     sys.modules["anthropic"] = fake_anthropic
-    consciousness._client = None
+    provider._client = None
 
     try:
         n_threads = 10
@@ -71,7 +71,7 @@ def test_get_client_thread_safety():
         def worker():
             try:
                 barrier.wait()
-                client = consciousness._get_client()
+                client = provider._get_client()
                 results.append(client)
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
@@ -86,7 +86,7 @@ def test_get_client_thread_safety():
             sys.modules.pop("anthropic", None)
         else:
             sys.modules["anthropic"] = original_module
-        consciousness._client = None
+        provider._client = None
 
     assert not errors, f"Unexpected errors: {errors}"
     assert call_count[0] == 1, (
@@ -126,7 +126,7 @@ class TestLevelVoices:
 
 @pytest.fixture
 def captured_speak_call():
-    """Replace consciousness._get_client with a stub that captures the kwargs
+    """Replace provider._get_client with a stub that captures the kwargs
     of the most recent .messages.create() call. Restores afterwards."""
     captured: dict = {}
 
@@ -139,12 +139,12 @@ def captured_speak_call():
 
     fake_client = MagicMock()
     fake_client.messages = _FakeMessages()
-    original = consciousness._client
-    consciousness._client = fake_client
+    original = provider._client
+    provider._client = fake_client
     try:
         yield captured
     finally:
-        consciousness._client = original
+        provider._client = original
 
 
 class TestSpeakSystemBlocks:
@@ -174,35 +174,27 @@ class TestSpeakSystemBlocks:
         assert system[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
         assert "cache_control" not in system[1]
 
-    def test_cached_prefix_marker_matches_effectiveness(self, captured_speak_call):
-        # REGRESSION (P1): the previous version of this test used the WRONG
-        # Opus cache minimum (1024 tokens / 3790 chars). The real minimum for
-        # the Opus-class default is 4096 tokens, so the bible (~1.3K tokens)
-        # is actually BELOW it and `cache_control` is a silent no-op. The
-        # invariant we now guard: whenever a system block is marked with
-        # cache_control, either the cached prefix genuinely exceeds the model
-        # minimum, OR the ineffectiveness warning is wired to fire — never a
-        # silently-ineffective marker.
+    @pytest.mark.parametrize('threshold,warning', [(1, None), (10**9, 'INACTIVE'), (None, 'UNKNOWN')])
+    def test_cached_prefix_marker_matches_effectiveness(self, captured_speak_call, monkeypatch,
+                                                       threshold, warning):
+        # Exercise all advisory states, independent of the operator's model.
+        monkeypatch.setattr(provider, 'cache_reference_tokens', lambda model: threshold)
+        monkeypatch.setattr(runtime, 'get_provider', lambda: provider)
         node = SpatialNode(name="Vault", level="Room", properties={})
         consciousness.speak(node, "Hi.")
-        system = captured_speak_call["system"]
-        assert system[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
-        consciousness._cache_warned = False
+        assert captured_speak_call["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        monkeypatch.setattr(consciousness, '_cache_warned', False)
         with _capture_consciousness_warnings() as warnings:
-            consciousness._warn_if_cache_ineffective()
-        meets = consciousness.cached_prefix_meets_minimum()
-        warned = any("cache likely INACTIVE" in w for w in warnings)
-        assert meets or warned, (
-            "cache_control marker present but prefix is below the model "
-            "minimum AND no ineffectiveness warning fired — the silent no-op "
-            "this test exists to catch"
-        )
+            consciousness.warn_if_cache_ineffective()
+        if warning:
+            assert len(warnings) == 1 and warning in warnings[0]
+            assert not consciousness.cached_prefix_meets_minimum()
+        else:
+            assert not warnings and consciousness.cached_prefix_meets_minimum()
 
-    def test_cache_minimum_uses_real_opus_figure(self):
-        # The old code documented 1024; the real Opus 4.5+/Haiku 4.5 minimum
-        # is 4096. Guard the constant so the honest figure can't silently
-        # regress back to a value that would re-hide the miss.
-        assert consciousness._OPUS_CACHE_MIN_TOKENS == 4096
+    def test_adapter_covers_default_cache_reference(self):
+        # Catch a default change without corresponding adapter metadata.
+        assert provider.cache_reference_tokens(runtime.DEFAULT_VOICE_MODEL) is not None
 
     def test_unknown_level_still_sends_world_bible(self, captured_speak_call):
         node = SpatialNode(name="Drift", level="Hyperspace", properties={})
@@ -297,16 +289,11 @@ class TestAgentBibleStructure:
 
 
 class TestBibleCacheEffectiveness:
-    def test_cached_prefixes_exceed_the_opus_minimum(self):
-        # The bibles were enriched (per-level lore, craft sections, style
-        # rules) specifically to clear the real 4096-token Opus minimum, so
-        # the long-standing cache_control no-op finally fires. Guard it:
-        # shrinking either bible back below the minimum silently forfeits
-        # the ~10x cache-read discount on every call.
-        assert consciousness.cached_prefix_meets_minimum(), (
-            "a cached bible fell below the model's minimum cacheable "
-            "length — prompt caching is silently OFF again"
-        )
+    def test_cached_prefix_estimates_meet_default_reference(self, monkeypatch):
+        monkeypatch.setattr(runtime, 'VOICE_MODEL', runtime.DEFAULT_VOICE_MODEL)
+        monkeypatch.setattr(runtime, 'get_provider', lambda: provider)
+        # A local prompt-length estimate, not proof of a live cache hit.
+        assert consciousness.cached_prefix_meets_minimum()
 
     def test_world_bible_carries_lore_for_every_level(self):
         for level in consciousness.LEVEL_LORE:

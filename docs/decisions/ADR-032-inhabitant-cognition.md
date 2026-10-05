@@ -192,10 +192,12 @@ not nag.
   assessment's attention-gated model is the reference: hourly Batch reflection
   for twelve inhabitants costs on the order of ten dollars a month, and
   on-stage deliberation is bounded by player-hours at cents per hour.
-- Models pinned per layer and changed only with a CHANGELOG entry:
-  deliberation and reflection on the current Sonnet or Haiku at low effort;
-  voice stays on the voice default of ADR-031's batch 1, since a player hears
-  that model.
+- Providers and model versions selected per layer under
+  [ADR-034](ADR-034-provider-and-model-optionality.md), pinned where practical,
+  and changed with evaluation evidence and a CHANGELOG entry. Deliberation and
+  reflection must earn their cost against the reflex baseline; no model family
+  is prescribed. Voice uses the evaluated voice configuration. The assessment's
+  dated cost estimates must be recomputed for the selected providers and traffic.
 - Batch 1 ships **dark**: the feature flag is off by default and is turned on
   for the pilot cohort with the ceiling set. The pilot protocol's gates
   (curiosity, understood consequences, return, relevant change) are the

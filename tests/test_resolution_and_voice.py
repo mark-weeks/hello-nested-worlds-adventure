@@ -8,6 +8,8 @@ messages.
 """
 from __future__ import annotations
 
+from consciousness.anthropic_provider import provider
+
 import json
 import threading
 import urllib.error
@@ -96,10 +98,10 @@ class TestSpeakResolution:
         assert exc_info.value.code == 404
 
     def test_missing_key_returns_in_fiction_fallback(self, srv, monkeypatch):
-        # No ANTHROPIC_API_KEY in the test environment: the world must go
-        # quiet in character — HTTP 200, an authored line in the node's
+        # An explicitly unavailable provider must go quiet in character —
+        # HTTP 200, an authored line in the node's
         # register, never an SDK error or a 503.
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: False)
         real = generate_node_hierarchy(seed=42, max_depth=1)
         data, status = _post(
             f"{srv}/speak",
@@ -119,6 +121,7 @@ class TestSpeakResolution:
             seen["speaker"] = speaker
             return f"I heard: {message}"
 
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "speak", fake_speak)
 
         _post(f"{srv}/speak", {"node_name": real.name, "seed": 42,
@@ -150,6 +153,7 @@ class TestSpeakResolution:
                        ripple_score=0.0, speaker=None, hinge=False):
             return "a reply comfortably longer than the old two-hundred-char cap " * 4
 
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "speak", fake_speak)
         _post(f"{srv}/speak", {"node_name": real.name, "seed": 42,
                                "message": long_msg, "player_name": "Ada"})
@@ -245,8 +249,8 @@ class TestNodeMemoryContent:
         from unittest.mock import MagicMock
         fake_client = MagicMock()
         fake_client.messages = _FakeMessages()
-        original = consciousness._client
-        consciousness._client = fake_client
+        original = provider._client
+        provider._client = fake_client
         try:
             from multiverse.node import SpatialNode
             node = SpatialNode("Vault-11", "Room", properties={})
@@ -255,7 +259,7 @@ class TestNodeMemoryContent:
                 transcript=[{"user": "hello", "assistant": "hush"}],
             )
         finally:
-            consciousness._client = original
+            provider._client = original
 
         assert captured["messages"] == [
             {"role": "user", "content": "hello"},
@@ -277,14 +281,14 @@ class TestNodeMemoryContent:
         from unittest.mock import MagicMock
         fake_client = MagicMock()
         fake_client.messages = _FakeMessages()
-        original = consciousness._client
-        consciousness._client = fake_client
+        original = provider._client
+        provider._client = fake_client
         try:
             from multiverse.node import SpatialNode
             node = SpatialNode("Vault-11", "Room", properties={})
             consciousness.speak(node, "how do you feel?", ripple_score=0.72)
         finally:
-            consciousness._client = original
+            provider._client = original
 
         dynamic = captured["system"][1]["text"]
         assert "0.72" in dynamic
@@ -324,6 +328,7 @@ class TestAgentAddressability:
                             history=history)
             return "…"
 
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "voice_agent", fake_voice_agent)
         _post(f"{srv}/agent/voice",
               {"agent_name": "Tessera", "node_name": real.name,
@@ -365,6 +370,7 @@ class TestTranscriptIdentityOverHTTP:
             seen["transcript"] = list(transcript or [])
             return "reply"
 
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
         monkeypatch.setattr(consciousness, "speak", fake_speak)
         _post(f"{srv}/speak?key=nw_ada",
               {"node_name": real.name, "seed": 42,
