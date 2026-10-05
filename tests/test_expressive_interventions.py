@@ -237,6 +237,7 @@ def test_senses_follow_literal_properties_and_material_history(owner):
 
 def test_model_can_only_propose_bounded_operations(monkeypatch):
     from consciousness import interventions as proposal
+    from consciousness.anthropic_provider import provider
     def response(text):
         return SimpleNamespace(stop_reason='end_turn',content=[SimpleNamespace(type='text',text=text)])
     answers=iter([response('{"status":"ready","ambiguity":"none","steps":[{"op":"engrave","amount":1}]}'),response('{"status":"ready","ambiguity":"none","steps":[{"op":"invent_canon","amount":1}]}'),response('{"status":"unsupported","ambiguity":"none","steps":[]}')])
@@ -244,8 +245,7 @@ def test_model_can_only_propose_bounded_operations(monkeypatch):
     def create(**kwargs):
         calls.append(kwargs)
         return next(answers)
-    monkeypatch.setattr(proposal,'_get_client',lambda:SimpleNamespace(messages=SimpleNamespace(create=create)))
-    monkeypatch.setattr(proposal,'_log_cache_usage',lambda *args:None)
+    monkeypatch.setattr(provider,'_get_client',lambda:SimpleNamespace(messages=SimpleNamespace(create=create)))
     assert proposal.propose('cut a pattern',{'level':'Object'}) == [{'op':'engrave','amount':1}]
     with pytest.raises(ValueError):
         proposal.propose('invent a galaxy',{'level':'Object'})

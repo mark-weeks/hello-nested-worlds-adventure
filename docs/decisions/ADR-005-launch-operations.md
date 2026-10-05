@@ -79,7 +79,17 @@ as **"the scene view"** to try once oriented — an alternate, not an
 localStorage). Completing the parity harness is post-launch debt paydown,
 not a launch gate.
 
-### 4. Voice model: Opus-class stays; bump to `claude-opus-4-8`; Sonnet is a post-launch A/B
+### 4. Historical voice-model choice (selection policy superseded 2026-10-04)
+
+**Revision:** [ADR-034](ADR-034-provider-and-model-optionality.md) supersedes this
+section's Opus preference, Sonnet-only comparison and post-launch-only evaluation
+sequence, including the related trade-offs and alternatives below. Evaluate suitable
+providers, models and versions by task; none receives standing preference. The
+current code default is retained pending evidence, not re-endorsed. The following
+records the original decision and its then-stated assumptions; its model availability,
+prices and cache claims are historical, not current verification.
+
+#### Original decision: Opus-class at launch
 
 At beta scale the whole voice path costs single-digit dollars per day
 (bibles are cache-read at the ~10x discount; replies cap at 256 tokens),

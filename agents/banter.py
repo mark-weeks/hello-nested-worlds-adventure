@@ -7,7 +7,7 @@ tick" contract — from each speaker's persona archetype and what the node
 actually is: its level, its properties, its accumulated history. The
 conversation is then recorded as an AGENT_TALK chronicle entry, so players
 who arrive later find the transcript in node history (and the node's
-Claude voice, which reads history, can allude to what was said here).
+model-backed voice, which reads history, can allude to what was said here).
 
 Determinism: same (seed, node, pair, meeting-ordinal) → same exchange.
 Different meetings at the same place read differently because the ordinal

@@ -8,6 +8,8 @@ messages.
 """
 from __future__ import annotations
 
+from consciousness.anthropic_provider import provider
+
 import json
 import threading
 import urllib.error
@@ -245,8 +247,8 @@ class TestNodeMemoryContent:
         from unittest.mock import MagicMock
         fake_client = MagicMock()
         fake_client.messages = _FakeMessages()
-        original = consciousness._client
-        consciousness._client = fake_client
+        original = provider._client
+        provider._client = fake_client
         try:
             from multiverse.node import SpatialNode
             node = SpatialNode("Vault-11", "Room", properties={})
@@ -255,7 +257,7 @@ class TestNodeMemoryContent:
                 transcript=[{"user": "hello", "assistant": "hush"}],
             )
         finally:
-            consciousness._client = original
+            provider._client = original
 
         assert captured["messages"] == [
             {"role": "user", "content": "hello"},
@@ -277,14 +279,14 @@ class TestNodeMemoryContent:
         from unittest.mock import MagicMock
         fake_client = MagicMock()
         fake_client.messages = _FakeMessages()
-        original = consciousness._client
-        consciousness._client = fake_client
+        original = provider._client
+        provider._client = fake_client
         try:
             from multiverse.node import SpatialNode
             node = SpatialNode("Vault-11", "Room", properties={})
             consciousness.speak(node, "how do you feel?", ripple_score=0.72)
         finally:
-            consciousness._client = original
+            provider._client = original
 
         dynamic = captured["system"][1]["text"]
         assert "0.72" in dynamic

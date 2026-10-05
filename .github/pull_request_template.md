@@ -16,6 +16,11 @@
      Check that no parallel control duplicates it and no player can force another
      human or AI player's actions. Validate scale-native effects and presentation. -->
 
+<!-- For provider/model changes: identify the task, provider and exact model/version;
+     link comparative quality, capability, latency/reliability and total-cost evidence
+     under ADR-034. State adapter/config compatibility, rollback and unverified live
+     behavior. Neutral wording or mocked calls do not establish provider portability. -->
+
 ## Verification
 
 <!-- Report checks actually run and their outcomes. For documentation-only work,

@@ -18,10 +18,15 @@ the rationale and revisit triggers, and ADR-003 for the persistence contract.
 | Image generation | fal.ai (`fal-ai/fast-sdxl`) via `urllib` | Optional enhancement wash over the local renderers; pay-as-you-go, no SDK dependency |
 | Image cache + storage | SQLite (`persistence.cache_image`) | Cache key includes a coarse interaction-history bucket and a style signature so visuals refresh as the node evolves |
 | Persistence | SQLite, WAL mode (`persistence/`, 27 additive migrations) | World identity (`world_nodes`, `world_meta`), chronicle and chronicled deltas, agent runs and memory, puzzle results and stored first-use puzzle content, invite keys and registration, participants/journal/profile, situations, Ideas, delivery queues, cost budgets, image cache |
-| LLM | Anthropic (Claude) via the official SDK | Four call sites: node voice, agent voice, moderation classify (Haiku) and intention interpretation; prompt-cached bibles; authored fallbacks when no key or budget |
+| LLM | Anthropic (Claude) via the official SDK | Four call sites: node voice, agent voice, moderation classify and intention interpretation; prompt-cached bibles; authored fallbacks when no key or budget |
 | Deployment | Fly.io, one VM, one persistent volume (`Dockerfile`, `fly.toml`, `scripts/deploy.sh`) | Runbook in `docs/infrastructure/fly-deployment.md`; deploys refuse to run over an unbacked chronicle. Not yet deployed |
 | Off-host backup | GitHub Actions (`.github/workflows/backup.yml`, `scripts/backup_gate.sh`, `scripts/validate_backup.py`, `scripts/backup_health.py`) | Every 30 minutes: online SQLite backup pulled off-host, integrity/schema-validated (failures are retained under a quarantine name and fail the run), kept 90 days; `backup_health.py` checks freshness independently against ADR-005's one-hour bound. Activation is gated by `ENFOLDED_BACKUP_REQUIRED`; continuous replication remains the first post-launch batch |
 | Error reporting | Sentry (`sentry-sdk`, default dependency) | Active when `SENTRY_DSN` is set |
+
+Provider names in this inventory describe the implemented stack. They do not
+establish a preferred vendor or model family. [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md)
+governs replacement decisions; a model environment override alone does not make
+the current integration portable across providers.
 
 ## Runtime requirements
 

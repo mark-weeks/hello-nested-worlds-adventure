@@ -1,6 +1,8 @@
 """Tests for the consciousness module: thread-safety, level voicing, etc."""
 from __future__ import annotations
 
+from consciousness.anthropic_provider import provider
+
 import sys
 import threading
 import types
@@ -56,11 +58,9 @@ def test_get_client_thread_safety():
     fake_anthropic = types.ModuleType("anthropic")
     fake_anthropic.Anthropic = counting_anthropic  # type: ignore[attr-defined]
 
-    import consciousness
-
     original_module = sys.modules.get("anthropic")
     sys.modules["anthropic"] = fake_anthropic
-    consciousness._client = None
+    provider._client = None
 
     try:
         n_threads = 10
@@ -71,7 +71,7 @@ def test_get_client_thread_safety():
         def worker():
             try:
                 barrier.wait()
-                client = consciousness._get_client()
+                client = provider._get_client()
                 results.append(client)
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
@@ -86,7 +86,7 @@ def test_get_client_thread_safety():
             sys.modules.pop("anthropic", None)
         else:
             sys.modules["anthropic"] = original_module
-        consciousness._client = None
+        provider._client = None
 
     assert not errors, f"Unexpected errors: {errors}"
     assert call_count[0] == 1, (
@@ -126,7 +126,7 @@ class TestLevelVoices:
 
 @pytest.fixture
 def captured_speak_call():
-    """Replace consciousness._get_client with a stub that captures the kwargs
+    """Replace provider._get_client with a stub that captures the kwargs
     of the most recent .messages.create() call. Restores afterwards."""
     captured: dict = {}
 
@@ -139,12 +139,12 @@ def captured_speak_call():
 
     fake_client = MagicMock()
     fake_client.messages = _FakeMessages()
-    original = consciousness._client
-    consciousness._client = fake_client
+    original = provider._client
+    provider._client = fake_client
     try:
         yield captured
     finally:
-        consciousness._client = original
+        provider._client = original
 
 
 class TestSpeakSystemBlocks:
@@ -198,11 +198,10 @@ class TestSpeakSystemBlocks:
             "this test exists to catch"
         )
 
-    def test_cache_minimum_uses_real_opus_figure(self):
-        # The old code documented 1024; the real Opus 4.5+/Haiku 4.5 minimum
-        # is 4096. Guard the constant so the honest figure can't silently
-        # regress back to a value that would re-hide the miss.
-        assert consciousness._OPUS_CACHE_MIN_TOKENS == 4096
+    def test_adapter_retains_default_cache_reference(self):
+        # Preserve the incumbent integration's reference guard. This local
+        # assertion does not verify current model availability or cache hits.
+        assert provider.cache_reference_tokens("claude-opus-4-8") == 4096
 
     def test_unknown_level_still_sends_world_bible(self, captured_speak_call):
         node = SpatialNode(name="Drift", level="Hyperspace", properties={})

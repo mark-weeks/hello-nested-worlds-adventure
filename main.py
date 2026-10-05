@@ -341,7 +341,7 @@ def cmd_speak(args):
     try:
         import consciousness
     except ImportError:
-        print("The worlds are silent — install the 'anthropic' package to hear them.")
+        print("The worlds are silent today.")
         return
 
     root = store.world_tree(seed=args.seed)
@@ -368,7 +368,6 @@ def cmd_speak(args):
     except Exception:
         # In-fiction silence — never an SDK error at the player.
         print(consciousness.fallback_voice(target))
-        print("(The voices need ANTHROPIC_API_KEY to wake.)")
 
 
 def _accept_seed(subparser: argparse.ArgumentParser) -> None:
@@ -524,7 +523,7 @@ def build_parser() -> argparse.ArgumentParser:
                                  help="The registration token to cancel")
     p_invite_cancel.set_defaults(func=cmd_invite)
 
-    p_speak = sub.add_parser("speak", help="Speak to a node using Claude consciousness")
+    p_speak = sub.add_parser("speak", help="Speak to a node using the configured voice model")
     _accept_seed(p_speak)
     p_speak.add_argument("--node", type=str, default=None,
                          help="Node name to address (default: root of world)")

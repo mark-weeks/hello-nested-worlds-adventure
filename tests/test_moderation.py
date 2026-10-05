@@ -13,6 +13,8 @@ The invariants that matter, each pinned by behavior:
 """
 from __future__ import annotations
 
+from consciousness.anthropic_provider import provider
+
 import json
 import struct
 import threading
@@ -178,7 +180,7 @@ class TestClassifyCall:
         class _FakeClient:
             messages = _FakeMessages()
 
-        monkeypatch.setattr(consciousness, "_client", _FakeClient())
+        monkeypatch.setattr(provider, "_client", _FakeClient())
         assert consciousness.classify_content("some text") is True
         # Haiku tier by default, env-overridable.
         assert "haiku" in recorded["model"]
@@ -204,7 +206,7 @@ class TestClassifyCall:
         class _FakeClient:
             messages = _FakeMessages()
 
-        monkeypatch.setattr(consciousness, "_client", _FakeClient())
+        monkeypatch.setattr(provider, "_client", _FakeClient())
         assert consciousness.classify_content("text") is True
 
 

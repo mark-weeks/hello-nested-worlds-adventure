@@ -224,7 +224,7 @@ def _speak_to(node: SpatialNode, message: str, seed: int = 0,
     try:
         import consciousness
     except ImportError:
-        print(f"  {_DIM}(The worlds are silent — install the 'anthropic' package to hear them.){_RESET}\n")
+        print(f"  {_DIM}(The worlds are silent today.){_RESET}\n")
         return
     history = persistence.get_node_history(seed, node.name)
     transcript = persistence.get_player_exchanges(seed, node.name, player_name)
@@ -250,12 +250,7 @@ def _speak_to(node: SpatialNode, message: str, seed: int = 0,
         # The world goes quiet in character. Never an SDK error, never a
         # billing warning — an authored silence in the node's register.
         print(f"  {consciousness.fallback_voice(node)}\n")
-        if not _speak_to._hinted:
-            print(f"  {_DIM}(The voices need ANTHROPIC_API_KEY to wake.){_RESET}\n")
-            _speak_to._hinted = True
 
-
-_speak_to._hinted = False
 
 
 _HELP = f"""

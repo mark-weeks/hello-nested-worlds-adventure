@@ -1,8 +1,8 @@
 """One player's scale-native attempts, clarification and recoverable commitments."""
 import logging
-import os
 
 import persistence
+from consciousness import runtime
 from persistence import participants, interventions, intents
 from multiverse import interventions_v3 as physics
 from puzzles.gates import seal_check
@@ -30,7 +30,7 @@ def _quiet(line, *, ai=False, declined=False, clarification=False):
 
 
 def _propose(intention, key, name, node, props):
-    if guard.ai_disabled() or not os.environ.get('ANTHROPIC_API_KEY'):
+    if guard.ai_disabled() or not runtime.configured():
         return None, _quiet(_UNSHAPED)
     if not guard.consume_anthropic(user_key=key):
         return None, _quiet(guard.QUIET_RESPONSE)

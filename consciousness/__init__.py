@@ -1,72 +1,21 @@
-"""Claude-powered voice layer for nodes and agents.
+"""Model-backed voices for nodes and inhabitants, plus content classification.
 
-Two entry points:
-
-- `speak(node, message, history=...)` — the node responds in character.
-- `voice_agent(persona, agent_name, node, message)` — an agent visiting a
-  node responds in its archetype's voice.
-
-Both calls send a single large cached system block plus a small dynamic
-context block. The cached block (world / agent "bible") consolidates the
-universal preamble, the world premise, all 11 level voices (or all 4
-persona archetypes for the agent path), behavioural rules, and style
-guidance, and is marked with 1-hour TTL because the content is deploy-stable.
-
-CACHING (see `_warn_if_cache_ineffective`): prompt caching only engages
-when the cached prefix meets the model's minimum cacheable length — on the
-Opus-class default (`claude-opus-4-8`) that minimum is **4096 tokens**, NOT
-1024. Both bibles were deliberately enriched past it (per-level lore, craft
-sections, shared style rules — content that also deepens the voices), so
-the 1-hour-TTL `cache_control` markers genuinely fire: after the first
-call in a window, the bible is billed at the ~10x cache-read discount.
-`cached_prefix_meets_minimum()` guards this in tests; if a future edit
-shrinks a bible below the minimum, a one-time WARNING is emitted at SERVER
-startup (`server.run` calls `warn_if_cache_ineffective`) — never into a
-CLI player's session — and per-call cache hit/miss tokens are logged on
-`nested_worlds.consciousness` so operators can verify.
+World prompts and memory belong here. Provider transport, request formats and
+usage normalization live behind consciousness.runtime (ADR-034). The current
+adapter requests caching for stable prompt bibles; the length check below is
+advisory and actual cache use requires provider usage evidence.
 """
 from __future__ import annotations
 
 import logging
 import os
-import threading
 from typing import Any
 
 from multiverse.node import SpatialNode
-
-_MODEL = os.environ.get("NESTED_WORLDS_MODEL", "claude-opus-4-8")
-
-_client: Any = None
-_client_lock = threading.Lock()
+from consciousness import runtime
+from consciousness.runtime import SystemBlock
 
 _log = logging.getLogger("nested_worlds.consciousness")
-
-
-# ── Outbound concurrency cap ─────────────────────────────────────────────────
-# Hard limit on how many Anthropic calls can be in flight simultaneously per
-# process. Without this, a synchronized burst (e.g. ten players speaking at
-# once) fires every call in parallel and trips Anthropic's org-level RPM,
-# which 429s all of them and cohort-wide /speak goes flaky for the rest of
-# the minute. The daily cost cap in server/guard.py bounds total spend; this
-# semaphore bounds instantaneous concurrency so the org RPM stays under its
-# tier ceiling. Defaults to 8 (comfortable on tier 2+); override via env.
-
-_CONCURRENCY_ENV = "NESTED_WORLDS_ANTHROPIC_CONCURRENCY"
-_DEFAULT_CONCURRENCY = 8
-
-
-def _concurrency_limit() -> int:
-    raw = os.environ.get(_CONCURRENCY_ENV, "").strip()
-    if not raw:
-        return _DEFAULT_CONCURRENCY
-    try:
-        v = int(raw)
-    except ValueError:
-        return _DEFAULT_CONCURRENCY
-    return max(1, v)
-
-
-_call_semaphore = threading.BoundedSemaphore(_concurrency_limit())
 
 
 # ── Public per-level voice catalog ─────────────────────────────────────────
@@ -692,14 +641,8 @@ _AGENT_BIBLE = _build_agent_bible()
 
 
 # ── Cache-effectiveness guard ────────────────────────────────────────────────
-# `cache_control` on a system block below the model's minimum cacheable length
-# is silently ignored: the block is billed as ordinary input and no cache
-# read/write ever happens. On the Opus-class default the minimum is 4096
-# tokens. The bibles are well under that today, so we surface the miss once at
-# startup rather than letting the "caching that fires" claim quietly be false.
-
-_OPUS_CACHE_MIN_TOKENS = 4096
-_CHARS_PER_TOKEN_EST = 4.0   # rough English-prose ratio; advisory only
+# Advisory only: character estimates do not establish a live cache hit.
+_CHARS_PER_TOKEN_EST = 4.0
 _cache_warned = False
 
 
@@ -707,34 +650,38 @@ def _estimate_tokens(text: str) -> int:
     return int(len(text) / _CHARS_PER_TOKEN_EST)
 
 
-def cached_prefix_meets_minimum(min_tokens: int = _OPUS_CACHE_MIN_TOKENS) -> bool:
-    """True iff BOTH cached bibles are estimated to exceed `min_tokens`, i.e.
-    prompt caching can actually engage on an Opus-class model."""
-    return (_estimate_tokens(_WORLD_BIBLE) >= min_tokens
+def cached_prefix_meets_minimum(min_tokens: int | None = None) -> bool:
+    """Whether both bibles clear a supplied or adapter reference threshold.
+
+    Unknown model/cache metadata cannot establish eligibility, so returns False.
+    """
+    if min_tokens is None:
+        min_tokens = runtime.get_provider().cache_reference_tokens(runtime.VOICE_MODEL)
+    return (min_tokens is not None
+            and _estimate_tokens(_WORLD_BIBLE) >= min_tokens
             and _estimate_tokens(_AGENT_BIBLE) >= min_tokens)
 
 
 def _warn_if_cache_ineffective() -> None:
-    """Emit a one-time WARNING when the cached prefix is below the model's
-    minimum cacheable length, so an ineffective cache_control marker is visible
-    to operators instead of quietly forfeiting the ~10x cache-read discount.
-
-    Deliberately NOT invoked at import time: this is an operator signal, so
-    the server calls it at startup (`server.run`). A CLI player speaking to a
-    node must never see billing internals in their session.
-    """
+    """Emit an advisory once at server startup, never in a player's CLI session."""
     global _cache_warned
     if _cache_warned:
         return
     _cache_warned = True
-    if not cached_prefix_meets_minimum():
+    provider = runtime.get_provider()
+    minimum = provider.cache_reference_tokens(runtime.VOICE_MODEL)
+    if minimum is None:
+        _log.warning(
+            "prompt cache eligibility UNKNOWN for provider=%s model=%r; "
+            "verify provider capabilities and actual usage before assuming savings",
+            provider.name, runtime.VOICE_MODEL,
+        )
+    elif not cached_prefix_meets_minimum(minimum):
         est = min(_estimate_tokens(_WORLD_BIBLE), _estimate_tokens(_AGENT_BIBLE))
         _log.warning(
-            "prompt cache likely INACTIVE: cached prefix ~%d tokens < %d min "
-            "for model %r. The 1h cache_control marker is a no-op until the "
-            "world/agent bible is enlarged past the model minimum; every "
-            "/speak and /agent/voice call is then billed at full input price.",
-            est, _OPUS_CACHE_MIN_TOKENS, _MODEL,
+            "prompt cache likely INACTIVE: cached prefix ~%d tokens < %d reference "
+            "for provider=%s model=%r; verify token counts and actual usage",
+            est, minimum, provider.name, runtime.VOICE_MODEL,
         )
 
 
@@ -743,7 +690,7 @@ warn_if_cache_ineffective = _warn_if_cache_ineffective
 
 
 # ── The failure voice ────────────────────────────────────────────────────────
-# When the Claude API is unreachable (no key, network failure, SDK error) the
+# When the configured model is unreachable (no key, network failure, SDK error) the
 # world must not break character: instead of an HTTP 503 or a stack trace,
 # every scale has an authored line of silence in its own register. This is
 # the game's diminished mode — quiet, not broken.
@@ -809,16 +756,6 @@ def fallback_voice(node: SpatialNode) -> str:
 def _level_voice(level: str) -> str:
     """Lookup helper. Returns "" for unknown levels."""
     return LEVEL_VOICES.get(level, "")
-
-
-def _get_client() -> Any:
-    global _client
-    if _client is None:
-        with _client_lock:
-            if _client is None:
-                from anthropic import Anthropic
-                _client = Anthropic()
-    return _client
 
 
 # Prompt-render budget for stored memory content. The chronicle keeps the FULL
@@ -1021,26 +958,6 @@ def _speaker_line(speaker: str | None) -> str:
     )
 
 
-def _log_cache_usage(endpoint: str, response: Any) -> None:
-    """Emit a structured log line with cache read/write token counts.
-
-    Lets operators verify caching is actually firing by tailing the
-    `nested_worlds.consciousness` logger. Silently no-ops if the response
-    object doesn't carry `usage` (e.g. mocked in tests).
-    """
-    usage = getattr(response, "usage", None)
-    if usage is None:
-        return
-    _log.info(
-        "claude_call endpoint=%s input=%s cache_read=%s cache_create=%s output=%s",
-        endpoint,
-        getattr(usage, "input_tokens", "?"),
-        getattr(usage, "cache_read_input_tokens", 0),
-        getattr(usage, "cache_creation_input_tokens", 0),
-        getattr(usage, "output_tokens", "?"),
-    )
-
-
 def speak(node: SpatialNode, message: str,
           history: list[dict] | None = None,
           transcript: list[dict] | None = None,
@@ -1079,17 +996,7 @@ def speak(node: SpatialNode, message: str,
         + _history_block(history or [])
     )
 
-    system_blocks: list[dict] = [
-        {
-            "type": "text",
-            "text": _WORLD_BIBLE,
-            "cache_control": {"type": "ephemeral", "ttl": "1h"},
-        },
-        {
-            "type": "text",
-            "text": node_context,
-        },
-    ]
+    system_blocks = (SystemBlock(_WORLD_BIBLE, cacheable=True), SystemBlock(node_context))
 
     messages: list[dict] = []
     for turn in (transcript or []):
@@ -1101,18 +1008,13 @@ def speak(node: SpatialNode, message: str,
                 messages.append({"role": "assistant", "content": assistant_text})
     messages.append({"role": "user", "content": message})
 
-    with _call_semaphore:
-        response = _get_client().messages.create(
-            model=_MODEL,
-            max_tokens=256,
-            system=system_blocks,
-            messages=messages,
-        )
-    _log_cache_usage("speak", response)
-    for block in response.content:
-        if block.type == "text":
-            return block.text
-    raise ValueError(f"No text in response (stop_reason={response.stop_reason})")
+    response = runtime.generate(
+        endpoint="speak", model=runtime.VOICE_MODEL, max_tokens=256,
+        system=system_blocks, messages=messages,
+    )
+    if response.text is not None:
+        return response.text
+    raise ValueError("No text in model response")
 
 
 def _agent_memory_block(agent_memory: dict | None, node: SpatialNode) -> str:
@@ -1202,46 +1104,29 @@ def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
         + _history_block(history or [])
     )
 
-    with _call_semaphore:
-        response = _get_client().messages.create(
-            model=_MODEL,
-            max_tokens=200,
-            system=[
-                {
-                    "type": "text",
-                    "text": _AGENT_BIBLE,
-                    "cache_control": {"type": "ephemeral", "ttl": "1h"},
-                },
-                {
-                    "type": "text",
-                    "text": agent_context,
-                },
-            ],
-            messages=[{"role": "user", "content": message}],
-        )
-    _log_cache_usage("voice_agent", response)
-    for block in response.content:
-        if block.type == "text":
-            return block.text
-    raise ValueError(f"No text in response (stop_reason={response.stop_reason})")
+    response = runtime.generate(
+        endpoint="voice_agent", model=runtime.VOICE_MODEL, max_tokens=200,
+        system=(SystemBlock(_AGENT_BIBLE, cacheable=True), SystemBlock(agent_context)),
+        messages=[{"role": "user", "content": message}],
+    )
+    if response.text is not None:
+        return response.text
+    raise ValueError("No text in model response")
 
 
 # ── Input-moderation classify (ADR-004 §2) ──────────────────────────────────
-# The Haiku-tier half of the two-tier screen in server/moderation.py: the
+# The model-backed half of the two-tier screen in server/moderation.py: the
 # local filter handles the definite cases at zero cost, and only AMBIGUOUS
 # inputs reach this single Messages-API call. Callers treat any exception as
 # fail-open (allow; redaction is the backstop), so this function raises
 # naturally rather than swallowing errors.
 
 _MODERATION_MODEL_ENV = "NESTED_WORLDS_MODERATION_MODEL"
-_DEFAULT_MODERATION_MODEL = "claude-haiku-4-5"
 # A moderation verdict must not stall a real-time chat surface: bound the
 # call hard, and let the timeout surface as an exception → fail-open.
 _MODERATION_TIMEOUT_SECONDS = 3.0
 
-# Deliberately NOT cache-marked: this prompt is far below the 4096-token
-# Opus-class cache minimum, so a cache_control marker would be a silent
-# no-op — the exact trap this repo shipped twice (see CLAUDE.md).
+# This short classification prompt does not request explicit caching.
 _MODERATION_SYSTEM = (
     "You are a content-safety classifier for a shared, persistent, "
     "all-ages online fantasy world where player text becomes permanent, "
@@ -1259,25 +1144,18 @@ _MODERATION_SYSTEM = (
 
 def classify_content(text: str) -> bool:
     """True iff `text` is allowed. Raises on any API failure (caller fails
-    open). One short uncached call on the Haiku-tier moderation model."""
+    open). One short uncached call on the configured moderation model."""
     import time as _time
     started = _time.monotonic()
-    with _call_semaphore:
-        response = _get_client().messages.create(
-            model=os.environ.get(_MODERATION_MODEL_ENV,
-                                 _DEFAULT_MODERATION_MODEL),
-            max_tokens=8,
-            system=_MODERATION_SYSTEM,
-            messages=[{"role": "user", "content": text}],
-            timeout=_MODERATION_TIMEOUT_SECONDS,
-        )
+    response = runtime.generate(
+        endpoint="moderate",
+        model=os.environ.get(_MODERATION_MODEL_ENV, runtime.DEFAULT_MODERATION_MODEL),
+        max_tokens=8, system=(SystemBlock(_MODERATION_SYSTEM),),
+        messages=[{"role": "user", "content": text}],
+        timeout=_MODERATION_TIMEOUT_SECONDS,
+    )
     elapsed_ms = (_time.monotonic() - started) * 1000.0
-    _log_cache_usage("moderate", response)
-    verdict = ""
-    for block in response.content:
-        if block.type == "text":
-            verdict = block.text.strip().upper()
-            break
+    verdict = (response.text or "").strip().upper()
     _log.info("moderation_call ms=%.0f verdict=%s", elapsed_ms,
               verdict or "?")
     # Anything that isn't an explicit BLOCK allows — same fail-open posture

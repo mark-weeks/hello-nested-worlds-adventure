@@ -28,7 +28,7 @@ def commit(http, name, steps, request, key=None):
 
 def model(monkeypatch, answers):
     """Fixture provider, through the actual schema parser and endpoint."""
-    from consciousness import interventions as proposals
+    from consciousness.anthropic_provider import provider
     from server import guard
     monkeypatch.delenv('NESTED_WORLDS_DISABLE_AI', raising=False)
     monkeypatch.setenv('ANTHROPIC_API_KEY', 'fixture-only')
@@ -38,8 +38,7 @@ def model(monkeypatch, answers):
     def create(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(stop_reason='end_turn', content=[SimpleNamespace(type='text',text=json.dumps(next(iterator)))])
-    monkeypatch.setattr(proposals, '_get_client', lambda: SimpleNamespace(messages=SimpleNamespace(create=create)))
-    monkeypatch.setattr(proposals, '_log_cache_usage', lambda *args: None)
+    monkeypatch.setattr(provider, '_get_client', lambda: SimpleNamespace(messages=SimpleNamespace(create=create)))
     return calls
 
 
