@@ -1,0 +1,10 @@
+{
+  "id": "fixture-plumbing-v1",
+  "provider": "fixture",
+  "models": {
+    "node_voice": "fixture-v1",
+    "inhabitant_voice": "fixture-v1",
+    "intention": "fixture-v1",
+    "moderation": "fixture-v1"
+  }
+}
