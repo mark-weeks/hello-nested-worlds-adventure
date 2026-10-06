@@ -41,6 +41,7 @@ class Completion:
     complete: bool
     usage: TokenUsage | None = None
     finish_reason: str = "unknown"
+    resolved_model: str | None = None
 
     def require_text(self) -> str:
         # Preserve voice behavior for partial text; only a missing block fails.

@@ -32,6 +32,12 @@ requirements. This policy does not claim those adapters already exist.
 
 ## Compare before selecting
 
+The [evaluation harness](../../evals/README.md) implements the synthetic corpus,
+production-task runner, blind human grading, comparison reports and predeclared
+selection checks. Start with fixture validation, then a budgeted live baseline.
+Fixture success does not qualify a model; human calibration and live evidence
+remain separate requirements. The harness does not change runtime defaults.
+
 Use the incumbent as a baseline and include a materially different credible
 candidate when practical. Deterministic behavior or no model call is a valid
 baseline: ambient traversal and banter already run without paid inference.

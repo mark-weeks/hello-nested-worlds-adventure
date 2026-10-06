@@ -1,0 +1,47 @@
+{
+  "purpose": "REPLACE: the task and improvement that would justify switching",
+  "owner": "REPLACE",
+  "frozen_on": null,
+  "calibration_record": null,
+  "minimum_repeats": 3,
+  "tasks": {
+    "node_voice": {
+      "min_cases": null,
+      "min_success_rate": null,
+      "max_success_rate_drop": null,
+      "max_p95_ms": null,
+      "max_cost_per_success_usd": null,
+      "switch_metric": "quality",
+      "minimum_gain": null,
+      "max_quality_drop": null
+    },
+    "inhabitant_voice": {
+      "min_cases": null,
+      "min_success_rate": null,
+      "max_success_rate_drop": null,
+      "max_p95_ms": null,
+      "max_cost_per_success_usd": null,
+      "switch_metric": "quality",
+      "minimum_gain": null,
+      "max_quality_drop": null
+    },
+    "intention": {
+      "min_cases": null,
+      "min_success_rate": null,
+      "max_success_rate_drop": null,
+      "max_p95_ms": null,
+      "max_cost_per_success_usd": null,
+      "switch_metric": "cost",
+      "minimum_gain": null
+    },
+    "moderation": {
+      "min_cases": null,
+      "min_success_rate": null,
+      "max_success_rate_drop": null,
+      "max_p95_ms": null,
+      "max_cost_per_success_usd": null,
+      "switch_metric": "cost",
+      "minimum_gain": null
+    }
+  }
+}

@@ -3,7 +3,8 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .ruff_cache/
-.venv/
+.venv
+/frontend/node_modules
 *.egg-info/
 dist/
 build/
@@ -12,3 +13,4 @@ test-results/
 .DS_Store
 .claude/.session-setup-stamp
 .claude/settings.local.json
+evals/runs/
