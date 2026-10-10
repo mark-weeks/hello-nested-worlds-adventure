@@ -79,7 +79,29 @@ _WATCH_WORDS = frozenset({
     "pedo", "pedophile", "paedophile",
     "molest", "molester",
     "cunt", "whore", "slut",
-    "porn",
+    "porn", "sexual", "sexually", "erotic", "erotica",
+})
+
+# Person-directed harm is ambiguous even without a slur. Co-occurrence is
+# deliberately only a routing signal: it cannot distinguish a real threat
+# from quoted dialogue, a report of abuse, or "kill your dragon". The model
+# decides those cases. Unqualified fantasy action ("kill the dragon") stays
+# on the zero-call path. These bounded English signals are not a complete
+# semantic classifier or a promise to recognize every paraphrase.
+_HARM_WORDS = frozenset({
+    "kill", "kills", "killed", "killing",
+    "murder", "murders", "murdered", "murdering",
+    "shoot", "shoots", "shooting", "shot",
+    "stab", "stabs", "stabbed", "stabbing",
+    "hurt", "hurts", "hurting",
+    "harass", "harasses", "harassed", "harassing", "harassment",
+    "stalk", "stalks", "stalked", "stalking",
+    "humiliate", "humiliates", "humiliated", "humiliating", "humiliation",
+})
+_PERSON_WORDS = frozenset({
+    "you", "your", "yours", "u", "ur", "me", "us", "him", "her", "them",
+    "person", "people", "player", "players", "account",
+    "neighbor", "neighbour", "classmate", "coworker", "teacher", "student",
 })
 
 # Multi-word phrases checked against the space-joined normalized text.
@@ -118,6 +140,8 @@ def local_tier(text: str) -> str:
 
     joined = " ".join(words)
     if word_set & (_WATCH_WORDS | _env_terms(EXTRA_WATCH_ENV)):
+        return "escalate"
+    if word_set & _HARM_WORDS and word_set & _PERSON_WORDS:
         return "escalate"
     if any(p in joined for p in _WATCH_PHRASES):
         return "escalate"

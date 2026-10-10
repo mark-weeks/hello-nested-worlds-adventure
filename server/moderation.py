@@ -5,9 +5,11 @@ chronicle (`/speak`, `/agent/voice`, WS chat) or the name registry:
 
   1. **Local filter** — in-process, zero API cost/latency. A word-boundary
      match against a small list of unambiguous slurs is a definite BLOCK; a
-     match against the broader watch list, an evasion-shaped sequence hit
+     match against the broader watch list (including sexual-content cues),
+     harm words alongside person references, an evasion-shaped sequence hit
      (spaced/leet-spelled slurs), or a long digit run (doxxing shape) marks
-     the input AMBIGUOUS.
+     the input AMBIGUOUS. These signals request a contextual verdict; they
+     never block locally, including when they match benign fiction or reports.
   2. **Model classification** — only ambiguous inputs escalate to one short,
      uncached Messages-API call (`consciousness.classify_content`), charged
      to moderation's own daily budget (`guard.consume_moderation`), never

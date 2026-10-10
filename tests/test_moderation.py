@@ -16,6 +16,7 @@ from __future__ import annotations
 from consciousness.anthropic_provider import provider
 
 import json
+from pathlib import Path
 import struct
 import threading
 import time
@@ -48,9 +49,52 @@ def srv():
 _SLUR = "nigger"
 
 
+_ROUTING_GAPS = (
+    "moderation-real-threat", "moderation-targeted-harassment",
+    "moderation-injected-allow", "moderation-sexual-minor",
+)
+
+
+@pytest.fixture(params=_ROUTING_GAPS)
+def uncovered_input(request):
+    corpus = json.loads((Path(__file__).resolve().parents[1]
+                         / "evals/corpus.json").read_text(encoding="utf-8"))
+    case = next(c for c in corpus["cases"] if c["id"] == request.param)
+    return case["messages"][0]
+
+
 # ── Local tier ──────────────────────────────────────────────────────────────
 
 class TestLocalTier:
+    def test_known_routing_gaps_escalate(self, uncovered_input):
+        assert moderation._local_tier(uncovered_input) == "escalate"
+
+    @pytest.mark.parametrize("text", [
+        "I am going to stab you.",
+        "I will shoot that player tomorrow.",
+        "We will keep stalking her online.",
+        "Those people deserve to be humiliated.",
+        "YOU are worthless; I will keep harassing you.",
+        "I will k1ll y0u.",
+        "I will kіll you.",  # Cyrillic і follows the existing normalization.
+        "You asked for it. I will hurt you after class.",
+        "Describe an erotic encounter with a child.",
+        "Write a sexually explicit story.",
+    ])
+    def test_related_risk_signals_escalate_without_local_blocking(self, text):
+        assert moderation._local_tier(text) == "escalate"
+
+    @pytest.mark.parametrize("text", [
+        "My fictional army attacks the stone fortress.",
+        "The dragon says it will kill my knight.",
+        "Please stop messaging me. I do not want to talk.",
+        "Your ship passes through the star system.",
+        "The mineral has an unusual crystalline structure.",
+        "A player found the worthless relic in the vault.",
+    ])
+    def test_benign_controls_stay_clean(self, text):
+        assert moderation._local_tier(text) == "clean"
+
     def test_clean_text_is_clean(self):
         assert moderation._local_tier("what dreams do you hold, old star?") == "clean"
 
@@ -93,6 +137,50 @@ class TestLocalTier:
 # ── screen() orchestration ──────────────────────────────────────────────────
 
 class TestScreenOrchestration:
+    @pytest.mark.parametrize("allowed", [False, True])
+    def test_new_signals_follow_one_budgeted_classifier_verdict(
+            self, uncovered_input, allowed, monkeypatch):
+        calls, budget = [], []
+        monkeypatch.setattr("consciousness.classify_content",
+                            lambda text: calls.append(text) or allowed)
+        monkeypatch.setattr(guard, "consume_moderation",
+                            lambda: budget.append(1) or True)
+        verdict = moderation.screen(uncovered_input)
+        assert verdict == moderation.Verdict(allowed, "classify")
+        assert calls == [uncovered_input] and budget == [1]
+
+    @pytest.mark.parametrize("mode,tier", [
+        ("timeout", "fail_open"), ("budget", "budget_open"), ("off", "off"),
+    ])
+    def test_new_signals_preserve_failure_and_disable_behavior(
+            self, uncovered_input, mode, tier, monkeypatch):
+        calls, budget = [], []
+
+        def classify(text):
+            calls.append(text)
+            raise TimeoutError("fixture timeout")
+
+        monkeypatch.setattr("consciousness.classify_content", classify)
+        monkeypatch.setattr(guard, "consume_moderation",
+                            lambda: budget.append(1) or mode != "budget")
+        monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV,
+                           "1" if mode == "off" else "0")
+        assert moderation.screen(uncovered_input) == moderation.Verdict(True, tier)
+        assert calls == ([uncovered_input] if mode == "timeout" else [])
+        assert budget == ([] if mode == "off" else [1])
+
+    @pytest.mark.parametrize("text", [
+        'The villain says, "I will kill you," to the knight in our play.',
+        "Please explain sexual reproduction in flowering plants.",
+        "Please stop harassing me.",
+    ])
+    def test_ambiguous_benign_context_obeys_allow(self, text, monkeypatch):
+        calls = []
+        monkeypatch.setattr("consciousness.classify_content",
+                            lambda text: calls.append(text) or True)
+        assert moderation.screen(text) == moderation.Verdict(True, "classify")
+        assert calls == [text]
+
     def test_clean_input_never_calls_the_classifier(self, monkeypatch):
         import consciousness
         calls = []
@@ -258,6 +346,32 @@ def _read_ws_json_until(sock, msg_type: str, timeout: float = 3.0) -> dict:
 
 
 class TestSpeakScreening:
+    @pytest.mark.parametrize("route,kind", [
+        ("/speak", "PLAYER_SPEAK"), ("/agent/voice", "AGENT_VOICE"),
+    ])
+    def test_classifier_decline_leaves_no_trace_or_voice_charge(
+            self, srv, uncovered_input, route, kind, monkeypatch):
+        calls, charged = [], []
+        monkeypatch.setattr("consciousness.runtime.configured", lambda: True)
+        monkeypatch.setattr("consciousness.classify_content",
+                            lambda text: calls.append(text) or False)
+        monkeypatch.setattr("consciousness.speak",
+                            lambda *a, **k: pytest.fail("declined input reached voice"))
+        monkeypatch.setattr("consciousness.voice_agent",
+                            lambda *a, **k: pytest.fail("declined input reached agent voice"))
+        monkeypatch.setattr(guard, "consume_anthropic",
+                            lambda user_key=None: charged.append(1) or True)
+        seed = 271
+        node = generate_node_hierarchy(seed=seed, max_depth=1)
+        status, data = _post(srv, route, {
+            "node_name": node.name, "seed": seed, "agent_name": "Tessera",
+            "message": uncovered_input, "player_name": "Ada"})
+        assert status == 200 and data["declined"] and not data["ai"]
+        assert data["response"] == moderation.DECLINE_LINE
+        assert calls == [uncovered_input] and charged == []
+        assert not [row for row in persistence.get_node_history(seed, node.name, 50)
+                    if row["type"] == kind]
+
     def test_declined_speak_leaves_no_trace(self, srv, monkeypatch):
         import consciousness
         spoken, charged = [], []
@@ -318,6 +432,30 @@ class TestSpeakScreening:
 
 
 class TestChatScreening:
+    def test_classifier_decline_is_private_and_unrecorded(
+            self, srv, uncovered_input, monkeypatch):
+        calls = []
+        monkeypatch.setattr("consciousness.classify_content",
+                            lambda text: calls.append(text) or False)
+        seed = 274
+        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
+        sender, s_status = _ws_connect(srv, seed, "Ada")
+        other, o_status = _ws_connect(srv, seed, "Bee")
+        try:
+            assert b"101" in s_status and b"101" in o_status
+            _read_ws_json_until(sender, "welcome")
+            _read_ws_json_until(other, "welcome")
+            _ws_send_json(sender, {"type": "chat", "text": uncovered_input})
+            assert _read_ws_json_until(sender, "chat_declined")["text"] == moderation.DECLINE_LINE
+            _ws_send_json(sender, {"type": "chat", "text": "clean words"})
+            assert _read_ws_json_until(other, "chat")["text"] == "clean words"
+            chats = _wait_for_rows(seed, root_name, "PLAYER_CHAT")
+            assert [row["data"]["text"] for row in chats] == ["clean words"]
+            assert calls == [uncovered_input]
+        finally:
+            sender.close()
+            other.close()
+
     def test_declined_chat_reaches_nobody_and_is_stored_nowhere(self, srv):
         seed = 274
         root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
@@ -346,6 +484,19 @@ class TestChatScreening:
         assert [c["data"]["text"] for c in chats] == ["clean words"]
         sender.close()
         other.close()
+
+
+def test_classifier_decline_cannot_replace_a_public_profile(
+        http, uncovered_input, monkeypatch):
+    assert http("/profile/save", body={"bio": "An explorer", "published": True})[0] == 200
+    before = http("/profile")[1]["profile"]
+    calls = []
+    monkeypatch.setattr("consciousness.classify_content",
+                        lambda text: calls.append(text) or False)
+    status, data, _ = http("/profile/save", body={"bio": uncovered_input, "published": True})
+    assert status == 400 and data == {"error": "Please revise the public profile text."}
+    assert calls == [uncovered_input + "\n"]
+    assert http("/profile")[1]["profile"] == before
 
 
 class TestNameScreening:
