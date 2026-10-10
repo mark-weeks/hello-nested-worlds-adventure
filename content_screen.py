@@ -79,7 +79,7 @@ _WATCH_WORDS = frozenset({
     "pedo", "pedophile", "paedophile",
     "molest", "molester",
     "cunt", "whore", "slut",
-    "porn", "sexual", "sexually", "erotic", "erotica",
+    "porn", "sex", "sexual", "sexually", "erotic", "erotica",
 })
 
 # Person-directed harm is ambiguous even without a slur. Co-occurrence is
