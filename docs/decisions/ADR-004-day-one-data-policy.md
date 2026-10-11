@@ -60,7 +60,7 @@ ahead of the "what if."
 cost is precisely the loss of mechanical integrity and accountability that
 content-level redaction avoids.
 
-### 2. Input moderation *(implemented — the measured tax matches the plan)*
+### 2. Input moderation *(implemented; expanded routing needs live cost evidence)*
 
 Player text is screened *before* it enters the chronicle (`/speak`,
 `/agent/voice`, WS chat) and before a name enters the registry
@@ -68,11 +68,18 @@ Player text is screened *before* it enters the chronicle (`/speak`,
 (`server/moderation.py`):
 
 - **Local filter** — in-process. Only the unambiguous word-boundary
-  blocklist can block on its own; watch words/phrases, evasion-shaped
-  sequences (spaced/leet slurs), and long digit runs (doxxing shape) mark
+  blocklist can block on its own; watch words/phrases (including sexual-content
+  cues), bounded harm/target and death-threat shapes, evasion-shaped
+  sequences (spaced/leet slurs or threats), and long digit runs (doxxing shape) mark
   the input *ambiguous* instead, so a heuristic can never censor a player
-  ("sniggering", the river Niger). Measured: **12–38 µs per call, zero API
-  calls for clean input** — the common case is free.
+  ("sniggering", the river Niger). The earlier filter measured **12–38 µs per
+  call**; that measurement predates the expanded signals. Clean input still
+  makes **zero API calls**. The target rule allows only a short sequence of
+  determiners/modifiers before a person reference, plus explicit passive,
+  death and retribution shapes. It does not join arbitrary harm words and
+  pronouns across a message: "Can you kill the dragon for me?" stays clean,
+  while "I will kill the real person using this account" escalates. Quoted
+  threats, reports and educational sexual-content language can still escalate.
 - **Haiku classify** — ambiguous inputs make one short uncached call
   (`consciousness.classify_content`, `claude-haiku-4-5`, ~166-token system
   prompt, `max_tokens=8`, hard 3 s timeout). Measured by arithmetic:
@@ -82,6 +89,18 @@ Player text is screened *before* it enters the chronicle (`/speak`,
   The prompt is deliberately **not** cache-marked — it sits far below the
   4096-token cache minimum, where a marker is a silent no-op (the trap this
   repo has hit twice).
+
+False escalations are a budget and latency cost even when the classifier says
+ALLOW: the handler waits inline (up to the existing timeout), and classification
+shares model-call concurrency with voice work. When the moderation cap is spent,
+later ambiguous inputs fail open. Six authored gameplay controls now use zero
+calls, compared with six calls under the first whole-message co-occurrence rule.
+That is a regression measurement, **not an expected live escalation rate**:
+representative traffic, latency, classifier quality and cost remain unmeasured.
+The vocabulary/intent shapes are bounded English heuristics, not comprehensive
+semantic detection. See the [routing evaluation](../evaluation/2026-10-10-moderation-routing.md)
+for the tested cases and limitations. This correction retains the existing
+budget, timeout, disable switch and fail-open policy.
 
 **Fail-open everywhere**: classify error, timeout, exhausted moderation
 budget, or the kill switch (`NESTED_WORLDS_DISABLE_MODERATION=1`) all

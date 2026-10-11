@@ -5,9 +5,11 @@ chronicle (`/speak`, `/agent/voice`, WS chat) or the name registry:
 
   1. **Local filter** — in-process, zero API cost/latency. A word-boundary
      match against a small list of unambiguous slurs is a definite BLOCK; a
-     match against the broader watch list, an evasion-shaped sequence hit
-     (spaced/leet-spelled slurs), or a long digit run (doxxing shape) marks
-     the input AMBIGUOUS.
+     match against the broader watch list (including sexual-content cues),
+     bounded harm/target or death-threat shapes, an evasion-shaped sequence hit
+     (spaced/leet-spelled slurs or threats), or a long digit run (doxxing shape) marks
+     the input AMBIGUOUS. These signals request a contextual verdict; they
+     never block locally, including when they match benign fiction or reports.
   2. **Model classification** — only ambiguous inputs escalate to one short,
      uncached Messages-API call (`consciousness.classify_content`), charged
      to moderation's own daily budget (`guard.consume_moderation`), never
@@ -23,8 +25,10 @@ switches.
 Design note on false positives: only the exact word-boundary tier can block
 on its own. The fuzzier signals (collapsed sequences, run-squeezed text,
 watch words) never block locally — they only escalate, so the classifier
-absorbs the ambiguity ("sniggering", the river Niger, fantasy violence) and
-an over-eager heuristic costs a fraction of a cent, not a censored player.
+absorbs the ambiguity ("sniggering", the river Niger, fantasy violence).
+False escalations still spend budget and add inline latency; exhaustion then
+fails open. Benign gameplay controls avoid known false triggers, but live
+escalation frequency and classifier quality remain unmeasured.
 """
 from __future__ import annotations
 

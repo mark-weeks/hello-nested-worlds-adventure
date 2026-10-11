@@ -17,6 +17,19 @@ async function setRangeToBirth(locator) {
   await locator.fill("0");
 }
 
+async function waitForFirstWitness(page) {
+  // An open socket is not a movement receipt. The history snapshot legitimately
+  // has no first witness until the server has recorded that initial move.
+  await expect.poll(async () => {
+    const node = await page.evaluate(() => localStorage.getItem("nw_last_node"));
+    if (!node) return false;
+    const url = new URL("/wayback", page.url());
+    url.searchParams.set("node_name", node);
+    const snapshot = await (await page.request.get(url.href)).json();
+    return snapshot.timeline?.first_witness != null;
+  }).toBe(true);
+}
+
 test("explorer scrubs a node from present to birth", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("nw_seen_intro", "1");
@@ -30,6 +43,7 @@ test("explorer scrubs a node from present to birth", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#node-name")).not.toHaveText("Select a node");
   await expect.poll(()=>page.evaluate(()=>ws?.readyState)).toBe(1);
+  await waitForFirstWitness(page);
 
   await disclose(page,"History & journal");
   await page.click("#btn-wayback");
@@ -89,6 +103,7 @@ test("/app scrubs a node from present to birth", async ({ page }) => {
   });
   await page.goto("/app");
   await expect(page.getByText("● Connected to the shared world")).toBeVisible({ timeout: 10_000 });
+  await waitForFirstWitness(page);
 
   const trigger = page.getByRole("button", { name: "Replay History" });
   await disclose(page,"History & journal");
@@ -153,6 +168,7 @@ test("explorer clears an old snapshot before a failed reopen", async ({ page }) 
   const errors = collectErrors(page);
   await page.goto("/");
   await expect(page.locator("#node-name")).not.toHaveText("Select a node");
+  await waitForFirstWitness(page);
 
   await disclose(page,"History & journal");
   await page.click("#btn-wayback");

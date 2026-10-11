@@ -79,8 +79,107 @@ _WATCH_WORDS = frozenset({
     "pedo", "pedophile", "paedophile",
     "molest", "molester",
     "cunt", "whore", "slut",
-    "porn",
+    "porn", "sex", "sexual", "sexually", "erotic", "erotica",
+    "sexy", "sext", "sexts", "sexted", "sexting", "nude", "nudes", "naked", "nsfw",
 })
+
+# Bounded target/intent shapes, not whole-message co-occurrence. A personal
+# subject elsewhere in a sentence must not turn "kill the dragon" into a paid
+# call. These signals only escalate; quotations and abuse reports still need
+# a contextual verdict. This is a finite English heuristic, not a parser.
+_HARM_WORDS = frozenset(
+    {root + suffix for root in ("kill", "murder", "stalk", "attack")
+     for suffix in ("", "s", "ed", "ing")}
+    | {root + suffix for root in ("harass", "punch")
+       for suffix in ("", "es", "ed", "ing")}
+    | {root + suffix for root in ("humiliat", "chok", "strangl")
+       for suffix in ("e", "es", "ed", "ing")}
+    | {"shoot", "shoots", "shooting", "shot", "stab", "stabs", "stabbed", "stabbing",
+       "hurt", "hurts", "hurting", "beat", "beats", "beaten", "beating",
+       "harassment", "humiliation"}
+)
+_PERSON_WORDS = frozenset({
+    "you", "u", "me", "us", "him", "her", "them", "they", "he", "she",
+    "myself", "yourself", "urself", "himself", "herself", "ourselves", "yourselves",
+    "themselves", "themself", "someone", "somebody", "everyone", "everybody",
+    "anyone", "anybody", "person", "people", "player", "players", "account",
+    "neighbor", "neighbour", "classmate", "coworker", "teacher", "student",
+    "mother", "father", "mom", "mum", "dad", "parent", "parents", "brother",
+    "sister", "son", "daughter", "child", "children", "family", "friend",
+    "girlfriend", "boyfriend", "partner", "wife", "husband", "spouse",
+})
+_TARGET_PREFIXES = frozenset({
+    "a", "an", "the", "this", "that", "these", "those", "my", "your", "ur",
+    "his", "her", "our", "their", "real", "actual", "own", "little", "at",
+})
+_PASSIVE_LINKS = frozenset({
+    "is", "are", "was", "were", "be", "been", "being", "get", "got", "getting",
+    "will", "should", "must", "to", "deserve", "deserves", "going", "gonna",
+})
+_DEATH_WORDS = frozenset({"die", "dies", "dying", "dead", "death"})
+
+
+def _target_end(words: list[str], start: int) -> int | None:
+    # Only determiners/modifiers may intervene, never an arbitrary gameplay
+    # object ("kill the dragon for me"). Keep both work and distance bounded.
+    for index in range(start, min(start + 4, len(words))):
+        if words[index] in _PERSON_WORDS:
+            return index + 1
+        if words[index] not in _TARGET_PREFIXES:
+            break
+    return None
+
+
+def _person_harm(words: list[str]) -> bool:
+    for index, word in enumerate(words):
+        if word in _HARM_WORDS:
+            end = _target_end(words, index + 1)
+            # Two common non-assault readings, without exempting threats such
+            # as "I will hurt you" or "I shot you after reading your message".
+            accident = word in {"hurt", "hurts"} and index > 0 and words[index - 1] in {
+                "fall", "falling", "accident"}
+            message = word == "shot" and end is not None and words[end:end + 2] in (
+                ["a", "message"], ["a", "note"], ["an", "email"])
+            noun_shot = (word == "shot" and index > 0
+                         and words[index - 1] in {"a", "the", "another", "one"}
+                         and words[index + 1:index + 2] != ["at"])
+            if end is not None and not accident and not message and not noun_shot:
+                return True
+            # Personal passive: "those people deserve to be humiliated".
+            # Requiring a passive link avoids "you killed it" and subjects
+            # that merely precede an in-fiction action.
+            if word.endswith(("ed", "en")) or word in {"hurt", "shot"}:
+                for start in range(max(0, index - 5), index):
+                    links = words[start + 1:index]
+                    if (words[start] in _PERSON_WORDS and links
+                            and all(link in _PASSIVE_LINKS for link in links)
+                            and any(link in {"be", "been", "being", "is", "are", "was",
+                                             "were", "get", "got", "getting"} for link in links)):
+                        return True
+        if word in _PERSON_WORDS:
+            for following in words[index + 1:index + 5]:
+                if following in _DEATH_WORDS:
+                    return True
+                if following not in _PASSIVE_LINKS:
+                    break
+        if word in {"my", "your", "ur", "his", "her", "our", "their"}:
+            if words[index + 1:index + 2] == ["death"]:
+                return True
+        if word in {"make", "makes", "making", "made"}:
+            end = _target_end(words, index + 1)
+            if end is not None and words[end:end + 1] == ["pay"]:
+                return True
+    return False
+
+
+# Reconstitute only known cues in letter-spaced text, then run the same target
+# rules. Do not collapse an entire message into an unbounded substring match.
+# This path only escalates, even if reconstructed text resembles a block word.
+_SPACED_CUES = re.compile(r"\b(?:" + "|".join(
+    " *".join(word) for word in sorted(
+        _HARM_WORDS | _PERSON_WORDS | _WATCH_WORDS | _DEATH_WORDS,
+        key=lambda word: (-len(word), word))) + r")\b")
+
 
 # Multi-word phrases checked against the space-joined normalized text.
 _WATCH_PHRASES = (
@@ -119,8 +218,15 @@ def local_tier(text: str) -> str:
     joined = " ".join(words)
     if word_set & (_WATCH_WORDS | _env_terms(EXTRA_WATCH_ENV)):
         return "escalate"
+    if _person_harm(words):
+        return "escalate"
     if any(p in joined for p in _WATCH_PHRASES):
         return "escalate"
+
+    if re.search(r"\b[a-z0-9] [a-z0-9]\b", joined):
+        unspaced = _SPACED_CUES.sub(lambda match: match[0].replace(" ", ""), joined).split()
+        if _person_harm(unspaced) or set(unspaced) & _WATCH_WORDS:
+            return "escalate"
 
     collapsed = joined.replace(" ", "")
     squeezed = _squeeze(collapsed)

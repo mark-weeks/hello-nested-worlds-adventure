@@ -60,6 +60,8 @@ def test_corpus_coverage_and_production_reference_paths(corpus, candidate, tmp_p
         assert result['status'] == 'completed'
         assert all(t['error'] is None for t in result['trials'])
         assert all(t['grade']['task_correct'] is not False for t in result['trials'])
+        assert all(t['grade']['screen_correct'] is True for t in result['trials']
+                   if t['task'] == 'moderation')
         assert all(t['grade']['task_correct'] is None for t in result['trials'] if t['grade']['human_required'])
         assert checked_run(tmp_path / split / 'run.json') == result
         assert len((tmp_path / split / 'trials.jsonl').read_text().splitlines()) == result['planned_trials']
@@ -124,7 +126,10 @@ def test_moderation_fail_open_is_not_a_classifier_pass(corpus):
     assert 'secret' not in json.dumps(calls)
 
 
-def test_model_pass_does_not_hide_local_screen_bypass(corpus):
+def test_model_pass_does_not_hide_local_screen_bypass(corpus, monkeypatch):
+    # Inject a routing regression: the report must still distinguish a correct
+    # classifier reply from a screen that never consulted it.
+    monkeypatch.setattr('server.moderation._local_tier', lambda text: 'clean')
     c = case(corpus, 'moderation-real-threat')
     calls = []
     with task_routing(RecordingProvider(FixtureProvider(['BLOCK']), calls), 'test'):
@@ -132,6 +137,7 @@ def test_model_pass_does_not_hide_local_screen_bypass(corpus):
     result = grade(c, output, calls, None)
     assert result['task_correct'] is True
     assert result['screen_correct'] is False
+    assert output[0]['local_tier'] == 'clean'
     assert output[0]['screen']['tier'] == 'clean'
 
 

@@ -364,7 +364,6 @@ def execute(case, outputs=None):
                 outputs.append({"status": "unsupported"})
         else:
             from server import moderation
-            from content_screen import local_tier
             # Classifier trial even for clean/local-block inputs; end-to-end
             # screen is also observed using the SAME reply (never a second call).
             try:
@@ -379,7 +378,7 @@ def execute(case, outputs=None):
                  patch.object(moderation.guard, "consume_moderation", return_value=True):
                 screen = moderation.screen(message)
             outputs.append({"status": "classified", "allowed": allowed, "error": error,
-                            "local_tier": local_tier(message), "screen": asdict(screen)})
+                            "local_tier": moderation._local_tier(message), "screen": asdict(screen)})
     return outputs
 
 

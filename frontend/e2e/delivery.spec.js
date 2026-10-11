@@ -237,6 +237,49 @@ for(const route of ['/','/app']) for(const endpoint of ['/interventions/commit',
   });
 }
 
+for(const order of ['HTTP first','socket first']) {
+  test(`/app coalesces the accepted action and socket echo: ${order}`,async({page,request})=>{
+    const directory=await mkdtemp(path.join(tmpdir(),'enfolded-acceptance-')),db=path.join(directory,'worlds.db');
+    let server,releaseHttp,releaseSocket;const heldHttp=new Promise(resolve=>{releaseHttp=resolve;});
+    let received;const receiptReady=new Promise(resolve=>{received=resolve;});
+    try {
+      server=await startServer(db,false);
+      await page.routeWebSocket(/\/ws\?/,socket=>{
+        const peer=socket.connectToServer();
+        peer.onMessage(message=>{
+          if(order==='HTTP first' && JSON.parse(message).type==='intervention_changed')releaseSocket=()=>socket.send(message);
+          else socket.send(message);
+        });
+      });
+      await page.route(url=>url.pathname==='/interventions/commit',async route=>{
+        const response=await route.fetch();received(await response.json());
+        if(order==='socket first')await heldHttp;
+        await route.fulfill({response});
+      });
+      const world=await(await request.get(server.url+'/world?depth=3')).json(),galaxy=world.world.children[0].children[0];
+      const act=await enter(page,server.url,'/app',galaxy.name);
+      await expect(page.getByText('● Connected to the shared world')).toBeVisible();
+      let reads=0;page.on('request',r=>{if(new URL(r.url()).pathname==='/node')reads++;});
+      await act.getByRole('button',{name:'Kindle',exact:true}).click();const receipt=await receiptReady;
+      if(order==='socket first'){
+        await expect(page.getByText(receipt.flavor,{exact:true})).toHaveCount(1);
+        await expect.poll(()=>reads).toBe(1);releaseHttp();
+      }
+      await expect(act.getByRole('status')).toHaveText(receipt.flavor);
+      if(order==='HTTP first'){
+        await expect.poll(()=>typeof releaseSocket).toBe('function');releaseSocket();
+      }
+      // Both the event feed and the player's own receipt have rendered: the
+      // two asynchronous delivery paths have completed, with one node read.
+      await expect(page.getByText(receipt.flavor,{exact:true})).toHaveCount(2);
+      expect(reads).toBe(1);
+    }finally {
+      releaseHttp();await page.unrouteAll({behavior:'wait'}).catch(()=>{});
+      await page.goto('about:blank').catch(()=>{});await kill(server);await rm(directory,{recursive:true,force:true});
+    }
+  });
+}
+
 for(const route of ['/','/app']) {
   test(`${route} co-viewers keep their own action replies while the shared state updates`,async({browser,request})=>{
     test.setTimeout(45000);
