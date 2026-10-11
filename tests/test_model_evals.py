@@ -137,6 +137,7 @@ def test_model_pass_does_not_hide_local_screen_bypass(corpus, monkeypatch):
     result = grade(c, output, calls, None)
     assert result['task_correct'] is True
     assert result['screen_correct'] is False
+    assert output[0]['local_tier'] == 'clean'
     assert output[0]['screen']['tier'] == 'clean'
 
 

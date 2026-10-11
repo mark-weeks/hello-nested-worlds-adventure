@@ -38,7 +38,7 @@ export default function Interact({ node, seed, depth, playerName, onSolved, onNo
       {tab === "puzzle" &&
         <Puzzle key={`pz-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} />}
       {tab === "act" && verb &&
-        <Interventions key={`act-${nodeKey}`} node={node} seed={seed} onJump={onJump} onNodeChanged={() => onNodeChanged?.(node.name, {})} onEnsurePosition={onEnsurePosition} />}
+        <Interventions key={`act-${nodeKey}`} node={node} seed={seed} onJump={onJump} onNodeChanged={notice => onNodeChanged?.(node.name, notice)} onEnsurePosition={onEnsurePosition} />}
     </section>
   );
 }

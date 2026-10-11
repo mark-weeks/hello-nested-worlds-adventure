@@ -236,7 +236,7 @@ export default function App() {
   }, [currentNodeName, seed]);
   // The composer reports its own acceptance; keyed on the same event as the
   // broadcast, the two refreshes become one read.
-  const onComposerChanged = useCallback(notice => refreshCurrentNode(undefined, notice), [refreshCurrentNode]);
+  const onComposerChanged = useCallback((name, notice) => refreshCurrentNode(name, notice), [refreshCurrentNode]);
 
   const { connected, sendMessage } = useWorldSocket(seed, playerName, {
     // The welcome roster: everyone already present when we connect. Without
