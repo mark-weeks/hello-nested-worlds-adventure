@@ -49,7 +49,7 @@ tripped one-way door whose decision has not already been ratified.
      `multiverse/chronicle.py` are read at render time and stay frozen
      (exact strings pinned) until eras are materialized (ADR-006).
 
-   For player-facing world changes, also check CLAUDE.md's autonomy and single-surface
+   For player-facing world changes, also check AGENTS.md's autonomy and single-surface
    covenants: invitations do not authorize another player's actions, and new powers
    extend or replace an existing experience. Preserve accepted historical receipts
    when closing an invalid new-action path; do not falsify their recorded actors.
@@ -73,7 +73,7 @@ Use the same result in the batch's CHANGELOG entry and the PR body when a PR exi
 
 ## Review and merge authorization
 
-Apply the authorization boundaries in `CLAUDE.md` → "Verification and completion".
+Apply the authorization boundaries in `AGENTS.md` → "Verification and completion".
 This assessment supplies evidence for review, not permission for a subsequent action.
 
 ## Completion

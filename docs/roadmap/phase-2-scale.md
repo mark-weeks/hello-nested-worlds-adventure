@@ -10,7 +10,7 @@ The 20-user readiness work is shipped — see `[Unreleased]` in
 [`docs/CHANGELOG.md`](../CHANGELOG.md). The two beyond-now sections below
 describe future work. Nothing is deployed yet (see the
 [roadmap index](README.md)); the continuity policy at the end of this file is
-standing and is cited by `CLAUDE.md`, `scripts/deploy.sh` and `persistence/`.
+standing and is cited by `AGENTS.md`, `scripts/deploy.sh` and `persistence/`.
 
 ---
 

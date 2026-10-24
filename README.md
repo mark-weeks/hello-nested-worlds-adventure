@@ -323,8 +323,10 @@ None of this touches the production world or the invite destination.
 ## Running Tests
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution process.
-For coding agents, [AGENTS.md](AGENTS.md) routes to the shared engineering
-contract and relevant procedures.
+For coding agents, [AGENTS.md](AGENTS.md) contains the shared engineering
+contract and points to relevant procedures. [CLAUDE.md](CLAUDE.md) imports that
+same contract for compatibility. Start agent sessions in the Git checkout root
+or a directory inside it so project instructions can be discovered.
 
 ```bash
 ./scripts/check.sh
