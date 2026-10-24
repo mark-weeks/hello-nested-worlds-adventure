@@ -327,6 +327,8 @@ For coding agents, [AGENTS.md](AGENTS.md) contains the shared engineering
 contract and points to relevant procedures. [CLAUDE.md](CLAUDE.md) imports that
 same contract for compatibility. Start agent sessions in the Git checkout root
 or a directory inside it so project instructions can be discovered.
+See [coding-agent setup and verification](docs/development/coding-agents.md) for
+shared skill discovery, supported environments, and read-only behavior checks.
 
 ```bash
 ./scripts/check.sh

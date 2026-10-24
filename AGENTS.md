@@ -214,6 +214,14 @@ wording or a model-name override. Existing release and deployment gates still ap
 
 ## Read when relevant
 
+- **Interface, interaction, accessibility, or scene styling:**
+  [the visual language](docs/design/visual-language.md) for the current interaction
+  structure, state-derived tokens, accessibility, and cross-scale continuity;
+  [game design](docs/design/game-design.md) for broader mechanics and product context.
+  For scene-image generation or delivery, also read
+  [the beta scene-art strategy](docs/design/beta-scene-art.md). Respect each document's
+  implementation status: recommendations do not authorize a new production pipeline.
+
 - **Community reports, outside contributions, or licensing:** `CONTRIBUTING.md`
   for agreed scope, submission terms, and credit;
   `docs/community/maintaining-the-community.md` for triage and dependency notices.
