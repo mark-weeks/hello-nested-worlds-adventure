@@ -251,7 +251,7 @@ by ADR-016's track.
 
 | Batch | Scope | Doors (irreversibility check) |
 |---|---|---|
-| **1 — the contract and the plate** | `render_keys` in `describe` (senses `VERSION` 4); migration 0028-series `render_assets`; object storage and `/media`; job queue; the `plate` renderer replacing the synchronous fast-sdxl call; `node_images` read-only; curated plates imported with provenance; dollar budgets per renderer | Additive migration; no chronicle write path; no golden re-pin; env aliases kept; CSP unchanged if same-origin |
+| **1 — the contract and the plate** | `render_keys` in `describe` (senses `VERSION` 4); migration at the next available migration number at merge time (see roadmap README numbering rule) `render_assets`; object storage and `/media`; job queue; the `plate` renderer replacing the synchronous fast-sdxl call; `node_images` read-only; curated plates imported with provenance; dollar budgets per renderer | Additive migration; no chronicle write path; no golden re-pin; env aliases kept; CSP unchanged if same-origin |
 | **2 — volume** | the `volume` renderer with export-on-generation, the splat layer, the `structural` key (path plus scene-defining anchors, plus the structural epoch once ADR-029 lands) and the anchor-mismatch suppression rule | None beyond batch 1; provider risk noted below |
 | **3 — cue and the archive** | the `cue` renderer; Wayback asset lookup and the second honesty clause; direction-version bump for molecule and atom baselines | None beyond batch 1 |
 

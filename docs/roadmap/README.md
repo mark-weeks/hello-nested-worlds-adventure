@@ -73,8 +73,37 @@ write path; citing them authorizes nothing.
 | D8 Budget posture | none | Dollars per day, not calls per day |
 | D9 Process re-tune | none | Keep five covenants; demote the rest to guidance |
 
-Known conflict to settle before building either draft: ADR-029 and ADR-030
-both claim migration number 0028.
+### Migration numbering rule
+
+Migration numbers are assigned at merge time. The first batch to merge takes
+the next free number. Drafts must not reserve numbers. The current top
+migration on `main` is `0027_expressive_interventions`. ADR-029, ADR-030,
+ADR-032 and ADR-033 each describe a migration they would add; whichever of
+those batches merges first takes the next free number.
+
+### Known open conflicts (unresolved; pending owner decision)
+
+- ADR-029 batch 1 says it must precede first production history
+  ([ADR-029](../decisions/ADR-029-evolution-grammar.md) line 192). Decision C
+  states "Before the first structural operation, not before the pilot."
+  ([next-steps-2026-q4.md](next-steps-2026-q4.md) line 110). The beta-readiness
+  record states: do not add ADR-029 implementation as a prerequisite for
+  ordinary beta history on the evidence currently available; require it before
+  enabling the structural operations that depend on it
+  ([2026-10-03-beta-readiness.md](../evaluation/2026-10-03-beta-readiness.md)
+  lines 130–132).
+- ADR-032 says batch 1 ships dark and can be turned on for the pilot cohort
+  ([ADR-032](../decisions/ADR-032-inhabitant-cognition.md) lines 201–202). The
+  Q4 plan schedules D4 after the pilot: decision F says "D4 only after pilot
+  evidence" ([next-steps-2026-q4.md](next-steps-2026-q4.md) line 113), and the
+  November–January order places ADR-032 batch 1 after pilot evidence, January
+  at the earliest ([next-steps-2026-q4.md](next-steps-2026-q4.md) line 171).
+  The decision agenda above records the same timing (line 69).
+- ADR-004 section 2 says "Fail-open everywhere" for moderation
+  ([ADR-004](../decisions/ADR-004-day-one-data-policy.md) line 105). No open
+  decision covers moderation posture before outside players arrive. The agenda
+  in this file is D1–D9 (lines 64–74); the Q4 decisions are A–H
+  ([next-steps-2026-q4.md](next-steps-2026-q4.md) lines 106–115).
 
 ## Standing commitments carried from archived plans
 

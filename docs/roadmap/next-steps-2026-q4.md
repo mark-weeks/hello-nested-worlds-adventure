@@ -64,7 +64,7 @@ owner to rule on it.
   ADR-025, ADR-027 and ADR-028 carry implementation-record status lines, not
   Proposed and not Accepted.
   Five new drafts (ADR-029 to ADR-033) are Proposed and introduce nothing.
-  ADR-029 and ADR-030 both claim migration `0028`; ADR-033 also needs one.
+  Migration numbers are assigned at merge time; the first batch to merge takes the next free number, and drafts must not reserve numbers ([roadmap README numbering rule](README.md#migration-numbering-rule)).
 - Operating posture: default voice model `claude-opus-4-8` (retained implementation default; selection policy now ADR-034), budgets
   as daily call caps (`server/guard.py`), explorer the invite default with `/app`
   the alternate, `server/handlers.py` at 1,624 lines (1,612 when this plan
@@ -171,7 +171,7 @@ Dependencies are the ADRs' own; dates assume the pilot read-out on October 31.
 
 | Order | Batch | Depends on | Doors it trips | Window |
 |---|---|---|---|---|
-| 0 | **Settle migration numbering.** ADR-029 and ADR-030 both claim `0028`; ADR-033 batch 1 also needs a migration and a write-once `world_meta` key. Rule: the first batch to merge takes the next free number; renumber the other drafts at ratification. | F | None | Nov, first week |
+| 0 | **Settle migration numbering.** ADR-033 batch 1 also needs a migration and a write-once `world_meta` key. Rule: migration numbers are assigned at merge time; the first batch to merge takes the next free number; drafts must not reserve numbers ([roadmap README numbering rule](README.md#migration-numbering-rule)). | F | None | Nov, first week |
 | 1 | **ADR-029 batch 1, identity.** Audit a representative authorized backup for missing born rows, duplicate names, legacy formats, orphans (readiness record); then `node_aliases` seeded from `world_nodes`, hot `node_path` columns, readers through aliases, the behavioral parity suite. | C; F for the rest of D1, or the early batch-1 ratification at C in the migration-first branch; the consumer inventory | Additive migration only; no new write path; no re-pin | Nov |
 | 2 | **ADR-033 batch 1, the registry with no visible change.** `scale_charters` seeded from the literals; parity test registry ≡ literals; freeze suites prove set-1 births equal generator v2 at depths 6 and 11; `world_meta` pins the charter set version. Serial after batch 1 because both touch `multiverse/store.py` and `world_meta`. | F (D5) | Additive migration; one new write-once `world_meta` key; no re-pin | Nov–Dec |
 | 3 | **ADR-030 batch 1, the render contract and the plate.** `render_keys` in `describe`, `render_assets`, object storage and `/media`, the job queue, the `plate` renderer replacing the synchronous image call, curated plates imported with provenance, dollar budgets per renderer. Absorbs the art-quality gap from the expressive-world checkpoint. | F (D3); D8 for the budget line; an explicit media budget | Additive migration; no chronicle write path; CSP unchanged if same-origin | Dec, in parallel with 4 |
@@ -247,8 +247,10 @@ ADR-030 batches 2–3, ADR-031 batches 2–3, ADR-032 batches 2–3 and ADR-033 
 - **Small denominators.** With 8–12 people, one or two non-returns move the
   return gate by ten points or more. P11 reports counts and unknowns and does
   not recruit selectively to cross a threshold.
-- **The 0028 collision** is trivial to fix and easy to forget; it is order 0 in
-  Part 4 so no two batches are built against the same number.
+- **Migration numbers** are assigned at merge time under the [roadmap README
+  numbering rule](README.md#migration-numbering-rule) (order 0 in Part 4): the
+  first batch to merge takes the next free number, and drafts must not reserve
+  one.
 
 ## How to read this document against the others
 
