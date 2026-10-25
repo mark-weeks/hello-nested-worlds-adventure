@@ -267,7 +267,7 @@ _HELP = f"""
   go <N>  /  <N>        descend into child node N
   up  /  u              return to parent
   map  /  m             show local map (3 levels deep)
-  speak [msg]  /  s     speak to this node via Claude
+  speak [msg]  /  s     speak to this place; it answers in character
   observe  /  o         watch an agent traverse from here
   puzzle  /  p          find and play a puzzle here
   act  /  a             perform this scale's native verb

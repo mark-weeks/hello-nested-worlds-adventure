@@ -4,7 +4,7 @@ import { withKey } from "../auth.js";
 import Interventions from "./Interventions.jsx";
 
 // Node interaction panel: the two core-loop mechanics the /app client was
-// missing — talk to a node (/speak, Claude-voiced) and solve its puzzle
+// missing — talk to a node (/speak) and solve its puzzle
 // (/puzzle + /puzzle/attempt). Kept in its own component so TextPanel stays
 // small; mirrors the request shapes the D3 explorer already uses.
 
