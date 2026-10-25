@@ -164,7 +164,7 @@ def test_choices_teach_attempts_without_forecasting(http):
 
 def test_malformed_requests_are_400_and_world_conflicts_stay_409(http):
     name = NODES['instrument']
-    # Request-shape mistakes are the client's 400 (CLAUDE.md: malformed bodies).
+    # Request-shape mistakes are the client's 400 (AGENTS.md: malformed bodies).
     assert http('/interventions/preview', body={'node': 7, 'steps': [{'op': 'engrave'}]})[0] == 400
     assert http('/interventions/preview', body={'node': name, 'steps': 'engrave'})[0] == 400
     assert http('/interventions/preview', body={'node': name, 'intention': ['engrave']})[0] == 400
