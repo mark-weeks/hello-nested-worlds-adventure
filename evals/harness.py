@@ -320,9 +320,16 @@ class RecordingProvider:
 
 @contextmanager
 def task_routing(provider, model):
+    # Install the candidate id on the shared setting and clear per-task
+    # overrides. An operator shell must not redirect the candidate's call.
+    # Blank values are unset, so the three voice/intention tasks use `model`.
     with patch.object(runtime, "get_provider", return_value=provider), \
          patch.object(runtime, "VOICE_MODEL", model), \
-         patch.dict(os.environ, {"NESTED_WORLDS_MODERATION_MODEL": model,
+         patch.dict(os.environ, {runtime.SHARED_MODEL_ENV: model,
+                                 runtime.NODE_MODEL_ENV: "",
+                                 runtime.INHABITANT_MODEL_ENV: "",
+                                 runtime.INTENT_MODEL_ENV: "",
+                                 runtime.MODERATION_MODEL_ENV: model,
                                  "NESTED_WORLDS_DISABLE_MODERATION": "0",
                                  "NESTED_WORLDS_MODERATION_BLOCK_EXTRA": "",
                                  "NESTED_WORLDS_MODERATION_WATCH_EXTRA": ""}):
