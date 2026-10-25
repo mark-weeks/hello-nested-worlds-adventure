@@ -128,8 +128,12 @@ The current database is **pre-launch**; the never-wipe covenant governs real
 player history from the first real player onward (there is no throwaway
 pre-launch data worth protecting, and no real history yet to lose). Recovery
 from a bad state is **restore from backup, never a clean wipe**
-(`scripts/deploy.sh` backs up before every deploy; the restore path is
-rehearsed, runbook §7).
+(`scripts/deploy.sh` backs up before every deploy). The restore procedure
+(runbook §7) has been rehearsed on local disposable databases: backup, then
+mutate, then restore, and the cold-process rehearsal in
+`tests/test_beta_rehearsal.py`. No Fly restore, and no restore from a
+downloaded hosted artifact, is recorded in this repository; hosted restore
+remains an open launch gate.
 
 ### 4. Write-path scope: record participation broadly
 

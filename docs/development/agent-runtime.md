@@ -7,7 +7,7 @@ and versions are replaceable choices that require evidence.
 
 ## Current implementation and its limits
 
-Text generation currently uses Anthropic. `NESTED_WORLDS_MODEL` selects the model
+Text generation uses the configured provider (currently Anthropic). `NESTED_WORLDS_MODEL` selects the model
 for node voice, inhabitant voice and intention interpretation; its code default
 is `claude-opus-4-8`. `NESTED_WORLDS_MODERATION_MODEL` independently selects the
 classifier, defaulting to `claude-haiku-4-5`. Both use the SDK's resolved
@@ -111,7 +111,7 @@ Unrecognized IDs report unknown eligibility and the estimated smaller prefix
 size. These estimates do not establish actual tokenization, model availability,
 a cache hit or a universal minimum. Keep the warning useful when
 replacing that integration; a provider without explicit cache controls needs its
-own usage evidence, not an Anthropic-shaped request.
+own usage evidence, not a request shaped for the configured provider (currently Anthropic).
 
 Retain useful lore and behavioral guidance. Do not pad prompts merely to cross a
 cache threshold or forbid a worthwhile prompt reduction: compare task quality

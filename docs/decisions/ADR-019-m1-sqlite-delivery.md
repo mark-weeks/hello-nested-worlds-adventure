@@ -1,8 +1,8 @@
 # ADR-019: Atomic SQLite Delivery for M1
 
-**Status:** Proposed for development-team review, 2026-09-08. This is the
-implementation choice in the M1 draft PR; neither this record nor the planning
-merge ratifies ADR-013's broader situation/action contracts.
+**Status:** Proposed for development-team review, 2026-09-08. This records the
+implementation choice that shipped with M1 (PR #94); neither this record nor
+the planning merge ratifies ADR-013's broader situation/action contracts.
 
 ## Context
 
@@ -102,7 +102,7 @@ start only M1-compatible binaries, and verify pending/outcome counts. For binary
 rollback, stop writers and restore the pre-upgrade whole-database backup with
 the matching old binary. New history since that backup would be lost; prefer
 forward repair if play has continued. A v18 backup restores safely to this version.
-No deployment or production restore is authorized by this draft PR.
+No deployment or production restore is authorized by this record.
 
 The guarantee is one committed database application per durable queue ID in
 these tests, not exactly-once HTTP or WebSocket transport. There are no request

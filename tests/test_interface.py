@@ -307,3 +307,21 @@ class TestPassageTags:
         _print_look(root)
         out = capsys.readouterr().out
         assert "danger 9" in out
+
+
+class TestHelp:
+    def test_speak_help_addresses_the_place(self):
+        """Help offers speech to the place, in the world's voice.
+
+        The line the player reads must still name the speak command, and it
+        must not name a model or provider. That choice stays with the operator.
+        """
+        from interface import _HELP
+
+        speak = next(line for line in _HELP.splitlines() if "speak [msg]" in line)
+        assert "speak to this place" in speak
+        assert "in character" in speak
+        assert "/  s" in speak
+        folded = _HELP.casefold()
+        for name in ("claude", "anthropic", "openai", "gemini", "grok"):
+            assert name not in folded

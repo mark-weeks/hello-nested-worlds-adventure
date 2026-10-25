@@ -2,7 +2,7 @@
 
 This guide walks through standing up Enfolded on Fly.io for
 the initial beta. It assumes you have shell access to a clone of this
-repository and an Anthropic key in hand.
+repository and a key for the configured provider (currently Anthropic) in hand.
 
 End state: one VM in one region, one shared canonical world, SQLite on a
 persistent volume, the React frontend baked into the image, Sentry wired in,
@@ -19,7 +19,7 @@ and per-user invite keys distributed to your testers.
   curl -L https://fly.io/install.sh | sh
   fly auth login
   ```
-- An Anthropic API key (`ANTHROPIC_API_KEY`).
+- A key for the configured provider (currently Anthropic): `ANTHROPIC_API_KEY`.
 - Optionally, a fal.ai API key (`FAL_KEY`). Scene imagery is an
   enhancement wash over the built-in deterministic node art — without
   the key, every node still renders its generative art; with it,
@@ -200,9 +200,10 @@ fly secrets set \
 # REQUIRED for any public deployment: close the invite gate. There is no
 # shared key — the gate is the per-user `invite_keys` table and stays OPEN
 # until the first per-user key is minted (§6). An ungated server is an open
-# proxy to your Anthropic budget (the daily caps bound the damage; they
-# don't prevent strangers spending it). Mint the first per-user key in §6
-# BEFORE you announce the URL, and do not share the URL until then.
+# proxy to the configured provider's budget (currently Anthropic). The daily
+# caps bound the damage; they don't prevent strangers spending it. Mint the
+# first per-user key in §6 BEFORE you announce the URL, and do not share the
+# URL until then.
 
 # Deploy. (--first-deploy skips the pre-deploy backup — nothing to back
 # up yet. Every subsequent deploy goes through scripts/deploy.sh plain.)
@@ -615,7 +616,7 @@ The phase-2 scale plan in `docs/roadmap/phase-2-scale.md` names the
 triggers for moving past this single-VM setup. The relevant ones for
 Fly:
 
-- **Anthropic RPM headroom shrinks** → raise
+- **The configured provider's request-rate headroom shrinks (currently Anthropic)** → raise
   `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
   `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`; no infra change needed.
 - **`/image` requests dominate egress** → put Cloudflare in front and
@@ -632,5 +633,6 @@ Fly:
 ## Cost expectation
 
 A `shared-cpu-1x` / 1 GB machine plus a 1 GB volume runs roughly
-$2-5/month at the 20-user beta scale. Anthropic and fal.ai usage are
-separate and bounded by the daily call caps you set in env.
+$2-5/month at the 20-user beta scale. Usage of the configured provider
+(currently Anthropic) and fal.ai is separate and bounded by the daily call
+caps you set in env.
