@@ -75,7 +75,14 @@ def _refuse_saturated(request, client_address) -> None:
         request.sendall(message)
     except OSError:
         pass
-    logging.info("refusing connection from %s: handler threads full", client_address)
+    # /health is not exempt. This runs before the request is read, so a
+    # path exception would have to read first and could be stalled here.
+    # A full cap should fail a health check; the response-write timeout is
+    # what stops a silent reader from making that failure permanent.
+    logging.info(
+        "refusing connection from %s: handler threads full",
+        observability.hash_ip(str(client_address[0])),
+    )
 
 
 class _ThreadedServer(ThreadingMixIn, HTTPServer):

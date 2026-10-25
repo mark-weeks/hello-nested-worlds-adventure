@@ -443,6 +443,14 @@ HTTP_READ_TIMEOUT_ENV = "NESTED_WORLDS_HTTP_READ_TIMEOUT"
 # park a handler thread for the life of the process.
 _DEFAULT_HTTP_READ_TIMEOUT = 30.0
 
+HTTP_WRITE_TIMEOUT_ENV = "NESTED_WORLDS_HTTP_WRITE_TIMEOUT"
+# Seconds one response send may block when the peer stops reading. This is
+# not a budget for the whole response: each send waits at most this long,
+# and a client that keeps accepting bytes continues. 30s matches the read
+# budget — long enough for a congested link or a brief pause, short enough
+# that a silent reader cannot hold a handler slot until restart.
+_DEFAULT_HTTP_WRITE_TIMEOUT = 30.0
+
 MAX_HANDLER_THREADS_ENV = "NESTED_WORLDS_MAX_HANDLER_THREADS"
 # One thread per in-flight HTTP request and per open WebSocket. 160 sits
 # above the WebSocket default (128) and the committed proxy hard limit (150),
@@ -451,23 +459,36 @@ MAX_HANDLER_THREADS_ENV = "NESTED_WORLDS_MAX_HANDLER_THREADS"
 _DEFAULT_MAX_HANDLER_THREADS = 160
 
 
-def http_read_timeout() -> float:
-    """Seconds allowed to read one plain-HTTP request, or the default.
+def _seconds_setting(env_var: str, default: float) -> float:
+    """Positive finite seconds from `env_var`, or `default`.
 
-    Non-positive, non-numeric, and non-finite values fall back to the default.
-    Zero must not mean "wait forever" — that is the hole this setting closes.
-    Read at request time, like the other operational limits.
+    Zero must not mean "wait forever". Read at use time, like the other
+    operational limits.
     """
-    raw = os.environ.get(HTTP_READ_TIMEOUT_ENV, "").strip()
+    raw = os.environ.get(env_var, "").strip()
     if not raw:
-        return _DEFAULT_HTTP_READ_TIMEOUT
+        return default
     try:
         value = float(raw)
     except ValueError:
-        return _DEFAULT_HTTP_READ_TIMEOUT
+        return default
     if not math.isfinite(value) or value <= 0:
-        return _DEFAULT_HTTP_READ_TIMEOUT
+        return default
     return value
+
+
+def http_read_timeout() -> float:
+    """Seconds allowed to read one plain-HTTP request, or the default."""
+    return _seconds_setting(HTTP_READ_TIMEOUT_ENV, _DEFAULT_HTTP_READ_TIMEOUT)
+
+
+def http_write_timeout() -> float:
+    """Seconds one plain-HTTP response send may block, or the default.
+
+    A stall timer on each send, not a deadline for the whole body. The
+    WebSocket upgrade replaces it by calling ``settimeout`` on the socket.
+    """
+    return _seconds_setting(HTTP_WRITE_TIMEOUT_ENV, _DEFAULT_HTTP_WRITE_TIMEOUT)
 
 
 def max_handler_threads() -> int:

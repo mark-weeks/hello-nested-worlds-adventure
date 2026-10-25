@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import socket
 import struct
@@ -19,7 +20,7 @@ import urllib.request
 
 import pytest
 
-from server import _Handler, _ThreadedServer
+from server import _Handler, _ThreadedServer, observability
 from server import guard
 
 
@@ -245,6 +246,113 @@ class TestHandlerCap:
             time.sleep(0.02)
         assert last == 200
 
+    def test_refusal_log_hashes_the_client_address(self, limited, monkeypatch, caplog):
+        monkeypatch.setenv(guard.MAX_HANDLER_THREADS_ENV, "1")
+        status, held, _pending = _upgrade(limited)
+        assert status == 101
+        extra = socket.create_connection(("127.0.0.1", limited), timeout=2)
+        peer_ip, peer_port = extra.getsockname()
+        try:
+            with caplog.at_level(logging.INFO):
+                extra.sendall(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                code, _, _ = _read_http(extra, timeout=2)
+            assert code == 503
+        finally:
+            extra.close()
+            held.close()
+        refusals = [
+            record.getMessage()
+            for record in caplog.records
+            if "handler threads full" in record.getMessage()
+        ]
+        assert refusals
+        expected = (
+            "refusing connection from "
+            f"{observability.hash_ip(peer_ip)}: handler threads full"
+        )
+        for message in refusals:
+            assert message == expected
+            assert peer_ip not in message
+            assert str(peer_port) not in message
+
+    def test_stalled_response_reader_releases_the_slot(self, limited, monkeypatch):
+        monkeypatch.setenv(guard.MAX_HANDLER_THREADS_ENV, "1")
+        monkeypatch.setenv(guard.HTTP_WRITE_TIMEOUT_ENV, "0.5")
+        sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP, 2048)
+        sock.settimeout(2)
+        sock.connect(("127.0.0.1", limited))
+        try:
+            sock.sendall(
+                b"GET /media/places/orchard-v1.png HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+            )
+            saw_503 = False
+            recovered = None
+            started = time.monotonic()
+            while time.monotonic() - started < 3:
+                try:
+                    code = _health(limited)
+                except urllib.error.HTTPError as exc:
+                    code = exc.code
+                if code == 503:
+                    saw_503 = True
+                if code == 200 and saw_503:
+                    recovered = time.monotonic() - started
+                    break
+                time.sleep(0.02)
+            assert saw_503
+            assert recovered is not None and recovered < 2.5
+        finally:
+            sock.close()
+
+    def test_slow_progressing_reader_receives_the_whole_file(self, limited, monkeypatch):
+        # Shorter than the transfer. A whole-body sendall deadline would
+        # close the socket before Content-Length bytes arrive.
+        monkeypatch.setenv(guard.HTTP_WRITE_TIMEOUT_ENV, "0.2")
+        sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_WINDOW_CLAMP, 2048)
+        sock.settimeout(2)
+        sock.connect(("127.0.0.1", limited))
+        try:
+            sock.sendall(
+                b"GET /media/score/pizzicato.mp3 HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+            )
+            data = bytearray()
+            started = time.monotonic()
+            while b"\r\n\r\n" not in data:
+                chunk = sock.recv(256)
+                if not chunk:
+                    break
+                data.extend(chunk)
+            head, _, rest = bytes(data).partition(b"\r\n\r\n")
+            status = int(head.split(b"\r\n", 1)[0].split(b" ", 2)[1])
+            length = 0
+            for line in head.decode("iso-8859-1").split("\r\n")[1:]:
+                if line.lower().startswith("content-length:"):
+                    length = int(line.split(":", 1)[1].strip())
+            body = bytearray(rest)
+            while len(body) < length:
+                chunk = sock.recv(256)
+                if not chunk:
+                    break
+                body.extend(chunk)
+                time.sleep(0.02)
+            elapsed = time.monotonic() - started
+            assert status == 200
+            assert length > 8000
+            assert len(body) == length
+            assert elapsed > 0.2
+        finally:
+            sock.close()
+
 
 class TestWebSocketSurvivesReadBudget:
     def test_session_outruns_the_http_budget_and_answers_pings(self, limited):
@@ -278,6 +386,65 @@ class TestWebSocketSurvivesReadBudget:
 
 
 class TestReadBudgetSocket:
+    def test_websocket_idle_timeout_survives_the_write_timer(self, monkeypatch):
+        from server.handlers import _ReadBudgetSocket
+
+        monkeypatch.setenv(guard.HTTP_WRITE_TIMEOUT_ENV, "0.2")
+        local, peer = socket.socketpair()
+        try:
+            wrapped = _ReadBudgetSocket(local, time.monotonic() + 5)
+            wrapped.settimeout(60)
+            wrapped.sendall(b"abc")
+            assert wrapped.gettimeout() == 60
+            assert peer.recv(3) == b"abc"
+        finally:
+            peer.close()
+            local.close()
+
+    def test_sendall_rearms_while_the_peer_keeps_accepting(self, monkeypatch):
+        from server.handlers import _ReadBudgetSocket
+
+        monkeypatch.setenv(guard.HTTP_WRITE_TIMEOUT_ENV, "0.2")
+
+        class _Chunked:
+            """Accepts one byte per send. Native sendall is the WebSocket path."""
+
+            def __init__(self) -> None:
+                self.timeout = None
+                self.sent = bytearray()
+                self.timeouts: list[float] = []
+                self.native = 0
+
+            def settimeout(self, value) -> None:
+                self.timeout = value
+                if value is not None:
+                    self.timeouts.append(value)
+
+            def gettimeout(self):
+                return self.timeout
+
+            def send(self, data, *args, **kwargs):
+                self.sent.append(memoryview(data)[0])
+                return 1
+
+            def sendall(self, data, *args, **kwargs):
+                self.native += 1
+                self.sent.extend(data)
+
+        inner = _Chunked()
+        wrapped = _ReadBudgetSocket(inner, time.monotonic() + 5)
+        wrapped.sendall(b"abcdef")
+        assert bytes(inner.sent) == b"abcdef"
+        assert inner.native == 0
+        assert inner.timeouts == [0.2, 0.2, 0.2, 0.2, 0.2, 0.2]
+
+        wrapped.settimeout(60)
+        inner.timeouts.clear()
+        wrapped.sendall(b"z")
+        assert bytes(inner.sent) == b"abcdefz"
+        assert inner.native == 1
+        assert inner.timeouts == []
+
     def test_settimeout_clears_an_already_expired_deadline(self):
         from server.handlers import _ReadBudgetSocket
 
@@ -332,6 +499,15 @@ class TestLimitParsing:
         assert guard.http_read_timeout() == 0.25
         monkeypatch.setenv(guard.HTTP_READ_TIMEOUT_ENV, " 15 ")
         assert guard.http_read_timeout() == 15.0
+
+    def test_write_timeout_falls_back_unless_it_is_a_positive_number(self, monkeypatch):
+        monkeypatch.delenv(guard.HTTP_WRITE_TIMEOUT_ENV, raising=False)
+        assert guard.http_write_timeout() == 30.0
+        for raw in ("0", "-1", "nope", "inf", "nan", "  "):
+            monkeypatch.setenv(guard.HTTP_WRITE_TIMEOUT_ENV, raw)
+            assert guard.http_write_timeout() == 30.0
+        monkeypatch.setenv(guard.HTTP_WRITE_TIMEOUT_ENV, "0.4")
+        assert guard.http_write_timeout() == 0.4
 
     def test_thread_cap_falls_back_unless_it_is_a_positive_integer(self, monkeypatch):
         monkeypatch.delenv(guard.MAX_HANDLER_THREADS_ENV, raising=False)

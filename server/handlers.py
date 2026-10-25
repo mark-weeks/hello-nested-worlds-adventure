@@ -222,13 +222,18 @@ _IMAGE_QUIET_LINE = "the light does not gather here today"
 
 
 class _ReadBudgetSocket:
-    """Socket wrapper that bounds plain-HTTP reads and then gets out of the way.
+    """Socket wrapper that bounds plain-HTTP reads and response writes.
 
-    The deadline is the connection-accept instant plus the configured budget.
-    Each read waits only for the time still left, so a client that dribbles
-    one byte at a time cannot reset the clock. ``settimeout`` — called once
-    the WebSocket upgrade has been written — clears that deadline and installs
-    the idle timeout the session already uses.
+    The read deadline is the connection-accept instant plus the configured
+    budget. Each read waits only for the time still left, so a client that
+    dribbles one byte at a time cannot reset the clock. Response writes use
+    a separate stall timer: one blocked send is bounded, and a client that
+    keeps accepting bytes is not cut off for taking a long time overall.
+    ``sendall`` re-arms that timer after every accepted chunk, because the
+    stdlib applies one timeout to the whole ``sendall`` and a static file
+    is written in a single call. ``settimeout`` — called once the WebSocket
+    upgrade has been written — clears both and installs the idle timeout
+    the session already uses.
     """
 
     def __init__(self, sock, deadline: float) -> None:
@@ -268,8 +273,41 @@ class _ReadBudgetSocket:
             return method(*args, **kwargs)
         finally:
             if self._deadline is not None:
-                # Response writes must not inherit a shrinking read budget.
-                self._sock.settimeout(None)
+                # Leave the write stall timer armed. None would let a client
+                # that stops reading hold this handler thread indefinitely.
+                self._sock.settimeout(guard.http_write_timeout())
+
+    def _prepare_write(self) -> None:
+        if self._deadline is None:
+            # The WebSocket idle timeout is already installed. Do not
+            # replace it with the plain-HTTP write timer.
+            return
+        self._sock.settimeout(guard.http_write_timeout())
+
+    def send(self, *args, **kwargs):
+        self._prepare_write()
+        return self._sock.send(*args, **kwargs)
+
+    def sendall(self, data, *args, **kwargs):
+        if self._deadline is None:
+            # Idle timeout already installed. One native sendall keeps that
+            # timer, including its meaning for a WebSocket frame.
+            return self._sock.sendall(data, *args, **kwargs)
+        # CPython's socket.sendall applies the timeout to the whole call
+        # (3.5+). A scene image is one wfile.write, so that would cut off a
+        # slow reader who is still accepting bytes. Re-arm before each send:
+        # progress resets the stall timer, and a full window that stays full
+        # still expires it.
+        view = memoryview(data)
+        try:
+            while len(view):
+                self._sock.settimeout(guard.http_write_timeout())
+                sent = self._sock.send(view, *args, **kwargs)
+                if sent <= 0:
+                    raise TimeoutError("HTTP response write made no progress")
+                view = view[sent:]
+        finally:
+            view.release()
 
     def recv(self, *args, **kwargs):
         return self._read(self._sock.recv, *args, **kwargs)
@@ -559,13 +597,23 @@ class Handler(BaseHTTPRequestHandler):
             # The peer that stalled may already be gone.
             pass
 
+    def _on_timeout(self) -> None:
+        if getattr(self, "_status", 0):
+            # Headers are already on the wire. Another status would be a
+            # second message, and writing it can block again on a client
+            # that is not reading. Drop the socket and free the thread.
+            self.close_connection = True
+            _log.info("HTTP response write timed out")
+            return
+        self._read_timed_out()
+
     def do_GET(self):
         import time
         self._started = time.monotonic()
         try:
             self._dispatch_get()
         except TimeoutError:
-            self._read_timed_out()
+            self._on_timeout()
         except Exception as exc:
             self._fail_dispatch(exc)
         finally:
@@ -882,7 +930,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self._dispatch_post()
         except TimeoutError:
-            self._read_timed_out()
+            self._on_timeout()
         except Exception as exc:
             self._fail_dispatch(exc)
         finally:
