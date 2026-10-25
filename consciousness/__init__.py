@@ -8,7 +8,6 @@ advisory and actual cache use requires provider usage evidence.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from multiverse.node import SpatialNode
@@ -650,16 +649,64 @@ def _estimate_tokens(text: str) -> int:
     return int(len(text) / _CHARS_PER_TOKEN_EST)
 
 
+def _voice_models() -> tuple[str, str]:
+    return (runtime.model_for(runtime.NODE_TASK),
+            runtime.model_for(runtime.INHABITANT_TASK))
+
+
 def cached_prefix_meets_minimum(min_tokens: int | None = None) -> bool:
     """Whether both bibles clear a supplied or adapter reference threshold.
 
     Unknown model/cache metadata cannot establish eligibility, so returns False.
+    With no explicit threshold, the node-voice model is applied to the world
+    bible and the inhabitant-voice model to the agent bible.
     """
-    if min_tokens is None:
-        min_tokens = runtime.get_provider().cache_reference_tokens(runtime.VOICE_MODEL)
-    return (min_tokens is not None
-            and _estimate_tokens(_WORLD_BIBLE) >= min_tokens
-            and _estimate_tokens(_AGENT_BIBLE) >= min_tokens)
+    if min_tokens is not None:
+        return (_estimate_tokens(_WORLD_BIBLE) >= min_tokens
+                and _estimate_tokens(_AGENT_BIBLE) >= min_tokens)
+    provider = runtime.get_provider()
+    node_model, inhabitant_model = _voice_models()
+    node_min = provider.cache_reference_tokens(node_model)
+    inhabitant_min = provider.cache_reference_tokens(inhabitant_model)
+    if node_min is None or inhabitant_min is None:
+        return False
+    return (_estimate_tokens(_WORLD_BIBLE) >= node_min
+            and _estimate_tokens(_AGENT_BIBLE) >= inhabitant_min)
+
+
+def _warn_shared_cache(provider, model: str) -> None:
+    minimum = provider.cache_reference_tokens(model)
+    est = min(_estimate_tokens(_WORLD_BIBLE), _estimate_tokens(_AGENT_BIBLE))
+    if minimum is None:
+        _log.warning(
+            "prompt cache eligibility UNKNOWN for provider=%s model=%r; "
+            "smaller cached prefix ~%d tokens, threshold unknown; "
+            "verify provider capabilities and actual usage before assuming savings",
+            provider.name, model, est,
+        )
+    elif est < minimum:
+        _log.warning(
+            "prompt cache likely INACTIVE: cached prefix ~%d tokens < %d reference "
+            "for provider=%s model=%r; verify token counts and actual usage",
+            est, minimum, provider.name, model,
+        )
+
+
+def _warn_task_cache(provider, model: str, est: int, task: str) -> None:
+    minimum = provider.cache_reference_tokens(model)
+    if minimum is None:
+        _log.warning(
+            "prompt cache eligibility UNKNOWN for provider=%s model=%r task=%s; "
+            "cached prefix ~%d tokens, threshold unknown; "
+            "verify provider capabilities and actual usage before assuming savings",
+            provider.name, model, task, est,
+        )
+    elif est < minimum:
+        _log.warning(
+            "prompt cache likely INACTIVE: cached prefix ~%d tokens < %d reference "
+            "for provider=%s model=%r task=%s; verify token counts and actual usage",
+            est, minimum, provider.name, model, task,
+        )
 
 
 def _warn_if_cache_ineffective() -> None:
@@ -669,21 +716,14 @@ def _warn_if_cache_ineffective() -> None:
         return
     _cache_warned = True
     provider = runtime.get_provider()
-    minimum = provider.cache_reference_tokens(runtime.VOICE_MODEL)
-    est = min(_estimate_tokens(_WORLD_BIBLE), _estimate_tokens(_AGENT_BIBLE))
-    if minimum is None:
-        _log.warning(
-            "prompt cache eligibility UNKNOWN for provider=%s model=%r; "
-            "smaller cached prefix ~%d tokens, threshold unknown; "
-            "verify provider capabilities and actual usage before assuming savings",
-            provider.name, runtime.VOICE_MODEL, est,
-        )
-    elif not cached_prefix_meets_minimum(minimum):
-        _log.warning(
-            "prompt cache likely INACTIVE: cached prefix ~%d tokens < %d reference "
-            "for provider=%s model=%r; verify token counts and actual usage",
-            est, minimum, provider.name, runtime.VOICE_MODEL,
-        )
+    node_model, inhabitant_model = _voice_models()
+    if node_model == inhabitant_model:
+        _warn_shared_cache(provider, node_model)
+        return
+    _warn_task_cache(provider, node_model, _estimate_tokens(_WORLD_BIBLE), "node voice")
+    _warn_task_cache(
+        provider, inhabitant_model, _estimate_tokens(_AGENT_BIBLE), "inhabitant voice",
+    )
 
 
 # Public name for the server's startup hook.
@@ -1010,7 +1050,7 @@ def speak(node: SpatialNode, message: str,
     messages.append({"role": "user", "content": message})
 
     response = runtime.generate(
-        endpoint="speak", model=runtime.VOICE_MODEL, max_tokens=256,
+        endpoint="speak", model=runtime.model_for(runtime.NODE_TASK), max_tokens=256,
         system=system_blocks, messages=messages,
     )
     return response.require_text()
@@ -1104,7 +1144,8 @@ def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
     )
 
     response = runtime.generate(
-        endpoint="voice_agent", model=runtime.VOICE_MODEL, max_tokens=200,
+        endpoint="voice_agent", model=runtime.model_for(runtime.INHABITANT_TASK),
+        max_tokens=200,
         system=(SystemBlock(_AGENT_BIBLE, cacheable=True), SystemBlock(agent_context)),
         messages=[{"role": "user", "content": message}],
     )
@@ -1118,7 +1159,6 @@ def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
 # fail-open (allow; redaction is the backstop), so this function raises
 # naturally rather than swallowing errors.
 
-_MODERATION_MODEL_ENV = "NESTED_WORLDS_MODERATION_MODEL"
 # A moderation verdict must not stall a real-time chat surface: bound the
 # call hard, and let the timeout surface as an exception → fail-open.
 _MODERATION_TIMEOUT_SECONDS = 3.0
@@ -1146,7 +1186,7 @@ def classify_content(text: str) -> bool:
     started = _time.monotonic()
     response = runtime.generate(
         endpoint="moderate",
-        model=os.environ.get(_MODERATION_MODEL_ENV, runtime.DEFAULT_MODERATION_MODEL),
+        model=runtime.model_for(runtime.MODERATION_TASK),
         max_tokens=8, system=(SystemBlock(_MODERATION_SYSTEM),),
         messages=[{"role": "user", "content": text}],
         timeout=_MODERATION_TIMEOUT_SECONDS,
