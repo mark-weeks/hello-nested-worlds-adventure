@@ -5,6 +5,9 @@ instructions. They are not the runtime-agent corpus in `evals/`, and they do not
 measure implementation quality or productivity. Run the same prompt on each
 coding agent; record its version/model and available tools. Do not include the
 expected outcomes below in the agent's prompt or permit it to read this file.
+This file is evaluator material, not agent guidance. Check the complete tool trace
+for reads of this file or any answer-bearing evaluation record. Invalidate a trial
+that reads them; an incomplete trace cannot establish an uncontaminated pass.
 
 ## Prompt
 

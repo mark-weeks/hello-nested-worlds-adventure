@@ -49,7 +49,7 @@ measured-cost claim is made. Account settings and credentials were not changed.
 
 ## Behavioral method and observations
 
-The reusable [scenario prompt and evaluator criteria](agent-instruction-scenarios.md)
+The reusable [scenario prompt and evaluator criteria](../development/agent-instruction-scenarios.md)
 cover documentation-only PR preparation, duplicate UI/palette proposals, proposed
 image-service status, accidental birth changes, explicitly approved re-pinning,
 and unrelated advice. The prompt omits expected answers and forbids reading
@@ -86,18 +86,62 @@ Neither blocked run is scored as a pass or as a wrong scenario answer.
 - All three source skills are byte-identical to migration commit `3a657b9`.
   Each relative alias resolves to its matching source inside this checkout;
   the skill-creator frontmatter validator passes for all three aliases.
-- All 90 checked local Markdown targets/anchors resolve; active versus historical
+- Checked local Markdown targets/anchors resolve; active versus historical
   `CLAUDE.md` references were reviewed. The 17,966-byte contract remains below
   Codex's documented default 32 KiB instruction limit.
-- All 55 runtime evaluation cases are unchanged; only their source filename
-  changed. The comment-only test edit leaves its Python syntax tree unchanged.
-- All 473 previously tracked files outside the change allowlist are byte-identical
+- The entire runtime evaluation corpus, including its historical source label,
+  is byte-identical to the base. Its digest remains
+  `5b88b98630f33e7a24cc53312763dc2a6277e1f47f6ab8f27e91311bed4b3202`.
+  The comment-only test edit leaves its Python syntax tree unchanged.
+- Previously tracked files outside the change allowlist are byte-identical
   to the base, including application code, design documents, hooks/settings,
   dependencies, setup/check scripts, CI, and ADRs. `git diff --check` passes.
-- No application suite or canonical `./scripts/check.sh` was run locally for
-  this instruction/documentation batch. Hosted CI passed on migration commit
-  `3a657b9`; the PR checks must be read at the current head after this follow-up.
-  The canonical gate remains required before proposing merge.
+- Hosted Python, frontend, browser, and Copilot-review checks passed on `f2de204`.
+  The review follow-up runs focused instruction-configuration and evaluation
+  harness tests locally; it does not claim a local full application suite or
+  canonical `./scripts/check.sh` run. The canonical gate remains required before
+  proposing merge; inspect hosted checks at the current PR head.
+
+## Review follow-up
+
+The corpus metadata concern was confirmed against `evals.harness.digest`,
+`review_packet`, and `compare`: even a source-label change affects the digest
+used to match historical runs. The first migration changed it from `5b88b986…`
+to `22a9447a…` without changing cases or version. The corpus is restored
+byte-for-byte; its old `CLAUDE.md` label is historical provenance. Changing the digest algorithm
+or versioning policy is separate evaluation-tooling work. A fixture run using
+the base corpus reproduced both pre-fix errors: `review corpus differs from the
+run` and `comparison mismatch: corpus_sha256`. Its review packet and a paired
+fixture comparison both succeeded with the restored corpus. No externally stored
+provider runs were modified or inspected.
+
+The existing Codex trace was checked again: it reads only the three skill bodies
+and the three design documents, never the answer key or dated evaluations.
+The reusable scenario guide now lives under `docs/development/` and explicitly
+invalidates a trial if its trace shows answer-key/evaluation reads. A readable
+answer key is not a security boundary; traces are required evidence here.
+
+All six vendor-reference pages and linked section anchors were checked again.
+GitHub documents import expansion and identical-instruction deduplication; the
+inventory alone cannot prove double-loading. The expanded Copilot inference
+payload remains unverified after the earlier account-policy denial. No fresh
+Claude or Copilot inference was attempted in this review follow-up; no changed
+authentication or policy condition was established.
+
+`tests/test_agent_instructions.py` adds guards for the exact Claude import,
+complete matching relative skill aliases, and frontmatter identity/description.
+They run in existing pytest CI and the canonical script, without new dependencies.
+Local Python 3.11 verification passed all 81 focused cases: 78 evaluation-harness
+tests and 3 instruction-configuration tests; Ruff passed on the new test module.
+An isolated clean configuration passed, while seven deliberately malformed
+configurations failed the intended guards: import drift, a plain-text alias, a
+dangling target, a wrong target, a missing alias, an extra copy, and a mismatched
+frontmatter name. These checks do not verify model adherence.
+The changelog stays under Fixed because this corrects instruction discovery; its
+entry now links to this evidence instead of repeating the full verification table.
+The cited ADR-004/005/006 filename references describe historical practices and
+changes, so they remain historical. Their old provider claims are not current
+endorsements under the preserved provider-optionality contract.
 
 ## Remaining limits
 
@@ -106,7 +150,8 @@ Neither blocked run is scored as a pass or as a wrong scenario answer.
   change. Do not work around the policy denial or report startup registration as
   a successful model decision.
 - Claude discovery was checked at root only. Copilot IDE, desktop-app, cloud-agent,
-  and code-review behavior was not exercised. The setup guide lists the surfaces
+  and code-review surfaces did not run the controlled scenarios. The successful
+  Copilot PR review on `f2de204` does not expose its instruction-loading trace. The setup guide lists the surfaces
   whose instruction support differs; no Copilot-specific instruction copy is added.
 - Symlink discovery was verified on macOS. Windows checkouts that materialize
   symlinks as text cannot use the Codex aliases. Windows and Linux native skill
@@ -114,9 +159,11 @@ Neither blocked run is scored as a pass or as a wrong scenario answer.
 - The scenario results are one Codex trial per case, with a separate non-trigger
   trial. They do not establish latency, cost, implementation-quality improvements,
   long-session adherence, or cross-agent performance equivalence. No productivity
-  benchmark or automatic instruction-validation CI gate is claimed.
+  benchmark is claimed. Structural instruction checks now run in existing Python
+  CI; they do not establish native loading or model behavior.
 
 **Irreversibility check:** none — no database migration, golden re-pin, generator
 change, chronicle write path, world-meta pin, or era-bank edit. This diff changes
 instruction placement/discovery, references, design routing, verification docs,
-corpus source metadata, and a test comment only.
+configuration regression checks, and a test comment only. The runtime evaluation
+corpus is unchanged from the base.

@@ -75,9 +75,8 @@ Enfolded has a permanent shared history. Stored birth identities stay fixed,
 history is append-only, and migrations are additive. Puzzles must remain
 solvable and keep their answers secret; ambient agents cannot claim human
 progress. Read the relevant rules in [AGENTS.md](AGENTS.md), the shared
-engineering contract for human and agent work. [CLAUDE.md](CLAUDE.md) imports
-that contract for compatibility. Follow only supporting procedures relevant
-to your change.
+engineering contract for human and agent work. Follow only supporting procedures
+relevant to your change.
 
 ## Submit a focused PR
 
