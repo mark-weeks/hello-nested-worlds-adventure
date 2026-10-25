@@ -39,10 +39,17 @@ Interaction is multi-modal: natural language for depth, visual navigation for mo
 
 ## Where things stand
 
-*Verified against `main` at #109, 2026-10-03.* Nothing is deployed and the
+*Verified against `main` at #115 (`9f4df1c`), 2026-10-25.* Nothing is deployed and the
 chronicle is empty; two QA prereleases (`v0.1.1-qa.1`, `v0.1.1-qa.2`) were cut
 on 2026-08-31 for local QA. Everything in the matrix below is merged on `main`,
-not deployed. The [roadmap index](docs/roadmap/README.md) says which plans and
+not deployed. Since the #109 readiness record: shipped plans were archived and
+the roadmap index added (#110); the Q4 next-steps plan was written (#111);
+provider and model choice became task-specific and replaceable
+([ADR-034](docs/decisions/ADR-034-provider-and-model-optionality.md), #112), with
+a synthetic evaluation harness and no live-model ranking (#113); moderation
+escalates person-directed harm and sexual-content cues (#114); and agent
+instructions are shared across coding agents (#115). The
+[roadmap index](docs/roadmap/README.md) says which plans and
 decisions govern now; the [2026-10-03 assessment](docs/evaluation/2026-10-03-ambition-and-boundaries.md)
 puts a decision agenda to the owner, with [ADR-029](docs/decisions/ADR-029-evolution-grammar.md)
 through [ADR-033](docs/decisions/ADR-033-scale-registry.md) drafted as Proposed,
