@@ -13,3 +13,15 @@ CREATE TABLE IF NOT EXISTS mutation_model_provenance (
     provider       TEXT,
     resolved_model TEXT
 );
+
+-- Foreign keys are off in this process, so ON DELETE CASCADE would not run.
+-- This trigger does. Break-glass hard delete is not an application command;
+-- any DELETE of a chronicle row, including a future operator erasure and the
+-- double-gated prune, must not leave the call result behind. Prune also
+-- deletes these rows itself; deleting none is fine.
+CREATE TRIGGER IF NOT EXISTS mutation_model_provenance_delete
+AFTER DELETE ON world_mutations
+FOR EACH ROW
+BEGIN
+    DELETE FROM mutation_model_provenance WHERE mutation_id = OLD.id;
+END;

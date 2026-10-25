@@ -7,24 +7,37 @@ and versions are replaceable choices that require evidence.
 
 ## Current implementation and its limits
 
-Text generation uses the configured provider (currently Anthropic). `NESTED_WORLDS_MODEL` selects the model
-for node voice, inhabitant voice and intention interpretation; its code default
-is `claude-opus-4-8`. `NESTED_WORLDS_MODERATION_MODEL` independently selects the
-classifier, defaulting to `claude-haiku-4-5`. Both use the SDK's resolved
-credentials: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` (bearer token), or its
-local profile/federation credential provider. The availability check uses the
-same SDK client as generation; it checks configuration without making a model
-request, not credential validity. This behavior is verified against the
-[pinned SDK source](https://github.com/anthropics/anthropic-sdk-python/blob/v0.120.2/src/anthropic/_client.py).
-These identifiers describe configuration, not a verified recommendation or a
+Text generation uses the configured provider (currently Anthropic). Each text
+task resolves its own model id through `consciousness.runtime.model_for(task)`.
+Call sites pass a task name; they do not read environment variables.
+
+| Task name | Setting | When unset or blank |
+|---|---|---|
+| `node` (node voice) | `NESTED_WORLDS_NODE_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
+| `inhabitant` (inhabitant voice) | `NESTED_WORLDS_INHABITANT_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
+| `intent` (intention interpretation) | `NESTED_WORLDS_INTENT_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
+| `moderation` | `NESTED_WORLDS_MODERATION_MODEL` | `claude-haiku-4-5` |
+
+Whitespace-only values are unset. Moderation does not inherit the shared voice
+model. With no per-task settings, node voice, inhabitant voice, and intention
+keep using `NESTED_WORLDS_MODEL`, so an existing deployment does not change.
+The code defaults above are configuration, not a verified recommendation or a
 guarantee of availability. Confirm the effective environment before a live run.
 
-Changing a model ID does not switch providers. Credentials, SDK calls, structured
-output and cache controls must match the implemented adapter. Provider-named
-budget settings and persisted buckets are current compatibility details; do not
-rename/reset them to make the interface look neutral or let a provider switch
-replenish a user's allowance. Daily call caps are not dollar caps, and identical
-call counts do not imply identical spend.
+The current adapter uses the SDK's resolved credentials: `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN` (bearer token), or its local profile/federation
+credential provider. The availability check uses the same SDK client as
+generation; it checks configuration without making a model request, not
+credential validity. This behavior is verified against the
+[pinned SDK source](https://github.com/anthropics/anthropic-sdk-python/blob/v0.120.2/src/anthropic/_client.py).
+
+A model id does not switch providers. Credentials, SDK calls, structured
+output and cache controls must match the implemented adapter. A failed call
+stays on the id that was requested: nothing retries a different model or
+provider. Provider-named budget settings and persisted buckets are current
+compatibility details; do not rename/reset them to make the interface look
+neutral or let a provider switch replenish a user's allowance. Daily call caps
+are not dollar caps, and identical call counts do not imply identical spend.
 
 The optional image path has a separate fal.ai integration. Future image or speech
 adapters follow the same selection principle, with their own capability and data
@@ -70,18 +83,23 @@ change and a deployment remain separate actions under the existing project gates
 ## Integration boundary
 
 `consciousness/runtime.py` defines `TextProvider`, `SystemBlock`, `Completion`
-and `TokenUsage`, shares the concurrency limit and logs provider/model usage.
-`consciousness/anthropic_provider.py` implements the sole current adapter. All four
-tasks use the boundary; the node voice, inhabitant voice and intention endpoints
-ask the selected adapter whether it is configured before charging their existing
-voice budgets. Missing credentials serve authored fallbacks without a voice call,
-budget charge or speech chronicle row. A model-written chronicle row records
-the provider name and resolved model id from that call's Completion, in
-`mutation_model_provenance`. Historical rows are not backfilled. Authored
-fallback text records none. Player history, the chronicle page and node
-voices do not read the side table. Adding another provider still requires an
-adapter and explicit selection wiring in `get_provider()`; there is no multi-provider environment
-selector or automatic failover in this batch.
+and `TokenUsage`, resolves per-task model ids in `model_for`, shares the
+concurrency limit and logs provider/model usage. `consciousness/anthropic_provider.py`
+implements the sole current adapter. All four tasks use the boundary; the node
+voice, inhabitant voice and intention endpoints ask the selected adapter whether
+it is configured before charging their existing voice budgets. Missing
+credentials serve authored fallbacks without a voice call, budget charge or
+speech chronicle row. A model-written chronicle row records the provider name
+and the resolved model id from that call's Completion, in
+`mutation_model_provenance`. The call was made with `model_for(task)`; the
+stored id is the one the provider returned for that call, not a later read of
+the setting, and a missing response id stays unknown. Historical rows are not
+backfilled. Authored fallback text records none. Player history, the chronicle
+page and node voices do not read the side table. Deleting a chronicle row
+deletes its provenance row with it. Adding another provider still requires an
+adapter and explicit selection wiring in `get_provider()`; there is no
+multi-provider environment selector or automatic failover. Per-task model
+settings are not that selector.
 
 
 Keep task prompts, transcripts and deterministic validation in application code.
@@ -106,7 +124,10 @@ never be the bottleneck. Compare representative voices when evaluating a model c
 When changing models or cache structure, verify the selected provider/model's
 current cache semantics and minimum against official documentation. The existing
 `cached_prefix_meets_minimum()` and startup `warn_if_cache_ineffective()` guard
-use a rough character-based estimate and adapter-owned reference metadata
+use a rough character-based estimate and adapter-owned reference metadata for
+the resolved node-voice and inhabitant-voice models (the requests that send
+the cached bibles). When those ids match, the advisory is the same single
+comparison as before
 ([Claude API reference verified 2026-10-05](https://platform.claude.com/docs/en/build-with-claude/prompt-caching#cache-limitations):
 Opus 4.5/4.6 and Haiku 4.5: 4096 tokens; Opus 4.7: 2048;
 Opus 4.8 and Sonnet 4.5/4.6: 1024). The adapter recognizes those exact versions

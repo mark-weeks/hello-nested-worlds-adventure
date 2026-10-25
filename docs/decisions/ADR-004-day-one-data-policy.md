@@ -7,7 +7,18 @@ operator rotation. The existing actor hashes remain frozen historical facts.
 Independently minted accounts are not merged by matching names. The earlier
 “new key = new actor” limitation describes the pre-rotation implementation.
 
-**Status:** Accepted 2026-07-12
+**2026-10-25 moderation amendment:** Approved by the owner, Mark Weeks, in
+chat on 2026-10-25. This amends §2. Text other players can see fails closed
+when moderation cannot complete. Private or solo-only text and mechanical
+gameplay stay fail-open. Classification is a task any configured provider may
+perform ([ADR-034](ADR-034-provider-and-model-optionality.md)); no provider
+is named as the policy. §1 (redaction and break-glass hard delete), the
+never-wipe rule, the hosted-restore wording, and the budget bucket names are
+unchanged. One sentence in §3 states when the never-wipe covenant starts.
+The running screen still implements the earlier fail-open behavior; this
+amendment does not change code.
+
+**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat.
 
 ---
 
@@ -60,12 +71,17 @@ ahead of the "what if."
 cost is precisely the loss of mechanical integrity and accountability that
 content-level redaction avoids.
 
-### 2. Input moderation *(implemented; expanded routing needs live cost evidence)*
+### 2. Input moderation *(amended 2026-10-25; the running screen still fail-opens)*
 
-Player text is screened *before* it enters the chronicle (`/speak`,
-`/agent/voice`, WS chat) and before a name enters the registry
-(`/register`, `invite mint`, `play --name`). Two tiers, cheapest first
-(`server/moderation.py`):
+Player-authored text is screened before it becomes visible to other players.
+The screen that shipped covers `/speak`, `/agent/voice`, and WebSocket chat
+before a chronicle row, a name before the registry (`/register`, `invite mint`,
+`play --name`), and a profile bio and goals when `published` is set
+(`server/participant_api.py`). Ideas are shared text on a different path:
+`persistence/ideas.py` applies the local tier only, publishes a submission
+that is not a local block, and does not call the classifier. Private notes
+(`/journal/note`) are not screened and do not enter the chronicle. Two tiers,
+cheapest first (`server/moderation.py`, `content_screen.py`):
 
 - **Local filter** — in-process. Only the unambiguous word-boundary
   blocklist can block on its own; watch words/phrases (including sexual-content
@@ -80,39 +96,87 @@ Player text is screened *before* it enters the chronicle (`/speak`,
   pronouns across a message: "Can you kill the dragon for me?" stays clean,
   while "I will kill the real person using this account" escalates. Quoted
   threats, reports and educational sexual-content language can still escalate.
-- **Haiku classify** — ambiguous inputs make one short uncached call
-  (`consciousness.classify_content`, `claude-haiku-4-5`, ~166-token system
-  prompt, `max_tokens=8`, hard 3 s timeout). Measured by arithmetic:
-  **~$0.0003–0.0005 per escalated input**; its **own budget line**
-  (`NESTED_WORLDS_MODERATION_DAILY_CALLS`, default 2000 → worst case
-  <$1/day) so a burst of screened chat can never drain the voice budget.
-  The prompt is deliberately **not** cache-marked — it sits far below the
-  4096-token cache minimum, where a marker is a silent no-op (the trap this
-  repo has hit twice).
+  Registered names use this local tier only, and evasion sequences hard-block
+  there (`name_allowed`) because a short name has no prose context.
+- **Configured classifier** — ambiguous inputs may make one short
+  classification call. Moderation is a task any configured provider may
+  perform ([ADR-034](ADR-034-provider-and-model-optionality.md)). No
+  provider, model, or vendor is the policy. The call is charged to
+  moderation's own budget line (`NESTED_WORLDS_MODERATION_DAILY_CALLS`,
+  bucket `moderation`, default 2000) so screened chat cannot drain the
+  voice budget. Bucket names stay as they are. Prompt caching is not part
+  of this policy. The shipped call's model id, prompt size, token cap,
+  timeout, and arithmetic cost are implementation facts in
+  `consciousness.classify_content` and the
+  [routing evaluation](../evaluation/2026-10-10-moderation-routing.md), not
+  requirements on the next provider.
 
 False escalations are a budget and latency cost even when the classifier says
-ALLOW: the handler waits inline (up to the existing timeout), and classification
-shares model-call concurrency with voice work. When the moderation cap is spent,
-later ambiguous inputs fail open. Six authored gameplay controls now use zero
+ALLOW: the handler waits inline, and classification shares model-call
+concurrency with voice work. Six authored gameplay controls now use zero
 calls, compared with six calls under the first whole-message co-occurrence rule.
 That is a regression measurement, **not an expected live escalation rate**:
 representative traffic, latency, classifier quality and cost remain unmeasured.
 The vocabulary/intent shapes are bounded English heuristics, not comprehensive
-semantic detection. See the [routing evaluation](../evaluation/2026-10-10-moderation-routing.md)
-for the tested cases and limitations. This correction retains the existing
-budget, timeout, disable switch and fail-open policy.
+semantic detection. See the routing evaluation for the tested cases and
+limitations. The shared budget setting, the disable switch
+(`NESTED_WORLDS_DISABLE_MODERATION=1`), and the hot-tunable block and watch
+lists (`NESTED_WORLDS_MODERATION_{BLOCK,WATCH}_EXTRA`) remain. The failure
+rule below replaces "Fail-open everywhere" for shared text.
 
-**Fail-open everywhere**: classify error, timeout, exhausted moderation
-budget, or the kill switch (`NESTED_WORLDS_DISABLE_MODERATION=1`) all
-ALLOW — redaction stays the backstop, and a safety feature must never be
-what breaks chat. A decline is HTTP 200 in the world's voice ("The worlds
-decline to carry those words. Say it another way."), leaves **no trace** —
-no chronicle row, no broadcast (WS senders get a private `chat_declined`),
-no voice-budget charge — and blocklists are hot-tunable via env
-(`NESTED_WORLDS_MODERATION_{BLOCK,WATCH}_EXTRA`). The CLI's own speak path
-is deliberately unscreened: the local terminal is the operator themselves.
-Real production latency/cost is visible from day one via the structured
-`moderation_call` log line.
+**Shared text fails closed** (amendment 2026-10-25, approved by the owner,
+Mark Weeks, in chat). This replaces the 2026-07-12 rule that a classify
+error, a timeout, an exhausted moderation budget, or disabled moderation
+allowed the text everywhere. For player-authored text that becomes visible
+to other players — messages, replies, ideas, and anything written into the
+shared world or chronicle — each of these fails closed:
+
+- a moderation timeout
+- a provider outage
+- disabled moderation
+- an exhausted moderation budget
+
+The text is held or declined. It is not written where others can see it: no
+chronicle row, no broadcast, no visible idea, and no published profile. On
+the world's surfaces the author gets a clear in-fiction message, HTTP 200,
+in the same pattern as today's content decline ("The worlds decline to carry
+those words. Say it another way.") and the quiet budget line. The
+implementation authors the hold line; this amendment does not invent it. A
+content decline still leaves no trace and does not charge the voice budget.
+WebSocket senders keep a private decline. The Ideas board stays a
+non-fictional community surface: a hold or decline there is clear product
+language, and the text is still not published. A name the screen does not
+accept is not registered; registration keeps a clear "choose another" refusal.
+The author's own session degrades gracefully. Movement, puzzles, private
+notes, and other play that does not publish the held text continue.
+
+**Private or solo-only text and mechanical gameplay stay fail-open.** A
+private note, unpublished profile text, and other writing only the author
+can read are not held because the classifier is down. Movement, puzzle
+attempts, and scale actions continue when moderation cannot complete. A
+safety check must not become the thing that stops the game. The local CLI
+`speak` path is unscreened in the current program because that terminal is
+the operator. That is not an exception for text other players will read: if
+that path writes into a shared world, the shared-text rule applies.
+
+**Per-user caps.** One user must not be able to exhaust the shared moderation
+budget or flood the classifier, and the same kind of cap applies to
+model-calling actions. The caps are configuration. This amendment sets no
+numbers; they are to be measured, and the implementation PR records the
+values it chooses. `guard.consume_moderation` currently has no per-user
+sub-cap. Existing model-call sub-caps and their bucket names are unchanged
+by this record.
+
+**Backstop, unchanged.** Content-level redaction (§1) and the narrow
+break-glass hard delete remain the way something that still lands is removed.
+This amendment adds no chronicle mechanism.
+
+The code on this date still fail-opens. `server/moderation.py` allows the
+text when moderation is disabled, when `guard.consume_moderation` returns
+false, and when classification raises. `name_allowed` allows every name when
+moderation is disabled. Ideas do not consult the disable switch, the
+classifier, or the moderation budget. Closing that gap is the implementation
+PR. `moderation_call` remains the structured log for latency and cost.
 
 ### 3. Continuity: never wipe; the covenant is already in force
 
@@ -126,8 +190,10 @@ Continuity is a **player-trust commitment**, not just an ops convenience.
 
 The current database is **pre-launch**; the never-wipe covenant governs real
 player history from the first real player onward (there is no throwaway
-pre-launch data worth protecting, and no real history yet to lose). Recovery
-from a bad state is **restore from backup, never a clean wipe**
+pre-launch data worth protecting, and no real history yet to lose). The first
+invited outside player starts the never-wipe covenant, and a world meant to be
+disposable must be declared so and run on staging (2026-10-25 amendment).
+Recovery from a bad state is **restore from backup, never a clean wipe**
 (`scripts/deploy.sh` backs up before every deploy). The restore procedure
 (runbook §7) has been rehearsed on local disposable databases: backup, then
 mutate, then restore, and the cold-process rehearsal in
@@ -225,16 +291,42 @@ the shared key entirely:
 - **Not truncating storage** means larger `data` blobs — bounded by the input
   caps (`message[:1024]`, chat `[:256]`) and the reply's `max_tokens`, so
   acceptable.
-- **Fail-open moderation** means determined abuse can still land (an API
-  outage, an exhausted budget, or a novel phrasing all allow) — accepted,
-  because the inverted failure mode (a safety check that silences legitimate
-  players when it breaks) is worse, and content-level redaction remains the
-  backstop for whatever slips through.
+- **Fail-closed shared text** means a timeout, a provider outage, disabled
+  moderation, or a spent moderation budget can keep one player's words from
+  other people until the screen can judge them. Accepted, because a permanent
+  shared record must not publish what moderation could not judge. The author's
+  own session continues. Private or solo-only text and mechanical play stay
+  fail-open, so the check does not stop the game. Content-level redaction and
+  break-glass hard delete remain the backstop for whatever still lands.
+- **Unspecified cap numbers** mean the implementation chooses limits from
+  measurement rather than from this ADR. Accepted, so a policy record does not
+  freeze an unmeasured rate.
+
+## Consequences of the 2026-10-25 amendment
+
+- Shared player text is held or declined, and not shown to others, when
+  moderation times out, the provider is unavailable, moderation is disabled,
+  or the moderation budget is spent. The author gets a clear message, and the
+  rest of that session keeps working.
+- Per-user caps on moderation-triggering and model-calling actions are
+  required. The numbers are configuration, to be measured in the
+  implementation PR. Budget bucket names do not change.
+- §1 redaction and the break-glass hard delete are unchanged. The never-wipe
+  rule is unchanged. The first invited outside player starts it, and a
+  disposable world is declared and run on staging.
+- Moderation stays a replaceable task under ADR-034. This amendment selects
+  no provider.
+- Until the implementation PR, the running server still fail-opens, so this
+  decision is not yet behavior.
 
 ## Revisit when…
 
-- **Moderation cost/latency proves heavier than measured** → drop to the
-  local-filter-only tier, or move the classification call to an async/batch path.
+- **Moderation cost or latency proves heavier than measured** → hold
+  ambiguous shared text without a classifier call, or move classification off
+  the request path. Shared text the screen has not judged stays unpublished.
+  Private or solo-only text and mechanical play stay available.
+- **Measured use shows a per-user cap is too tight or too loose** → change
+  the configuration. This ADR does not set those numbers.
 - **Persisted activity becomes noise/cost without shaping the world** → rebalance
   the write-path (which events earn a permanent row).
 - **A "start over" or key-rotation use case emerges** → design account-level
@@ -249,10 +341,19 @@ the shared key entirely:
   `consciousness._history_block`.
 - ~~**(Pre-launch build)**~~ Both pre-launch builds have shipped: §7 (unique
   names / no anonymous play / invite-gated self-service) and §2 (input
-  moderation). The first trigger above governs §2's tuning from here.
+  moderation). The 2026-10-25 amendment changes §2's failure policy for
+  shared text and requires per-user caps; that behavior is not in the running
+  screen yet. The triggers above govern the implementation and later tuning.
 
 ## Rejected alternatives
 
+- **Fail-open for shared text** (the 2026-07-12 sentence) — a timeout, an
+  outage, a disabled screen, or a spent budget must not write player text
+  where other players can see it. Fail-open remains the rule for private or
+  solo-only text and for mechanical play.
+- **Naming one provider as the moderator** — classification is a task.
+  ADR-034 chooses a configured provider by evidence. A model id in the current
+  program is an implementation fact, not this policy.
 - **Hard row-delete as the default removal mechanism** — destroys the mechanical
   fields (counters, epochs, art counts) and the accountability trail; kept only
   as a narrow break-glass.

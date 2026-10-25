@@ -37,8 +37,12 @@ class FixtureProvider:
 def alternate(monkeypatch):
     provider = FixtureProvider()
     monkeypatch.setattr(runtime, 'get_provider', lambda: provider)
+    monkeypatch.setenv(runtime.SHARED_MODEL_ENV, 'fixture-voice-v1')
     monkeypatch.setattr(runtime, 'VOICE_MODEL', 'fixture-voice-v1')
-    monkeypatch.setenv('NESTED_WORLDS_MODERATION_MODEL', 'fixture-classifier-v2')
+    for name in (runtime.NODE_MODEL_ENV, runtime.INHABITANT_MODEL_ENV,
+                 runtime.INTENT_MODEL_ENV):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(runtime.MODERATION_MODEL_ENV, 'fixture-classifier-v2')
     monkeypatch.delenv('ANTHROPIC_API_KEY', raising=False)
     return provider
 

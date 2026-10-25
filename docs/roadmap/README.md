@@ -99,11 +99,14 @@ those batches merges first takes the next free number.
   November–January order places ADR-032 batch 1 after pilot evidence, January
   at the earliest ([next-steps-2026-q4.md](next-steps-2026-q4.md) line 171).
   The decision agenda above records the same timing (line 69).
-- ADR-004 section 2 says "Fail-open everywhere" for moderation
-  ([ADR-004](../decisions/ADR-004-day-one-data-policy.md) line 105). No open
-  decision covers moderation posture before outside players arrive. The agenda
-  in this file is D1–D9 (lines 64–74); the Q4 decisions are A–H
-  ([next-steps-2026-q4.md](next-steps-2026-q4.md) lines 106–115).
+- Resolved 2026-10-25 by the owner in chat. ADR-004 section 2 said
+  "Fail-open everywhere" for moderation, and no open agenda item covered that
+  posture before outside players arrived. The amendment in
+  [ADR-004](../decisions/ADR-004-day-one-data-policy.md) (2026-10-25 moderation
+  amendment) closes it: shared text fails closed when moderation cannot
+  complete, and private or solo-only text and mechanical gameplay stay
+  fail-open. The D1–D9 agenda (lines 64–74) and the Q4 decisions A–H
+  ([next-steps-2026-q4.md](next-steps-2026-q4.md) lines 106–115) are unchanged.
 
 ## Standing commitments carried from archived plans
 
