@@ -201,8 +201,12 @@ def cmd_redact(args):
             snippet = "; ".join(
                 f"{k}={v}" for k, v in r["data"].items()
                 if isinstance(v, str))[:48]
+            mark = ""
+            if r.get("provider") or r.get("resolved_model"):
+                mark = (f"  [{r.get('provider') or '—'} / "
+                        f"{r.get('resolved_model') or '—'}]")
             print(f"{r['id']:>8}  {r['at']:<20}  {r['type']:<15}  "
-                  f"{r['seed']:>6}  {(r['player'] or '—'):<16}  {snippet}")
+                  f"{r['seed']:>6}  {(r['player'] or '—'):<16}  {snippet}{mark}")
         print("\nApply with: python main.py redact --id <id> "
               "[--scrub-name] [--reason '...']")
         return
@@ -366,10 +370,13 @@ def cmd_speak(args):
         )
         print(response)
         # Symmetry with every other surface: speaking leaves a trace, and
-        # both sides of the exchange become node memory.
+        # both sides of the exchange become node memory. Read the call
+        # result before slicing; a slice is a plain str.
         persistence.record_mutation(
             args.seed, target.name, "PLAYER_SPEAK", None,
             {"message": args.message[:128], "reply": response[:200]},
+            model_provider=getattr(response, "provider", None),
+            resolved_model=getattr(response, "resolved_model", None),
         )
     except Exception as exc:
         _log.warning("speak fallback: %s", consciousness.runtime.failure_summary(exc))

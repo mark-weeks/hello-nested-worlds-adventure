@@ -77,7 +77,7 @@ write path; citing them authorizes nothing.
 
 Migration numbers are assigned at merge time. The first batch to merge takes
 the next free number. Drafts must not reserve numbers. The current top
-migration on `main` is `0027_expressive_interventions`. ADR-029, ADR-030,
+migration on `main` is `0028_model_provenance`. ADR-029, ADR-030,
 ADR-032 and ADR-033 each describe a migration they would add; whichever of
 those batches merges first takes the next free number.
 

@@ -37,11 +37,13 @@ def live(seed, node):
     return db.json_merge_patch(node.properties, db.load_node_property_override(seed, node.name))
 
 
-def _record(seed, name, kind, performer, data, delta, actor_identity=None):
+def _record(seed, name, kind, performer, data, delta, actor_identity=None,
+            model_provider=None, resolved_model=None):
     if delta:
         db.record_substance_change(seed, name, kind, performer, data, delta, actor_identity=actor_identity)
     else:
-        db.record_mutation(seed, name, kind, performer, data, actor_identity=actor_identity)
+        db.record_mutation(seed, name, kind, performer, data, actor_identity=actor_identity,
+                           model_provider=model_provider, resolved_model=resolved_model)
 
 
 def _plan(interpreter, props, steps, node):
@@ -125,7 +127,8 @@ def accept(seed, participant, name, request_id, steps, expected, *, performer, a
     return result
 
 
-def accept_attempt(seed, participant, name, request_id, payload, steps, *, performer, actor_identity, authorize):
+def accept_attempt(seed, participant, name, request_id, payload, steps, *, performer, actor_identity, authorize,
+                   model_provider=None, resolved_model=None):
     node = lineage(seed, name)[0]
     plan = interventions_v3.attempt(steps, node.level, name)
     def apply():
@@ -134,7 +137,8 @@ def accept_attempt(seed, participant, name, request_id, payload, steps, *, perfo
         flavor = f'{performer} attempts {plan["summary"]}.'
         _record(seed, name, 'INTERVENTION_COMMITTED', performer,
                 {'intervention': ident, 'version': 3, 'steps': plan['steps'],
-                 'phase': 'accepted', 'flavor': flavor, 'performer': performer}, {}, actor_identity)
+                 'phase': 'accepted', 'flavor': flavor, 'performer': performer}, {}, actor_identity,
+                model_provider=model_provider, resolved_model=resolved_model)
         source = db.latest_event_id()
         with db._connection() as conn:
             conn.execute("""INSERT INTO interventions(id,world_seed,participant_id,node_name,version,plan,signal,route,performer,source_event_id)

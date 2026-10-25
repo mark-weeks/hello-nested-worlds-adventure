@@ -75,7 +75,11 @@ and `TokenUsage`, shares the concurrency limit and logs provider/model usage.
 tasks use the boundary; the node voice, inhabitant voice and intention endpoints
 ask the selected adapter whether it is configured before charging their existing
 voice budgets. Missing credentials serve authored fallbacks without a voice call,
-budget charge or speech chronicle row. Adding another provider still requires an
+budget charge or speech chronicle row. A model-written chronicle row records
+the provider name and resolved model id from that call's Completion, in
+`mutation_model_provenance`. Historical rows are not backfilled. Authored
+fallback text records none. Player history, the chronicle page and node
+voices do not read the side table. Adding another provider still requires an
 adapter and explicit selection wiring in `get_provider()`; there is no multi-provider environment
 selector or automatic failover in this batch.
 
