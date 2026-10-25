@@ -230,6 +230,8 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_IDEAS_AUTH_FAILURES_PER_MIN` | Hosted beta: failed Ideas credential checks per 60-second window/IP. Excess failures return `429`; valid credentials remain usable. Process-local; authentication still runs first. See [Ideas limits](docs/development/community-ideas.md#review-corrections-and-operational-boundaries). | `120` |
 | `NESTED_WORLDS_MAX_WS_CONNECTIONS` | Hosted beta: max concurrent WebSocket connections process-wide. Excess upgrades get `503`. | `128` |
 | `NESTED_WORLDS_MAX_WS_PER_IP` | Hosted beta: max concurrent WebSocket connections per client IP. | `8` |
+| `NESTED_WORLDS_HTTP_READ_TIMEOUT` | Seconds to finish reading an HTTP request line, headers, and body. A stalled or dribbling client is cut off instead of holding a thread. WebSocket sessions replace this with the existing 60s idle timer once the upgrade completes. Unset, non-numeric, non-finite, or non-positive values use the default. | `30` |
+| `NESTED_WORLDS_MAX_HANDLER_THREADS` | Max threads inside HTTP requests and open WebSocket sessions. When full, new connections get `503` with `Retry-After: 2` and `{"error":"server busy"}` without waiting to read the request. The default sits above the WebSocket cap and the committed proxy connection hard limit, so those still shed first. Values below 1 or non-integers use the default. | `160` |
 | `NESTED_WORLDS_DISABLE_AI` | Set to `1` to disable `/speak` and `/agent/voice` without a redeploy. | unset |
 | `NESTED_WORLDS_DISABLE_IMAGES` | Set to `1` to disable `/image` without a redeploy. | unset |
 | `NESTED_WORLDS_DISABLE_MODERATION` | Set to `1` to turn off the input-moderation screen without a redeploy (ADR-004 §2). | unset |

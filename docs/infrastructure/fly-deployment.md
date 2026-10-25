@@ -114,7 +114,20 @@ so the left-most entry is attacker-controlled and would let a client mint
 a fresh rate-limit bucket per request. The `[http_service.concurrency]`
 block bounds connections at the Fly-proxy layer; the app additionally caps
 concurrent WebSockets via `NESTED_WORLDS_MAX_WS_CONNECTIONS` /
-`NESTED_WORLDS_MAX_WS_PER_IP`.
+`NESTED_WORLDS_MAX_WS_PER_IP`. Plain HTTP has two further bounds, both
+read at request time. `NESTED_WORLDS_HTTP_READ_TIMEOUT` (default 30
+seconds) is the deadline for the request line, headers, and body. A
+finished WebSocket upgrade lifts it and the session keeps the existing
+60-second idle timer, so a playing connection is not cut by the request
+budget. `NESTED_WORLDS_MAX_HANDLER_THREADS` (default 160) caps threads
+inside requests, including open WebSockets. Past that, a new connection
+gets `503` with `Retry-After: 2` and `{"error":"server busy"}` instead of
+waiting. 160 is above the WebSocket default (128, or 96 in the committed
+`fly.toml`) and above the proxy `hard_limit` of 150, so those still shed
+first. A saturated cap also answers `/health` with 503. A client that
+takes longer than the read budget to send — a stalled link, or a very
+slow upload of the 64 KB maximum body — is closed; a body that stalls
+after the headers returns `408`.
 
 `NESTED_WORLDS_CANONICAL_SEED=382` is the deliberately curated launch choice
 (`docs/evaluation/2026-08-03-launch-world-census.md`), not a player input.
@@ -592,6 +605,7 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
 | Inspect the volume | `fly volumes list` |
 | Restore from a backup | `python main.py restore --from <file>` then restart (§7) |
 | Adjust a runtime cap | `fly secrets set NESTED_WORLDS_ANTHROPIC_DAILY_CALLS=1000` |
+| Bound slow HTTP reads or handler threads | `fly secrets set NESTED_WORLDS_HTTP_READ_TIMEOUT=30 NESTED_WORLDS_MAX_HANDLER_THREADS=160` |
 | Kill switch AI without redeploy | `fly secrets set NESTED_WORLDS_DISABLE_AI=1` |
 | Slow/speed causal ripple travel | `fly secrets set NESTED_WORLDS_HOP_DELAY=30` |
 | Pause staged-cascade drain (hops queue durably) | `fly secrets set NESTED_WORLDS_CAUSAL_PUMP=0` |

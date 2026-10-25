@@ -18,12 +18,94 @@ from server import guard, observability
 from server.handlers import Handler as _Handler
 
 
+# Seconds a client should wait before retrying a saturated process.
+# Delta-seconds form (RFC 9110). Fixed so a full server answers the same way
+# on every deploy; the cap itself is the tunable.
+_BUSY_RETRY_AFTER = "2"
+_BUSY_BODY = b'{"error":"server busy"}'
+
+
+class _HandlerSlots:
+    """In-flight handler threads for one listening server.
+
+    The count is taken before the handler thread starts and released when
+    that thread exits, so an open WebSocket holds a slot for the session.
+    The cap is read on each attempt so an operator change applies without
+    restarting the accept loop.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._inflight = 0
+
+    def try_acquire(self) -> bool:
+        cap = guard.max_handler_threads()
+        with self._lock:
+            if self._inflight >= cap:
+                return False
+            self._inflight += 1
+            return True
+
+    def release(self) -> None:
+        with self._lock:
+            if self._inflight:
+                self._inflight -= 1
+
+
+def _refuse_saturated(request, client_address) -> None:
+    """Answer 503 without taking a handler thread or reading the request.
+
+    The write is non-blocking: a peer that will not read must not stall the
+    accept loop. The kernel buffer usually takes this small response; if it
+    does not, the socket is closed and the client retries.
+    """
+    body = _BUSY_BODY
+    message = (
+        "HTTP/1.1 503 Service Unavailable\r\n"
+        "Content-Type: application/json\r\n"
+        f"Retry-After: {_BUSY_RETRY_AFTER}\r\n"
+        "Connection: close\r\n"
+        "Cache-Control: no-store\r\n"
+        "X-Content-Type-Options: nosniff\r\n"
+        f"Content-Length: {len(body)}\r\n"
+        "\r\n"
+    ).encode("ascii") + body
+    try:
+        request.setblocking(False)
+        request.sendall(message)
+    except OSError:
+        pass
+    logging.info("refusing connection from %s: handler threads full", client_address)
+
+
 class _ThreadedServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     # Python 3.11 defaults to five waiting connections. An invited cohort can
     # exceed that in one burst before handlers start, causing TCP resets rather
-    # than an HTTP response. This backlog is separate from the guarded WS cap.
+    # than an HTTP response. This backlog is separate from the handler-thread
+    # cap and from the guarded WebSocket cap.
     request_queue_size = 64
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._handler_slots = _HandlerSlots()
+
+    def process_request(self, request, client_address):
+        if not self._handler_slots.try_acquire():
+            _refuse_saturated(request, client_address)
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._handler_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._handler_slots.release()
 
     def server_bind(self):
         # HTTPServer resolves a display hostname with getfqdn on bind. We use the
