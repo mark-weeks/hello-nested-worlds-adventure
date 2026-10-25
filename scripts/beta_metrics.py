@@ -96,6 +96,30 @@ def compute_metrics(db_path: Path, days: int = 7,
             "SELECT COUNT(*) FROM world_mutations").fetchone()[0]
         first_at = conn.execute(
             "SELECT MIN(recorded_at) FROM world_mutations").fetchone()[0]
+        # Older backups have no side table. Absence is an empty count, not
+        # a guessed provider, and this read must not migrate the file.
+        model_provenance: list[dict] = []
+        if conn.execute(
+            """SELECT 1 FROM sqlite_master
+               WHERE type = 'table' AND name = 'mutation_model_provenance'"""
+        ).fetchone():
+            scope = ""
+            scope_args: list = [f"-{int(days)} days"]
+            if seed is not None:
+                scope = " AND m.world_seed = ?"
+                scope_args.append(seed)
+            model_provenance = [
+                {"provider": provider, "resolved_model": model, "rows": count}
+                for provider, model, count in conn.execute(
+                    f"""SELECT p.provider, p.resolved_model, COUNT(*)
+                        FROM mutation_model_provenance p
+                        JOIN world_mutations m ON m.id = p.mutation_id
+                        WHERE m.recorded_at >= datetime('now', ?){scope}
+                        GROUP BY p.provider, p.resolved_model
+                        ORDER BY COUNT(*) DESC, p.provider, p.resolved_model""",
+                    scope_args,
+                )
+            ]
 
         n_visitors = len(visitors)
         returning = sum(1 for _, _, d in visitors if d >= 2)
@@ -121,6 +145,7 @@ def compute_metrics(db_path: Path, days: int = 7,
             "top_nodes": [{"node": n, "events": c} for n, c in top_nodes],
             "chronicle_total_rows": total_rows,
             "chronicle_first_event": first_at,
+            "model_provenance": model_provenance,
         }
     finally:
         conn.close()
@@ -152,6 +177,13 @@ def render(m: dict) -> str:
         f"chronicle: {m['chronicle_total_rows']} rows total, first event "
         f"{m['chronicle_first_event'] or '(none yet)'}",
     ]
+    if m.get("model_provenance"):
+        lines += ["", "model-written rows in this window:"]
+        lines += [
+            f"  {item['rows']:>5}  {item['provider'] or '—'} / "
+            f"{item['resolved_model'] or '—'}"
+            for item in m["model_provenance"]
+        ]
     return "\n".join(lines)
 
 

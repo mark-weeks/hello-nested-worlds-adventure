@@ -82,9 +82,12 @@ def handle_websocket(
         # a completed RFC 6455 close handshake ends with TCP FIN.
         request.close_connection = True
         sock = request.connection
-        # Lifts the plain-HTTP read budget (see Handler.setup) and installs
-        # this session's idle timer. Protocol pings and {"type":"ping"} both
-        # run under it; a quiet socket still ends at 60s.
+        # Lifts the plain-HTTP read and write timers (see Handler.setup) and
+        # installs this session's idle timer. 60s with no client bytes ends
+        # the session. Live browser clients send an application ping inside
+        # that window; protocol pings and {"type":"ping"} both run under the
+        # same timer. A silent socket — a gone client — still ends here.
+        # TimeoutError is an OSError, so it leaves through the handler below.
         sock.settimeout(60)
         session_id = uuid.uuid4().hex[:8]
         ws_identity = actor_identity(ws_key, name)

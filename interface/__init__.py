@@ -245,12 +245,15 @@ def _speak_to(node: SpatialNode, message: str, seed: int = 0,
         print(f"  {response}\n")
         # Local sessions have no invite credential; the display name IS the
         # conversation identity (see persistence.get_player_exchanges).
+        # Read the call result before slicing; a slice is a plain str.
         data = {"message": message[:128], "reply": response[:200]}
         if player_name:
             data["identity"] = player_name
         persistence.record_mutation(
             seed, node.name, "PLAYER_SPEAK", player_name, data,
             actor_identity=player_name,
+            model_provider=getattr(response, "provider", None),
+            resolved_model=getattr(response, "resolved_model", None),
         )
     except Exception as exc:
         _log.warning("speak fallback: %s", consciousness.runtime.failure_summary(exc))

@@ -2,6 +2,8 @@
 
 Only Anthropic is implemented today. Adding a provider requires an adapter and
 explicit selection wiring here, plus contract and live-task evaluation (ADR-034).
+Per-task settings choose a model id on that provider. An id never selects or
+replaces the provider, and a failed call is never retried on another id.
 """
 from __future__ import annotations
 
@@ -13,8 +15,62 @@ from typing import Protocol
 
 
 DEFAULT_VOICE_MODEL = "claude-opus-4-8"
-VOICE_MODEL = os.environ.get("NESTED_WORLDS_MODEL", DEFAULT_VOICE_MODEL)
 DEFAULT_MODERATION_MODEL = "claude-haiku-4-5"
+
+SHARED_MODEL_ENV = "NESTED_WORLDS_MODEL"
+NODE_MODEL_ENV = "NESTED_WORLDS_NODE_MODEL"
+INHABITANT_MODEL_ENV = "NESTED_WORLDS_INHABITANT_MODEL"
+INTENT_MODEL_ENV = "NESTED_WORLDS_INTENT_MODEL"
+MODERATION_MODEL_ENV = "NESTED_WORLDS_MODERATION_MODEL"
+
+NODE_TASK = "node"
+INHABITANT_TASK = "inhabitant"
+INTENT_TASK = "intent"
+MODERATION_TASK = "moderation"
+
+_TASK_ENV = {
+    NODE_TASK: NODE_MODEL_ENV,
+    INHABITANT_TASK: INHABITANT_MODEL_ENV,
+    INTENT_TASK: INTENT_MODEL_ENV,
+    MODERATION_TASK: MODERATION_MODEL_ENV,
+}
+
+
+def _nonblank(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
+
+
+# Import-time shared id. Calls use model_for(), which reads the environment
+# on each call. Blank or whitespace-only values are unset.
+VOICE_MODEL = _nonblank(os.environ.get(SHARED_MODEL_ENV)) or DEFAULT_VOICE_MODEL
+
+
+def model_for(task: str) -> str:
+    """Model id for one text task. An id never selects a provider.
+
+    Node voice, inhabitant voice, and intention use their own settings, then
+    the shared model, then the voice default. Moderation keeps its own default
+    and does not inherit the shared model. This function does not retry or
+    substitute another id when a call fails.
+    """
+    try:
+        env_name = _TASK_ENV[task]
+    except KeyError:
+        raise ValueError(f"unknown model task {task!r}") from None
+    chosen = _nonblank(os.environ.get(env_name))
+    if chosen is not None:
+        return chosen
+    if task == MODERATION_TASK:
+        return DEFAULT_MODERATION_MODEL
+    return _nonblank(os.environ.get(SHARED_MODEL_ENV)) or DEFAULT_VOICE_MODEL
+
+
+def configured_models() -> dict[str, str]:
+    """Resolved model id for every text task. Ids only; no credentials."""
+    return {task: model_for(task) for task in _TASK_ENV}
 
 
 @dataclass(frozen=True)
@@ -42,12 +98,33 @@ class Completion:
     usage: TokenUsage | None = None
     finish_reason: str = "unknown"
     resolved_model: str | None = None
+    provider: str | None = None
 
     def require_text(self) -> str:
         # Preserve voice behavior for partial text; only a missing block fails.
         if self.text is None:
             raise NoTextError(f"No text in model response (complete={self.complete}, finish={self.finish_reason})")
         return self.text
+
+
+class Voiced(str):
+    """Model text that still compares and serializes as that text.
+
+    `provider` and `resolved_model` are copied from the Completion that
+    produced the text. A plain str is authored fallback text and has neither
+    attribute. Slicing returns a plain str, so read the attributes first.
+    """
+
+    def __new__(cls, text: str, provider: str | None, resolved_model: str | None):
+        obj = str.__new__(cls, text)
+        obj.provider = provider
+        obj.resolved_model = resolved_model
+        return obj
+
+    def __reduce_ex__(self, protocol):
+        # str's reducer rebuilds through __new__ with only the characters.
+        # Eval snapshots deepcopy the spoken line, so the call result must travel.
+        return (type(self), (str(self), self.provider, self.resolved_model))
 
 
 def failure_summary(exc: Exception) -> str:

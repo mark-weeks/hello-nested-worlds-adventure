@@ -121,6 +121,20 @@ class _ThreadedServer(ThreadingMixIn, HTTPServer):
         self.server_name, self.server_port = self.server_address[:2]
 
 
+def model_banner() -> list[str]:
+    """Operator lines for the resolved text-model ids. No credentials."""
+    from consciousness.runtime import configured_models
+
+    labels = {
+        "node": "Node voice model",
+        "inhabitant": "Inhabitant voice model",
+        "intent": "Intention model",
+        "moderation": "Moderation model",
+    }
+    models = configured_models()
+    return [f"{labels[task]:<25}→  {models[task]}" for task in labels]
+
+
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
@@ -167,6 +181,8 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
         print("World hosting            →  local multi-world mode")
     else:
         print(f"Shared canonical world   →  seed {hosted_seed}")
+    for line in model_banner():
+        print(line)
     print(f"Multiplayer WebSocket   →  ws://localhost:{port}/ws")
     if host == "127.0.0.1":
         print("For network access: restart with --host 0.0.0.0")

@@ -112,6 +112,20 @@ def test_masked_client_text_frame_round_trips_as_a_broadcast(srv):
         assert chat["text"] == "hello over rfc6455"
 
 
+def test_application_ping_is_answered_with_pong(srv):
+    """The browser keepalive depends on this frame, not a new message shape.
+
+    Clients cannot send RFC 6455 pings. They send ``{"type": "ping"}`` and the
+    session loop answers ``{"type": "pong"}``. Removing that handler would leave
+    an idle player on the 60s recv deadline.
+    """
+    with _connect(srv, seed=6458, name="Ada") as ws:
+        _recv_json_until(ws, "welcome")
+        ws.send(json.dumps({"type": "ping"}))
+        pong = _recv_json_until(ws, "pong")
+        assert pong == {"type": "pong"}
+
+
 def test_a_second_client_join_is_broadcast_to_the_first(srv):
     """Two real clients in one room: the first sees the second's join.
 

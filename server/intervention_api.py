@@ -134,7 +134,9 @@ def handle(handler, path, qs, body=None):
                         data, _ = intents.execute(me['id'], seed, 'intervention', request, payload, lambda: quiet)
                     else:
                         data = interventions.accept_attempt(seed, me['id'], name, request, payload, steps,
-                            performer=me['name'], actor_identity=_actor_identity(key, me['name']), authorize=authorize)
+                            performer=me['name'], actor_identity=_actor_identity(key, me['name']), authorize=authorize,
+                            model_provider=getattr(steps, 'provider', None),
+                            resolved_model=getattr(steps, 'resolved_model', None))
         else:
             raise ValueError('This page is read-only.')
         handler._send_json(data)

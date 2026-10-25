@@ -212,7 +212,10 @@ Environment variables (see `.env.example`):
 |----------|--------------|---------|
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | API key or bearer token for the current text provider: node/agent voices, moderation and typed-intention interpretation. SDK profile credentials are also recognized; see [runtime guidance](docs/development/agent-runtime.md). | — |
 | `NESTED_WORLDS_CANONICAL_SEED` | The one shared world the hosted server serves (ADR-007); every HTTP, SSE, WebSocket, position and heartbeat path is bound to it. Set it empty, `off` or `none` only for explicit local multi-world curation. | `382` |
-| `NESTED_WORLDS_MODEL` | Select the model identifier for voices and intention interpretation within the implemented provider; does not select another provider | `claude-opus-4-8` |
+| `NESTED_WORLDS_MODEL` | Shared model id for node voice, inhabitant voice, and intention interpretation when a task does not set its own. A model id does not select another provider | `claude-opus-4-8` |
+| `NESTED_WORLDS_NODE_MODEL` | Optional model id for node voice only. Unset or blank uses `NESTED_WORLDS_MODEL` | unset |
+| `NESTED_WORLDS_INHABITANT_MODEL` | Optional model id for inhabitant voice only. Unset or blank uses `NESTED_WORLDS_MODEL` | unset |
+| `NESTED_WORLDS_INTENT_MODEL` | Optional model id for intention interpretation only. Unset or blank uses `NESTED_WORLDS_MODEL` | unset |
 | `FAL_KEY` | AI-generated scene backgrounds (`fal-ai/fast-sdxl`) | optional |
 | Invite gate (no env var) | Hosted beta: the gate is the per-user `invite_keys` table, not an env var — there is no shared key. Mint keys with `python main.py invite mint --name <player>`, or create a single-use self-service invite with `invite create` (the player picks their own unique name at `/register?invite=<token>`). Minting the first key closes the gate so every HTTP and WebSocket request needs a valid `?key=...` or `X-Beta-Key`, and every gated session is a known, unique, named player. Keys and registration tokens are stored hashed at rest (sha256): the plaintext credential appears once at mint/registration and cannot be recovered later — revoke and re-mint if lost (`invite list` / `invite tokens` show an 8-char hash prefix). Mint no keys for local dev. | open until first mint |
 | `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` | Hosted beta: global cap on Anthropic calls per UTC day; once exceeded, `/speak` and `/agent/voice` return a fallback string instead of calling the API. | `500` |
@@ -236,7 +239,7 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_DISABLE_AI` | Set to `1` to disable `/speak` and `/agent/voice` without a redeploy. | unset |
 | `NESTED_WORLDS_DISABLE_IMAGES` | Set to `1` to disable `/image` without a redeploy. | unset |
 | `NESTED_WORLDS_DISABLE_MODERATION` | Set to `1` to turn off the input-moderation screen without a redeploy (ADR-004 §2). | unset |
-| `NESTED_WORLDS_MODERATION_MODEL` | Model for the moderation classify call (ambiguous inputs only; clean input costs zero API calls). | `claude-haiku-4-5` |
+| `NESTED_WORLDS_MODERATION_MODEL` | Model for the moderation classify call (ambiguous inputs only; clean input costs zero API calls). Does not fall back to `NESTED_WORLDS_MODEL`. | `claude-haiku-4-5` |
 | `NESTED_WORLDS_MODERATION_DAILY_CALLS` | Daily cap on classify calls — moderation's own budget line; when exhausted the screen fails open, never blocking chat. | `2000` |
 | `NESTED_WORLDS_MODERATION_BLOCK_EXTRA` / `..._WATCH_EXTRA` | Comma-separated hot extensions to the block / watch term lists — react to live abuse without a redeploy. | unset |
 | `NESTED_WORLDS_TRUST_PROXY` | Set to `1` only when running behind a trusted reverse proxy. The rate limiter then reads the real client IP from a proxy-set header (never the spoofable left-most `X-Forwarded-For`). | unset |

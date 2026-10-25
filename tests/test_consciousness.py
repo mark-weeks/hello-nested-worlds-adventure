@@ -291,6 +291,9 @@ class TestAgentBibleStructure:
 class TestBibleCacheEffectiveness:
     def test_cached_prefix_estimates_meet_default_reference(self, monkeypatch):
         monkeypatch.setattr(runtime, 'VOICE_MODEL', runtime.DEFAULT_VOICE_MODEL)
+        for name in (runtime.SHARED_MODEL_ENV, runtime.NODE_MODEL_ENV,
+                     runtime.INHABITANT_MODEL_ENV, runtime.INTENT_MODEL_ENV):
+            monkeypatch.delenv(name, raising=False)
         monkeypatch.setattr(runtime, 'get_provider', lambda: provider)
         # A local prompt-length estimate, not proof of a live cache hit.
         assert consciousness.cached_prefix_meets_minimum()
