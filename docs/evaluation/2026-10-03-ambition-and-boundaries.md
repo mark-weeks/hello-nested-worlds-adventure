@@ -4,6 +4,11 @@
 findings and a decision agenda; it ratifies nothing, changes no covenant, and
 authorizes no implementation. Baseline: `main` at `20c3f10` (PR #107 merged).
 
+**Note (2026-10-25):** Where this assessment says 28 ADRs, that is its
+2026-10-03 baseline (ADR-001 through ADR-028). There are now 34 decision
+files, through [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md).
+The findings below are otherwise unchanged.
+
 **Method.** Read-only audit of the code (18,935 lines of Python, ~7,800 lines
 of client JavaScript, 27 migrations), all 28 ADRs, every roadmap/design/pitch
 document, the ten most recent evaluations, and the CHANGELOG; plus a same-day
@@ -65,7 +70,7 @@ could not open; **inferred** is this document's judgment.
 |---|---|
 | Production has never been deployed; the chronicle is empty | `docs/pitch/beta-brief.md:28` "pre-release; production is not deployed"; `docs/roadmap/pre-launch-window.md` "Nothing is deployed"; CHANGELOG head: `v0.1.1-qa.2` running at `127.0.0.1:8080` against an isolated QA database |
 | Zero external players; three GitHub issues, all by the owner | `docs/evaluation/2026-09-12-pilot-protocol.md` "No participant research has been conducted"; M7 unrun; issue list #87–#89 |
-| 28 ADRs; ADR-012 through ADR-022 and ADR-013/018 remain Proposed while their code is merged | `docs/decisions/`, `docs/roadmap/discovery-and-return.md` decision register |
+| 28 ADRs on this assessment's 2026-10-03 baseline (ADR-001–028); 34 decision files as of 2026-10-25, through ADR-034. ADR-012 through ADR-022 and ADR-013/018 remain Proposed while their code is merged | `docs/decisions/`, `docs/roadmap/discovery-and-return.md` decision register |
 | The model is called in exactly four places | `consciousness/__init__.py:1105` (node voice, `max_tokens=256`), `:1206` (agent voice, `max_tokens=200`), `:1266` (moderation classify, Haiku), `consciousness/interventions.py:58` (intent → enum-bounded JSON schema) |
 | Default voice model is one generation behind and more expensive than the current Opus | `consciousness/__init__.py:37` `claude-opus-4-8` ($5/$25 per MTok) vs `claude-opus-5-5` ($4/$20, cache reads $0.20) |
 | Ambient agents involve no model at all | `agents/behaviors.py` is 44 lines; `grep -rl anthropic agents/` returns nothing; `server/heartbeat.py` "FSM-driven — zero API spend" |
@@ -483,6 +488,12 @@ what exists.**
 
 ### 6.8 Infrastructure that follows
 
+**Note (2026-10-25):** The Opus 5.5 default-model recommendation in this
+section is superseded by [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md)'s
+provider-neutral stance. [ADR-031](../decisions/ADR-031-model-authorship.md)
+already treats that dated comparison as historical. The rest of this section
+is unchanged.
+
 Move the default voice model to Opus 5.5 (cheaper and better than 4.8) with
 Sonnet 5.5 or Haiku for ambient cognition; budgets in dollars per day with the
 existing in-fiction degradation. First-party media storage (Tigris or S3) with a
@@ -562,6 +573,11 @@ readers join through id. Default model to Opus 5.5; caps to dollars. Materialize
 eras. Draft ADR-029 (evolution grammar), ADR-030 (render contract), ADR-031
 (model authorship), ADR-032 (inhabitants and roster), ADR-033 (scale registry).
 Then the pilot cohort can begin; the chronicle starts complete.
+
+**Note (2026-10-25):** The Opus 5.5 default in this phase is superseded by
+[ADR-034](../decisions/ADR-034-provider-and-model-optionality.md)'s
+provider-neutral stance. [ADR-031](../decisions/ADR-031-model-authorship.md)
+already treats that comparison as historical. The rest of this phase is unchanged.
 
 **Phase 1 (four weeks): the first authored change and the first real
 sense.** World Mind v1 on the heartbeat: era turns with cited annals, weather of

@@ -99,9 +99,15 @@ exactly first-impression time.
 
 **Decided:** stay Opus-class for launch and move the default from
 `claude-opus-4-7` (now previous-generation) to **`claude-opus-4-8`** —
-same price, same API surface (no request-shape changes; verified), same
-4096-token prompt-cache minimum, so the `_OPUS_CACHE_MIN_TOKENS` guard
-and both bibles stand unchanged. The live-voice spot-check on the new
+same price, same API surface (no request-shape changes; verified). The
+original text of this decision assumed a shared 4096-token prompt-cache
+minimum, so the then `_OPUS_CACHE_MIN_TOKENS` guard and both bibles would
+stand unchanged. That figure does not match the cache-size table in
+`consciousness/anthropic_provider.py`, which records `claude-opus-4-8` at
+1024 tokens — the same table
+[`docs/development/agent-runtime.md`](../development/agent-runtime.md) cites
+(Claude API reference checked 2026-10-05). `_OPUS_CACHE_MIN_TOKENS` is not
+defined in the current code. The live-voice spot-check on the new
 default rides the staging rehearsal's live-voice probe (§3a). The
 CLAUDE.md claim that voice quality is bottlenecked by context, not model,
 becomes a real experiment **after** launch: A/B Sonnet 5 against live

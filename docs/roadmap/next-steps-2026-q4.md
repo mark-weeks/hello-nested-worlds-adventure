@@ -7,13 +7,20 @@ Edit it in place as steps land; archive it under the
 [archiving rule](../archive/README.md) once every step has shipped or been
 superseded. The [roadmap index](README.md) carries it.*
 
+**Status note (2026-10-25):** The October needed-by dates and the October 31
+beta target have lapsed. The plan is awaiting a re-plan by the owner. The
+steps and dates below are unchanged.
+
 ## Thesis
 
 Enfolded is code-complete for an invited beta and has never been run by anyone
-but its owner. The last canonical gate on `main` passed (readiness record, #109:
-**1,417 Python**, **131 Vitest**, **96 Playwright**), the hosted world has never
-started, the chronicle is empty, and the returning-visitor metric has no data
-point. Every remaining gate before the first cohort is human or operator work:
+but its owner. The readiness-record gate on `main` (#109) passed at
+**1,417 Python**, **131 Vitest**, **96 Playwright**. Remeasured 2026-10-25 on
+`main` at #115 (`9f4df1c`): **1,712 Python** and **131 Vitest** passed
+`./scripts/check.sh`; **98 Playwright** are listed and were not run in that
+gate. The hosted world has never started, the chronicle is empty, and the
+returning-visitor metric has no data point. Every remaining gate before the
+first cohort is human or operator work:
 credentials, a staging twin, newcomers to watch, a world status to declare.
 
 So the order for the next ninety days is:
@@ -38,7 +45,8 @@ owner to rule on it.
 
 ## Where we start (confirmed from the repository and GitHub on 2026-10-04)
 
-- `main` is at #110. Shipped since `0.1.0-beta`: M1 to M4, the first situation
+- `main` is at #115 (`9f4df1c`, remeasured 2026-10-25); this plan was written
+  at #110. Shipped since `0.1.0-beta`: M1 to M4, the first situation
   and participants, the Ideas board, 44 scale-native actions, commit-then-discover,
   the unified exploration UX, beta readiness tooling. None of it is deployed.
 - The only release tags are `v0.1.1-qa.1` and `v0.1.1-qa.2`, cut 2026-08-31 from
@@ -59,7 +67,8 @@ owner to rule on it.
   ADR-029 and ADR-030 both claim migration `0028`; ADR-033 also needs one.
 - Operating posture: default voice model `claude-opus-4-8` (retained implementation default; selection policy now ADR-034), budgets
   as daily call caps (`server/guard.py`), explorer the invite default with `/app`
-  the alternate, `server/handlers.py` at 1,612 lines, migrations `0001`–`0027`.
+  the alternate, `server/handlers.py` at 1,624 lines (1,612 when this plan
+  was written; `wc -l` on 2026-10-25), migrations `0001`–`0027`.
 - Pilot protocol 2 is runnable and `scripts/pilot_report.py` enforces it. The
   protocol names **October 24** for cohort completion if **October 31** stays the
   beta date.
@@ -141,7 +150,7 @@ Split by *when*, because a refactor in launch week is risk without reward.
 
 **After the cohort window (November; avoid launch-week churn):**
 
-- **4.5 routing extraction** from `server/handlers.py` (1,612 lines) along the
+- **4.5 routing extraction** from `server/handlers.py` (1,624 lines) along the
   pattern of `server/intervention_api.py`, `ideas_api.py`, `participant_api.py`,
   `situation_api.py`. Behavior-neutral, test-pinned, one module per PR.
 - **D8 dollar budgets** in `server/guard.py`, keeping in-fiction degradation and
@@ -209,7 +218,7 @@ ADR-030 batches 2–3, ADR-031 batches 2–3, ADR-032 batches 2–3 and ADR-033 
   expansion and ADR-032 all wait. The discovery plan's own gate says: if players
   can navigate but find no reason to return, fix the consequence/return
   experience before adding rankings or crafting.
-- **Routing extraction after the cohort, not before.** A 1,612-line module is a
+- **Routing extraction after the cohort, not before.** A 1,624-line module is a
   maintenance cost, not a launch risk; a refactor in launch week is.
 - **The evolution grammar is a quarter of engineering** and displaces M5/M6
   polish and ADR-017/018, as the assessment states. That trade is the owner's,
