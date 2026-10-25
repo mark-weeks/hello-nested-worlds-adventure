@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import math
 import os
 import threading
 import time
@@ -428,6 +429,84 @@ IDEAS_AUTH_FAILURE_RATE_LIMIT_ENV = "NESTED_WORLDS_IDEAS_AUTH_FAILURES_PER_MIN"
 _DEFAULT_IDEAS_AUTH_FAILURES_PER_MIN = 120
 IDEAS_AUTH_FAILURE_RATE_LIMITER = RateLimiter(
     IDEAS_AUTH_FAILURE_RATE_LIMIT_ENV, _DEFAULT_IDEAS_AUTH_FAILURES_PER_MIN)
+
+
+# ── HTTP read budget and handler-thread cap ──────────────────────────────────
+#
+# These bound the accept path itself. The WebSocket caps below apply only
+# after a request line and headers have already been read and the upgrade
+# has been accepted, so they do not stop a client that never finishes sending.
+
+HTTP_READ_TIMEOUT_ENV = "NESTED_WORLDS_HTTP_READ_TIMEOUT"
+# Seconds to finish the request line, headers, and body. Long enough for a
+# 64 KB JSON body on a slow link; short enough that a stalled client cannot
+# park a handler thread for the life of the process.
+_DEFAULT_HTTP_READ_TIMEOUT = 30.0
+
+HTTP_WRITE_TIMEOUT_ENV = "NESTED_WORLDS_HTTP_WRITE_TIMEOUT"
+# Seconds one response send may block when the peer stops reading. This is
+# not a budget for the whole response: each send waits at most this long,
+# and a client that keeps accepting bytes continues. 30s matches the read
+# budget — long enough for a congested link or a brief pause, short enough
+# that a silent reader cannot hold a handler slot until restart.
+_DEFAULT_HTTP_WRITE_TIMEOUT = 30.0
+
+MAX_HANDLER_THREADS_ENV = "NESTED_WORLDS_MAX_HANDLER_THREADS"
+# One thread per in-flight HTTP request and per open WebSocket. 160 sits
+# above the WebSocket default (128) and the committed proxy hard limit (150),
+# so those existing limits still shed first, while a direct listener cannot
+# grow threads without a bound.
+_DEFAULT_MAX_HANDLER_THREADS = 160
+
+
+def _seconds_setting(env_var: str, default: float) -> float:
+    """Positive finite seconds from `env_var`, or `default`.
+
+    Zero must not mean "wait forever". Read at use time, like the other
+    operational limits.
+    """
+    raw = os.environ.get(env_var, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    if not math.isfinite(value) or value <= 0:
+        return default
+    return value
+
+
+def http_read_timeout() -> float:
+    """Seconds allowed to read one plain-HTTP request, or the default."""
+    return _seconds_setting(HTTP_READ_TIMEOUT_ENV, _DEFAULT_HTTP_READ_TIMEOUT)
+
+
+def http_write_timeout() -> float:
+    """Seconds one plain-HTTP response send may block, or the default.
+
+    A stall timer on each send, not a deadline for the whole body. The
+    WebSocket upgrade replaces it by calling ``settimeout`` on the socket.
+    """
+    return _seconds_setting(HTTP_WRITE_TIMEOUT_ENV, _DEFAULT_HTTP_WRITE_TIMEOUT)
+
+
+def max_handler_threads() -> int:
+    """Concurrent handler-thread cap, or the default when the env is unusable.
+
+    The cap counts every thread inside a request, including a WebSocket
+    session after upgrade. Values below 1 and non-integers fall back.
+    """
+    raw = os.environ.get(MAX_HANDLER_THREADS_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_MAX_HANDLER_THREADS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_MAX_HANDLER_THREADS
+    if value < 1:
+        return _DEFAULT_MAX_HANDLER_THREADS
+    return value
 
 
 # ── WebSocket connection cap ─────────────────────────────────────────────────
