@@ -67,6 +67,7 @@ const {
   displayName,
   dropInNode,
   findNodeByName,
+  createSocketKeepalive,
   firstWrapCrossing,
   nodeAddress,
   nodeMark,
@@ -1061,10 +1062,16 @@ function joinModal() {
 
 let wsAttempts = 0;
 let wsRetryTimer = null;
+// One keepalive for the life of the page. arm() replaces its interval, so a
+// reconnect cannot stack timers; stop() runs on every close.
+const wsKeepalive = createSocketKeepalive(socket => {
+  socket.send(JSON.stringify({ type: "ping" }));
+});
 
 function wsConnect(seed) {
   if (ws) { ws.onclose = null; ws.close(); ws = null; }  // intentional close: no retry
   clearTimeout(wsRetryTimer);
+  wsKeepalive.stop();
   players  = {};
   colorIdx = 0;
   renderPlayers();
@@ -1073,11 +1080,16 @@ function wsConnect(seed) {
   try { ws = new WebSocket(url); } catch (_) { return; }
   // Announce our current position on (re)connect so others see us where we
   // actually are — including the initial drop-in / resume node.
-  ws.onopen    = () => { wsAttempts = 0; if (selected) wsSend({ type: 'move', node: selected.name }); };
+  ws.onopen    = () => {
+    wsAttempts = 0;
+    wsKeepalive.arm(ws);
+    if (selected) wsSend({ type: 'move', node: selected.name });
+  };
   ws.onmessage = e => { try { handleWsMsg(JSON.parse(e.data)); } catch (_) {} };
   // Unintentional drop (server deploy, flaky network): reconnect with
   // exponential backoff + jitter, resetting on success.
   ws.onclose   = () => {
+    wsKeepalive.stop();
     ws = null;
     wsAttempts += 1;
     const backoff = Math.min(30000, 1000 * 2 ** Math.min(wsAttempts - 1, 5));

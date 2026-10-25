@@ -314,6 +314,40 @@
     return `became ${String(value)}`;
   }
 
+  // The server closes a socket that receives nothing for 60s
+  // (server/websocket.py `sock.settimeout(60)`). A browser cannot send an
+  // RFC 6455 ping, so clients send the application ping the session loop
+  // already answers with `{"type":"pong"}`. One owner, one interval: arm() replaces
+  // any timer it started, and stop() is close and unmount. Page visibility
+  // does not pause it — the scene renderer skips hidden frames, and pausing
+  // here would let that 60s deadline drop a player who is still connected.
+  const KEEPALIVE_INTERVAL_MS = 20000;
+
+  function socketIsOpen(socket) {
+    const openState = typeof WebSocket === "function" ? WebSocket.OPEN : 1;
+    return !!socket && socket.readyState === openState;
+  }
+
+  function createSocketKeepalive(send, intervalMs) {
+    const period = intervalMs == null ? KEEPALIVE_INTERVAL_MS : intervalMs;
+    let timer = null;
+    function stop() {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    }
+    function arm(socket) {
+      stop();
+      timer = setInterval(function () {
+        if (!socketIsOpen(socket)) return;
+        try { send(socket); }
+        catch (_) { /* a socket can close between the check and the write */ }
+      }, period);
+    }
+    return { arm: arm, stop: stop };
+  }
+
   function waybackMomentLine(timeline) {
     const moment = (timeline && timeline.moment) || { kind: "birth" };
     if (moment.kind === "birth") return "the node rests in its born state";
@@ -335,6 +369,7 @@
     BADGE_RULES,
     causalFeedLine,
     createNodeRefresher,
+    createSocketKeepalive,
     describeChronicleEntry,
     describeMutation,
     displayName,
@@ -344,6 +379,7 @@
     findNodeByName,
     findPath,
     firstWrapCrossing,
+    KEEPALIVE_INTERVAL_MS,
     mutationLine,
     scaleActLine,
     causalNoticeLine,
