@@ -907,6 +907,8 @@ class Handler(BaseHTTPRequestHandler):
                 persistence.record_mutation(
                     seed, node.name, "PLAYER_SPEAK", player_name, data,
                     actor_identity=identity,
+                    model_provider=getattr(response, "provider", None),
+                    resolved_model=getattr(response, "resolved_model", None),
                 )
                 self._send_json({"response": response, "ai": True})
             except Exception as exc:
@@ -1116,6 +1118,8 @@ class Handler(BaseHTTPRequestHandler):
                 {"agent": agent_name, "persona": persona.name,
                  "message": message, "reply": response},
                 actor_identity=_actor_identity(user_key, player_name),
+                model_provider=getattr(response, "provider", None),
+                resolved_model=getattr(response, "resolved_model", None),
             )
             self._send_json({
                 "agent":    agent_name,

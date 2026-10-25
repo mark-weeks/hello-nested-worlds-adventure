@@ -682,11 +682,56 @@ def get_player_exchanges(world_seed: int, node_name: str, identity: str,
     return out
 
 
+def _model_mark(value: object) -> str | None:
+    """A provider name or resolved model id from a call result, or None.
+
+    Non-strings, blanks, control characters and oversized values are dropped
+    rather than truncated: a shortened id would claim a different model.
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or len(text) > 200 or any(ord(ch) < 32 for ch in text):
+        return None
+    return text
+
+
+def _attach_provenance(conn: sqlite3.Connection, mutation_id: int | None,
+                       provider: object, model: object) -> None:
+    """Record call-result provenance beside one new chronicle row.
+
+    A restored database from before this table exists is missing it until
+    the next process start runs migrations. Keep the chronicle row in that
+    window; absence is unknown, not a guessed provider.
+    """
+    provider, model = _model_mark(provider), _model_mark(model)
+    if mutation_id is None or (provider is None and model is None):
+        return
+    try:
+        conn.execute(
+            """INSERT INTO mutation_model_provenance
+               (mutation_id, provider, resolved_model) VALUES (?, ?, ?)""",
+            (mutation_id, provider, model),
+        )
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc):
+            raise
+
+
+def _provenance_table(conn: sqlite3.Connection) -> bool:
+    return conn.execute(
+        """SELECT 1 FROM sqlite_master
+           WHERE type = 'table' AND name = 'mutation_model_provenance'"""
+    ).fetchone() is not None
+
+
 @_with_db
 def record_mutation(world_seed: int, node_name: str, mutation_type: str,
                     player_name: str | None, data: dict,
                     actor_identity: str | None = None,
-                    strength: float | None = None) -> None:
+                    strength: float | None = None, *,
+                    model_provider: str | None = None,
+                    resolved_model: str | None = None) -> None:
     """Append one chronicle row.
 
     `player_name` is the mutable display label; `actor_identity` is the
@@ -700,9 +745,14 @@ def record_mutation(world_seed: int, node_name: str, mutation_type: str,
     event's only trace — and every other row must leave it None: ripple is
     rebuilt as a fold over exactly the strength-bearing rows, so a fired
     event must carry strength on exactly one row.
+
+    `model_provider` and `resolved_model` are copied from the completion
+    that wrote model text into this row. Omit both for authored text,
+    player text, and fallback lines: nothing is stored, which is unknown
+    for rows that predate the side table and none for a new non-model row.
     """
     with _connection() as conn:
-        conn.execute(
+        cur = conn.execute(
             """INSERT INTO world_mutations
                (world_seed, node_name, mutation_type, player_name, data,
                 actor_identity, strength)
@@ -711,6 +761,34 @@ def record_mutation(world_seed: int, node_name: str, mutation_type: str,
              json.dumps(data), actor_identity,
              None if strength is None else float(strength)),
         )
+        _attach_provenance(conn, cur.lastrowid, model_provider, resolved_model)
+
+
+@_with_db
+def provenance_of(mutation_id: int) -> dict[str, str | None] | None:
+    """Operator read of one row's model provenance.
+
+    None when no chronicle row has that id. Both values are None when the
+    row has no recorded provenance: historical rows stay unknown, and rows
+    written without a model call record none. Player history does not use
+    this; it would classify a trace by who authored its words.
+    """
+    with _connect() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM world_mutations WHERE id = ?", (mutation_id,)
+        ).fetchone()
+        if exists is None:
+            return None
+        if not _provenance_table(conn):
+            return {"provider": None, "resolved_model": None}
+        row = conn.execute(
+            """SELECT provider, resolved_model FROM mutation_model_provenance
+               WHERE mutation_id = ?""",
+            (mutation_id,),
+        ).fetchone()
+    if row is None:
+        return {"provider": None, "resolved_model": None}
+    return {"provider": row[0], "resolved_model": row[1]}
 
 
 @_with_db
@@ -768,16 +846,22 @@ def find_mutations_by_text(needle: str, world_seed: int | None = None,
         where += " AND world_seed = ?"
         args.append(world_seed)
     with _connect() as conn:
+        if _provenance_table(conn):
+            extra = (", p.provider, p.resolved_model"
+                     " FROM world_mutations LEFT JOIN mutation_model_provenance p"
+                     " ON p.mutation_id = world_mutations.id")
+        else:
+            extra = ", NULL, NULL FROM world_mutations"
         rows = conn.execute(
             f"""SELECT id, world_seed, node_name, mutation_type,
-                       player_name, data, recorded_at
-                FROM world_mutations WHERE {where}
+                       player_name, data, recorded_at{extra}
+                WHERE {where}
                 ORDER BY id DESC LIMIT ?""",
             (*args, limit),
         ).fetchall()
     return [{"id": r[0], "seed": r[1], "node": r[2], "type": r[3],
              "player": r[4], "data": json.loads(r[5]) if r[5] else {},
-             "at": r[6]} for r in rows]
+             "at": r[6], "provider": r[7], "resolved_model": r[8]} for r in rows]
 
 
 @_with_db
@@ -2180,6 +2264,16 @@ def prune_mutations(days: int) -> int:
                 (json.dumps(new_baseline), world_seed, node_name),
             )
 
+        try:
+            conn.execute(
+                """DELETE FROM mutation_model_provenance
+                   WHERE mutation_id IN (
+                       SELECT id FROM world_mutations WHERE recorded_at < ?)""",
+                (cutoff,),
+            )
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc):
+                raise
         removed = _delete_older_than(
             conn, "world_mutations", "recorded_at", days, cutoff=cutoff)
 

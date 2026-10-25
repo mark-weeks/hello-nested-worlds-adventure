@@ -89,10 +89,17 @@ implements the sole current adapter. All four tasks use the boundary; the node
 voice, inhabitant voice and intention endpoints ask the selected adapter whether
 it is configured before charging their existing voice budgets. Missing
 credentials serve authored fallbacks without a voice call, budget charge or
-speech chronicle row. Adding another provider still requires an adapter and
-explicit selection wiring in `get_provider()`; there is no multi-provider
-environment selector or automatic failover. Per-task model settings are not
-that selector.
+speech chronicle row. A model-written chronicle row records the provider name
+and the resolved model id from that call's Completion, in
+`mutation_model_provenance`. The call was made with `model_for(task)`; the
+stored id is the one the provider returned for that call, not a later read of
+the setting, and a missing response id stays unknown. Historical rows are not
+backfilled. Authored fallback text records none. Player history, the chronicle
+page and node voices do not read the side table. Deleting a chronicle row
+deletes its provenance row with it. Adding another provider still requires an
+adapter and explicit selection wiring in `get_provider()`; there is no
+multi-provider environment selector or automatic failover. Per-task model
+settings are not that selector.
 
 
 Keep task prompts, transcripts and deterministic validation in application code.

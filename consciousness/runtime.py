@@ -98,12 +98,33 @@ class Completion:
     usage: TokenUsage | None = None
     finish_reason: str = "unknown"
     resolved_model: str | None = None
+    provider: str | None = None
 
     def require_text(self) -> str:
         # Preserve voice behavior for partial text; only a missing block fails.
         if self.text is None:
             raise NoTextError(f"No text in model response (complete={self.complete}, finish={self.finish_reason})")
         return self.text
+
+
+class Voiced(str):
+    """Model text that still compares and serializes as that text.
+
+    `provider` and `resolved_model` are copied from the Completion that
+    produced the text. A plain str is authored fallback text and has neither
+    attribute. Slicing returns a plain str, so read the attributes first.
+    """
+
+    def __new__(cls, text: str, provider: str | None, resolved_model: str | None):
+        obj = str.__new__(cls, text)
+        obj.provider = provider
+        obj.resolved_model = resolved_model
+        return obj
+
+    def __reduce_ex__(self, protocol):
+        # str's reducer rebuilds through __new__ with only the characters.
+        # Eval snapshots deepcopy the spoken line, so the call result must travel.
+        return (type(self), (str(self), self.provider, self.resolved_model))
 
 
 def failure_summary(exc: Exception) -> str:

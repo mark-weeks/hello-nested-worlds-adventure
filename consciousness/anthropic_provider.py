@@ -88,7 +88,8 @@ class AnthropicProvider:
         stop = getattr(response, "stop_reason", None)
         return Completion(text=text, complete=stop == "end_turn", usage=usage,
                           finish_reason=_FINISH_REASONS.get(stop, "unknown"),
-                          resolved_model=getattr(response, "model", None))
+                          resolved_model=getattr(response, "model", None),
+                          provider=self.name)
 
 
 provider = AnthropicProvider()

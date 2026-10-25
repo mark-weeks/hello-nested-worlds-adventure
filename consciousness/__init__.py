@@ -12,7 +12,7 @@ from typing import Any
 
 from multiverse.node import SpatialNode
 from consciousness import runtime
-from consciousness.runtime import SystemBlock
+from consciousness.runtime import SystemBlock, Voiced
 
 _log = logging.getLogger("nested_worlds.consciousness")
 
@@ -1053,7 +1053,7 @@ def speak(node: SpatialNode, message: str,
         endpoint="speak", model=runtime.model_for(runtime.NODE_TASK), max_tokens=256,
         system=system_blocks, messages=messages,
     )
-    return response.require_text()
+    return Voiced(response.require_text(), response.provider, response.resolved_model)
 
 
 def _agent_memory_block(agent_memory: dict | None, node: SpatialNode) -> str:
@@ -1149,7 +1149,7 @@ def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
         system=(SystemBlock(_AGENT_BIBLE, cacheable=True), SystemBlock(agent_context)),
         messages=[{"role": "user", "content": message}],
     )
-    return response.require_text()
+    return Voiced(response.require_text(), response.provider, response.resolved_model)
 
 
 # ── Input-moderation classify (ADR-004 §2) ──────────────────────────────────

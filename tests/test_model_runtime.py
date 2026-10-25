@@ -131,12 +131,14 @@ def test_anthropic_normalizes_request_completion_and_usage(stop, complete, reaso
         calls.append(kwargs)
         return SimpleNamespace(content=[SimpleNamespace(type='thinking'), SimpleNamespace(type='text', text='answer')],
             stop_reason=stop, usage=SimpleNamespace(input_tokens=10, output_tokens=4,
-                                                   cache_read_input_tokens=7, cache_creation_input_tokens=2))
+                                                   cache_read_input_tokens=7, cache_creation_input_tokens=2),
+            model='resolved-fixture-20261025')
     adapter._client = SimpleNamespace(messages=SimpleNamespace(create=create))
     schema = {'type': 'object'}
     result = adapter.generate(model='fixture-model', system=(SystemBlock('bible', True), SystemBlock('state')),
         messages=[{'role': 'user', 'content': 'hello'}], max_tokens=500, json_schema=schema, timeout=3.0)
-    assert result == Completion('answer', complete, TokenUsage(10, 4, 7, 2), reason)
+    assert result == Completion('answer', complete, TokenUsage(10, 4, 7, 2), reason,
+                                resolved_model='resolved-fixture-20261025', provider='anthropic')
     assert calls == [dict(model='fixture-model', max_tokens=500, timeout=3.0,
         system=[{'type': 'text', 'text': 'bible', 'cache_control': {'type': 'ephemeral', 'ttl': '1h'}},
                 {'type': 'text', 'text': 'state'}],
@@ -152,7 +154,7 @@ def test_anthropic_keeps_missing_text_and_usage_unknown():
         return SimpleNamespace(content=[], stop_reason='refusal')
     adapter._client = SimpleNamespace(messages=SimpleNamespace(create=create))
     result = adapter.generate(model='other-model', system=(SystemBlock('classify'),), messages=[], max_tokens=8)
-    assert result == Completion(None, False, None, 'refusal')
+    assert result == Completion(None, False, None, 'refusal', provider='anthropic')
     assert calls == [dict(model='other-model', system='classify', messages=[], max_tokens=8)]
     assert adapter.cache_reference_tokens('other-model') is None
 
