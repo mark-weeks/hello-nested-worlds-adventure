@@ -189,7 +189,7 @@ decision and its own revisit clause.
 
 | Batch | Scope | Doors (irreversibility check) |
 |---|---|---|
-| **1 — identity (must precede first production history)** | Migration 0028: `node_aliases` seeded from `world_nodes`, `node_path` columns where hot; readers through aliases; `resolve_node_by_name` accepting aliases; the behavioral parity suite; dispatchable generator versions | Additive migration, reviewed once here; no new write path; no re-pin |
+| **1 — identity (must precede first production history)** | Migration at the next available migration number at merge time (see roadmap README numbering rule): `node_aliases` seeded from `world_nodes`, `node_path` columns where hot; readers through aliases; `resolve_node_by_name` accepting aliases; the behavioral parity suite; dispatchable generator versions | Additive migration, reviewed once here; no new write path; no re-pin |
 | **2 — the first events** | `ERA_TURNED` with the `eras` table; `NODE_REASPECTED`; `NODE_RENAMED`; the `evolve` CLI; Wayback moments | New `mutation_type` write paths through the atomic API (covenant-level, reviewed once here); additive `eras` migration; the era freeze pin moves to stamped rows |
 | **3 — shape** | `NODE_BORN`/`FRONTIER_GROWN` with `save_frontier_node`; `PASSAGE_OPENED`/`CLOSED` with `world_edges`; `LAW_SHIFTED` with augury re-arm; `NODE_RETIRED`/`REOPENED` | Additive `world_edges` migration; new write paths as above; no golden re-pin unless the generator itself changes |
 
