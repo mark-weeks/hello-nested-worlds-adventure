@@ -226,7 +226,7 @@ transport failures and harness errors have separate operational counters. They
 remain unknown for semantic success, never pass or become critical semantic
 failures, and block qualification. Refusal, truncation and missing text are invalid
 completions and count as task failures. Moderation classifier/screen correctness
-requires an actual completed verdict; observed screen fail-open behavior is counted
+requires an actual completed verdict; a held or unjudged screen is counted
 separately, so a timeout cannot masquerade as a model's false allow or false block.
 No-dispatch trials contribute no latency sample.
 

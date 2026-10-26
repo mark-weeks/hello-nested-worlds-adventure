@@ -15,8 +15,8 @@ perform ([ADR-034](ADR-034-provider-and-model-optionality.md)); no provider
 is named as the policy. §1 (redaction and break-glass hard delete), the
 never-wipe rule, the hosted-restore wording, and the budget bucket names are
 unchanged. One sentence in §3 states when the never-wipe covenant starts.
-The running screen still implements the earlier fail-open behavior; this
-amendment does not change code.
+The running screen implements this failure rule. The starting per-user cap
+values are configuration recorded with the implementation.
 
 **Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat.
 
@@ -71,16 +71,17 @@ ahead of the "what if."
 cost is precisely the loss of mechanical integrity and accountability that
 content-level redaction avoids.
 
-### 2. Input moderation *(amended 2026-10-25; the running screen still fail-opens)*
+### 2. Input moderation *(amended 2026-10-25; shared text fails closed)*
 
 Player-authored text is screened before it becomes visible to other players.
-The screen that shipped covers `/speak`, `/agent/voice`, and WebSocket chat
-before a chronicle row, a name before the registry (`/register`, `invite mint`,
-`play --name`), and a profile bio and goals when `published` is set
-(`server/participant_api.py`). Ideas are shared text on a different path:
-`persistence/ideas.py` applies the local tier only, publishes a submission
-that is not a local block, and does not call the classifier. Private notes
-(`/journal/note`) are not screened and do not enter the chronicle. Two tiers,
+The screen covers `/speak`, `/agent/voice`, WebSocket chat, and the player
+line of a reply before a chronicle row or a model call; a name before the
+registry (`/register`, `invite mint`, `play --name`); a profile bio and
+goals when `published` is set (`server/participant_api.py`); Ideas
+(`persistence/ideas.py`, local tier first, then the same classifier and
+budgets); and the free text of a puzzle attempt when it would be stored in
+shared history. Private notes (`/journal/note`) and unpublished profile
+text are not screened and do not enter the chronicle. Two tiers,
 cheapest first (`server/moderation.py`, `content_screen.py`):
 
 - **Local filter** — in-process. Only the unambiguous word-boundary
@@ -154,29 +155,49 @@ notes, and other play that does not publish the held text continue.
 private note, unpublished profile text, and other writing only the author
 can read are not held because the classifier is down. Movement, puzzle
 attempts, and scale actions continue when moderation cannot complete. A
-safety check must not become the thing that stops the game. The local CLI
-`speak` path is unscreened in the current program because that terminal is
-the operator. That is not an exception for text other players will read: if
-that path writes into a shared world, the shared-text rule applies.
+puzzle attempt still counts and still records correctness; the raw guess
+is omitted from the shared row when it was not judged. Existing chronicle
+rows are not rewritten. A safety check must not become the thing that
+stops the game. The local CLI `speak` path is the operator terminal in
+local multi-world mode (`NESTED_WORLDS_CANONICAL_SEED` empty, `off`, or
+`none`) and stays unscreened there. Speech into the configured canonical
+world — including the launch default when that variable is unset — is
+shared text and uses this rule. An unreadable canonical-seed setting is
+treated as shared.
 
 **Per-user caps.** One user must not be able to exhaust the shared moderation
 budget or flood the classifier, and the same kind of cap applies to
-model-calling actions. The caps are configuration. This amendment sets no
-numbers; they are to be measured, and the implementation PR records the
-values it chooses. `guard.consume_moderation` currently has no per-user
-sub-cap. Existing model-call sub-caps and their bucket names are unchanged
-by this record.
+model-calling actions. The caps are configuration. The starting values are
+chosen to be measured, not tuned:
+
+- `NESTED_WORLDS_MODERATION_ACTIONS_PER_USER` (default 600) counts
+  moderation-triggering actions for a presented credential. Open when no
+  credential is supplied.
+- `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER` (default 60) caps classify
+  calls per credential and is checked before the shared
+  `NESTED_WORLDS_MODERATION_DAILY_CALLS` bucket (`moderation`, default 2000).
+- `NESTED_WORLDS_MODEL_ACTIONS_PER_USER` (default 200) caps model-calling
+  actions (voice, inhabitant voice, intention, and a moderation classify).
+  It does not rename or touch the `anthropic` bucket or
+  `NESTED_WORLDS_ANTHROPIC_*`.
+
+Exceeding a cap holds shared text and returns a clear message. Mechanical
+play continues. Credential-less local use stays open on these per-user
+gates, as the existing voice sub-cap does.
 
 **Backstop, unchanged.** Content-level redaction (§1) and the narrow
 break-glass hard delete remain the way something that still lands is removed.
 This amendment adds no chronicle mechanism.
 
-The code on this date still fail-opens. `server/moderation.py` allows the
-text when moderation is disabled, when `guard.consume_moderation` returns
-false, and when classification raises. `name_allowed` allows every name when
-moderation is disabled. Ideas do not consult the disable switch, the
-classifier, or the moderation budget. Closing that gap is the implementation
-PR. `moderation_call` remains the structured log for latency and cost.
+The running screen implements this rule. Shared text is held when
+moderation is disabled, when the moderation reserve is not `ok`, when
+classification raises, and when the verdict is undecided. A local clean
+verdict is a completed judgment and still publishes during a provider
+outage; a local block still declines without a model call. Names are
+refused when moderation is disabled, with a choose-another line. Ideas
+use the same screen. `moderation_call` logs `outcome` (`allow`, `block`,
+`undecided`, `error`, `disabled`, `budget`, `user_cap`) and does not log
+player text or a raw address.
 
 ### 3. Continuity: never wipe; the covenant is already in force
 
@@ -298,9 +319,10 @@ the shared key entirely:
   own session continues. Private or solo-only text and mechanical play stay
   fail-open, so the check does not stop the game. Content-level redaction and
   break-glass hard delete remain the backstop for whatever still lands.
-- **Unspecified cap numbers** mean the implementation chooses limits from
-  measurement rather than from this ADR. Accepted, so a policy record does not
-  freeze an unmeasured rate.
+- **Starting cap numbers** are configuration chosen as ceilings to measure,
+  not rates derived from live traffic. Accepted, so a policy record does not
+  freeze an unmeasured rate. Change them when measurement says they are
+  too tight or too loose.
 
 ## Consequences of the 2026-10-25 amendment
 
@@ -316,8 +338,8 @@ the shared key entirely:
   disposable world is declared and run on staging.
 - Moderation stays a replaceable task under ADR-034. This amendment selects
   no provider.
-- Until the implementation PR, the running server still fail-opens, so this
-  decision is not yet behavior.
+- The running screen implements the failure rule and the starting caps
+  above. This decision is behavior.
 
 ## Revisit when…
 
@@ -341,9 +363,9 @@ the shared key entirely:
   `consciousness._history_block`.
 - ~~**(Pre-launch build)**~~ Both pre-launch builds have shipped: §7 (unique
   names / no anonymous play / invite-gated self-service) and §2 (input
-  moderation). The 2026-10-25 amendment changes §2's failure policy for
-  shared text and requires per-user caps; that behavior is not in the running
-  screen yet. The triggers above govern the implementation and later tuning.
+  moderation). The 2026-10-25 amendment is what the running screen does for
+  shared text, including the starting per-user caps. The triggers above
+  govern later tuning.
 
 ## Rejected alternatives
 

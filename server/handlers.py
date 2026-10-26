@@ -998,15 +998,19 @@ class Handler(BaseHTTPRequestHandler):
                 identity = player_name
 
             # Screen the input BEFORE the voice budget is touched and before
-            # anything can become a chronicle row (ADR-004 §2). A decline is
-            # HTTP 200 in the world's voice — a policy act, not a failure —
-            # and leaves no trace of the declined words anywhere.
-            if not moderation.screen(message).allowed:
-                return self._send_json({"response": moderation.DECLINE_LINE,
-                                        "ai": False, "declined": True})
+            # anything can become a chronicle row (ADR-004 §2). A decline or
+            # a hold is HTTP 200 in the world's voice — a policy act, not a
+            # failure — and leaves no trace of the words anywhere.
+            verdict = moderation.screen(
+                message, user_key=user_key or None, surface="speak")
+            if not verdict.allowed:
+                return self._send_json(moderation.http_body(verdict))
 
             import consciousness
             voice_ready = runtime.configured()
+            if voice_ready and not guard.consume_model_action(user_key or None):
+                return self._send_json({"response": guard.QUIET_RESPONSE,
+                                        "ai": False})
             if voice_ready and not guard.consume_anthropic(user_key=user_key):
                 return self._send_json({"response": guard.QUIET_RESPONSE,
                                         "ai": False})
@@ -1209,15 +1213,18 @@ class Handler(BaseHTTPRequestHandler):
         persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
 
         # Screen before the voice budget is charged (the consume used to sit
-        # first — a declined message must cost nothing) and before any
-        # chronicle row can exist. Same authored decline as /speak.
-        if not moderation.screen(message).allowed:
-            return self._send_json({"response": moderation.DECLINE_LINE,
-                                    "agent": agent_name,
-                                    "persona": persona.name,
-                                    "node": node_name,
-                                    "ai": False, "declined": True})
+        # first — a declined or held message must cost nothing) and before any
+        # chronicle row can exist. Same authored lines as /speak.
+        verdict = moderation.screen(
+            message, user_key=user_key or None, surface="agent")
+        if not verdict.allowed:
+            return self._send_json(moderation.http_body(
+                verdict, agent=agent_name, persona=persona.name, node=node_name))
         voice_ready = runtime.configured()
+        if voice_ready and not guard.consume_model_action(user_key or None):
+            return self._send_json({"response": guard.QUIET_RESPONSE,
+                                    "agent": "", "persona": "", "node": "",
+                                    "ai": False})
         if voice_ready and not guard.consume_anthropic(user_key=user_key):
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
@@ -1301,12 +1308,12 @@ class Handler(BaseHTTPRequestHandler):
             # names are world canon and unimpersonatable.
             return self._send_error(
                 f"'{name}' belongs to the world — choose another name", 403)
-        if not moderation.name_allowed(name):
-            # A registered name is permanent, unique, and visible everywhere
-            # — the strict local screen applies (ADR-004 §2). The token is
-            # kept; the registrant just picks differently.
-            return self._send_error(
-                "that name can't be carried here — choose another name", 403)
+        refusal = moderation.name_refusal(name, user_key=token or None)
+        if refusal:
+            # A registered name is permanent, unique, and visible everywhere.
+            # The token is kept; the registrant picks differently or retries
+            # when the screen can judge names again (ADR-004 §2).
+            return self._send_error(refusal, 403)
 
         key = "nw_" + secrets.token_hex(16)
         try:
@@ -1657,6 +1664,11 @@ class Handler(BaseHTTPRequestHandler):
         effective_node = node_name or target.name
         room           = get_room(seed)
         correct        = answer.lower() == p.answer.lower()
+        # The attempt still counts when the guess cannot be judged. Only the
+        # free text is withheld from the shared row. Existing rows are left
+        # as they were written.
+        shared_guess = moderation.public_excerpt(
+            answer, user_key=user_key or None, surface="puzzle")
 
         changed = None
         secondary_notifications = []
@@ -1666,10 +1678,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with puzzle_attempt(room, effective_node, p.name, player_name, correct, expected_epoch=epochs.get(target.name, 0)) as (session, just_solved):
                 if just_solved or session.solver is None:
+                    attempt_data = {"puzzle": p.name, "correct": correct}
+                    if shared_guess is not None:
+                        attempt_data["guess"] = shared_guess[:32]
                     persistence.record_mutation(
                         seed, effective_node, "PUZZLE_ATTEMPT", player_name,
-                        {"puzzle": p.name, "correct": correct,
-                         "guess": answer[:32]},
+                        attempt_data,
                         actor_identity=_actor_identity(user_key, player_name))
                 if just_solved:
                     changed, _staged = accept_event(
@@ -1739,10 +1753,12 @@ class Handler(BaseHTTPRequestHandler):
         if failed:
             # The human who made the final attempt IS the actor — dropping
             # them (the old player_name=None) threw attribution away.
+            failed_data = {"puzzle": p.name, "contributors": contributors}
+            if shared_guess is not None:
+                failed_data["answer_given"] = shared_guess[:64]
             persistence.record_mutation(
                 seed, effective_node, "PUZZLE_FAILED", player_name,
-                {"puzzle": p.name, "answer_given": answer[:64],
-                 "contributors": contributors},
+                failed_data,
                 actor_identity=_actor_identity(user_key, player_name),
             )
 

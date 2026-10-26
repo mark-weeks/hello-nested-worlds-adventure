@@ -60,6 +60,9 @@ def handle(handler, path, qs, body=None):
         handler._send_error(str(exc), 409)
     except ideas.Limited as exc:
         handler._send_error(str(exc), 429)
+    except ideas.Held as exc:
+        # 503 keeps the browser draft for a retry. The text was not published.
+        handler._send_error(str(exc), 503)
     except ValueError as exc:
         handler._send_error(str(exc), 400)
     except Exception as exc:

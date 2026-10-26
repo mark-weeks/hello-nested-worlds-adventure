@@ -136,7 +136,7 @@ def test_call_sites_send_only_their_resolved_model(monkeypatch):
     assert consciousness.speak(node, 'Hello') == 'ALLOW'
     assert consciousness.voice_agent(
         SimpleNamespace(name='tender'), 'Tessera', node, 'Hello') == 'ALLOW'
-    assert consciousness.classify_content('fixture input') is True
+    assert consciousness.classify_content('fixture input') == 'allow'
     provider.result = runtime.Completion(READY, True)
     assert interventions.propose('cut a pattern', {'level': 'Object'}) == [
         {'op': 'engrave', 'amount': 1}]

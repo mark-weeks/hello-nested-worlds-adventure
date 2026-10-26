@@ -1,7 +1,8 @@
 """Input moderation for player-authored text (ADR-004 §2).
 
-Two tiers, cheapest first, applied BEFORE anything enters the permanent
-chronicle (`/speak`, `/agent/voice`, WS chat) or the name registry:
+Two tiers, cheapest first, applied BEFORE shared text can be seen by
+anyone else (`/speak`, `/agent/voice`, WebSocket chat, Ideas, a published
+profile, a registered name, and puzzle free text stored in the chronicle):
 
   1. **Local filter** — in-process, zero API cost/latency. A word-boundary
      match against a small list of unambiguous slurs is a definite BLOCK; a
@@ -10,25 +11,26 @@ chronicle (`/speak`, `/agent/voice`, WS chat) or the name registry:
      (spaced/leet-spelled slurs or threats), or a long digit run (doxxing shape) marks
      the input AMBIGUOUS. These signals request a contextual verdict; they
      never block locally, including when they match benign fiction or reports.
-  2. **Model classification** — only ambiguous inputs escalate to one short,
-     uncached Messages-API call (`consciousness.classify_content`), charged
-     to moderation's own daily budget (`guard.consume_moderation`), never
-     the voice budget.
+  2. **Model classification** — only ambiguous inputs escalate to one short
+     call (`consciousness.classify_content`), charged to moderation's own
+     daily budget (`guard.moderation_reserve`), never the voice budget.
+     The model id is `runtime.model_for("moderation")`.
 
-**Fail-open everywhere**: an API error, a timeout, or an exhausted
-moderation budget ALLOWS the input — content-level redaction stays the
-backstop (ADR-004 §1), and a safety feature must never become the thing
-that breaks chat. The kill switch (`NESTED_WORLDS_DISABLE_MODERATION=1`)
-turns the whole screen off without a redeploy, matching the AI/image
-switches.
+**Shared text fails closed.** A timeout, a provider error, disabled
+moderation, an exhausted moderation budget, an undecided verdict, or a
+per-user cap holds the text: no chronicle row, no broadcast, no visible
+idea, no published profile, no registered name. A local or model BLOCK
+declines it. Neither path charges the voice budget. Private notes,
+unpublished profile text, movement, puzzle correctness, and scale actions
+are not held because the screen could not judge. The local CLI `speak`
+path stays unscreened only while it is not writing the hosted canonical
+world; speech into that world uses this same rule.
 
 Design note on false positives: only the exact word-boundary tier can block
-on its own. The fuzzier signals (collapsed sequences, run-squeezed text,
-watch words) never block locally — they only escalate, so the classifier
-absorbs the ambiguity ("sniggering", the river Niger, fantasy violence).
-False escalations still spend budget and add inline latency; exhaustion then
-fails open. Benign gameplay controls avoid known false triggers, but live
-escalation frequency and classifier quality remain unmeasured.
+on its own. The fuzzier signals never block locally — they only escalate.
+A flaky classifier holds the ambiguous line instead of publishing it.
+`moderation_call` records the outcome (allow, block, undecided, error,
+disabled, budget, user_cap) with no player text and no raw address.
 """
 from __future__ import annotations
 
@@ -55,9 +57,51 @@ EXTRA_WATCH_ENV = "NESTED_WORLDS_MODERATION_WATCH_EXTRA"
 # page: a content decline is a policy act, but it still speaks in fiction.
 DECLINE_LINE = "The worlds decline to carry those words. Say it another way."
 
+# Distinct from a content decline: the screen did not judge the words, so
+# they are not shared. Same fictional register, same HTTP 200 pattern.
+HOLD_LINE = (
+    "The worlds hold those words for now. They are not shared. "
+    "Say it another way, or try again later."
+)
+
+# Ideas is a community product surface, not the world's voice.
+IDEAS_DECLINE = "Please revise the idea to keep the board respectful."
+IDEAS_HOLD = (
+    "This idea was not published. It could not be reviewed, so the board "
+    "does not show it. Your draft is kept; try again later."
+)
+
+# Registration stays a clear choose-another refusal in both cases.
+NAME_BLOCK = "that name can't be carried here — choose another name"
+NAME_UNAVAILABLE = "names can't be registered just now — choose another"
+
+PROFILE_DECLINE = "Please revise the public profile text."
+PROFILE_HOLD = (
+    "The public profile was not published. Those words could not be "
+    "reviewed. Try again later, or save them without publishing."
+)
+
 
 def moderation_disabled() -> bool:
     return os.environ.get(DISABLE_MODERATION_ENV, "").strip() == "1"
+
+
+def writes_shared_chronicle(seed: int) -> bool:
+    """True when a CLI session would write the hosted canonical world.
+
+    Local multi-world mode (``NESTED_WORLDS_CANONICAL_SEED`` empty, ``off``,
+    or ``none``) is the operator terminal: ``speak`` there is not published
+    to other players and stays unscreened. When a canonical seed is
+    configured — including the launch default when the variable is unset —
+    speech into that seed is shared text and uses :func:`screen`. An
+    unreadable seed setting is treated as shared so the CLI does not
+    publish past a broken boundary.
+    """
+    try:
+        hosted = guard.canonical_seed()
+    except ValueError:
+        return True
+    return hosted is not None and int(seed) == hosted
 
 
 # ── Verdicts ────────────────────────────────────────────────────────────────
@@ -65,62 +109,129 @@ def moderation_disabled() -> bool:
 @dataclass(frozen=True)
 class Verdict:
     allowed: bool
-    tier: str  # off | clean | blocklist | classify | fail_open | budget_open
+    tier: str  # clean | blocklist | classify | undecided | error | disabled | budget | user_cap
+    outcome: str  # allow | block | undecided | error | disabled | budget | user_cap
 
 
-_ALLOW_OFF    = Verdict(True, "off")
-_ALLOW_CLEAN  = Verdict(True, "clean")
-_BLOCK_LOCAL  = Verdict(False, "blocklist")
+_ALLOW_CLEAN = Verdict(True, "clean", "allow")
+_BLOCK_LOCAL = Verdict(False, "blocklist", "block")
 
 
+def player_line(verdict: Verdict) -> str:
+    """In-fiction line for a shared-text refusal. Block and hold differ."""
+    if verdict.outcome == "block":
+        return DECLINE_LINE
+    return HOLD_LINE
 
-def screen(text: str) -> Verdict:
-    """Screen player-authored text before it enters the chronicle.
 
-    The common case (clean input) costs zero API calls and microseconds of
-    CPU; only ambiguous inputs spend a classify call. Every failure path
-    ALLOWS — the screen can go quiet, the world's voice cannot.
+def http_body(verdict: Verdict, **extra) -> dict:
+    """HTTP 200 body. A block is ``declined``; every other refusal is ``held``."""
+    body = {"response": player_line(verdict), "ai": False}
+    if verdict.outcome == "block":
+        body["declined"] = True
+    else:
+        body["held"] = True
+    body.update(extra)
+    return body
+
+
+def _moderation_log(outcome: str, surface: str) -> None:
+    # No player text. Addresses are not logged here; a caller that needs one
+    # hashes it with observability.hash_ip before it ever reaches this line.
+    _log.info("moderation_call outcome=%s surface=%s", outcome, surface)
+
+
+def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -> Verdict:
+    """Screen player-authored text before anyone else can see it.
+
+    Clean input costs zero model calls. Ambiguous input spends one classify
+    call when the per-user and shared budgets allow it. Shared text is
+    allowed only for a local clean verdict or a clear ALLOW. Every other
+    result holds or declines it.
     """
     if moderation_disabled():
-        return _ALLOW_OFF
-    if not text or not text.strip():
+        _moderation_log("disabled", surface)
+        return Verdict(False, "disabled", "disabled")
+    if not text or not str(text).strip():
         return _ALLOW_CLEAN
+    if not guard.consume_moderation_action(user_key):
+        _moderation_log("user_cap", surface)
+        return Verdict(False, "user_cap", "user_cap")
 
     tier = _local_tier(text)
     if tier == "block":
+        _moderation_log("block", surface)
         return _BLOCK_LOCAL
     if tier == "clean":
         return _ALLOW_CLEAN
 
-    # Ambiguous → one classify call, on moderation's own budget.
-    if not guard.consume_moderation():
-        _log.warning("moderation budget exhausted — failing open")
-        return Verdict(True, "budget_open")
+    # Ambiguous → one classify call, after the model-action cap and on
+    # moderation's own budget. A model-action refusal does not spend that
+    # budget. The call itself logs allow / block / undecided / error.
+    if not guard.consume_model_action(user_key):
+        _moderation_log("user_cap", surface)
+        return Verdict(False, "user_cap", "user_cap")
+    reservation = guard.moderation_reserve(user_key)
+    if reservation != "ok":
+        _moderation_log(reservation, surface)
+        return Verdict(False, reservation, reservation)
     try:
         import consciousness
-        allowed = consciousness.classify_content(text)
-        return Verdict(allowed, "classify")
+        outcome = consciousness.classify_content(text, surface=surface)
     except Exception as exc:
-        _log.warning("moderation classify failed open: %s", exc)
-        return Verdict(True, "fail_open")
+        _log.warning("moderation classify failed closed: %s", type(exc).__name__)
+        return Verdict(False, "error", "error")
+    if outcome == "allow":
+        return Verdict(True, "classify", "allow")
+    if outcome == "block":
+        return Verdict(False, "classify", "block")
+    return Verdict(False, "undecided", "undecided")
 
 
-def name_allowed(name: str) -> bool:
-    """Local-only screen for registered display names (mint + /register).
+def public_excerpt(text: str, *, user_key: str | None = None,
+                   surface: str = "puzzle") -> str | None:
+    """The player's words when they may be stored for others, else None.
 
-    Names are permanent, unique, and visible everywhere, so this tier is
-    STRICTER than `screen`: the evasion sequences hard-block here instead of
-    escalating (a 32-char name has no prose context to be innocent in, and
-    the registrant can simply choose another). No API call — registration
-    stays synchronous and cheap; `redact --scrub-name` remains the backstop.
+    Puzzle correctness is decided by the caller. This only decides whether
+    the free text may enter a shared record.
     """
-    if moderation_disabled():
-        return True
+    if screen(text, user_key=user_key, surface=surface).allowed:
+        return text
+    return None
+
+
+def _local_name_ok(name: str) -> bool:
     words = _words(name)
     if set(words) & (_SEVERE_WORDS | _env_terms(EXTRA_BLOCK_ENV)):
         return False
     collapsed = "".join(words)
     squeezed = _squeeze(collapsed)
-    if any(s in collapsed or s in squeezed for s in _EVASION_SEQUENCES):
+    if any(sequence in collapsed or sequence in squeezed for sequence in _EVASION_SEQUENCES):
         return False
     return True
+
+
+def name_refusal(name: str, *, user_key: str | None = None) -> str | None:
+    """None when the name may be registered. Otherwise a choose-another line.
+
+    Names stay on the local tier: a short name has no prose context, so
+    evasion sequences hard-block and nothing calls the classifier. Disabled
+    moderation cannot judge a name, so none are registered. A per-user
+    action cap, when a credential or invite token is supplied, also refuses
+    the name without consuming the token.
+    """
+    if moderation_disabled():
+        _moderation_log("disabled", "name")
+        return NAME_UNAVAILABLE
+    if not guard.consume_moderation_action(user_key):
+        _moderation_log("user_cap", "name")
+        return NAME_UNAVAILABLE
+    if not _local_name_ok(name):
+        _moderation_log("block", "name")
+        return NAME_BLOCK
+    return None
+
+
+def name_allowed(name: str, *, user_key: str | None = None) -> bool:
+    """True when :func:`name_refusal` would register ``name``."""
+    return name_refusal(name, user_key=user_key) is None

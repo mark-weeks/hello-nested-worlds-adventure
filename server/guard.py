@@ -72,12 +72,35 @@ DEFAULT_CANONICAL_SEED   = DEFAULT_WORLD_SEED
 ANTHROPIC_BUCKET  = "anthropic"
 FAL_BUCKET        = "fal_ai"
 # Moderation classify calls get their OWN budget line (ADR-004 §2): they must
-# never drain the voice budget (a burst of screened chat should not silence
-# /speak), and when THIS budget runs dry the screen fails open rather than
-# blocking chat — redaction stays the backstop.
+# never drain the voice budget. The persisted voice bucket stays "anthropic";
+# these names are separate counters. When a moderation budget or per-user cap
+# is spent, shared text is held — it is not published. Redaction stays the
+# backstop for text that did land.
 MODERATION_BUCKET = "moderation"
 MODERATION_CAP_ENV = "NESTED_WORLDS_MODERATION_DAILY_CALLS"
 _DEFAULT_MODERATION_DAILY = 2000
+# Per-credential classify calls. 60 is 3% of the shared 2000, so one account
+# cannot empty the cohort budget. Most lines never call the model. This is a
+# starting ceiling to measure, not a tuned rate. 0 refuses credentialed calls.
+MODERATION_PER_USER_CAP_ENV = "NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER"
+_DEFAULT_MODERATION_PER_USER = 60
+# Shared-text submissions that enter the screen (speak, chat, ideas, a
+# published profile, a puzzle guess, a name when a credential is present).
+# 600 is about twenty minutes at the WebSocket chat ceiling (0.5/s) and a
+# long day of hand-typed lines. Starting flood ceiling; raise or lower it
+# from the logs (outcome=user_cap) once real sessions are measured.
+MODERATION_ACTIONS_BUCKET = "moderation_actions"
+MODERATION_ACTIONS_PER_USER_ENV = "NESTED_WORLDS_MODERATION_ACTIONS_PER_USER"
+_DEFAULT_MODERATION_ACTIONS_PER_USER = 600
+# Model-calling actions (voice, inhabitant voice, intention, and a moderation
+# classify). Separate from the anthropic bucket and its NESTED_WORLDS_ANTHROPIC_*
+# settings, which are unchanged. 200 sits above the existing 150 voice
+# sub-cap so ordinary voice still binds there, with room for a few classifies
+# and intentions. Starting value to measure. No credential stays uncapped
+# here; the global voice cap still applies.
+MODEL_ACTIONS_BUCKET = "model_actions"
+MODEL_ACTIONS_PER_USER_ENV = "NESTED_WORLDS_MODEL_ACTIONS_PER_USER"
+_DEFAULT_MODEL_ACTIONS_PER_USER = 200
 
 
 # ── World-gen parameter bounds ──────────────────────────────────────────────
@@ -692,17 +715,50 @@ def consume_anthropic(user_key: str | None = None) -> bool:
     return _consume(ANTHROPIC_BUCKET, ANTHROPIC_CAP_ENV, _DEFAULT_ANTHROPIC_DAILY)
 
 
-def consume_moderation() -> bool:
-    """Reserve one moderation-classify call against its own daily budget.
+def consume_moderation_action(user_key: str | None = None) -> bool:
+    """Reserve one moderation-triggering action against the per-user cap.
 
-    Deliberately separate from the voice budget, and with no per-user
-    sub-cap: the input being screened already rode the per-IP rate limiter,
-    and a False here means the SCREEN fails open (allow), never that the
-    player's message is blocked — so this cap bounds moderation spend
-    without ever becoming a censorship lever.
+    Open when no credential is supplied (local dev and existing tests). A
+    False result holds shared text; it does not charge the voice budget.
     """
-    return _consume(MODERATION_BUCKET, MODERATION_CAP_ENV,
-                    _DEFAULT_MODERATION_DAILY)
+    return _consume_per_user(
+        MODERATION_ACTIONS_BUCKET, MODERATION_ACTIONS_PER_USER_ENV,
+        _DEFAULT_MODERATION_ACTIONS_PER_USER, user_key)
+
+
+def consume_model_action(user_key: str | None = None) -> bool:
+    """Reserve one model-calling action against the per-user cap.
+
+    Does not touch the ``anthropic`` bucket or ``NESTED_WORLDS_ANTHROPIC_*``.
+    Open when no credential is supplied. A False result must not publish
+    shared text and must not call the model.
+    """
+    return _consume_per_user(
+        MODEL_ACTIONS_BUCKET, MODEL_ACTIONS_PER_USER_ENV,
+        _DEFAULT_MODEL_ACTIONS_PER_USER, user_key)
+
+
+def moderation_reserve(user_key: str | None = None) -> str:
+    """Reserve one classify call. ``ok``, ``user_cap``, or ``budget``.
+
+    The per-user gate is checked first so a spent personal cap does not
+    increment the shared moderation counter. Separate from the voice budget.
+    """
+    if not _consume_per_user(MODERATION_BUCKET, MODERATION_PER_USER_CAP_ENV,
+                             _DEFAULT_MODERATION_PER_USER, user_key):
+        return "user_cap"
+    if not _consume(MODERATION_BUCKET, MODERATION_CAP_ENV,
+                    _DEFAULT_MODERATION_DAILY):
+        return "budget"
+    return "ok"
+
+
+def consume_moderation(user_key: str | None = None) -> bool:
+    """Reserve one moderation-classify call. False when the reserve is not ok.
+
+    Shared text treats False as a hold. The voice budget is not involved.
+    """
+    return moderation_reserve(user_key) == "ok"
 
 
 def consume_fal(user_key: str | None = None) -> bool:

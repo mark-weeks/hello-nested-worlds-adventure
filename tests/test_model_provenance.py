@@ -88,7 +88,7 @@ def _enable(monkeypatch, stub):
     monkeypatch.setenv(runtime.INHABITANT_MODEL_ENV, INHABITANT_ALIAS)
     monkeypatch.setenv(runtime.INTENT_MODEL_ENV, INTENT_ALIAS)
     monkeypatch.setattr(runtime, "get_provider", lambda: stub)
-    monkeypatch.setattr(moderation, "screen", lambda text: SimpleNamespace(allowed=True))
+    monkeypatch.setattr(moderation, "screen", lambda text, **_kwargs: SimpleNamespace(allowed=True))
     monkeypatch.setattr(guard, "consume_anthropic", lambda **kwargs: True)
 
 
