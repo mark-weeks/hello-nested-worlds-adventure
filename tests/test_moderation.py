@@ -600,15 +600,52 @@ class TestNameScreening:
         with pytest.raises(SystemExit, match="choose another"):
             main.cmd_invite(A())
 
-    def test_play_cli_rejects_screened_name(self):
+    def test_play_cli_screens_a_name_only_in_the_shared_world(self, monkeypatch):
         import main
+        started = []
+        monkeypatch.setattr("interface.run_session", lambda **kwargs: started.append(kwargs))
+        monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
 
-        class A:
-            name = "N1gger"
+        class Local:
+            name = "Priya"
             seed = 42
-            depth = 6
+            depth = 1
+
+        # The autouse fixture leaves canonical seed empty: local play.
+        main.cmd_play(Local())
+        assert started == [{"seed": 42, "depth": 1, "player_name": "Priya"}]
+        monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "42")
+
+        class Shared:
+            name = "Priya"
+            seed = 42
+            depth = 1
+
         with pytest.raises(SystemExit, match="choose another"):
-            main.cmd_play(A())
+            main.cmd_play(Shared())
+
+    def test_mint_unscreened_is_the_operator_override(self, monkeypatch, capsys):
+        import main
+        monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
+
+        class Blocked:
+            invite_action = "mint"
+            name = "Priya"
+            note = None
+            unscreened = False
+
+        with pytest.raises(SystemExit, match="choose another"):
+            main.cmd_invite(Blocked())
+
+        class Override:
+            invite_action = "mint"
+            name = "Priya"
+            note = None
+            unscreened = True
+
+        main.cmd_invite(Override())
+        assert "without the moderation screen" in capsys.readouterr().out
+        assert {row["name"] for row in persistence.list_invite_keys()} == {"Priya"}
 
 
 class TestUnicodeNormalization:

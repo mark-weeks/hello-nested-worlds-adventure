@@ -84,8 +84,10 @@ _DEFAULT_MODERATION_DAILY = 2000
 # starting ceiling to measure, not a tuned rate. 0 refuses credentialed calls.
 MODERATION_PER_USER_CAP_ENV = "NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER"
 _DEFAULT_MODERATION_PER_USER = 60
-# Shared-text submissions that enter the screen (speak, chat, ideas, a
-# published profile, a puzzle guess, a name when a credential is present).
+# Shared-text submissions that enter screen() with a credential (speak,
+# chat, ideas, a published profile, a puzzle guess). Name checks do not
+# use this counter. Charged before the local clean tier. Resets at UTC
+# midnight with the other cost_budget rows.
 # 600 is about twenty minutes at the WebSocket chat ceiling (0.5/s) and a
 # long day of hand-typed lines. Starting flood ceiling; raise or lower it
 # from the logs (outcome=user_cap) once real sessions are measured.

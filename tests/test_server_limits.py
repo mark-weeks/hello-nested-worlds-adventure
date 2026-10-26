@@ -248,18 +248,22 @@ class TestHandlerCap:
 
     def test_refusal_log_hashes_the_client_address(self, limited, monkeypatch, caplog):
         monkeypatch.setenv(guard.MAX_HANDLER_THREADS_ENV, "1")
-        status, held, _pending = _upgrade(limited)
-        assert status == 101
-        extra = socket.create_connection(("127.0.0.1", limited), timeout=2)
-        peer_ip, peer_port = extra.getsockname()
-        try:
-            with caplog.at_level(logging.INFO):
+        # The refusal is logged at INFO on the accept thread, before the
+        # 503 is written. The root logger drops INFO while it is still at
+        # WARNING, so this capture has to cover the connect. CI saw an
+        # empty list when the capture opened only around the later read.
+        with caplog.at_level(logging.INFO):
+            status, held, _pending = _upgrade(limited)
+            assert status == 101
+            extra = socket.create_connection(("127.0.0.1", limited), timeout=2)
+            peer_ip, peer_port = extra.getsockname()
+            try:
                 extra.sendall(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
                 code, _, _ = _read_http(extra, timeout=2)
-            assert code == 503
-        finally:
-            extra.close()
-            held.close()
+                assert code == 503
+            finally:
+                extra.close()
+                held.close()
         refusals = [
             record.getMessage()
             for record in caplog.records

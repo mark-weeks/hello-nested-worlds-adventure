@@ -1308,7 +1308,10 @@ class Handler(BaseHTTPRequestHandler):
             # names are world canon and unimpersonatable.
             return self._send_error(
                 f"'{name}' belongs to the world — choose another name", 403)
-        refusal = moderation.name_refusal(name, user_key=token or None)
+        # The invite token is not authenticated until redemption below, so
+        # it is not a per-user cap key. The local screen does not call the
+        # model. The write rate limit is what bounds repeated attempts.
+        refusal = moderation.name_refusal(name)
         if refusal:
             # A registered name is permanent, unique, and visible everywhere.
             # The token is kept; the registrant picks differently or retries
@@ -1666,9 +1669,11 @@ class Handler(BaseHTTPRequestHandler):
         correct        = answer.lower() == p.answer.lower()
         # The attempt still counts when the guess cannot be judged. Only the
         # free text is withheld from the shared row. Existing rows are left
-        # as they were written.
+        # as they were written. Screen the same 64 characters a failure row
+        # can store; the attempt row then keeps its 32-character clip of
+        # that judged text. Correctness above uses the player's full answer.
         shared_guess = moderation.public_excerpt(
-            answer, user_key=user_key or None, surface="puzzle")
+            answer[:64], user_key=user_key or None, surface="puzzle")
 
         changed = None
         secondary_notifications = []

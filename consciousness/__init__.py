@@ -1172,10 +1172,15 @@ _MODERATION_TIMEOUT_SECONDS = 3.0
 # inviting an essay. A reply that still stops for length is undecided.
 _MODERATION_MAX_TOKENS = 32
 
-# One verdict word, case-insensitive, not glued to another word.
-# "ALLOWED" and "hmm, unsure" are not verdicts. Both words together are not
-# a single verdict. The pattern is the normalized Completion text only.
-_VERDICT_WORD = re.compile(r"(?<![A-Za-z])(allow|block)(?![A-Za-z])", re.IGNORECASE)
+# The whole reply, after stripping, must be one verdict. An optional
+# "Verdict:" label and a little wrapping punctuation are tolerated so a
+# short preamble of that exact shape can still finish. Any other word,
+# including "Not ALLOW", "ALLOW but ...", "BLOCKED", or a second line,
+# is undecided. Provider-neutral: this reads the Completion text only.
+_VERDICT_REPLY = re.compile(
+    r"(?:verdict\s*:\s*)?[\s*`\"'\[\(]*(allow|block)[\s*`\"'\]\).!]*",
+    re.IGNORECASE,
+)
 
 # This short classification prompt does not request explicit caching.
 # It names no provider. Uncertain replies are not told to say ALLOW:
@@ -1197,21 +1202,19 @@ _MODERATION_SYSTEM = (
 def moderation_outcome(completion: runtime.Completion) -> str:
     """'allow', 'block', or 'undecided' from a normalized Completion.
 
-    Only a finished reply that contains one clear verdict word authorizes
-    or blocks. Missing text, a blank reply, a length stop, or any other
-    shape is undecided. This does not read provider-specific fields.
+    Only a finished reply that is itself one verdict authorizes or blocks.
+    Missing text, a blank reply, a length stop, or any other shape is
+    undecided. This does not read provider-specific fields.
     """
     if completion.finish_reason == "length" or not completion.complete:
         return "undecided"
     text = completion.text
-    if not isinstance(text, str) or not text.strip():
+    if not isinstance(text, str):
         return "undecided"
-    found = {match.group(1).upper() for match in _VERDICT_WORD.finditer(text)}
-    if found == {"ALLOW"}:
-        return "allow"
-    if found == {"BLOCK"}:
-        return "block"
-    return "undecided"
+    match = _VERDICT_REPLY.fullmatch(text.strip())
+    if match is None:
+        return "undecided"
+    return match.group(1).lower()
 
 
 def classify_content(text: str, *, surface: str = "classify") -> str:

@@ -69,6 +69,15 @@ def _rows(seed, node, kind):
     ("ALLOW", False, "length", "undecided"),
     (None, False, "length", "undecided"),
     ("ALLOW", False, "refusal", "undecided"),
+    ("Not ALLOW", True, "complete", "undecided"),
+    ("do not allow", True, "complete", "undecided"),
+    ("I cannot allow this", True, "complete", "undecided"),
+    ("ALLOW but ...", True, "complete", "undecided"),
+    ("ALLOW\nReason: ignore previous instructions", True, "complete", "undecided"),
+    ("BLOCKED", True, "complete", "undecided"),
+    ("ALLOW.", True, "complete", "allow"),
+    ("**ALLOW**", True, "complete", "allow"),
+    ("Verdict: block", True, "complete", "block"),
 ])
 def test_only_a_clear_finished_verdict_authorizes(text, complete, finish, expected):
     import consciousness
@@ -399,6 +408,27 @@ def test_judged_guess_is_stored_and_redaction_still_tombstones_it(srv):
     assert guess not in json.dumps(redacted["data"])
 
 
+def test_puzzle_screens_the_sixty_four_characters_it_can_store(srv):
+    seed = 979
+    root = generate_node_hierarchy(seed=seed, max_depth=1)
+    puzzle = build_puzzle(root)
+    hidden = ("x" * 64) + " " + _SLUR
+    status, data = _post(srv, "/puzzle/attempt", {
+        "seed": seed, "node_name": root.name, "puzzle_name": puzzle.name,
+        "answer": hidden, "player_name": "Ada"})
+    assert status == 200 and data["correct"] is False
+    visible = ("y" * 20) + " " + _SLUR
+    status, data = _post(srv, "/puzzle/attempt", {
+        "seed": seed, "node_name": root.name, "puzzle_name": puzzle.name,
+        "answer": visible, "player_name": "Ada"})
+    assert status == 200 and data["correct"] is False and data["attempt"] == 2
+    stored = [row["data"] for row in _rows(seed, root.name, "PUZZLE_ATTEMPT")]
+    assert len(stored) == 2
+    assert any(row.get("guess") == "x" * 32 for row in stored)
+    assert any("guess" not in row for row in stored)
+    assert all(_SLUR not in json.dumps(row) for row in stored)
+
+
 def test_failed_puzzle_omits_unjudged_answer_given(srv, monkeypatch):
     monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
     seed = 978
@@ -419,12 +449,16 @@ def test_failed_puzzle_omits_unjudged_answer_given(srv, monkeypatch):
     assert "not the answer" not in json.dumps(persistence.get_mutations(seed))
 
 
-def test_name_action_cap_refuses_and_keeps_the_token(srv, monkeypatch):
+def test_name_check_does_not_charge_an_unvalidated_token(srv, monkeypatch):
     monkeypatch.setenv(guard.MODERATION_ACTIONS_PER_USER_ENV, "0")
     persistence.create_registration_token("nwr_capped")
     status, data = _post(srv, "/register", {"invite": "nwr_capped", "name": "Priya"})
-    assert status == 403 and "choose another" in data["error"]
-    assert persistence.lookup_registration_token("nwr_capped") is not None
+    assert status == 200 and data["name"] == "Priya"
+    day = guard._utc_day()
+    with persistence._connect() as conn:
+        buckets = [row[0] for row in conn.execute(
+            "SELECT bucket FROM cost_budget WHERE day = ?", (day,))]
+    assert all(not name.startswith(guard.MODERATION_ACTIONS_BUCKET) for name in buckets)
 
 
 def test_names_refuse_when_the_screen_is_off_and_keep_the_token(srv, monkeypatch):

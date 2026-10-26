@@ -211,20 +211,19 @@ def _local_name_ok(name: str) -> bool:
     return True
 
 
-def name_refusal(name: str, *, user_key: str | None = None) -> str | None:
+def name_refusal(name: str) -> str | None:
     """None when the name may be registered. Otherwise a choose-another line.
 
     Names stay on the local tier: a short name has no prose context, so
     evasion sequences hard-block and nothing calls the classifier. Disabled
-    moderation cannot judge a name, so none are registered. A per-user
-    action cap, when a credential or invite token is supplied, also refuses
-    the name without consuming the token.
+    moderation cannot judge a name, so none are registered. Name checks do
+    not charge a per-user cap. A registration token is not an authenticated
+    credential yet, and minting has no player key; charging either would
+    open a bucket per unchecked string. ``/register`` stays on the write
+    rate limit.
     """
     if moderation_disabled():
         _moderation_log("disabled", "name")
-        return NAME_UNAVAILABLE
-    if not guard.consume_moderation_action(user_key):
-        _moderation_log("user_cap", "name")
         return NAME_UNAVAILABLE
     if not _local_name_ok(name):
         _moderation_log("block", "name")
@@ -232,6 +231,6 @@ def name_refusal(name: str, *, user_key: str | None = None) -> str | None:
     return None
 
 
-def name_allowed(name: str, *, user_key: str | None = None) -> bool:
+def name_allowed(name: str) -> bool:
     """True when :func:`name_refusal` would register ``name``."""
-    return name_refusal(name, user_key=user_key) is None
+    return name_refusal(name) is None

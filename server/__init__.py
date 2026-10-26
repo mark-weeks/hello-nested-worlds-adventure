@@ -59,6 +59,13 @@ def _refuse_saturated(request, client_address) -> None:
     accept loop. The kernel buffer usually takes this small response; if it
     does not, the socket is closed and the client retries.
     """
+    # Log before the write. The client can read this 503 and move on as
+    # soon as the bytes are queued, and a test that captured only around
+    # that read missed the line when the thread was preempted in between.
+    logging.info(
+        "refusing connection from %s: handler threads full",
+        observability.hash_ip(str(client_address[0])),
+    )
     body = _BUSY_BODY
     message = (
         "HTTP/1.1 503 Service Unavailable\r\n"
@@ -79,10 +86,6 @@ def _refuse_saturated(request, client_address) -> None:
     # path exception would have to read first and could be stalled here.
     # A full cap should fail a health check; the response-write timeout is
     # what stops a silent reader from making that failure permanent.
-    logging.info(
-        "refusing connection from %s: handler threads full",
-        observability.hash_ip(str(client_address[0])),
-    )
 
 
 class _ThreadedServer(ThreadingMixIn, HTTPServer):

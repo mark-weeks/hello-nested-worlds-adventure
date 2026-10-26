@@ -75,8 +75,9 @@ content-level redaction avoids.
 
 Player-authored text is screened before it becomes visible to other players.
 The screen covers `/speak`, `/agent/voice`, WebSocket chat, and the player
-line of a reply before a chronicle row or a model call; a name before the
-registry (`/register`, `invite mint`, `play --name`); a profile bio and
+line of a reply before a chronicle row or a model call; a name before it
+is registered (`/register`, `invite mint`, and `play --name` when that
+session writes the canonical world); a profile bio and
 goals when `published` is set (`server/participant_api.py`); Ideas
 (`persistence/ideas.py`, local tier first, then the same classifier and
 budgets); and the free text of a puzzle attempt when it would be stored in
@@ -98,7 +99,14 @@ cheapest first (`server/moderation.py`, `content_screen.py`):
   while "I will kill the real person using this account" escalates. Quoted
   threats, reports and educational sexual-content language can still escalate.
   Registered names use this local tier only, and evasion sequences hard-block
-  there (`name_allowed`) because a short name has no prose context.
+  there (`name_allowed`) because a short name has no prose context. A
+  WebSocket `?name=` sent with no invite key is not this screen. When a
+  key is present the session uses that key's registered name. The ungated
+  query name is the open-gate local path and is unchanged. Name checks do
+  not charge the per-user action cap: a registration token is not an
+  authenticated credential yet. `invite mint --unscreened` is the operator
+  override that registers a name while the screen is off. `play --name`
+  calls the screen only when `writes_shared_chronicle` is true.
 - **Configured classifier** — ambiguous inputs may make one short
   classification call. Moderation is a task any configured provider may
   perform ([ADR-034](ADR-034-provider-and-model-optionality.md)). No
@@ -171,8 +179,11 @@ model-calling actions. The caps are configuration. The starting values are
 chosen to be measured, not tuned:
 
 - `NESTED_WORLDS_MODERATION_ACTIONS_PER_USER` (default 600) counts
-  moderation-triggering actions for a presented credential. Open when no
-  credential is supplied.
+  moderation-triggering actions for a presented credential (speak, chat,
+  ideas, a published profile, a puzzle guess). It is charged before the
+  local clean tier, so a clean line still spends it, and it resets at UTC
+  midnight with the other `cost_budget` rows. Open when no credential is
+  supplied. Name checks do not use it.
 - `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER` (default 60) caps classify
   calls per credential and is checked before the shared
   `NESTED_WORLDS_MODERATION_DAILY_CALLS` bucket (`moderation`, default 2000).
@@ -193,11 +204,12 @@ The running screen implements this rule. Shared text is held when
 moderation is disabled, when the moderation reserve is not `ok`, when
 classification raises, and when the verdict is undecided. A local clean
 verdict is a completed judgment and still publishes during a provider
-outage; a local block still declines without a model call. Names are
-refused when moderation is disabled, with a choose-another line. Ideas
-use the same screen. `moderation_call` logs `outcome` (`allow`, `block`,
-`undecided`, `error`, `disabled`, `budget`, `user_cap`) and does not log
-player text or a raw address.
+outage; a local block still declines without a model call. Registered
+names are refused when moderation is disabled, with a choose-another
+line, except local multi-world `play --name` and `invite mint
+--unscreened`. Ideas use the same screen. `moderation_call` logs
+`outcome` (`allow`, `block`, `undecided`, `error`, `disabled`, `budget`,
+`user_cap`) and does not log player text or a raw address.
 
 ### 3. Continuity: never wipe; the covenant is already in force
 
@@ -322,7 +334,11 @@ the shared key entirely:
 - **Starting cap numbers** are configuration chosen as ceilings to measure,
   not rates derived from live traffic. Accepted, so a policy record does not
   freeze an unmeasured rate. Change them when measurement says they are
-  too tight or too loose.
+  too tight or too loose. The 600/day action cap is charged before the
+  local clean tier and resets at UTC midnight. A spent shared moderation
+  budget (`NESTED_WORLDS_MODERATION_DAILY_CALLS`) holds still-unjudged
+  shared text for the whole cohort until the next UTC day. A local clean
+  line still publishes.
 
 ## Consequences of the 2026-10-25 amendment
 
