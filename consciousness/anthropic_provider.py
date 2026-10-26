@@ -24,6 +24,23 @@ _FINISH_REASONS = {
     "end_turn": "complete", "stop_sequence": "stop", "max_tokens": "length",
     "refusal": "refusal", "tool_use": "tool", "pause_turn": "pause",
 }
+# Known releases only. A dated snapshot of one of these is the same release.
+# A new claude-shaped id is plausible (warn) so a release is not a boot failure.
+_KNOWN_MODEL_IDS = frozenset(_CACHE_REFERENCES)
+_DATED_SNAPSHOT = re.compile(r"-\d{8}$")
+_CLAUDE_ID = re.compile(r"^claude-[a-z0-9][a-z0-9._-]{0,127}$")
+
+
+def _anthropic_model_verdict(model: str) -> str:
+    """ok, warn, or reject. Unknown but claude-shaped ids warn."""
+    if not isinstance(model, str):
+        return "reject"
+    base = _DATED_SNAPSHOT.sub("", model)
+    if model in _KNOWN_MODEL_IDS or base in _KNOWN_MODEL_IDS:
+        return "ok"
+    if _CLAUDE_ID.fullmatch(model) or _CLAUDE_ID.fullmatch(base):
+        return "warn"
+    return "reject"
 
 
 class AnthropicProvider:
@@ -42,6 +59,10 @@ class AnthropicProvider:
         except Exception:
             return False
         return bool(client.api_key or client.auth_token or getattr(client, "credentials", None))
+
+    def model_id_validator(self):
+        # Prefix and known-release knowledge stays on this adapter.
+        return _anthropic_model_verdict
 
     def cache_reference_tokens(self, model: str) -> int | None:
         # A dated snapshot of a known version uses that version's reference.

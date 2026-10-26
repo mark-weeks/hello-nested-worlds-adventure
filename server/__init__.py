@@ -125,8 +125,8 @@ class _ThreadedServer(ThreadingMixIn, HTTPServer):
 
 
 def model_banner() -> list[str]:
-    """Operator lines for the resolved text-model ids. No credentials."""
-    from consciousness.runtime import configured_models
+    """Operator lines for the resolved provider and model. No credentials."""
+    from consciousness.model_check import check_model_configuration
 
     labels = {
         "node": "Node voice model",
@@ -134,8 +134,11 @@ def model_banner() -> list[str]:
         "intent": "Intention model",
         "moderation": "Moderation model",
     }
-    models = configured_models()
-    return [f"{labels[task]:<25}→  {models[task]}" for task in labels]
+    report = check_model_configuration()
+    return [
+        f"{labels[task.task]:<25}→  {task.provider} {task.display_model} ({task.source})"
+        for task in report.tasks
+    ]
 
 
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:
@@ -146,6 +149,11 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     # heartbeat. A typo here must fail the deploy, not leave a healthy-looking
     # process whose first player request returns 500.
     hosted_seed = guard.canonical_seed()
+    # Refuse an empty or unserved model id before the port opens. A typo
+    # must fail the boot, not the first shared-text moderation call.
+    # Soft problems log one warning. This does not make a live call.
+    from consciousness.model_check import enforce_model_configuration
+    enforce_model_configuration()
     # Operator signal only — deliberately emitted here at server startup so
     # a CLI player speaking to a node never sees billing internals.
     try:

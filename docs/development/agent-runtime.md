@@ -11,16 +11,20 @@ Text generation uses the configured provider (currently Anthropic). Each text
 task resolves its own model id through `consciousness.runtime.model_for(task)`.
 Call sites pass a task name; they do not read environment variables.
 
-| Task name | Setting | When unset or blank |
+| Task name | Setting | When unset |
 |---|---|---|
 | `node` (node voice) | `NESTED_WORLDS_NODE_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
 | `inhabitant` (inhabitant voice) | `NESTED_WORLDS_INHABITANT_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
 | `intent` (intention interpretation) | `NESTED_WORLDS_INTENT_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
 | `moderation` | `NESTED_WORLDS_MODERATION_MODEL` | `claude-haiku-4-5` |
 
-Whitespace-only values are unset. Moderation does not inherit the shared voice
-model. With no per-task settings, node voice, inhabitant voice, and intention
-keep using `NESTED_WORLDS_MODEL`, so an existing deployment does not change.
+An unset value uses the fallback in the table. `model_for` also treats a
+whitespace-only value as unset, so a call still falls back. The startup check
+does not: a variable set to empty or whitespace is a misconfiguration and
+`python main.py serve` refuses to boot. Moderation does not inherit the shared
+voice model. With no per-task settings, node voice, inhabitant voice, and
+intention keep using `NESTED_WORLDS_MODEL`, so an existing deployment that
+leaves those variables unset does not change.
 The code defaults above are configuration, not a verified recommendation or a
 guarantee of availability. Confirm the effective environment before a live run.
 
@@ -84,9 +88,15 @@ change and a deployment remain separate actions under the existing project gates
 
 `consciousness/runtime.py` defines `TextProvider`, `SystemBlock`, `Completion`
 and `TokenUsage`, resolves per-task model ids in `model_for`, shares the
-concurrency limit and logs provider/model usage. `consciousness/anthropic_provider.py`
-implements the sole current adapter. All four tasks use the boundary; the node
-voice, inhabitant voice and intention endpoints ask the selected adapter whether
+concurrency limit and logs provider/model usage. `TextProvider.model_id_validator`
+is optional. It returns a function from a model id to `ok`, `warn`, or
+`reject`, or nothing when the adapter does not judge ids. `reject` means this
+adapter does not serve the id. `warn` means the id is plausible but not a
+known release. `consciousness/model_check.py` is the only caller and does not
+name a provider. `consciousness/anthropic_provider.py`
+implements the sole current adapter. Its validator accepts the known Claude
+ids and a dated snapshot of one of them, warns on any other `claude-` shaped
+id so a new release does not block boot, and rejects every other id. All four tasks use the boundary; the node voice, inhabitant voice and intention endpoints ask the selected adapter whether
 it is configured before charging their existing voice budgets. Missing
 credentials serve authored fallbacks without a voice call, budget charge or
 speech chronicle row. A model-written chronicle row records the provider name
@@ -145,6 +155,30 @@ and total cost under the selected model's actual cache behavior.
 Complete a voice/caching change with relevant prompt behavior tests and observed evidence
 for the claimed improvement. Report any unavailable live-model verification; avoid claiming
 a cache hit from the presence of `cache_control` alone.
+
+## Startup model check
+
+`python main.py models` prints the active provider and, for each task, the
+resolved model id, where it came from (`task env`, `NESTED_WORLDS_MODEL`, or
+`default`), and any problem. It does not call the provider. Run it with the
+model variables the machine will use before `scripts/deploy.sh` or a Fly boot.
+
+A hard problem is one line naming the environment variable: an empty or
+whitespace-only setting, an id that is not a usable token, or an id the
+active adapter rejects. `python main.py serve` exits with that line before it
+opens a port, so the deploy fails instead of holding shared text on the first
+moderation call. A soft problem, including surrounding whitespace that was
+stripped and an unknown but plausible id, logs one warning and still boots.
+Neither line prints a credential. `/health` stays a liveness check and does
+not report model ids.
+
+`python main.py models --probe` makes one tiny live call per distinct model
+id (`max_tokens` 1). It is off unless that flag is passed. Server startup,
+`./scripts/check.sh`, tests, and CI do not pass it, and there is no
+environment variable that turns it on. It needs a credential for the active
+provider, spends a real call, and does not charge the model-action cap or the
+`anthropic` budget bucket. A refused probe exits 1. It confirms the provider
+accepts the id. It is not a quality, cost, or cache evaluation.
 
 ## Operator diagnostics
 
