@@ -133,6 +133,47 @@ def failure_summary(exc: Exception) -> str:
     return str(exc) if isinstance(exc, NoTextError) else type(exc).__name__
 
 
+class ModelActionLimited(Exception):
+    """The per-user model-action cap refused this call.
+
+    The provider was not contacted. An empty credential is not a refusal:
+    ``reserve_model_action`` normalizes it to open.
+    """
+
+
+class VoiceBudgetLimited(Exception):
+    """The voice budget refused this call. The provider was not contacted."""
+
+
+class ModelReservation:
+    """Proof that ``reserve_model_action`` already charged this credential.
+
+    ``generate`` charges when a caller does not pass one, so a new
+    model-calling surface cannot skip ``NESTED_WORLDS_MODEL_ACTIONS_PER_USER``.
+    The screen reserves first, then spends the moderation budget, and passes
+    the reservation through so that one classify is one charge.
+    """
+
+    __slots__ = ("key",)
+
+    def __init__(self, key: str | None) -> None:
+        self.key = key
+
+
+def reserve_model_action(user_key: str | None = None) -> ModelReservation:
+    """Charge one model-calling action, or raise ``ModelActionLimited``.
+
+    This is the only ``user_key or None`` normalization. An empty string and
+    ``None`` both stay open, matching a credential-less local call. The
+    ``anthropic`` bucket and ``NESTED_WORLDS_ANTHROPIC_*`` are not touched.
+    """
+    key = user_key or None
+    from server import guard
+    if not guard.consume_model_action(user_key=key):
+        raise ModelActionLimited()
+    return ModelReservation(key)
+
+
 class TextProvider(Protocol):
     name: str
 
@@ -180,7 +221,22 @@ _log = logging.getLogger("nested_worlds.consciousness")
 def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
              messages: list[dict[str, str]], max_tokens: int,
              json_schema: dict | None = None,
-             timeout: float | None = None) -> Completion:
+             timeout: float | None = None,
+             user_key: str | None = None,
+             reservation: ModelReservation | None = None,
+             voice_budget: bool = False) -> Completion:
+    """One text completion. The model-action cap runs before the provider.
+
+    ``voice_budget`` reserves an ``anthropic`` call after that cap and before
+    the provider, so a refused cap does not spend the voice budget. A
+    ``ModelReservation`` from ``reserve_model_action`` is not charged again.
+    """
+    if not isinstance(reservation, ModelReservation):
+        reservation = reserve_model_action(user_key)
+    if voice_budget:
+        from server import guard
+        if not guard.consume_anthropic(user_key=reservation.key):
+            raise VoiceBudgetLimited()
     provider = get_provider()
     with _call_semaphore:
         result = provider.generate(model=model, system=system, messages=messages,

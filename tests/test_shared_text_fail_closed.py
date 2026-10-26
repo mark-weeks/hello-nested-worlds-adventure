@@ -132,6 +132,7 @@ def test_classify_timeout_logs_error_without_the_exception_body(caplog, monkeypa
         verdict = moderation.screen("go kill yourself", surface="speak")
     assert verdict.outcome == "error"
     assert caplog.text.count("moderation_call outcome=error surface=speak") == 1
+    assert "moderation_call outcome=error surface=speak ms=" in caplog.text
     assert "secret phrase" not in caplog.text
     assert "go kill yourself" not in caplog.text
 
@@ -147,6 +148,7 @@ def test_exception_outside_classify_logs_one_error(caplog, monkeypatch):
         verdict = moderation.screen("go kill yourself", surface="speak")
     assert verdict.outcome == "error"
     assert caplog.text.count("moderation_call outcome=error surface=speak") == 1
+    assert "moderation_call outcome=error surface=speak ms=" in caplog.text
     assert "secret phrase" not in caplog.text
     assert "go kill yourself" not in caplog.text
 
@@ -337,7 +339,7 @@ def test_private_note_unpublished_profile_and_act_continue(http, accounts, monke
     assert other["bio"] == "" and other["goals"] == ""
     status, held, _ = http("/profile/save", body={
         "bio": "publish me", "goals": "", "published": True})
-    assert status == 400 and held["error"] == moderation.PROFILE_HOLD
+    assert status == 422 and held["held"] is True and held["error"] == moderation.PROFILE_HOLD
     assert http("/profile")[1]["profile"]["published"] is False
     act = http("/act", body={"node_name": root.name, "request_id": "act-while-dark"})
     assert act[0] == 200 and act[1]["action_status"] == "accepted"
@@ -584,18 +586,139 @@ def test_model_action_cap_quiets_voice_and_leaves_mechanical_play(http, monkeypa
     import consciousness
     from multiverse import store
     monkeypatch.setenv(guard.MODEL_ACTIONS_PER_USER_ENV, "0")
-    monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
-    monkeypatch.setattr(consciousness, "speak", lambda *a, **k: "should not be asked")
+    charged = []
+    monkeypatch.setattr(guard, "consume_anthropic",
+                        lambda **kwargs: charged.append(kwargs) or True)
+
+    class Provider:
+        name = "fixture"
+
+        def configured(self):
+            return True
+
+        def generate(self, **kwargs):
+            raise AssertionError("the model was called")
+
+    monkeypatch.setattr(consciousness.runtime, "get_provider", lambda: Provider())
     root = store.world_tree(382)
     status, data, _ = http("/speak", body={
         "node_name": root.name, "message": "hello, old light"})
     assert status == 200 and data["response"] == guard.QUIET_RESPONSE and data["ai"] is False
     assert _rows(382, root.name, "PLAYER_SPEAK") == []
+    voice = http("/agent/voice", body={
+        "node_name": root.name, "agent_name": "Scout", "message": "hello, old light"})
+    assert voice[0] == 200 and voice[1]["response"] == guard.QUIET_RESPONSE and voice[1]["ai"] is False
+    assert voice[1]["agent"] == "" and _rows(382, root.name, "AGENT_VOICE") == []
+    assert charged == []
     puzzle = build_puzzle(root)
     attempt = http("/puzzle/attempt", body={
         "node_name": root.name, "puzzle_name": puzzle.name, "answer": "not it"})
     assert attempt[0] == 200 and attempt[1]["correct"] is False
     assert _rows(382, root.name, "PUZZLE_ATTEMPT")[0]["data"]["guess"] == "not it"
+
+
+def test_empty_speech_is_a_private_error_and_publishes_nothing(srv, monkeypatch):
+    import consciousness
+    monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
+    spoken = []
+
+    class Provider:
+        name = "fixture"
+
+        def configured(self):
+            return True
+
+        def generate(self, **kwargs):
+            spoken.append(kwargs)
+            return Completion("a reply that must not be published", True)
+
+    monkeypatch.setattr(consciousness.runtime, "get_provider", lambda: Provider())
+    seed = 992
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    for path, extra in (("/speak", {}), ("/agent/voice", {"agent_name": "Scout"})):
+        for message in ("", "   ", "\n\t "):
+            status, data = _post(srv, path, {
+                "node_name": node.name, "seed": seed, "message": message, **extra})
+            assert status == 400 and data["error"] == "A message is required.", data
+    assert spoken == []
+    assert _rows(seed, node.name, "PLAYER_SPEAK") == []
+    assert _rows(seed, node.name, "AGENT_VOICE") == []
+    # A missing message is the authored prompt, not an empty line. Disabled
+    # moderation holds that prompt in fiction: HTTP 200, no model, no row.
+    status, data = _post(srv, "/speak", {"node_name": node.name, "seed": seed})
+    assert status == 200 and data.get("held") is True and data.get("ai") is False
+    assert spoken == []
+    assert _rows(seed, node.name, "PLAYER_SPEAK") == []
+
+
+def test_generate_charges_the_model_action_cap_once_and_normalizes_the_key(monkeypatch):
+    from consciousness import runtime
+    from consciousness.runtime import SystemBlock
+    monkeypatch.setenv(guard.MODEL_ACTIONS_PER_USER_ENV, "0")
+    calls = []
+
+    class Provider:
+        name = "fixture"
+
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            return Completion("spoken", True)
+
+    monkeypatch.setattr(runtime, "get_provider", lambda: Provider())
+    kwargs = dict(endpoint="speak", model="fixture", max_tokens=8,
+                  system=(SystemBlock("s"),),
+                  messages=[{"role": "user", "content": "hi"}])
+    with pytest.raises(runtime.ModelActionLimited):
+        runtime.generate(**kwargs, user_key="alice", voice_budget=True)
+    assert calls == []
+    # Empty credentials stay open, including when the cap is zero.
+    assert runtime.generate(**kwargs, user_key=None).text == "spoken"
+    assert runtime.generate(**kwargs, user_key="").text == "spoken"
+    assert len(calls) == 2
+    monkeypatch.setenv(guard.MODEL_ACTIONS_PER_USER_ENV, "1")
+    calls.clear()
+
+    class Allow:
+        name = "fixture"
+
+        def generate(self, **kwargs):
+            calls.append(1)
+            return Completion("ALLOW", True, finish_reason="complete")
+
+    monkeypatch.setattr(runtime, "get_provider", lambda: Allow())
+    first = moderation.screen("go kill yourself", user_key="ada")
+    second = moderation.screen("go kill yourself", user_key="ada")
+    assert first.outcome == "allow" and second.outcome == "user_cap"
+    assert calls == [1]
+
+
+def test_screen_sees_a_solve_already_held_by_the_room(srv, monkeypatch):
+    from server.rooms import get_room, will_store_guess
+    calls = []
+    real = moderation.public_excerpt
+
+    def wrapped(text, **kwargs):
+        calls.append(text)
+        return real(text, **kwargs)
+
+    monkeypatch.setattr(moderation, "public_excerpt", wrapped)
+    seed = 993
+    root = generate_node_hierarchy(seed=seed, max_depth=1)
+    puzzle = build_puzzle(root)
+    status, solved = _post(srv, "/puzzle/attempt", {
+        "seed": seed, "node_name": root.name, "puzzle_name": puzzle.name,
+        "answer": puzzle.answer, "player_name": "Ada"})
+    assert status == 200 and solved["correct"] is True and calls == []
+    status, late = _post(srv, "/puzzle/attempt", {
+        "seed": seed, "node_name": root.name, "puzzle_name": puzzle.name,
+        "answer": "go kill yourself", "player_name": "Ada"})
+    assert status == 200 and late["solver"] and calls == []
+    # The room already holds the solve. A durable read that has not caught
+    # up must not spend a screen; the handler asks will_store_guess under
+    # the room lock before public_excerpt.
+    monkeypatch.setattr(persistence, "get_puzzle_solve", lambda *args, **kwargs: None)
+    room = get_room(seed)
+    assert will_store_guess(room, seed, root.name, puzzle.name, 0) is False
 
 
 def test_ideas_budget_and_cap_publish_nothing(http, monkeypatch):

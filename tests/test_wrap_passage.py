@@ -416,7 +416,7 @@ class TestHingeLore:
         seen = {}
 
         def fake_speak(node, message, history=None, transcript=None,
-                       ripple_score=0.0, speaker=None, hinge=False):
+                       ripple_score=0.0, speaker=None, hinge=False, **kwargs):
             seen[node.name] = hinge
             return "spoken"
 
@@ -441,7 +441,7 @@ class TestHingeLore:
         seen = {}
 
         def fake_speak(node, message, history=None, transcript=None,
-                       ripple_score=0.0, speaker=None, hinge=False):
+                       ripple_score=0.0, speaker=None, hinge=False, **kwargs):
             seen[node.name] = hinge
             return "spoken"
 

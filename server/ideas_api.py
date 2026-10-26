@@ -42,7 +42,8 @@ def handle(handler, path, qs, body=None):
                 return handler._send_error('This page is read-only.', 405) or True
             ideas.charge_ip(guard.client_ip(handler.client_address, handler.headers))
             if path == '/ideas/submit':
-                data = ideas.submit(key, body, review=lambda text: _screen_idea(key, text))
+                data = ideas.submit(key, body, review=lambda text: _screen_idea(key, text),
+                                     participant=me)
             elif path == '/ideas/vote':
                 data = ideas.vote(key, body.get('id'), body.get('supported'))
             else:

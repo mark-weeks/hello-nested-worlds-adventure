@@ -248,6 +248,27 @@ class PuzzleRenewed(ValueError):
     pass
 
 
+def will_store_guess(room: Room, seed: int, node_name: str, puzzle_name: str,
+                     expected_epoch: int) -> bool:
+    """True when an incorrect guess would be written for this question.
+
+    The room lock makes a solve or renewal that has already committed
+    visible before the caller spends a screen. The screen stays outside
+    the lock; ``puzzle_attempt`` checks the epoch and the solved state
+    again. Holding the lock across the classifier would stall the room.
+    """
+    import persistence
+    with room.lock:
+        current = persistence.count_rearms_by_node(seed, node_name).get(node_name, 0)
+        if current != expected_epoch:
+            return False
+        session = room.puzzle_sessions.get(node_name)
+        if (session is not None and session.puzzle_name == puzzle_name
+                and session.solver is not None):
+            return False
+        return persistence.get_puzzle_solve(seed, node_name, puzzle_name) is None
+
+
 @contextmanager
 def puzzle_attempt(room: Room, node_name: str, puzzle_name: str,
                    player_name: str | None, correct: bool, *, expected_epoch: int | None = None):

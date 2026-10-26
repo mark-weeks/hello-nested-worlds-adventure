@@ -39,7 +39,7 @@ from puzzles.engine import PuzzleEngine
 from server import guard, imageprompt, moderation, observability
 from server.rooms import (
     agent_enter, agent_leave, agent_move, agent_persona, broadcast, get_room,
-    puzzle_attempt, refresh_puzzle_session, snapshot,
+    puzzle_attempt, refresh_puzzle_session, snapshot, will_store_guess,
 )
 from server.world_mechanics import (
     CONSTELLATION_LEVELS as _CONSTELLATION_LEVELS,
@@ -353,8 +353,15 @@ class Handler(BaseHTTPRequestHandler):
         super().send_response(code, message)
 
     def _emit_access_log(self) -> None:
+        if getattr(self, "_access_logged", False):
+            return
         if not getattr(self, "_started", None):
             return
+        # Set before the write. A client can read the response as soon as
+        # the bytes are queued, and the do_* finally used to log after that
+        # write — the malformed-target test then saw the body and zero
+        # caplog records, with the line arriving in pytest's captured log.
+        self._access_logged = True
         try:
             path = urlparse(self.path).path or "/"
         except ValueError:
@@ -471,9 +478,10 @@ class Handler(BaseHTTPRequestHandler):
         if getattr(self, "_private_response", False):
             self.send_header("Cache-Control", "no-store")
         self._send_security_headers()
+        self._resp_len = len(body)
+        self._emit_access_log()
         self.end_headers()
         self.wfile.write(body)
-        self._resp_len = len(body)
 
     def _send_error(self, message: str, status: int = 400) -> None:
         self._send_json({"error": message}, status)
@@ -581,6 +589,21 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     # ── GET ──
+
+    def _authored_message(self, body: dict, default: str) -> str | None:
+        """The player's line, or None after a private 400 for empty text.
+
+        Whitespace-only text is empty. A missing message keeps ``default``,
+        which is a real prompt. The screen still allows empty text so a
+        blank published profile can save; these two routes would otherwise
+        publish a model reply when moderation is disabled, because that
+        empty-text pass runs before the kill switch.
+        """
+        message = str(body.get("message", default))[:1024]
+        if not message.strip():
+            self._send_error("A message is required.", 400)
+            return None
+        return message
 
     def _read_timed_out(self) -> None:
         """A stalled read is the client's pace, not an internal fault.
@@ -974,14 +997,14 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/speak":
+            message = self._authored_message(
+                body, "Describe yourself to a traveler who has just arrived.")
+            if message is None:
+                return
             if guard.ai_disabled():
                 return self._send_json({"response": guard.QUIET_RESPONSE,
                                         "ai": False})
             node_name = str(body.get("node_name", ""))[:128]
-            message = str(body.get(
-                "message",
-                "Describe yourself to a traveler who has just arrived.",
-            ))[:1024]
             try:
                 seed = guard.world_seed(body.get("seed"))
             except ValueError as exc:
@@ -1008,15 +1031,9 @@ class Handler(BaseHTTPRequestHandler):
 
             import consciousness
             voice_ready = runtime.configured()
-            if voice_ready and not guard.consume_model_action(user_key or None):
-                return self._send_json({"response": guard.QUIET_RESPONSE,
-                                        "ai": False})
-            if voice_ready and not guard.consume_anthropic(user_key=user_key):
-                return self._send_json({"response": guard.QUIET_RESPONSE,
-                                        "ai": False})
-
             # Node identity is server-derived from the canonical world —
-            # never trusted from the request body.
+            # never trusted from the request body. An unknown place returns
+            # before the model-action cap, which now lives on generate().
             node = _resolve_node(seed, node_name)
             if node is None:
                 return self._send_error("no such place in this world", 404)
@@ -1033,6 +1050,8 @@ class Handler(BaseHTTPRequestHandler):
                     ripple_score=node.ripple_score,
                     speaker=player_name,
                     hinge=wrap.is_hinge(seed, node.name),
+                    user_key=user_key,
+                    voice_budget=True,
                 )
                 # The exchange — both sides of it — becomes node memory.
                 # Store the FULL message and reply: the chronicle keeps the
@@ -1051,6 +1070,9 @@ class Handler(BaseHTTPRequestHandler):
                     resolved_model=getattr(response, "resolved_model", None),
                 )
                 self._send_json({"response": response, "ai": True})
+            except (runtime.ModelActionLimited, runtime.VoiceBudgetLimited):
+                return self._send_json({"response": guard.QUIET_RESPONSE,
+                                        "ai": False})
             except Exception as exc:
                 # The world goes quiet in character — no key, SDK failure,
                 # or network error must never break the fiction with an
@@ -1196,15 +1218,16 @@ class Handler(BaseHTTPRequestHandler):
         the voiced agent stands somewhere real and can reference what has
         actually happened there — including its own FSM traces.
         """
+        message = self._authored_message(
+            body, "Where are you, and what do you see?")
+        if message is None:
+            return
         if guard.ai_disabled():
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})
         agent_name = str(body.get("agent_name", "Scout"))[:32]
         node_name  = str(body.get("node_name",  ""))[:128]
-        message    = str(body.get(
-            "message", "Where are you, and what do you see?",
-        ))[:1024]
         try:
             seed = guard.world_seed(body.get("seed"))
         except ValueError as exc:
@@ -1221,15 +1244,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(moderation.http_body(
                 verdict, agent=agent_name, persona=persona.name, node=node_name))
         voice_ready = runtime.configured()
-        if voice_ready and not guard.consume_model_action(user_key or None):
-            return self._send_json({"response": guard.QUIET_RESPONSE,
-                                    "agent": "", "persona": "", "node": "",
-                                    "ai": False})
-        if voice_ready and not guard.consume_anthropic(user_key=user_key):
-            return self._send_json({"response": guard.QUIET_RESPONSE,
-                                    "agent": "", "persona": "", "node": "",
-                                    "ai": False})
-
         node = _resolve_node(seed, node_name)
         if node is None:
             return self._send_error("no such place in this world", 404)
@@ -1248,9 +1262,9 @@ class Handler(BaseHTTPRequestHandler):
             commitment_ids = {event['id'] for event in commitments}
             history = commitments + [event for event in history if event.get('id') not in commitment_ids]
             agent_memory = persistence.load_agent_memory(agent_name, seed)
-            response = consciousness.voice_agent(persona, agent_name, node,
-                                                 message, history=history,
-                                                 agent_memory=agent_memory)
+            response = consciousness.voice_agent(
+                persona, agent_name, node, message, history=history,
+                agent_memory=agent_memory, user_key=user_key, voice_budget=True)
             # The exchange persists into node memory, like /speak: an agent
             # you talked with should be part of what this place remembers
             # (and future replies can reference it via node history).
@@ -1271,6 +1285,10 @@ class Handler(BaseHTTPRequestHandler):
                 "response": response,
                 "ai":       True,
             })
+        except (runtime.ModelActionLimited, runtime.VoiceBudgetLimited):
+            return self._send_json({"response": guard.QUIET_RESPONSE,
+                                    "agent": "", "persona": "", "node": "",
+                                    "ai": False})
         except Exception as exc:
             _log.warning("agent voice fallback (%s): %s", agent_name, exc)
             self._send_json({
@@ -1673,20 +1691,17 @@ class Handler(BaseHTTPRequestHandler):
         if body.get("puzzle_name") is not None and body["puzzle_name"] != p.name:
             return self._send_error("This question has renewed. Reopen it before answering.", 409)
         # Screen only a guess this attempt will store, and never the puzzle's
-        # own answer. A mismatched name already returned. A renewed epoch and
-        # an already-solved puzzle return below without a new free-text row.
-        # The classify stays outside the room lock and the write transaction.
-        # Correctness above uses the player's full answer. An incorrect guess
-        # is screened as the 64 characters a failure row can store; the
-        # attempt row then keeps a 32-character clip of that judged text.
+        # own answer. A mismatched name already returned. The renewal and
+        # solved checks run under the room lock so a commit that has already
+        # landed does not spend a screen. The classify itself stays outside
+        # the lock; puzzle_attempt checks again. Correctness above uses the
+        # player's full answer. An incorrect guess is screened as the 64
+        # characters a failure row can store; the attempt row then keeps a
+        # 32-character clip of that judged text.
         shared_guess = None
         expected_epoch = epochs.get(target.name, 0)
-        current_epoch = persistence.count_rearms_by_node(
-            seed, effective_node).get(effective_node, 0)
-        already_solved = persistence.get_puzzle_solve(
-            seed, effective_node, p.name) is not None
-        if (not correct and current_epoch == expected_epoch
-                and not already_solved):
+        if not correct and will_store_guess(
+                room, seed, effective_node, p.name, expected_epoch):
             shared_guess = moderation.public_excerpt(
                 answer[:64], user_key=user_key or None, surface="puzzle")
         from server.rooms import PuzzleRenewed

@@ -173,35 +173,52 @@ def _detail(me, idea_id):
         return {'idea': _public(conn, row, me, detail=True)}
 
 
-def _pending_submission(key, request, fingerprint):
-    """Return an existing receipt, or None when this draft still needs a review.
+_REUSED_REQUEST = 'This submission identifier was already used for a different draft.'
+_DAILY_LIMIT = 'You can share 5 new ideas in 24 hours. Please return later or support an existing idea.'
 
-    Runs outside the classify call so a slow verdict does not hold the write
-    lock. The insert transaction checks the same identity again.
+
+def _prior_submission(conn, member_id, request, fingerprint):
+    """An existing receipt, or None when this request may insert a new row.
+
+    One statement of the duplicate-request and five-per-day rules. The
+    pre-screen read and the insert transaction both call it.
     """
-    with db.transaction() as conn:
-        me = participants.identify(key)
-        existing = conn.execute('SELECT id,request_hash,visibility FROM community_ideas WHERE member_id=? AND request_id=?',
-                                (me['id'], request)).fetchone()
-        if existing:
-            if existing[1] != fingerprint:
-                raise Conflict('This submission identifier was already used for a different draft.')
-            return {'id': existing[0], 'submitted': True, 'visible': existing[2] == 'visible'}
-        stamp = now()
-        count = conn.execute('SELECT count(*) FROM community_ideas WHERE member_id=? AND created_at>?',
-                             (me['id'], stamp - DAY)).fetchone()[0]
-        if count >= SUBMISSIONS_PER_DAY:
-            raise Limited('You can share 5 new ideas in 24 hours. Please return later or support an existing idea.')
+    existing = conn.execute(
+        'SELECT id,request_hash,visibility FROM community_ideas WHERE member_id=? AND request_id=?',
+        (member_id, request)).fetchone()
+    if existing:
+        if existing[1] != fingerprint:
+            raise Conflict(_REUSED_REQUEST)
+        return {'id': existing[0], 'submitted': True, 'visible': existing[2] == 'visible'}
+    stamp = now()
+    count = conn.execute(
+        'SELECT count(*) FROM community_ideas WHERE member_id=? AND created_at>?',
+        (member_id, stamp - DAY)).fetchone()[0]
+    if count >= SUBMISSIONS_PER_DAY:
+        raise Limited(_DAILY_LIMIT)
     return None
 
 
-def submit(key, data, *, review=None):
+def _pending_submission(me, request, fingerprint):
+    """Return an existing receipt, or None when this draft still needs a review.
+
+    Runs outside the classify call so a slow verdict does not hold the write
+    lock. ``me`` is the participant the caller already identified. The insert
+    transaction identifies again so a revocation cannot race the commit.
+    """
+    with db.transaction() as conn:
+        return _prior_submission(conn, me['id'], request, fingerprint)
+
+
+def submit(key, data, *, review=None, participant=None):
     """Insert a draft. ``review`` screens a new draft and may raise.
 
     The duplicate receipt is recognized before ``review``, so a retry of an
     idea that already exists does not classify again. This module does not
     import the screen: the HTTP handler passes it. Direct callers (fixtures
-    and operator tools) omit ``review`` and do not classify.
+    and operator tools) omit ``review`` and do not classify. ``participant``
+    is that handler's identified member; without it, this identifies once
+    before the screen and again inside the insert.
     """
     title = text(data.get('title'), 'Title', 120)
     description = text(data.get('description'), 'Description', 2000)
@@ -212,24 +229,18 @@ def submit(key, data, *, review=None):
     if not isinstance(credit, bool):
         raise ValueError('Choose whether to receive public credit.')
     fingerprint = hashlib.sha256(json.dumps([title, description, credit], ensure_ascii=True).encode()).hexdigest()
-    existing = _pending_submission(key, request, fingerprint)
+    me = participant if participant is not None else participants.identify(key)
+    existing = _pending_submission(me, request, fingerprint)
     if existing:
         return existing
     if review is not None:
         review(title + '\n' + description)
     with db.transaction() as conn:
         me = participants.identify(key)
-        existing = conn.execute('SELECT id,request_hash,visibility FROM community_ideas WHERE member_id=? AND request_id=?',
-                                (me['id'], request)).fetchone()
+        existing = _prior_submission(conn, me['id'], request, fingerprint)
         if existing:
-            if existing[1] != fingerprint:
-                raise Conflict('This submission identifier was already used for a different draft.')
-            return {'id': existing[0], 'submitted': True, 'visible': existing[2] == 'visible'}
+            return existing
         stamp = now()
-        count = conn.execute('SELECT count(*) FROM community_ideas WHERE member_id=? AND created_at>?',
-                             (me['id'], stamp - DAY)).fetchone()[0]
-        if count >= SUBMISSIONS_PER_DAY:
-            raise Limited('You can share 5 new ideas in 24 hours. Please return later or support an existing idea.')
         idea_id = secrets.token_hex(16)
         conn.execute('''INSERT INTO community_ideas
             (id,member_id,request_id,request_hash,title,description,public_credit,created_at,updated_at)

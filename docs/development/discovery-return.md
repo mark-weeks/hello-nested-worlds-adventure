@@ -16,7 +16,7 @@ Private responses carry `Cache-Control: no-store`.
 |---|---|
 | `GET /me` | Participant `{id,name}` and the caller's full profile. |
 | `GET /profile?participant=<id>` | Published profile fields for another participant; owner sees their own draft and home. No journal content. |
-| `POST /profile/save` | `{bio,goals,avatar,published}`; bio/goals up to 500 characters each; avatar `lantern`, `leaf`, `star` or `river`; published boolean. Published text passes existing moderation. |
+| `POST /profile/save` | `{bio,goals,avatar,published}`; bio/goals up to 500 characters each; avatar `lantern`, `leaf`, `star` or `river`; published boolean. Published text passes existing moderation. A definitive hold is HTTP 422 `{"error","held":true}` (same shape as an Ideas hold). A block stays HTTP 400. |
 | `POST /profile/home` | `{node}`; choose a previously visited canonical node, or empty string to clear. Private bookmark only. |
 | `GET /journal/data` | Owner, profile, at most 100 notes and at most eight relevant recorded material changes. Recency is not falsely labeled “since you left.” |
 | `POST /journal/note` | `{id,node,text}`; stable note ID of 8–80 characters, text up to 2,000 characters; empty text deletes that owner's note. A different owner cannot replace/delete it. |

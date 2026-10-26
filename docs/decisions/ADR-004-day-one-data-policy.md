@@ -158,9 +158,11 @@ implementation authors the hold line; this amendment does not invent it. A
 content decline still leaves no trace and does not charge the voice budget.
 WebSocket senders keep a private decline. The Ideas board stays a
 non-fictional community surface: a hold or decline there is clear product
-language, and the text is still not published. A definitive Ideas hold is
-HTTP 422 with `held: true`, so the draft stays editable and is not retried.
-An indeterminate Ideas failure stays 503. A name the screen does not
+language, and the text is still not published. A definitive policy hold on
+a product surface — an Idea or a published profile — is HTTP 422 with
+`held: true`, so the draft stays editable and is not retried as a lost
+request. A content block on those surfaces stays HTTP 400. An indeterminate
+Ideas failure stays 503. A name the screen does not
 accept is not registered; registration keeps a clear "choose another" refusal.
 The author's own session degrades gracefully. Movement, puzzles, private
 notes, and other play that does not publish the held text continue.
@@ -191,15 +193,20 @@ chosen to be measured, not tuned:
   ideas, a published profile, a puzzle guess). A local block does not spend
   it. It is charged before the local clean return, so a clean line still
   spends it, and it resets at UTC midnight with the other `cost_budget`
-  rows. Empty text is allowed before the disabled-moderation hold. Open
-  when no credential is supplied. Name checks do not use it.
+  rows. Empty text is allowed before the disabled-moderation hold, so a
+  blank published profile still saves. `/speak` and `/agent/voice` reject
+  an empty or whitespace-only message with a private error before that
+  pass, and do not call the model or write a chronicle row. Open when no
+  credential is supplied. Name checks do not use it.
 - `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER` (default 60) caps classify
   calls per credential and is checked before the shared
   `NESTED_WORLDS_MODERATION_DAILY_CALLS` bucket (`moderation`, default 2000).
 - `NESTED_WORLDS_MODEL_ACTIONS_PER_USER` (default 200) caps model-calling
   actions (voice, inhabitant voice, intention, and a moderation classify).
-  It does not rename or touch the `anthropic` bucket or
-  `NESTED_WORLDS_ANTHROPIC_*`.
+  `runtime.generate` charges it, once per completion. The screen reserves
+  that same charge before the moderation budget and passes it through, so
+  a classify is not charged twice. It does not rename or touch the
+  `anthropic` bucket or `NESTED_WORLDS_ANTHROPIC_*`.
 
 Exceeding a cap holds shared text and returns a clear message. Mechanical
 play continues. Credential-less local use stays open on these per-user
