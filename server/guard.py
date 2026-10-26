@@ -86,7 +86,8 @@ MODERATION_PER_USER_CAP_ENV = "NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER"
 _DEFAULT_MODERATION_PER_USER = 60
 # Shared-text submissions that enter screen() with a credential (speak,
 # chat, ideas, a published profile, a puzzle guess). Name checks do not
-# use this counter. Charged before the local clean tier. Resets at UTC
+# use this counter. A local block does not spend it. It is charged before
+# a local clean return, so a clean line still spends it. Resets at UTC
 # midnight with the other cost_budget rows.
 # 600 is about twenty minutes at the WebSocket chat ceiling (0.5/s) and a
 # long day of hand-typed lines. Starting flood ceiling; raise or lower it
@@ -753,14 +754,6 @@ def moderation_reserve(user_key: str | None = None) -> str:
                     _DEFAULT_MODERATION_DAILY):
         return "budget"
     return "ok"
-
-
-def consume_moderation(user_key: str | None = None) -> bool:
-    """Reserve one moderation-classify call. False when the reserve is not ok.
-
-    Shared text treats False as a hold. The voice budget is not involved.
-    """
-    return moderation_reserve(user_key) == "ok"
 
 
 def consume_fal(user_key: str | None = None) -> bool:

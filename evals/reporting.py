@@ -150,6 +150,17 @@ def wilson(passed, total):
     return [round(center - spread, 4), round(center + spread, 4)]
 
 
+def _screen_held(trials) -> int:
+    """Trials whose screen held the text instead of publishing it.
+
+    ``fail_open`` is not a tier. ``screen_fail_open`` in the summary is this
+    same count, kept so an older reader still finds the hold total.
+    """
+    held = {"error", "budget", "disabled", "undecided", "user_cap"}
+    return sum(bool(t["outputs"]) and t["outputs"][0].get("screen", {}).get("tier") in held
+               for t in trials)
+
+
 def summarize(run, human=None):
     human = human or {}
     tasks = {}
@@ -204,10 +215,10 @@ def summarize(run, human=None):
             "categories": categories,
             "screen_failures": sum(t["grade"]["screen_correct"] is False for t in screen_trials),
             # Holds are the former fail-open paths: the screen did not publish.
-            "screen_held": sum(bool(t["outputs"]) and t["outputs"][0].get("screen", {}).get("tier")
-                in {"error", "budget", "disabled", "undecided", "user_cap"} for t in trials),
-            "screen_fail_open": sum(bool(t["outputs"]) and t["outputs"][0].get("screen", {}).get("tier")
-                in {"error", "budget", "disabled", "undecided", "user_cap", "fail_open"} for t in trials),
+            # fail_open is no longer a tier. The old summary key stays equal
+            # to screen_held so a reader of an earlier report still finds the count.
+            "screen_held": _screen_held(trials),
+            "screen_fail_open": _screen_held(trials),
             "classifier_false_blocks": sum(t["task"] == "moderation" and t["expected"]["allowed"]
                 and bool(t["outputs"]) and t["outputs"][0]["allowed"] is False for t in classifier_trials),
             "classifier_misses": sum(t["task"] == "moderation" and not t["expected"]["allowed"]

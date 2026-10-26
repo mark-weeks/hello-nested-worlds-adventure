@@ -1667,18 +1667,28 @@ class Handler(BaseHTTPRequestHandler):
         effective_node = node_name or target.name
         room           = get_room(seed)
         correct        = answer.lower() == p.answer.lower()
-        # The attempt still counts when the guess cannot be judged. Only the
-        # free text is withheld from the shared row. Existing rows are left
-        # as they were written. Screen the same 64 characters a failure row
-        # can store; the attempt row then keeps its 32-character clip of
-        # that judged text. Correctness above uses the player's full answer.
-        shared_guess = moderation.public_excerpt(
-            answer[:64], user_key=user_key or None, surface="puzzle")
 
         changed = None
         secondary_notifications = []
         if body.get("puzzle_name") is not None and body["puzzle_name"] != p.name:
             return self._send_error("This question has renewed. Reopen it before answering.", 409)
+        # Screen only a guess this attempt will store, and never the puzzle's
+        # own answer. A mismatched name already returned. A renewed epoch and
+        # an already-solved puzzle return below without a new free-text row.
+        # The classify stays outside the room lock and the write transaction.
+        # Correctness above uses the player's full answer. An incorrect guess
+        # is screened as the 64 characters a failure row can store; the
+        # attempt row then keeps a 32-character clip of that judged text.
+        shared_guess = None
+        expected_epoch = epochs.get(target.name, 0)
+        current_epoch = persistence.count_rearms_by_node(
+            seed, effective_node).get(effective_node, 0)
+        already_solved = persistence.get_puzzle_solve(
+            seed, effective_node, p.name) is not None
+        if (not correct and current_epoch == expected_epoch
+                and not already_solved):
+            shared_guess = moderation.public_excerpt(
+                answer[:64], user_key=user_key or None, surface="puzzle")
         from server.rooms import PuzzleRenewed
         try:
             with puzzle_attempt(room, effective_node, p.name, player_name, correct, expected_epoch=epochs.get(target.name, 0)) as (session, just_solved):

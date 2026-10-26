@@ -99,14 +99,18 @@ cheapest first (`server/moderation.py`, `content_screen.py`):
   while "I will kill the real person using this account" escalates. Quoted
   threats, reports and educational sexual-content language can still escalate.
   Registered names use this local tier only, and evasion sequences hard-block
-  there (`name_allowed`) because a short name has no prose context. A
+  there (`name_refusal`) because a short name has no prose context. A
   WebSocket `?name=` sent with no invite key is not this screen. When a
   key is present the session uses that key's registered name. The ungated
   query name is the open-gate local path and is unchanged. Name checks do
   not charge the per-user action cap: a registration token is not an
   authenticated credential yet. `invite mint --unscreened` is the operator
   override that registers a name while the screen is off. `play --name`
-  calls the screen only when `writes_shared_chronicle` is true.
+  calls the screen only when `writes_shared_chronicle` is true. An
+  unscreened local-mode name can still be `player_name` on chronicle rows
+  in that world's chronicle, in the same database as the hosted world.
+  Operators, backups, and redaction can see it. Browsers do not serve that
+  seed while a canonical seed is set.
 - **Configured classifier** — ambiguous inputs may make one short
   classification call. Moderation is a task any configured provider may
   perform ([ADR-034](ADR-034-provider-and-model-optionality.md)). No
@@ -154,7 +158,9 @@ implementation authors the hold line; this amendment does not invent it. A
 content decline still leaves no trace and does not charge the voice budget.
 WebSocket senders keep a private decline. The Ideas board stays a
 non-fictional community surface: a hold or decline there is clear product
-language, and the text is still not published. A name the screen does not
+language, and the text is still not published. A definitive Ideas hold is
+HTTP 422 with `held: true`, so the draft stays editable and is not retried.
+An indeterminate Ideas failure stays 503. A name the screen does not
 accept is not registered; registration keeps a clear "choose another" refusal.
 The author's own session degrades gracefully. Movement, puzzles, private
 notes, and other play that does not publish the held text continue.
@@ -164,7 +170,9 @@ private note, unpublished profile text, and other writing only the author
 can read are not held because the classifier is down. Movement, puzzle
 attempts, and scale actions continue when moderation cannot complete. A
 puzzle attempt still counts and still records correctness; the raw guess
-is omitted from the shared row when it was not judged. Existing chronicle
+is omitted from the shared row when it was not judged. A correct answer is
+the puzzle's own text: it is not screened and is not stored as a guess.
+The screen runs only when a new incorrect attempt will be stored. Existing chronicle
 rows are not rewritten. A safety check must not become the thing that
 stops the game. The local CLI `speak` path is the operator terminal in
 local multi-world mode (`NESTED_WORLDS_CANONICAL_SEED` empty, `off`, or
@@ -180,10 +188,11 @@ chosen to be measured, not tuned:
 
 - `NESTED_WORLDS_MODERATION_ACTIONS_PER_USER` (default 600) counts
   moderation-triggering actions for a presented credential (speak, chat,
-  ideas, a published profile, a puzzle guess). It is charged before the
-  local clean tier, so a clean line still spends it, and it resets at UTC
-  midnight with the other `cost_budget` rows. Open when no credential is
-  supplied. Name checks do not use it.
+  ideas, a published profile, a puzzle guess). A local block does not spend
+  it. It is charged before the local clean return, so a clean line still
+  spends it, and it resets at UTC midnight with the other `cost_budget`
+  rows. Empty text is allowed before the disabled-moderation hold. Open
+  when no credential is supplied. Name checks do not use it.
 - `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER` (default 60) caps classify
   calls per credential and is checked before the shared
   `NESTED_WORLDS_MODERATION_DAILY_CALLS` bucket (`moderation`, default 2000).
@@ -334,8 +343,9 @@ the shared key entirely:
 - **Starting cap numbers** are configuration chosen as ceilings to measure,
   not rates derived from live traffic. Accepted, so a policy record does not
   freeze an unmeasured rate. Change them when measurement says they are
-  too tight or too loose. The 600/day action cap is charged before the
-  local clean tier and resets at UTC midnight. A spent shared moderation
+  too tight or too loose. The 600/day action cap does not spend a local
+  block. It is charged before the local clean return and resets at UTC
+  midnight. A spent shared moderation
   budget (`NESTED_WORLDS_MODERATION_DAILY_CALLS`) holds still-unjudged
   shared text for the whole cohort until the next UTC day. A local clean
   line still publishes.

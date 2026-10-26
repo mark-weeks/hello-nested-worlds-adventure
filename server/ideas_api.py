@@ -1,6 +1,6 @@
 """Ideas is an authenticated, non-fictional surface; it never invokes agents."""
 from persistence import ideas, participants
-from server import guard, observability
+from server import guard, moderation, observability
 
 READS = {'/ideas/list', '/ideas/detail'}
 WRITES = {'/ideas/submit', '/ideas/vote', '/ideas/withdraw'}
@@ -42,7 +42,7 @@ def handle(handler, path, qs, body=None):
                 return handler._send_error('This page is read-only.', 405) or True
             ideas.charge_ip(guard.client_ip(handler.client_address, handler.headers))
             if path == '/ideas/submit':
-                data = ideas.submit(key, body)
+                data = ideas.submit(key, body, review=lambda text: _screen_idea(key, text))
             elif path == '/ideas/vote':
                 data = ideas.vote(key, body.get('id'), body.get('supported'))
             else:
@@ -61,8 +61,10 @@ def handle(handler, path, qs, body=None):
     except ideas.Limited as exc:
         handler._send_error(str(exc), 429)
     except ideas.Held as exc:
-        # 503 keeps the browser draft for a retry. The text was not published.
-        handler._send_error(str(exc), 503)
+        # 422 is a finished moderation hold. The text was not published.
+        # 503 stays reserved for an indeterminate failure, which the browser
+        # keeps as a pending receipt. A hold must not look like one of those.
+        handler._send_json({"error": str(exc), "held": True}, 422)
     except ValueError as exc:
         handler._send_error(str(exc), 400)
     except Exception as exc:
@@ -70,3 +72,13 @@ def handle(handler, path, qs, body=None):
         # Community input must not enter third-party exception telemetry or error bodies.
         handler._send_error('Ideas could not complete that request. Your draft is safe; please retry.', 503)
     return True
+
+
+def _screen_idea(key, text):
+    """Decline or hold a new idea. An existing receipt never reaches here."""
+    verdict = moderation.screen(text, user_key=key, surface='ideas')
+    if verdict.allowed:
+        return
+    if verdict.outcome == 'block':
+        raise ValueError(moderation.IDEAS_DECLINE)
+    raise ideas.Held(moderation.IDEAS_HOLD)

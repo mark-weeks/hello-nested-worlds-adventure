@@ -184,11 +184,11 @@ class TestLocalTier:
         assert moderation._local_tier("you utter zorblax") == "block"
 
     def test_names_screened_strictly(self):
-        assert moderation.name_allowed("Priya") is True
-        assert moderation.name_allowed("Wren") is True
+        assert moderation.name_refusal("Priya") is None
+        assert moderation.name_refusal("Wren") is None
         # For names the evasion sequences hard-block — no prose context.
-        assert moderation.name_allowed("N1gger") is False
-        assert moderation.name_allowed("Sniggerton") is False
+        assert moderation.name_refusal("N1gger") is not None
+        assert moderation.name_refusal("Sniggerton") is not None
 
 
 # ── screen() orchestration ──────────────────────────────────────────────────
@@ -307,9 +307,20 @@ class TestScreenOrchestration:
         v = moderation.screen(f"you {_SLUR}")
         assert not v.allowed and v.tier == "disabled" and v.outcome == "disabled"
         assert moderation.screen("a perfectly ordinary sentence").outcome == "disabled"
-        assert moderation.name_allowed(_SLUR) is False
-        assert moderation.name_allowed("Priya") is False
+        assert moderation.name_refusal(_SLUR) is not None
         assert "choose another" in moderation.name_refusal("Priya")
+        assert moderation.screen("").allowed
+        assert moderation.screen(" \n").allowed
+
+    def test_local_block_does_not_spend_the_action_cap(self, monkeypatch):
+        monkeypatch.setenv(guard.MODERATION_ACTIONS_PER_USER_ENV, "1")
+        blocked = moderation.screen(f"you {_SLUR}", user_key="alice", surface="speak")
+        assert blocked.outcome == "block"
+        assert moderation.player_line(blocked) == moderation.DECLINE_LINE
+        allowed = moderation.screen("a perfectly ordinary sentence", user_key="alice")
+        assert allowed.allowed and allowed.outcome == "allow"
+        held = moderation.screen("another ordinary sentence", user_key="alice")
+        assert held.outcome == "user_cap" and not held.allowed
 
     def test_moderation_spends_its_own_bucket_not_the_voice_bucket(
             self, monkeypatch):
@@ -600,29 +611,59 @@ class TestNameScreening:
         with pytest.raises(SystemExit, match="choose another"):
             main.cmd_invite(A())
 
-    def test_play_cli_screens_a_name_only_in_the_shared_world(self, monkeypatch):
+    def test_play_cli_screens_a_name_only_for_the_canonical_seed(self, monkeypatch):
         import main
+        from interface import _speak_to
+        from multiverse.node import SpatialNode
         started = []
-        monkeypatch.setattr("interface.run_session", lambda **kwargs: started.append(kwargs))
-        monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
+        slur = "N1gger"
 
-        class Local:
-            name = "Priya"
-            seed = 42
-            depth = 1
+        def session(**kwargs):
+            started.append(kwargs)
+            # The session stores this name on chronicle rows. Speech is the
+            # writer play uses, and this seed is not the canonical world.
+            node = SpatialNode(name="Local Shelf", level="Object", properties={})
+            _speak_to(node, "a line from local play", seed=kwargs["seed"],
+                      player_name=kwargs["player_name"])
 
-        # The autouse fixture leaves canonical seed empty: local play.
-        main.cmd_play(Local())
-        assert started == [{"seed": 42, "depth": 1, "player_name": "Priya"}]
-        monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "42")
+        monkeypatch.setattr("interface.run_session", session)
+        monkeypatch.setattr("consciousness.speak", lambda *a, **k: "the place answers")
+        monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "382")
 
         class Shared:
-            name = "Priya"
-            seed = 42
+            name = slur
+            seed = 382
             depth = 1
 
         with pytest.raises(SystemExit, match="choose another"):
             main.cmd_play(Shared())
+        assert started == []
+        assert all(row["player"] != slur for row in persistence.get_mutations(382))
+
+        class Elsewhere:
+            name = slur
+            seed = 7
+            depth = 1
+
+        main.cmd_play(Elsewhere())
+        assert started == [{"seed": 7, "depth": 1, "player_name": slur}]
+        written = [row for row in persistence.get_mutations(7) if row["player"] == slur]
+        assert written and written[0]["type"] == "PLAYER_SPEAK"
+        assert slur in written[0]["data"]["identity"]
+
+        # Local multi-world mode is the same unscreened boundary.
+        monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "")
+        started.clear()
+
+        class Local:
+            name = slur
+            seed = 42
+            depth = 1
+
+        main.cmd_play(Local())
+        assert started == [{"seed": 42, "depth": 1, "player_name": slur}]
+        local_rows = [row for row in persistence.get_mutations(42) if row["player"] == slur]
+        assert local_rows and local_rows[0]["type"] == "PLAYER_SPEAK"
 
     def test_mint_unscreened_is_the_operator_override(self, monkeypatch, capsys):
         import main
@@ -678,4 +719,4 @@ class TestUnicodeNormalization:
     def test_homoglyph_name_is_rejected(self):
         # Names get the stricter local-only screen; the fold applies there
         # too ('а' below is U+0430, Cyrillic).
-        assert moderation.name_allowed("fаggot") is False
+        assert moderation.name_refusal("fаggot") is not None

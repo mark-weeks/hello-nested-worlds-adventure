@@ -99,7 +99,7 @@ SQLite-backed store, WAL mode, 27 additive migrations (`persistence/migrations/`
 - **`intents.py`** — request-ID receipts: a retry returns its committed response; a changed intent under the same ID is refused
 - **`interventions.py`** — atomic expressive commitments and recoverable, versioned consequences (migration 0027)
 - **`situations.py`** — bounded, atomic progression for the first shared situation (ADR-025); new scripted choices are refused, existing receipts and consequences stay recoverable
-- **`ideas.py`** / **`ideas_cli.py`** — community Ideas storage and operator moderation commands (ADR-026); no world, puzzle, chronicle or agent writes
+- **`ideas.py`** / **`ideas_cli.py`** — community Ideas storage and operator moderation commands (ADR-026); no world, puzzle, chronicle or agent writes. The HTTP handler screens a new draft after the duplicate-receipt check and before the insert; this module does not import the screen
 - **`history.py`** — bounded, read-only provenance for narration (never searches by actor or time)
 - **`recovery.py`** — read-only operator diagnostics behind `python main.py work-report`
 

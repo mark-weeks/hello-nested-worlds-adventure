@@ -33,6 +33,7 @@
     if (!response.ok) {
       const error = new Error(data.error || 'Ideas could not complete that request. Please retry.');
       error.status = response.status;
+      error.held = data.held === true;
       if (response.status === 403) {
         // Never leave previously fetched private content visible after a rejected credential.
         $('results').replaceChildren(); $('detail').hidden = true; $('board').hidden = true; $('notice').hidden = false;
@@ -262,11 +263,15 @@
       const link = element('a', 'Your stable idea link'); link.href = '/ideas?id=' + encodeURIComponent(data.id); $('message').append(link); link.focus();
       await load();
     } catch (error) {
-      if (payload && error.status && error.status < 500 && error.status !== 403 && error.status !== 429) {
+      // A moderation hold is finished: the board did not publish the draft.
+      // Unfreeze it, drop the pending receipt, and leave the text editable.
+      // A pending receipt would retry on reload and spend the screen again.
+      const settled = payload && (error.held || (error.status && error.status < 500 && error.status !== 403 && error.status !== 429));
+      if (settled) {
         try { await settleReceipt(payload, 'rejected'); }
         catch { message('The retry receipt could not be updated. Keep this tab open and restore browser storage.', true); return; }
         pending = null; freezeDraft(false);
-        if (error.status === 409) requestId = crypto.randomUUID();
+        if (!error.held && error.status === 409) requestId = crypto.randomUUID();
       } else if (payload) $('draft-state').textContent = 'Your submission may have arrived. Retry to confirm it before editing. This receipt survives closing the tab.';
       saveDraft(); message(error.message, true);
     } finally { $('submit-button').disabled = false; }

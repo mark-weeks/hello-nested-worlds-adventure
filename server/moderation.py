@@ -144,30 +144,34 @@ def _moderation_log(outcome: str, surface: str) -> None:
 def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -> Verdict:
     """Screen player-authored text before anyone else can see it.
 
-    Clean input costs zero model calls. Ambiguous input spends one classify
-    call when the per-user and shared budgets allow it. Shared text is
-    allowed only for a local clean verdict or a clear ALLOW. Every other
-    result holds or declines it.
+    Empty text is allowed before the kill switch, so a blank published
+    profile still saves. A local block is a finished decline and does not
+    spend the action cap. The cap is charged only after that, so a clean
+    line still spends it and a slur at the cap is declined. Ambiguous input
+    then spends one classify call when the per-user and shared budgets allow
+    it. Shared text is allowed only for a local clean verdict or a clear
+    ALLOW. Every other result holds or declines it.
     """
+    if not text or not str(text).strip():
+        return _ALLOW_CLEAN
     if moderation_disabled():
         _moderation_log("disabled", surface)
         return Verdict(False, "disabled", "disabled")
-    if not text or not str(text).strip():
-        return _ALLOW_CLEAN
-    if not guard.consume_moderation_action(user_key):
-        _moderation_log("user_cap", surface)
-        return Verdict(False, "user_cap", "user_cap")
 
     tier = _local_tier(text)
     if tier == "block":
         _moderation_log("block", surface)
         return _BLOCK_LOCAL
+    if not guard.consume_moderation_action(user_key):
+        _moderation_log("user_cap", surface)
+        return Verdict(False, "user_cap", "user_cap")
     if tier == "clean":
         return _ALLOW_CLEAN
 
     # Ambiguous → one classify call, after the model-action cap and on
     # moderation's own budget. A model-action refusal does not spend that
-    # budget. The call itself logs allow / block / undecided / error.
+    # budget. classify_content logs a finished verdict. This function logs
+    # the single outcome=error line if that call, or anything around it, raises.
     if not guard.consume_model_action(user_key):
         _moderation_log("user_cap", surface)
         return Verdict(False, "user_cap", "user_cap")
@@ -178,8 +182,8 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     try:
         import consciousness
         outcome = consciousness.classify_content(text, surface=surface)
-    except Exception as exc:
-        _log.warning("moderation classify failed closed: %s", type(exc).__name__)
+    except Exception:
+        _moderation_log("error", surface)
         return Verdict(False, "error", "error")
     if outcome == "allow":
         return Verdict(True, "classify", "allow")
@@ -229,8 +233,3 @@ def name_refusal(name: str) -> str | None:
         _moderation_log("block", "name")
         return NAME_BLOCK
     return None
-
-
-def name_allowed(name: str) -> bool:
-    """True when :func:`name_refusal` would register ``name``."""
-    return name_refusal(name) is None

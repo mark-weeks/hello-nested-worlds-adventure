@@ -195,7 +195,14 @@ def _pending_submission(key, request, fingerprint):
     return None
 
 
-def submit(key, data):
+def submit(key, data, *, review=None):
+    """Insert a draft. ``review`` screens a new draft and may raise.
+
+    The duplicate receipt is recognized before ``review``, so a retry of an
+    idea that already exists does not classify again. This module does not
+    import the screen: the HTTP handler passes it. Direct callers (fixtures
+    and operator tools) omit ``review`` and do not classify.
+    """
     title = text(data.get('title'), 'Title', 120)
     description = text(data.get('description'), 'Description', 2000)
     request = data.get('request_id')
@@ -208,16 +215,8 @@ def submit(key, data):
     existing = _pending_submission(key, request, fingerprint)
     if existing:
         return existing
-    # Same two-tier rule as other shared text. The local tier still blocks
-    # unambiguous slurs on its own. Ambiguous text needs a clear ALLOW before
-    # it is visible. A hold publishes nothing. The classifier runs outside
-    # the write transaction.
-    from server.moderation import IDEAS_DECLINE, IDEAS_HOLD, screen
-    verdict = screen(title + '\n' + description, user_key=key, surface='ideas')
-    if not verdict.allowed:
-        if verdict.outcome == 'block':
-            raise ValueError(IDEAS_DECLINE)
-        raise Held(IDEAS_HOLD)
+    if review is not None:
+        review(title + '\n' + description)
     with db.transaction() as conn:
         me = participants.identify(key)
         existing = conn.execute('SELECT id,request_hash,visibility FROM community_ideas WHERE member_id=? AND request_id=?',

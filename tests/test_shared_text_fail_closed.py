@@ -10,7 +10,6 @@ import threading
 import pytest
 
 import persistence
-import content_screen
 from consciousness.runtime import Completion
 from interface import _speak_to
 from multiverse.generator import generate_node_hierarchy
@@ -20,6 +19,23 @@ from puzzles.engine import build_puzzle
 from server import _Handler, _ThreadedServer, guard, moderation
 from tests.test_day_one_recording import _wait_for_rows, _ws_connect, _ws_send_json
 from tests.test_moderation import _SLUR, _read_ws_json_until
+
+# Fixed per mode. hash() is randomized per process (PYTHONHASHSEED).
+_HOLD_SEEDS = {
+    "timeout": 910,
+    "error": 911,
+    "undecided": 912,
+    "budget": 913,
+    "disabled": 914,
+    "user_cap": 915,
+}
+_PUZZLE_HOLD_SEEDS = {
+    "disabled": 940,
+    "budget": 941,
+    "timeout": 942,
+    "undecided": 943,
+    "user_cap": 944,
+}
 
 
 @pytest.fixture()
@@ -103,7 +119,6 @@ def test_classify_logs_outcome_without_player_text_or_the_reply(caplog, monkeypa
 
 
 def test_classify_timeout_logs_error_without_the_exception_body(caplog, monkeypatch):
-    import consciousness
     from consciousness import runtime
 
     class Provider:
@@ -113,11 +128,27 @@ def test_classify_timeout_logs_error_without_the_exception_body(caplog, monkeypa
             raise TimeoutError("secret phrase from the provider")
 
     monkeypatch.setattr(runtime, "get_provider", lambda: Provider())
-    with caplog.at_level("INFO", logger="nested_worlds.consciousness"):
-        with pytest.raises(TimeoutError):
-            consciousness.classify_content("secret phrase", surface="speak")
-    assert "moderation_call outcome=error surface=speak" in caplog.text
+    with caplog.at_level("INFO"):
+        verdict = moderation.screen("go kill yourself", surface="speak")
+    assert verdict.outcome == "error"
+    assert caplog.text.count("moderation_call outcome=error surface=speak") == 1
     assert "secret phrase" not in caplog.text
+    assert "go kill yourself" not in caplog.text
+
+
+def test_exception_outside_classify_logs_one_error(caplog, monkeypatch):
+    import consciousness
+
+    def boom(text, **_k):
+        raise RuntimeError("secret phrase from outside classify")
+
+    monkeypatch.setattr(consciousness, "classify_content", boom)
+    with caplog.at_level("INFO"):
+        verdict = moderation.screen("go kill yourself", surface="speak")
+    assert verdict.outcome == "error"
+    assert caplog.text.count("moderation_call outcome=error surface=speak") == 1
+    assert "secret phrase" not in caplog.text
+    assert "go kill yourself" not in caplog.text
 
 
 def test_model_id_comes_from_model_for(monkeypatch):
@@ -242,7 +273,7 @@ def test_each_failure_holds_speak_chat_and_agent_voice(srv, mode, monkeypatch):
         monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
     if mode == "user_cap":
         monkeypatch.setenv(guard.MODERATION_ACTIONS_PER_USER_ENV, "0")
-    seed = 910 + hash(mode) % 50
+    seed = _HOLD_SEEDS[mode]
     node = generate_node_hierarchy(seed=seed, max_depth=1)
     # The action cap only counts a presented credential. Minting the first
     # key closes the invite gate, so that mode gives both sockets a key.
@@ -323,7 +354,8 @@ def test_ideas_follow_each_failure_and_a_retry_of_a_published_idea_stands(http, 
     monkeypatch.setattr(consciousness, "classify_content",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
     held = create("go kill yourself", "idea-held-0001")
-    assert held[0] == 503 and held[1]["error"] == moderation.IDEAS_HOLD
+    assert held[0] == 422 and held[1]["held"] is True
+    assert held[1]["error"] == moderation.IDEAS_HOLD
     assert http("/ideas/list")[1]["ideas"] == []
     # A local block still declines in product language and does not publish.
     monkeypatch.setenv(moderation.EXTRA_BLOCK_ENV, "zorblax")
@@ -338,7 +370,8 @@ def test_ideas_follow_each_failure_and_a_retry_of_a_published_idea_stands(http, 
     again = create("A clearer crossing", "idea-clean-0001")
     assert again[0] == 200 and again[1]["id"] == idea_id
     fresh = create("Another clear crossing", "idea-fresh-0001")
-    assert fresh[0] == 503 and fresh[1]["error"] == moderation.IDEAS_HOLD
+    assert fresh[0] == 422 and fresh[1]["held"] is True
+    assert fresh[1]["error"] == moderation.IDEAS_HOLD
     listed = http("/ideas/list")[1]["ideas"]
     assert [row["id"] for row in listed] == [idea_id]
 
@@ -359,7 +392,7 @@ def test_puzzle_attempt_counts_without_unjudged_text(srv, mode, monkeypatch):
                             lambda *a, **k: (_ for _ in ()).throw(TimeoutError("down")))
     else:
         monkeypatch.setattr(consciousness, "classify_content", lambda *a, **k: "undecided")
-    seed = 940 + hash(mode) % 40
+    seed = _PUZZLE_HOLD_SEEDS[mode]
     root = generate_node_hierarchy(seed=seed, max_depth=1)
     puzzle = build_puzzle(root)
     guess = "go kill yourself" if mode in {"budget", "timeout", "undecided"} else "plain wrong guess"
@@ -380,13 +413,64 @@ def test_puzzle_attempt_counts_without_unjudged_text(srv, mode, monkeypatch):
     assert status == 200 and solved["correct"] is True
     correct_row = next(row for row in _rows(seed, root.name, "PUZZLE_ATTEMPT")
                        if row["data"]["correct"] is True)
-    withhold_answer = (
-        mode in {"disabled", "user_cap"}
-        or content_screen.local_tier(puzzle.answer) != "clean")
-    if withhold_answer:
-        assert "guess" not in correct_row["data"]
-    else:
-        assert correct_row["data"]["guess"].lower() == puzzle.answer.lower()[:32]
+    # The authored answer is not player free text. It is never screened
+    # and never stored as the guess.
+    assert "guess" not in correct_row["data"]
+
+
+def test_puzzle_screen_skips_a_mismatch_a_correct_answer_and_a_solved_puzzle(srv, monkeypatch):
+    calls = []
+    real = moderation.public_excerpt
+
+    def wrapped(text, **kwargs):
+        calls.append(text)
+        return real(text, **kwargs)
+
+    monkeypatch.setattr(moderation, "public_excerpt", wrapped)
+    seed = 976
+    root = generate_node_hierarchy(seed=seed, max_depth=1)
+    puzzle = build_puzzle(root)
+    mismatch, _ = _post(srv, "/puzzle/attempt", {
+        "seed": seed, "node_name": root.name, "puzzle_name": "not-this-question",
+        "answer": "go kill yourself", "player_name": "Ada"})
+    assert mismatch == 409 and calls == []
+    status, solved = _post(srv, "/puzzle/attempt", {
+        "seed": seed, "node_name": root.name, "puzzle_name": puzzle.name,
+        "answer": puzzle.answer, "player_name": "Ada"})
+    assert status == 200 and solved["correct"] is True and calls == []
+    correct_row = _rows(seed, root.name, "PUZZLE_ATTEMPT")[0]
+    assert "guess" not in correct_row["data"]
+    status, late = _post(srv, "/puzzle/attempt", {
+        "seed": seed, "node_name": root.name, "puzzle_name": puzzle.name,
+        "answer": "go kill yourself", "player_name": "Ada"})
+    assert status == 200 and late["solver"] and calls == []
+
+
+def test_incorrect_guess_is_still_screened(srv, monkeypatch):
+    calls = []
+    real = moderation.public_excerpt
+
+    def wrapped(text, **kwargs):
+        calls.append(text)
+        return real(text, **kwargs)
+
+    monkeypatch.setattr(moderation, "public_excerpt", wrapped)
+    seed = 975
+    root = generate_node_hierarchy(seed=seed, max_depth=1)
+    puzzle = build_puzzle(root)
+    status, data = _post(srv, "/puzzle/attempt", {
+        "seed": seed, "node_name": root.name, "puzzle_name": puzzle.name,
+        "answer": "plain wrong", "player_name": "Ada"})
+    assert status == 200 and data["correct"] is False
+    assert calls == ["plain wrong"]
+    assert _rows(seed, root.name, "PUZZLE_ATTEMPT")[0]["data"]["guess"] == "plain wrong"
+
+
+def test_empty_published_profile_saves_when_moderation_is_off(http, monkeypatch):
+    monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
+    status, data, _ = http("/profile/save", body={
+        "bio": "", "goals": "  ", "published": True})
+    assert status == 200 and data["profile"]["published"] is True
 
 
 def test_judged_guess_is_stored_and_redaction_still_tombstones_it(srv):
@@ -519,11 +603,13 @@ def test_ideas_budget_and_cap_publish_nothing(http, monkeypatch):
     budget = http("/ideas/submit", body={
         "title": "go kill yourself", "description": "This should not publish.",
         "request_id": "idea-budget-001", "public_credit": False})
-    assert budget[0] == 503 and budget[1]["error"] == moderation.IDEAS_HOLD
+    assert budget[0] == 422 and budget[1]["held"] is True
+    assert budget[1]["error"] == moderation.IDEAS_HOLD
     monkeypatch.setenv(guard.MODERATION_ACTIONS_PER_USER_ENV, "0")
     capped = http("/ideas/submit", body={
         "title": "A quieter crossing", "description": "Also held.",
         "request_id": "idea-cap-0001", "public_credit": False})
-    assert capped[0] == 503 and capped[1]["error"] == moderation.IDEAS_HOLD
+    assert capped[0] == 422 and capped[1]["held"] is True
+    assert capped[1]["error"] == moderation.IDEAS_HOLD
     assert http("/ideas/list")[1]["ideas"] == []
     assert ideas.Held.__name__ == "Held"

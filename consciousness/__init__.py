@@ -1221,25 +1221,21 @@ def classify_content(text: str, *, surface: str = "classify") -> str:
     """'allow', 'block', or 'undecided'. Raises on transport failure.
 
     One short uncached call on the configured moderation model. The caller
-    holds shared text on 'undecided' and on any exception. The log records
-    the outcome only — never the player text and never the raw reply.
+    holds shared text on 'undecided' and on any exception. A finished verdict
+    is logged here. An exception is not: the caller logs that single
+    outcome=error line, including when the failure is outside this function.
+    The log never includes the player text or the raw reply.
     """
     import time as _time
     started = _time.monotonic()
-    try:
-        response = runtime.generate(
-            endpoint="moderate",
-            model=runtime.model_for(runtime.MODERATION_TASK),
-            max_tokens=_MODERATION_MAX_TOKENS,
-            system=(SystemBlock(_MODERATION_SYSTEM),),
-            messages=[{"role": "user", "content": text}],
-            timeout=_MODERATION_TIMEOUT_SECONDS,
-        )
-    except Exception:
-        elapsed_ms = (_time.monotonic() - started) * 1000.0
-        _log.info("moderation_call outcome=error surface=%s ms=%.0f",
-                  surface, elapsed_ms)
-        raise
+    response = runtime.generate(
+        endpoint="moderate",
+        model=runtime.model_for(runtime.MODERATION_TASK),
+        max_tokens=_MODERATION_MAX_TOKENS,
+        system=(SystemBlock(_MODERATION_SYSTEM),),
+        messages=[{"role": "user", "content": text}],
+        timeout=_MODERATION_TIMEOUT_SECONDS,
+    )
     elapsed_ms = (_time.monotonic() - started) * 1000.0
     outcome = moderation_outcome(response)
     _log.info("moderation_call outcome=%s surface=%s ms=%.0f",
