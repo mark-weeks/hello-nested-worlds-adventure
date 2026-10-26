@@ -32,13 +32,15 @@ def _quiet(line, *, ai=False, declined=False, clarification=False):
 def _propose(intention, key, name, node, props):
     if guard.ai_disabled() or not runtime.configured():
         return None, _quiet(_UNSHAPED)
-    if not guard.consume_model_action(user_key=key):
-        return None, _quiet(guard.QUIET_RESPONSE)
-    if not guard.consume_anthropic(user_key=key):
-        return None, _quiet(guard.QUIET_RESPONSE)
+    # The model-action cap and the voice budget are charged inside
+    # runtime.generate, in that order, when propose() asks for a completion.
     from consciousness.interventions import Clarification, Unsupported, propose
+    from consciousness.runtime import ModelActionLimited, VoiceBudgetLimited
     try:
-        return propose(intention, {'name': name, 'level': node.level, 'properties': props}), None
+        return propose(intention, {'name': name, 'level': node.level, 'properties': props},
+                       user_key=key, voice_budget=True), None
+    except (ModelActionLimited, VoiceBudgetLimited):
+        return None, _quiet(guard.QUIET_RESPONSE)
     except Clarification as exc:
         return None, _quiet(str(exc), ai=True, clarification=True)
     except Unsupported as exc:

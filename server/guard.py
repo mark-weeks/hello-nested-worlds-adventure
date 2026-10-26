@@ -732,9 +732,11 @@ def consume_moderation_action(user_key: str | None = None) -> bool:
 def consume_model_action(user_key: str | None = None) -> bool:
     """Reserve one model-calling action against the per-user cap.
 
-    Does not touch the ``anthropic`` bucket or ``NESTED_WORLDS_ANTHROPIC_*``.
-    Open when no credential is supplied. A False result must not publish
-    shared text and must not call the model.
+    Callers go through ``consciousness.runtime.reserve_model_action``, which
+    normalizes an empty credential and is what ``generate`` charges. Does not
+    touch the ``anthropic`` bucket or ``NESTED_WORLDS_ANTHROPIC_*``. Open when
+    no credential is supplied. A False result must not publish shared text
+    and must not call the model.
     """
     return _consume_per_user(
         MODEL_ACTIONS_BUCKET, MODEL_ACTIONS_PER_USER_ENV,

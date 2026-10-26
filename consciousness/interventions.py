@@ -54,7 +54,7 @@ QUESTIONS = {
 }
 
 
-def propose(intention, context):
+def propose(intention, context, *, user_key=None, voice_budget=False):
     import copy
     allowed = vocabulary(context.get('level'))
     if not allowed:
@@ -79,6 +79,7 @@ def propose(intention, context):
         max_tokens=500, system=(SystemBlock(system),),
         messages=[{'role': 'user', 'content': json.dumps({'intention': intention, 'place': context})}],
         json_schema=schema,
+        user_key=user_key, voice_budget=voice_budget,
     )
     if not response.complete:
         raise ValueError('The intention is not yet clear enough to enact.')

@@ -1005,7 +1005,10 @@ def speak(node: SpatialNode, message: str,
           transcript: list[dict] | None = None,
           ripple_score: float = 0.0,
           speaker: str | None = None,
-          hinge: bool = False) -> str:
+          hinge: bool = False,
+          *,
+          user_key: str | None = None,
+          voice_budget: bool = False) -> str:
     """Send `message` to `node` and return its in-character response.
 
     Two system blocks: a large cached "world bible" that consolidates the
@@ -1053,6 +1056,7 @@ def speak(node: SpatialNode, message: str,
     response = runtime.generate(
         endpoint="speak", model=runtime.model_for(runtime.NODE_TASK), max_tokens=256,
         system=system_blocks, messages=messages,
+        user_key=user_key, voice_budget=voice_budget,
     )
     return Voiced(response.require_text(), response.provider, response.resolved_model)
 
@@ -1118,7 +1122,10 @@ def _node_surroundings_block(node: SpatialNode) -> str:
 
 def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
                 message: str, history: list[dict] | None = None,
-                agent_memory: dict | None = None) -> str:
+                agent_memory: dict | None = None,
+                *,
+                user_key: str | None = None,
+                voice_budget: bool = False) -> str:
     """Speak AS an agent visiting `node`, in `persona`'s voice.
 
     `persona` is duck-typed to expose `.name` (matching
@@ -1149,6 +1156,7 @@ def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
         max_tokens=200,
         system=(SystemBlock(_AGENT_BIBLE, cacheable=True), SystemBlock(agent_context)),
         messages=[{"role": "user", "content": message}],
+        user_key=user_key, voice_budget=voice_budget,
     )
     return Voiced(response.require_text(), response.provider, response.resolved_model)
 
@@ -1217,14 +1225,18 @@ def moderation_outcome(completion: runtime.Completion) -> str:
     return match.group(1).lower()
 
 
-def classify_content(text: str, *, surface: str = "classify") -> str:
+def classify_content(text: str, *, surface: str = "classify",
+                     user_key: str | None = None,
+                     reservation: runtime.ModelReservation | None = None) -> str:
     """'allow', 'block', or 'undecided'. Raises on transport failure.
 
     One short uncached call on the configured moderation model. The caller
     holds shared text on 'undecided' and on any exception. A finished verdict
     is logged here. An exception is not: the caller logs that single
-    outcome=error line, including when the failure is outside this function.
-    The log never includes the player text or the raw reply.
+    outcome=error line, including elapsed milliseconds and including when
+    the failure is outside this function. The log never includes the player
+    text or the raw reply. ``reservation`` is the screen's model-action
+    charge; without one, ``generate`` charges.
     """
     import time as _time
     started = _time.monotonic()
@@ -1235,6 +1247,8 @@ def classify_content(text: str, *, surface: str = "classify") -> str:
         system=(SystemBlock(_MODERATION_SYSTEM),),
         messages=[{"role": "user", "content": text}],
         timeout=_MODERATION_TIMEOUT_SECONDS,
+        user_key=user_key,
+        reservation=reservation,
     )
     elapsed_ms = (_time.monotonic() - started) * 1000.0
     outcome = moderation_outcome(response)

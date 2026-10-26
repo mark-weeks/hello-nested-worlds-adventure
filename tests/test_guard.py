@@ -365,11 +365,17 @@ class TestAIKillSwitch:
 class TestCostCap:
     def test_anthropic_cap_blocks_speak(self, srv, monkeypatch):
         # Cap of zero → first call already over budget; speak returns the
-        # fallback without calling Anthropic.
+        # quiet line without calling the provider. The cap is charged inside
+        # generate, after the place resolves, so the place has to exist.
+        from multiverse.generator import DEFAULT_WORLD_SEED, generate_node_hierarchy
         monkeypatch.setattr("consciousness.runtime.configured", lambda: True)
+        monkeypatch.setattr(
+            "consciousness.runtime.get_provider",
+            lambda: pytest.fail("the voice budget must gate the model"))
         monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "0")
+        node = generate_node_hierarchy(seed=DEFAULT_WORLD_SEED, max_depth=1)
         base, _ = srv
-        data, status = _post(f"{base}/speak", {"node_name": "X", "message": "hi"})
+        data, status = _post(f"{base}/speak", {"node_name": node.name, "message": "hi"})
         assert status == 200
         assert data["response"] == guard.QUIET_RESPONSE
 

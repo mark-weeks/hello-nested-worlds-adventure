@@ -36,8 +36,10 @@ def handle(handler, path, qs, body=None):
                     user_key=guard.supplied_key(handler.headers, qs) or None,
                     surface='profile')
                 if not verdict.allowed:
-                    raise ValueError(moderation.PROFILE_DECLINE if verdict.outcome == 'block'
-                                     else moderation.PROFILE_HOLD)
+                    if verdict.outcome == 'block':
+                        raise ValueError(moderation.PROFILE_DECLINE)
+                    # Same definitive-hold shape as Ideas: 422, held true.
+                    raise moderation.PolicyHold(moderation.PROFILE_HOLD)
             data = {'profile': participants.save_profile(me['id'], body)}
         elif path in ('/journal/note', '/profile/home'):
             name = body.get('node', '')
@@ -59,6 +61,8 @@ def handle(handler, path, qs, body=None):
         handler._send_json(data)
     except participants.Unauthorized as exc:
         handler._send_error(str(exc), 403)
+    except moderation.PolicyHold as exc:
+        handler._send_json({"error": str(exc), "held": True}, 422)
     except (ValueError, TypeError) as exc:
         handler._send_error(str(exc), 400)
     return True

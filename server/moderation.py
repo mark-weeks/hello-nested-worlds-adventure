@@ -82,6 +82,15 @@ PROFILE_HOLD = (
 )
 
 
+class PolicyHold(Exception):
+    """A definitive hold of a published profile.
+
+    Product surfaces answer this with HTTP 422 and ``{"error", "held": true}``.
+    Ideas uses ``persistence.ideas.Held`` and the same response shape. A
+    content block stays HTTP 400. Speech and chat stay HTTP 200 in fiction.
+    """
+
+
 def moderation_disabled() -> bool:
     return os.environ.get(DISABLE_MODERATION_ENV, "").strip() == "1"
 
@@ -135,10 +144,17 @@ def http_body(verdict: Verdict, **extra) -> dict:
     return body
 
 
-def _moderation_log(outcome: str, surface: str) -> None:
+def _moderation_log(outcome: str, surface: str, elapsed_ms: float | None = None) -> None:
     # No player text. Addresses are not logged here; a caller that needs one
     # hashes it with observability.hash_ip before it ever reaches this line.
-    _log.info("moderation_call outcome=%s surface=%s", outcome, surface)
+    # Only the outcome=error line carries elapsed milliseconds: a finished
+    # verdict is logged by classify_content, and the other refusals are
+    # decided before a model call.
+    if elapsed_ms is None:
+        _log.info("moderation_call outcome=%s surface=%s", outcome, surface)
+    else:
+        _log.info("moderation_call outcome=%s surface=%s ms=%.0f",
+                  outcome, surface, elapsed_ms)
 
 
 def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -> Verdict:
@@ -168,22 +184,30 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     if tier == "clean":
         return _ALLOW_CLEAN
 
-    # Ambiguous → one classify call, after the model-action cap and on
-    # moderation's own budget. A model-action refusal does not spend that
-    # budget. classify_content logs a finished verdict. This function logs
-    # the single outcome=error line if that call, or anything around it, raises.
-    if not guard.consume_model_action(user_key):
+    # Ambiguous → one classify call. The model-action cap is charged first,
+    # through the same reservation generate() accepts, so a refusal does not
+    # spend the moderation budget and a later generate() does not charge
+    # twice. classify_content logs a finished verdict. This function logs
+    # the single outcome=error line, with elapsed milliseconds, if that
+    # call or anything around it raises.
+    import time as _time
+    from consciousness import runtime
+    try:
+        reservation = runtime.reserve_model_action(user_key)
+    except runtime.ModelActionLimited:
         _moderation_log("user_cap", surface)
         return Verdict(False, "user_cap", "user_cap")
-    reservation = guard.moderation_reserve(user_key)
-    if reservation != "ok":
-        _moderation_log(reservation, surface)
-        return Verdict(False, reservation, reservation)
+    budget = guard.moderation_reserve(reservation.key)
+    if budget != "ok":
+        _moderation_log(budget, surface)
+        return Verdict(False, budget, budget)
+    started = _time.monotonic()
     try:
         import consciousness
-        outcome = consciousness.classify_content(text, surface=surface)
+        outcome = consciousness.classify_content(
+            text, surface=surface, user_key=reservation.key, reservation=reservation)
     except Exception:
-        _moderation_log("error", surface)
+        _moderation_log("error", surface, (_time.monotonic() - started) * 1000.0)
         return Verdict(False, "error", "error")
     if outcome == "allow":
         return Verdict(True, "classify", "allow")
