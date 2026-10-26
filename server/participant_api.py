@@ -30,8 +30,14 @@ def handle(handler, path, qs, body=None):
             for field in ('bio', 'goals'):
                 if not isinstance(body.get(field, ''), str) or len(body.get(field, '')) > 500:
                     raise ValueError('Bio and goals may each contain up to 500 characters.')
-            if body.get('published') and not moderation.screen(body.get('bio', '') + '\n' + body.get('goals', '')).allowed:
-                raise ValueError('Please revise the public profile text.')
+            if body.get('published'):
+                verdict = moderation.screen(
+                    body.get('bio', '') + '\n' + body.get('goals', ''),
+                    user_key=guard.supplied_key(handler.headers, qs) or None,
+                    surface='profile')
+                if not verdict.allowed:
+                    raise ValueError(moderation.PROFILE_DECLINE if verdict.outcome == 'block'
+                                     else moderation.PROFILE_HOLD)
             data = {'profile': participants.save_profile(me['id'], body)}
         elif path in ('/journal/note', '/profile/home'):
             name = body.get('node', '')

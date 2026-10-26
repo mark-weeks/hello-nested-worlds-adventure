@@ -53,7 +53,7 @@ def test_all_four_tasks_use_provider_boundary(alternate, caplog):
         assert consciousness.speak(node, 'Now?', transcript=[{'user': 'Before?', 'assistant': 'Before.'}]) == 'A remembered voice.'
         assert consciousness.voice_agent(SimpleNamespace(name='tender'), 'Tessera', node, 'Hello') == 'A remembered voice.'
         alternate.result = Completion('BLOCK', True)
-        assert consciousness.classify_content('fixture input') is False
+        assert consciousness.classify_content('fixture input') == 'block'
         alternate.result = Completion(READY, True)
         assert interventions.propose('cut a pattern', {'level': 'Object'}) == [{'op': 'engrave', 'amount': 1}]
     voice, agent, moderation, intention = alternate.calls
@@ -193,7 +193,7 @@ def test_voice_credentials_gate_budget_and_history(http, accounts, monkeypatch, 
     monkeypatch.delenv(guard.DISABLE_AI_ENV, raising=False)
     monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, '100')
     monkeypatch.setenv(guard.ANTHROPIC_PER_USER_CAP_ENV, '100')
-    monkeypatch.setattr(moderation, 'screen', lambda text: SimpleNamespace(allowed=True))
+    monkeypatch.setattr(moderation, 'screen', lambda text, **_kwargs: SimpleNamespace(allowed=True))
     adapter = AnthropicProvider()
     monkeypatch.setattr(runtime, 'get_provider', lambda: adapter)
     calls = []

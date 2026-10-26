@@ -225,6 +225,14 @@ def _do_scale_verb(node: SpatialNode, seed: int,
 
 def _speak_to(node: SpatialNode, message: str, seed: int = 0,
               player_name: str | None = None) -> None:
+    # The operator terminal is unscreened only while it is not writing the
+    # hosted canonical world. Speech into that world is shared text.
+    from server.moderation import player_line, screen, writes_shared_chronicle
+    if writes_shared_chronicle(seed):
+        verdict = screen(message, surface="cli")
+        if not verdict.allowed:
+            print(f"  {player_line(verdict)}\n")
+            return
     print(f"\n{_fmt(node)} responds…\n")
     try:
         import consciousness

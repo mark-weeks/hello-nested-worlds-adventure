@@ -207,11 +207,15 @@ def handle_websocket(
                     if not chat_bucket.allow():
                         continue
                     text = str(message.get("text", "")).strip()[:256]
-                    if text and not moderation.screen(text).allowed:
-                        player.send(
-                            {"type": "chat_declined", "text": moderation.DECLINE_LINE}
-                        )
-                        continue
+                    if text:
+                        verdict = moderation.screen(
+                            text, user_key=ws_key or None, surface="chat")
+                        if not verdict.allowed:
+                            player.send({
+                                "type": "chat_declined",
+                                "text": moderation.player_line(verdict),
+                            })
+                            continue
                     if text:
                         broadcast(
                             room,

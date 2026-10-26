@@ -373,19 +373,24 @@ def execute(case, outputs=None):
             from server import moderation
             # Classifier trial even for clean/local-block inputs; end-to-end
             # screen is also observed using the SAME reply (never a second call).
+            # A transport failure is not an allow: shared text holds.
             try:
-                allowed = consciousness.classify_content(message)
+                outcome = consciousness.classify_content(message)
                 error = None
             except (BudgetExceeded, RoutingMismatch):
                 raise
             except Exception as exc:
-                allowed, error = True, type(exc).__name__
-            with patch.object(consciousness, "classify_content", return_value=allowed,
+                outcome, error = "error", type(exc).__name__
+            allowed = outcome == "allow"
+            with patch.object(consciousness, "classify_content", return_value=outcome,
                               side_effect=RuntimeError("eval transport failure") if error else None), \
-                 patch.object(moderation.guard, "consume_moderation", return_value=True):
+                 patch.object(moderation.guard, "moderation_reserve", return_value="ok"), \
+                 patch.object(moderation.guard, "consume_model_action", return_value=True), \
+                 patch.object(moderation.guard, "consume_moderation_action", return_value=True):
                 screen = moderation.screen(message)
-            outputs.append({"status": "classified", "allowed": allowed, "error": error,
-                            "local_tier": moderation._local_tier(message), "screen": asdict(screen)})
+            outputs.append({"status": "classified", "allowed": allowed, "outcome": outcome,
+                            "error": error, "local_tier": moderation._local_tier(message),
+                            "screen": asdict(screen)})
     return outputs
 
 
@@ -428,10 +433,15 @@ def grade(case, outputs, calls, error):
         except (ValueError, KeyError, TypeError, IndexError):
             result["task_correct"] = False
     elif case["task"] == "moderation":
-        verdict = responses[0]["text"].strip().upper()
-        result["classifier_verdict_valid"] = (verdict in ("ALLOW", "BLOCK") and
+        from consciousness import moderation_outcome
+        response = responses[0]
+        outcome = moderation_outcome(Completion(
+            response.get("text"), bool(response.get("complete")),
+            finish_reason=response.get("finish_reason") or "unknown"))
+        result["classifier_verdict_valid"] = (outcome in ("allow", "block") and
                                                bool(outputs) and not outputs[0]["error"])
         result["task_correct"] = (result["classifier_verdict_valid"] and
+                                  outputs[0]["allowed"] == (outcome == "allow") and
                                   outputs[0]["allowed"] == case["expected"]["allowed"])
         if result["classifier_verdict_valid"]:
             result["screen_correct"] = outputs[0]["screen"]["allowed"] == case["expected"]["allowed"]

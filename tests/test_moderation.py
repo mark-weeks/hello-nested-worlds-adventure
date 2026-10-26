@@ -6,10 +6,12 @@ The invariants that matter, each pinned by behavior:
     microseconds, not a model call.
   * Only the unambiguous word-boundary tier blocks locally; every fuzzy
     signal escalates to the classifier instead of censoring on a heuristic.
-  * Every failure path — classify error, exhausted moderation budget, kill
-    switch — ALLOWS. The screen can go quiet; the world's voice cannot.
-  * A declined input leaves NO trace: no chronicle row, no broadcast, no
-    voice-budget charge.
+  * Shared text fails closed. A classify error, an exhausted moderation
+    budget, a disabled screen, an undecided reply, or a per-user cap HOLDS
+    the text. A BLOCK declines it. Only a clear ALLOW or a local clean
+    verdict publishes it.
+  * A declined or held input leaves NO trace: no chronicle row, no
+    broadcast, no voice-budget charge.
 """
 from __future__ import annotations
 
@@ -182,11 +184,11 @@ class TestLocalTier:
         assert moderation._local_tier("you utter zorblax") == "block"
 
     def test_names_screened_strictly(self):
-        assert moderation.name_allowed("Priya") is True
-        assert moderation.name_allowed("Wren") is True
+        assert moderation.name_refusal("Priya") is None
+        assert moderation.name_refusal("Wren") is None
         # For names the evasion sequences hard-block — no prose context.
-        assert moderation.name_allowed("N1gger") is False
-        assert moderation.name_allowed("Sniggerton") is False
+        assert moderation.name_refusal("N1gger") is not None
+        assert moderation.name_refusal("Sniggerton") is not None
 
 
 # ── screen() orchestration ──────────────────────────────────────────────────
@@ -194,41 +196,46 @@ class TestLocalTier:
 class TestScreenOrchestration:
     @pytest.mark.parametrize("text", _GAMEPLAY_CONTROLS)
     def test_gameplay_controls_use_neither_budget_nor_classifier(self, text, monkeypatch):
-        def unexpected(*args):
+        def unexpected(*args, **kwargs):
             pytest.fail("clean gameplay must not spend the moderation budget")
-        monkeypatch.setattr(guard, "consume_moderation", unexpected)
+        monkeypatch.setattr(guard, "moderation_reserve", unexpected)
+        monkeypatch.setattr(guard, "consume_model_action", unexpected)
         monkeypatch.setattr("consciousness.classify_content", unexpected)
-        assert moderation.screen(text) == moderation.Verdict(True, "clean")
+        assert moderation.screen(text) == moderation.Verdict(True, "clean", "allow")
 
     @pytest.mark.parametrize("allowed", [False, True])
     def test_new_signals_follow_one_budgeted_classifier_verdict(
             self, uncovered_input, allowed, monkeypatch):
         calls, budget = [], []
+        outcome = "allow" if allowed else "block"
         monkeypatch.setattr("consciousness.classify_content",
-                            lambda text: calls.append(text) or allowed)
-        monkeypatch.setattr(guard, "consume_moderation",
-                            lambda: budget.append(1) or True)
+                            lambda text, **_k: calls.append(text) or outcome)
+        monkeypatch.setattr(guard, "moderation_reserve",
+                            lambda user_key=None: budget.append(1) or "ok")
         verdict = moderation.screen(uncovered_input)
-        assert verdict == moderation.Verdict(allowed, "classify")
+        assert verdict == moderation.Verdict(allowed, "classify", outcome)
         assert calls == [uncovered_input] and budget == [1]
 
-    @pytest.mark.parametrize("mode,tier", [
-        ("timeout", "fail_open"), ("budget", "budget_open"), ("off", "off"),
+    @pytest.mark.parametrize("mode,tier,outcome", [
+        ("timeout", "error", "error"),
+        ("budget", "budget", "budget"),
+        ("off", "disabled", "disabled"),
     ])
-    def test_new_signals_preserve_failure_and_disable_behavior(
-            self, uncovered_input, mode, tier, monkeypatch):
+    def test_new_signals_hold_shared_text_when_moderation_cannot_judge(
+            self, uncovered_input, mode, tier, outcome, monkeypatch):
         calls, budget = [], []
 
-        def classify(text):
+        def classify(text, **_k):
             calls.append(text)
             raise TimeoutError("fixture timeout")
 
         monkeypatch.setattr("consciousness.classify_content", classify)
-        monkeypatch.setattr(guard, "consume_moderation",
-                            lambda: budget.append(1) or mode != "budget")
+        monkeypatch.setattr(guard, "moderation_reserve",
+                            lambda user_key=None: budget.append(1) or (
+                                "budget" if mode == "budget" else "ok"))
         monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV,
                            "1" if mode == "off" else "0")
-        assert moderation.screen(uncovered_input) == moderation.Verdict(True, tier)
+        assert moderation.screen(uncovered_input) == moderation.Verdict(False, tier, outcome)
         assert calls == ([uncovered_input] if mode == "timeout" else [])
         assert budget == ([] if mode == "off" else [1])
 
@@ -242,15 +249,15 @@ class TestScreenOrchestration:
     def test_ambiguous_benign_context_obeys_allow(self, text, monkeypatch):
         calls = []
         monkeypatch.setattr("consciousness.classify_content",
-                            lambda text: calls.append(text) or True)
-        assert moderation.screen(text) == moderation.Verdict(True, "classify")
+                            lambda text, **_k: calls.append(text) or "allow")
+        assert moderation.screen(text) == moderation.Verdict(True, "classify", "allow")
         assert calls == [text]
 
     def test_clean_input_never_calls_the_classifier(self, monkeypatch):
         import consciousness
         calls = []
         monkeypatch.setattr(consciousness, "classify_content",
-                            lambda text: calls.append(text) or True)
+                            lambda text, **_k: calls.append(text) or "allow")
         v = moderation.screen("a perfectly ordinary sentence")
         assert v.allowed and v.tier == "clean"
         assert calls == []  # the common case costs zero API calls
@@ -259,7 +266,7 @@ class TestScreenOrchestration:
         import consciousness
         calls = []
         monkeypatch.setattr(consciousness, "classify_content",
-                            lambda text: calls.append(text) or True)
+                            lambda text, **_k: calls.append(text) or "allow")
         v = moderation.screen(f"you {_SLUR}")
         assert not v.allowed and v.tier == "blocklist"
         assert calls == []
@@ -269,42 +276,56 @@ class TestScreenOrchestration:
         import consciousness
         calls = []
         monkeypatch.setattr(consciousness, "classify_content",
-                            lambda text: (calls.append(text), False)[1])
+                            lambda text, **_k: (calls.append(text), "block")[1])
         v = moderation.screen("go kill yourself")
-        assert not v.allowed and v.tier == "classify"
+        assert not v.allowed and v.tier == "classify" and v.outcome == "block"
         assert len(calls) == 1
-        monkeypatch.setattr(consciousness, "classify_content", lambda t: True)
+        monkeypatch.setattr(consciousness, "classify_content", lambda t, **_k: "allow")
         assert moderation.screen("go kill yourself").allowed is True
 
-    def test_classifier_failure_fails_open(self, monkeypatch):
+    def test_classifier_failure_holds_shared_text(self, monkeypatch):
         import consciousness
-        def boom(text):
+        def boom(text, **_k):
             raise TimeoutError("simulated API timeout")
         monkeypatch.setattr(consciousness, "classify_content", boom)
         v = moderation.screen("go kill yourself")
-        assert v.allowed and v.tier == "fail_open"
+        assert not v.allowed and v.tier == "error" and v.outcome == "error"
 
-    def test_exhausted_moderation_budget_fails_open_without_calling(
+    def test_exhausted_moderation_budget_holds_without_calling(
             self, monkeypatch):
         import consciousness
         calls = []
         monkeypatch.setattr(consciousness, "classify_content",
-                            lambda text: calls.append(text) or False)
-        monkeypatch.setattr(guard, "consume_moderation", lambda: False)
+                            lambda text, **_k: calls.append(text) or "block")
+        monkeypatch.setattr(guard, "moderation_reserve", lambda user_key=None: "budget")
         v = moderation.screen("go kill yourself")
-        assert v.allowed and v.tier == "budget_open"
+        assert not v.allowed and v.tier == "budget" and v.outcome == "budget"
         assert calls == []
 
-    def test_kill_switch_turns_the_screen_off(self, monkeypatch):
+    def test_kill_switch_holds_shared_text_and_refuses_names(self, monkeypatch):
         monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
         v = moderation.screen(f"you {_SLUR}")
-        assert v.allowed and v.tier == "off"
-        assert moderation.name_allowed(_SLUR) is True
+        assert not v.allowed and v.tier == "disabled" and v.outcome == "disabled"
+        assert moderation.screen("a perfectly ordinary sentence").outcome == "disabled"
+        assert moderation.name_refusal(_SLUR) is not None
+        assert "choose another" in moderation.name_refusal("Priya")
+        assert moderation.screen("").allowed
+        assert moderation.screen(" \n").allowed
+
+    def test_local_block_does_not_spend_the_action_cap(self, monkeypatch):
+        monkeypatch.setenv(guard.MODERATION_ACTIONS_PER_USER_ENV, "1")
+        blocked = moderation.screen(f"you {_SLUR}", user_key="alice", surface="speak")
+        assert blocked.outcome == "block"
+        assert moderation.player_line(blocked) == moderation.DECLINE_LINE
+        allowed = moderation.screen("a perfectly ordinary sentence", user_key="alice")
+        assert allowed.allowed and allowed.outcome == "allow"
+        held = moderation.screen("another ordinary sentence", user_key="alice")
+        assert held.outcome == "user_cap" and not held.allowed
 
     def test_moderation_spends_its_own_bucket_not_the_voice_bucket(
             self, monkeypatch):
         import consciousness
-        monkeypatch.setattr(consciousness, "classify_content", lambda t: True)
+        monkeypatch.setattr(consciousness, "classify_content", lambda t, **_k: "allow")
         day = guard._utc_day()
         moderation.screen("go kill yourself")
         with persistence._connect() as conn:
@@ -328,24 +349,28 @@ class TestClassifyCall:
                 class _Resp:
                     content = [type("B", (), {"type": "text", "text": "ALLOW"})]
                     usage = None
+                    stop_reason = "end_turn"
                 return _Resp()
 
         class _FakeClient:
             messages = _FakeMessages()
 
         monkeypatch.setattr(provider, "_client", _FakeClient())
-        assert consciousness.classify_content("some text") is True
-        # Haiku tier by default, env-overridable.
-        assert "haiku" in recorded["model"]
+        assert consciousness.classify_content("some text") == "allow"
+        # The configured moderation model, not a hard-coded call-site id.
+        assert recorded["model"] == consciousness.runtime.model_for("moderation")
         # The system prompt rides as a plain string with NO cache_control —
         # it sits far below the 4096-token cache minimum, where a marker
         # would be a silent no-op (the trap this repo shipped twice).
         assert isinstance(recorded["system"], str)
-        assert recorded["max_tokens"] <= 16
+        # 32 leaves room for a short preamble plus one verdict word. A
+        # length stop is undecided, so a tighter cap would hold every
+        # reply that does not emit a bare token.
+        assert recorded["max_tokens"] == 32
         # A moderation verdict must never stall a real-time surface.
         assert recorded["timeout"] <= 5.0
 
-    def test_confused_reply_allows(self, monkeypatch):
+    def test_confused_reply_is_undecided(self, monkeypatch):
         import consciousness
 
         class _FakeMessages:
@@ -354,13 +379,14 @@ class TestClassifyCall:
                     content = [type("B", (), {"type": "text",
                                               "text": "hmm, unsure"})]
                     usage = None
+                    stop_reason = "end_turn"
                 return _Resp()
 
         class _FakeClient:
             messages = _FakeMessages()
 
         monkeypatch.setattr(provider, "_client", _FakeClient())
-        assert consciousness.classify_content("text") is True
+        assert consciousness.classify_content("text") == "undecided"
 
 
 # ── Server surfaces ─────────────────────────────────────────────────────────
@@ -419,7 +445,7 @@ class TestSpeakScreening:
         calls, charged = [], []
         monkeypatch.setattr("consciousness.runtime.configured", lambda: True)
         monkeypatch.setattr("consciousness.classify_content",
-                            lambda text: calls.append(text) or False)
+                            lambda text, **_k: calls.append(text) or "block")
         monkeypatch.setattr("consciousness.speak",
                             lambda *a, **k: pytest.fail("declined input reached voice"))
         monkeypatch.setattr("consciousness.voice_agent",
@@ -501,7 +527,7 @@ class TestChatScreening:
             self, srv, uncovered_input, monkeypatch):
         calls = []
         monkeypatch.setattr("consciousness.classify_content",
-                            lambda text: calls.append(text) or False)
+                            lambda text, **_k: calls.append(text) or "block")
         seed = 274
         root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
         sender, s_status = _ws_connect(srv, seed, "Ada")
@@ -557,7 +583,7 @@ def test_classifier_decline_cannot_replace_a_public_profile(
     before = http("/profile")[1]["profile"]
     calls = []
     monkeypatch.setattr("consciousness.classify_content",
-                        lambda text: calls.append(text) or False)
+                        lambda text, **_k: calls.append(text) or "block")
     status, data, _ = http("/profile/save", body={"bio": uncovered_input, "published": True})
     assert status == 400 and data == {"error": "Please revise the public profile text."}
     assert calls == [uncovered_input + "\n"]
@@ -585,15 +611,82 @@ class TestNameScreening:
         with pytest.raises(SystemExit, match="choose another"):
             main.cmd_invite(A())
 
-    def test_play_cli_rejects_screened_name(self):
+    def test_play_cli_screens_a_name_only_for_the_canonical_seed(self, monkeypatch):
         import main
+        from interface import _speak_to
+        from multiverse.node import SpatialNode
+        started = []
+        slur = "N1gger"
 
-        class A:
-            name = "N1gger"
-            seed = 42
-            depth = 6
+        def session(**kwargs):
+            started.append(kwargs)
+            # The session stores this name on chronicle rows. Speech is the
+            # writer play uses, and this seed is not the canonical world.
+            node = SpatialNode(name="Local Shelf", level="Object", properties={})
+            _speak_to(node, "a line from local play", seed=kwargs["seed"],
+                      player_name=kwargs["player_name"])
+
+        monkeypatch.setattr("interface.run_session", session)
+        monkeypatch.setattr("consciousness.speak", lambda *a, **k: "the place answers")
+        monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "382")
+
+        class Shared:
+            name = slur
+            seed = 382
+            depth = 1
+
         with pytest.raises(SystemExit, match="choose another"):
-            main.cmd_play(A())
+            main.cmd_play(Shared())
+        assert started == []
+        assert all(row["player"] != slur for row in persistence.get_mutations(382))
+
+        class Elsewhere:
+            name = slur
+            seed = 7
+            depth = 1
+
+        main.cmd_play(Elsewhere())
+        assert started == [{"seed": 7, "depth": 1, "player_name": slur}]
+        written = [row for row in persistence.get_mutations(7) if row["player"] == slur]
+        assert written and written[0]["type"] == "PLAYER_SPEAK"
+        assert slur in written[0]["data"]["identity"]
+
+        # Local multi-world mode is the same unscreened boundary.
+        monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "")
+        started.clear()
+
+        class Local:
+            name = slur
+            seed = 42
+            depth = 1
+
+        main.cmd_play(Local())
+        assert started == [{"seed": 42, "depth": 1, "player_name": slur}]
+        local_rows = [row for row in persistence.get_mutations(42) if row["player"] == slur]
+        assert local_rows and local_rows[0]["type"] == "PLAYER_SPEAK"
+
+    def test_mint_unscreened_is_the_operator_override(self, monkeypatch, capsys):
+        import main
+        monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
+
+        class Blocked:
+            invite_action = "mint"
+            name = "Priya"
+            note = None
+            unscreened = False
+
+        with pytest.raises(SystemExit, match="choose another"):
+            main.cmd_invite(Blocked())
+
+        class Override:
+            invite_action = "mint"
+            name = "Priya"
+            note = None
+            unscreened = True
+
+        main.cmd_invite(Override())
+        assert "without the moderation screen" in capsys.readouterr().out
+        assert {row["name"] for row in persistence.list_invite_keys()} == {"Priya"}
 
 
 class TestUnicodeNormalization:
@@ -626,4 +719,4 @@ class TestUnicodeNormalization:
     def test_homoglyph_name_is_rejected(self):
         # Names get the stricter local-only screen; the fold applies there
         # too ('а' below is U+0430, Cyrillic).
-        assert moderation.name_allowed("fаggot") is False
+        assert moderation.name_refusal("fаggot") is not None

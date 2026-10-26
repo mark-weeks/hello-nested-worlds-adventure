@@ -112,7 +112,7 @@ def test_invalid_or_wrong_intention_cannot_pass(corpus, reply, complete):
     assert grade(c, output, calls, error)['task_correct'] is False
 
 
-def test_moderation_fail_open_is_not_a_classifier_pass(corpus):
+def test_moderation_transport_failure_holds_and_is_not_a_classifier_pass(corpus):
     class Timeout(FixtureProvider):
         def generate(self, **kwargs):
             raise TimeoutError('secret must never appear in the record')
@@ -120,8 +120,9 @@ def test_moderation_fail_open_is_not_a_classifier_pass(corpus):
     calls = []
     with task_routing(RecordingProvider(Timeout([]), calls), 'test'):
         output = execute(c)
-    assert output[0]['screen']['allowed'] is True
-    assert output[0]['screen']['tier'] == 'fail_open'
+    assert output[0]['screen']['allowed'] is False
+    assert output[0]['screen']['tier'] == 'error'
+    assert output[0]['allowed'] is False
     assert grade(c, output, calls, None)['task_correct'] is None
     assert 'secret' not in json.dumps(calls)
 
@@ -146,7 +147,11 @@ def test_nonverdict_moderation_reply_fails_even_when_application_allows(corpus):
     calls = []
     with task_routing(RecordingProvider(FixtureProvider(['Probably fine.']), calls), 'test'):
         output = execute(c)
-    assert output[0]['allowed'] is True
+    # The reply is not a verdict, so the classifier does not authorize it.
+    # This line is locally clean, so the application screen still allows it.
+    assert output[0]['allowed'] is False
+    assert output[0]['screen']['allowed'] is True
+    assert output[0]['screen']['tier'] == 'clean'
     assert grade(c, output, calls, None)['task_correct'] is False
 
 

@@ -42,6 +42,10 @@ class Limited(ValueError):
     pass
 
 
+class Held(Exception):
+    """The idea was not published because shared text could not be reviewed."""
+
+
 def now():
     return time.time_ns() // 1000
 
@@ -169,16 +173,12 @@ def _detail(me, idea_id):
         return {'idea': _public(conn, row, me, detail=True)}
 
 
-def submit(key, data):
-    title = text(data.get('title'), 'Title', 120)
-    description = text(data.get('description'), 'Description', 2000)
-    request = data.get('request_id')
-    credit = data.get('public_credit', False)
-    if not isinstance(request, str) or not _REQUEST.fullmatch(request):
-        raise ValueError('A stable submission identifier is required. Reload the page and try again.')
-    if not isinstance(credit, bool):
-        raise ValueError('Choose whether to receive public credit.')
-    fingerprint = hashlib.sha256(json.dumps([title, description, credit], ensure_ascii=True).encode()).hexdigest()
+def _pending_submission(key, request, fingerprint):
+    """Return an existing receipt, or None when this draft still needs a review.
+
+    Runs outside the classify call so a slow verdict does not hold the write
+    lock. The insert transaction checks the same identity again.
+    """
     with db.transaction() as conn:
         me = participants.identify(key)
         existing = conn.execute('SELECT id,request_hash,visibility FROM community_ideas WHERE member_id=? AND request_id=?',
@@ -192,10 +192,44 @@ def submit(key, data):
                              (me['id'], stamp - DAY)).fetchone()[0]
         if count >= SUBMISSIONS_PER_DAY:
             raise Limited('You can share 5 new ideas in 24 hours. Please return later or support an existing idea.')
-        # Persistent community text has a local-only screen. Ambiguous text is reviewed by operators.
-        from content_screen import local_tier
-        if local_tier(title + '\n' + description) == 'block':
-            raise ValueError('Please revise the idea to keep the board respectful.')
+    return None
+
+
+def submit(key, data, *, review=None):
+    """Insert a draft. ``review`` screens a new draft and may raise.
+
+    The duplicate receipt is recognized before ``review``, so a retry of an
+    idea that already exists does not classify again. This module does not
+    import the screen: the HTTP handler passes it. Direct callers (fixtures
+    and operator tools) omit ``review`` and do not classify.
+    """
+    title = text(data.get('title'), 'Title', 120)
+    description = text(data.get('description'), 'Description', 2000)
+    request = data.get('request_id')
+    credit = data.get('public_credit', False)
+    if not isinstance(request, str) or not _REQUEST.fullmatch(request):
+        raise ValueError('A stable submission identifier is required. Reload the page and try again.')
+    if not isinstance(credit, bool):
+        raise ValueError('Choose whether to receive public credit.')
+    fingerprint = hashlib.sha256(json.dumps([title, description, credit], ensure_ascii=True).encode()).hexdigest()
+    existing = _pending_submission(key, request, fingerprint)
+    if existing:
+        return existing
+    if review is not None:
+        review(title + '\n' + description)
+    with db.transaction() as conn:
+        me = participants.identify(key)
+        existing = conn.execute('SELECT id,request_hash,visibility FROM community_ideas WHERE member_id=? AND request_id=?',
+                                (me['id'], request)).fetchone()
+        if existing:
+            if existing[1] != fingerprint:
+                raise Conflict('This submission identifier was already used for a different draft.')
+            return {'id': existing[0], 'submitted': True, 'visible': existing[2] == 'visible'}
+        stamp = now()
+        count = conn.execute('SELECT count(*) FROM community_ideas WHERE member_id=? AND created_at>?',
+                             (me['id'], stamp - DAY)).fetchone()[0]
+        if count >= SUBMISSIONS_PER_DAY:
+            raise Limited('You can share 5 new ideas in 24 hours. Please return later or support an existing idea.')
         idea_id = secrets.token_hex(16)
         conn.execute('''INSERT INTO community_ideas
             (id,member_id,request_id,request_hash,title,description,public_credit,created_at,updated_at)

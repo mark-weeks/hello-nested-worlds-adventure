@@ -8,6 +8,7 @@ advisory and actual cache use requires provider usage evidence.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from multiverse.node import SpatialNode
@@ -1155,46 +1156,88 @@ def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
 # ── Input-moderation classify (ADR-004 §2) ──────────────────────────────────
 # The model-backed half of the two-tier screen in server/moderation.py: the
 # local filter handles the definite cases at zero cost, and only AMBIGUOUS
-# inputs reach this single Messages-API call. Callers treat any exception as
-# fail-open (allow; redaction is the backstop), so this function raises
-# naturally rather than swallowing errors.
+# inputs reach this single call. The model id comes from runtime.model_for
+# ("moderation"). A failed call is not retried on another id (ADR-034).
+# Transport errors raise. A reply that is not a clear ALLOW or BLOCK is
+# "undecided"; the caller holds shared text.
 
-# A moderation verdict must not stall a real-time chat surface: bound the
-# call hard, and let the timeout surface as an exception → fail-open.
+# A moderation verdict must not stall a real-time chat surface.
 _MODERATION_TIMEOUT_SECONDS = 3.0
 
+# Room for a short preamble plus one verdict word. The prompt asks for a
+# single token. Eight tokens was enough for a bare ALLOW, and too small for
+# a model that writes "Verdict: ALLOW" before stopping: that reply hits the
+# length cap, and a length stop is undecided, so every such call would hold.
+# Thirty-two tokens covers a short preamble under a normal stop without
+# inviting an essay. A reply that still stops for length is undecided.
+_MODERATION_MAX_TOKENS = 32
+
+# The whole reply, after stripping, must be one verdict. An optional
+# "Verdict:" label and a little wrapping punctuation are tolerated so a
+# short preamble of that exact shape can still finish. Any other word,
+# including "Not ALLOW", "ALLOW but ...", "BLOCKED", or a second line,
+# is undecided. Provider-neutral: this reads the Completion text only.
+_VERDICT_REPLY = re.compile(
+    r"(?:verdict\s*:\s*)?[\s*`\"'\[\(]*(allow|block)[\s*`\"'\]\).!]*",
+    re.IGNORECASE,
+)
+
 # This short classification prompt does not request explicit caching.
+# It names no provider. Uncertain replies are not told to say ALLOW:
+# anything other than one clear verdict is undecided, and shared text holds.
 _MODERATION_SYSTEM = (
     "You are a content-safety classifier for a shared, persistent, "
     "all-ages online fantasy world where player text becomes permanent, "
     "publicly visible world history.\n"
-    "Classify the player input. Answer with exactly one word:\n"
+    "Classify the player input. Reply with exactly one token and no other text:\n"
     "BLOCK — slurs or hate speech; harassment or threats aimed at a real "
     "person; sexual content that is explicit or involves minors; someone's "
     "real-world personal information (addresses, phone numbers, IDs); "
     "credible real-world violence.\n"
     "ALLOW — everything else, including fantasy violence and conflict, "
-    "mild profanity, in-fiction menace, philosophy, and nonsense.\n"
-    "If genuinely uncertain, answer ALLOW."
+    "mild profanity, in-fiction menace, philosophy, and nonsense."
 )
 
 
-def classify_content(text: str) -> bool:
-    """True iff `text` is allowed. Raises on any API failure (caller fails
-    open). One short uncached call on the configured moderation model."""
+def moderation_outcome(completion: runtime.Completion) -> str:
+    """'allow', 'block', or 'undecided' from a normalized Completion.
+
+    Only a finished reply that is itself one verdict authorizes or blocks.
+    Missing text, a blank reply, a length stop, or any other shape is
+    undecided. This does not read provider-specific fields.
+    """
+    if completion.finish_reason == "length" or not completion.complete:
+        return "undecided"
+    text = completion.text
+    if not isinstance(text, str):
+        return "undecided"
+    match = _VERDICT_REPLY.fullmatch(text.strip())
+    if match is None:
+        return "undecided"
+    return match.group(1).lower()
+
+
+def classify_content(text: str, *, surface: str = "classify") -> str:
+    """'allow', 'block', or 'undecided'. Raises on transport failure.
+
+    One short uncached call on the configured moderation model. The caller
+    holds shared text on 'undecided' and on any exception. A finished verdict
+    is logged here. An exception is not: the caller logs that single
+    outcome=error line, including when the failure is outside this function.
+    The log never includes the player text or the raw reply.
+    """
     import time as _time
     started = _time.monotonic()
     response = runtime.generate(
         endpoint="moderate",
         model=runtime.model_for(runtime.MODERATION_TASK),
-        max_tokens=8, system=(SystemBlock(_MODERATION_SYSTEM),),
+        max_tokens=_MODERATION_MAX_TOKENS,
+        system=(SystemBlock(_MODERATION_SYSTEM),),
         messages=[{"role": "user", "content": text}],
         timeout=_MODERATION_TIMEOUT_SECONDS,
     )
     elapsed_ms = (_time.monotonic() - started) * 1000.0
-    verdict = (response.text or "").strip().upper()
-    _log.info("moderation_call ms=%.0f verdict=%s", elapsed_ms,
-              verdict or "?")
-    # Anything that isn't an explicit BLOCK allows — same fail-open posture
-    # as the transport layer, so a confused reply can't censor a player.
-    return verdict != "BLOCK"
+    outcome = moderation_outcome(response)
+    _log.info("moderation_call outcome=%s surface=%s ms=%.0f",
+              outcome, surface, elapsed_ms)
+    return outcome

@@ -177,7 +177,8 @@ def test_invalid_api_input_never_becomes_server_error(http, route, body):
 
 
 def test_body_limit_and_literal_html_no_paid_moderation(http, monkeypatch):
-    monkeypatch.setattr('server.moderation.screen', lambda *a: pytest.fail('Ideas must not invoke paid screening'))
+    monkeypatch.setattr('consciousness.classify_content',
+                        lambda *a, **k: pytest.fail('clean Ideas text must not call the classifier'))
     title = '<img src=x onerror=alert(1)>'
     idea_id = create(http, title=title)
     assert http('/ideas/detail?id=' + idea_id)[1]['idea']['title'] == title

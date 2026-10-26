@@ -154,7 +154,10 @@ def test_header_whitespace_and_authentication_counts(http, accounts, monkeypatch
     calls.clear()
     result = http('/ideas/submit', key, submission())
     assert result[0] == 200
-    assert calls == [accounts[0], accounts[0]]
+    # Handler, the pre-screen duplicate check, and the insert transaction.
+    # The duplicate check runs before classification so a retry of a published
+    # idea does not depend on the screen; the write checks the credential again.
+    assert calls == [accounts[0], accounts[0], accounts[0]]
     calls.clear()
     assert http('/ideas/detail?id=' + result[1]['id'], key)[0] == 200
     assert calls == [accounts[0]]

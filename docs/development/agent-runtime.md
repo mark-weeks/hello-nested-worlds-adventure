@@ -64,7 +64,7 @@ common cases. Do not silently trade required correctness for a lower price.
 |---|---|
 | Node and inhabitant voices | Distinct registers across all 11 scales and personas; memory and world-state fidelity; multi-turn continuity; no invented events, hidden mechanics or inappropriate loss of fiction |
 | Intention interpretation | Valid bounded steps; clarification only for material ambiguity; refusal of unsupported actions, negations and forced agency; no predicted outcomes; application validation rejects malformed or truncated output |
-| Moderation | Clear and ambiguous examples, false blocks and misses, timeout behavior, and the existing fail-open/local-filter contract |
+| Moderation | Clear and ambiguous examples, false blocks and misses, timeout behavior, and the shared-text fail-closed contract: a local clean verdict still publishes, and unjudged shared text is held |
 | Operations | End-to-end latency including tail latency, failures and retries, rate/concurrency limits, availability, actual token/cache usage and total cost per successful interaction at expected traffic |
 
 Verify current model IDs, capabilities, prices and relevant retention/training,

@@ -150,6 +150,17 @@ def wilson(passed, total):
     return [round(center - spread, 4), round(center + spread, 4)]
 
 
+def _screen_held(trials) -> int:
+    """Trials whose screen held the text instead of publishing it.
+
+    ``fail_open`` is not a tier. ``screen_fail_open`` in the summary is this
+    same count, kept so an older reader still finds the hold total.
+    """
+    held = {"error", "budget", "disabled", "undecided", "user_cap"}
+    return sum(bool(t["outputs"]) and t["outputs"][0].get("screen", {}).get("tier") in held
+               for t in trials)
+
+
 def summarize(run, human=None):
     human = human or {}
     tasks = {}
@@ -203,8 +214,11 @@ def summarize(run, human=None):
             "cache_read_observations": len(cache_reads), "cache_hit_calls": sum(x > 0 for x in cache_reads),
             "categories": categories,
             "screen_failures": sum(t["grade"]["screen_correct"] is False for t in screen_trials),
-            "screen_fail_open": sum(bool(t["outputs"]) and
-                t["outputs"][0].get("screen", {}).get("tier") == "fail_open" for t in trials),
+            # Holds are the former fail-open paths: the screen did not publish.
+            # fail_open is no longer a tier. The old summary key stays equal
+            # to screen_held so a reader of an earlier report still finds the count.
+            "screen_held": _screen_held(trials),
+            "screen_fail_open": _screen_held(trials),
             "classifier_false_blocks": sum(t["task"] == "moderation" and t["expected"]["allowed"]
                 and bool(t["outputs"]) and t["outputs"][0]["allowed"] is False for t in classifier_trials),
             "classifier_misses": sum(t["task"] == "moderation" and not t["expected"]["allowed"]
@@ -231,13 +245,13 @@ def report(run, human=None):
                      f"{s['cases_passing_every_repeat']} / {s['cases_complete']} | "
                      f"{latency} | {cost} | "
                      f"{s['screen_failures'] if task == 'moderation' else 'n/a'} |")
-    lines += ["", "| Task | Not run / interrupted / transport / harness | Invalid completions | Quality graded / eligible | Screen fail-open |",
+    lines += ["", "| Task | Not run / interrupted / transport / harness | Invalid completions | Quality graded / eligible | Screen held |",
               "|---|---|---|---|---|"]
     for task, s in summary["tasks"].items():
         outcomes = " / ".join(str(s["operational_outcomes"][k]) for k in
                                ("not_run", "interrupted", "transport_error", "harness_error"))
         lines.append(f"| {task} | {outcomes} | {s['invalid_completions']} | "
-                     f"{s['quality_graded_trials']} / {s['quality_eligible_trials']} | {s['screen_fail_open']} |")
+                     f"{s['quality_graded_trials']} / {s['quality_eligible_trials']} | {s['screen_held']} |")
     lines += ["", "Operational outcomes remain unknown for semantic scoring and block qualification.",
               "Quality means cover valid completed voices only; invalid completions still fail task success.",
               "Fixture latency, cost and authored replies are plumbing evidence only.",

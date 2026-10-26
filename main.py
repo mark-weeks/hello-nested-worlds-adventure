@@ -144,13 +144,13 @@ def cmd_play(args):
         raise SystemExit(
             f"'{name}' is a reserved world name (the wandering cast) — "
             "choose another with --name.")
-    from server.moderation import name_allowed
-    if not name_allowed(name):
-        # Same strict name screen as mint and /register (ADR-004 §2) — the
-        # CLI writes to the same permanent chronicle.
-        raise SystemExit(
-            f"'{name}' can't be carried as a player name — choose another "
-            "with --name.")
+    from server.moderation import name_refusal, writes_shared_chronicle
+    # Local multi-world play is the operator terminal. A name is screened
+    # only when this session writes the hosted canonical world.
+    if writes_shared_chronicle(args.seed):
+        refusal = name_refusal(name)
+        if refusal:
+            raise SystemExit(f"'{name}' — {refusal} Use --name.")
     interface.run_session(
         seed=args.seed,
         depth=args.depth,
@@ -248,7 +248,7 @@ def cmd_invite(args):
     action = args.invite_action
     if action == "mint":
         from consciousness import WANDERER_CAST
-        from server.moderation import name_allowed
+        from server.moderation import name_refusal
         name = args.name.strip()
         if not name:
             raise SystemExit("A registered name must not be empty.")
@@ -256,10 +256,17 @@ def cmd_invite(args):
             raise SystemExit(
                 f"'{name}' is a reserved world name (the wandering cast) — "
                 "choose another.")
-        if not name_allowed(name):
-            raise SystemExit(
-                f"'{name}' can't be carried as a registered name — "
-                "choose another.")
+        # Minted names are shared. --unscreened is the explicit operator
+        # override for when the screen is off or the operator accepts the
+        # name anyway. Reserved cast names are still refused above.
+        if not getattr(args, "unscreened", False):
+            refusal = name_refusal(name)
+            if refusal:
+                raise SystemExit(
+                    f"'{name}' — {refusal} "
+                    "Pass --unscreened to mint without the screen.")
+        else:
+            print("Name accepted without the moderation screen (--unscreened).")
         key = "nw_" + secrets.token_hex(16)
         try:
             persistence.mint_invite_key(key, name=name, note=args.note)
@@ -502,6 +509,11 @@ def build_parser() -> argparse.ArgumentParser:
                                help="Tester name (must be unique per cohort)")
     p_invite_mint.add_argument("--note", type=str, default=None,
                                help="Optional free-text note (e.g. 'alpha cohort')")
+    p_invite_mint.add_argument(
+        "--unscreened", action="store_true",
+        help="Mint without the moderation screen. Operator override for "
+             "when NESTED_WORLDS_DISABLE_MODERATION is set, or when you "
+             "accept the name yourself. Cast names stay reserved.")
     p_invite_mint.set_defaults(func=cmd_invite)
 
     p_invite_list = invite_sub.add_parser("list", help="List issued invite keys")

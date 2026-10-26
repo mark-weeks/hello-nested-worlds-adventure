@@ -187,6 +187,51 @@ test('Draft survives rejected and interrupted submissions; retries recover one s
   } finally { await server.close(); }
 });
 
+test('A moderation hold stays editable and is not retried', async ({page}) => {
+  const server = await start();
+  let holds = 0;
+  try {
+    await enter(page, server);
+    await expect(page.locator('#board')).toBeVisible();
+    await page.route('**/ideas/submit', route => {
+      holds += 1;
+      return route.fulfill({status: 422, contentType: 'application/json', body: JSON.stringify({
+        error: 'This idea was not published. It could not be reviewed, so the board does not show it. Your draft is kept; try again later.',
+        held: true})});
+    });
+    await page.getByLabel('Title', {exact: true}).fill('A held draft');
+    await page.getByLabel('Your experience and desired outcome').fill('The experience stays editable.');
+    await page.locator('#submit-button').click();
+    await expect(page.locator('#message')).toContainText('was not published');
+    await expect(page.locator('#title')).toBeEnabled();
+    await expect(page.locator('#title')).toHaveValue('A held draft');
+    await expect(page.locator('#description')).toBeEnabled();
+    await expect(page.locator('#description')).toHaveValue('The experience stays editable.');
+    await expect(page.locator('#submit-button')).toHaveText('Submit idea');
+    await expect(page.locator('#draft-state')).not.toContainText('may have arrived');
+    const receipt = await page.evaluate(() => {
+      const name = Object.keys(localStorage).find(key => key.startsWith('nw_ideas_receipt_'));
+      return name ? JSON.parse(localStorage.getItem(name)) : null;
+    });
+    expect(receipt.state).toBe('rejected');
+    expect(holds).toBe(1);
+    await page.reload();
+    await expect(page.locator('#board')).toBeVisible();
+    await expect(page.locator('#title')).toBeEnabled();
+    await expect(page.locator('#title')).toHaveValue('A held draft');
+    await expect(page.locator('#description')).toHaveValue('The experience stays editable.');
+    await expect(page.locator('#submit-button')).toHaveText('Submit idea');
+    expect(holds).toBe(1);
+    await page.unroute('**/ideas/submit');
+    await page.getByLabel('Title', {exact: true}).fill('A revised crossing cue');
+    await page.getByLabel('Your experience and desired outcome').fill('I edited the draft and submitted it once.');
+    await page.locator('#submit-button').click();
+    await expect(page.locator('#message')).toContainText('Idea submitted');
+    expect((await (await page.request.get(server.url + '/ideas/list', {headers})).json()).ideas).toHaveLength(1);
+    expect(holds).toBe(1);
+  } finally { await server.close(); }
+});
+
 test('Public shell, loading, network failure and keyboard retry', async ({page}) => {
   const server = await start();
   try {
