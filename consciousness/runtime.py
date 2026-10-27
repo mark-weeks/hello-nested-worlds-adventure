@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import logging
 import os
 import threading
-from typing import Protocol
+from typing import Callable, Protocol
 
 
 DEFAULT_VOICE_MODEL = "claude-opus-4-8"
@@ -48,29 +48,84 @@ def _nonblank(value: str | None) -> str | None:
 VOICE_MODEL = _nonblank(os.environ.get(SHARED_MODEL_ENV)) or DEFAULT_VOICE_MODEL
 
 
+SOURCE_TASK_ENV = "task env"
+SOURCE_SHARED = SHARED_MODEL_ENV
+SOURCE_DEFAULT = "default"
+
+# Stable task order for operator reports. Dict order matches this tuple.
+TASKS = (NODE_TASK, INHABITANT_TASK, INTENT_TASK, MODERATION_TASK)
+
+
+@dataclass(frozen=True)
+class ModelResolution:
+    """One task's model id and where it came from. No credentials.
+
+    ``source`` is ``task env``, ``NESTED_WORLDS_MODEL``, or ``default``.
+    ``ignored_blank`` lists variables that were set to empty or whitespace
+    and therefore did not supply the id. ``model_for`` still falls back;
+    the startup check treats those blanks as misconfiguration.
+    """
+
+    task: str
+    model: str
+    source: str
+    env_var: str
+    raw: str | None
+    ignored_blank: tuple[tuple[str, str], ...] = ()
+
+
+def _blank_kind(value: str) -> str:
+    return "empty" if value == "" else "whitespace"
+
+
+def resolve_model(task: str) -> ModelResolution:
+    """Same rules as ``model_for``, plus the setting that supplied the id."""
+    try:
+        env_name = _TASK_ENV[task]
+    except KeyError:
+        raise ValueError(f"unknown model task {task!r}") from None
+    blanks: list[tuple[str, str]] = []
+    task_raw = os.environ.get(env_name)
+    if task_raw is not None and _nonblank(task_raw) is None:
+        blanks.append((env_name, _blank_kind(task_raw)))
+    chosen = _nonblank(task_raw)
+    if chosen is not None:
+        return ModelResolution(
+            task, chosen, SOURCE_TASK_ENV, env_name, task_raw, tuple(blanks),
+        )
+    if task != MODERATION_TASK:
+        shared_raw = os.environ.get(SHARED_MODEL_ENV)
+        if shared_raw is not None and _nonblank(shared_raw) is None:
+            blanks.append((SHARED_MODEL_ENV, _blank_kind(shared_raw)))
+        shared = _nonblank(shared_raw)
+        if shared is not None:
+            return ModelResolution(
+                task, shared, SOURCE_SHARED, SHARED_MODEL_ENV, shared_raw, tuple(blanks),
+            )
+        return ModelResolution(
+            task, DEFAULT_VOICE_MODEL, SOURCE_DEFAULT, env_name, None, tuple(blanks),
+        )
+    return ModelResolution(
+        task, DEFAULT_MODERATION_MODEL, SOURCE_DEFAULT, env_name, None, tuple(blanks),
+    )
+
+
 def model_for(task: str) -> str:
     """Model id for one text task. An id never selects a provider.
 
     Node voice, inhabitant voice, and intention use their own settings, then
     the shared model, then the voice default. Moderation keeps its own default
-    and does not inherit the shared model. This function does not retry or
+    and does not inherit the shared model. Empty and whitespace-only values
+    are unset here and fall back. The startup check reports those blanks
+    separately and refuses to serve. This function does not retry or
     substitute another id when a call fails.
     """
-    try:
-        env_name = _TASK_ENV[task]
-    except KeyError:
-        raise ValueError(f"unknown model task {task!r}") from None
-    chosen = _nonblank(os.environ.get(env_name))
-    if chosen is not None:
-        return chosen
-    if task == MODERATION_TASK:
-        return DEFAULT_MODERATION_MODEL
-    return _nonblank(os.environ.get(SHARED_MODEL_ENV)) or DEFAULT_VOICE_MODEL
+    return resolve_model(task).model
 
 
 def configured_models() -> dict[str, str]:
     """Resolved model id for every text task. Ids only; no credentials."""
-    return {task: model_for(task) for task in _TASK_ENV}
+    return {task: model_for(task) for task in TASKS}
 
 
 @dataclass(frozen=True)
@@ -175,6 +230,14 @@ def reserve_model_action(user_key: str | None = None) -> ModelReservation:
 
 
 class TextProvider(Protocol):
+    """Text adapter. Id judgment is not part of this protocol.
+
+    Adapters that know which ids they serve also match
+    ``ModelIdJudgingProvider``. The startup check uses getattr, so an
+    adapter that omits ``model_id_validator`` is not asked and still
+    satisfies this protocol for type checkers.
+    """
+
     name: str
 
     def configured(self) -> bool: ...
@@ -194,6 +257,17 @@ class TextProvider(Protocol):
         optional optimization; messages and their ordering must be preserved.
         """
         ...
+
+
+class ModelIdJudgingProvider(TextProvider, Protocol):
+    """Optional. Implement this only when the adapter can judge model ids.
+
+    The callable returns ``ok``, ``warn``, or ``reject``, or None to skip.
+    ``reject`` means the id is not usable on this adapter. ``warn`` means it
+    is plausible but not a known release. Omitting the method is the default.
+    """
+
+    def model_id_validator(self) -> Callable[[str], str] | None: ...
 
 
 def get_provider() -> TextProvider:

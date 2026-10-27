@@ -163,6 +163,32 @@ def cmd_serve(args):
     server.run(host=args.host, port=args.port)
 
 
+def cmd_models(args):
+    """Print the resolved provider and model for each text task.
+
+    ``--probe`` makes one tiny live call per distinct model id. It is off
+    unless this flag is passed. Server startup, tests, and CI do not pass it.
+    An unconfigured provider prints ``skipped: provider not configured`` and
+    exits 1. That path does not call the provider.
+    """
+    from consciousness.model_check import (
+        check_model_configuration, format_report, probe_distinct_models,
+    )
+
+    report = check_model_configuration()
+    print(format_report(report))
+    if report.hard:
+        raise SystemExit(report.failure_line())
+    if not args.probe:
+        return
+    failed = False
+    for result in probe_distinct_models(report):
+        print(result.line())
+        failed = failed or not result.accepted
+    if failed:
+        raise SystemExit(1)
+
+
 def cmd_backup(args):
     target = Path(args.to).expanduser()
     persistence.backup_to(target)
@@ -448,6 +474,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     p_serve.add_argument("--port", type=int, default=8080, help="Bind port (default: 8080)")
     p_serve.set_defaults(func=cmd_serve)
+
+    p_models = sub.add_parser(
+        "models",
+        help="Show the resolved text provider and model id for each task",
+    )
+    p_models.add_argument(
+        "--probe",
+        action="store_true",
+        help="Make one tiny live call per distinct model id. Off unless "
+             "passed. Not used by server startup, tests, or CI. An "
+             "unconfigured provider prints 'skipped: provider not configured' "
+             "and exits 1 without calling the provider.",
+    )
+    p_models.set_defaults(func=cmd_models)
 
     p_backup = sub.add_parser("backup",
         help="Write an online snapshot of the SQLite store to a target path")
