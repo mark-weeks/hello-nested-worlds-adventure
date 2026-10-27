@@ -153,6 +153,55 @@ class TestAccessLogE2E:
         assert "secret" not in line.message
         assert "seed=1" not in line.message
 
+    def test_reused_handler_logs_each_request_on_one_connection(
+            self, srv, monkeypatch, caplog):
+        # HTTP/1.1 reuses the handler while the socket stays open. Every
+        # current response sets Connection: close, so this test leaves the
+        # first response's socket open and closes on the second. Without a
+        # per-request reset, the second access line is dropped.
+        import socket
+        from urllib.parse import urlparse
+        from server.handlers import Handler
+
+        port = urlparse(srv).port
+        real = Handler._send_security_headers
+
+        def reopen_unless_client_closes(self):
+            real(self)
+            if (self.headers.get("Connection") or "").lower() != "close":
+                self.close_connection = False
+
+        monkeypatch.setattr(Handler, "_send_security_headers", reopen_unless_client_closes)
+        request = (
+            "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
+        with caplog.at_level(logging.INFO, logger="nested_worlds.access"):
+            sock = socket.create_connection(("127.0.0.1", port), timeout=2)
+            try:
+                sock.sendall(request.encode())
+                sock.settimeout(2)
+                data = bytearray()
+                while True:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+            finally:
+                sock.close()
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                logs = [r for r in caplog.records if r.name == "nested_worlds.access"]
+                if len(logs) >= 2:
+                    break
+                time.sleep(0.01)
+        assert data.count(b"HTTP/1.1 200") == 2
+        logs = [r for r in caplog.records if r.name == "nested_worlds.access"]
+        assert len(logs) == 2
+        payloads = [json.loads(record.message) for record in logs]
+        assert [item["path"] for item in payloads] == ["/health", "/health"]
+        assert [item["status"] for item in payloads] == [200, 200]
+
 
 # ── persistence.backup_to ───────────────────────────────────────────────────
 

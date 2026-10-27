@@ -594,12 +594,21 @@ class Handler(BaseHTTPRequestHandler):
         """The player's line, or None after a private 400 for empty text.
 
         Whitespace-only text is empty. A missing message keeps ``default``,
-        which is a real prompt. The screen still allows empty text so a
-        blank published profile can save; these two routes would otherwise
-        publish a model reply when moderation is disabled, because that
-        empty-text pass runs before the kill switch.
+        which is a real prompt. A present value that is not a string — null,
+        false, a number, an array, or an object — is the same private 400.
+        It is not stringified and spoken. The screen still allows empty text
+        so a blank published profile can save; these two routes would
+        otherwise publish a model reply when moderation is disabled, because
+        that empty-text pass runs before the kill switch.
         """
-        message = str(body.get("message", default))[:1024]
+        if "message" in body:
+            raw = body["message"]
+            if not isinstance(raw, str):
+                self._send_error("A message is required.", 400)
+                return None
+            message = raw[:1024]
+        else:
+            message = default
         if not message.strip():
             self._send_error("A message is required.", 400)
             return None
@@ -633,6 +642,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         import time
         self._started = time.monotonic()
+        # The same handler instance serves every request on a kept-alive
+        # socket. Clearing the flag here is what lets the next request log;
+        # leaving it set would drop that line, and logging without it would
+        # write the line twice.
+        self._access_logged = False
         try:
             self._dispatch_get()
         except TimeoutError:
@@ -950,6 +964,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         import time
         self._started = time.monotonic()
+        self._access_logged = False
         try:
             self._dispatch_post()
         except TimeoutError:
@@ -1020,10 +1035,17 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 identity = player_name
 
-            # Screen the input BEFORE the voice budget is touched and before
-            # anything can become a chronicle row (ADR-004 §2). A decline or
-            # a hold is HTTP 200 in the world's voice — a policy act, not a
-            # failure — and leaves no trace of the words anywhere.
+            # Node identity is server-derived from the canonical world —
+            # never trusted from the request body. An unknown place is a 404
+            # before the screen, so it spends no moderation action, no
+            # model-action cap, and no classifier call. The screen still
+            # runs before the voice budget and before any chronicle row
+            # (ADR-004 §2). A decline or a hold is HTTP 200 in the world's
+            # voice — a policy act, not a failure — and leaves no trace of
+            # the words anywhere.
+            node = _resolve_node(seed, node_name)
+            if node is None:
+                return self._send_error("no such place in this world", 404)
             verdict = moderation.screen(
                 message, user_key=user_key or None, surface="speak")
             if not verdict.allowed:
@@ -1031,12 +1053,6 @@ class Handler(BaseHTTPRequestHandler):
 
             import consciousness
             voice_ready = runtime.configured()
-            # Node identity is server-derived from the canonical world —
-            # never trusted from the request body. An unknown place returns
-            # before the model-action cap, which now lives on generate().
-            node = _resolve_node(seed, node_name)
-            if node is None:
-                return self._send_error("no such place in this world", 404)
             if not voice_ready:
                 return self._send_json({"response": consciousness.fallback_voice(node), "ai": False})
             try:
@@ -1235,18 +1251,18 @@ class Handler(BaseHTTPRequestHandler):
         persona_arg = str(body.get("persona", ""))[:32]
         persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
 
-        # Screen before the voice budget is charged (the consume used to sit
-        # first — a declined or held message must cost nothing) and before any
-        # chronicle row can exist. Same authored lines as /speak.
+        # Same order as /speak: the place is resolved before the screen, so
+        # an unknown place is a 404 and costs nothing. The screen still runs
+        # before the voice budget and before any chronicle row.
+        node = _resolve_node(seed, node_name)
+        if node is None:
+            return self._send_error("no such place in this world", 404)
         verdict = moderation.screen(
             message, user_key=user_key or None, surface="agent")
         if not verdict.allowed:
             return self._send_json(moderation.http_body(
-                verdict, agent=agent_name, persona=persona.name, node=node_name))
+                verdict, agent=agent_name, persona=persona.name, node=node.name))
         voice_ready = runtime.configured()
-        node = _resolve_node(seed, node_name)
-        if node is None:
-            return self._send_error("no such place in this world", 404)
         if not voice_ready:
             return self._send_json({
                 "agent": agent_name, "persona": persona.name, "node": node.name,
@@ -1662,7 +1678,12 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError) as exc:
             return self._send_error(str(exc))
 
-        node_name   = body.get("node_name", "")
+        # A list or object used to survive find_node (no name matched, so the
+        # attempt fell through to the root) and then bind as the node name.
+        # SQLite rejected that with ProgrammingError and the client got a 500.
+        # Coerce first: a non-string is a name that does not match, and the
+        # attempt answers the way any other unknown name does.
+        node_name   = str(body.get("node_name", "") or "")[:128]
         # str(...): a numeric guess ({"answer": 7}) is a legitimate attempt at
         # a sequence puzzle, not a reason to AttributeError into a 500.
         answer      = str(body.get("answer", "") or "").strip()

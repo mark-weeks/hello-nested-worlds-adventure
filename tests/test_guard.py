@@ -928,3 +928,20 @@ class TestBodyShapeRobustness:
                              {"node_name": real_node, "seed": 42, "answer": 7})
         assert status == 200
         assert "result" in data
+
+    def test_non_string_node_name_is_not_a_500(self, srv):
+        # A list used to miss every node, fall through to the root, and then
+        # bind as the node name. SQLite rejected the list and the client
+        # received a 500. The value is coerced to a string first, so the
+        # attempt takes the same path as any other name.
+        base, _ = srv
+        for node_name in (None, False, 0, [], {}, ["x"], {"a": 1}, 7):
+            try:
+                data, status = _post(
+                    f"{base}/puzzle/attempt",
+                    {"node_name": node_name, "seed": 42, "answer": "no"})
+            except urllib.error.HTTPError as exc:
+                status = exc.code
+                data = json.loads(exc.read())
+            assert status < 500, (node_name, status, data)
+            assert status == 200 and "result" in data, (node_name, status, data)

@@ -651,6 +651,113 @@ def test_empty_speech_is_a_private_error_and_publishes_nothing(srv, monkeypatch)
     assert _rows(seed, node.name, "PLAYER_SPEAK") == []
 
 
+def test_unknown_place_is_404_before_the_screen(srv, monkeypatch):
+    """An unknown place is a 404 and does not spend a screen.
+
+    Ambiguous text used to reach ``moderation.screen`` first. That charges
+    the moderation-action cap, and then the model-action cap and the
+    classifier. With the model-action cap already spent, the route answered
+    HTTP 200 ``held`` instead of 404.
+    """
+    import consciousness
+    screens = []
+    generated = []
+    real_screen = moderation.screen
+
+    def recording_screen(text, **kwargs):
+        screens.append(kwargs.get("surface"))
+        return real_screen(text, **kwargs)
+
+    class Provider:
+        name = "fixture"
+
+        def configured(self):
+            return True
+
+        def generate(self, **kwargs):
+            generated.append(kwargs)
+            return Completion("ALLOW", True, finish_reason="complete")
+
+    monkeypatch.setattr(moderation, "screen", recording_screen)
+    monkeypatch.setattr(consciousness.runtime, "get_provider", lambda: Provider())
+    monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
+    # A credential is what makes the per-user caps apply. Zero means the
+    # screen, if it ran, would hold the line before the classifier.
+    monkeypatch.setenv(guard.MODERATION_ACTIONS_PER_USER_ENV, "0")
+    monkeypatch.setenv(guard.MODEL_ACTIONS_PER_USER_ENV, "0")
+    key = "nw_" + "d" * 32
+    persistence.mint_invite_key(key, "Ada")
+    seed = 994
+    for path, extra in (("/speak", {}), ("/agent/voice", {"agent_name": "Scout"})):
+        status, data = _post(srv, path, {
+            "node_name": "Forged-11", "seed": seed,
+            "message": "go kill yourself", **extra}, key=key)
+        assert status == 404 and data["error"] == "no such place in this world", (
+            path, status, data)
+    assert screens == [] and generated == []
+    assert _rows(seed, "Forged-11", "PLAYER_SPEAK") == []
+    assert _rows(seed, "Forged-11", "AGENT_VOICE") == []
+    # A real place still reaches the screen. The spent cap holds it, and
+    # the classifier is not called.
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    status, data = _post(srv, "/speak", {
+        "node_name": node.name, "seed": seed, "message": "go kill yourself",
+    }, key=key)
+    assert status == 200 and data.get("held") is True and data.get("ai") is False
+    assert screens == ["speak"] and generated == []
+    assert _rows(seed, node.name, "PLAYER_SPEAK") == []
+    voice_status, voice = _post(srv, "/agent/voice", {
+        "node_name": node.name, "seed": seed, "agent_name": "Scout",
+        "message": "go kill yourself"}, key=key)
+    assert voice_status == 200 and voice.get("held") is True
+    assert screens == ["speak", "agent"]
+    assert _rows(seed, node.name, "AGENT_VOICE") == []
+
+
+def test_non_string_message_is_not_spoken(srv, monkeypatch):
+    import consciousness
+    screens = []
+    real_screen = moderation.screen
+
+    def recording_screen(text, **kwargs):
+        screens.append(text)
+        return real_screen(text, **kwargs)
+
+    spoken = []
+
+    class Provider:
+        name = "fixture"
+
+        def configured(self):
+            return True
+
+        def generate(self, **kwargs):
+            spoken.append(kwargs)
+            return Completion("a reply that must not be published", True)
+
+    monkeypatch.setattr(moderation, "screen", recording_screen)
+    monkeypatch.setattr(consciousness.runtime, "get_provider", lambda: Provider())
+    monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
+    seed = 995
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    for path, extra in (("/speak", {}), ("/agent/voice", {"agent_name": "Scout"})):
+        for message in (None, False, 0, [], {}):
+            status, data = _post(srv, path, {
+                "node_name": node.name, "seed": seed, "message": message, **extra})
+            assert status == 400 and data["error"] == "A message is required.", (
+                path, message, status, data)
+    assert screens == [] and spoken == []
+    assert _rows(seed, node.name, "PLAYER_SPEAK") == []
+    assert _rows(seed, node.name, "AGENT_VOICE") == []
+    # Strings stay strings, including ones that look like JSON scalars.
+    for message in ("0", "false", "null", "hello, old light"):
+        status, data = _post(srv, "/speak", {
+            "node_name": node.name, "seed": seed, "message": message})
+        assert status == 200 and data.get("held") is True, (message, status, data)
+    assert spoken == []
+    assert screens == ["0", "false", "null", "hello, old light"]
+
+
 def test_generate_charges_the_model_action_cap_once_and_normalizes_the_key(monkeypatch):
     from consciousness import runtime
     from consciousness.runtime import SystemBlock
