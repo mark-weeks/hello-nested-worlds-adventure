@@ -168,6 +168,8 @@ def cmd_models(args):
 
     ``--probe`` makes one tiny live call per distinct model id. It is off
     unless this flag is passed. Server startup, tests, and CI do not pass it.
+    An unconfigured provider prints ``skipped: provider not configured`` and
+    exits 1. That path does not call the provider.
     """
     from consciousness.model_check import (
         check_model_configuration, format_report, probe_distinct_models,
@@ -481,7 +483,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--probe",
         action="store_true",
         help="Make one tiny live call per distinct model id. Off unless "
-             "passed. Not used by server startup, tests, or CI.",
+             "passed. Not used by server startup, tests, or CI. An "
+             "unconfigured provider prints 'skipped: provider not configured' "
+             "and exits 1 without calling the provider.",
     )
     p_models.set_defaults(func=cmd_models)
 

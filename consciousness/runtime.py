@@ -230,22 +230,17 @@ def reserve_model_action(user_key: str | None = None) -> ModelReservation:
 
 
 class TextProvider(Protocol):
-    """Text adapter. ``model_id_validator`` is optional and may be omitted.
+    """Text adapter. Id judgment is not part of this protocol.
 
-    When present it returns a callable mapping a model id to ``ok``,
-    ``warn``, or ``reject``, or None when this adapter does not judge ids.
-    ``reject`` means the adapter does not serve that id. ``warn`` means the
-    id is plausible but not a known release. The startup check calls it; it
-    does not know which providers exist.
+    Adapters that know which ids they serve also match
+    ``ModelIdJudgingProvider``. The startup check uses getattr, so an
+    adapter that omits ``model_id_validator`` is not asked and still
+    satisfies this protocol for type checkers.
     """
 
     name: str
 
     def configured(self) -> bool: ...
-
-    def model_id_validator(self) -> Callable[[str], str] | None:
-        """Optional. Adapters that omit this are not asked to judge ids."""
-        ...
 
     def cache_reference_tokens(self, model: str) -> int | None:
         """Advisory threshold for a known model; None means not established."""
@@ -262,6 +257,17 @@ class TextProvider(Protocol):
         optional optimization; messages and their ordering must be preserved.
         """
         ...
+
+
+class ModelIdJudgingProvider(TextProvider, Protocol):
+    """Optional. Implement this only when the adapter can judge model ids.
+
+    The callable returns ``ok``, ``warn``, or ``reject``, or None to skip.
+    ``reject`` means the id is not usable on this adapter. ``warn`` means it
+    is plausible but not a known release. Omitting the method is the default.
+    """
+
+    def model_id_validator(self) -> Callable[[str], str] | None: ...
 
 
 def get_provider() -> TextProvider:

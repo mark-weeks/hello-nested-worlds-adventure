@@ -21,8 +21,9 @@ _log = logging.getLogger("nested_worlds.consciousness")
 # Operator-facing text must stay one line. Model ids are not secrets, but a
 # value pasted into a model setting might be one. Redact those values.
 _SECRET_NAME = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.IGNORECASE)
-_MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
 _SECRET_MIN = 8
+_MAX_MODEL_ID_LENGTH = 256
+_PROBE_SKIPPED = "skipped: provider not configured"
 
 PROBE_MAX_TOKENS = 1
 PROBE_TIMEOUT_SECONDS = 30.0
@@ -99,6 +100,8 @@ class ProbeResult:
     detail: str
 
     def line(self, secrets: tuple[str, ...] | None = None) -> str:
+        if self.detail == _PROBE_SKIPPED:
+            return self.detail
         shown = _display_model(self.model, secrets if secrets is not None else _secret_values())
         if self.accepted:
             return f"probe {shown}: accepted"
@@ -177,14 +180,19 @@ def _configured_blank(name: str) -> str | None:
 
 
 def _structural(model: str) -> str | None:
-    """Provider-neutral shape problems. None when the id is usable text."""
+    """Problems every adapter shares. Character sets belong to the adapter.
+
+    Empty, whitespace, control characters, and an absurd length cannot be a
+    model id. ``@``, ``+``, ``~``, and other token characters are left for
+    ``model_id_validator``.
+    """
     if model == "":
         return "empty"
     if model.strip() == "" or any(ch.isspace() for ch in model):
         return "whitespace"
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in model):
         return "malformed"
-    if _MODEL_ID.fullmatch(model) is None:
+    if len(model) > _MAX_MODEL_ID_LENGTH:
         return "malformed"
     return None
 
@@ -344,6 +352,15 @@ def probe_distinct_models(report: ModelReport, provider=None) -> tuple[ProbeResu
     An id that embeds a credential is not sent.
     """
     provider = runtime.get_provider() if provider is None else provider
+    configured = getattr(provider, "configured", None)
+    if callable(configured):
+        try:
+            ready = bool(configured())
+        except Exception:
+            ready = False
+        if not ready:
+            # Do not call generate. An unconfigured client raises TypeError.
+            return (ProbeResult("", False, _PROBE_SKIPPED),)
     secrets = _secret_values()
     results: list[ProbeResult] = []
     seen: set[str] = set()

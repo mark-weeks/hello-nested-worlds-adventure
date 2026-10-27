@@ -21,10 +21,13 @@ Call sites pass a task name; they do not read environment variables.
 An unset value uses the fallback in the table. `model_for` also treats a
 whitespace-only value as unset, so a call still falls back. The startup check
 does not: a variable set to empty or whitespace is a misconfiguration and
-`python main.py serve` refuses to boot. Moderation does not inherit the shared
-voice model. With no per-task settings, node voice, inhabitant voice, and
-intention keep using `NESTED_WORLDS_MODEL`, so an existing deployment that
-leaves those variables unset does not change.
+`python main.py serve` refuses to boot. A blank setting used to fall through
+at boot. It now fails startup. Moderation does not inherit the shared voice
+model, and its id is checked even when `NESTED_WORLDS_DISABLE_MODERATION=1`.
+With no per-task settings, node voice, inhabitant voice, and intention keep
+using `NESTED_WORLDS_MODEL`, so an existing deployment that leaves those
+variables unset does not change. Run `python main.py models` with the
+release environment before a release or `scripts/deploy.sh`.
 The code defaults above are configuration, not a verified recommendation or a
 guarantee of availability. Confirm the effective environment before a live run.
 
@@ -88,16 +91,29 @@ change and a deployment remain separate actions under the existing project gates
 
 `consciousness/runtime.py` defines `TextProvider`, `SystemBlock`, `Completion`
 and `TokenUsage`, resolves per-task model ids in `model_for`, shares the
-concurrency limit and logs provider/model usage. `TextProvider.model_id_validator`
-is optional. It returns a function from a model id to `ok`, `warn`, or
-`reject`, or nothing when the adapter does not judge ids. `reject` means this
-adapter does not serve the id. `warn` means the id is plausible but not a
-known release. `consciousness/model_check.py` is the only caller and does not
-name a provider. `consciousness/anthropic_provider.py`
-implements the sole current adapter. Its validator accepts the known Claude
-ids and a dated snapshot of one of them, warns on any other `claude-` shaped
-id so a new release does not block boot, and rejects every other id. All four tasks use the boundary; the node voice, inhabitant voice and intention endpoints ask the selected adapter whether
-it is configured before charging their existing voice budgets. Missing
+concurrency limit and logs provider/model usage. `TextProvider` does not
+include `model_id_validator`, so an adapter that omits it still satisfies
+the protocol for type checkers. `ModelIdJudgingProvider` is the optional
+protocol for adapters that can judge ids. Its method returns a function from
+a model id to `ok`, `warn`, or `reject`, or nothing when the adapter does
+not judge ids. `reject` means this adapter does not serve the id. `warn`
+means the id is plausible but not a known release. Omitting the method is
+the default. `consciousness/model_check.py` is the only caller, uses
+getattr, and does not name a provider. The shared check rejects only empty
+text, whitespace, control characters, and an id longer than 256 characters.
+Character rules such as `@`, `+`, and `~` stay on the adapter.
+`consciousness/anthropic_provider.py` implements the sole current adapter.
+Its validator accepts the known Claude ids and a dated snapshot of one of
+them. Any other usable id that names Claude warns, including mixed case,
+`anthropic/claude-…`, `….anthropic.claude-…-v1:0`, and a `:beta` suffix, so
+a new release or alias does not block boot. With `ANTHROPIC_BASE_URL` set
+to a non-blank value, every other usable id warns too, because a gateway
+alias is not a Claude id. A blank or whitespace `ANTHROPIC_BASE_URL` is
+unset, and the check does not log that URL. An id that neither names Claude
+nor sits behind that override is rejected, so `gpt-4o` on the official API
+fails startup. All four tasks use the boundary; the node voice, inhabitant
+voice and intention endpoints ask the selected adapter whether it is
+configured before charging their existing voice budgets. Missing
 credentials serve authored fallbacks without a voice call, budget charge or
 speech chronicle row. A model-written chronicle row records the provider name
 and the resolved model id from that call's Completion, in
@@ -161,24 +177,33 @@ a cache hit from the presence of `cache_control` alone.
 `python main.py models` prints the active provider and, for each task, the
 resolved model id, where it came from (`task env`, `NESTED_WORLDS_MODEL`, or
 `default`), and any problem. It does not call the provider. Run it with the
-model variables the machine will use before `scripts/deploy.sh` or a Fly boot.
+model variables the machine will use before a release, `scripts/deploy.sh`,
+or a Fly boot. The moderation model is included even when
+`NESTED_WORLDS_DISABLE_MODERATION=1`.
 
 A hard problem is one line naming the environment variable: an empty or
-whitespace-only setting, an id that is not a usable token, or an id the
-active adapter rejects. `python main.py serve` exits with that line before it
-opens a port, so the deploy fails instead of holding shared text on the first
-moderation call. A soft problem, including surrounding whitespace that was
-stripped and an unknown but plausible id, logs one warning and still boots.
-Neither line prints a credential. `/health` stays a liveness check and does
-not report model ids.
+whitespace-only setting, unusable text (whitespace inside the id, a control
+character, or more than 256 characters), or an id the active adapter
+rejects. A blank model setting, and on the Anthropic adapter an id that
+neither names Claude nor sits behind a non-blank `ANTHROPIC_BASE_URL`, fails
+startup instead of falling back. `python main.py serve` exits with that line
+before it opens a port, so the deploy fails instead of holding shared text
+on the first moderation call. A soft problem, including surrounding
+whitespace that was stripped, a Claude-shaped alias, and any usable id while
+`ANTHROPIC_BASE_URL` is set, logs one warning and still boots. Neither line
+prints a credential or the base URL. `/health` stays a liveness check and
+does not report model ids.
 
 `python main.py models --probe` makes one tiny live call per distinct model
 id (`max_tokens` 1). It is off unless that flag is passed. Server startup,
 `./scripts/check.sh`, tests, and CI do not pass it, and there is no
-environment variable that turns it on. It needs a credential for the active
-provider, spends a real call, and does not charge the model-action cap or the
-`anthropic` budget bucket. A refused probe exits 1. It confirms the provider
-accepts the id. It is not a quality, cost, or cache evaluation.
+environment variable that turns it on. It checks `configured()` first. When
+that is false, or when it raises, the command prints
+`skipped: provider not configured` and exits 1. It does not call the
+provider and does not report a `TypeError`. A configured probe needs a
+credential, spends a real call, and does not charge the model-action cap or
+the `anthropic` budget bucket. A refused probe also exits 1. It confirms the
+provider accepts the id. It is not a quality, cost, or cache evaluation.
 
 ## Operator diagnostics
 

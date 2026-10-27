@@ -206,9 +206,15 @@ provider still requires an adapter and validation. The listed model IDs are curr
 code defaults, not evidence that they remain the best available choices or are
 available to every account. Verify availability and evaluate candidates before use.
 `python main.py models` prints the resolved provider and model for each task
-without a live call; run it with the deploy's model variables before
-`scripts/deploy.sh`. `python main.py models --probe` is the opt-in live check
-and is not part of startup or CI.
+without a live call. Run it before a release or `scripts/deploy.sh`. A blank
+setting fails startup. The moderation id is checked even when
+`NESTED_WORLDS_DISABLE_MODERATION=1`. On the current adapter, an id that does
+not name Claude fails startup unless `ANTHROPIC_BASE_URL` is set; a
+Claude-shaped alias warns and still boots. See the
+[runtime guidance](docs/development/agent-runtime.md).
+`python main.py models --probe` is the opt-in live check and is not part of
+startup or CI. Without a credential it prints `skipped: provider not configured`
+and exits 1.
 
 Environment variables (see `.env.example`):
 
@@ -242,8 +248,8 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_MAX_HANDLER_THREADS` | Max threads inside HTTP requests and open WebSocket sessions. When full, new connections get `503` with `Retry-After: 2` and `{"error":"server busy"}` without waiting to read the request, including `/health`. The default sits above the WebSocket cap and the committed proxy connection hard limit, so those still shed first. Values below 1 or non-integers use the default. | `160` |
 | `NESTED_WORLDS_DISABLE_AI` | Set to `1` to disable `/speak` and `/agent/voice` without a redeploy. | unset |
 | `NESTED_WORLDS_DISABLE_IMAGES` | Set to `1` to disable `/image` without a redeploy. | unset |
-| `NESTED_WORLDS_DISABLE_MODERATION` | Set to `1` to hold shared text without judging it (ADR-004 §2). Private notes, unpublished profile text, mechanical play, and local multi-world `play --name` continue. An unscreened local-mode name can still be `player_name` on chronicle rows in the shared database. `invite mint` refuses names until you pass `--unscreened`. | unset |
-| `NESTED_WORLDS_MODERATION_MODEL` | Model for the moderation classify call (ambiguous inputs only; clean input costs zero API calls). Does not fall back to `NESTED_WORLDS_MODEL`. Empty or whitespace fails startup. | `claude-haiku-4-5` |
+| `NESTED_WORLDS_DISABLE_MODERATION` | Set to `1` to hold shared text without judging it (ADR-004 §2). The moderation model id is still checked at startup. Private notes, unpublished profile text, mechanical play, and local multi-world `play --name` continue. An unscreened local-mode name can still be `player_name` on chronicle rows in the shared database. `invite mint` refuses names until you pass `--unscreened`. | unset |
+| `NESTED_WORLDS_MODERATION_MODEL` | Model for the moderation classify call (ambiguous inputs only; clean input costs zero API calls). Does not fall back to `NESTED_WORLDS_MODEL`. Empty, whitespace, or a non-Claude id on the official API fails startup. Checked even when moderation is disabled. | `claude-haiku-4-5` |
 | `NESTED_WORLDS_MODERATION_DAILY_CALLS` | Shared daily cap on classify calls — moderation's own budget line. When it is spent, text that still needs a classifier is held; a local clean line still publishes. | `2000` |
 | `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER` | Per-credential daily classify cap, checked before the shared moderation counter. Open when no credential is supplied. Starting value to measure. | `60` |
 | `NESTED_WORLDS_MODERATION_ACTIONS_PER_USER` | Per-credential cap on moderation-triggering actions (a shared line, an idea, a published profile, a puzzle guess). A local block does not spend it. Exceeding it holds shared text. Open without a credential. Name checks do not use it. Starting value to measure. | `600` |

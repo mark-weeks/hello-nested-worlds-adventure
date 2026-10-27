@@ -27,6 +27,8 @@ _FAL = 'fal-key-secret-value'
 def _clear(monkeypatch):
     for name in _TASK_ENVS:
         monkeypatch.delenv(name, raising=False)
+    # A leftover gateway host would turn a foreign id into a warning.
+    monkeypatch.delenv('ANTHROPIC_BASE_URL', raising=False)
 
 
 def _status(report, task):
@@ -104,7 +106,7 @@ def test_task_env_shared_and_default_are_reported(monkeypatch):
     assert _status(report, 'moderation').model == 'claude-haiku-4-5-20251001'
 
 
-@pytest.mark.parametrize('model', ['gpt-4o', 'grok-2', 'gemini-2.5-pro', 'claudeopus'])
+@pytest.mark.parametrize('model', ['gpt-4o', 'grok-2', 'gemini-2.5-pro'])
 def test_anthropic_adapter_rejects_ids_it_does_not_serve(monkeypatch, model):
     _clear(monkeypatch)
     monkeypatch.setenv(runtime.INTENT_MODEL_ENV, model)
@@ -119,6 +121,74 @@ def test_anthropic_adapter_rejects_ids_it_does_not_serve(monkeypatch, model):
     assert model in line
     assert 'anthropic' in line
     assert _status(report, 'node').problems == ()
+
+
+@pytest.mark.parametrize('model', [
+    'anthropic/claude-opus-4-8',
+    'us.anthropic.claude-sonnet-4-5-v1:0',
+    'Claude-Opus-4-8',
+    'claude-opus-4-8:beta',
+    'claudeopus',
+    'claude-opus-4-8;drop',
+])
+def test_plausible_claude_forms_warn_without_a_base_url(monkeypatch, model):
+    _clear(monkeypatch)
+    monkeypatch.setenv(runtime.INTENT_MODEL_ENV, model)
+    report = check_model_configuration()
+    assert report.hard == ()
+    problem = _status(report, 'intent').problems[0]
+    assert problem.severity == 'soft'
+    assert problem.kind == 'unknown'
+    assert model in problem.text
+    assert _status(report, 'node').problems == ()
+
+
+def test_base_url_override_warns_for_a_gateway_alias(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv('ANTHROPIC_BASE_URL', 'https://gateway.example/v1')
+    monkeypatch.setenv(runtime.INTENT_MODEL_ENV, 'my-gateway-alias')
+    report = check_model_configuration()
+    assert report.hard == ()
+    problem = _status(report, 'intent').problems[0]
+    assert problem.severity == 'soft'
+    assert problem.kind == 'unknown'
+    rendered = format_report(report) + report.warning_line()
+    assert 'gateway.example' not in rendered
+    assert 'https://' not in rendered
+
+
+def test_foreign_id_behind_a_base_url_warns(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv('ANTHROPIC_BASE_URL', 'https://gateway.example/v1')
+    monkeypatch.setenv(runtime.INTENT_MODEL_ENV, 'gpt-4o')
+    report = enforce_model_configuration()
+    assert report.hard == ()
+    problem = _status(report, 'intent').problems[0]
+    assert problem.severity == 'soft'
+    assert problem.kind == 'unknown'
+    assert 'gpt-4o' in problem.text
+
+
+def test_gateway_alias_without_a_base_url_is_rejected(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv(runtime.INTENT_MODEL_ENV, 'my-gateway-alias')
+    with pytest.raises(SystemExit) as caught:
+        enforce_model_configuration()
+    message = str(caught.value)
+    assert 'my-gateway-alias' in message
+    assert 'not served' in message
+    assert runtime.INTENT_MODEL_ENV in message
+
+
+@pytest.mark.parametrize('base_url', ['', '   '])
+def test_blank_base_url_is_not_an_override(monkeypatch, base_url):
+    _clear(monkeypatch)
+    monkeypatch.setenv('ANTHROPIC_BASE_URL', base_url)
+    monkeypatch.setenv(runtime.INTENT_MODEL_ENV, 'gpt-4o')
+    with pytest.raises(SystemExit) as caught:
+        enforce_model_configuration()
+    assert 'gpt-4o' in str(caught.value)
+    assert 'not served' in str(caught.value)
 
 
 def test_unknown_claude_id_warns_and_does_not_fail(monkeypatch, caplog):
@@ -210,10 +280,6 @@ def test_internal_whitespace_and_malformed_ids_fail(monkeypatch):
         enforce_model_configuration()
     assert 'contains whitespace' in str(spacing.value)
     assert 'claude opus' not in str(spacing.value)
-    monkeypatch.setenv(runtime.INTENT_MODEL_ENV, 'claude-opus-4-8;drop')
-    with pytest.raises(SystemExit) as broken:
-        enforce_model_configuration()
-    assert 'not a usable model id' in str(broken.value)
     monkeypatch.setenv(runtime.INTENT_MODEL_ENV, 'claude\x01opus')
     with pytest.raises(SystemExit) as control:
         enforce_model_configuration()
@@ -243,6 +309,62 @@ def test_lab_adapter_uses_its_own_rules_without_a_check_change(monkeypatch):
     text = format_report(report) + report.failure_line()
     assert 'provider=lab' in text
     assert 'is not served by provider lab' in text
+
+
+class OpenProvider:
+    """Accepts every structurally usable id, including another vendor's tokens."""
+
+    name = 'open'
+
+    def model_id_validator(self):
+        return lambda model: 'ok'
+
+
+@pytest.mark.parametrize('model', [
+    'gemini-1.5-pro@002',
+    '@cf/meta/llama-3-8b-instruct',
+    'org/model+variant~1',
+])
+def test_shared_check_leaves_token_characters_to_the_adapter(monkeypatch, model):
+    _clear(monkeypatch)
+    for name in (
+        runtime.NODE_MODEL_ENV, runtime.INHABITANT_MODEL_ENV,
+        runtime.INTENT_MODEL_ENV, runtime.MODERATION_MODEL_ENV,
+    ):
+        monkeypatch.setenv(name, model)
+    report = check_model_configuration(OpenProvider())
+    assert report.provider == 'open'
+    assert report.hard == ()
+    assert report.problems('soft') == ()
+    assert _status(report, 'node').model == model
+    assert _status(report, 'moderation').model == model
+
+
+def test_shared_check_still_rejects_length_and_controls(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv(runtime.NODE_MODEL_ENV, 'a' * 257)
+    report = check_model_configuration(OpenProvider())
+    problem = _status(report, 'node').problems[0]
+    assert problem.severity == 'hard'
+    assert problem.kind == 'malformed'
+    monkeypatch.setenv(runtime.NODE_MODEL_ENV, 'ok\x01id')
+    report = check_model_configuration(OpenProvider())
+    problem = _status(report, 'node').problems[0]
+    assert problem.severity == 'hard'
+    assert problem.kind == 'malformed'
+    assert '\x01' not in problem.text
+
+
+def test_moderation_model_is_checked_when_moderation_is_disabled(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv('NESTED_WORLDS_DISABLE_MODERATION', '1')
+    monkeypatch.setenv(runtime.MODERATION_MODEL_ENV, 'gpt-4o')
+    with pytest.raises(SystemExit) as caught:
+        enforce_model_configuration()
+    message = str(caught.value)
+    assert runtime.MODERATION_MODEL_ENV in message
+    assert 'gpt-4o' in message
+    assert 'moderation' in message
 
 
 def test_adapter_without_a_validator_only_checks_shape(monkeypatch):
@@ -417,6 +539,34 @@ def test_models_command_prints_the_report_and_probes_only_with_the_flag(monkeypa
         main(['models', '--probe'])
     assert runtime.MODERATION_MODEL_ENV in str(caught.value)
     assert len(lab.calls) == before
+
+
+@pytest.mark.parametrize('ready', [False, 'raise'])
+def test_probe_skips_when_the_provider_is_not_configured(monkeypatch, capsys, ready):
+    _clear(monkeypatch)
+    calls = []
+
+    class Unconfigured:
+        name = 'lab'
+
+        def configured(self):
+            if ready == 'raise':
+                raise RuntimeError('credential store unavailable')
+            return False
+
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            raise TypeError('missing key')
+
+    monkeypatch.setattr(runtime, 'get_provider', lambda: Unconfigured())
+    with pytest.raises(SystemExit) as caught:
+        main(['models', '--probe'])
+    assert caught.value.code == 1
+    out = capsys.readouterr().out
+    assert 'skipped: provider not configured' in out
+    assert 'TypeError' not in out
+    assert 'refused' not in out
+    assert calls == []
 
 
 def test_check_source_names_no_provider_and_ci_does_not_probe():

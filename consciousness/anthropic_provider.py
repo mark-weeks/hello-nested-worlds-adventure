@@ -1,6 +1,7 @@
 """Anthropic-specific transport and wire format; no world or player rules."""
 from __future__ import annotations
 
+import os
 import re
 import threading
 from typing import Any
@@ -25,20 +26,48 @@ _FINISH_REASONS = {
     "refusal": "refusal", "tool_use": "tool", "pause_turn": "pause",
 }
 # Known releases only. A dated snapshot of one of these is the same release.
-# A new claude-shaped id is plausible (warn) so a release is not a boot failure.
+# Anything else that still names Claude, or any id behind a base-URL gateway,
+# warns. A hard reject is reserved for an id this API cannot be asked to serve
+# and for text that is not an id at all. A gateway alias must not take the
+# process down.
 _KNOWN_MODEL_IDS = frozenset(_CACHE_REFERENCES)
 _DATED_SNAPSHOT = re.compile(r"-\d{8}$")
-_CLAUDE_ID = re.compile(r"^claude-[a-z0-9][a-z0-9._-]{0,127}$")
+_BASE_URL_ENV = "ANTHROPIC_BASE_URL"
+_MAX_MODEL_ID_LENGTH = 256
+
+
+def _unusable_model_id(model: object) -> bool:
+    if not isinstance(model, str) or model == "":
+        return True
+    if any(ch.isspace() for ch in model):
+        return True
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in model):
+        return True
+    return len(model) > _MAX_MODEL_ID_LENGTH
+
+
+def _base_url_override() -> bool:
+    # Same variable the pinned SDK reads before its default API host.
+    # A blank value is unset. The value itself is never logged.
+    raw = os.environ.get(_BASE_URL_ENV)
+    return bool(raw and raw.strip())
 
 
 def _anthropic_model_verdict(model: str) -> str:
-    """ok, warn, or reject. Unknown but claude-shaped ids warn."""
-    if not isinstance(model, str):
+    """ok, warn, or reject.
+
+    Exact known ids are ok. A Claude name in another shape (mixed case,
+    ``anthropic/claude-…``, ``….anthropic.claude-…-v1:0``, a ``:beta`` suffix)
+    warns. With ``ANTHROPIC_BASE_URL`` set, every other usable id warns too,
+    because a gateway alias is not a Claude id. Reject only unusable text,
+    or an id that neither names Claude nor sits behind that override.
+    """
+    if _unusable_model_id(model):
         return "reject"
     base = _DATED_SNAPSHOT.sub("", model)
     if model in _KNOWN_MODEL_IDS or base in _KNOWN_MODEL_IDS:
         return "ok"
-    if _CLAUDE_ID.fullmatch(model) or _CLAUDE_ID.fullmatch(base):
+    if "claude" in model.lower() or _base_url_override():
         return "warn"
     return "reject"
 
