@@ -112,6 +112,26 @@ def srv():
     server.shutdown()
 
 
+def _http_responses(data: bytes) -> list[tuple[int, dict[str, str], bytes]]:
+    """Split a pipelined byte stream into status, headers, and body."""
+    responses = []
+    rest = data
+    while rest:
+        head, sep, rest = rest.partition(b"\r\n\r\n")
+        if not sep:
+            break
+        lines = head.decode("iso-8859-1").split("\r\n")
+        status = int(lines[0].split(" ", 2)[1])
+        headers = {}
+        for line in lines[1:]:
+            name, _, value = line.partition(":")
+            headers[name.strip().lower()] = value.strip()
+        length = int(headers.get("content-length", "0"))
+        body, rest = rest[:length], rest[length:]
+        responses.append((status, headers, body))
+    return responses
+
+
 def _access_records(caplog, timeout=2.0):
     """Collect access-log records, waiting for the handler thread.
 
@@ -152,6 +172,64 @@ class TestAccessLogE2E:
         assert payload["path"] == "/worlds"
         assert "secret" not in line.message
         assert "seed=1" not in line.message
+
+    def test_reused_handler_logs_each_request_on_one_connection(
+            self, srv, monkeypatch, caplog):
+        # HTTP/1.1 reuses the handler while the socket stays open. Every
+        # current response sets Connection: close, so this test leaves the
+        # first response's socket open and closes on the second. Without a
+        # per-request reset, the second access line is dropped.
+        import socket
+        from urllib.parse import urlparse
+        from server.handlers import Handler
+
+        port = urlparse(srv).port
+        real = Handler._send_security_headers
+
+        def reopen_unless_client_closes(self):
+            real(self)
+            if (self.headers.get("Connection") or "").lower() != "close":
+                self.close_connection = False
+
+        monkeypatch.setattr(Handler, "_send_security_headers", reopen_unless_client_closes)
+        # /ideas/list sets _private_response. /health must not inherit that
+        # header, the 403 status, or the 403 body length.
+        request = (
+            "GET /ideas/list HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
+        with caplog.at_level(logging.INFO, logger="nested_worlds.access"):
+            sock = socket.create_connection(("127.0.0.1", port), timeout=2)
+            try:
+                sock.sendall(request.encode())
+                sock.settimeout(2)
+                data = bytearray()
+                while True:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+            finally:
+                sock.close()
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                logs = [r for r in caplog.records if r.name == "nested_worlds.access"]
+                if len(logs) >= 2:
+                    break
+                time.sleep(0.01)
+        responses = _http_responses(bytes(data))
+        assert [item[0] for item in responses] == [403, 200]
+        ideas_headers, health_headers = responses[0][1], responses[1][1]
+        assert ideas_headers.get("cache-control") == "no-store"
+        assert "cache-control" not in health_headers
+        logs = [r for r in caplog.records if r.name == "nested_worlds.access"]
+        assert len(logs) == 2
+        payloads = [json.loads(record.message) for record in logs]
+        assert [item["path"] for item in payloads] == ["/ideas/list", "/health"]
+        assert [item["status"] for item in payloads] == [403, 200]
+        assert payloads[0]["len"] == int(ideas_headers["content-length"])
+        assert payloads[1]["len"] == int(health_headers["content-length"])
+        assert payloads[0]["len"] != payloads[1]["len"]
 
 
 # ── persistence.backup_to ───────────────────────────────────────────────────

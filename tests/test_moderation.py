@@ -576,6 +576,37 @@ class TestChatScreening:
         sender.close()
         other.close()
 
+    def test_non_string_chat_is_a_private_refusal(self, srv, monkeypatch):
+        calls = []
+        real = moderation.screen
+
+        def recording(text, **kwargs):
+            calls.append(text)
+            return real(text, **kwargs)
+
+        monkeypatch.setattr(moderation, "screen", recording)
+        monkeypatch.setattr(guard, "WS_CHAT_BURST", 20)
+        seed = 275
+        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
+        sender, s_status = _ws_connect(srv, seed, "Ada")
+        other, o_status = _ws_connect(srv, seed, "Bee")
+        try:
+            assert b"101" in s_status and b"101" in o_status
+            _read_ws_json_until(sender, "welcome")
+            _read_ws_json_until(other, "welcome")
+            for text in (None, True, 1, 2.5, ["not a line"], {"a": 1}):
+                _ws_send_json(sender, {"type": "chat", "text": text})
+                declined = _read_ws_json_until(sender, "chat_declined")
+                assert declined["text"] == "A message is required."
+            assert calls == []
+            _ws_send_json(sender, {"type": "chat", "text": "clean words"})
+            assert _read_ws_json_until(other, "chat")["text"] == "clean words"
+            chats = _wait_for_rows(seed, root_name, "PLAYER_CHAT")
+            assert [row["data"]["text"] for row in chats] == ["clean words"]
+        finally:
+            sender.close()
+            other.close()
+
 
 def test_classifier_decline_cannot_replace_a_public_profile(
         http, uncovered_input, monkeypatch):
