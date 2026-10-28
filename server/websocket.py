@@ -206,7 +206,17 @@ def handle_websocket(
                 elif message_type == "chat":
                     if not chat_bucket.allow():
                         continue
-                    text = str(message.get("text", "")).strip()[:256]
+                    # Same rule as /speak: a non-string is not a line. Do not
+                    # stringify it, screen it, or write it. The sender hears
+                    # the same private refusal; nobody else does.
+                    raw_text = message.get("text", "")
+                    if not isinstance(raw_text, str):
+                        player.send({
+                            "type": "chat_declined",
+                            "text": "A message is required.",
+                        })
+                        continue
+                    text = raw_text.strip()[:256]
                     if text:
                         verdict = moderation.screen(
                             text, user_key=ws_key or None, surface="chat")

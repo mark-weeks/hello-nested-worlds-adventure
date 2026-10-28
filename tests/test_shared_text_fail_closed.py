@@ -738,10 +738,16 @@ def test_non_string_message_is_not_spoken(srv, monkeypatch):
     monkeypatch.setattr(moderation, "screen", recording_screen)
     monkeypatch.setattr(consciousness.runtime, "get_provider", lambda: Provider())
     monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
+    monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
     seed = 995
     node = generate_node_hierarchy(seed=seed, max_depth=1)
     for path, extra in (("/speak", {}), ("/agent/voice", {"agent_name": "Scout"})):
-        for message in (None, False, 0, [], {}):
+        for message in (None, False, True, 0, 1, 2.5, [], ["not a line"], ["a", "b"], {}):
+            status, data = _post(srv, path, {
+                "node_name": node.name, "seed": seed, "message": message, **extra})
+            assert status == 400 and data["error"] == "A message is required.", (
+                path, message, status, data)
+        for message in ("\u200b", "\u200c\u200d", "\ufeff", "\u200b \u200d", "\ufeff\n"):
             status, data = _post(srv, path, {
                 "node_name": node.name, "seed": seed, "message": message, **extra})
             assert status == 400 and data["error"] == "A message is required.", (
@@ -749,13 +755,18 @@ def test_non_string_message_is_not_spoken(srv, monkeypatch):
     assert screens == [] and spoken == []
     assert _rows(seed, node.name, "PLAYER_SPEAK") == []
     assert _rows(seed, node.name, "AGENT_VOICE") == []
+    # Zero-width characters are removed before the line is judged or spoken.
+    status, data = _post(srv, "/speak", {
+        "node_name": node.name, "seed": seed, "message": "hel\u200blo"})
+    assert status == 200 and data.get("held") is True
+    assert screens == ["hello"]
     # Strings stay strings, including ones that look like JSON scalars.
     for message in ("0", "false", "null", "hello, old light"):
         status, data = _post(srv, "/speak", {
             "node_name": node.name, "seed": seed, "message": message})
         assert status == 200 and data.get("held") is True, (message, status, data)
     assert spoken == []
-    assert screens == ["0", "false", "null", "hello, old light"]
+    assert screens == ["hello", "0", "false", "null", "hello, old light"]
 
 
 def test_generate_charges_the_model_action_cap_once_and_normalizes_the_key(monkeypatch):

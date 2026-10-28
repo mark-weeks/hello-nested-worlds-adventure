@@ -56,6 +56,9 @@ _STATIC_DIR   = Path(__file__).parent.parent / "static"
 _FRONTEND_DIR = _STATIC_DIR / "app"
 _log = logging.getLogger("nested_worlds")
 _MAX_BODY = 64 * 1024  # 64 KB
+# Format characters, not whitespace: str.strip() leaves them in place, so a
+# message of only these would pass the empty check and be spoken.
+_ZERO_WIDTH = str.maketrans("", "", "\u200b\u200c\u200d\ufeff")
 
 
 # ── World rebuild ──────────────────────────────────────────────────────────
@@ -593,10 +596,13 @@ class Handler(BaseHTTPRequestHandler):
     def _authored_message(self, body: dict, default: str) -> str | None:
         """The player's line, or None after a private 400 for empty text.
 
-        Whitespace-only text is empty. A missing message keeps ``default``,
-        which is a real prompt. A present value that is not a string — null,
-        false, a number, an array, or an object — is the same private 400.
-        It is not stringified and spoken. The screen still allows empty text
+        Whitespace-only text is empty. Zero-width characters (U+200B through
+        U+200D, and U+FEFF) are removed before that check, so a message of
+        only those is the same private 400 and is not spoken. A missing
+        message keeps ``default``, which is a real prompt. A present value
+        that is not a string — null, false, true, a number, an array, or an
+        object — is the same private 400. It is not stringified and spoken.
+        The screen still allows empty text
         so a blank published profile can save; these two routes would
         otherwise publish a model reply when moderation is disabled, because
         that empty-text pass runs before the kill switch.
@@ -606,7 +612,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(raw, str):
                 self._send_error("A message is required.", 400)
                 return None
-            message = raw[:1024]
+            message = raw.translate(_ZERO_WIDTH)[:1024]
         else:
             message = default
         if not message.strip():
@@ -630,6 +636,9 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def _on_timeout(self) -> None:
+        # _status is cleared at the start of each request. A code left by
+        # the previous response on this connection must not make a new read
+        # timeout look like a write that already sent headers.
         if getattr(self, "_status", 0):
             # Headers are already on the wire. Another status would be a
             # second message, and writing it can block again on a client
@@ -639,14 +648,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._read_timed_out()
 
-    def do_GET(self):
+    def _begin_request(self) -> None:
+        """Clear per-request state. One handler serves a kept-alive socket."""
         import time
         self._started = time.monotonic()
-        # The same handler instance serves every request on a kept-alive
-        # socket. Clearing the flag here is what lets the next request log;
-        # leaving it set would drop that line, and logging without it would
-        # write the line twice.
         self._access_logged = False
+        self._status = 0
+        self._resp_len = 0
+        self._private_response = False
+
+    def do_GET(self):
+        self._begin_request()
         try:
             self._dispatch_get()
         except TimeoutError:
@@ -962,9 +974,7 @@ class Handler(BaseHTTPRequestHandler):
     # ── POST ──
 
     def do_POST(self):
-        import time
-        self._started = time.monotonic()
-        self._access_logged = False
+        self._begin_request()
         try:
             self._dispatch_post()
         except TimeoutError:
@@ -1678,18 +1688,24 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, TypeError) as exc:
             return self._send_error(str(exc))
 
-        # A list or object used to survive find_node (no name matched, so the
-        # attempt fell through to the root) and then bind as the node name.
-        # SQLite rejected that with ProgrammingError and the client got a 500.
-        # Coerce first: a non-string is a name that does not match, and the
-        # attempt answers the way any other unknown name does.
+        # Coerce before any lookup. A list used to fall through to the root
+        # and then bind as the node name; SQLite raised ProgrammingError and
+        # the client got a 500. An empty or omitted name still means the
+        # root. Any other name that is not a node — including a non-string
+        # that becomes a non-empty string — is a 404 before the screen, the
+        # attempt session, and any chronicle row. The session key is then
+        # the real node's name, not the text the client sent.
         node_name   = str(body.get("node_name", "") or "")[:128]
+        if node_name:
+            target = find_node(root, node_name)
+            if target is None:
+                return self._send_error("no such place in this world", 404)
+        else:
+            target = root
         # str(...): a numeric guess ({"answer": 7}) is a legitimate attempt at
         # a sequence puzzle, not a reason to AttributeError into a 500.
         answer      = str(body.get("answer", "") or "").strip()
         player_name = _display_name(user_key, body.get("player_name"))
-
-        target = (find_node(root, node_name) if node_name else None) or root
 
         engine  = PuzzleEngine(seed=seed)
         # Renewal epochs: decay that lands on a solved node re-arms it with
@@ -1703,7 +1719,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error("no puzzle found")
 
         p              = puzzles[0]
-        effective_node = node_name or target.name
+        effective_node = target.name
         room           = get_room(seed)
         correct        = answer.lower() == p.answer.lower()
 
