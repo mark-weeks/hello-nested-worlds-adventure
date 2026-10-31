@@ -60,14 +60,27 @@ _MAX_BODY = 64 * 1024  # 64 KB
 # What a reader would not see: format characters (U+200B, U+2060, U+FEFF,
 # soft hyphen, bidi marks …), controls, bare combining marks, and every kind
 # of space. str.strip() clears only the spaces, so a line of U+200B alone
-# used to pass the empty check and be spoken. The check decides emptiness
-# only; the characters themselves stay in the line — an emoji joiner, a
-# Persian ZWNJ or a Thai word break is the player's text, not noise.
+# used to pass the empty check and be spoken. Hangul fillers and the blank
+# braille cell are letters or a symbol, so the category test keeps a line
+# made only of them; the denylist treats that line as empty too. The check
+# decides emptiness only; the characters themselves stay in the line — an
+# emoji joiner, a Persian ZWNJ or a Thai word break is the player's text,
+# not noise.
 _INVISIBLE_CATEGORIES = frozenset({"Cf", "Cc", "Mn", "Me", "Zs", "Zl", "Zp"})
+_INVISIBLE_CHARACTERS = frozenset({
+    "\u115f",  # HANGUL CHOSEONG FILLER
+    "\u3164",  # HANGUL FILLER
+    "\uffa0",  # HALFWIDTH HANGUL FILLER
+    "\u2800",  # BRAILLE PATTERN BLANK
+})
 
 
 def _has_visible_text(text: str) -> bool:
-    return any(unicodedata.category(ch) not in _INVISIBLE_CATEGORIES for ch in text)
+    return any(
+        ch not in _INVISIBLE_CHARACTERS
+        and unicodedata.category(ch) not in _INVISIBLE_CATEGORIES
+        for ch in text
+    )
 
 
 # ── World rebuild ──────────────────────────────────────────────────────────
@@ -99,25 +112,57 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int]:
     return root, seed, depth
 
 
+def _place_depth(node_name: str) -> int:
+    """Path length encoded in a canonical name, or 1 when it has none."""
+    _, _, suffix = node_name.rpartition("-")
+    if suffix.isdigit():
+        return len(suffix)
+    return 1
+
+
+def _with_child_ring(seed: int, node: SpatialNode) -> SpatialNode:
+    """The place plus its immediate children, when the world has any.
+
+    A view cut at the place — either because the client asked for less,
+    or because the place is the deepest level they loaded — has no
+    children. ``stage_cascade`` would then queue only the upward hop, and
+    a constellation container would omit its nested progress. One more
+    level is that first ring. The world's leaf level has no children in
+    any view.
+    """
+    if node.children or _place_depth(node.name) >= guard.MAX_DEPTH:
+        return node
+    deeper, _, _ = _build_world({
+        "seed": seed,
+        "depth": min(_place_depth(node.name) + 1, guard.MAX_DEPTH),
+    })
+    found = find_node(deeper, node.name)
+    return found if found is not None else node
+
+
 def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode | None:
     """The place a puzzle request names, or None when the world has none.
 
     An empty name is the root. A name inside the client's view resolves
     from that tree. Whether a place exists is the store's answer — the same
     one /speak and /node give — never a function of how deep one client
-    looked: a place the world was born with but below the requested depth
-    is rebuilt at its own depth, so GET /puzzle and POST /puzzle/attempt
-    describe and judge the same question whatever depth the client loaded.
+    looked. The place is then given one level of children when it is
+    shallower than the world's leaf, so the first cascade ring and a
+    constellation's nested progress do not depend on the client's depth.
+    GET /puzzle and POST /puzzle/attempt describe and judge the same
+    question whatever depth the client loaded.
     """
     if not node_name:
-        return root
+        return _with_child_ring(seed, root)
     target = find_node(root, node_name)
     if target is not None:
-        return target
+        return _with_child_ring(seed, target)
     if _resolve_node(seed, node_name) is None:
         return None
-    _, _, suffix = node_name.rpartition("-")
-    deeper, _, _ = _build_world({"seed": seed, "depth": len(suffix)})
+    deeper, _, _ = _build_world({
+        "seed": seed,
+        "depth": min(_place_depth(node_name) + 1, guard.MAX_DEPTH),
+    })
     return find_node(deeper, node_name)
 
 
@@ -299,9 +344,13 @@ class _ReadBudgetSocket:
         The wait for the next request line is allowed ``budget`` seconds
         from now. The first byte that arrives re-arms the deadline to
         ``budget`` from that instant, once — the request then has a fixed
-        clock that a dribbling client cannot refresh. A no-op once
-        ``settimeout`` has handed the socket to a WebSocket session: that
-        idle timer replaces the plain-HTTP budget for good.
+        clock that a dribbling client cannot refresh. A client that uses
+        the whole wait and then the whole request budget holds the socket
+        for about twice the read budget. That is harmless only while every
+        response sends ``Connection: close`` (``_send_security_headers``);
+        the second wait never starts on a live connection today. A no-op
+        once ``settimeout`` has handed the socket to a WebSocket session:
+        that idle timer replaces the plain-HTTP budget for good.
         """
         if self._deadline is None:
             return
@@ -657,8 +706,9 @@ class Handler(BaseHTTPRequestHandler):
         """The player's line, or None after a private 400 for empty text.
 
         A line with nothing visible in it is empty: whitespace, control and
-        format characters (U+200B, U+2060, U+FEFF, a soft hyphen …), and
-        bare combining marks. Nothing is removed from a line that is kept —
+        format characters (U+200B, U+2060, U+FEFF, a soft hyphen …), bare
+        combining marks, Hangul fillers, and a blank braille cell. Nothing
+        is removed from a line that is kept —
         an emoji joiner, a Persian ZWNJ or a Thai word break is screened,
         spoken and recorded exactly as the player typed it. A missing
         message keeps ``default``, which is a real prompt. A present value
@@ -1700,11 +1750,14 @@ class Handler(BaseHTTPRequestHandler):
         verb_name   = str(body.get("verb", ""))[:32].strip().lower()
         player_name = _display_name(user_key, body.get("player_name"))
 
-        # Full-tree resolution (not _resolve_node): staging the cascade
-        # needs the node's real parent AND children arms.
+        # Tree resolution (not _resolve_node): staging the cascade needs the
+        # node's real parent AND children arms. At the client's horizon the
+        # node has no children in that tree, so it takes the same one-level
+        # ring as a puzzle solve.
         target = find_node(root, node_name) if node_name else None
         if target is None:
             return self._send_error("no such place in this world", 404)
+        target = _with_child_ring(seed, target)
 
         verb = verb_for_level(target.level)
         if verb is None:

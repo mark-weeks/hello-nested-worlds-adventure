@@ -245,6 +245,48 @@ class TestReadBudget:
         assert second == 404, (second, body)
         assert json.loads(body) == {"error": "not found"}
 
+    def test_stalled_second_request_gets_408(self, limited, monkeypatch):
+        # The first request finishes, then this client waits before sending
+        # the next one and never sends its body. A deadline armed once at
+        # accept is already mostly spent, so the 408 would arrive before
+        # 0.6s. A per-request budget starts when the second request's first
+        # byte arrives, so the wait plus that budget runs past 0.6s.
+        # Production sends Connection: close; this test keeps the socket open.
+        from server.handlers import Handler
+        monkeypatch.setenv(guard.HTTP_READ_TIMEOUT_ENV, "0.5")
+        real = Handler._send_security_headers
+
+        def reopen_unless_client_closes(self):
+            real(self)
+            if (self.headers.get("Connection") or "").lower() != "close":
+                self.close_connection = False
+
+        monkeypatch.setattr(Handler, "_send_security_headers", reopen_unless_client_closes)
+        sock = socket.create_connection(("127.0.0.1", limited), timeout=3)
+        try:
+            sock.sendall(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            first, _headers, _body = _read_http(sock, timeout=2)
+            assert first == 200
+            started = time.monotonic()
+            time.sleep(0.3)
+            sock.sendall(
+                b"POST /no-such HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 8\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+            )
+            status, _headers, body = _read_http(sock, timeout=2)
+        finally:
+            sock.close()
+        elapsed = time.monotonic() - started
+        assert status == 408
+        assert json.loads(body) == {"error": "request timed out"}
+        assert elapsed > 0.6
+        assert elapsed < 1.4
+        assert _health(limited) == 200
+
 
 class TestHandlerCap:
     def test_full_server_returns_503_with_retry_after(self, limited, monkeypatch):

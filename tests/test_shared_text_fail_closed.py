@@ -752,7 +752,9 @@ def test_non_string_message_is_not_spoken(srv, monkeypatch):
         # with or without whitespace around them.
         for message in ("\u200b", "\u200c\u200d", "\ufeff", "\u200b \u200d", "\ufeff\n",
                         "\u2060", "\u00ad\u00ad", "\u200e\u200f", "\u061c", "\ufe0f",
-                        "\u034f", " \u2060\n", "\u0301\u0301"):
+                        "\u034f", " \u2060\n", "\u0301\u0301",
+                        "\u3164", "\uffa0", "\u115f", "\u2800",
+                        "\u3164\uffa0\u115f\u2800", " \u2800\n\u3164"):
             status, data = _post(srv, path, {
                 "node_name": node.name, "seed": seed, "message": message, **extra})
             assert status == 400 and data["error"] == "A message is required.", (
@@ -765,19 +767,25 @@ def test_non_string_message_is_not_spoken(srv, monkeypatch):
     status, data = _post(srv, "/speak", {
         "node_name": node.name, "seed": seed, "message": "hel\u200blo"})
     assert status == 200 and data.get("held") is True
-    assert screens == ["hel\u200blo"]
+    # Blank fillers inside a real line are not stripped. Neither is a joiner.
+    kept = "see\u3164\uffa0\u115f\u2800 this\u200d\u200c\u200b"
+    status, data = _post(srv, "/speak", {
+        "node_name": node.name, "seed": seed, "message": kept})
+    assert status == 200 and data.get("held") is True
+    assert screens == ["hel\u200blo", kept]
     # Strings stay strings, including ones that look like JSON scalars.
     for message in ("0", "false", "null", "hello, old light"):
         status, data = _post(srv, "/speak", {
             "node_name": node.name, "seed": seed, "message": message})
         assert status == 200 and data.get("held") is True, (message, status, data)
     assert spoken == []
-    assert screens == ["hel\u200blo", "0", "false", "null", "hello, old light"]
+    assert screens == ["hel\u200blo", kept, "0", "false", "null", "hello, old light"]
 
 
 def test_speech_keeps_the_players_characters_from_screen_to_chronicle(srv, monkeypatch):
     """An emoji joiner, a Persian ZWNJ and a Thai word break are the line.
 
+    Hangul fillers and a blank braille cell inside that line stay too.
     The emptiness check looks for visible text; it must not rewrite the
     text it keeps. What the classifier judges, what the model hears, and
     what the chronicle stores are the characters the player sent.
@@ -812,7 +820,8 @@ def test_speech_keeps_the_players_characters_from_screen_to_chronicle(srv, monke
     # Thai phrase with a zero-width word break.
     line = ("we are \U0001F468\u200d\U0001F469\u200d\U0001F467 here, "
             "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645, "
-            "\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35\u200b\u0e04\u0e23\u0e31\u0e1a")
+            "\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35\u200b\u0e04\u0e23\u0e31\u0e1a"
+            "\u3164\uffa0\u115f\u2800")
     status, data = _post(srv, "/speak", {
         "node_name": node.name, "seed": seed, "message": line, "player_name": "Ada"})
     assert status == 200 and data["ai"] is True, (status, data)

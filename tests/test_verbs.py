@@ -198,6 +198,32 @@ class TestActEndpoint:
         # The outward cascade is on the queue, not already everywhere.
         assert persistence.pending_causal_hops(42) >= 2
 
+    def test_act_at_the_horizon_stages_the_same_first_ring(self, srv):
+        # Depth 6 is a Region's own depth and the explorer's default. The
+        # client's tree is cut at the Region there, so the act used to queue
+        # only the upward hop (1) while the same act at depth 7 queued the
+        # parent and both rooms (3).
+        from multiverse import store
+
+        def queued(seed):
+            ids = persistence.due_work("causal_queue", 64, world_seed=seed)
+            rows = [persistence.inspect_work("causal_queue", work_id) for work_id in ids]
+            return sorted((row["node_name"], row["direction"]) for row in rows)
+
+        for seed, depth in ((61, 6), (62, 7)):
+            region = store.world_tree(seed=seed, max_depth=7)
+            while region.level != "Region":
+                region = region.children[0]
+            assert len(region.children) == 2
+            data = self._post(srv, "/act", {
+                "seed": seed, "depth": depth, "node_name": region.name,
+                "player_name": "Ada",
+            })
+            assert data["action_status"] == "accepted", data
+            assert queued(seed) == sorted(
+                [(region.parent.name, "up")]
+                + [(child.name, "down") for child in region.children]), depth
+
     def test_act_rejects_the_wrong_verb_for_the_scale(self, srv):
         root = generate_node_hierarchy(seed=42, max_depth=6)
         with pytest.raises(urllib.error.HTTPError) as exc:
