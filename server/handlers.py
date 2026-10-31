@@ -1750,11 +1750,14 @@ class Handler(BaseHTTPRequestHandler):
         verb_name   = str(body.get("verb", ""))[:32].strip().lower()
         player_name = _display_name(user_key, body.get("player_name"))
 
-        # Full-tree resolution (not _resolve_node): staging the cascade
-        # needs the node's real parent AND children arms.
+        # Tree resolution (not _resolve_node): staging the cascade needs the
+        # node's real parent AND children arms. At the client's horizon the
+        # node has no children in that tree, so it takes the same one-level
+        # ring as a puzzle solve.
         target = find_node(root, node_name) if node_name else None
         if target is None:
             return self._send_error("no such place in this world", 404)
+        target = _with_child_ring(seed, target)
 
         verb = verb_for_level(target.level)
         if verb is None:
