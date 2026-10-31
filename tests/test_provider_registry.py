@@ -516,6 +516,26 @@ def test_fixture_without_defaults_fails_startup_and_does_not_send_claude_ids(
     assert 'claude' not in str(caught.value)
 
 
+def test_a_replaced_get_provider_also_supplies_the_default_ids(monkeypatch):
+    # model_for and generate share one seam. A replaced get_provider (the
+    # eval harness and tests use it) must not pair its calls with the cached
+    # adapter's Claude ids.
+    _isolate(monkeypatch)
+    assert runtime.get_provider().name == 'anthropic'
+    substitute = _OwnDefaults()
+    monkeypatch.setattr(runtime, 'get_provider', lambda: substitute)
+    assert runtime.model_for(runtime.NODE_TASK) == 'fixture-voice'
+    assert runtime.model_for(runtime.MODERATION_TASK) == 'fixture-moderation'
+    node = SpatialNode(name='Vault', level='Object', properties={'surface': 'smooth'})
+    assert consciousness.speak(node, 'Now?') == 'A remembered voice.'
+    assert [call['model'] for call in substitute.calls] == ['fixture-voice']
+
+    bare = FixtureProvider()
+    monkeypatch.setattr(runtime, 'get_provider', lambda: bare)
+    assert runtime.model_for(runtime.NODE_TASK) == ''
+    assert runtime.model_for(runtime.MODERATION_TASK) == ''
+
+
 def test_selected_provider_is_cached_and_a_later_bad_value_does_not_exit(monkeypatch):
     _isolate(monkeypatch)
     built = []

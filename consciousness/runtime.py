@@ -119,15 +119,16 @@ def _supplied_default(provider: TextProvider, task: str) -> str | None:
 def _provider_for_defaults(provider: TextProvider | None) -> TextProvider:
     """Adapter that owns the default id. This is not a model call.
 
-    ``generate`` calls ``get_provider`` only after the voice budget. Resolving
-    an id uses the same cached adapter through ``_load_selected_provider``,
-    so a test or a refused budget can replace ``get_provider`` without
-    being asked for a default. A later environment change does not switch
-    the cached adapter.
+    Omitted, it is ``get_provider()``, the same seam ``generate`` sends the
+    call through, so a default id always comes from the adapter that will
+    receive it. Replacing ``get_provider`` replaces both together. Looking
+    up the adapter does not contact it; the voice budget gates
+    ``provider.generate``, not this lookup. A later environment change does
+    not switch the cached adapter.
     """
     if provider is not None:
         return provider
-    return _load_selected_provider()
+    return get_provider()
 
 
 def _default_resolution(task: str, env_name: str, blanks: list[tuple[str, str]],
@@ -423,9 +424,8 @@ def reset_provider_selection() -> None:
 def _load_selected_provider() -> TextProvider:
     """Validate and cache ``NESTED_WORLDS_PROVIDER``. Does not import an SDK.
 
-    ``get_provider`` is this function. ``model_for`` calls this directly so
-    a default id is not a trip through ``get_provider``, which ``generate``
-    reaches only after the voice budget. A failed selection is not cached.
+    Callers go through ``get_provider``, never here directly, so default ids
+    and calls share one seam. A failed selection is not cached.
     """
     global _selected_provider
     with _selection_lock:
@@ -458,8 +458,10 @@ def get_provider() -> TextProvider:
     ``SystemExit`` with one line naming that variable and the valid names.
     The same line is what ``python main.py serve`` exits with, before it
     opens a port. ``reset_provider_selection`` clears the cache. This does
-    not import a provider SDK. ``generate`` calls this only after the voice
-    budget.
+    not import a provider SDK. ``model_for`` asks this adapter for default
+    ids and ``generate`` sends the call to it, so both always name the same
+    adapter. The lookup is not a model call: ``generate`` reaches
+    ``provider.generate`` only after the voice budget.
     """
     return _load_selected_provider()
 

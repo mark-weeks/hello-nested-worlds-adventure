@@ -197,10 +197,19 @@ def test_intention_failures_stay_in_fiction(http, monkeypatch):
     monkeypatch.delenv('NESTED_WORLDS_DISABLE_AI')
     monkeypatch.setattr(guard, 'consume_anthropic', lambda **kwargs: False)
     # The voice budget is charged inside generate, after the model-action
-    # cap and before the provider. propose() may run; the provider must not.
-    monkeypatch.setattr('consciousness.runtime.get_provider',
-                        lambda: pytest.fail('budget must gate the model'))
+    # cap and before the provider. propose() may run, and model_for may look
+    # up the selected adapter for its default id; the provider must not be
+    # contacted.
+    from consciousness import runtime
+    contacted = []
+
+    def must_not_call(**kwargs):
+        contacted.append(kwargs)
+        raise AssertionError('budget must gate the model')
+
+    monkeypatch.setattr(runtime.get_provider(), 'generate', must_not_call)
     assert submit()[1]['response'] == guard.QUIET_RESPONSE
+    assert contacted == []
     monkeypatch.setattr(guard, 'consume_anthropic', lambda **kwargs: True)
     monkeypatch.setattr(proposal, 'propose', lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError('upstream 529')))
     status, data, _ = submit()
