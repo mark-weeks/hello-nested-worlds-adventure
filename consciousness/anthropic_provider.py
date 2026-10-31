@@ -6,7 +6,14 @@ import re
 import threading
 from typing import Any
 
-from consciousness.runtime import Completion, SystemBlock, TokenUsage
+from consciousness.runtime import (
+    Completion,
+    DEFAULT_MODERATION_MODEL,
+    DEFAULT_VOICE_MODEL,
+    MODERATION_TASK,
+    SystemBlock,
+    TokenUsage,
+)
 
 
 # Claude API cache minima, verified 2026-10-05:
@@ -74,6 +81,9 @@ def _anthropic_model_verdict(model: str) -> str:
 
 class AnthropicProvider:
     name = "anthropic"
+    # Optional extra. The SDK is imported only when a client is built.
+    sdk_module = "anthropic"
+    distribution_extra = "anthropic"
 
     def __init__(self) -> None:
         self._client: Any = None
@@ -92,6 +102,17 @@ class AnthropicProvider:
     def model_id_validator(self):
         # Prefix and known-release knowledge stays on this adapter.
         return _anthropic_model_verdict
+
+    def default_model(self, task: str) -> str:
+        """Ids this adapter uses when no setting names one.
+
+        Node voice, inhabitant voice, and intention share the voice id.
+        Moderation keeps its own and does not inherit the shared model.
+        Another adapter does not receive these ids.
+        """
+        if task == MODERATION_TASK:
+            return DEFAULT_MODERATION_MODEL
+        return DEFAULT_VOICE_MODEL
 
     def cache_reference_tokens(self, model: str) -> int | None:
         # A dated snapshot of a known version uses that version's reference.

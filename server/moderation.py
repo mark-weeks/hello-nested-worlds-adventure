@@ -184,6 +184,20 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     if tier == "clean":
         return _ALLOW_CLEAN
 
+    # A missing moderation id must not spend a model budget. generate()
+    # raises the same error before its own charges. Any other failure while
+    # resolving that id — a raising default_model, for example — holds too.
+    # Letting it escape made /speak a 500 and closed the chat socket.
+    from consciousness import runtime
+    try:
+        runtime.require_model_id(runtime.model_for(runtime.MODERATION_TASK))
+    except Exception as exc:
+        # The class only. The message can carry a pasted credential, and
+        # the player text never belongs on this line.
+        _log.warning("moderation model id unavailable (%s)", type(exc).__name__)
+        _moderation_log("error", surface)
+        return Verdict(False, "error", "error")
+
     # Ambiguous → one classify call. The model-action cap is charged first,
     # through the same reservation generate() accepts, so a refusal does not
     # spend the moderation budget and a later generate() does not charge
@@ -191,7 +205,6 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     # the single outcome=error line, with elapsed milliseconds, if that
     # call or anything around it raises.
     import time as _time
-    from consciousness import runtime
     try:
         reservation = runtime.reserve_model_action(user_key)
     except runtime.ModelActionLimited:

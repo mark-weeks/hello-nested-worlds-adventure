@@ -52,6 +52,15 @@ def _isolate_rooms():
 
 
 @pytest.fixture(autouse=True)
+def _reset_text_provider():
+    """Selection is cached for the process. Each test starts unset."""
+    from consciousness import runtime
+    runtime.reset_provider_selection()
+    yield
+    runtime.reset_provider_selection()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_rate_limits():
     """The per-IP rate limiter and WS connection limiter are module-level
     singletons; one test file's requests must not 429 the next file's."""

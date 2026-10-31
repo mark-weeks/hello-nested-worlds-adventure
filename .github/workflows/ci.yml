@@ -96,7 +96,7 @@ jobs:
       - name: Install the package (real server, real world)
         run: |
           pip install "setuptools==82.0.0"
-          pip install --no-build-isolation -c requirements.lock -e .
+          pip install --no-build-isolation -c requirements.lock -e ".[anthropic]"
 
       - name: Install frontend dependencies
         run: npm ci

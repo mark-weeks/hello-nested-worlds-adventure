@@ -108,6 +108,9 @@ def test_classify_logs_outcome_without_player_text_or_the_reply(caplog, monkeypa
     class Provider:
         name = "fixture"
 
+        def default_model(self, task):
+            return "fixture-model"
+
         def generate(self, **kwargs):
             return Completion("ALLOW", True, finish_reason="complete")
 
@@ -124,6 +127,9 @@ def test_classify_timeout_logs_error_without_the_exception_body(caplog, monkeypa
     class Provider:
         name = "fixture"
 
+        def default_model(self, task):
+            return "fixture-model"
+
         def generate(self, **kwargs):
             raise TimeoutError("secret phrase from the provider")
 
@@ -135,6 +141,62 @@ def test_classify_timeout_logs_error_without_the_exception_body(caplog, monkeypa
     assert "moderation_call outcome=error surface=speak ms=" in caplog.text
     assert "secret phrase" not in caplog.text
     assert "go kill yourself" not in caplog.text
+
+
+def test_raising_default_model_holds_speech_and_keeps_the_socket(srv, monkeypatch, caplog):
+    """A bug in default_model is a hold, not a 500 or a closed chat socket.
+
+    The screen used to catch only UnusableModelId. A raising method escaped
+    that, /speak answered 500, and the WebSocket handler left the room.
+    """
+    from consciousness import runtime
+    charged = []
+    monkeypatch.setattr(guard, "consume_model_action",
+                        lambda **kwargs: charged.append("model") or True)
+    monkeypatch.setattr(guard, "consume_anthropic",
+                        lambda **kwargs: charged.append("voice") or True)
+    monkeypatch.setattr(guard, "moderation_reserve",
+                        lambda **kwargs: charged.append("moderation") or "ok")
+
+    class Provider:
+        name = "fixture"
+
+        def configured(self):
+            return True
+
+        def default_model(self, task):
+            raise RuntimeError("secret phrase from the adapter")
+
+        def generate(self, **kwargs):
+            raise AssertionError("the model was called")
+
+    monkeypatch.setattr(runtime, "get_provider", lambda: Provider())
+    seed = 997
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    with caplog.at_level("INFO"):
+        status, data = _post(srv, "/speak", {
+            "node_name": node.name, "seed": seed,
+            "message": "go kill yourself", "player_name": "Ada"})
+    assert status == 200 and data.get("held") is True and data["ai"] is False, data
+    assert data["response"] == moderation.HOLD_LINE
+    assert _rows(seed, node.name, "PLAYER_SPEAK") == []
+    assert charged == []
+    assert "moderation_call outcome=error surface=speak" in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert "secret phrase" not in caplog.text
+    assert "go kill yourself" not in caplog.text
+
+    sender, s_status = _ws_connect(srv, seed, "Ada")
+    try:
+        assert b"101" in s_status
+        _read_ws_json_until(sender, "welcome")
+        _ws_send_json(sender, {"type": "chat", "text": "go kill yourself"})
+        assert _read_ws_json_until(sender, "chat_declined")["text"] == moderation.HOLD_LINE
+        _ws_send_json(sender, {"type": "ping"})
+        assert _read_ws_json_until(sender, "pong") == {"type": "pong"}
+    finally:
+        sender.close()
+    assert _rows(seed, node.name, "PLAYER_CHAT") == []
 
 
 def test_exception_outside_classify_logs_one_error(caplog, monkeypatch):
@@ -596,6 +658,9 @@ def test_model_action_cap_quiets_voice_and_leaves_mechanical_play(http, monkeypa
         def configured(self):
             return True
 
+        def default_model(self, task):
+            return "fixture-model"
+
         def generate(self, **kwargs):
             raise AssertionError("the model was called")
 
@@ -806,6 +871,9 @@ def test_speech_keeps_the_players_characters_from_screen_to_chronicle(srv, monke
         def configured(self):
             return True
 
+        def default_model(self, task):
+            return "fixture-model"
+
         def generate(self, **kwargs):
             heard.append(kwargs["messages"][-1]["content"])
             return Completion("ALLOW", True, finish_reason="complete")
@@ -861,6 +929,9 @@ def test_generate_charges_the_model_action_cap_once_and_normalizes_the_key(monke
 
     class Allow:
         name = "fixture"
+
+        def default_model(self, task):
+            return "fixture-model"
 
         def generate(self, **kwargs):
             calls.append(1)

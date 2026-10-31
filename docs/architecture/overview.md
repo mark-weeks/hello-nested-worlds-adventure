@@ -73,7 +73,7 @@ Model-backed persona system. The current provider is Anthropic; this is an imple
 - `voice_agent(persona, agent_name, node, message, history)` — speaks AS an agent visiting a node, framed by its archetype and grounded in the node's real history
 - `LEVEL_FALLBACKS` / `fallback_voice(node)` — the authored failure voice: when the API is unavailable, every scale answers with an in-register line of silence instead of an error (HTTP 200, `ai: false`)
 - **`interventions.py`** — interprets a submitted intention into enum-bounded ordered steps; never predicts outcomes or writes patches
-- The task-facing boundary in `consciousness/runtime.py` owns shared concurrency and normalized results; `consciousness/anthropic_provider.py` owns the current SDK, lazy client, credentials and wire format. Inbound text is sanitised. The moderation screen itself lives in `server/moderation.py` and `content_screen.py`
+- The task-facing boundary in `consciousness/runtime.py` owns per-provider concurrency and normalized results; `consciousness/anthropic_provider.py` owns the current SDK, lazy client, credentials and wire format. Inbound text is sanitised. The moderation screen itself lives in `server/moderation.py` and `content_screen.py`
 
 ### `causality/` — Causal Engine
 - `EventKind`, `CausalEvent`, `CausalityBus`, `emit(...)`, `propagate(origin, kind, dampening, direction)` — origin fires once, then cascades up and/or down with per-hop dampening until `MIN_STRENGTH`; each fire bumps the persisted `ripple_score` atomically

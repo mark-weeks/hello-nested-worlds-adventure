@@ -368,17 +368,25 @@ class TestCostCap:
         # Cap of zero → first call already over budget; speak returns the
         # quiet line without calling the provider. The cap is charged inside
         # generate, after the place resolves, so the place has to exist.
+        # model_for may look up the selected adapter for its default id; the
+        # adapter's generate is the provider contact the budget must gate.
+        from consciousness import runtime
         from multiverse.generator import DEFAULT_WORLD_SEED, generate_node_hierarchy
         monkeypatch.setattr("consciousness.runtime.configured", lambda: True)
-        monkeypatch.setattr(
-            "consciousness.runtime.get_provider",
-            lambda: pytest.fail("the voice budget must gate the model"))
+        contacted = []
+
+        def must_not_call(**kwargs):
+            contacted.append(kwargs)
+            raise AssertionError("the voice budget must gate the model")
+
+        monkeypatch.setattr(runtime.get_provider(), "generate", must_not_call)
         monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "0")
         node = generate_node_hierarchy(seed=DEFAULT_WORLD_SEED, max_depth=1)
         base, _ = srv
         data, status = _post(f"{base}/speak", {"node_name": node.name, "message": "hi"})
         assert status == 200
         assert data["response"] == guard.QUIET_RESPONSE
+        assert contacted == []
 
     def test_anthropic_cap_at_one_blocks_second(self, srv, monkeypatch):
         # First call lands as the lone allowed call; the second is over budget.

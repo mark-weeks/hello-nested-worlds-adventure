@@ -25,6 +25,7 @@ _FAL = 'fal-key-secret-value'
 
 
 def _clear(monkeypatch):
+    monkeypatch.delenv(runtime.PROVIDER_ENV, raising=False)
     for name in _TASK_ENVS:
         monkeypatch.delenv(name, raising=False)
     # A leftover gateway host would turn a foreign id into a warning.
@@ -553,6 +554,9 @@ def test_probe_skips_when_the_provider_is_not_configured(monkeypatch, capsys, re
             if ready == 'raise':
                 raise RuntimeError('credential store unavailable')
             return False
+
+        def default_model(self, task):
+            return 'lab-voice'
 
         def generate(self, **kwargs):
             calls.append(kwargs)

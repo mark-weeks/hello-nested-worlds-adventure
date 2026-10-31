@@ -7,16 +7,39 @@ and versions are replaceable choices that require evidence.
 
 ## Current implementation and its limits
 
-Text generation uses the configured provider (currently Anthropic). Each text
-task resolves its own model id through `consciousness.runtime.model_for(task)`.
-Call sites pass a task name; they do not read environment variables.
+Text generation uses one registered adapter. `NESTED_WORLDS_PROVIDER` selects
+it by name. Unset means `anthropic`, the only built-in adapter, so an existing
+deployment does not change. The value is stripped and lowercased. An empty
+value, or a name that is not registered, fails startup with one line that
+names `NESTED_WORLDS_PROVIDER` and the valid names. The first successful
+selection is kept for the process. A later change to that variable does not
+reselect the adapter and does not raise from a request.
+`reset_provider_selection()` clears the cache; tests use it. There is no
+failover onto another provider. A per-task provider is not a setting: every
+text task uses the selected adapter. Per-task settings still choose only the
+model id.
+
+The Anthropic SDK is the optional extra `enfolded[anthropic]`
+(`anthropic>=0.40.0`). Importing Enfolded does not import it. An adapter that
+does not declare an SDK, including a fixture registered in tests, runs
+without one.
+`python main.py serve` and `python main.py models` exit before a port opens
+when the selected adapter's own SDK module is missing. The line names the
+extra. Only a `ModuleNotFoundError` for that module becomes the line. A
+missing dependency of the SDK, or any other import error, keeps its own
+message. The production image still installs `requirements.lock`, which pins
+that SDK. A bare `pip install enfolded` does not.
+
+Each text task resolves its own model id through
+`consciousness.runtime.model_for(task)`. Call sites pass a task name; they do
+not read environment variables.
 
 | Task name | Setting | When unset |
 |---|---|---|
-| `node` (node voice) | `NESTED_WORLDS_NODE_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
-| `inhabitant` (inhabitant voice) | `NESTED_WORLDS_INHABITANT_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
-| `intent` (intention interpretation) | `NESTED_WORLDS_INTENT_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
-| `moderation` | `NESTED_WORLDS_MODERATION_MODEL` | `claude-haiku-4-5` |
+| `node` (node voice) | `NESTED_WORLDS_NODE_MODEL` | `NESTED_WORLDS_MODEL`, then the selected adapter's own default |
+| `inhabitant` (inhabitant voice) | `NESTED_WORLDS_INHABITANT_MODEL` | `NESTED_WORLDS_MODEL`, then the selected adapter's own default |
+| `intent` (intention interpretation) | `NESTED_WORLDS_INTENT_MODEL` | `NESTED_WORLDS_MODEL`, then the selected adapter's own default |
+| `moderation` | `NESTED_WORLDS_MODERATION_MODEL` | the selected adapter's own moderation default |
 
 An unset value uses the fallback in the table. `model_for` also treats a
 whitespace-only value as unset, so a call still falls back. The startup check
@@ -24,12 +47,27 @@ does not: a variable set to empty or whitespace is a misconfiguration and
 `python main.py serve` refuses to boot. A blank setting used to fall through
 at boot. It now fails startup. Moderation does not inherit the shared voice
 model, and its id is checked even when `NESTED_WORLDS_DISABLE_MODERATION=1`.
-With no per-task settings, node voice, inhabitant voice, and intention keep
-using `NESTED_WORLDS_MODEL`, so an existing deployment that leaves those
-variables unset does not change. Run `python main.py models` with the
-release environment before a release or `scripts/deploy.sh`.
-The code defaults above are configuration, not a verified recommendation or a
-guarantee of availability. Confirm the effective environment before a live run.
+Each adapter supplies those defaults with an optional `default_model(task)`.
+The method is not part of `TextProvider`. `model_for` asks `get_provider()`
+for them, the same adapter `generate` calls. The anthropic adapter returns
+`claude-opus-4-8` for node voice, inhabitant voice, and intention, and
+`claude-haiku-4-5` for moderation. Another adapter does not inherit those
+ids. If a task would use `source=default` and the adapter does not supply a
+non-blank id, `model_for` returns an empty id, `python main.py models`
+reports a hard problem, and `python main.py serve` exits before it opens a
+port. A call that still asks for that empty id raises `UnusableModelId`
+before the model-action cap and before the voice budget, and the provider
+is not called. Shared text is held. The first selection builds its adapter
+once; a factory that calls back into selection raises rather than waiting
+on the lock it already holds. A task setting, or `NESTED_WORLDS_MODEL` for
+every task except moderation, still overrides the adapter default. With no per-task settings
+on the anthropic adapter, node voice, inhabitant voice, and intention keep
+using `NESTED_WORLDS_MODEL`, then `claude-opus-4-8`, so an existing
+deployment that leaves those variables unset does not change. Run
+`python main.py models` with the release environment before a release or
+`scripts/deploy.sh`. The anthropic code defaults are configuration, not a
+verified recommendation or a guarantee of availability. Confirm the
+effective environment before a live run.
 
 The current adapter uses the SDK's resolved credentials: `ANTHROPIC_API_KEY`,
 `ANTHROPIC_AUTH_TOKEN` (bearer token), or its local profile/federation
@@ -38,13 +76,21 @@ generation; it checks configuration without making a model request, not
 credential validity. This behavior is verified against the
 [pinned SDK source](https://github.com/anthropics/anthropic-sdk-python/blob/v0.120.2/src/anthropic/_client.py).
 
-A model id does not switch providers. Credentials, SDK calls, structured
-output and cache controls must match the implemented adapter. A failed call
-stays on the id that was requested: nothing retries a different model or
-provider. Provider-named budget settings and persisted buckets are current
-compatibility details; do not rename/reset them to make the interface look
-neutral or let a provider switch replenish a user's allowance. Daily call caps
-are not dollar caps, and identical call counts do not imply identical spend.
+A model id does not switch providers. `NESTED_WORLDS_PROVIDER` does. Credentials,
+SDK calls, structured output and cache controls must match the selected
+adapter. A failed call stays on the id that was requested: nothing retries a
+different model or provider. Provider-named budget settings and persisted
+buckets are current compatibility details; do not rename/reset them to make
+the interface look neutral or let a provider switch replenish a user's
+allowance. The `anthropic` bucket and `NESTED_WORLDS_ANTHROPIC_*` names stay
+as they are. Daily call caps are not dollar caps, and identical call counts
+do not imply identical spend.
+
+In-flight calls are limited per provider. `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`
+is unchanged and applies only to the anthropic adapter (default 8). Another
+adapter reads `NESTED_WORLDS_<NAME>_CONCURRENCY` with the same default. One
+provider's cap does not consume another's. Unset, empty, and non-numeric
+values use 8. Zero and negative values clamp to 1.
 
 The optional image path has a separate fal.ai integration. Future image or speech
 adapters follow the same selection principle, with their own capability and data
@@ -90,8 +136,9 @@ change and a deployment remain separate actions under the existing project gates
 ## Integration boundary
 
 `consciousness/runtime.py` defines `TextProvider`, `SystemBlock`, `Completion`
-and `TokenUsage`, resolves per-task model ids in `model_for`, shares the
-concurrency limit and logs provider/model usage. `TextProvider` does not
+and `TokenUsage`, resolves per-task model ids in `model_for`, selects the
+adapter from `NESTED_WORLDS_PROVIDER`, keeps a separate concurrency limit per
+provider, and logs provider/model usage. `TextProvider` does not
 include `model_id_validator`, so an adapter that omits it still satisfies
 the protocol for type checkers. `ModelIdJudgingProvider` is the optional
 protocol for adapters that can judge ids. Its method returns a function from
@@ -102,7 +149,14 @@ the default. `consciousness/model_check.py` is the only caller, uses
 getattr, and does not name a provider. The shared check rejects only empty
 text, whitespace, control characters, and an id longer than 256 characters.
 Character rules such as `@`, `+`, and `~` stay on the adapter.
-`consciousness/anthropic_provider.py` implements the sole current adapter.
+`consciousness/anthropic_provider.py` implements the only built-in adapter.
+`get_provider()` loads it when `NESTED_WORLDS_PROVIDER` is unset or `anthropic`,
+and keeps that adapter for the process.
+The module does not import the SDK; the client import stays inside the
+adapter, and startup reports a missing extra before it asks for a client.
+Only a `ModuleNotFoundError` for the adapter's own SDK module becomes that
+line. A missing dependency of the SDK, or any other import error, keeps its
+own message.
 Its validator accepts the known Claude ids and a dated snapshot of one of
 them. Any other usable id that names Claude warns, including mixed case,
 `anthropic/claude-…`, `….anthropic.claude-…-v1:0`, and a `:beta` suffix, so
@@ -122,10 +176,10 @@ stored id is the one the provider returned for that call, not a later read of
 the setting, and a missing response id stays unknown. Historical rows are not
 backfilled. Authored fallback text records none. Player history, the chronicle
 page and node voices do not read the side table. Deleting a chronicle row
-deletes its provenance row with it. Adding another provider still requires an
-adapter and explicit selection wiring in `get_provider()`; there is no
-multi-provider environment selector or automatic failover. Per-task model
-settings are not that selector.
+deletes its provenance row with it. Another provider still requires an
+adapter registered by name. Selection is `NESTED_WORLDS_PROVIDER`. There is
+no automatic failover. Per-task model settings are not a provider selector,
+and there is no per-task provider override.
 
 
 Keep task prompts, transcripts and deterministic validation in application code.
@@ -139,7 +193,10 @@ text extraction, completion/refusal/truncation handling, schema behavior, timeou
 usage fields, missing credentials and provider failures. Exercise the existing
 HTTP fallback and budget tests too. A replacement must preserve application-owned
 state and receipts; provider I/O must stay outside SQLite transactions. A second
-adapter is a separate implementation until the candidate and scope are selected.
+production adapter is a separate implementation until the candidate and scope
+are selected. The registry is the selection seam: register the adapter and set
+`NESTED_WORLDS_PROVIDER`. Do not add a provider by renaming the anthropic
+budget bucket. xAI, OpenAI, and Google are not registered.
 
 ## Voice and caching
 
@@ -174,12 +231,15 @@ a cache hit from the presence of `cache_control` alone.
 
 ## Startup model check
 
-`python main.py models` prints the active provider and, for each task, the
-resolved model id, where it came from (`task env`, `NESTED_WORLDS_MODEL`, or
-`default`), and any problem. It does not call the provider. Run it with the
-model variables the machine will use before a release, `scripts/deploy.sh`,
-or a Fly boot. The moderation model is included even when
-`NESTED_WORLDS_DISABLE_MODERATION=1`.
+`python main.py models` prints the provider selected by the registry and, for
+each task, that provider, the resolved model id, where it came from
+(`task env`, `NESTED_WORLDS_MODEL`, or `default`), and any problem. It does
+not call the provider. Run it with the provider and model variables the
+machine will use before a release, `scripts/deploy.sh`, or a Fly boot. The
+moderation model is included even when `NESTED_WORLDS_DISABLE_MODERATION=1`.
+An unknown provider name, or a selected adapter whose SDK is not installed,
+exits with one line before the report. The missing-SDK line names the
+optional extra.
 
 A hard problem is one line naming the environment variable: an empty or
 whitespace-only setting, unusable text (whitespace inside the id, a control

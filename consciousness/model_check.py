@@ -1,9 +1,14 @@
 """Provider-neutral model-id check. Adapters own which ids they serve.
 
-The check resolves every text task through ``model_for`` and asks the active
-adapter, if it offers ``model_id_validator``, whether it serves that id.
-It does not name a provider, and it does not call the provider unless
-``probe_distinct_models`` is invoked. Server startup and tests do not probe.
+The check resolves every text task through the active adapter and asks it,
+if it offers ``model_id_validator``, whether it serves that id. A task that
+would use ``source=default`` without an id from that adapter's
+``default_model`` is a hard problem. The check does not substitute another
+adapter's id.
+The active adapter is the registry's unless the caller passes one. It does
+not name a provider, and it does not call the provider unless
+``probe_distinct_models`` is invoked. An adapter that declares an SDK which
+is not installed exits before the report. Server startup and tests do not probe.
 """
 from __future__ import annotations
 
@@ -217,6 +222,16 @@ def _problems_for(choice: runtime.ModelResolution, provider_name: str,
         else:
             add("hard", "whitespace", env_var, f"{env_var} is whitespace")
 
+    # An empty fallback id must not also be reported as an empty setting.
+    # The adapter did not supply a default, so startup stops on that fact.
+    if choice.source == runtime.SOURCE_DEFAULT and not choice.adapter_default:
+        add(
+            "hard", "default", choice.env_var,
+            f"{choice.env_var} is unset and provider {provider_name} "
+            "has no default model",
+        )
+        return problems
+
     model = choice.model
     if _embeds_secret(model, secrets):
         add("hard", "malformed", choice.env_var, f"{choice.env_var} is not a usable model id")
@@ -270,14 +285,23 @@ def _problems_for(choice: runtime.ModelResolution, provider_name: str,
 
 
 def check_model_configuration(provider=None) -> ModelReport:
-    """Resolve every task. Does not call the provider or read a credential."""
+    """Resolve every task through the selected adapter.
+
+    Does not generate text or read a credential. The provider is the
+    registry's unless the caller passes an adapter. When that adapter
+    names an SDK that is not installed, this raises ``SystemExit`` with
+    one line naming the optional extra.
+    """
     provider = runtime.get_provider() if provider is None else provider
+    missing = runtime.installation_error(provider)
+    if missing:
+        raise SystemExit(missing)
     secrets = _secret_values()
     provider_name = _public_provider(getattr(provider, "name", ""), secrets)
     validator = _validator_of(provider)
     tasks = []
     for task in runtime.TASKS:
-        choice = runtime.resolve_model(task)
+        choice = runtime.resolve_model(task, provider)
         tasks.append(TaskModelStatus(
             task=choice.task,
             provider=provider_name,

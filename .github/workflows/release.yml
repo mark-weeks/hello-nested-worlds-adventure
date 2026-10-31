@@ -195,7 +195,7 @@ jobs:
           \`\`\`bash
           python3.11 -m venv .venv
           source .venv/bin/activate
-          python -m pip install -c requirements.lock ./$WHEEL
+          python -m pip install -c requirements.lock "./$WHEEL[anthropic]"
           mkdir -p qa-home
           HOME="\$PWD/qa-home" python -m main serve --host 127.0.0.1 --port 8080
           \`\`\`
