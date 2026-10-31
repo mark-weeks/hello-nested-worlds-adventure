@@ -60,14 +60,27 @@ _MAX_BODY = 64 * 1024  # 64 KB
 # What a reader would not see: format characters (U+200B, U+2060, U+FEFF,
 # soft hyphen, bidi marks …), controls, bare combining marks, and every kind
 # of space. str.strip() clears only the spaces, so a line of U+200B alone
-# used to pass the empty check and be spoken. The check decides emptiness
-# only; the characters themselves stay in the line — an emoji joiner, a
-# Persian ZWNJ or a Thai word break is the player's text, not noise.
+# used to pass the empty check and be spoken. Hangul fillers and the blank
+# braille cell are letters or a symbol, so the category test keeps a line
+# made only of them; the denylist treats that line as empty too. The check
+# decides emptiness only; the characters themselves stay in the line — an
+# emoji joiner, a Persian ZWNJ or a Thai word break is the player's text,
+# not noise.
 _INVISIBLE_CATEGORIES = frozenset({"Cf", "Cc", "Mn", "Me", "Zs", "Zl", "Zp"})
+_INVISIBLE_CHARACTERS = frozenset({
+    "\u115f",  # HANGUL CHOSEONG FILLER
+    "\u3164",  # HANGUL FILLER
+    "\uffa0",  # HALFWIDTH HANGUL FILLER
+    "\u2800",  # BRAILLE PATTERN BLANK
+})
 
 
 def _has_visible_text(text: str) -> bool:
-    return any(unicodedata.category(ch) not in _INVISIBLE_CATEGORIES for ch in text)
+    return any(
+        ch not in _INVISIBLE_CHARACTERS
+        and unicodedata.category(ch) not in _INVISIBLE_CATEGORIES
+        for ch in text
+    )
 
 
 # ── World rebuild ──────────────────────────────────────────────────────────
@@ -105,9 +118,14 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
     An empty name is the root. A name inside the client's view resolves
     from that tree. Whether a place exists is the store's answer — the same
     one /speak and /node give — never a function of how deep one client
-    looked: a place the world was born with but below the requested depth
-    is rebuilt at its own depth, so GET /puzzle and POST /puzzle/attempt
-    describe and judge the same question whatever depth the client loaded.
+    looked. A place the world was born with but below the requested depth
+    is rebuilt one level deeper than itself: a tree cut at the place has
+    no children, so ``stage_cascade`` would queue only the upward hop and
+    a constellation container would omit its nested progress. One extra
+    level is that first ring, and it does not depend on the client's depth.
+    The world's leaf level stops at ``guard.MAX_DEPTH``. GET /puzzle and
+    POST /puzzle/attempt describe and judge the same question whatever
+    depth the client loaded.
     """
     if not node_name:
         return root
@@ -117,7 +135,10 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
     if _resolve_node(seed, node_name) is None:
         return None
     _, _, suffix = node_name.rpartition("-")
-    deeper, _, _ = _build_world({"seed": seed, "depth": len(suffix)})
+    deeper, _, _ = _build_world({
+        "seed": seed,
+        "depth": min(len(suffix) + 1, guard.MAX_DEPTH),
+    })
     return find_node(deeper, node_name)
 
 
@@ -299,9 +320,13 @@ class _ReadBudgetSocket:
         The wait for the next request line is allowed ``budget`` seconds
         from now. The first byte that arrives re-arms the deadline to
         ``budget`` from that instant, once — the request then has a fixed
-        clock that a dribbling client cannot refresh. A no-op once
-        ``settimeout`` has handed the socket to a WebSocket session: that
-        idle timer replaces the plain-HTTP budget for good.
+        clock that a dribbling client cannot refresh. A client that uses
+        the whole wait and then the whole request budget holds the socket
+        for about twice the read budget. That is harmless only while every
+        response sends ``Connection: close`` (``_send_security_headers``);
+        the second wait never starts on a live connection today. A no-op
+        once ``settimeout`` has handed the socket to a WebSocket session:
+        that idle timer replaces the plain-HTTP budget for good.
         """
         if self._deadline is None:
             return
@@ -657,8 +682,9 @@ class Handler(BaseHTTPRequestHandler):
         """The player's line, or None after a private 400 for empty text.
 
         A line with nothing visible in it is empty: whitespace, control and
-        format characters (U+200B, U+2060, U+FEFF, a soft hyphen …), and
-        bare combining marks. Nothing is removed from a line that is kept —
+        format characters (U+200B, U+2060, U+FEFF, a soft hyphen …), bare
+        combining marks, Hangul fillers, and a blank braille cell. Nothing
+        is removed from a line that is kept —
         an emoji joiner, a Persian ZWNJ or a Thai word break is screened,
         spoken and recorded exactly as the player typed it. A missing
         message keeps ``default``, which is a real prompt. A present value

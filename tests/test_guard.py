@@ -1008,6 +1008,32 @@ class TestBodyShapeRobustness:
         assert kinds(root.name).count("PUZZLE_FAILED") == 1
         assert persistence.get_node_history(seed, "ghost-1", 50) == []
 
+    def test_non_string_places_404_with_no_rows_and_no_screen(self, srv, monkeypatch):
+        # ['x'], {'a': 1}, True and 7 coerce to names the world was not
+        # born with. Each is a 404 before the screen, and nothing is written.
+        from server import moderation
+
+        screens = []
+        real = moderation.screen
+
+        def recording(text, **kwargs):
+            screens.append((text, kwargs.get("surface")))
+            return real(text, **kwargs)
+
+        monkeypatch.setattr(moderation, "screen", recording)
+        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
+        base, _ = srv
+        seed = 79
+        for node_name in (["x"], {"a": 1}, True, 7):
+            data, status = self._attempt(base, {
+                "seed": seed, "depth": 1, "node_name": node_name, "answer": "no",
+            })
+            assert status == 404 and data["error"] == "no such place in this world", (
+                node_name, status, data)
+            assert persistence.get_node_history(seed, str(node_name), 50) == [], node_name
+        assert screens == []
+        assert persistence.get_chronicle(seed)["total"] == 0
+
     def test_empty_node_name_attempts_the_root_and_other_non_strings_are_404(self, srv, monkeypatch):
         from multiverse import store
         monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
@@ -1078,3 +1104,67 @@ class TestBodyShapeRobustness:
         assert deep_rows.count("PUZZLE_ATTEMPT") == 1
         root_rows = [row["type"] for row in persistence.get_node_history(seed, root.name, 50)]
         assert "PUZZLE_ATTEMPT" not in root_rows
+
+    def test_shallow_and_full_depth_queue_the_same_first_ring(self, srv, monkeypatch):
+        # A place below the client's depth used to be rebuilt as a leaf.
+        # stage_cascade then queued only the upward hop (1) while a
+        # depth-11 solve of the same Region queued the parent and both
+        # rooms (3). The constellation block was missing on the shallow read.
+        from multiverse import store
+        from puzzles.engine import build_puzzle
+
+        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
+        monkeypatch.setenv("NESTED_WORLDS_HOP_DELAY", "0")
+        base, _ = srv
+
+        def first_region(seed):
+            root = store.world_tree(seed=seed, max_depth=11)
+
+            def walk(node):
+                if node.level == "Region":
+                    return node
+                for child in node.children:
+                    found = walk(child)
+                    if found is not None:
+                        return found
+                return None
+
+            region = walk(root)
+            assert region is not None and region.parent is not None
+            assert len(region.children) == 2
+            return region
+
+        def ring(node):
+            hops = [(node.parent.name, "up")]
+            hops.extend((child.name, "down") for child in node.children)
+            return sorted(hops)
+
+        def queued(seed):
+            ids = persistence.due_work("causal_queue", 64, world_seed=seed)
+            rows = [persistence.inspect_work("causal_queue", work_id) for work_id in ids]
+            return sorted((row["node_name"], row["direction"]) for row in rows)
+
+        def get(path):
+            with urllib.request.urlopen(f"{base}{path}") as resp:
+                return json.loads(resp.read()), resp.status
+
+        quote = urllib.parse.quote
+        rings = []
+        for seed, depth in ((81, 1), (82, 11)):
+            region = first_region(seed)
+            shallow, status = get(
+                f"/puzzle?seed={seed}&depth={depth}&node_name={quote(region.name)}")
+            assert status == 200 and shallow["found"] is True, shallow
+            assert shallow["constellation"]["total"] == len(region.children)
+            assert shallow["constellation"]["of"] == "rooms"
+            assert shallow["constellation"]["solved"] == 0
+            data, status = self._attempt(base, {
+                "seed": seed, "depth": depth, "node_name": region.name,
+                "answer": build_puzzle(region).answer, "player_name": "Ada",
+            })
+            assert status == 200 and data["correct"] is True, data
+            got = queued(seed)
+            assert got == ring(region), (depth, got)
+            assert persistence.pending_causal_hops(seed) == len(got) == 3
+            rings.append(got)
+        assert len(rings[0]) == len(rings[1])
