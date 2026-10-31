@@ -13,6 +13,7 @@ import random
 import socket
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import pytest
@@ -928,3 +929,152 @@ class TestBodyShapeRobustness:
                              {"node_name": real_node, "seed": 42, "answer": 7})
         assert status == 200
         assert "result" in data
+
+    def _attempt(self, base, body):
+        try:
+            data, status = _post(f"{base}/puzzle/attempt", body)
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            data = json.loads(exc.read())
+        assert status < 500, (body.get("node_name", "<omitted>"), status, data)
+        return data, status
+
+    def test_unknown_node_name_cannot_reset_or_solve_the_root(self, srv, monkeypatch):
+        # A name that is not a node used to be the puzzle session key. After
+        # the root hit its last wrong guess, ghost-1 started again at attempt
+        # 1, and a correct answer under ghost-3 wrote PUZZLE_SOLVED on the
+        # root. Those names are a 404 before the screen and the chronicle.
+        from multiverse import store
+        from puzzles.engine import build_puzzle
+        from server import moderation
+
+        screens = []
+        real = moderation.public_excerpt
+
+        def recording(text, **kwargs):
+            screens.append(text)
+            return real(text, **kwargs)
+
+        monkeypatch.setattr(moderation, "public_excerpt", recording)
+        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
+        base, _ = srv
+        seed = 77
+        root = store.world_tree(seed=seed, max_depth=1)
+        puzzle = build_puzzle(root)
+        body = {"seed": seed, "depth": 1, "answer": "no", "puzzle_name": puzzle.name}
+
+        first, status = self._attempt(base, {**body, "node_name": root.name})
+        assert status == 200 and first["attempt"] == 1 and first["correct"] is False
+        assert len(screens) == 1
+
+        ghosts = (
+            "ghost-1", "ghost-2", "['x']", True, 7, 2.5, ["x"], {"a": 1},
+        )
+        for name in ghosts:
+            before = len(screens)
+            data, status = self._attempt(base, {**body, "node_name": name})
+            assert status == 404, (name, status, data)
+            assert data["error"] == "no such place in this world"
+            assert len(screens) == before
+        for name in ("ghost-3", "ghost-4"):
+            data, status = self._attempt(
+                base, {**body, "node_name": name, "answer": puzzle.answer})
+            assert status == 404 and data["error"] == "no such place in this world"
+
+        def kinds(node):
+            return [row["type"] for row in persistence.get_node_history(seed, node, 50)]
+
+        assert kinds(root.name).count("PUZZLE_ATTEMPT") == 1
+        assert "PUZZLE_SOLVED" not in kinds(root.name)
+        assert "PUZZLE_FAILED" not in kinds(root.name)
+        for name in ("ghost-1", "ghost-2", "ghost-3", "ghost-4", "['x']", "True", "7"):
+            assert kinds(name) == [], name
+
+        # The real counter did not restart, and a ghost between guesses
+        # cannot open a new limit.
+        seen = 1
+        result = first
+        while result["result"] != "FAILED":
+            data, status = self._attempt(base, {**body, "node_name": f"ghost-{seen}"})
+            assert status == 404
+            result, status = self._attempt(base, {**body, "node_name": root.name})
+            assert status == 200
+            seen += 1
+            assert result["attempt"] == seen
+            assert seen <= puzzle.max_attempts
+        assert result["attempt"] == puzzle.max_attempts
+        assert kinds(root.name).count("PUZZLE_ATTEMPT") == puzzle.max_attempts
+        assert kinds(root.name).count("PUZZLE_SOLVED") == 0
+        assert kinds(root.name).count("PUZZLE_FAILED") == 1
+        assert persistence.get_node_history(seed, "ghost-1", 50) == []
+
+    def test_empty_node_name_attempts_the_root_and_other_non_strings_are_404(self, srv, monkeypatch):
+        from multiverse import store
+        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
+        base, _ = srv
+        seed = 78
+        root = store.world_tree(seed=seed, max_depth=1)
+        # Omitted, empty, and values that coerce to "" stay the root.
+        root_names = [None, False, 0, [], {}, ""]
+        for index, node_name in enumerate(root_names, start=1):
+            body = {"seed": seed, "depth": 1, "answer": "no"}
+            if node_name is not None or index == 1:
+                body["node_name"] = node_name
+            data, status = self._attempt(base, body)
+            assert status == 200 and data["attempt"] == index, (node_name, status, data)
+            assert data["correct"] is False
+        omitted, status = self._attempt(
+            base, {"seed": seed, "depth": 1, "answer": "no"})
+        assert status == 200 and omitted["attempt"] == len(root_names) + 1
+        # A non-string that becomes a non-empty name is not the root.
+        for node_name in (True, 1, 7, 2.5, ["x"], {"a": 1}):
+            data, status = self._attempt(
+                base, {"seed": seed, "depth": 1, "node_name": node_name, "answer": "no"})
+            assert status == 404 and data["error"] == "no such place in this world", (
+                node_name, status, data)
+        rows = [row["type"] for row in persistence.get_node_history(seed, root.name, 50)]
+        assert rows.count("PUZZLE_ATTEMPT") == len(root_names) + 1
+        assert "PUZZLE_SOLVED" not in rows
+        for name in ("True", "1", "7", "2.5", "['x']"):
+            assert persistence.get_node_history(seed, name, 50) == []
+
+    def test_puzzle_read_and_attempt_agree_on_unknown_and_deeper_places(self, srv, monkeypatch):
+        # GET /puzzle used to answer any unknown name with the root's
+        # question while POST /puzzle/attempt refused it, so a client could
+        # read a question it could never answer. Both routes now resolve
+        # the place the same way, and existence is the store's answer, not
+        # a function of the depth one client happened to load.
+        from multiverse import store
+        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
+        base, _ = srv
+        seed = 77
+        root = store.world_tree(seed=seed, max_depth=3)
+        deep = root.children[0].children[0]  # three path digits: below a depth-1 view
+
+        def get(path):
+            try:
+                with urllib.request.urlopen(f"{base}{path}") as resp:
+                    return json.loads(resp.read()), resp.status
+            except urllib.error.HTTPError as exc:
+                return json.loads(exc.read()), exc.code
+
+        quote = urllib.parse.quote
+        for name in ("ghost-1", "True", "['x']", "Forged-11"):
+            data, status = get(f"/puzzle?seed={seed}&depth=1&node_name={quote(name)}")
+            assert status == 404 and data["error"] == "no such place in this world", (name, data)
+        # A real place below the loaded depth is still that place, on both routes.
+        shallow, status = get(f"/puzzle?seed={seed}&depth=1&node_name={quote(deep.name)}")
+        assert status == 200 and shallow["found"] is True, shallow
+        full, status = get(f"/puzzle?seed={seed}&depth=3&node_name={quote(deep.name)}")
+        assert status == 200 and full["found"] is True
+        assert (shallow["name"], shallow["prompt"]) == (full["name"], full["prompt"])
+        root_view, _ = get(f"/puzzle?seed={seed}&depth=1&node_name={quote(root.name)}")
+        assert root_view["prompt"] != shallow["prompt"]
+        data, status = self._attempt(base, {
+            "seed": seed, "depth": 1, "node_name": deep.name, "answer": "no",
+            "puzzle_name": full["name"]})
+        assert status == 200 and data["attempt"] == 1 and data["correct"] is False, data
+        deep_rows = [row["type"] for row in persistence.get_node_history(seed, deep.name, 50)]
+        assert deep_rows.count("PUZZLE_ATTEMPT") == 1
+        root_rows = [row["type"] for row in persistence.get_node_history(seed, root.name, 50)]
+        assert "PUZZLE_ATTEMPT" not in root_rows
