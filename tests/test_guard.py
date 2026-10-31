@@ -1110,6 +1110,8 @@ class TestBodyShapeRobustness:
         # stage_cascade then queued only the upward hop (1) while a
         # depth-11 solve of the same Region queued the parent and both
         # rooms (3). The constellation block was missing on the shallow read.
+        # Depth 6 is the Region's own depth and the explorer's default: the
+        # client's tree is cut at the Region there, and it also queued 1.
         from multiverse import store
         from puzzles.engine import build_puzzle
 
@@ -1149,8 +1151,7 @@ class TestBodyShapeRobustness:
                 return json.loads(resp.read()), resp.status
 
         quote = urllib.parse.quote
-        rings = []
-        for seed, depth in ((81, 1), (82, 11)):
+        for seed, depth in ((81, 1), (83, 5), (84, 6), (85, 7), (82, 11)):
             region = first_region(seed)
             shallow, status = get(
                 f"/puzzle?seed={seed}&depth={depth}&node_name={quote(region.name)}")
@@ -1166,5 +1167,44 @@ class TestBodyShapeRobustness:
             got = queued(seed)
             assert got == ring(region), (depth, got)
             assert persistence.pending_causal_hops(seed) == len(got) == 3
-            rings.append(got)
-        assert len(rings[0]) == len(rings[1])
+
+    def test_root_solve_at_depth_one_queues_every_universe(self, srv, monkeypatch):
+        # The root is the same boundary at depth 1: the client's tree is the
+        # root alone. A depth-1 solve queued 0 hops; depth 11 queued one per
+        # universe. Both now queue the world's universes, and a solve of the
+        # leaf scale still queues only its upward hop.
+        from multiverse import store
+        from puzzles.engine import build_puzzle
+
+        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
+        monkeypatch.setenv("NESTED_WORLDS_HOP_DELAY", "0")
+        base, _ = srv
+
+        def queued(seed):
+            ids = persistence.due_work("causal_queue", 64, world_seed=seed)
+            rows = [persistence.inspect_work("causal_queue", work_id) for work_id in ids]
+            return sorted((row["node_name"], row["direction"]) for row in rows)
+
+        for seed, depth in ((86, 1), (87, 11)):
+            root = store.world_tree(seed=seed, max_depth=2)
+            assert root.children
+            data, status = self._attempt(base, {
+                "seed": seed, "depth": depth, "node_name": "",
+                "answer": build_puzzle(root).answer, "player_name": "Ada",
+            })
+            assert status == 200 and data["correct"] is True, data
+            assert queued(seed) == sorted(
+                (child.name, "down") for child in root.children), depth
+
+        seed = 88
+        leaf = store.world_tree(seed=seed, max_depth=11)
+        while leaf.children:
+            leaf = leaf.children[0]
+        assert leaf.level == "SubatomicParticle"
+        assert store.born_children(seed, leaf.name) == []
+        data, status = self._attempt(base, {
+            "seed": seed, "depth": 11, "node_name": leaf.name,
+            "answer": build_puzzle(leaf).answer, "player_name": "Ada",
+        })
+        assert status == 200 and data["correct"] is True, data
+        assert queued(seed) == [(leaf.parent.name, "up")]

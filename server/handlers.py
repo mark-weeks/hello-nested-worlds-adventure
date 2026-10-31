@@ -118,28 +118,32 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
     An empty name is the root. A name inside the client's view resolves
     from that tree. Whether a place exists is the store's answer — the same
     one /speak and /node give — never a function of how deep one client
-    looked. A place the world was born with but below the requested depth
-    is rebuilt one level deeper than itself: a tree cut at the place has
-    no children, so ``stage_cascade`` would queue only the upward hop and
-    a constellation container would omit its nested progress. One extra
-    level is that first ring, and it does not depend on the client's depth.
-    The world's leaf level stops at ``guard.MAX_DEPTH``. GET /puzzle and
+    looked: a place the world was born with but below the requested depth
+    is rebuilt at its own depth, so its parent keeps every sibling.
+
+    A tree cut at the place, whether the client's horizon or that rebuild,
+    has no children there, so ``stage_cascade`` would queue only the upward
+    hop and a constellation container would omit its nested progress. A
+    target with no children in the served tree therefore takes its born
+    children from the store. The first ring is the world's, at every depth
+    the client loaded, and a true leaf still has none. GET /puzzle and
     POST /puzzle/attempt describe and judge the same question whatever
     depth the client loaded.
     """
     if not node_name:
-        return root
-    target = find_node(root, node_name)
-    if target is not None:
-        return target
-    if _resolve_node(seed, node_name) is None:
-        return None
-    _, _, suffix = node_name.rpartition("-")
-    deeper, _, _ = _build_world({
-        "seed": seed,
-        "depth": min(len(suffix) + 1, guard.MAX_DEPTH),
-    })
-    return find_node(deeper, node_name)
+        target = root
+    else:
+        target = find_node(root, node_name)
+        if target is None:
+            if _resolve_node(seed, node_name) is None:
+                return None
+            _, _, suffix = node_name.rpartition("-")
+            deeper, _, _ = _build_world({"seed": seed, "depth": len(suffix)})
+            target = find_node(deeper, node_name)
+    if target is not None and not target.children:
+        for child in store.born_children(seed, target.name):
+            target.add_child(child)
+    return target
 
 
 # The wandering cast's names are world canon: their chronicle rows must be
