@@ -151,6 +151,12 @@ def handle_websocket(
                     message = json.loads(payload)
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     continue
+                if not isinstance(message, dict):
+                    # Valid JSON is not necessarily an object. A list, a
+                    # string, a number or null has no type to dispatch on;
+                    # ignore it like invalid JSON rather than let .get()
+                    # raise into a 500 written onto an upgraded socket.
+                    continue
                 message_type = message.get("type")
                 if message_type == "move":
                     if not move_bucket.allow():

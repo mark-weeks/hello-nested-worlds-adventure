@@ -9,6 +9,7 @@ import mimetypes
 import secrets
 import socket
 import time
+import unicodedata
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Mapping
@@ -56,9 +57,17 @@ _STATIC_DIR   = Path(__file__).parent.parent / "static"
 _FRONTEND_DIR = _STATIC_DIR / "app"
 _log = logging.getLogger("nested_worlds")
 _MAX_BODY = 64 * 1024  # 64 KB
-# Format characters, not whitespace: str.strip() leaves them in place, so a
-# message of only these would pass the empty check and be spoken.
-_ZERO_WIDTH = str.maketrans("", "", "\u200b\u200c\u200d\ufeff")
+# What a reader would not see: format characters (U+200B, U+2060, U+FEFF,
+# soft hyphen, bidi marks …), controls, bare combining marks, and every kind
+# of space. str.strip() clears only the spaces, so a line of U+200B alone
+# used to pass the empty check and be spoken. The check decides emptiness
+# only; the characters themselves stay in the line — an emoji joiner, a
+# Persian ZWNJ or a Thai word break is the player's text, not noise.
+_INVISIBLE_CATEGORIES = frozenset({"Cf", "Cc", "Mn", "Me", "Zs", "Zl", "Zp"})
+
+
+def _has_visible_text(text: str) -> bool:
+    return any(unicodedata.category(ch) not in _INVISIBLE_CATEGORIES for ch in text)
 
 
 # ── World rebuild ──────────────────────────────────────────────────────────
@@ -88,6 +97,28 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int]:
     apply_ripple_scores(root, persistence.load_ripple_scores(seed))
     apply_property_overrides(root, persistence.load_node_property_overrides(seed))
     return root, seed, depth
+
+
+def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode | None:
+    """The place a puzzle request names, or None when the world has none.
+
+    An empty name is the root. A name inside the client's view resolves
+    from that tree. Whether a place exists is the store's answer — the same
+    one /speak and /node give — never a function of how deep one client
+    looked: a place the world was born with but below the requested depth
+    is rebuilt at its own depth, so GET /puzzle and POST /puzzle/attempt
+    describe and judge the same question whatever depth the client loaded.
+    """
+    if not node_name:
+        return root
+    target = find_node(root, node_name)
+    if target is not None:
+        return target
+    if _resolve_node(seed, node_name) is None:
+        return None
+    _, _, suffix = node_name.rpartition("-")
+    deeper, _, _ = _build_world({"seed": seed, "depth": len(suffix)})
+    return find_node(deeper, node_name)
 
 
 # The wandering cast's names are world canon: their chronicle rows must be
@@ -229,7 +260,11 @@ class _ReadBudgetSocket:
 
     The read deadline is the connection-accept instant plus the configured
     budget. Each read waits only for the time still left, so a client that
-    dribbles one byte at a time cannot reset the clock. Response writes use
+    dribbles one byte at a time cannot reset the clock. On a kept-alive
+    socket ``await_next_request`` bounds the wait for the next request by
+    the same budget and starts that request's own budget when its first
+    byte arrives, so no request is judged against time its predecessor
+    used (every response sends ``Connection: close`` today). Response writes use
     a separate stall timer: one blocked send is bounded, and a client that
     keeps accepting bytes is not cut off for taking a long time overall.
     ``sendall`` re-arms that timer after every accepted chunk, because the
@@ -242,6 +277,9 @@ class _ReadBudgetSocket:
     def __init__(self, sock, deadline: float) -> None:
         self._sock = sock
         self._deadline = deadline
+        # Seconds to grant the next request once its first byte arrives;
+        # None while a request is in progress. See ``await_next_request``.
+        self._renew: float | None = None
         # socket.makefile() counts SocketIO users. The buffered reader the
         # HTTP handler builds closes through this, not by closing the
         # listening socket early.
@@ -254,6 +292,21 @@ class _ReadBudgetSocket:
     def settimeout(self, value) -> None:
         self._deadline = None
         self._sock.settimeout(value)
+
+    def await_next_request(self, budget: float) -> None:
+        """Bound the keep-alive wait, then budget the next request on arrival.
+
+        The wait for the next request line is allowed ``budget`` seconds
+        from now. The first byte that arrives re-arms the deadline to
+        ``budget`` from that instant, once — the request then has a fixed
+        clock that a dribbling client cannot refresh. A no-op once
+        ``settimeout`` has handed the socket to a WebSocket session: that
+        idle timer replaces the plain-HTTP budget for good.
+        """
+        if self._deadline is None:
+            return
+        self._deadline = time.monotonic() + budget
+        self._renew = budget
 
     def gettimeout(self):
         return self._sock.gettimeout()
@@ -273,12 +326,18 @@ class _ReadBudgetSocket:
             raise TimeoutError("HTTP read deadline exceeded")
         self._sock.settimeout(remaining)
         try:
-            return method(*args, **kwargs)
+            result = method(*args, **kwargs)
         finally:
             if self._deadline is not None:
                 # Leave the write stall timer armed. None would let a client
                 # that stops reading hold this handler thread indefinitely.
                 self._sock.settimeout(guard.http_write_timeout())
+        if self._renew is not None and result:
+            # recv returns bytes, recv_into a byte count: either is truthy
+            # only when the next request has begun. Its budget starts now.
+            self._deadline = time.monotonic() + self._renew
+            self._renew = None
+        return result
 
     def _prepare_write(self) -> None:
         if self._deadline is None:
@@ -335,6 +394,7 @@ class Handler(BaseHTTPRequestHandler):
         # WebSocket upgrade replaces it; see ``_ReadBudgetSocket.settimeout``.
         timeout = guard.http_read_timeout()
         self.request = _ReadBudgetSocket(self.request, time.monotonic() + timeout)
+        self._served_one = False
         super().setup()
 
     def log_message(self, format, *args):
@@ -596,26 +656,28 @@ class Handler(BaseHTTPRequestHandler):
     def _authored_message(self, body: dict, default: str) -> str | None:
         """The player's line, or None after a private 400 for empty text.
 
-        Whitespace-only text is empty. Zero-width characters (U+200B through
-        U+200D, and U+FEFF) are removed before that check, so a message of
-        only those is the same private 400 and is not spoken. A missing
+        A line with nothing visible in it is empty: whitespace, control and
+        format characters (U+200B, U+2060, U+FEFF, a soft hyphen …), and
+        bare combining marks. Nothing is removed from a line that is kept —
+        an emoji joiner, a Persian ZWNJ or a Thai word break is screened,
+        spoken and recorded exactly as the player typed it. A missing
         message keeps ``default``, which is a real prompt. A present value
         that is not a string — null, false, true, a number, an array, or an
         object — is the same private 400. It is not stringified and spoken.
-        The screen still allows empty text
-        so a blank published profile can save; these two routes would
-        otherwise publish a model reply when moderation is disabled, because
-        that empty-text pass runs before the kill switch.
+        The screen still allows empty text so a blank published profile can
+        save; these two routes would otherwise publish a model reply when
+        moderation is disabled, because that empty-text pass runs before the
+        kill switch.
         """
         if "message" in body:
             raw = body["message"]
             if not isinstance(raw, str):
                 self._send_error("A message is required.", 400)
                 return None
-            message = raw.translate(_ZERO_WIDTH)[:1024]
+            message = raw[:1024]
         else:
             message = default
-        if not message.strip():
+        if not _has_visible_text(message):
             self._send_error("A message is required.", 400)
             return None
         return message
@@ -648,9 +710,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._read_timed_out()
 
+    def handle_one_request(self):  # type: ignore[override]
+        # One handler serves every request on a kept-alive socket. The read
+        # budget is a deadline on the wrapped socket, armed in setup() for
+        # the first request. Every later request gets its own: the wait for
+        # it is bounded, and its clock starts when its first byte arrives,
+        # so it is never judged against what the previous request used.
+        if self._served_one and isinstance(self.request, _ReadBudgetSocket):
+            self.request.await_next_request(guard.http_read_timeout())
+        self._served_one = True
+        super().handle_one_request()
+
     def _begin_request(self) -> None:
         """Clear per-request state. One handler serves a kept-alive socket."""
-        import time
         self._started = time.monotonic()
         self._access_logged = False
         self._status = 0
@@ -1557,8 +1629,13 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError) as exc:
             return self._send_error(str(exc))
 
-        node_name = qs.get("node_name", [""])[0]
-        target    = (find_node(root, node_name) if node_name else None) or root
+        # Same resolution as /puzzle/attempt: a name the world was not born
+        # with is a 404 here too, so the question a client reads is always
+        # one it can answer. The root used to stand in for any unknown name.
+        node_name = qs.get("node_name", [""])[0][:128]
+        target = _puzzle_target(root, seed, node_name)
+        if target is None:
+            return self._send_error("no such place in this world", 404)
 
         engine  = PuzzleEngine(seed=seed)
         # Renewal epochs: decay that lands on a solved node re-arms it with
@@ -1691,17 +1768,16 @@ class Handler(BaseHTTPRequestHandler):
         # Coerce before any lookup. A list used to fall through to the root
         # and then bind as the node name; SQLite raised ProgrammingError and
         # the client got a 500. An empty or omitted name still means the
-        # root. Any other name that is not a node — including a non-string
-        # that becomes a non-empty string — is a 404 before the screen, the
-        # attempt session, and any chronicle row. The session key is then
-        # the real node's name, not the text the client sent.
+        # root. Any other name the world was not born with — including a
+        # non-string that becomes a non-empty string — is a 404 before the
+        # screen, the attempt session, and any chronicle row. A real place
+        # below the client's view is still that place (see _puzzle_target).
+        # The session key is then the real node's name, not the text the
+        # client sent.
         node_name   = str(body.get("node_name", "") or "")[:128]
-        if node_name:
-            target = find_node(root, node_name)
-            if target is None:
-                return self._send_error("no such place in this world", 404)
-        else:
-            target = root
+        target = _puzzle_target(root, seed, node_name)
+        if target is None:
+            return self._send_error("no such place in this world", 404)
         # str(...): a numeric guess ({"answer": 7}) is a legitimate attempt at
         # a sequence puzzle, not a reason to AttributeError into a 500.
         answer      = str(body.get("answer", "") or "").strip()

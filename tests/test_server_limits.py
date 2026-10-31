@@ -206,6 +206,45 @@ class TestReadBudget:
         assert json.loads(body) == {"error": "request timed out"}
         assert _health(limited) == 200
 
+    def test_kept_alive_socket_gets_a_fresh_read_budget_per_request(self, limited, monkeypatch):
+        # The budget is a deadline on the socket, armed at accept. Every
+        # response sends Connection: close today; this test keeps the socket
+        # open the way a keep-alive client would, so the second request's
+        # body read must be judged from that request's own start, not from
+        # the connection's.
+        from server.handlers import Handler
+        monkeypatch.setenv(guard.HTTP_READ_TIMEOUT_ENV, "1.0")
+        real = Handler._send_security_headers
+
+        def reopen_unless_client_closes(self):
+            real(self)
+            if (self.headers.get("Connection") or "").lower() != "close":
+                self.close_connection = False
+
+        monkeypatch.setattr(Handler, "_send_security_headers", reopen_unless_client_closes)
+        sock = socket.create_connection(("127.0.0.1", limited), timeout=3)
+        try:
+            sock.sendall(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            first, _headers, _body = _read_http(sock, timeout=2)
+            assert first == 200
+            time.sleep(0.8)
+            sock.sendall(
+                b"POST /no-such HTTP/1.1\r\n"
+                b"Host: localhost\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 8\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+            )
+            # 1.3s after accept, but only 0.5s into this request.
+            time.sleep(0.5)
+            sock.sendall(b'{"a": 1}')
+            second, _headers, body = _read_http(sock, timeout=2)
+        finally:
+            sock.close()
+        assert second == 404, (second, body)
+        assert json.loads(body) == {"error": "not found"}
+
 
 class TestHandlerCap:
     def test_full_server_returns_503_with_retry_after(self, limited, monkeypatch):

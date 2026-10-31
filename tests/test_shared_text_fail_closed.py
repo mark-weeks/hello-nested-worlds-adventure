@@ -747,7 +747,12 @@ def test_non_string_message_is_not_spoken(srv, monkeypatch):
                 "node_name": node.name, "seed": seed, "message": message, **extra})
             assert status == 400 and data["error"] == "A message is required.", (
                 path, message, status, data)
-        for message in ("\u200b", "\u200c\u200d", "\ufeff", "\u200b \u200d", "\ufeff\n"):
+        # Nothing visible: zero-width characters, a word joiner, soft
+        # hyphens, bidi marks, a bare variation selector or combining mark,
+        # with or without whitespace around them.
+        for message in ("\u200b", "\u200c\u200d", "\ufeff", "\u200b \u200d", "\ufeff\n",
+                        "\u2060", "\u00ad\u00ad", "\u200e\u200f", "\u061c", "\ufe0f",
+                        "\u034f", " \u2060\n", "\u0301\u0301"):
             status, data = _post(srv, path, {
                 "node_name": node.name, "seed": seed, "message": message, **extra})
             assert status == 400 and data["error"] == "A message is required.", (
@@ -755,18 +760,67 @@ def test_non_string_message_is_not_spoken(srv, monkeypatch):
     assert screens == [] and spoken == []
     assert _rows(seed, node.name, "PLAYER_SPEAK") == []
     assert _rows(seed, node.name, "AGENT_VOICE") == []
-    # Zero-width characters are removed before the line is judged or spoken.
+    # A line with visible text is judged as typed: an invisible inside a
+    # word is part of the player's line, not noise to remove.
     status, data = _post(srv, "/speak", {
         "node_name": node.name, "seed": seed, "message": "hel\u200blo"})
     assert status == 200 and data.get("held") is True
-    assert screens == ["hello"]
+    assert screens == ["hel\u200blo"]
     # Strings stay strings, including ones that look like JSON scalars.
     for message in ("0", "false", "null", "hello, old light"):
         status, data = _post(srv, "/speak", {
             "node_name": node.name, "seed": seed, "message": message})
         assert status == 200 and data.get("held") is True, (message, status, data)
     assert spoken == []
-    assert screens == ["hello", "0", "false", "null", "hello, old light"]
+    assert screens == ["hel\u200blo", "0", "false", "null", "hello, old light"]
+
+
+def test_speech_keeps_the_players_characters_from_screen_to_chronicle(srv, monkeypatch):
+    """An emoji joiner, a Persian ZWNJ and a Thai word break are the line.
+
+    The emptiness check looks for visible text; it must not rewrite the
+    text it keeps. What the classifier judges, what the model hears, and
+    what the chronicle stores are the characters the player sent.
+    """
+    import consciousness
+    judged = []
+    real_screen = moderation.screen
+
+    def recording_screen(text, **kwargs):
+        judged.append(text)
+        return real_screen(text, **kwargs)
+
+    heard = []
+
+    class Provider:
+        name = "fixture"
+
+        def configured(self):
+            return True
+
+        def generate(self, **kwargs):
+            heard.append(kwargs["messages"][-1]["content"])
+            return Completion("ALLOW", True, finish_reason="complete")
+
+    monkeypatch.setattr(moderation, "screen", recording_screen)
+    monkeypatch.setattr(consciousness.runtime, "get_provider", lambda: Provider())
+    monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
+    monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
+    seed = 996
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    # A family (ZWJ sequence), a Persian word kept unjoined by ZWNJ, and a
+    # Thai phrase with a zero-width word break.
+    line = ("we are \U0001F468\u200d\U0001F469\u200d\U0001F467 here, "
+            "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645, "
+            "\u0e2a\u0e27\u0e31\u0e2a\u0e14\u0e35\u200b\u0e04\u0e23\u0e31\u0e1a")
+    status, data = _post(srv, "/speak", {
+        "node_name": node.name, "seed": seed, "message": line, "player_name": "Ada"})
+    assert status == 200 and data["ai"] is True, (status, data)
+    assert judged == [line]
+    # Every model call — a classify, if the local tier escalated, and the
+    # voice itself — received the line as typed.
+    assert heard and all(text == line for text in heard), heard
+    assert [row["data"]["message"] for row in _rows(seed, node.name, "PLAYER_SPEAK")] == [line]
 
 
 def test_generate_charges_the_model_action_cap_once_and_normalizes_the_key(monkeypatch):

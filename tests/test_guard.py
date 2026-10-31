@@ -13,6 +13,7 @@ import random
 import socket
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import pytest
@@ -1036,3 +1037,44 @@ class TestBodyShapeRobustness:
         assert "PUZZLE_SOLVED" not in rows
         for name in ("True", "1", "7", "2.5", "['x']"):
             assert persistence.get_node_history(seed, name, 50) == []
+
+    def test_puzzle_read_and_attempt_agree_on_unknown_and_deeper_places(self, srv, monkeypatch):
+        # GET /puzzle used to answer any unknown name with the root's
+        # question while POST /puzzle/attempt refused it, so a client could
+        # read a question it could never answer. Both routes now resolve
+        # the place the same way, and existence is the store's answer, not
+        # a function of the depth one client happened to load.
+        from multiverse import store
+        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
+        base, _ = srv
+        seed = 77
+        root = store.world_tree(seed=seed, max_depth=3)
+        deep = root.children[0].children[0]  # three path digits: below a depth-1 view
+
+        def get(path):
+            try:
+                with urllib.request.urlopen(f"{base}{path}") as resp:
+                    return json.loads(resp.read()), resp.status
+            except urllib.error.HTTPError as exc:
+                return json.loads(exc.read()), exc.code
+
+        quote = urllib.parse.quote
+        for name in ("ghost-1", "True", "['x']", "Forged-11"):
+            data, status = get(f"/puzzle?seed={seed}&depth=1&node_name={quote(name)}")
+            assert status == 404 and data["error"] == "no such place in this world", (name, data)
+        # A real place below the loaded depth is still that place, on both routes.
+        shallow, status = get(f"/puzzle?seed={seed}&depth=1&node_name={quote(deep.name)}")
+        assert status == 200 and shallow["found"] is True, shallow
+        full, status = get(f"/puzzle?seed={seed}&depth=3&node_name={quote(deep.name)}")
+        assert status == 200 and full["found"] is True
+        assert (shallow["name"], shallow["prompt"]) == (full["name"], full["prompt"])
+        root_view, _ = get(f"/puzzle?seed={seed}&depth=1&node_name={quote(root.name)}")
+        assert root_view["prompt"] != shallow["prompt"]
+        data, status = self._attempt(base, {
+            "seed": seed, "depth": 1, "node_name": deep.name, "answer": "no",
+            "puzzle_name": full["name"]})
+        assert status == 200 and data["attempt"] == 1 and data["correct"] is False, data
+        deep_rows = [row["type"] for row in persistence.get_node_history(seed, deep.name, 50)]
+        assert deep_rows.count("PUZZLE_ATTEMPT") == 1
+        root_rows = [row["type"] for row in persistence.get_node_history(seed, root.name, 50)]
+        assert "PUZZLE_ATTEMPT" not in root_rows

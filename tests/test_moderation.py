@@ -31,7 +31,7 @@ from evals.harness import ROOT, load_corpus
 from server import guard, moderation
 from multiverse.generator import generate_node_hierarchy
 from tests.test_day_one_recording import (
-    _ws_connect, _ws_send_json, _wait_for_rows,
+    _client_frame, _ws_connect, _ws_send_json, _wait_for_rows,
 )
 
 
@@ -606,6 +606,36 @@ class TestChatScreening:
         finally:
             sender.close()
             other.close()
+
+    def test_non_object_frames_are_ignored_not_a_500(self, srv, monkeypatch):
+        # json.loads returns a list, a string, a number or None just as
+        # happily as an object. Such a frame has no type to dispatch on: it
+        # is dropped like invalid JSON, never raised into a 500 written onto
+        # the upgraded socket with a Sentry report per frame.
+        from server import observability
+        captured = []
+        monkeypatch.setattr(observability, "capture_exception",
+                            lambda exc: captured.append(repr(exc)))
+        monkeypatch.setattr(guard, "WS_CHAT_BURST", 20)
+        seed = 276
+        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
+        sender, s_status = _ws_connect(srv, seed, "Ada")
+        other, o_status = _ws_connect(srv, seed, "Bee")
+        try:
+            assert b"101" in s_status and b"101" in o_status
+            _read_ws_json_until(sender, "welcome")
+            _read_ws_json_until(other, "welcome")
+            for payload in (b"[]", b'"hi"', b"5", b"null", b'[{"type": "chat"}]'):
+                sender.sendall(_client_frame(payload))
+            # The session is still open and still speaks.
+            _ws_send_json(sender, {"type": "chat", "text": "still here"})
+            assert _read_ws_json_until(other, "chat")["text"] == "still here"
+            chats = _wait_for_rows(seed, root_name, "PLAYER_CHAT")
+            assert [row["data"]["text"] for row in chats] == ["still here"]
+        finally:
+            sender.close()
+            other.close()
+        assert captured == []
 
 
 def test_classifier_decline_cannot_replace_a_public_profile(
