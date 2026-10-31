@@ -1105,106 +1105,98 @@ class TestBodyShapeRobustness:
         root_rows = [row["type"] for row in persistence.get_node_history(seed, root.name, 50)]
         assert "PUZZLE_ATTEMPT" not in root_rows
 
-    def test_shallow_and_full_depth_queue_the_same_first_ring(self, srv, monkeypatch):
-        # A place below the client's depth used to be rebuilt as a leaf.
-        # stage_cascade then queued only the upward hop (1) while a
-        # depth-11 solve of the same Region queued the parent and both
-        # rooms (3). The constellation block was missing on the shallow read.
-        # Depth 6 is the Region's own depth and the explorer's default: the
-        # client's tree is cut at the Region there, and it also queued 1.
+    def test_every_level_queues_the_same_ring_at_every_depth(self, srv, monkeypatch):
+        # A place at the bottom of the loaded view has no children. Hops
+        # were then 3, 1, 3 across depth 1 / own depth / 11 for Galaxy
+        # through Atom, 5, 1, 5 for a Universe with four galaxies, and
+        # 0, 0, 3-4 for the root. The frontend's first load is depth 6,
+        # which is a Region's own depth. Constellation blocks were missing
+        # on that cut.
         from multiverse import store
+        from multiverse.generator import LEVELS
         from puzzles.engine import build_puzzle
+        from server import rooms as rooms_mod
 
-        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
+        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "500")
         monkeypatch.setenv("NESTED_WORLDS_HOP_DELAY", "0")
         base, _ = srv
+        seed = 81
+        full = store.world_tree(seed=seed, max_depth=11)
+        by_level = {}
 
-        def first_region(seed):
-            root = store.world_tree(seed=seed, max_depth=11)
+        def walk(node):
+            by_level.setdefault(node.level, node)
+            for child in node.children:
+                walk(child)
 
-            def walk(node):
-                if node.level == "Region":
-                    return node
-                for child in node.children:
-                    found = walk(child)
-                    if found is not None:
-                        return found
-                return None
-
-            region = walk(root)
-            assert region is not None and region.parent is not None
-            assert len(region.children) == 2
-            return region
+        walk(full)
+        assert list(by_level) == LEVELS
+        # An empty name is the root as well as the root's own name.
+        places = [(level, by_level[level], False) for level in LEVELS]
+        places.append(("Multiverse", full, True))
 
         def ring(node):
-            hops = [(node.parent.name, "up")]
+            hops = []
+            if node.parent is not None:
+                hops.append((node.parent.name, "up"))
             hops.extend((child.name, "down") for child in node.children)
             return sorted(hops)
 
-        def queued(seed):
+        def queued():
             ids = persistence.due_work("causal_queue", 64, world_seed=seed)
             rows = [persistence.inspect_work("causal_queue", work_id) for work_id in ids]
             return sorted((row["node_name"], row["direction"]) for row in rows)
+
+        def wipe():
+            rooms_mod.clear_rooms()
+            with persistence._connect() as conn:
+                conn.execute("DELETE FROM causal_queue WHERE world_seed = ?", (seed,))
+                conn.execute("DELETE FROM world_mutations WHERE world_seed = ?", (seed,))
+                conn.execute(
+                    "DELETE FROM node_runtime_state WHERE world_seed = ?", (seed,))
+                conn.execute(
+                    "DELETE FROM node_property_cache_meta WHERE world_seed = ?", (seed,))
 
         def get(path):
             with urllib.request.urlopen(f"{base}{path}") as resp:
                 return json.loads(resp.read()), resp.status
 
         quote = urllib.parse.quote
-        for seed, depth in ((81, 1), (83, 5), (84, 6), (85, 7), (82, 11)):
-            region = first_region(seed)
-            shallow, status = get(
-                f"/puzzle?seed={seed}&depth={depth}&node_name={quote(region.name)}")
-            assert status == 200 and shallow["found"] is True, shallow
-            assert shallow["constellation"]["total"] == len(region.children)
-            assert shallow["constellation"]["of"] == "rooms"
-            assert shallow["constellation"]["solved"] == 0
-            data, status = self._attempt(base, {
-                "seed": seed, "depth": depth, "node_name": region.name,
-                "answer": build_puzzle(region).answer, "player_name": "Ada",
-            })
-            assert status == 200 and data["correct"] is True, data
-            got = queued(seed)
-            assert got == ring(region), (depth, got)
-            assert persistence.pending_causal_hops(seed) == len(got) == 3
-
-    def test_root_solve_at_depth_one_queues_every_universe(self, srv, monkeypatch):
-        # The root is the same boundary at depth 1: the client's tree is the
-        # root alone. A depth-1 solve queued 0 hops; depth 11 queued one per
-        # universe. Both now queue the world's universes, and a solve of the
-        # leaf scale still queues only its upward hop.
-        from multiverse import store
-        from puzzles.engine import build_puzzle
-
-        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
-        monkeypatch.setenv("NESTED_WORLDS_HOP_DELAY", "0")
-        base, _ = srv
-
-        def queued(seed):
-            ids = persistence.due_work("causal_queue", 64, world_seed=seed)
-            rows = [persistence.inspect_work("causal_queue", work_id) for work_id in ids]
-            return sorted((row["node_name"], row["direction"]) for row in rows)
-
-        for seed, depth in ((86, 1), (87, 11)):
-            root = store.world_tree(seed=seed, max_depth=2)
-            assert root.children
-            data, status = self._attempt(base, {
-                "seed": seed, "depth": depth, "node_name": "",
-                "answer": build_puzzle(root).answer, "player_name": "Ada",
-            })
-            assert status == 200 and data["correct"] is True, data
-            assert queued(seed) == sorted(
-                (child.name, "down") for child in root.children), depth
-
-        seed = 88
-        leaf = store.world_tree(seed=seed, max_depth=11)
-        while leaf.children:
-            leaf = leaf.children[0]
-        assert leaf.level == "SubatomicParticle"
-        assert store.born_children(seed, leaf.name) == []
-        data, status = self._attempt(base, {
-            "seed": seed, "depth": 11, "node_name": leaf.name,
-            "answer": build_puzzle(leaf).answer, "player_name": "Ada",
-        })
-        assert status == 200 and data["correct"] is True, data
-        assert queued(seed) == [(leaf.parent.name, "up")]
+        constellation_of = {"Galaxy": "systems", "Region": "rooms"}
+        for level, node, empty_name in places:
+            own = len(node.name.rpartition("-")[2])
+            depths = sorted({1, own, 11})
+            hops = []
+            blocks = []
+            for depth in depths:
+                wipe()
+                name = "" if empty_name else node.name
+                query = f"/puzzle?seed={seed}&depth={depth}"
+                if name:
+                    query += f"&node_name={quote(name)}"
+                payload, status = get(query)
+                assert status == 200 and payload["found"] is True, (level, depth, payload)
+                if level in constellation_of:
+                    block = payload["constellation"]
+                    assert block["total"] == len(node.children)
+                    assert block["of"] == constellation_of[level]
+                    assert block["solved"] == 0
+                    assert block["complete"] is False
+                else:
+                    block = None
+                    assert "constellation" not in payload
+                blocks.append(block)
+                body = {
+                    "seed": seed, "depth": depth,
+                    "answer": build_puzzle(node).answer, "player_name": "Ada",
+                }
+                if not empty_name:
+                    body["node_name"] = node.name
+                data, status = self._attempt(base, body)
+                assert status == 200 and data["correct"] is True, (level, depth, data)
+                got = queued()
+                assert got == ring(node), (level, depth, len(got), len(ring(node)), got)
+                assert persistence.pending_causal_hops(seed) == len(got)
+                hops.append(got)
+            assert hops == [hops[0]] * len(hops), level
+            assert blocks == [blocks[0]] * len(blocks), level

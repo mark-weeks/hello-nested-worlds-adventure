@@ -112,38 +112,58 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int]:
     return root, seed, depth
 
 
+def _place_depth(node_name: str) -> int:
+    """Path length encoded in a canonical name, or 1 when it has none."""
+    _, _, suffix = node_name.rpartition("-")
+    if suffix.isdigit():
+        return len(suffix)
+    return 1
+
+
+def _with_child_ring(seed: int, node: SpatialNode) -> SpatialNode:
+    """The place plus its immediate children, when the world has any.
+
+    A view cut at the place — either because the client asked for less,
+    or because the place is the deepest level they loaded — has no
+    children. ``stage_cascade`` would then queue only the upward hop, and
+    a constellation container would omit its nested progress. One more
+    level is that first ring. The world's leaf level has no children in
+    any view.
+    """
+    if node.children or _place_depth(node.name) >= guard.MAX_DEPTH:
+        return node
+    deeper, _, _ = _build_world({
+        "seed": seed,
+        "depth": min(_place_depth(node.name) + 1, guard.MAX_DEPTH),
+    })
+    found = find_node(deeper, node.name)
+    return found if found is not None else node
+
+
 def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode | None:
     """The place a puzzle request names, or None when the world has none.
 
     An empty name is the root. A name inside the client's view resolves
     from that tree. Whether a place exists is the store's answer — the same
     one /speak and /node give — never a function of how deep one client
-    looked: a place the world was born with but below the requested depth
-    is rebuilt at its own depth, so its parent keeps every sibling.
-
-    A tree cut at the place, whether the client's horizon or that rebuild,
-    has no children there, so ``stage_cascade`` would queue only the upward
-    hop and a constellation container would omit its nested progress. A
-    target with no children in the served tree therefore takes its born
-    children from the store. The first ring is the world's, at every depth
-    the client loaded, and a true leaf still has none. GET /puzzle and
-    POST /puzzle/attempt describe and judge the same question whatever
-    depth the client loaded.
+    looked. The place is then given one level of children when it is
+    shallower than the world's leaf, so the first cascade ring and a
+    constellation's nested progress do not depend on the client's depth.
+    GET /puzzle and POST /puzzle/attempt describe and judge the same
+    question whatever depth the client loaded.
     """
     if not node_name:
-        target = root
-    else:
-        target = find_node(root, node_name)
-        if target is None:
-            if _resolve_node(seed, node_name) is None:
-                return None
-            _, _, suffix = node_name.rpartition("-")
-            deeper, _, _ = _build_world({"seed": seed, "depth": len(suffix)})
-            target = find_node(deeper, node_name)
-    if target is not None and not target.children:
-        for child in store.born_children(seed, target.name):
-            target.add_child(child)
-    return target
+        return _with_child_ring(seed, root)
+    target = find_node(root, node_name)
+    if target is not None:
+        return _with_child_ring(seed, target)
+    if _resolve_node(seed, node_name) is None:
+        return None
+    deeper, _, _ = _build_world({
+        "seed": seed,
+        "depth": min(_place_depth(node_name) + 1, guard.MAX_DEPTH),
+    })
+    return find_node(deeper, node_name)
 
 
 # The wandering cast's names are world canon: their chronicle rows must be

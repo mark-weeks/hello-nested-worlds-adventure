@@ -175,24 +175,3 @@ def resolve_node_by_name(seed: int, name: str) -> SpatialNode | None:
     if node is None or node.name != name:
         return None  # base name isn't what this path was born as — forged
     return node
-
-
-def born_children(seed: int, name: str) -> list[SpatialNode]:
-    """The born children of a stored node, in sibling order.
-
-    One indexed query, whatever depth any client loaded. Each child carries
-    its born row only: no grandchildren, parent link, ripple, or overlay.
-    The caller attaches them. Ordinals are single digits (the name suffix
-    is the path), so 1–9 covers every possible child. A leaf, or a name
-    that does not encode a path, has none.
-    """
-    if not name or "-" not in name:
-        return []
-    _, _, suffix = name.rpartition("-")
-    if not suffix.isdigit() or len(suffix) >= _MAX_DEPTH:
-        return []
-    ensure_born(seed)
-    path = ".".join(suffix)
-    rows = persistence.get_world_node_chain(
-        seed, [f"{path}.{ordinal}" for ordinal in range(1, 10)])
-    return [_node_from_row(row) for row in rows]
