@@ -185,12 +185,16 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
         return _ALLOW_CLEAN
 
     # A missing moderation id must not spend a model budget. generate()
-    # raises the same error before its own charges; holding here covers the
-    # screen, which would otherwise reserve first.
+    # raises the same error before its own charges. Any other failure while
+    # resolving that id — a raising default_model, for example — holds too.
+    # Letting it escape made /speak a 500 and closed the chat socket.
     from consciousness import runtime
     try:
         runtime.require_model_id(runtime.model_for(runtime.MODERATION_TASK))
-    except runtime.UnusableModelId:
+    except Exception as exc:
+        # The class only. The message can carry a pasted credential, and
+        # the player text never belongs on this line.
+        _log.warning("moderation model id unavailable (%s)", type(exc).__name__)
         _moderation_log("error", surface)
         return Verdict(False, "error", "error")
 

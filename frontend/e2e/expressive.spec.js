@@ -59,7 +59,7 @@ if sys.argv[2] == '1':
         if intention=='cut a pattern in this surface' and calls[intention]==1:
             answer={'status':'ready','ambiguity':'none','steps':[{'op':'engrave','amount':1}]}
         return Completion(json.dumps(answer), True)
-    fixture=SimpleNamespace(name='fixture',configured=lambda:True,generate=create,cache_reference_tokens=lambda model:None)
+    fixture=SimpleNamespace(name='fixture',configured=lambda:True,generate=create,cache_reference_tokens=lambda model:None,default_model=lambda task:'fixture-model')
     runtime.get_provider=lambda: fixture
 from server import _Handler,_ThreadedServer,heartbeat
 server=_ThreadedServer(('127.0.0.1',0),_Handler)
