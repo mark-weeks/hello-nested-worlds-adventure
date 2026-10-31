@@ -2,11 +2,14 @@
 
 ``NESTED_WORLDS_PROVIDER`` selects a registered adapter. Unset means
 ``anthropic``, the only built-in adapter. An unknown name fails startup.
-Per-task settings choose a model id on that provider. An id never selects
-or replaces the provider, and a failed call is never retried on another id
-or another provider. Adding a provider still requires an adapter, a
-registry entry, and contract evaluation (ADR-034). This module does not
-import a provider SDK.
+The first successful selection is cached for the process. Per-task
+settings choose a model id on that provider. When no setting names an id,
+the selected adapter's own ``default_model`` supplies it. An adapter that
+omits that method does not inherit another adapter's ids. An id never
+selects or replaces the provider, and a failed call is never retried on
+another id or another provider. Adding a provider still requires an
+adapter, a registry entry, and contract evaluation (ADR-034). This module
+does not import a provider SDK.
 """
 from __future__ import annotations
 
@@ -19,6 +22,9 @@ import threading
 from typing import Callable, Protocol
 
 
+# The anthropic adapter's defaults. Another adapter does not inherit them.
+# ``model_for`` asks the selected adapter. These constants keep one spelling
+# for that adapter and for the import-time ``VOICE_MODEL`` snapshot.
 DEFAULT_VOICE_MODEL = "claude-opus-4-8"
 DEFAULT_MODERATION_MODEL = "claude-haiku-4-5"
 
@@ -54,7 +60,9 @@ def _nonblank(value: str | None) -> str | None:
 
 
 # Import-time shared id. Calls use model_for(), which reads the environment
-# on each call. Blank or whitespace-only values are unset.
+# on each call and then the selected adapter's default. Blank or
+# whitespace-only values are unset. This snapshot uses the anthropic voice
+# default when the shared setting is unset at import.
 VOICE_MODEL = _nonblank(os.environ.get(SHARED_MODEL_ENV)) or DEFAULT_VOICE_MODEL
 
 
@@ -74,6 +82,9 @@ class ModelResolution:
     ``ignored_blank`` lists variables that were set to empty or whitespace
     and therefore did not supply the id. ``model_for`` still falls back;
     the startup check treats those blanks as misconfiguration.
+    ``adapter_default`` is true when ``source`` is ``default`` and the
+    selected adapter supplied the id. A default with no adapter id leaves
+    ``model`` empty so another adapter's id is not sent.
     """
 
     task: str
@@ -82,14 +93,64 @@ class ModelResolution:
     env_var: str
     raw: str | None
     ignored_blank: tuple[tuple[str, str], ...] = ()
+    adapter_default: bool = False
 
 
 def _blank_kind(value: str) -> str:
     return "empty" if value == "" else "whitespace"
 
 
-def resolve_model(task: str) -> ModelResolution:
-    """Same rules as ``model_for``, plus the setting that supplied the id."""
+def _supplied_default(provider: TextProvider, task: str) -> str | None:
+    """Non-blank id from an optional ``default_model`` method.
+
+    The method is not part of ``TextProvider``. An adapter that omits it,
+    or returns a blank or a non-string, does not inherit another adapter's
+    ids. A raising method is a bug in that adapter and propagates.
+    """
+    method = getattr(provider, "default_model", None)
+    if not callable(method):
+        return None
+    value = method(task)
+    if not isinstance(value, str):
+        return None
+    return _nonblank(value)
+
+
+def _provider_for_defaults(provider: TextProvider | None) -> TextProvider:
+    """Adapter that owns the default id. This is not a model call.
+
+    ``generate`` calls ``get_provider`` only after the voice budget. Resolving
+    an id uses the same cached adapter through ``_load_selected_provider``,
+    so a test or a refused budget can replace ``get_provider`` without
+    being asked for a default. A later environment change does not switch
+    the cached adapter.
+    """
+    if provider is not None:
+        return provider
+    return _load_selected_provider()
+
+
+def _default_resolution(task: str, env_name: str, blanks: list[tuple[str, str]],
+                        provider: TextProvider | None) -> ModelResolution:
+    chosen = _supplied_default(_provider_for_defaults(provider), task)
+    if chosen is None:
+        return ModelResolution(
+            task, "", SOURCE_DEFAULT, env_name, None, tuple(blanks),
+            adapter_default=False,
+        )
+    return ModelResolution(
+        task, chosen, SOURCE_DEFAULT, env_name, None, tuple(blanks),
+        adapter_default=True,
+    )
+
+
+def resolve_model(task: str, provider: TextProvider | None = None) -> ModelResolution:
+    """Same rules as ``model_for``, plus the setting that supplied the id.
+
+    ``provider`` is the adapter whose ``default_model`` applies. Omit it to
+    use the selected adapter. A task setting, then the shared model for
+    every task except moderation, still wins over that default.
+    """
     try:
         env_name = _TASK_ENV[task]
     except KeyError:
@@ -112,22 +173,19 @@ def resolve_model(task: str) -> ModelResolution:
             return ModelResolution(
                 task, shared, SOURCE_SHARED, SHARED_MODEL_ENV, shared_raw, tuple(blanks),
             )
-        return ModelResolution(
-            task, DEFAULT_VOICE_MODEL, SOURCE_DEFAULT, env_name, None, tuple(blanks),
-        )
-    return ModelResolution(
-        task, DEFAULT_MODERATION_MODEL, SOURCE_DEFAULT, env_name, None, tuple(blanks),
-    )
+    return _default_resolution(task, env_name, blanks, provider)
 
 
 def model_for(task: str) -> str:
     """Model id for one text task. An id never selects a provider.
 
     Node voice, inhabitant voice, and intention use their own settings, then
-    the shared model, then the voice default. Moderation keeps its own default
-    and does not inherit the shared model. Empty and whitespace-only values
-    are unset here and fall back. The startup check reports those blanks
-    separately and refuses to serve. This function does not retry or
+    the shared model, then the selected adapter's default. Moderation uses
+    its own setting, then that adapter's moderation default, and does not
+    inherit the shared model. An adapter with no default leaves the id
+    empty. Empty and whitespace-only settings are unset here and fall back.
+    The startup check reports those blanks, and a default the adapter did
+    not supply, and refuses to serve. This function does not retry or
     substitute another id when a call fails.
     """
     return resolve_model(task).model
@@ -240,12 +298,14 @@ def reserve_model_action(user_key: str | None = None) -> ModelReservation:
 
 
 class TextProvider(Protocol):
-    """Text adapter. Id judgment is not part of this protocol.
+    """Text adapter. Id judgment and default ids are not part of this protocol.
 
     Adapters that know which ids they serve also match
     ``ModelIdJudgingProvider``. The startup check uses getattr, so an
     adapter that omits ``model_id_validator`` is not asked and still
-    satisfies this protocol for type checkers.
+    satisfies this protocol for type checkers. ``default_model(task)`` is
+    also optional. It returns the id to use when no setting names one.
+    Omitting it does not borrow another adapter's ids.
     """
 
     name: str
@@ -291,6 +351,10 @@ _BUILTINS: dict[str, Callable[[], TextProvider]] = {
 }
 _REGISTERED: dict[str, Callable[[], TextProvider]] = {}
 _registry_lock = threading.Lock()
+# First successful selection. A failed selection is not stored. Tests clear
+# this with reset_provider_selection so a later case can select again.
+_selected_provider: TextProvider | None = None
+_selection_lock = threading.Lock()
 
 
 def provider_names() -> tuple[str, ...]:
@@ -343,13 +407,30 @@ def selected_provider_name() -> str:
     return text
 
 
-def get_provider() -> TextProvider:
-    """The adapter named by ``NESTED_WORLDS_PROVIDER``.
+def reset_provider_selection() -> None:
+    """Forget the adapter chosen for this process.
 
-    An unknown name raises ``SystemExit`` with one line naming that variable
-    and the valid names. The same line is what ``python main.py serve``
-    exits with, before it opens a port. This does not import a provider SDK.
+    ``get_provider`` validates ``NESTED_WORLDS_PROVIDER`` once and keeps
+    that adapter. Tests call this so a later case can select again. A
+    failed selection is not cached, so a corrected value can be read on
+    the next call without this reset.
     """
+    global _selected_provider
+    with _selection_lock:
+        _selected_provider = None
+
+
+def _load_selected_provider() -> TextProvider:
+    """Validate and cache ``NESTED_WORLDS_PROVIDER``. Does not import an SDK.
+
+    ``get_provider`` is this function. ``model_for`` calls this directly so
+    a default id is not a trip through ``get_provider``, which ``generate``
+    reaches only after the voice budget. A failed selection is not cached.
+    """
+    global _selected_provider
+    with _selection_lock:
+        if _selected_provider is not None:
+            return _selected_provider
     name = selected_provider_name()
     with _registry_lock:
         factory = _BUILTINS.get(name)
@@ -360,13 +441,36 @@ def get_provider() -> TextProvider:
             f"{PROVIDER_ENV}={name!r} is not a known text provider "
             f"({_valid_suffix()})"
         )
-    return factory()
+    provider = factory()
+    with _selection_lock:
+        if _selected_provider is None:
+            _selected_provider = provider
+        return _selected_provider
+
+
+def get_provider() -> TextProvider:
+    """The adapter named by ``NESTED_WORLDS_PROVIDER``, chosen once.
+
+    The first successful call validates the name and builds the adapter.
+    Later calls return that adapter and do not read the environment again,
+    so a bad value set during a request cannot raise ``SystemExit`` on a
+    request thread. An unknown name on the first call still raises
+    ``SystemExit`` with one line naming that variable and the valid names.
+    The same line is what ``python main.py serve`` exits with, before it
+    opens a port. ``reset_provider_selection`` clears the cache. This does
+    not import a provider SDK. ``generate`` calls this only after the voice
+    budget.
+    """
+    return _load_selected_provider()
 
 
 def installation_error(provider: TextProvider) -> str | None:
-    """One-line failure when the selected adapter's SDK is not installed.
+    """One-line failure when the selected adapter's own SDK is not installed.
 
-    Adapters that do not set ``sdk_module`` need no SDK. The line names
+    Adapters that do not set ``sdk_module`` need no SDK. Only a
+    ``ModuleNotFoundError`` whose ``name`` is that module becomes the
+    one-line failure. A missing dependency of the SDK, or any other
+    ``ImportError``, propagates with its own message. The line names
     ``NESTED_WORLDS_PROVIDER`` and the optional extra. It does not include
     a credential or make a model call.
     """
@@ -376,7 +480,9 @@ def installation_error(provider: TextProvider) -> str | None:
     module_name = module_name.strip()
     try:
         importlib.import_module(module_name)
-    except ImportError:
+    except ModuleNotFoundError as exc:
+        if exc.name != module_name:
+            raise
         extra = getattr(provider, "distribution_extra", None)
         if not isinstance(extra, str) or not extra.strip():
             extra = module_name

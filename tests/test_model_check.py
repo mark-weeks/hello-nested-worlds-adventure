@@ -555,6 +555,9 @@ def test_probe_skips_when_the_provider_is_not_configured(monkeypatch, capsys, re
                 raise RuntimeError('credential store unavailable')
             return False
 
+        def default_model(self, task):
+            return 'lab-voice'
+
         def generate(self, **kwargs):
             calls.append(kwargs)
             raise TypeError('missing key')

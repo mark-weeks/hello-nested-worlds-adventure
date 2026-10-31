@@ -63,7 +63,7 @@ ENV HOME=/data \
 
 # Install Python deps first for layer caching.
 COPY pyproject.toml ./
-RUN pip install -e . || true
+RUN pip install -e ".[anthropic]" || true
 
 # Copy the rest of the source.
 COPY . .
@@ -73,7 +73,7 @@ COPY --from=frontend /build/static ./static
 
 # Reinstall now that the package source is present so the editable
 # install picks up the modules.
-RUN pip install -e .
+RUN pip install -e ".[anthropic]"
 
 EXPOSE 8080
 CMD ["python", "main.py", "serve", "--host", "0.0.0.0", "--port", "8080"]

@@ -72,8 +72,8 @@ def _block_anthropic_import(monkeypatch):
     real = importlib.import_module
 
     def blocked(name, package=None):
-        if name == 'anthropic' or name.startswith('anthropic.'):
-            raise ImportError('blocked')
+        if name == 'anthropic' or (isinstance(name, str) and name.startswith('anthropic.')):
+            raise ModuleNotFoundError("No module named 'anthropic'", name='anthropic')
         return real(name, package)
 
     monkeypatch.setattr(importlib, 'import_module', blocked)
@@ -308,6 +308,10 @@ class Fixture:
         return True
     def cache_reference_tokens(self, model):
         return None
+    def default_model(self, task):
+        if task == 'moderation':
+            return 'fixture-moderation'
+        return 'fixture-voice'
     def generate(self, **kwargs):
         raise AssertionError('generate')
 
@@ -318,8 +322,10 @@ from consciousness.model_check import check_model_configuration
 report = check_model_configuration()
 assert report.provider == 'fixture'
 assert all(task.provider == 'fixture' for task in report.tasks)
+assert report.hard == ()
 
 os.environ['NESTED_WORLDS_PROVIDER'] = 'anthropic'
+runtime.reset_provider_selection()
 try:
     check_model_configuration()
 except SystemExit as exc:
@@ -433,3 +439,176 @@ def test_generate_waits_on_the_selected_providers_limit(monkeypatch):
     finally:
         gate.opened.set()
         thread.join(2)
+
+
+class _OwnDefaults(FixtureProvider):
+    def default_model(self, task):
+        if task == runtime.MODERATION_TASK:
+            return 'fixture-moderation'
+        return 'fixture-voice'
+
+
+def test_fixture_with_its_own_defaults_does_not_inherit_claude_ids(monkeypatch):
+    _isolate(monkeypatch)
+    fixture = _OwnDefaults()
+    runtime.register_provider('fixture', lambda: fixture)
+    monkeypatch.setenv(runtime.PROVIDER_ENV, 'fixture')
+    assert runtime.model_for(runtime.NODE_TASK) == 'fixture-voice'
+    assert runtime.model_for(runtime.INHABITANT_TASK) == 'fixture-voice'
+    assert runtime.model_for(runtime.INTENT_TASK) == 'fixture-voice'
+    assert runtime.model_for(runtime.MODERATION_TASK) == 'fixture-moderation'
+    report = check_model_configuration()
+    assert report.provider == 'fixture'
+    assert report.hard == ()
+    assert [task.source for task in report.tasks] == ['default'] * 4
+    assert [task.model for task in report.tasks] == [
+        'fixture-voice', 'fixture-voice', 'fixture-voice', 'fixture-moderation',
+    ]
+    assert all('claude' not in task.model for task in report.tasks)
+    monkeypatch.setenv(runtime.SHARED_MODEL_ENV, 'fixture-shared')
+    assert runtime.model_for(runtime.NODE_TASK) == 'fixture-shared'
+    assert runtime.model_for(runtime.MODERATION_TASK) == 'fixture-moderation'
+    monkeypatch.setenv(runtime.NODE_MODEL_ENV, 'fixture-node')
+    assert runtime.model_for(runtime.NODE_TASK) == 'fixture-node'
+
+
+def test_fixture_without_defaults_fails_startup_and_does_not_send_claude_ids(
+    monkeypatch, capsys,
+):
+    import server
+
+    _isolate(monkeypatch)
+    fixture = FixtureProvider()
+    runtime.register_provider('fixture', lambda: fixture)
+    monkeypatch.setenv(runtime.PROVIDER_ENV, 'fixture')
+    assert runtime.model_for(runtime.NODE_TASK) == ''
+    assert runtime.model_for(runtime.MODERATION_TASK) == ''
+    report = check_model_configuration()
+    assert report.provider == 'fixture'
+    assert [task.source for task in report.tasks] == ['default'] * 4
+    assert all(task.model == '' for task in report.tasks)
+    assert all(problem.kind == 'default' for problem in report.hard)
+    line = report.failure_line()
+    assert 'has no default model' in line
+    assert 'provider fixture' in line
+    assert runtime.NODE_MODEL_ENV in line
+    assert runtime.MODERATION_MODEL_ENV in line
+    assert 'claude' not in line
+    assert '\n' not in line
+    with pytest.raises(SystemExit) as caught:
+        main(['models'])
+    assert 'has no default model' in str(caught.value)
+    printed = capsys.readouterr().out
+    assert 'text provider: fixture' in printed
+    assert 'source=default' in printed
+    assert 'claude-opus-4-8' not in printed
+    assert 'claude-haiku-4-5' not in printed
+    monkeypatch.setattr(server.observability, 'setup', lambda: None)
+    monkeypatch.setattr(server.guard, 'canonical_seed', lambda: None)
+
+    def opened(*args, **kwargs):
+        raise AssertionError('listener opened')
+
+    monkeypatch.setattr(server, '_ThreadedServer', opened)
+    with pytest.raises(SystemExit) as caught:
+        server.run(host='127.0.0.1', port=0)
+    assert 'has no default model' in str(caught.value)
+    assert 'claude' not in str(caught.value)
+
+
+def test_selected_provider_is_cached_and_a_later_bad_value_does_not_exit(monkeypatch):
+    _isolate(monkeypatch)
+    built = []
+
+    def factory():
+        provider = FixtureProvider()
+        built.append(provider)
+        return provider
+
+    runtime.register_provider('fixture', factory)
+    monkeypatch.setenv(runtime.PROVIDER_ENV, 'openai')
+    with pytest.raises(SystemExit):
+        runtime.get_provider()
+    monkeypatch.setenv(runtime.PROVIDER_ENV, 'fixture')
+    selected = runtime.get_provider()
+    assert selected is built[0]
+    assert runtime.get_provider() is selected
+    assert len(built) == 1
+    monkeypatch.setenv(runtime.PROVIDER_ENV, '')
+    errors = []
+
+    def run():
+        try:
+            assert runtime.configured() is True
+            runtime.generate(
+                endpoint='speak', model='fixture-node', max_tokens=8,
+                system=(SystemBlock('s'),),
+                messages=[{'role': 'user', 'content': 'hi'}],
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    thread.join(2)
+    assert not thread.is_alive()
+    assert errors == []
+    assert len(built) == 1
+    assert built[0].calls and built[0].calls[0]['model'] == 'fixture-node'
+    runtime.reset_provider_selection()
+    with pytest.raises(SystemExit) as caught:
+        runtime.get_provider()
+    assert 'empty' in str(caught.value)
+
+
+class _NeedsSdk:
+    name = 'fixture'
+    sdk_module = 'anthropic'
+    distribution_extra = 'anthropic'
+
+    def configured(self):
+        return True
+
+    def cache_reference_tokens(self, model):
+        return None
+
+    def generate(self, **kwargs):
+        raise AssertionError('generate')
+
+
+def test_missing_sdk_is_only_the_adapters_own_module(monkeypatch):
+    real = importlib.import_module
+
+    def missing_self(name, package=None):
+        if name == 'anthropic':
+            raise ModuleNotFoundError("No module named 'anthropic'", name='anthropic')
+        return real(name, package)
+
+    monkeypatch.setattr(importlib, 'import_module', missing_self)
+    assert runtime.installation_error(_NeedsSdk()) == (
+        "NESTED_WORLDS_PROVIDER=fixture requires the optional extra "
+        "enfolded[anthropic] (package 'anthropic' is not installed)"
+    )
+
+    def missing_dependency(name, package=None):
+        if name == 'anthropic':
+            raise ModuleNotFoundError("No module named 'httpx'", name='httpx')
+        return real(name, package)
+
+    monkeypatch.setattr(importlib, 'import_module', missing_dependency)
+    with pytest.raises(ModuleNotFoundError) as missing:
+        runtime.installation_error(_NeedsSdk())
+    assert missing.value.name == 'httpx'
+    assert 'enfolded[anthropic]' not in str(missing.value)
+
+    def circular(name, package=None):
+        if name == 'anthropic':
+            raise ImportError('circular import inside anthropic')
+        return real(name, package)
+
+    monkeypatch.setattr(importlib, 'import_module', circular)
+    with pytest.raises(ImportError) as other:
+        runtime.installation_error(_NeedsSdk())
+    assert type(other.value) is ImportError
+    assert str(other.value) == 'circular import inside anthropic'
+    assert 'enfolded[anthropic]' not in str(other.value)

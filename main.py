@@ -172,7 +172,9 @@ def cmd_models(args):
     do not pass it. An unconfigured provider prints
     ``skipped: provider not configured`` and exits 1. That path does not
     call the provider. A missing SDK for the selected provider exits with
-    one line naming the optional extra, and does not probe.
+    one line naming the optional extra, and does not probe. A task that
+    would use the default, on an adapter that does not supply one, is a
+    hard problem: the report is printed and the process exits.
     """
     from consciousness.model_check import (
         check_model_configuration, format_report, probe_distinct_models,

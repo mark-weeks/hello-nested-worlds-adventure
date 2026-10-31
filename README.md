@@ -206,9 +206,11 @@ uses fal.ai. The Anthropic SDK is the optional extra `enfolded[anthropic]`;
 importing Enfolded does not require it, and `requirements.lock` still pins it
 for the production image. A different provider still requires an adapter and
 validation. No xAI, OpenAI, or Google adapter is registered. The listed model
-IDs are current code defaults, not evidence that they remain the best available
-choices or are available to every account. Verify availability and evaluate
-candidates before use. `python main.py models` prints, for each task, the
+IDs are the anthropic adapter's code defaults, not evidence that they remain
+the best available choices or are available to every account. Another adapter
+supplies its own defaults. An adapter with none fails startup when a task
+would use the default, instead of sending an anthropic id. Verify
+availability and evaluate candidates before use. `python main.py models` prints, for each task, the
 selected provider, the resolved model, and where that id came from, without a
 live call. Run it before a release or `scripts/deploy.sh`. An unknown provider
 name, a missing SDK for the selected provider, or a blank model setting fails
@@ -228,7 +230,7 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_PROVIDER` | Text-provider adapter. `anthropic` is the only built-in name. An unknown or empty value fails startup and names this variable and the valid names. Does not add other vendors. | `anthropic` |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | API key or bearer token for the Anthropic adapter: node/agent voices, moderation and typed-intention interpretation. Install the `anthropic` extra first. SDK profile credentials are also recognized; see [runtime guidance](docs/development/agent-runtime.md). | — |
 | `NESTED_WORLDS_CANONICAL_SEED` | The one shared world the hosted server serves (ADR-007); every HTTP, SSE, WebSocket, position and heartbeat path is bound to it. Set it empty, `off` or `none` only for explicit local multi-world curation. | `382` |
-| `NESTED_WORLDS_MODEL` | Shared model id for node voice, inhabitant voice, and intention interpretation when a task does not set its own. A model id does not select another provider | `claude-opus-4-8` |
+| `NESTED_WORLDS_MODEL` | Shared model id for node voice, inhabitant voice, and intention interpretation when a task does not set its own. A model id does not select another provider. The default cell is the anthropic adapter's fallback | `claude-opus-4-8` |
 | `NESTED_WORLDS_NODE_MODEL` | Optional model id for node voice only. Unset uses `NESTED_WORLDS_MODEL`. Empty or whitespace fails startup | unset |
 | `NESTED_WORLDS_INHABITANT_MODEL` | Optional model id for inhabitant voice only. Unset uses `NESTED_WORLDS_MODEL`. Empty or whitespace fails startup | unset |
 | `NESTED_WORLDS_INTENT_MODEL` | Optional model id for intention interpretation only. Unset uses `NESTED_WORLDS_MODEL`. Empty or whitespace fails startup | unset |

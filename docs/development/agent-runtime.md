@@ -11,18 +11,24 @@ Text generation uses one registered adapter. `NESTED_WORLDS_PROVIDER` selects
 it by name. Unset means `anthropic`, the only built-in adapter, so an existing
 deployment does not change. The value is stripped and lowercased. An empty
 value, or a name that is not registered, fails startup with one line that
-names `NESTED_WORLDS_PROVIDER` and the valid names. There is no failover onto
-another provider. A per-task provider is not a setting: every text task uses
-the selected adapter. Per-task settings still choose only the model id.
+names `NESTED_WORLDS_PROVIDER` and the valid names. The first successful
+selection is kept for the process. A later change to that variable does not
+reselect the adapter and does not raise from a request.
+`reset_provider_selection()` clears the cache; tests use it. There is no
+failover onto another provider. A per-task provider is not a setting: every
+text task uses the selected adapter. Per-task settings still choose only the
+model id.
 
 The Anthropic SDK is the optional extra `enfolded[anthropic]`
 (`anthropic>=0.40.0`). Importing Enfolded does not import it. An adapter that
 does not declare an SDK, including a fixture registered in tests, runs
 without one.
 `python main.py serve` and `python main.py models` exit before a port opens
-when the selected adapter's SDK is missing. The line names the extra. The
-production image still installs `requirements.lock`, which pins that SDK. A
-bare `pip install enfolded` does not.
+when the selected adapter's own SDK module is missing. The line names the
+extra. Only a `ModuleNotFoundError` for that module becomes the line. A
+missing dependency of the SDK, or any other import error, keeps its own
+message. The production image still installs `requirements.lock`, which pins
+that SDK. A bare `pip install enfolded` does not.
 
 Each text task resolves its own model id through
 `consciousness.runtime.model_for(task)`. Call sites pass a task name; they do
@@ -30,10 +36,10 @@ not read environment variables.
 
 | Task name | Setting | When unset |
 |---|---|---|
-| `node` (node voice) | `NESTED_WORLDS_NODE_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
-| `inhabitant` (inhabitant voice) | `NESTED_WORLDS_INHABITANT_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
-| `intent` (intention interpretation) | `NESTED_WORLDS_INTENT_MODEL` | `NESTED_WORLDS_MODEL`, then `claude-opus-4-8` |
-| `moderation` | `NESTED_WORLDS_MODERATION_MODEL` | `claude-haiku-4-5` |
+| `node` (node voice) | `NESTED_WORLDS_NODE_MODEL` | `NESTED_WORLDS_MODEL`, then the selected adapter's own default |
+| `inhabitant` (inhabitant voice) | `NESTED_WORLDS_INHABITANT_MODEL` | `NESTED_WORLDS_MODEL`, then the selected adapter's own default |
+| `intent` (intention interpretation) | `NESTED_WORLDS_INTENT_MODEL` | `NESTED_WORLDS_MODEL`, then the selected adapter's own default |
+| `moderation` | `NESTED_WORLDS_MODERATION_MODEL` | the selected adapter's own moderation default |
 
 An unset value uses the fallback in the table. `model_for` also treats a
 whitespace-only value as unset, so a call still falls back. The startup check
@@ -41,12 +47,22 @@ does not: a variable set to empty or whitespace is a misconfiguration and
 `python main.py serve` refuses to boot. A blank setting used to fall through
 at boot. It now fails startup. Moderation does not inherit the shared voice
 model, and its id is checked even when `NESTED_WORLDS_DISABLE_MODERATION=1`.
-With no per-task settings, node voice, inhabitant voice, and intention keep
-using `NESTED_WORLDS_MODEL`, so an existing deployment that leaves those
-variables unset does not change. Run `python main.py models` with the
-release environment before a release or `scripts/deploy.sh`.
-The code defaults above are configuration, not a verified recommendation or a
-guarantee of availability. Confirm the effective environment before a live run.
+Each adapter supplies those defaults with an optional `default_model(task)`.
+The method is not part of `TextProvider`. The anthropic adapter returns
+`claude-opus-4-8` for node voice, inhabitant voice, and intention, and
+`claude-haiku-4-5` for moderation. Another adapter does not inherit those
+ids. If a task would use `source=default` and the adapter does not supply a
+non-blank id, `model_for` returns an empty id, `python main.py models`
+reports a hard problem, and `python main.py serve` exits before it opens a
+port. A task setting, or `NESTED_WORLDS_MODEL` for every task except
+moderation, still overrides the adapter default. With no per-task settings
+on the anthropic adapter, node voice, inhabitant voice, and intention keep
+using `NESTED_WORLDS_MODEL`, then `claude-opus-4-8`, so an existing
+deployment that leaves those variables unset does not change. Run
+`python main.py models` with the release environment before a release or
+`scripts/deploy.sh`. The anthropic code defaults are configuration, not a
+verified recommendation or a guarantee of availability. Confirm the
+effective environment before a live run.
 
 The current adapter uses the SDK's resolved credentials: `ANTHROPIC_API_KEY`,
 `ANTHROPIC_AUTH_TOKEN` (bearer token), or its local profile/federation
@@ -129,9 +145,13 @@ getattr, and does not name a provider. The shared check rejects only empty
 text, whitespace, control characters, and an id longer than 256 characters.
 Character rules such as `@`, `+`, and `~` stay on the adapter.
 `consciousness/anthropic_provider.py` implements the only built-in adapter.
-`get_provider()` loads it when `NESTED_WORLDS_PROVIDER` is unset or `anthropic`.
+`get_provider()` loads it when `NESTED_WORLDS_PROVIDER` is unset or `anthropic`,
+and keeps that adapter for the process.
 The module does not import the SDK; the client import stays inside the
 adapter, and startup reports a missing extra before it asks for a client.
+Only a `ModuleNotFoundError` for the adapter's own SDK module becomes that
+line. A missing dependency of the SDK, or any other import error, keeps its
+own message.
 Its validator accepts the known Claude ids and a dated snapshot of one of
 them. Any other usable id that names Claude warns, including mixed case,
 `anthropic/claude-…`, `….anthropic.claude-…-v1:0`, and a `:beta` suffix, so
