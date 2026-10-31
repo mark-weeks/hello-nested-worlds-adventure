@@ -132,6 +132,9 @@ def _redact(text: str, secrets: tuple[str, ...]) -> str:
 
 
 def _display_model(model: str, secrets: tuple[str, ...]) -> str:
+    # An empty id is the absence of an id, not a hidden secret.
+    if model == "":
+        return "(none)"
     if not model or _embeds_secret(model, secrets):
         return "[redacted]"
     if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in model):

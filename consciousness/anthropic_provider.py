@@ -8,12 +8,25 @@ from typing import Any
 
 from consciousness.runtime import (
     Completion,
-    DEFAULT_MODERATION_MODEL,
-    DEFAULT_VOICE_MODEL,
     MODERATION_TASK,
+    SHARED_MODEL_ENV,
     SystemBlock,
     TokenUsage,
 )
+
+
+# This adapter's ids. They stay here so shared code does not name them.
+# Another adapter does not inherit them. ``model_for`` asks ``default_model``.
+DEFAULT_VOICE_MODEL = "claude-opus-4-8"
+DEFAULT_MODERATION_MODEL = "claude-haiku-4-5"
+
+# Import-time shared id. Production calls use ``runtime.model_for``, which
+# reads the environment on each call and then ``default_model``. Blank or
+# whitespace-only values are unset. Nothing in the request path reads this
+# snapshot; it keeps the historical import-time alias on this adapter.
+_shared_model = os.environ.get(SHARED_MODEL_ENV)
+_shared_model = _shared_model.strip() if isinstance(_shared_model, str) else ""
+VOICE_MODEL = _shared_model or DEFAULT_VOICE_MODEL
 
 
 # Claude API cache minima, verified 2026-10-05:

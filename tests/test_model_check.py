@@ -5,7 +5,7 @@ import logging
 import pytest
 
 from consciousness import runtime
-from consciousness.anthropic_provider import AnthropicProvider
+from consciousness.anthropic_provider import AnthropicProvider, DEFAULT_VOICE_MODEL
 from consciousness.model_check import (
     check_model_configuration, enforce_model_configuration, format_report,
     probe_distinct_models,
@@ -224,7 +224,7 @@ def test_dated_unknown_snapshot_warns_once(monkeypatch, caplog):
 def test_blank_setting_fails_startup_and_model_for_still_falls_back(monkeypatch, blank, kind):
     _clear(monkeypatch)
     monkeypatch.setenv(runtime.NODE_MODEL_ENV, blank)
-    assert runtime.model_for(runtime.NODE_TASK) == runtime.DEFAULT_VOICE_MODEL
+    assert runtime.model_for(runtime.NODE_TASK) == DEFAULT_VOICE_MODEL
     with pytest.raises(SystemExit) as caught:
         enforce_model_configuration()
     message = str(caught.value)

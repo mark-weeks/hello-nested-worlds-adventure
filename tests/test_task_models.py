@@ -5,6 +5,10 @@ import pytest
 
 import consciousness
 from consciousness import interventions, runtime
+from consciousness.anthropic_provider import (
+    DEFAULT_MODERATION_MODEL,
+    DEFAULT_VOICE_MODEL,
+)
 from multiverse.node import SpatialNode
 from server import model_banner
 
@@ -46,10 +50,10 @@ def _clear(monkeypatch):
 def test_defaults_match_the_existing_voice_and_moderation_ids(monkeypatch):
     _clear(monkeypatch)
     assert runtime.model_for(runtime.NODE_TASK) == 'claude-opus-4-8'
-    assert runtime.model_for(runtime.INHABITANT_TASK) == runtime.DEFAULT_VOICE_MODEL
-    assert runtime.model_for(runtime.INTENT_TASK) == runtime.DEFAULT_VOICE_MODEL
+    assert runtime.model_for(runtime.INHABITANT_TASK) == DEFAULT_VOICE_MODEL
+    assert runtime.model_for(runtime.INTENT_TASK) == DEFAULT_VOICE_MODEL
     assert runtime.model_for(runtime.MODERATION_TASK) == 'claude-haiku-4-5'
-    assert runtime.model_for(runtime.MODERATION_TASK) == runtime.DEFAULT_MODERATION_MODEL
+    assert runtime.model_for(runtime.MODERATION_TASK) == DEFAULT_MODERATION_MODEL
 
 
 def test_unset_tasks_use_the_shared_model_and_moderation_does_not(monkeypatch):
@@ -58,7 +62,7 @@ def test_unset_tasks_use_the_shared_model_and_moderation_does_not(monkeypatch):
     assert runtime.model_for(runtime.NODE_TASK) == 'shared-model-id'
     assert runtime.model_for(runtime.INHABITANT_TASK) == 'shared-model-id'
     assert runtime.model_for(runtime.INTENT_TASK) == 'shared-model-id'
-    assert runtime.model_for(runtime.MODERATION_TASK) == runtime.DEFAULT_MODERATION_MODEL
+    assert runtime.model_for(runtime.MODERATION_TASK) == DEFAULT_MODERATION_MODEL
 
 
 @pytest.mark.parametrize('task,env_name', [
@@ -74,7 +78,7 @@ def test_one_override_does_not_change_the_other_tasks(monkeypatch, task, env_nam
         runtime.NODE_TASK, runtime.INHABITANT_TASK, runtime.INTENT_TASK)}
     assert resolved[task] == 'only-this-task'
     assert all(model == 'shared-model-id' for name, model in resolved.items() if name != task)
-    assert runtime.model_for(runtime.MODERATION_TASK) == runtime.DEFAULT_MODERATION_MODEL
+    assert runtime.model_for(runtime.MODERATION_TASK) == DEFAULT_MODERATION_MODEL
 
 
 def test_moderation_override_does_not_change_voice_or_intention(monkeypatch):
@@ -94,19 +98,19 @@ def test_blank_task_and_shared_values_are_unset(monkeypatch, blank):
     monkeypatch.setenv(runtime.NODE_MODEL_ENV, blank)
     monkeypatch.setenv(runtime.MODERATION_MODEL_ENV, blank)
     assert runtime.model_for(runtime.NODE_TASK) == 'shared-model-id'
-    assert runtime.model_for(runtime.MODERATION_TASK) == runtime.DEFAULT_MODERATION_MODEL
+    assert runtime.model_for(runtime.MODERATION_TASK) == DEFAULT_MODERATION_MODEL
     monkeypatch.setenv(runtime.SHARED_MODEL_ENV, blank)
     monkeypatch.delenv(runtime.NODE_MODEL_ENV, raising=False)
-    assert runtime.model_for(runtime.NODE_TASK) == runtime.DEFAULT_VOICE_MODEL
-    assert runtime.model_for(runtime.INTENT_TASK) == runtime.DEFAULT_VOICE_MODEL
+    assert runtime.model_for(runtime.NODE_TASK) == DEFAULT_VOICE_MODEL
+    assert runtime.model_for(runtime.INTENT_TASK) == DEFAULT_VOICE_MODEL
 
 
 def test_override_stands_alone_when_the_shared_setting_is_absent(monkeypatch):
     _clear(monkeypatch)
     monkeypatch.setenv(runtime.INTENT_MODEL_ENV, 'intent-only')
     assert runtime.model_for(runtime.INTENT_TASK) == 'intent-only'
-    assert runtime.model_for(runtime.NODE_TASK) == runtime.DEFAULT_VOICE_MODEL
-    assert runtime.model_for(runtime.INHABITANT_TASK) == runtime.DEFAULT_VOICE_MODEL
+    assert runtime.model_for(runtime.NODE_TASK) == DEFAULT_VOICE_MODEL
+    assert runtime.model_for(runtime.INHABITANT_TASK) == DEFAULT_VOICE_MODEL
 
 
 def test_surrounding_whitespace_is_stripped_from_a_model_id(monkeypatch):
@@ -178,11 +182,11 @@ def test_configured_models_and_banner_report_ids_without_secrets(monkeypatch):
         runtime.NODE_TASK: 'node-id',
         runtime.INHABITANT_TASK: 'shared-id',
         runtime.INTENT_TASK: 'shared-id',
-        runtime.MODERATION_TASK: runtime.DEFAULT_MODERATION_MODEL,
+        runtime.MODERATION_TASK: DEFAULT_MODERATION_MODEL,
     }
     text = '\n'.join(model_banner())
     assert 'node-id' in text and 'shared-id' in text
-    assert runtime.DEFAULT_MODERATION_MODEL in text
+    assert DEFAULT_MODERATION_MODEL in text
     assert 'sk-test-secret' not in text and 'bearer-test-secret' not in text
     assert 'ANTHROPIC' not in text
 

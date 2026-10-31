@@ -198,31 +198,127 @@ class TestActEndpoint:
         # The outward cascade is on the queue, not already everywhere.
         assert persistence.pending_causal_hops(42) >= 2
 
-    def test_act_at_the_horizon_stages_the_same_first_ring(self, srv):
-        # Depth 6 is a Region's own depth and the explorer's default. The
-        # client's tree is cut at the Region there, so the act used to queue
-        # only the upward hop (1) while the same act at depth 7 queued the
-        # parent and both rooms (3).
+    def test_rejected_horizon_act_does_not_rebuild(self, srv, monkeypatch):
+        # A wrong verb and an uninvited request_id return before the ring.
+        # The client's tree is still built once. An accepted act at the same
+        # horizon builds the next level too, so the counter is real.
+        from server import handlers
         from multiverse import store
+
+        calls = []
+        real = handlers._build_world
+
+        def counting(params):
+            calls.append(int(params.get("depth", 6)))
+            return real(params)
+
+        monkeypatch.setattr(handlers, "_build_world", counting)
+        region = store.world_tree(seed=63, max_depth=7)
+        while region.level != "Region":
+            region = region.children[0]
+        body = {
+            "seed": 63, "depth": 6, "node_name": region.name, "player_name": "Ada",
+        }
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            self._post(srv, "/act", {**body, "verb": "mend"})
+        assert exc.value.code == 400
+        assert calls == [6]
+
+        calls.clear()
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            self._post(srv, "/act", {**body, "request_id": "horizon-403"})
+        assert exc.value.code == 403
+        assert calls == [6]
+
+        calls.clear()
+        data = self._post(srv, "/act", body)
+        assert data["action_status"] == "accepted", data
+        assert calls == [6, 7]
+
+    def test_act_at_the_horizon_stages_the_same_first_ring(self, srv, monkeypatch):
+        # Every level, on more than one seed, at every depth where the place
+        # is in the client's view: 1, the place's own depth, one deeper,
+        # and 6, 7, and 11. A Region at depth 6 used to queue only the
+        # upward hop. A place below the view is not an /act target.
+        from copy import copy
+
+        from multiverse import store
+        from multiverse.generator import LEVELS
+        from multiverse.verbs import VERBS, apply_verb
+        from server import guard, rooms as rooms_mod
+
+        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "500")
+
+        def first_that_acts(root):
+            found = {}
+
+            def will_act(node):
+                trial = copy(node)
+                trial.properties = dict(node.properties)
+                changed, _flavor = apply_verb(trial, VERBS[node.level], token="t:x")
+                return bool(changed)
+
+            def walk(node):
+                if node.level not in found and will_act(node):
+                    found[node.level] = node
+                for child in node.children:
+                    walk(child)
+
+            walk(root)
+            return found
+
+        def ring(node):
+            hops = []
+            if node.parent is not None:
+                hops.append((node.parent.name, "up"))
+            hops.extend((child.name, "down") for child in node.children)
+            return sorted(hops)
 
         def queued(seed):
             ids = persistence.due_work("causal_queue", 64, world_seed=seed)
             rows = [persistence.inspect_work("causal_queue", work_id) for work_id in ids]
             return sorted((row["node_name"], row["direction"]) for row in rows)
 
-        for seed, depth in ((61, 6), (62, 7)):
-            region = store.world_tree(seed=seed, max_depth=7)
-            while region.level != "Region":
-                region = region.children[0]
-            assert len(region.children) == 2
-            data = self._post(srv, "/act", {
-                "seed": seed, "depth": depth, "node_name": region.name,
-                "player_name": "Ada",
-            })
-            assert data["action_status"] == "accepted", data
-            assert queued(seed) == sorted(
-                [(region.parent.name, "up")]
-                + [(child.name, "down") for child in region.children]), depth
+        def wipe(seed):
+            rooms_mod.clear_rooms()
+            with persistence._connect() as conn:
+                conn.execute("DELETE FROM causal_queue WHERE world_seed = ?", (seed,))
+                conn.execute("DELETE FROM world_mutations WHERE world_seed = ?", (seed,))
+                conn.execute(
+                    "DELETE FROM node_runtime_state WHERE world_seed = ?", (seed,))
+                conn.execute(
+                    "DELETE FROM node_property_cache_meta WHERE world_seed = ?", (seed,))
+
+        def place_depth(name):
+            suffix = name.rpartition("-")[2]
+            return len(suffix) if suffix.isdigit() else 1
+
+        def depths_for(own):
+            wanted = {1, own, own + 1, 6, 7, 11}
+            return sorted(depth for depth in wanted if own <= depth <= 11)
+
+        for seed in (81, 82):
+            by_level = first_that_acts(store.world_tree(seed=seed, max_depth=11))
+            assert set(by_level) == set(LEVELS), (seed, sorted(by_level))
+            for level in LEVELS:
+                node = by_level[level]
+                own = place_depth(node.name)
+                depths = depths_for(own)
+                assert 11 in depths
+                if own <= 6:
+                    assert 6 in depths and 7 in depths
+                seen = []
+                for depth in depths:
+                    wipe(seed)
+                    data = self._post(srv, "/act", {
+                        "seed": seed, "depth": depth, "node_name": node.name,
+                        "player_name": "Ada",
+                    })
+                    got = queued(seed)
+                    assert data["action_status"] == "accepted", (seed, level, depth, data)
+                    assert got == ring(node), (seed, level, depth, got, ring(node))
+                    seen.append(got)
+                assert seen == [seen[0]] * len(seen), (seed, level)
 
     def test_act_rejects_the_wrong_verb_for_the_scale(self, srv):
         root = generate_node_hierarchy(seed=42, max_depth=6)

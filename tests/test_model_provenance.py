@@ -2,6 +2,7 @@
 from contextlib import closing
 from copy import deepcopy
 import json
+import logging
 from pathlib import Path
 import shutil
 import sqlite3
@@ -78,7 +79,8 @@ def _enable(monkeypatch, stub):
     monkeypatch.delenv("NESTED_WORLDS_MUTATION_TTL_DAYS", raising=False)
     monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "100")
     monkeypatch.setenv(guard.ANTHROPIC_PER_USER_CAP_ENV, "100")
-    monkeypatch.setattr(runtime, "VOICE_MODEL", "import-time-alias-not-stored")
+    monkeypatch.setattr(
+        "consciousness.anthropic_provider.VOICE_MODEL", "import-time-alias-not-stored")
     for name in (runtime.NODE_MODEL_ENV, runtime.INHABITANT_MODEL_ENV,
                  runtime.INTENT_MODEL_ENV, runtime.SHARED_MODEL_ENV,
                  runtime.MODERATION_MODEL_ENV):
@@ -350,7 +352,7 @@ def test_chronicle_row_delete_removes_provenance():
         "provider": "fixture", "resolved_model": SERVED[INHABITANT_ALIAS]}
 
 
-def test_authored_fallback_records_no_provider(http, monkeypatch):
+def test_authored_fallback_records_no_provider(http, monkeypatch, caplog):
     import consciousness
     from consciousness import runtime
     stub = Stub(available=False)
@@ -364,10 +366,17 @@ def test_authored_fallback_records_no_provider(http, monkeypatch):
 
     stub.available = True
     stub.fail = True
+    caplog.set_level(logging.WARNING, logger="nested_worlds")
     status, body, _ = http("/speak", body={"node_name": node.name, "message": "hello"})
     assert status == 200 and body["ai"] is False
     assert body["response"] == consciousness.fallback_voice(node)
     assert _rows() == []
+    fallbacks = [
+        record.getMessage() for record in caplog.records
+        if record.name == "nested_worlds" and record.getMessage().startswith("speak fallback")
+    ]
+    assert fallbacks == [f"speak fallback ({node.name}): RuntimeError"]
+    assert "upstream detail" not in fallbacks[0]
 
     def authored(*args, **kwargs):
         return consciousness.fallback_voice(node)

@@ -20,7 +20,7 @@ import sys
 import time
 from unittest.mock import patch
 
-from consciousness import runtime
+from consciousness import anthropic_provider, runtime
 from consciousness.runtime import Completion, TokenUsage
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -323,8 +323,10 @@ def task_routing(provider, model):
     # Install the candidate id on the shared setting and clear per-task
     # overrides. An operator shell must not redirect the candidate's call.
     # Blank values are unset, so the three voice/intention tasks use `model`.
+    # model_for asks get_provider for a default. The candidate id is the
+    # environment below, so this patched provider is not asked for one.
     with patch.object(runtime, "get_provider", return_value=provider), \
-         patch.object(runtime, "VOICE_MODEL", model), \
+         patch.object(anthropic_provider, "VOICE_MODEL", model), \
          patch.dict(os.environ, {runtime.SHARED_MODEL_ENV: model,
                                  runtime.NODE_MODEL_ENV: "",
                                  runtime.INHABITANT_MODEL_ENV: "",

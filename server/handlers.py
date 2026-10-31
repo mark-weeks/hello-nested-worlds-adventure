@@ -132,6 +132,10 @@ def _with_child_ring(seed: int, node: SpatialNode) -> SpatialNode:
     """
     if node.children or _place_depth(node.name) >= guard.MAX_DEPTH:
         return node
+    # One indexed child read would attach bare born rows: no parent link,
+    # ripple, or property overlay. This rebuild is the same hydrated tree
+    # the rest of the request already uses, for a horizon leaf and for a
+    # place one level below the view.
     deeper, _, _ = _build_world({
         "seed": seed,
         "depth": min(_place_depth(node.name) + 1, guard.MAX_DEPTH),
@@ -159,6 +163,8 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
         return _with_child_ring(seed, target)
     if _resolve_node(seed, node_name) is None:
         return None
+    # Same one-level rebuild as ``_with_child_ring`` (hydrated tree, not
+    # bare child rows). The place was not in the client's view at all.
     deeper, _, _ = _build_world({
         "seed": seed,
         "depth": min(_place_depth(node_name) + 1, guard.MAX_DEPTH),
@@ -1225,7 +1231,9 @@ class Handler(BaseHTTPRequestHandler):
                 # The world goes quiet in character — no key, SDK failure,
                 # or network error must never break the fiction with an
                 # HTTP error or a stack trace.
-                _log.warning("speak fallback (%s): %s", node.name, exc)
+                # The class only, matching the moderation hold. The message
+                # can carry a credential or the player's words.
+                _log.warning("speak fallback (%s): %s", node.name, type(exc).__name__)
                 self._send_json({
                     "response": consciousness.fallback_voice(node),
                     "ai": False,
@@ -1752,12 +1760,15 @@ class Handler(BaseHTTPRequestHandler):
 
         # Tree resolution (not _resolve_node): staging the cascade needs the
         # node's real parent AND children arms. At the client's horizon the
-        # node has no children in that tree, so it takes the same one-level
-        # ring as a puzzle solve.
+        # node has no children in that tree. The one-level ring is attached
+        # inside apply(), after the verb check and any request_id refusal
+        # or replay, so a rejected act does not rebuild the world.
+        # ``verb_for_level`` reads ``target.level``, which the ring does not
+        # change. The response uses the name and level, which it does not
+        # change either.
         target = find_node(root, node_name) if node_name else None
         if target is None:
             return self._send_error("no such place in this world", 404)
-        target = _with_child_ring(seed, target)
 
         verb = verb_for_level(target.level)
         if verb is None:
@@ -1772,8 +1783,12 @@ class Handler(BaseHTTPRequestHandler):
         if player_name:
             payload["actor"] = player_name
         def apply():
+            # Only a request that will perform the act pays for the ring.
+            # A wrong verb already returned. ``identify`` raises before
+            # this runs, and a stored receipt returns before ``apply``.
+            acted_on = _with_child_ring(seed, target)
             result, _staged = accept_verb(
-                seed, target, verb, token, {"verb": verb.name}, payload,
+                seed, acted_on, verb, token, {"verb": verb.name}, payload,
                 player_name=player_name, actor_identity=_actor_identity(user_key, player_name),
                 maturation_actor=player_name)
             return result

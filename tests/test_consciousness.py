@@ -1,7 +1,7 @@
 """Tests for the consciousness module: thread-safety, level voicing, etc."""
 from __future__ import annotations
 
-from consciousness.anthropic_provider import provider
+from consciousness.anthropic_provider import DEFAULT_VOICE_MODEL, provider
 
 import sys
 import threading
@@ -194,7 +194,7 @@ class TestSpeakSystemBlocks:
 
     def test_adapter_covers_default_cache_reference(self):
         # Catch a default change without corresponding adapter metadata.
-        assert provider.cache_reference_tokens(runtime.DEFAULT_VOICE_MODEL) is not None
+        assert provider.cache_reference_tokens(DEFAULT_VOICE_MODEL) is not None
 
     def test_unknown_level_still_sends_world_bible(self, captured_speak_call):
         node = SpatialNode(name="Drift", level="Hyperspace", properties={})
@@ -290,7 +290,8 @@ class TestAgentBibleStructure:
 
 class TestBibleCacheEffectiveness:
     def test_cached_prefix_estimates_meet_default_reference(self, monkeypatch):
-        monkeypatch.setattr(runtime, 'VOICE_MODEL', runtime.DEFAULT_VOICE_MODEL)
+        monkeypatch.setattr(
+            'consciousness.anthropic_provider.VOICE_MODEL', DEFAULT_VOICE_MODEL)
         for name in (runtime.SHARED_MODEL_ENV, runtime.NODE_MODEL_ENV,
                      runtime.INHABITANT_MODEL_ENV, runtime.INTENT_MODEL_ENV):
             monkeypatch.delenv(name, raising=False)

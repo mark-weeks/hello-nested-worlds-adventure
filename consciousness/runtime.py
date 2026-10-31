@@ -22,12 +22,6 @@ import threading
 from typing import Callable, Protocol
 
 
-# The anthropic adapter's defaults. Another adapter does not inherit them.
-# ``model_for`` asks the selected adapter. These constants keep one spelling
-# for that adapter and for the import-time ``VOICE_MODEL`` snapshot.
-DEFAULT_VOICE_MODEL = "claude-opus-4-8"
-DEFAULT_MODERATION_MODEL = "claude-haiku-4-5"
-
 SHARED_MODEL_ENV = "NESTED_WORLDS_MODEL"
 NODE_MODEL_ENV = "NESTED_WORLDS_NODE_MODEL"
 INHABITANT_MODEL_ENV = "NESTED_WORLDS_INHABITANT_MODEL"
@@ -57,13 +51,6 @@ def _nonblank(value: str | None) -> str | None:
         return None
     text = value.strip()
     return text or None
-
-
-# Import-time shared id. Calls use model_for(), which reads the environment
-# on each call and then the selected adapter's default. Blank or
-# whitespace-only values are unset. This snapshot uses the anthropic voice
-# default when the shared setting is unset at import.
-VOICE_MODEL = _nonblank(os.environ.get(SHARED_MODEL_ENV)) or DEFAULT_VOICE_MODEL
 
 
 SOURCE_TASK_ENV = "task env"
@@ -504,9 +491,10 @@ def installation_error(provider: TextProvider) -> str | None:
     """One-line failure when the selected adapter's own SDK is not installed.
 
     Adapters that do not set ``sdk_module`` need no SDK. Only a
-    ``ModuleNotFoundError`` whose ``name`` is that module becomes the
-    one-line failure. A missing dependency of the SDK, or any other
-    ``ImportError``, propagates with its own message. The line names
+    ``ModuleNotFoundError`` whose ``name`` is that module, or the root
+    package when the module name is dotted, becomes the one-line failure.
+    A missing dependency of the SDK, or any other ``ImportError``,
+    propagates with its own message. The line names
     ``NESTED_WORLDS_PROVIDER`` and the optional extra. It does not include
     a credential or make a model call.
     """
@@ -517,7 +505,8 @@ def installation_error(provider: TextProvider) -> str | None:
     try:
         importlib.import_module(module_name)
     except ModuleNotFoundError as exc:
-        if exc.name != module_name:
+        root = module_name.split(".", 1)[0]
+        if exc.name not in (module_name, root):
             raise
         extra = getattr(provider, "distribution_extra", None)
         if not isinstance(extra, str) or not extra.strip():

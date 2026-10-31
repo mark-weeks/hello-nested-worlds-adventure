@@ -247,13 +247,16 @@ class TestReadBudget:
 
     def test_stalled_second_request_gets_408(self, limited, monkeypatch):
         # The first request finishes, then this client waits before sending
-        # the next one and never sends its body. A deadline armed once at
-        # accept is already mostly spent, so the 408 would arrive before
-        # 0.6s. A per-request budget starts when the second request's first
-        # byte arrives, so the wait plus that budget runs past 0.6s.
-        # Production sends Connection: close; this test keeps the socket open.
+        # the next one and never sends its body. The clock below starts
+        # before that wait, and the server's keep-alive wait starts then
+        # too. A 1.0s budget leaves room for a short client stall. A
+        # deadline armed once at accept is already partly spent, so the
+        # 408 arrives before 1.1s. A per-request budget starts when the
+        # second request's first byte arrives, so the wait plus that
+        # budget runs past 1.1s. Production sends Connection: close; this
+        # test keeps the socket open.
         from server.handlers import Handler
-        monkeypatch.setenv(guard.HTTP_READ_TIMEOUT_ENV, "0.5")
+        monkeypatch.setenv(guard.HTTP_READ_TIMEOUT_ENV, "1.0")
         real = Handler._send_security_headers
 
         def reopen_unless_client_closes(self):
@@ -283,8 +286,8 @@ class TestReadBudget:
         elapsed = time.monotonic() - started
         assert status == 408
         assert json.loads(body) == {"error": "request timed out"}
-        assert elapsed > 0.6
-        assert elapsed < 1.4
+        assert elapsed > 1.1
+        assert elapsed < 2.2
         assert _health(limited) == 200
 
 

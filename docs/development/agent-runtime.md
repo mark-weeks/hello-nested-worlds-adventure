@@ -25,8 +25,9 @@ does not declare an SDK, including a fixture registered in tests, runs
 without one.
 `python main.py serve` and `python main.py models` exit before a port opens
 when the selected adapter's own SDK module is missing. The line names the
-extra. Only a `ModuleNotFoundError` for that module becomes the line. A
-missing dependency of the SDK, or any other import error, keeps its own
+extra. Only a `ModuleNotFoundError` whose name is that module, or the root
+package when the module name is dotted, becomes the line. A missing
+dependency of the SDK, or any other import error, keeps its own
 message. The production image still installs `requirements.lock`, which pins
 that SDK. A bare `pip install enfolded` does not.
 
@@ -154,7 +155,8 @@ Character rules such as `@`, `+`, and `~` stay on the adapter.
 and keeps that adapter for the process.
 The module does not import the SDK; the client import stays inside the
 adapter, and startup reports a missing extra before it asks for a client.
-Only a `ModuleNotFoundError` for the adapter's own SDK module becomes that
+Only a `ModuleNotFoundError` whose name is the adapter's own SDK module,
+or the root package when that name is dotted, becomes that
 line. A missing dependency of the SDK, or any other import error, keeps its
 own message.
 Its validator accepts the known Claude ids and a dated snapshot of one of

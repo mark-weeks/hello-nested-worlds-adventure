@@ -504,6 +504,8 @@ def test_fixture_without_defaults_fails_startup_and_does_not_send_claude_ids(
     assert 'source=default' in printed
     assert 'claude-opus-4-8' not in printed
     assert 'claude-haiku-4-5' not in printed
+    assert 'model=(none)' in printed
+    assert 'model=[redacted]' not in printed
     monkeypatch.setattr(server.observability, 'setup', lambda: None)
     monkeypatch.setattr(server.guard, 'canonical_seed', lambda: None)
 
@@ -635,6 +637,58 @@ def test_missing_sdk_is_only_the_adapters_own_module(monkeypatch):
     assert 'enfolded[anthropic]' not in str(other.value)
 
 
+def test_dotted_sdk_module_matches_root_or_full_name(monkeypatch):
+    real = importlib.import_module
+
+    class Dotted:
+        name = 'lab'
+        sdk_module = 'googlex.genai'
+        distribution_extra = 'lab'
+
+        def configured(self):
+            return True
+
+        def cache_reference_tokens(self, model):
+            return None
+
+        def generate(self, **kwargs):
+            raise AssertionError('generate')
+
+    def missing_root(name, package=None):
+        if name == 'googlex.genai':
+            raise ModuleNotFoundError("No module named 'googlex'", name='googlex')
+        return real(name, package)
+
+    monkeypatch.setattr(importlib, 'import_module', missing_root)
+    assert runtime.installation_error(Dotted()) == (
+        "NESTED_WORLDS_PROVIDER=lab requires the optional extra "
+        "enfolded[lab] (package 'googlex.genai' is not installed)"
+    )
+
+    def missing_full(name, package=None):
+        if name == 'googlex.genai':
+            raise ModuleNotFoundError(
+                "No module named 'googlex.genai'", name='googlex.genai')
+        return real(name, package)
+
+    monkeypatch.setattr(importlib, 'import_module', missing_full)
+    assert runtime.installation_error(Dotted()) == (
+        "NESTED_WORLDS_PROVIDER=lab requires the optional extra "
+        "enfolded[lab] (package 'googlex.genai' is not installed)"
+    )
+
+    def missing_dependency(name, package=None):
+        if name == 'googlex.genai':
+            raise ModuleNotFoundError("No module named 'httpx'", name='httpx')
+        return real(name, package)
+
+    monkeypatch.setattr(importlib, 'import_module', missing_dependency)
+    with pytest.raises(ModuleNotFoundError) as missing:
+        runtime.installation_error(Dotted())
+    assert missing.value.name == 'httpx'
+    assert 'enfolded[lab]' not in str(missing.value)
+
+
 def _budget_spies(monkeypatch):
     from server import guard
     charged = []
@@ -672,7 +726,7 @@ def test_blank_model_is_refused_before_any_budget(monkeypatch):
         messages=[{'role': 'user', 'content': 'hi'}],
         user_key='ada', voice_budget=True,
     )
-    for model in ('', '   ', None):
+    for model in ('', '   ', None, 5, ['x']):
         with pytest.raises(runtime.UnusableModelId):
             runtime.generate(**{**kwargs, 'model': model})
     assert charged == []
