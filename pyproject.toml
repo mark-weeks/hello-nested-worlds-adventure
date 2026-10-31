@@ -17,7 +17,6 @@ requires-python = ">=3.11,<3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"]
 dependencies = [
-    "anthropic>=0.40.0",
     "sentry-sdk>=2.0",
 ]
 
@@ -25,8 +24,16 @@ dependencies = [
 enfolded = "main:main"
 
 [project.optional-dependencies]
+# The default text provider. Importing Enfolded does not need this.
+# `pip install -r requirements.lock` still installs the pinned SDK for
+# the production image. A bare wheel install needs the extra.
+anthropic = [
+    "anthropic>=0.40.0",
+]
 dev = [
     "pytest>=8.0",
+    # Adapter tests construct the Anthropic client boundary.
+    "anthropic>=0.40.0",
     # Real RFC 6455 client used as an executable conformance spec for the
     # hand-rolled /ws server (tests/test_ws_conformance.py). >=13 for the
     # sync client's recv(timeout=...) the test relies on.

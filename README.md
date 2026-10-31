@@ -200,15 +200,20 @@ quality, capability, reliability and cost for each task. No vendor or model fami
 has a permanent preference. See [ADR-034](docs/decisions/ADR-034-provider-and-model-optionality.md)
 and the [runtime guidance](docs/development/agent-runtime.md).
 
-Today, text generation uses Anthropic and optional image generation uses fal.ai.
-The environment variables below configure those implementations; a different
-provider still requires an adapter and validation. The listed model IDs are current
-code defaults, not evidence that they remain the best available choices or are
-available to every account. Verify availability and evaluate candidates before use.
-`python main.py models` prints the resolved provider and model for each task
-without a live call. Run it before a release or `scripts/deploy.sh`. A blank
-setting fails startup. The moderation id is checked even when
-`NESTED_WORLDS_DISABLE_MODERATION=1`. On the current adapter, an id that does
+Today, text generation uses the adapter named by `NESTED_WORLDS_PROVIDER`.
+Unset means `anthropic`, the only built-in adapter. Optional image generation
+uses fal.ai. The Anthropic SDK is the optional extra `enfolded[anthropic]`;
+importing Enfolded does not require it, and `requirements.lock` still pins it
+for the production image. A different provider still requires an adapter and
+validation. No xAI, OpenAI, or Google adapter is registered. The listed model
+IDs are current code defaults, not evidence that they remain the best available
+choices or are available to every account. Verify availability and evaluate
+candidates before use. `python main.py models` prints, for each task, the
+selected provider, the resolved model, and where that id came from, without a
+live call. Run it before a release or `scripts/deploy.sh`. An unknown provider
+name, a missing SDK for the selected provider, or a blank model setting fails
+startup. The moderation id is checked even when
+`NESTED_WORLDS_DISABLE_MODERATION=1`. On the Anthropic adapter, an id that does
 not name Claude fails startup unless `ANTHROPIC_BASE_URL` is set; a
 Claude-shaped alias warns and still boots. See the
 [runtime guidance](docs/development/agent-runtime.md).
@@ -220,7 +225,8 @@ Environment variables (see `.env.example`):
 
 | Variable | Required for | Default |
 |----------|--------------|---------|
-| `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | API key or bearer token for the current text provider: node/agent voices, moderation and typed-intention interpretation. SDK profile credentials are also recognized; see [runtime guidance](docs/development/agent-runtime.md). | — |
+| `NESTED_WORLDS_PROVIDER` | Text-provider adapter. `anthropic` is the only built-in name. An unknown or empty value fails startup and names this variable and the valid names. Does not add other vendors. | `anthropic` |
+| `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | API key or bearer token for the Anthropic adapter: node/agent voices, moderation and typed-intention interpretation. Install the `anthropic` extra first. SDK profile credentials are also recognized; see [runtime guidance](docs/development/agent-runtime.md). | — |
 | `NESTED_WORLDS_CANONICAL_SEED` | The one shared world the hosted server serves (ADR-007); every HTTP, SSE, WebSocket, position and heartbeat path is bound to it. Set it empty, `off` or `none` only for explicit local multi-world curation. | `382` |
 | `NESTED_WORLDS_MODEL` | Shared model id for node voice, inhabitant voice, and intention interpretation when a task does not set its own. A model id does not select another provider | `claude-opus-4-8` |
 | `NESTED_WORLDS_NODE_MODEL` | Optional model id for node voice only. Unset uses `NESTED_WORLDS_MODEL`. Empty or whitespace fails startup | unset |
@@ -231,7 +237,7 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` | Hosted beta: global cap on Anthropic calls per UTC day; once exceeded, `/speak` and `/agent/voice` return a fallback string instead of calling the API. | `500` |
 | `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` | Hosted beta: per-credential daily Anthropic cap, so no single tester can consume the whole global budget and degrade the cohort. Enforced only when a request carries an invite credential. | `150` |
 | `NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER` | Hosted beta: per-credential daily fal.ai image cap. | `60` |
-| `NESTED_WORLDS_ANTHROPIC_CONCURRENCY` | Hosted beta: max in-flight Anthropic calls per process. Bounds instantaneous concurrency so a synchronized burst can't trip the org-level RPM. | `8` |
+| `NESTED_WORLDS_ANTHROPIC_CONCURRENCY` | Max in-flight calls for the anthropic provider. Another provider uses `NESTED_WORLDS_<NAME>_CONCURRENCY` and does not share this limit. Unset uses 8. The name is unchanged. | `8` |
 | `NESTED_WORLDS_FAL_DAILY_CALLS` | Hosted beta: cap fal.ai image calls per UTC day. | `200` |
 | `NESTED_WORLDS_HEARTBEAT` | Set to `0` to disable the ambient world heartbeat (background agent life). | on |
 | `NESTED_WORLDS_HEARTBEAT_INTERVAL` | Seconds between heartbeat ticks. Heartbeat agents are FSM-driven — no API spend. | `180` |

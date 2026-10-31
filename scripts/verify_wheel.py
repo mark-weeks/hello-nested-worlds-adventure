@@ -63,6 +63,24 @@ def main() -> None:
             metadata = BytesParser().parsebytes(archive.read(metadata_name))
             if metadata.get("License-Expression") != "Apache-2.0":
                 raise RuntimeError("wheel must declare the Apache-2.0 license")
+            # The Anthropic SDK is an optional extra. A wheel that requires it
+            # unconditionally cannot import or run the fixture provider without it.
+            requires = metadata.get_all("Requires-Dist") or []
+            base = [item for item in requires if "extra ==" not in item]
+            if any(item.split(";", 1)[0].split(">", 1)[0].split("=", 1)[0]
+                   .split("[", 1)[0].strip().lower() == "anthropic" for item in base):
+                raise RuntimeError(
+                    "anthropic must be an optional extra, not a required dependency"
+                )
+            extras = metadata.get_all("Provides-Extra") or []
+            if "anthropic" not in extras:
+                raise RuntimeError("wheel must provide the anthropic extra")
+            extra_reqs = [
+                item for item in requires
+                if "anthropic" in item.lower() and 'extra == "anthropic"' in item
+            ]
+            if not extra_reqs:
+                raise RuntimeError("wheel must declare the anthropic extra dependency")
             license_files = {"LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"}
             if set(metadata.get_all("License-File", [])) != license_files:
                 raise RuntimeError("wheel metadata must declare all license and notice files")

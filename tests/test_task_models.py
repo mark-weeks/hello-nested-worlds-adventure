@@ -37,6 +37,7 @@ class _Provider:
 
 
 def _clear(monkeypatch):
+    monkeypatch.delenv(runtime.PROVIDER_ENV, raising=False)
     monkeypatch.delenv(runtime.SHARED_MODEL_ENV, raising=False)
     for name in _TASK_ENVS:
         monkeypatch.delenv(name, raising=False)

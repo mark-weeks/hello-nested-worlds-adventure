@@ -166,10 +166,13 @@ def cmd_serve(args):
 def cmd_models(args):
     """Print the resolved provider and model for each text task.
 
-    ``--probe`` makes one tiny live call per distinct model id. It is off
-    unless this flag is passed. Server startup, tests, and CI do not pass it.
-    An unconfigured provider prints ``skipped: provider not configured`` and
-    exits 1. That path does not call the provider.
+    The provider is the registry's (``NESTED_WORLDS_PROVIDER``, default
+    ``anthropic``). ``--probe`` makes one tiny live call per distinct model
+    id. It is off unless this flag is passed. Server startup, tests, and CI
+    do not pass it. An unconfigured provider prints
+    ``skipped: provider not configured`` and exits 1. That path does not
+    call the provider. A missing SDK for the selected provider exits with
+    one line naming the optional extra, and does not probe.
     """
     from consciousness.model_check import (
         check_model_configuration, format_report, probe_distinct_models,

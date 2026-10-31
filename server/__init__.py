@@ -149,9 +149,10 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     # heartbeat. A typo here must fail the deploy, not leave a healthy-looking
     # process whose first player request returns 500.
     hosted_seed = guard.canonical_seed()
-    # Refuse an empty or unserved model id before the port opens. A typo
-    # must fail the boot, not the first shared-text moderation call.
-    # Soft problems log one warning. This does not make a live call.
+    # Refuse an unknown provider, a missing provider SDK, or an empty or
+    # unserved model id before the port opens. A typo must fail the boot,
+    # not the first shared-text moderation call. Soft problems log one
+    # warning. This does not make a live call.
     from consciousness.model_check import enforce_model_configuration
     enforce_model_configuration()
     # Operator signal only — deliberately emitted here at server startup so

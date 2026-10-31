@@ -74,6 +74,9 @@ def _anthropic_model_verdict(model: str) -> str:
 
 class AnthropicProvider:
     name = "anthropic"
+    # Optional extra. The SDK is imported only when a client is built.
+    sdk_module = "anthropic"
+    distribution_extra = "anthropic"
 
     def __init__(self) -> None:
         self._client: Any = None

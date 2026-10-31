@@ -1,15 +1,20 @@
 """Small text-provider boundary; world prompts and validators stay with their tasks.
 
-Only Anthropic is implemented today. Adding a provider requires an adapter and
-explicit selection wiring here, plus contract and live-task evaluation (ADR-034).
-Per-task settings choose a model id on that provider. An id never selects or
-replaces the provider, and a failed call is never retried on another id.
+``NESTED_WORLDS_PROVIDER`` selects a registered adapter. Unset means
+``anthropic``, the only built-in adapter. An unknown name fails startup.
+Per-task settings choose a model id on that provider. An id never selects
+or replaces the provider, and a failed call is never retried on another id
+or another provider. Adding a provider still requires an adapter, a
+registry entry, and contract evaluation (ADR-034). This module does not
+import a provider SDK.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib
 import logging
 import os
+import re
 import threading
 from typing import Callable, Protocol
 
@@ -22,6 +27,11 @@ NODE_MODEL_ENV = "NESTED_WORLDS_NODE_MODEL"
 INHABITANT_MODEL_ENV = "NESTED_WORLDS_INHABITANT_MODEL"
 INTENT_MODEL_ENV = "NESTED_WORLDS_INTENT_MODEL"
 MODERATION_MODEL_ENV = "NESTED_WORLDS_MODERATION_MODEL"
+
+# One adapter for every text task. Unset keeps the current adapter.
+PROVIDER_ENV = "NESTED_WORLDS_PROVIDER"
+DEFAULT_PROVIDER = "anthropic"
+_PROVIDER_NAME = re.compile(r"[a-z][a-z0-9_]{0,32}")
 
 NODE_TASK = "node"
 INHABITANT_TASK = "inhabitant"
@@ -270,25 +280,160 @@ class ModelIdJudgingProvider(TextProvider, Protocol):
     def model_id_validator(self) -> Callable[[str], str] | None: ...
 
 
-def get_provider() -> TextProvider:
+def _load_anthropic() -> TextProvider:
+    # The adapter module does not import the SDK. Startup checks that.
     from consciousness.anthropic_provider import provider
     return provider
+
+
+_BUILTINS: dict[str, Callable[[], TextProvider]] = {
+    DEFAULT_PROVIDER: _load_anthropic,
+}
+_REGISTERED: dict[str, Callable[[], TextProvider]] = {}
+_registry_lock = threading.Lock()
+
+
+def provider_names() -> tuple[str, ...]:
+    """Registered adapter names, built-ins included. No credentials."""
+    with _registry_lock:
+        names = set(_BUILTINS) | set(_REGISTERED)
+    return tuple(sorted(names))
+
+
+def _valid_suffix() -> str:
+    return "valid: " + ", ".join(provider_names())
+
+
+def register_provider(name: str, factory: Callable[[], TextProvider]) -> None:
+    """Add a named adapter. A built-in name cannot be replaced.
+
+    The name is a short token. It is not a model id and it does not select
+    a vendor by guessing. Tests register a fixture here; a future adapter
+    registers the same way.
+    """
+    text = name.strip().lower()
+    if _PROVIDER_NAME.fullmatch(text) is None:
+        raise ValueError(
+            f"provider name {name!r} must be a short lowercase token"
+        )
+    if text in _BUILTINS:
+        raise ValueError(f"{text} is a built-in text provider")
+    if not callable(factory):
+        raise TypeError("provider factory must be callable")
+    with _registry_lock:
+        _REGISTERED[text] = factory
+
+
+def selected_provider_name() -> str:
+    """Registry key for this process. Unset means ``anthropic``.
+
+    The value is stripped and lowercased. Empty or whitespace-only is a
+    misconfiguration. This does not import a provider SDK.
+    """
+    if PROVIDER_ENV not in os.environ:
+        return DEFAULT_PROVIDER
+    text = os.environ[PROVIDER_ENV].strip().lower()
+    if not text:
+        raise SystemExit(f"{PROVIDER_ENV} is empty ({_valid_suffix()})")
+    if _PROVIDER_NAME.fullmatch(text) is None:
+        # Do not echo an unsafe value. It might be a pasted credential.
+        raise SystemExit(
+            f"{PROVIDER_ENV} is not a known text provider ({_valid_suffix()})"
+        )
+    return text
+
+
+def get_provider() -> TextProvider:
+    """The adapter named by ``NESTED_WORLDS_PROVIDER``.
+
+    An unknown name raises ``SystemExit`` with one line naming that variable
+    and the valid names. The same line is what ``python main.py serve``
+    exits with, before it opens a port. This does not import a provider SDK.
+    """
+    name = selected_provider_name()
+    with _registry_lock:
+        factory = _BUILTINS.get(name)
+        if factory is None:
+            factory = _REGISTERED.get(name)
+    if factory is None:
+        raise SystemExit(
+            f"{PROVIDER_ENV}={name!r} is not a known text provider "
+            f"({_valid_suffix()})"
+        )
+    return factory()
+
+
+def installation_error(provider: TextProvider) -> str | None:
+    """One-line failure when the selected adapter's SDK is not installed.
+
+    Adapters that do not set ``sdk_module`` need no SDK. The line names
+    ``NESTED_WORLDS_PROVIDER`` and the optional extra. It does not include
+    a credential or make a model call.
+    """
+    module_name = getattr(provider, "sdk_module", None)
+    if not isinstance(module_name, str) or not module_name.strip():
+        return None
+    module_name = module_name.strip()
+    try:
+        importlib.import_module(module_name)
+    except ImportError:
+        extra = getattr(provider, "distribution_extra", None)
+        if not isinstance(extra, str) or not extra.strip():
+            extra = module_name
+        else:
+            extra = extra.strip()
+        raw_name = getattr(provider, "name", None)
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            shown = DEFAULT_PROVIDER
+        else:
+            shown = raw_name.strip()
+        return (
+            f"{PROVIDER_ENV}={shown} requires the optional extra "
+            f"enfolded[{extra}] (package '{module_name}' is not installed)"
+        )
+    return None
 
 
 def configured() -> bool:
     return get_provider().configured()
 
 
-def _concurrency_limit() -> int:
-    # Keep the existing operator setting and shared limit across all text tasks.
-    raw = os.environ.get("NESTED_WORLDS_ANTHROPIC_CONCURRENCY", "").strip()
+def _concurrency_env(provider_name: str) -> str:
+    # Anthropic keeps NESTED_WORLDS_ANTHROPIC_CONCURRENCY. The pattern is the
+    # same for every provider, so one provider's cap is not another's.
+    return f"NESTED_WORLDS_{provider_name.strip().upper()}_CONCURRENCY"
+
+
+def _concurrency_limit(provider_name: str = DEFAULT_PROVIDER) -> int:
+    """In-flight cap for one provider. Unset, empty, or non-numeric means 8.
+
+    Zero and negative values clamp to 1. The anthropic name is the existing
+    ``NESTED_WORLDS_ANTHROPIC_CONCURRENCY`` setting.
+    """
+    raw = os.environ.get(_concurrency_env(provider_name), "").strip()
     try:
         return max(1, int(raw)) if raw else 8
     except ValueError:
         return 8
 
 
-_call_semaphore = threading.BoundedSemaphore(_concurrency_limit())
+_semaphores: dict[str, threading.BoundedSemaphore] = {}
+_semaphore_limits: dict[str, int] = {}
+_semaphore_lock = threading.Lock()
+
+
+def _semaphore_for(provider_name: str) -> threading.BoundedSemaphore:
+    name = provider_name.strip().lower() or DEFAULT_PROVIDER
+    limit = _concurrency_limit(name)
+    with _semaphore_lock:
+        current = _semaphores.get(name)
+        if current is None or _semaphore_limits.get(name) != limit:
+            current = threading.BoundedSemaphore(limit)
+            _semaphores[name] = current
+            _semaphore_limits[name] = limit
+        return current
+
+
 _log = logging.getLogger("nested_worlds.consciousness")
 
 
@@ -312,7 +457,7 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
         if not guard.consume_anthropic(user_key=reservation.key):
             raise VoiceBudgetLimited()
     provider = get_provider()
-    with _call_semaphore:
+    with _semaphore_for(provider.name):
         result = provider.generate(model=model, system=system, messages=messages,
                                    max_tokens=max_tokens, json_schema=json_schema,
                                    timeout=timeout)

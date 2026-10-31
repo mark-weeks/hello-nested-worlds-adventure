@@ -25,6 +25,7 @@ _FAL = 'fal-key-secret-value'
 
 
 def _clear(monkeypatch):
+    monkeypatch.delenv(runtime.PROVIDER_ENV, raising=False)
     for name in _TASK_ENVS:
         monkeypatch.delenv(name, raising=False)
     # A leftover gateway host would turn a foreign id into a warning.
