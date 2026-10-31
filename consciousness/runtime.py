@@ -269,6 +269,16 @@ class VoiceBudgetLimited(Exception):
     """The voice budget refused this call. The provider was not contacted."""
 
 
+class UnusableModelId(Exception):
+    """The model id is missing or blank.
+
+    ``generate`` raises this before the model-action cap and before any
+    voice or provider budget. The provider is not called. The message does
+    not include the id: a value pasted into a model setting might be a
+    credential. Moderation holds shared text when this escapes a classify.
+    """
+
+
 class ModelReservation:
     """Proof that ``reserve_model_action`` already charged this credential.
 
@@ -282,6 +292,17 @@ class ModelReservation:
 
     def __init__(self, key: str | None) -> None:
         self.key = key
+
+
+def require_model_id(model: object) -> str:
+    """Return ``model`` when it is a non-blank string.
+
+    Otherwise raise ``UnusableModelId``. This does not charge a budget and
+    does not call a provider. The id itself is not included in the error.
+    """
+    if not isinstance(model, str) or not model.strip():
+        raise UnusableModelId("model id is empty")
+    return model
 
 
 def reserve_model_action(user_key: str | None = None) -> ModelReservation:
@@ -355,7 +376,11 @@ _registry_lock = threading.Lock()
 # First successful selection. A failed selection is not stored. Tests clear
 # this with reset_provider_selection so a later case can select again.
 _selected_provider: TextProvider | None = None
-_selection_lock = threading.Lock()
+# Re-entrant so a factory that calls back into selection can be refused
+# instead of deadlocking on a non-reentrant lock. The build itself stays
+# inside the lock, so concurrent first calls do not each construct one.
+_selection_lock = threading.RLock()
+_selection_owner: int | None = None
 
 
 def provider_names() -> tuple[str, ...]:
@@ -425,27 +450,36 @@ def _load_selected_provider() -> TextProvider:
     """Validate and cache ``NESTED_WORLDS_PROVIDER``. Does not import an SDK.
 
     Callers go through ``get_provider``, never here directly, so default ids
-    and calls share one seam. A failed selection is not cached.
+    and calls share one seam. The factory runs under the selection lock, so
+    two first calls build one adapter. A factory that calls back into
+    selection raises ``RuntimeError`` instead of waiting on the lock it
+    already holds. A failed selection is not cached.
     """
-    global _selected_provider
+    global _selected_provider, _selection_owner
     with _selection_lock:
         if _selected_provider is not None:
             return _selected_provider
-    name = selected_provider_name()
-    with _registry_lock:
-        factory = _BUILTINS.get(name)
-        if factory is None:
-            factory = _REGISTERED.get(name)
-    if factory is None:
-        raise SystemExit(
-            f"{PROVIDER_ENV}={name!r} is not a known text provider "
-            f"({_valid_suffix()})"
-        )
-    provider = factory()
-    with _selection_lock:
-        if _selected_provider is None:
-            _selected_provider = provider
-        return _selected_provider
+        owner = threading.get_ident()
+        if _selection_owner == owner:
+            raise RuntimeError("text provider factory re-entered selection")
+        _selection_owner = owner
+        try:
+            name = selected_provider_name()
+            with _registry_lock:
+                factory = _BUILTINS.get(name)
+                if factory is None:
+                    factory = _REGISTERED.get(name)
+            if factory is None:
+                raise SystemExit(
+                    f"{PROVIDER_ENV}={name!r} is not a known text provider "
+                    f"({_valid_suffix()})"
+                )
+            provider = factory()
+            if _selected_provider is None:
+                _selected_provider = provider
+            return _selected_provider
+        finally:
+            _selection_owner = None
 
 
 def get_provider() -> TextProvider:
@@ -554,10 +588,13 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
              voice_budget: bool = False) -> Completion:
     """One text completion. The model-action cap runs before the provider.
 
+    A missing or blank model id raises ``UnusableModelId`` before that cap
+    and before the voice budget, and the provider is not called.
     ``voice_budget`` reserves an ``anthropic`` call after that cap and before
     the provider, so a refused cap does not spend the voice budget. A
     ``ModelReservation`` from ``reserve_model_action`` is not charged again.
     """
+    require_model_id(model)
     if not isinstance(reservation, ModelReservation):
         reservation = reserve_model_action(user_key)
     if voice_budget:

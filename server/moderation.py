@@ -184,6 +184,16 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     if tier == "clean":
         return _ALLOW_CLEAN
 
+    # A missing moderation id must not spend a model budget. generate()
+    # raises the same error before its own charges; holding here covers the
+    # screen, which would otherwise reserve first.
+    from consciousness import runtime
+    try:
+        runtime.require_model_id(runtime.model_for(runtime.MODERATION_TASK))
+    except runtime.UnusableModelId:
+        _moderation_log("error", surface)
+        return Verdict(False, "error", "error")
+
     # Ambiguous → one classify call. The model-action cap is charged first,
     # through the same reservation generate() accepts, so a refusal does not
     # spend the moderation budget and a later generate() does not charge
@@ -191,7 +201,6 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     # the single outcome=error line, with elapsed milliseconds, if that
     # call or anything around it raises.
     import time as _time
-    from consciousness import runtime
     try:
         reservation = runtime.reserve_model_action(user_key)
     except runtime.ModelActionLimited:

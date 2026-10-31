@@ -9,6 +9,7 @@ import importlib
 import subprocess
 import sys
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -632,3 +633,141 @@ def test_missing_sdk_is_only_the_adapters_own_module(monkeypatch):
     assert type(other.value) is ImportError
     assert str(other.value) == 'circular import inside anthropic'
     assert 'enfolded[anthropic]' not in str(other.value)
+
+
+def _budget_spies(monkeypatch):
+    from server import guard
+    charged = []
+
+    def model_action(user_key=None):
+        charged.append(('model-action', user_key))
+        return True
+
+    def voice(user_key=None):
+        charged.append(('anthropic', user_key))
+        return True
+
+    def moderation_budget(user_key=None):
+        charged.append(('moderation', user_key))
+        return 'ok'
+
+    monkeypatch.setattr(guard, 'consume_model_action', model_action)
+    monkeypatch.setattr(guard, 'consume_anthropic', voice)
+    monkeypatch.setattr(guard, 'moderation_reserve', moderation_budget)
+    return charged
+
+
+def test_blank_model_is_refused_before_any_budget(monkeypatch):
+    import consciousness
+    from server import moderation
+
+    _isolate(monkeypatch)
+    fixture = FixtureProvider()
+    runtime.register_provider('fixture', lambda: fixture)
+    monkeypatch.setenv(runtime.PROVIDER_ENV, 'fixture')
+    charged = _budget_spies(monkeypatch)
+    kwargs = dict(
+        endpoint='speak', model='', max_tokens=8,
+        system=(SystemBlock('s'),),
+        messages=[{'role': 'user', 'content': 'hi'}],
+        user_key='ada', voice_budget=True,
+    )
+    for model in ('', '   ', None):
+        with pytest.raises(runtime.UnusableModelId):
+            runtime.generate(**{**kwargs, 'model': model})
+    assert charged == []
+    assert fixture.calls == []
+
+    node = SpatialNode(name='Vault', level='Object', properties={})
+    with pytest.raises(runtime.UnusableModelId):
+        consciousness.speak(node, 'Now?', user_key='ada', voice_budget=True)
+    with pytest.raises(runtime.UnusableModelId):
+        consciousness.classify_content('a phrase that needs a look', user_key='ada')
+    assert charged == []
+    assert fixture.calls == []
+
+    verdict = moderation.screen('go kill yourself', user_key='ada', surface='speak')
+    assert verdict.allowed is False
+    assert verdict.outcome == 'error'
+    body = moderation.http_body(verdict)
+    assert body['held'] is True
+    assert body['ai'] is False
+    assert charged == []
+    assert fixture.calls == []
+
+
+def test_concurrent_first_selection_builds_one_adapter(monkeypatch):
+    _isolate(monkeypatch)
+    built = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    def factory():
+        provider = FixtureProvider()
+        built.append(provider)
+        entered.set()
+        assert release.wait(2)
+        return provider
+
+    runtime.register_provider('fixture', factory)
+    monkeypatch.setenv(runtime.PROVIDER_ENV, 'fixture')
+    errors = []
+    results = []
+
+    def run():
+        try:
+            results.append(runtime.get_provider())
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=run) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    assert entered.wait(2)
+    deadline = time.monotonic() + 0.2
+    while time.monotonic() < deadline:
+        if len(built) != 1:
+            break
+        time.sleep(0.01)
+    assert len(built) == 1
+    release.set()
+    for thread in threads:
+        thread.join(2)
+        assert not thread.is_alive()
+    assert errors == []
+    assert len(results) == 8
+    assert all(item is built[0] for item in results)
+
+
+def test_reentering_factory_does_not_deadlock(monkeypatch):
+    _isolate(monkeypatch)
+
+    def factory():
+        runtime.get_provider()
+        return FixtureProvider()
+
+    runtime.register_provider('fixture', factory)
+    monkeypatch.setenv(runtime.PROVIDER_ENV, 'fixture')
+    box = []
+    done = threading.Event()
+
+    def run():
+        try:
+            runtime.get_provider()
+        except BaseException as exc:
+            box.append(exc)
+        finally:
+            done.set()
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    assert done.wait(2)
+    thread.join(1)
+    assert not thread.is_alive()
+    assert len(box) == 1
+    assert isinstance(box[0], RuntimeError)
+    assert 're-entered' in str(box[0])
+    runtime.register_provider('fixture', lambda: FixtureProvider())
+    selected = runtime.get_provider()
+    assert selected.name == 'fixture'
+    assert runtime.get_provider() is selected

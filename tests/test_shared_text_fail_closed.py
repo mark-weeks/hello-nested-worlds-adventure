@@ -108,6 +108,9 @@ def test_classify_logs_outcome_without_player_text_or_the_reply(caplog, monkeypa
     class Provider:
         name = "fixture"
 
+        def default_model(self, task):
+            return "fixture-model"
+
         def generate(self, **kwargs):
             return Completion("ALLOW", True, finish_reason="complete")
 
@@ -123,6 +126,9 @@ def test_classify_timeout_logs_error_without_the_exception_body(caplog, monkeypa
 
     class Provider:
         name = "fixture"
+
+        def default_model(self, task):
+            return "fixture-model"
 
         def generate(self, **kwargs):
             raise TimeoutError("secret phrase from the provider")
@@ -596,6 +602,9 @@ def test_model_action_cap_quiets_voice_and_leaves_mechanical_play(http, monkeypa
         def configured(self):
             return True
 
+        def default_model(self, task):
+            return "fixture-model"
+
         def generate(self, **kwargs):
             raise AssertionError("the model was called")
 
@@ -798,6 +807,9 @@ def test_speech_keeps_the_players_characters_from_screen_to_chronicle(srv, monke
         def configured(self):
             return True
 
+        def default_model(self, task):
+            return "fixture-model"
+
         def generate(self, **kwargs):
             heard.append(kwargs["messages"][-1]["content"])
             return Completion("ALLOW", True, finish_reason="complete")
@@ -852,6 +864,9 @@ def test_generate_charges_the_model_action_cap_once_and_normalizes_the_key(monke
 
     class Allow:
         name = "fixture"
+
+        def default_model(self, task):
+            return "fixture-model"
 
         def generate(self, **kwargs):
             calls.append(1)

@@ -48,14 +48,19 @@ does not: a variable set to empty or whitespace is a misconfiguration and
 at boot. It now fails startup. Moderation does not inherit the shared voice
 model, and its id is checked even when `NESTED_WORLDS_DISABLE_MODERATION=1`.
 Each adapter supplies those defaults with an optional `default_model(task)`.
-The method is not part of `TextProvider`. The anthropic adapter returns
+The method is not part of `TextProvider`. `model_for` asks `get_provider()`
+for them, the same adapter `generate` calls. The anthropic adapter returns
 `claude-opus-4-8` for node voice, inhabitant voice, and intention, and
 `claude-haiku-4-5` for moderation. Another adapter does not inherit those
 ids. If a task would use `source=default` and the adapter does not supply a
 non-blank id, `model_for` returns an empty id, `python main.py models`
 reports a hard problem, and `python main.py serve` exits before it opens a
-port. A task setting, or `NESTED_WORLDS_MODEL` for every task except
-moderation, still overrides the adapter default. With no per-task settings
+port. A call that still asks for that empty id raises `UnusableModelId`
+before the model-action cap and before the voice budget, and the provider
+is not called. Shared text is held. The first selection builds its adapter
+once; a factory that calls back into selection raises rather than waiting
+on the lock it already holds. A task setting, or `NESTED_WORLDS_MODEL` for
+every task except moderation, still overrides the adapter default. With no per-task settings
 on the anthropic adapter, node voice, inhabitant voice, and intention keep
 using `NESTED_WORLDS_MODEL`, then `claude-opus-4-8`, so an existing
 deployment that leaves those variables unset does not change. Run
