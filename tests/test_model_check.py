@@ -5,10 +5,10 @@ import logging
 import pytest
 
 from consciousness import runtime
-from consciousness.anthropic_provider import AnthropicProvider
+from consciousness.anthropic_provider import AnthropicProvider, DEFAULT_VOICE_MODEL
 from consciousness.model_check import (
-    check_model_configuration, enforce_model_configuration, format_report,
-    probe_distinct_models,
+    ModelReport, TaskModelStatus, check_model_configuration,
+    enforce_model_configuration, format_report, probe_distinct_models,
 )
 from consciousness.runtime import Completion, SystemBlock
 from main import main
@@ -89,6 +89,34 @@ def test_defaults_are_served_and_name_their_source(monkeypatch):
     assert 'source=default' in text
     assert 'model=claude-opus-4-8' in text
     assert 'model=claude-haiku-4-5' in text
+
+
+@pytest.mark.parametrize("supplied", [None, "   "])
+def test_absent_default_model_displays_as_none(monkeypatch, supplied):
+    _clear(monkeypatch)
+
+    class Absent:
+        name = "lab"
+
+        def default_model(self, task):
+            return supplied
+
+    monkeypatch.setattr(runtime, "get_provider", lambda: Absent())
+    report = check_model_configuration()
+    assert all(task.model == "" for task in report.tasks)
+    printed = format_report(report)
+    assert printed.count("model=(none)") == len(report.tasks)
+    assert "model=[redacted]" not in printed
+    # The display maps the raw value. Resolution already stores "".
+    shown = format_report(ModelReport(
+        provider="lab",
+        tasks=(TaskModelStatus(
+            task=runtime.NODE_TASK, provider="lab", model=supplied,
+            source="default", env_var=runtime.NODE_MODEL_ENV, problems=(),
+        ),),
+    ))
+    assert "model=(none)" in shown
+    assert "model=[redacted]" not in shown
 
 
 def test_task_env_shared_and_default_are_reported(monkeypatch):
@@ -224,7 +252,7 @@ def test_dated_unknown_snapshot_warns_once(monkeypatch, caplog):
 def test_blank_setting_fails_startup_and_model_for_still_falls_back(monkeypatch, blank, kind):
     _clear(monkeypatch)
     monkeypatch.setenv(runtime.NODE_MODEL_ENV, blank)
-    assert runtime.model_for(runtime.NODE_TASK) == runtime.DEFAULT_VOICE_MODEL
+    assert runtime.model_for(runtime.NODE_TASK) == DEFAULT_VOICE_MODEL
     with pytest.raises(SystemExit) as caught:
         enforce_model_configuration()
     message = str(caught.value)

@@ -38,7 +38,6 @@ def alternate(monkeypatch):
     provider = FixtureProvider()
     monkeypatch.setattr(runtime, 'get_provider', lambda: provider)
     monkeypatch.setenv(runtime.SHARED_MODEL_ENV, 'fixture-voice-v1')
-    monkeypatch.setattr(runtime, 'VOICE_MODEL', 'fixture-voice-v1')
     for name in (runtime.NODE_MODEL_ENV, runtime.INHABITANT_MODEL_ENV,
                  runtime.INTENT_MODEL_ENV):
         monkeypatch.delenv(name, raising=False)

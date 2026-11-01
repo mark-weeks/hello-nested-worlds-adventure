@@ -131,7 +131,10 @@ def _redact(text: str, secrets: tuple[str, ...]) -> str:
     return text
 
 
-def _display_model(model: str, secrets: tuple[str, ...]) -> str:
+def _display_model(model: str | None, secrets: tuple[str, ...]) -> str:
+    # None, empty, and whitespace-only are the absence of an id, not a secret.
+    if model is None or (isinstance(model, str) and not model.strip()):
+        return "(none)"
     if not model or _embeds_secret(model, secrets):
         return "[redacted]"
     if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in model):

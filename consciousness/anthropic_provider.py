@@ -8,12 +8,16 @@ from typing import Any
 
 from consciousness.runtime import (
     Completion,
-    DEFAULT_MODERATION_MODEL,
-    DEFAULT_VOICE_MODEL,
     MODERATION_TASK,
     SystemBlock,
     TokenUsage,
 )
+
+
+# This adapter's ids. They stay here so shared code does not name them.
+# Another adapter does not inherit them. ``model_for`` asks ``default_model``.
+DEFAULT_VOICE_MODEL = "claude-opus-4-8"
+DEFAULT_MODERATION_MODEL = "claude-haiku-4-5"
 
 
 # Claude API cache minima, verified 2026-10-05:

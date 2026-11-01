@@ -8,9 +8,9 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 ## Where the project stands
 
 - **Not deployed.** The hosted world at enfolded.world has never run, the
-  chronicle is empty, and there are no external players. Two QA prereleases
-  (`v0.1.1-qa.1`, `v0.1.1-qa.2`) were cut from `main` on 2026-08-31 for local
-  QA; no production release has been cut. The
+  chronicle is empty, and there are no external players. Three QA prereleases
+  were cut for local QA (`v0.1.0-qa.1` and `v0.1.1-qa.1` on 2026-08-30,
+  `v0.1.1-qa.2` on 2026-08-31); no production release has been cut. The
   [beta readiness record](../evaluation/2026-10-03-beta-readiness.md) (#109)
   names October 31 as a conditional target for an 8–12 person invited study
   and lists the hosted and human gates still open: backup activation, hosted

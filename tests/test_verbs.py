@@ -166,11 +166,13 @@ class TestActEndpoint:
         yield f"http://127.0.0.1:{port}"
         server.shutdown()
 
-    def _post(self, srv, path, body):
+    def _post(self, srv, path, body, key=None, timeout=None):
+        headers = {"Content-Type": "application/json"}
+        if key:
+            headers["X-Beta-Key"] = key
         req = urllib.request.Request(
-            f"{srv}{path}", data=json.dumps(body).encode(),
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req) as resp:
+            f"{srv}{path}", data=json.dumps(body).encode(), headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
 
     def test_act_applies_persists_records_and_stages(self, srv):
@@ -198,31 +200,266 @@ class TestActEndpoint:
         # The outward cascade is on the queue, not already everywhere.
         assert persistence.pending_causal_hops(42) >= 2
 
-    def test_act_at_the_horizon_stages_the_same_first_ring(self, srv):
-        # Depth 6 is a Region's own depth and the explorer's default. The
-        # client's tree is cut at the Region there, so the act used to queue
-        # only the upward hop (1) while the same act at depth 7 queued the
-        # parent and both rooms (3).
+    def test_rejected_horizon_act_does_not_rebuild(self, srv, monkeypatch):
+        # A wrong verb and an uninvited request_id return before the ring.
+        # The client's tree is still built once. An accepted act at the same
+        # horizon builds the next level too, so the counter is real.
+        from server import handlers
         from multiverse import store
+
+        calls = []
+        real = handlers._build_world
+
+        def counting(params):
+            calls.append(int(params.get("depth", 6)))
+            return real(params)
+
+        monkeypatch.setattr(handlers, "_build_world", counting)
+        region = store.world_tree(seed=63, max_depth=7)
+        while region.level != "Region":
+            region = region.children[0]
+        body = {
+            "seed": 63, "depth": 6, "node_name": region.name, "player_name": "Ada",
+        }
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            self._post(srv, "/act", {**body, "verb": "mend"})
+        assert exc.value.code == 400
+        assert calls == [6]
+
+        calls.clear()
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            self._post(srv, "/act", {**body, "request_id": "horizon-403"})
+        assert exc.value.code == 403
+        assert calls == [6]
+
+        calls.clear()
+        data = self._post(srv, "/act", body)
+        assert data["action_status"] == "accepted", data
+        assert calls == [6, 7]
+
+    def test_horizon_replay_skips_the_ring_and_the_writer_lock(self, srv, monkeypatch):
+        # An authenticated retry returns the stored receipt and does not
+        # rebuild. The first request's ring is a read taken before
+        # intents.execute opens BEGIN IMMEDIATE.
+        from server import handlers
+        from multiverse import store
+
+        key = "nw_" + "h" * 32
+        persistence.mint_invite_key(key, "Ada")
+        calls = []
+        writer_held = []
+        real = handlers._build_world
+
+        def counting(params):
+            depth = int(params.get("depth", 6))
+            calls.append(depth)
+            if depth == 7:
+                conn = getattr(persistence._transaction_state, "connection", None)
+                writer_held.append(conn is not None and conn.in_transaction)
+            return real(params)
+
+        monkeypatch.setattr(handlers, "_build_world", counting)
+        region = store.world_tree(seed=63, max_depth=7)
+        while region.level != "Region":
+            region = region.children[0]
+        body = {
+            "seed": 63, "depth": 6, "node_name": region.name,
+            "player_name": "Ada", "request_id": "horizon-act",
+        }
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            self._post(srv, "/act", {**body, "request_id": "bad"}, key=key)
+        assert exc.value.code == 409
+        assert calls == [6]
+
+        calls.clear()
+        first = self._post(srv, "/act", body, key=key)
+        assert first["action_status"] == "accepted", first
+        assert calls == [6, 7]
+        assert writer_held == [False]
+        hops = persistence.pending_causal_hops(63)
+        acts = [
+            row for row in persistence.get_mutations(63)
+            if row["type"] == "SCALE_ACT" and row["node"] == region.name
+        ]
+        assert len(acts) == 1
+
+        calls.clear()
+        second = self._post(srv, "/act", body, key=key)
+        assert second == first
+        assert calls == [6]
+        assert persistence.pending_causal_hops(63) == hops
+        assert [
+            row for row in persistence.get_mutations(63)
+            if row["type"] == "SCALE_ACT" and row["node"] == region.name
+        ] == acts
+
+    def test_all_miss_race_applies_one_horizon_act(self, srv, monkeypatch):
+        # Eight requests share one id. Each lookup is held until all eight
+        # have read, so every one misses and builds the ring, then they
+        # race into execute. The in-transaction recheck is what keeps a
+        # single effect, receipt, and broadcast.
+        from persistence import intents
+        from server import handlers
+        from multiverse import store
+
+        racers = 8
+        key = "nw_" + "r" * 32
+        persistence.mint_invite_key(key, "Ada")
+        region = store.world_tree(seed=63, max_depth=7)
+        while region.level != "Region":
+            region = region.children[0]
+        body = {
+            "seed": 63, "depth": 6, "node_name": region.name,
+            "player_name": "Ada", "request_id": "race-act-0001",
+        }
+        applies = []
+        broadcasts = []
+        guard = threading.Lock()
+        real_accept = handlers.accept_verb
+
+        def counting_accept(*args, **kwargs):
+            with guard:
+                applies.append(1)
+            return real_accept(*args, **kwargs)
+
+        monkeypatch.setattr(handlers, "accept_verb", counting_accept)
+        real_broadcast = handlers.broadcast
+
+        def counting_broadcast(room, message):
+            with guard:
+                broadcasts.append(message["type"])
+            return real_broadcast(room, message)
+
+        monkeypatch.setattr(handlers, "broadcast", counting_broadcast)
+        real_lookup = intents.lookup
+        # Wait until every request has read. A timeout only fails a stuck
+        # waiter; the result does not depend on how long the wait was.
+        missed = threading.Barrier(racers)
+
+        def lookup_and_wait(*args, **kwargs):
+            found = real_lookup(*args, **kwargs)
+            missed.wait(timeout=15)
+            return found
+
+        monkeypatch.setattr(intents, "lookup", lookup_and_wait)
+        started = threading.Barrier(racers)
+        results = [None] * racers
+        errors = []
+
+        def go(index):
+            try:
+                started.wait(timeout=15)
+                results[index] = self._post(srv, "/act", body, key=key, timeout=30)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=go, args=(i,)) for i in range(racers)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == []
+        assert results[0]["action_status"] == "accepted"
+        assert all(item == results[0] for item in results)
+        assert len(applies) == 1
+        assert broadcasts.count("scale_act") == 1
+        assert broadcasts.count("causal_event") == 1
+        acts = [
+            row for row in persistence.get_mutations(63)
+            if row["type"] == "SCALE_ACT" and row["node"] == region.name
+        ]
+        assert len(acts) == 1
+        with persistence._connection() as conn:
+            receipts = conn.execute(
+                "SELECT COUNT(*) FROM request_receipts WHERE world_seed = ?",
+                (63,),
+            ).fetchone()[0]
+        assert receipts == 1
+
+    def test_act_at_the_horizon_stages_the_same_first_ring(self, srv, monkeypatch):
+        # Every level, on more than one seed, at every depth where the place
+        # is in the client's view: 1, the place's own depth, one deeper,
+        # and 6, 7, and 11. A Region at depth 6 used to queue only the
+        # upward hop. A place below the view is not an /act target.
+        from copy import copy
+
+        from multiverse import store
+        from multiverse.generator import LEVELS
+        from multiverse.verbs import VERBS, apply_verb
+        from server import guard, rooms as rooms_mod
+
+        monkeypatch.setenv(guard.RATE_LIMIT_ENV, "500")
+
+        def first_that_acts(root):
+            found = {}
+
+            def will_act(node):
+                trial = copy(node)
+                trial.properties = dict(node.properties)
+                changed, _flavor = apply_verb(trial, VERBS[node.level], token="t:x")
+                return bool(changed)
+
+            def walk(node):
+                if node.level not in found and will_act(node):
+                    found[node.level] = node
+                for child in node.children:
+                    walk(child)
+
+            walk(root)
+            return found
+
+        def ring(node):
+            hops = []
+            if node.parent is not None:
+                hops.append((node.parent.name, "up"))
+            hops.extend((child.name, "down") for child in node.children)
+            return sorted(hops)
 
         def queued(seed):
             ids = persistence.due_work("causal_queue", 64, world_seed=seed)
             rows = [persistence.inspect_work("causal_queue", work_id) for work_id in ids]
             return sorted((row["node_name"], row["direction"]) for row in rows)
 
-        for seed, depth in ((61, 6), (62, 7)):
-            region = store.world_tree(seed=seed, max_depth=7)
-            while region.level != "Region":
-                region = region.children[0]
-            assert len(region.children) == 2
-            data = self._post(srv, "/act", {
-                "seed": seed, "depth": depth, "node_name": region.name,
-                "player_name": "Ada",
-            })
-            assert data["action_status"] == "accepted", data
-            assert queued(seed) == sorted(
-                [(region.parent.name, "up")]
-                + [(child.name, "down") for child in region.children]), depth
+        def wipe(seed):
+            rooms_mod.clear_rooms()
+            with persistence._connect() as conn:
+                conn.execute("DELETE FROM causal_queue WHERE world_seed = ?", (seed,))
+                conn.execute("DELETE FROM world_mutations WHERE world_seed = ?", (seed,))
+                conn.execute(
+                    "DELETE FROM node_runtime_state WHERE world_seed = ?", (seed,))
+                conn.execute(
+                    "DELETE FROM node_property_cache_meta WHERE world_seed = ?", (seed,))
+
+        def place_depth(name):
+            suffix = name.rpartition("-")[2]
+            return len(suffix) if suffix.isdigit() else 1
+
+        def depths_for(own):
+            wanted = {1, own, own + 1, 6, 7, 11}
+            return sorted(depth for depth in wanted if own <= depth <= 11)
+
+        for seed in (81, 82):
+            by_level = first_that_acts(store.world_tree(seed=seed, max_depth=11))
+            assert set(by_level) == set(LEVELS), (seed, sorted(by_level))
+            for level in LEVELS:
+                node = by_level[level]
+                own = place_depth(node.name)
+                depths = depths_for(own)
+                assert 11 in depths
+                if own <= 6:
+                    assert 6 in depths and 7 in depths
+                seen = []
+                for depth in depths:
+                    wipe(seed)
+                    data = self._post(srv, "/act", {
+                        "seed": seed, "depth": depth, "node_name": node.name,
+                        "player_name": "Ada",
+                    })
+                    got = queued(seed)
+                    assert data["action_status"] == "accepted", (seed, level, depth, data)
+                    assert got == ring(node), (seed, level, depth, got, ring(node))
+                    seen.append(got)
+                assert seen == [seen[0]] * len(seen), (seed, level)
 
     def test_act_rejects_the_wrong_verb_for_the_scale(self, srv):
         root = generate_node_hierarchy(seed=42, max_depth=6)

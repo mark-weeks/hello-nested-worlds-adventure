@@ -49,8 +49,9 @@ owner to rule on it.
   at #110. Shipped since `0.1.0-beta`: M1 to M4, the first situation
   and participants, the Ideas board, 44 scale-native actions, commit-then-discover,
   the unified exploration UX, beta readiness tooling. None of it is deployed.
-- The only release tags are `v0.1.1-qa.1` and `v0.1.1-qa.2`, cut 2026-08-31 from
-  `32af091`, roughly forty merged PRs behind `main`. `pyproject.toml` still reads
+- The QA tags are `v0.1.0-qa.1` (lightweight tag on the 2026-08-30 commit),
+  `v0.1.1-qa.1` (tagged 2026-08-30), and `v0.1.1-qa.2` (tagged 2026-08-31 at
+  `32af091`, roughly forty merged PRs behind `main`). `pyproject.toml` still reads
   `0.1.1rc2`; the release workflow enforces one tag per package version.
 - Seven launch gates are open ([readiness record](../evaluation/2026-10-03-beta-readiness.md),
   "Remaining gates and owners"): hosted backup activation, hosted restore,

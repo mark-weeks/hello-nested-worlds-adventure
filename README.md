@@ -40,8 +40,8 @@ Interaction is multi-modal: natural language for depth, visual navigation for mo
 ## Where things stand
 
 *Verified against `main` at #115 (`9f4df1c`), 2026-10-25.* Nothing is deployed and the
-chronicle is empty; two QA prereleases (`v0.1.1-qa.1`, `v0.1.1-qa.2`) were cut
-on 2026-08-31 for local QA. Everything in the matrix below is merged on `main`,
+chronicle is empty; three QA prereleases were cut for local QA
+(`v0.1.0-qa.1` and `v0.1.1-qa.1` on 2026-08-30, `v0.1.1-qa.2` on 2026-08-31). Everything in the matrix below is merged on `main`,
 not deployed. Since the #109 readiness record: shipped plans were archived and
 the roadmap index added (#110); the Q4 next-steps plan was written (#111);
 provider and model choice became task-specific and replaceable
