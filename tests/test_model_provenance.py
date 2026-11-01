@@ -567,6 +567,50 @@ def test_prune_removes_the_side_row_with_the_chronicle_row():
         assert conn.execute("SELECT COUNT(*) FROM world_mutations").fetchone()[0] == 0
 
 
+def test_openai_compatible_speak_stores_the_echoed_model(http, monkeypatch):
+    """The chronicle keeps the id the server echoed, not the requested alias."""
+    from urllib.parse import quote as quote_name
+    from consciousness import runtime
+    from consciousness.openai_compat_provider import (
+        API_KEY_ENV, BASE_URL_ENV, provider as compat,
+    )
+
+    def transport(request):
+        return (200, (), json.dumps({
+            "model": "echo-node-20261101",
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {"content": "A remembered voice.", "refusal": None},
+            }],
+        }).encode())
+
+    monkeypatch.setenv(runtime.PROVIDER_ENV, "openai_compatible")
+    monkeypatch.setenv(BASE_URL_ENV, "https://secret-host.example/v1")
+    monkeypatch.setenv(API_KEY_ENV, "sk-test-provider-SECRET")
+    monkeypatch.setenv(runtime.NODE_MODEL_ENV, "alias-node-not-stored")
+    monkeypatch.setenv(runtime.INHABITANT_MODEL_ENV, "alias-inhabitant-not-stored")
+    monkeypatch.setenv(runtime.INTENT_MODEL_ENV, "alias-intent-not-stored")
+    monkeypatch.setenv(runtime.MODERATION_MODEL_ENV, "alias-moderation-not-stored")
+    monkeypatch.setattr(compat, "_transport", transport)
+    node = store.world_tree(382)
+    status, body, _headers = http("/speak", body={"node_name": node.name, "message": "Hello."})
+    assert status == 200 and body == {"response": "A remembered voice.", "ai": True}
+    quoted = quote_name(node.name)
+    status, history, _headers = http(f"/history?seed=382&node_name={quoted}")
+    assert status == 200
+    dumped = json.dumps(history)
+    assert "openai_compatible" not in dumped
+    assert "alias-node-not-stored" not in dumped
+    assert "echo-node-20261101" not in dumped
+    assert "secret-host.example" not in dumped
+    speaks = [row for row in history["mutations"] if row["type"] == "PLAYER_SPEAK"]
+    assert len(speaks) == 1
+    assert persistence.provenance_of(speaks[0]["id"]) == {
+        "provider": "openai_compatible",
+        "resolved_model": "echo-node-20261101",
+    }
+
+
 def test_voiced_text_keeps_string_behavior():
     heard = Voiced("A remembered voice.", "fixture", RESOLVED)
     assert heard == "A remembered voice."

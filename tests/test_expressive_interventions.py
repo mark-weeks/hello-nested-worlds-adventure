@@ -226,6 +226,86 @@ def test_intention_failures_stay_in_fiction(http, monkeypatch):
     assert status == 200 and data['accepted'] and data['changed'] == {'surface':'engraved'}
 
 
+def test_openai_compatible_intention_stays_in_fiction(http, monkeypatch, caplog):
+    """A ready plan is accepted. A bad body, a refusal, and schema-off stay HTTP 200."""
+    import logging
+    from consciousness import runtime
+    from consciousness.openai_compat_provider import (
+        API_KEY_ENV, BASE_URL_ENV, STRUCTURED_OUTPUTS_ENV, provider as compat,
+    )
+    from server import intervention_api
+
+    ready = '{"status":"ready","ambiguity":"none","steps":[{"op":"engrave","amount":1}]}'
+    script = [
+        ("stop", ready, None, "echo-intent-20261101"),
+        ("stop", "not json", None, "echo-bad"),
+        ("stop", "ALLOW", "no", "echo-refusal"),
+    ]
+    calls = []
+
+    def transport(request):
+        body = json.loads(request.body)
+        calls.append(body)
+        finish, text, refusal, model = script[len(calls) - 1]
+        return (200, (), json.dumps({
+            "model": model,
+            "choices": [{
+                "finish_reason": finish,
+                "message": {"role": "assistant", "content": text, "refusal": refusal},
+            }],
+        }).encode())
+
+    monkeypatch.setenv(runtime.PROVIDER_ENV, "openai_compatible")
+    monkeypatch.setenv(BASE_URL_ENV, "https://secret-host.example/v1")
+    monkeypatch.setenv(API_KEY_ENV, "sk-test-provider-SECRET")
+    monkeypatch.setenv(STRUCTURED_OUTPUTS_ENV, "1")
+    monkeypatch.setenv(runtime.INTENT_MODEL_ENV, "requested-intent-not-stored")
+    monkeypatch.setenv(runtime.NODE_MODEL_ENV, "compat-node")
+    monkeypatch.setenv(runtime.INHABITANT_MODEL_ENV, "compat-inhabitant")
+    monkeypatch.setenv(runtime.MODERATION_MODEL_ENV, "compat-moderation")
+    monkeypatch.setattr(compat, "_transport", transport)
+    name = NODES["instrument"]
+    assert http("/position", body={"node": name, "seed": 382, "depth": 9})[0] == 200
+
+    def submit(intention, request_id):
+        return http("/interventions/commit", body={
+            "node": name, "intention": intention, "version": 3, "request_id": request_id,
+        })
+
+    with caplog.at_level(logging.INFO):
+        status, data, _headers = submit("cut a pattern", "compat-ready-01")
+        assert status == 200 and data["accepted"] is True, data
+        assert calls[0]["model"] == "requested-intent-not-stored"
+        assert calls[0]["response_format"]["type"] == "json_schema"
+        assert calls[0]["response_format"]["json_schema"]["strict"] is True
+        schema = json.dumps(calls[0]["response_format"]["json_schema"]["schema"])
+        assert "engrave" in schema
+        assert "requested-intent-not-stored" not in json.dumps(data)
+        assert "echo-intent-20261101" not in json.dumps(data)
+        assert "sk-test-provider-SECRET" not in json.dumps(data)
+        committed = [row for row in events() if row["type"] == "INTERVENTION_COMMITTED"]
+        assert len(committed) == 1
+        assert db.provenance_of(committed[0]["id"]) == {
+            "provider": "openai_compatible",
+            "resolved_model": "echo-intent-20261101",
+        }
+        status, data, _headers = submit("cut a pattern", "compat-bad-01")
+        assert status == 200 and not data["accepted"]
+        assert data["response"] == intervention_api._UNSETTLED
+        assert "upstream" not in json.dumps(data)
+        status, data, _headers = submit("cut a pattern", "compat-refusal-01")
+        assert status == 200 and not data["accepted"]
+        assert data["response"] == intervention_api._UNSETTLED
+        assert len(calls) == 3
+        monkeypatch.delenv(STRUCTURED_OUTPUTS_ENV)
+        status, data, _headers = submit("cut a pattern", "compat-schema-off")
+        assert status == 200 and data["response"] == intervention_api._UNSETTLED
+        assert len(calls) == 3
+        assert "UnsupportedCapability" in caplog.text
+        assert "sk-test-provider-SECRET" not in caplog.text
+        assert "secret-host.example" not in caplog.text
+
+
 def test_senses_follow_literal_properties_and_material_history(owner):
     node=store.resolve_node_by_name(382,NODES['instrument'])
     before=describe(node)

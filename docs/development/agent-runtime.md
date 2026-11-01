@@ -8,10 +8,15 @@ and versions are replaceable choices that require evidence.
 ## Current implementation and its limits
 
 Text generation uses one registered adapter. `NESTED_WORLDS_PROVIDER` selects
-it by name. Unset means `anthropic`, the only built-in adapter, so an existing
-deployment does not change. The value is stripped and lowercased. An empty
-value, or a name that is not registered, fails startup with one line that
-names `NESTED_WORLDS_PROVIDER` and the valid names. The first successful
+it by name. Unset means `anthropic`, so an existing deployment does not
+change. Built-in adapters are `anthropic` and `openai_compatible`. The second
+is an OpenAI-compatible Chat Completions client for evaluation. No
+destination is approved for production, and no provider other than the
+current default has been evaluated or approved (ADR-034). ADR-035 (Proposed)
+records the dialect choice and does not enable a destination. The value is
+stripped and lowercased. An empty value, or a name that is not registered,
+fails startup with one line that names `NESTED_WORLDS_PROVIDER` and the
+valid names. The first successful
 selection is kept for the process. A later change to that variable does not
 reselect the adapter and does not raise from a request.
 `reset_provider_selection()` clears the cache; tests use it. There is no
@@ -21,8 +26,9 @@ model id.
 
 The Anthropic SDK is the optional extra `enfolded[anthropic]`
 (`anthropic>=0.40.0`). Importing Enfolded does not import it. An adapter that
-does not declare an SDK, including a fixture registered in tests, runs
-without one.
+does not declare an SDK, including a fixture registered in tests and the
+`openai_compatible` adapter, runs without one. That adapter uses the
+standard library.
 `python main.py serve` and `python main.py models` exit before a port opens
 when the selected adapter's own SDK module is missing. The line names the
 extra. Only a `ModuleNotFoundError` whose name is that module, or the root
@@ -53,10 +59,11 @@ The method is not part of `TextProvider`. `model_for` asks `get_provider()`
 for them, the same adapter `generate` calls. The anthropic adapter returns
 `claude-opus-4-8` for node voice, inhabitant voice, and intention, and
 `claude-haiku-4-5` for moderation. Another adapter does not inherit those
-ids. If a task would use `source=default` and the adapter does not supply a
-non-blank id, `model_for` returns an empty id, `python main.py models`
-reports a hard problem, and `python main.py serve` exits before it opens a
-port. A call that still asks for that empty id raises `UnusableModelId`
+ids. The `openai_compatible` adapter supplies no `default_model`, so all
+four tasks must be set or `python main.py serve` refuses to boot. If a task
+would use `source=default` and the adapter does not supply a non-blank id,
+`model_for` returns an empty id, `python main.py models` reports a hard
+problem, and `python main.py serve` exits before it opens a port. A call that still asks for that empty id raises `UnusableModelId`
 before the model-action cap and before the voice budget, and the provider
 is not called. Shared text is held. The first selection builds its adapter
 once; a factory that calls back into selection raises rather than waiting
@@ -84,14 +91,18 @@ different model or provider. Provider-named budget settings and persisted
 buckets are current compatibility details; do not rename/reset them to make
 the interface look neutral or let a provider switch replenish a user's
 allowance. The `anthropic` bucket and `NESTED_WORLDS_ANTHROPIC_*` names stay
-as they are. Daily call caps are not dollar caps, and identical call counts
+as they are. Despite those names, `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
+`NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` count voice calls on every
+text provider. Selecting `openai_compatible` does not replenish that
+allowance. Daily call caps are not dollar caps, and identical call counts
 do not imply identical spend.
 
 In-flight calls are limited per provider. `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`
-is unchanged and applies only to the anthropic adapter (default 8). Another
-adapter reads `NESTED_WORLDS_<NAME>_CONCURRENCY` with the same default. One
-provider's cap does not consume another's. Unset, empty, and non-numeric
-values use 8. Zero and negative values clamp to 1.
+is unchanged and applies only to the anthropic adapter (default 8).
+`openai_compatible` reads `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY`.
+Another adapter reads `NESTED_WORLDS_<NAME>_CONCURRENCY` with the same
+default. One provider's cap does not consume another's. Unset, empty, and
+non-numeric values use 8. Zero and negative values clamp to 1.
 
 The optional image path has a separate fal.ai integration. Future image or speech
 adapters follow the same selection principle, with their own capability and data
@@ -150,7 +161,7 @@ the default. `consciousness/model_check.py` is the only caller, uses
 getattr, and does not name a provider. The shared check rejects only empty
 text, whitespace, control characters, and an id longer than 256 characters.
 Character rules such as `@`, `+`, and `~` stay on the adapter.
-`consciousness/anthropic_provider.py` implements the only built-in adapter.
+`consciousness/anthropic_provider.py` implements the default built-in adapter.
 `get_provider()` loads it when `NESTED_WORLDS_PROVIDER` is unset or `anthropic`,
 and keeps that adapter for the process.
 The module does not import the SDK; the client import stays inside the
@@ -194,11 +205,43 @@ Test the boundary without paid calls: request construction, history ordering,
 text extraction, completion/refusal/truncation handling, schema behavior, timeout,
 usage fields, missing credentials and provider failures. Exercise the existing
 HTTP fallback and budget tests too. A replacement must preserve application-owned
-state and receipts; provider I/O must stay outside SQLite transactions. A second
-production adapter is a separate implementation until the candidate and scope
-are selected. The registry is the selection seam: register the adapter and set
+state and receipts; provider I/O must stay outside SQLite transactions. The
+registry is the selection seam: register the adapter and set
 `NESTED_WORLDS_PROVIDER`. Do not add a provider by renaming the anthropic
-budget bucket. xAI, OpenAI, and Google are not registered.
+budget bucket.
+
+`consciousness/openai_compat_provider.py` is the second built-in, named
+`openai_compatible`. It is available for evaluation. Registering it does
+not approve a data destination, and no provider other than the current
+default has been evaluated or approved. It posts Chat Completions to the
+base URL the operator sets. It does not read `OPENAI_*` or `XAI_*`. It has
+no default model id and does not judge ids by vendor prefix. The base URL
+and the API key are never logged and never placed in an exception message.
+A failure log records the exception class only.
+
+| Variable | Meaning |
+|---|---|
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL` | Required. `https`, or `http` on `127.0.0.1`, `localhost`, or `::1`. Userinfo, a query, and a fragment are rejected. Not logged. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` | Required except on loopback. Not logged. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_TOKENS_PARAM` | `max_completion_tokens` (default) or `max_tokens`. Any other value leaves the adapter unconfigured. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS` | `1` sends strict `json_schema`. Unset, a task that needs a schema raises `UnsupportedCapability` and the caller serves the authored fallback. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false`. Unset sends nothing. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional `none`, `minimal`, `low`, `medium`, or `high`. Unset sends nothing. Any other value leaves the adapter unconfigured and is not forwarded. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Used when the caller passes no timeout. Default 60. Moderation still passes 3 seconds. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | In-flight cap for this adapter. Default 8. It does not share the anthropic cap. |
+
+All four task model variables must be set. A reasoning model can spend
+`max_completion_tokens` on reasoning, so moderation's 32, the probe's 1,
+and the voice caps of 200 and 256 can finish `length`. A length stop is
+undecided, and every ambiguous line is then held. Use a non-reasoning
+model, or set the reasoning effort to `none` or `minimal` when the
+endpoint honors it. On some servers reasoning tokens sit outside
+`completion_tokens` and are not capped by that field. Output usage is
+`total_tokens - prompt_tokens` when both are present, so those tokens are
+still counted. The chronicle stores the model id the server echoed. A
+server may echo an alias such as `latest`; that string is stored as
+returned. The evaluation harness is unchanged. Production enablement is a
+separate decision and is not made by registering this adapter.
 
 ## Voice and caching
 

@@ -1,15 +1,20 @@
 """Small text-provider boundary; world prompts and validators stay with their tasks.
 
 ``NESTED_WORLDS_PROVIDER`` selects a registered adapter. Unset means
-``anthropic``, the only built-in adapter. An unknown name fails startup.
-The first successful selection is cached for the process. Per-task
-settings choose a model id on that provider. When no setting names an id,
-the selected adapter's own ``default_model`` supplies it. An adapter that
-omits that method does not inherit another adapter's ids. An id never
-selects or replaces the provider, and a failed call is never retried on
-another id or another provider. Adding a provider still requires an
-adapter, a registry entry, and contract evaluation (ADR-034). This module
-does not import a provider SDK.
+``anthropic``. Built-in adapters are ``anthropic`` and
+``openai_compatible``. The second speaks OpenAI-compatible Chat
+Completions to an operator-supplied base URL. It is registered for
+evaluation. No destination is approved for production, and no provider
+other than the current default has been evaluated or approved (ADR-034;
+ADR-035 is Proposed and does not enable a destination). An unknown name
+fails startup. The first successful selection is cached for the process.
+Per-task settings choose a model id on that provider. When no setting
+names an id, the selected adapter's own ``default_model`` supplies it.
+An adapter that omits that method does not inherit another adapter's ids.
+An id never selects or replaces the provider, and a failed call is never
+retried on another id or another provider. Adding a provider still
+requires an adapter, a registry entry, and contract evaluation (ADR-034).
+This module does not import a provider SDK.
 """
 from __future__ import annotations
 
@@ -309,6 +314,8 @@ def reserve_model_action(user_key: str | None = None) -> ModelReservation:
 class TextProvider(Protocol):
     """Text adapter. Id judgment and default ids are not part of this protocol.
 
+    Built-in adapters share this protocol. The method set and the
+    ``Completion`` fields do not change when another adapter is registered.
     Adapters that know which ids they serve also match
     ``ModelIdJudgingProvider``. The startup check uses getattr, so an
     adapter that omits ``model_id_validator`` is not asked and still
@@ -355,8 +362,15 @@ def _load_anthropic() -> TextProvider:
     return provider
 
 
+def _load_openai_compatible() -> TextProvider:
+    # Stdlib HTTP only. The module does not import a provider SDK.
+    from consciousness.openai_compat_provider import provider
+    return provider
+
+
 _BUILTINS: dict[str, Callable[[], TextProvider]] = {
     DEFAULT_PROVIDER: _load_anthropic,
+    "openai_compatible": _load_openai_compatible,
 }
 _REGISTERED: dict[str, Callable[[], TextProvider]] = {}
 _registry_lock = threading.Lock()
@@ -579,9 +593,11 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
 
     A missing or blank model id raises ``UnusableModelId`` before that cap
     and before the voice budget, and the provider is not called.
-    ``voice_budget`` reserves an ``anthropic`` call after that cap and before
-    the provider, so a refused cap does not spend the voice budget. A
-    ``ModelReservation`` from ``reserve_model_action`` is not charged again.
+    ``voice_budget`` reserves one voice call in the existing ``anthropic``
+    bucket, whichever provider is selected, after that cap and before the
+    provider, so a refused cap does not spend the voice budget. The bucket
+    name is unchanged. A ``ModelReservation`` from ``reserve_model_action``
+    is not charged again.
     """
     require_model_id(model)
     if not isinstance(reservation, ModelReservation):
