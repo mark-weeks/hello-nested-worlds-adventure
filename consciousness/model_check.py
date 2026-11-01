@@ -131,9 +131,9 @@ def _redact(text: str, secrets: tuple[str, ...]) -> str:
     return text
 
 
-def _display_model(model: str, secrets: tuple[str, ...]) -> str:
-    # An empty id is the absence of an id, not a hidden secret.
-    if model == "":
+def _display_model(model: str | None, secrets: tuple[str, ...]) -> str:
+    # None, empty, and whitespace-only are the absence of an id, not a secret.
+    if model is None or (isinstance(model, str) and not model.strip()):
         return "(none)"
     if not model or _embeds_secret(model, secrets):
         return "[redacted]"

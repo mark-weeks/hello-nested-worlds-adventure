@@ -79,8 +79,6 @@ def _enable(monkeypatch, stub):
     monkeypatch.delenv("NESTED_WORLDS_MUTATION_TTL_DAYS", raising=False)
     monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "100")
     monkeypatch.setenv(guard.ANTHROPIC_PER_USER_CAP_ENV, "100")
-    monkeypatch.setattr(
-        "consciousness.anthropic_provider.VOICE_MODEL", "import-time-alias-not-stored")
     for name in (runtime.NODE_MODEL_ENV, runtime.INHABITANT_MODEL_ENV,
                  runtime.INTENT_MODEL_ENV, runtime.SHARED_MODEL_ENV,
                  runtime.MODERATION_MODEL_ENV):
@@ -243,7 +241,7 @@ def test_voice_and_intention_rows_use_the_stub_completion(http, monkeypatch):
         assert "provider" not in row and "resolved_model" not in row
     dumped = json.dumps(history)
     assert "fixture" not in dumped
-    for alias in (NODE_ALIAS, INHABITANT_ALIAS, SHARED_ALIAS, "import-time-alias-not-stored"):
+    for alias in (NODE_ALIAS, INHABITANT_ALIAS, SHARED_ALIAS):
         assert alias not in dumped
     status, chronicle, _ = http("/chronicle?seed=382")
     chronicle_dump = json.dumps(chronicle)

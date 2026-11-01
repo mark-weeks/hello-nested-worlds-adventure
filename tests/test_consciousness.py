@@ -290,8 +290,6 @@ class TestAgentBibleStructure:
 
 class TestBibleCacheEffectiveness:
     def test_cached_prefix_estimates_meet_default_reference(self, monkeypatch):
-        monkeypatch.setattr(
-            'consciousness.anthropic_provider.VOICE_MODEL', DEFAULT_VOICE_MODEL)
         for name in (runtime.SHARED_MODEL_ENV, runtime.NODE_MODEL_ENV,
                      runtime.INHABITANT_MODEL_ENV, runtime.INTENT_MODEL_ENV):
             monkeypatch.delenv(name, raising=False)

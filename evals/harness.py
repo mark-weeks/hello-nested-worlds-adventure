@@ -20,7 +20,7 @@ import sys
 import time
 from unittest.mock import patch
 
-from consciousness import anthropic_provider, runtime
+from consciousness import runtime
 from consciousness.runtime import Completion, TokenUsage
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -326,7 +326,6 @@ def task_routing(provider, model):
     # model_for asks get_provider for a default. The candidate id is the
     # environment below, so this patched provider is not asked for one.
     with patch.object(runtime, "get_provider", return_value=provider), \
-         patch.object(anthropic_provider, "VOICE_MODEL", model), \
          patch.dict(os.environ, {runtime.SHARED_MODEL_ENV: model,
                                  runtime.NODE_MODEL_ENV: "",
                                  runtime.INHABITANT_MODEL_ENV: "",
