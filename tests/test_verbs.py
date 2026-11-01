@@ -166,10 +166,12 @@ class TestActEndpoint:
         yield f"http://127.0.0.1:{port}"
         server.shutdown()
 
-    def _post(self, srv, path, body):
+    def _post(self, srv, path, body, key=None):
+        headers = {"Content-Type": "application/json"}
+        if key:
+            headers["X-Beta-Key"] = key
         req = urllib.request.Request(
-            f"{srv}{path}", data=json.dumps(body).encode(),
-            headers={"Content-Type": "application/json"})
+            f"{srv}{path}", data=json.dumps(body).encode(), headers=headers)
         with urllib.request.urlopen(req) as resp:
             return json.loads(resp.read())
 
@@ -234,6 +236,62 @@ class TestActEndpoint:
         data = self._post(srv, "/act", body)
         assert data["action_status"] == "accepted", data
         assert calls == [6, 7]
+
+    def test_horizon_replay_skips_the_ring_and_the_writer_lock(self, srv, monkeypatch):
+        # An authenticated retry returns the stored receipt and does not
+        # rebuild. The first request's ring is a read taken before
+        # intents.execute opens BEGIN IMMEDIATE.
+        from server import handlers
+        from multiverse import store
+
+        key = "nw_" + "h" * 32
+        persistence.mint_invite_key(key, "Ada")
+        calls = []
+        writer_held = []
+        real = handlers._build_world
+
+        def counting(params):
+            depth = int(params.get("depth", 6))
+            calls.append(depth)
+            if depth == 7:
+                conn = getattr(persistence._transaction_state, "connection", None)
+                writer_held.append(conn is not None and conn.in_transaction)
+            return real(params)
+
+        monkeypatch.setattr(handlers, "_build_world", counting)
+        region = store.world_tree(seed=63, max_depth=7)
+        while region.level != "Region":
+            region = region.children[0]
+        body = {
+            "seed": 63, "depth": 6, "node_name": region.name,
+            "player_name": "Ada", "request_id": "horizon-act",
+        }
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            self._post(srv, "/act", {**body, "request_id": "bad"}, key=key)
+        assert exc.value.code == 409
+        assert calls == [6]
+
+        calls.clear()
+        first = self._post(srv, "/act", body, key=key)
+        assert first["action_status"] == "accepted", first
+        assert calls == [6, 7]
+        assert writer_held == [False]
+        hops = persistence.pending_causal_hops(63)
+        acts = [
+            row for row in persistence.get_mutations(63)
+            if row["type"] == "SCALE_ACT" and row["node"] == region.name
+        ]
+        assert len(acts) == 1
+
+        calls.clear()
+        second = self._post(srv, "/act", body, key=key)
+        assert second == first
+        assert calls == [6]
+        assert persistence.pending_causal_hops(63) == hops
+        assert [
+            row for row in persistence.get_mutations(63)
+            if row["type"] == "SCALE_ACT" and row["node"] == region.name
+        ] == acts
 
     def test_act_at_the_horizon_stages_the_same_first_ring(self, srv, monkeypatch):
         # Every level, on more than one seed, at every depth where the place

@@ -376,6 +376,28 @@ def test_authored_fallback_records_no_provider(http, monkeypatch, caplog):
     assert fallbacks == [f"speak fallback ({node.name}): RuntimeError"]
     assert "upstream detail" not in fallbacks[0]
 
+    import sqlite3
+
+    real_history = persistence.get_node_history
+
+    def locked(*_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(persistence, "get_node_history", locked)
+    stub.fail = False
+    caplog.clear()
+    status, body, _ = http("/speak", body={"node_name": node.name, "message": "hello"})
+    assert status == 200 and body["ai"] is False
+    assert body["response"] == consciousness.fallback_voice(node)
+    assert _rows() == []
+    fallbacks = [
+        record.getMessage() for record in caplog.records
+        if record.name == "nested_worlds" and record.getMessage().startswith("speak fallback")
+    ]
+    assert fallbacks == [f"speak fallback ({node.name}): database is locked"]
+    assert "hello" not in fallbacks[0]
+    monkeypatch.setattr(persistence, "get_node_history", real_history)
+
     def authored(*args, **kwargs):
         return consciousness.fallback_voice(node)
     monkeypatch.setattr(consciousness, "speak", authored)

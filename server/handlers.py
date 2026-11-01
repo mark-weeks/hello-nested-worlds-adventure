@@ -8,6 +8,7 @@ import logging
 import mimetypes
 import secrets
 import socket
+import sqlite3
 import time
 import unicodedata
 from http.server import BaseHTTPRequestHandler
@@ -1227,12 +1228,18 @@ class Handler(BaseHTTPRequestHandler):
             except (runtime.ModelActionLimited, runtime.VoiceBudgetLimited):
                 return self._send_json({"response": guard.QUIET_RESPONSE,
                                         "ai": False})
+            except sqlite3.Error as exc:
+                # The world goes quiet in character. SQLite's own message
+                # distinguishes a lock from a bad migration, and it does not
+                # include bound values.
+                _log.warning("speak fallback (%s): %s", node.name, exc)
+                self._send_json({
+                    "response": consciousness.fallback_voice(node),
+                    "ai": False,
+                })
             except Exception as exc:
-                # The world goes quiet in character — no key, SDK failure,
-                # or network error must never break the fiction with an
-                # HTTP error or a stack trace.
-                # The class only, matching the moderation hold. The message
-                # can carry a credential or the player's words.
+                # A provider message can carry a credential or the player's
+                # words. The class only, matching the moderation hold.
                 _log.warning("speak fallback (%s): %s", node.name, type(exc).__name__)
                 self._send_json({
                     "response": consciousness.fallback_voice(node),
@@ -1760,12 +1767,13 @@ class Handler(BaseHTTPRequestHandler):
 
         # Tree resolution (not _resolve_node): staging the cascade needs the
         # node's real parent AND children arms. At the client's horizon the
-        # node has no children in that tree. The one-level ring is attached
-        # inside apply(), after the verb check and any request_id refusal
-        # or replay, so a rejected act does not rebuild the world.
-        # ``verb_for_level`` reads ``target.level``, which the ring does not
-        # change. The response uses the name and level, which it does not
-        # change either.
+        # node has no children in that tree. A rejected or replayed request
+        # does not pay for the ring. A no-op, a shared delayed act, and a
+        # delayed act that prepare refuses may still build it: those
+        # decisions sit inside ``accept_verb``, and the ring stays outside
+        # that function's transaction. ``verb_for_level`` reads
+        # ``target.level``, which the ring does not change. The response
+        # uses the name and level, which it does not change either.
         target = find_node(root, node_name) if node_name else None
         if target is None:
             return self._send_error("no such place in this world", 404)
@@ -1782,11 +1790,8 @@ class Handler(BaseHTTPRequestHandler):
         payload = {"verb": verb.name}
         if player_name:
             payload["actor"] = player_name
-        def apply():
-            # Only a request that will perform the act pays for the ring.
-            # A wrong verb already returned. ``identify`` raises before
-            # this runs, and a stored receipt returns before ``apply``.
-            acted_on = _with_child_ring(seed, target)
+
+        def apply(acted_on):
             result, _staged = accept_verb(
                 seed, acted_on, verb, token, {"verb": verb.name}, payload,
                 player_name=player_name, actor_identity=_actor_identity(user_key, player_name),
@@ -1798,15 +1803,29 @@ class Handler(BaseHTTPRequestHandler):
             from persistence import intents, participants
             try:
                 participant = participants.identify(user_key)
-                result, replayed = intents.execute(
-                    participant["id"], seed, "act", body["request_id"],
-                    {"node": target.name, "verb": verb.name}, apply)
+                receipt_key = {"node": target.name, "verb": verb.name}
+                # A stored receipt returns before the ring. ``lookup`` uses
+                # the same fingerprint as ``execute``, so a bad id or a
+                # mismatched action is still 409 and does not build.
+                stored = intents.lookup(
+                    participant["id"], seed, "act", body["request_id"], receipt_key)
+                if stored is not None:
+                    result = stored
+                    replayed = True
+                else:
+                    # Read the ring before ``execute`` takes BEGIN IMMEDIATE.
+                    # ``execute`` rechecks the receipt under that lock, so a
+                    # concurrent retry cannot apply the act twice.
+                    acted_on = _with_child_ring(seed, target)
+                    result, replayed = intents.execute(
+                        participant["id"], seed, "act", body["request_id"],
+                        receipt_key, lambda: apply(acted_on))
             except participants.Unauthorized as exc:
                 return self._send_error(str(exc), 403)
             except ValueError as exc:
                 return self._send_error(str(exc), 409)
         else:
-            result = apply()
+            result = apply(_with_child_ring(seed, target))
         if result["action_status"] == "accepted" and not replayed:
             from server.history import narration_fields
             narration = narration_fields(seed, result["event_id"])

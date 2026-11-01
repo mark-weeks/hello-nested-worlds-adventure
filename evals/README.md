@@ -17,7 +17,7 @@ candidate's previous answers; inhabitant turns append witnessed speech to the
 synthetic history, matching that production prompt's memory shape. It never births
 a world, executes an action, writes a chronicle or opens a player's database.
 Routing overrides are process-local: do not import this tool into a running server.
-`model_for` takes a default id from `get_provider`, which `task_routing` patches; the candidate id is set on the task environment, so that patched provider is not asked for `default_model`.
+`model_for` takes a default id from `get_provider`, which `task_routing` patches; the candidate id is set on `NESTED_WORLDS_MODEL` (and `NESTED_WORLDS_MODERATION_MODEL`), and the per-task node, inhabitant, and intent variables are blanked, so that patched provider is not asked for `default_model`.
 Every request must name the selected candidate model before budget reservation or
 provider dispatch. Routing drift stops the run with `routing_mismatch`. All four
 production entry points have regression coverage for this guard. Centralizing
