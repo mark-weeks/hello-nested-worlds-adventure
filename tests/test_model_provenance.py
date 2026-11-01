@@ -421,6 +421,23 @@ def _fallback_lines(caplog, prefix):
     ]
 
 
+def _quiet_agent_body(node_name, agent_name="Scout"):
+    """The authored quiet body `_agent_voice_quiet` sends. The whole dict, not only `ai`."""
+    from agents.personas import for_name
+
+    persona_name = for_name(agent_name).name
+    return {
+        "agent": agent_name,
+        "persona": persona_name,
+        "node": node_name,
+        "response": (
+            f"{agent_name} does not answer. Only the traces of a "
+            f"{persona_name} remain here, already cooling."
+        ),
+        "ai": False,
+    }
+
+
 def test_agent_voice_fallback_logs_the_exception_class_only(http, monkeypatch, caplog):
     import consciousness
 
@@ -434,7 +451,8 @@ def test_agent_voice_fallback_logs_the_exception_class_only(http, monkeypatch, c
     status, body, _ = http("/agent/voice", body={
         "agent_name": "Scout", "node_name": node.name, "message": _PLAYER,
     })
-    assert status == 200 and body["ai"] is False, body
+    assert status == 200, body
+    assert body == _quiet_agent_body(node.name)
     assert _SECRET not in json.dumps(body)
     assert _PLAYER not in json.dumps(body)
     assert _fallback_lines(caplog, "agent voice fallback") == [
@@ -456,7 +474,8 @@ def test_agent_voice_sqlite_error_logs_the_database_message(http, monkeypatch, c
     status, body, _ = http("/agent/voice", body={
         "agent_name": "Scout", "node_name": node.name, "message": _PLAYER,
     })
-    assert status == 200 and body["ai"] is False, body
+    assert status == 200, body
+    assert body == _quiet_agent_body(node.name)
     assert _PLAYER not in json.dumps(body)
     assert _fallback_lines(caplog, "agent voice fallback") == [
         "agent voice fallback (Scout): database is locked"
