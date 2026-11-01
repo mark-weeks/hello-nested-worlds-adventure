@@ -410,6 +410,90 @@ def test_authored_fallback_records_no_provider(http, monkeypatch, caplog):
     assert persistence.provenance_of(rows[0][0]) == {"provider": None, "resolved_model": None}
 
 
+_SECRET = "sk-test-provider-SECRET"
+_PLAYER = "brass-lantern-player-line"
+
+
+def _fallback_lines(caplog, prefix):
+    return [
+        record.getMessage() for record in caplog.records
+        if record.name == "nested_worlds" and record.getMessage().startswith(prefix)
+    ]
+
+
+def test_agent_voice_fallback_logs_the_exception_class_only(http, monkeypatch, caplog):
+    import consciousness
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError(f"{_SECRET} echoed {_PLAYER}")
+
+    _enable(monkeypatch, Stub())
+    monkeypatch.setattr(consciousness, "voice_agent", boom)
+    node = store.world_tree(382)
+    caplog.set_level(logging.WARNING, logger="nested_worlds")
+    status, body, _ = http("/agent/voice", body={
+        "agent_name": "Scout", "node_name": node.name, "message": _PLAYER,
+    })
+    assert status == 200 and body["ai"] is False, body
+    assert _SECRET not in json.dumps(body)
+    assert _PLAYER not in json.dumps(body)
+    assert _fallback_lines(caplog, "agent voice fallback") == [
+        "agent voice fallback (Scout): RuntimeError"
+    ]
+    assert _SECRET not in caplog.text
+    assert _PLAYER not in caplog.text
+    assert _rows() == []
+
+
+def test_agent_voice_sqlite_error_logs_the_database_message(http, monkeypatch, caplog):
+    def locked(*_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    _enable(monkeypatch, Stub())
+    monkeypatch.setattr(persistence, "get_node_history", locked)
+    node = store.world_tree(382)
+    caplog.set_level(logging.WARNING, logger="nested_worlds")
+    status, body, _ = http("/agent/voice", body={
+        "agent_name": "Scout", "node_name": node.name, "message": _PLAYER,
+    })
+    assert status == 200 and body["ai"] is False, body
+    assert _PLAYER not in json.dumps(body)
+    assert _fallback_lines(caplog, "agent voice fallback") == [
+        "agent voice fallback (Scout): database is locked"
+    ]
+    assert _PLAYER not in caplog.text
+    assert _SECRET not in caplog.text
+    assert _rows() == []
+
+
+def test_image_provider_error_logs_the_exception_class_only(http, monkeypatch, caplog):
+    import urllib.request
+    from server.handlers import _IMAGE_QUIET_LINE
+
+    real_open = urllib.request.urlopen
+
+    def open_or_fail(req, *args, **kwargs):
+        target = req.full_url if isinstance(req, urllib.request.Request) else str(req)
+        if "fal.run" in target:
+            raise RuntimeError(f"{_SECRET} while painting {_PLAYER}")
+        return real_open(req, *args, **kwargs)
+
+    monkeypatch.setattr(urllib.request, "urlopen", open_or_fail)
+    monkeypatch.setenv("FAL_KEY", "fal-live-key-not-for-logs")
+    node = store.world_tree(382)
+    caplog.set_level(logging.WARNING, logger="nested_worlds")
+    status, body, _ = http("/image", body={"node_name": node.name, "seed": 382})
+    assert status == 200, body
+    assert body["url"] is None and body["images"] is False
+    assert body["error"] == _IMAGE_QUIET_LINE
+    assert _SECRET not in json.dumps(body)
+    assert _PLAYER not in json.dumps(body)
+    assert _fallback_lines(caplog, "fal.ai") == ["fal.ai image error: RuntimeError"]
+    assert _SECRET not in caplog.text
+    assert _PLAYER not in caplog.text
+    assert "fal-live-key-not-for-logs" not in caplog.text
+
+
 def test_cli_and_play_record_voiced_provenance_before_slicing(monkeypatch, capsys):
     import consciousness
     import main

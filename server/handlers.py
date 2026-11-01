@@ -1366,7 +1366,11 @@ class Handler(BaseHTTPRequestHandler):
             images = result.get("images", [])
             url = images[0]["url"] if images else None
         except Exception as exc:
-            _log.warning("fal.ai image error: %s", exc)
+            # A provider message can carry the key or the prompt, which can
+            # quote player words. The class only. This try is the fal.ai
+            # call; caching the URL is outside it, so there is no
+            # sqlite3.Error here to log by its message.
+            _log.warning("fal.ai image error: %s", type(exc).__name__)
             return self._send_json({"url": None, "images": False,
                                     "error": _IMAGE_QUIET_LINE})
 
@@ -1452,8 +1456,26 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})
-        except Exception as exc:
+        except sqlite3.Error as exc:
+            # History, keeper memory, and the chronicle write sit in this
+            # try. SQLite's own message distinguishes a lock from a bad
+            # migration, and it does not include bound values. Same split
+            # as /speak.
             _log.warning("agent voice fallback (%s): %s", agent_name, exc)
+            self._send_json({
+                "agent":    agent_name,
+                "persona":  persona.name,
+                "node":     node.name,
+                "response": (
+                    f"{agent_name} does not answer. Only the traces of a "
+                    f"{persona.name} remain here, already cooling."
+                ),
+                "ai": False,
+            })
+        except Exception as exc:
+            # A provider message can carry a credential or the player's
+            # words. The class only, matching the moderation hold.
+            _log.warning("agent voice fallback (%s): %s", agent_name, type(exc).__name__)
             self._send_json({
                 "agent":    agent_name,
                 "persona":  persona.name,
