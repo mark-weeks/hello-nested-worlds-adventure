@@ -1,5 +1,6 @@
 """One player's scale-native attempts, clarification and recoverable commitments."""
 import logging
+import sqlite3
 
 import persistence
 from consciousness import runtime
@@ -45,8 +46,16 @@ def _propose(intention, key, name, node, props):
         return None, _quiet(str(exc), ai=True, clarification=True)
     except Unsupported as exc:
         return None, _quiet(str(exc), ai=True, declined=True)
-    except Exception:
-        _log.exception('Intention interpretation unavailable')
+    except sqlite3.Error as exc:
+        # propose() charges the voice budget, which writes the cost ledger.
+        # SQLite's own message distinguishes a lock from a bad migration
+        # and does not include bound values. Same split as /speak.
+        _log.warning('Intention interpretation unavailable: %s', exc)
+        return None, _quiet(_UNSETTLED)
+    except Exception as exc:
+        # A provider message can carry a credential or the player's
+        # intention. The class only, and no traceback.
+        _log.warning('Intention interpretation unavailable: %s', type(exc).__name__)
         return None, _quiet(_UNSETTLED)
 
 

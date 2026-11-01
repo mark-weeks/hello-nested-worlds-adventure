@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -334,11 +335,23 @@ class TestActEndpoint:
         real_lookup = intents.lookup
         # Wait until every request has read. A timeout only fails a stuck
         # waiter; the result does not depend on how long the wait was.
+        # If fewer than all eight reach lookup, the barrier breaks and each
+        # waiter becomes an HTTP 500 — the same shape as a lost receipt
+        # recheck. Record the barrier failure and report it first.
         missed = threading.Barrier(racers)
+        reached = []
+        barrier_errors = []
 
         def lookup_and_wait(*args, **kwargs):
+            with guard:
+                reached.append(1)
             found = real_lookup(*args, **kwargs)
-            missed.wait(timeout=15)
+            try:
+                missed.wait(timeout=15)
+            except threading.BrokenBarrierError as exc:
+                with guard:
+                    barrier_errors.append(exc)
+                raise
             return found
 
         monkeypatch.setattr(intents, "lookup", lookup_and_wait)
@@ -353,12 +366,28 @@ class TestActEndpoint:
             except Exception as exc:
                 errors.append(exc)
 
-        threads = [threading.Thread(target=go, args=(i,)) for i in range(racers)]
+        threads = [
+            threading.Thread(target=go, args=(i,), daemon=True)
+            for i in range(racers)
+        ]
         for thread in threads:
             thread.start()
+        # A stuck worker fails this wait instead of blocking the run.
+        deadline = time.monotonic() + 60
         for thread in threads:
-            thread.join()
-        assert errors == []
+            thread.join(max(0.0, deadline - time.monotonic()))
+        running = [thread for thread in threads if thread.is_alive()]
+        assert not running, (
+            f"{len(running)} of {racers} worker threads still running after 60s"
+        )
+        assert not barrier_errors, (
+            f"only {len(reached)} of {racers} requests reached lookup"
+        )
+        http_500s = [
+            exc for exc in errors
+            if isinstance(exc, urllib.error.HTTPError) and exc.code == 500
+        ]
+        assert errors == [], f"{len(http_500s)} HTTP 500s"
         assert results[0]["action_status"] == "accepted"
         assert all(item == results[0] for item in results)
         assert len(applies) == 1

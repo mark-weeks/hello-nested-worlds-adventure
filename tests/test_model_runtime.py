@@ -1,4 +1,6 @@
 """Provider replacement mechanics without paid calls or another vendor's SDK."""
+import logging
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -104,6 +106,51 @@ def test_adapter_failure_keeps_authored_intention_fallback(alternate, monkeypatc
     steps, quiet = intervention_api._propose('engrave', None, node.name, node, {})
     assert steps is None and quiet['ai'] is False and quiet['steps'] == []
     assert quiet['response'] == intervention_api._UNSETTLED
+
+
+def test_intention_provider_error_logs_the_exception_class_only(alternate, monkeypatch, caplog):
+    monkeypatch.delenv('NESTED_WORLDS_DISABLE_AI', raising=False)
+    monkeypatch.setattr(guard, 'consume_anthropic', lambda **kwargs: True)
+    secret = 'sk-test-provider-SECRET'
+    intention = 'brass-lantern-player-line'
+
+    def unavailable(**kwargs):
+        raise RuntimeError(f'{secret} while reading {intention}')
+
+    monkeypatch.setattr(alternate, 'generate', unavailable)
+    node = SpatialNode(name='Vault', level='Object', properties={})
+    caplog.set_level(logging.WARNING, logger='server.intervention_api')
+    steps, quiet = intervention_api._propose(intention, None, node.name, node, {})
+    assert steps is None and quiet['response'] == intervention_api._UNSETTLED
+    assert secret not in quiet['response'] and intention not in quiet['response']
+    records = [record for record in caplog.records if record.name == 'server.intervention_api']
+    assert [record.getMessage() for record in records] == [
+        'Intention interpretation unavailable: RuntimeError']
+    assert all(record.exc_info is None for record in records)
+    assert secret not in caplog.text
+    assert intention not in caplog.text
+
+
+def test_intention_sqlite_error_logs_the_database_message(alternate, monkeypatch, caplog):
+    monkeypatch.delenv('NESTED_WORLDS_DISABLE_AI', raising=False)
+    monkeypatch.setattr(guard, 'consume_anthropic', lambda **kwargs: True)
+    intention = 'brass-lantern-player-line'
+
+    def locked(**kwargs):
+        raise sqlite3.OperationalError('database is locked')
+
+    monkeypatch.setattr(alternate, 'generate', locked)
+    node = SpatialNode(name='Vault', level='Object', properties={})
+    caplog.set_level(logging.WARNING, logger='server.intervention_api')
+    steps, quiet = intervention_api._propose(intention, None, node.name, node, {})
+    assert steps is None and quiet['response'] == intervention_api._UNSETTLED
+    assert intention not in quiet['response']
+    records = [record for record in caplog.records if record.name == 'server.intervention_api']
+    assert [record.getMessage() for record in records] == [
+        'Intention interpretation unavailable: database is locked']
+    assert all(record.exc_info is None for record in records)
+    assert intention not in caplog.text
+    assert 'sk-test-provider-SECRET' not in caplog.text
 
 
 def test_unknown_cache_metadata_warns_without_assuming_incumbent(alternate, monkeypatch, caplog):
