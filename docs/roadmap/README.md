@@ -36,7 +36,10 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
   ADR-015 through ADR-018 (referential puzzles, spoken interaction,
   multidimensional leaderboards, collectibles), which remain unimplemented
   directions pending both implementation and ratification; ratification of
-  the ADR-029 through ADR-033 drafts; the decision agenda below.
+  the ADR-029 through ADR-033 drafts; ratification of
+  [ADR-035](../decisions/ADR-035-openai-compatible-chat-completions.md), a
+  Proposed design for a second text adapter that registers nothing and
+  changes no runtime behavior; the decision agenda below.
 
 ## Live documents
 
@@ -54,6 +57,14 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 The owner's 2026-10-04 provider/model optionality direction is recorded in
 [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). It supersedes
 ADR-005's vendor-family preference, not the release gates or the open decisions below.
+
+[ADR-035](../decisions/ADR-035-openai-compatible-chat-completions.md)
+(Proposed, 2026-11-01) records the design of one further text adapter,
+`openai_compatible`: stdlib HTTP, OpenAI-compatible Chat Completions, an
+operator-set base URL, no default model ids, and the existing voice-budget
+bucket left in place. Mark Weeks approved the source plan the same day. The
+record is not accepted. It registers no adapter, approves no destination for
+player text, and sets no spend ceiling. Citing it authorizes nothing.
 
 ## Decision agenda (the owner's; nothing here is ratified)
 
@@ -134,6 +145,9 @@ kept so the archived text can be cross-read.
   under [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). The
   assessment's model recommendation is a candidate, not a standing preference;
   select on observed quality, capability, latency, reliability and total cost.
+  [ADR-035](../decisions/ADR-035-openai-compatible-chat-completions.md)
+  (Proposed) is the adapter shape for that comparison. It selects no model,
+  approves no destination, and does not run the comparison.
 - **4.5** Routing extraction from `server/handlers.py` (1,612 lines). The
   sub-API modules (`server/intervention_api.py`, `ideas_api.py`,
   `participant_api.py`, `situation_api.py`) are the pattern to follow.
