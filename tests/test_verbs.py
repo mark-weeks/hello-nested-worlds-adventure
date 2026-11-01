@@ -166,13 +166,13 @@ class TestActEndpoint:
         yield f"http://127.0.0.1:{port}"
         server.shutdown()
 
-    def _post(self, srv, path, body, key=None):
+    def _post(self, srv, path, body, key=None, timeout=None):
         headers = {"Content-Type": "application/json"}
         if key:
             headers["X-Beta-Key"] = key
         req = urllib.request.Request(
             f"{srv}{path}", data=json.dumps(body).encode(), headers=headers)
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
 
     def test_act_applies_persists_records_and_stages(self, srv):
@@ -292,6 +292,89 @@ class TestActEndpoint:
             row for row in persistence.get_mutations(63)
             if row["type"] == "SCALE_ACT" and row["node"] == region.name
         ] == acts
+
+    def test_all_miss_race_applies_one_horizon_act(self, srv, monkeypatch):
+        # Eight requests share one id. Each lookup is held until all eight
+        # have read, so every one misses and builds the ring, then they
+        # race into execute. The in-transaction recheck is what keeps a
+        # single effect, receipt, and broadcast.
+        from persistence import intents
+        from server import handlers
+        from multiverse import store
+
+        racers = 8
+        key = "nw_" + "r" * 32
+        persistence.mint_invite_key(key, "Ada")
+        region = store.world_tree(seed=63, max_depth=7)
+        while region.level != "Region":
+            region = region.children[0]
+        body = {
+            "seed": 63, "depth": 6, "node_name": region.name,
+            "player_name": "Ada", "request_id": "race-act-0001",
+        }
+        applies = []
+        broadcasts = []
+        guard = threading.Lock()
+        real_accept = handlers.accept_verb
+
+        def counting_accept(*args, **kwargs):
+            with guard:
+                applies.append(1)
+            return real_accept(*args, **kwargs)
+
+        monkeypatch.setattr(handlers, "accept_verb", counting_accept)
+        real_broadcast = handlers.broadcast
+
+        def counting_broadcast(room, message):
+            with guard:
+                broadcasts.append(message["type"])
+            return real_broadcast(room, message)
+
+        monkeypatch.setattr(handlers, "broadcast", counting_broadcast)
+        real_lookup = intents.lookup
+        # Wait until every request has read. A timeout only fails a stuck
+        # waiter; the result does not depend on how long the wait was.
+        missed = threading.Barrier(racers)
+
+        def lookup_and_wait(*args, **kwargs):
+            found = real_lookup(*args, **kwargs)
+            missed.wait(timeout=15)
+            return found
+
+        monkeypatch.setattr(intents, "lookup", lookup_and_wait)
+        started = threading.Barrier(racers)
+        results = [None] * racers
+        errors = []
+
+        def go(index):
+            try:
+                started.wait(timeout=15)
+                results[index] = self._post(srv, "/act", body, key=key, timeout=30)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=go, args=(i,)) for i in range(racers)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == []
+        assert results[0]["action_status"] == "accepted"
+        assert all(item == results[0] for item in results)
+        assert len(applies) == 1
+        assert broadcasts.count("scale_act") == 1
+        assert broadcasts.count("causal_event") == 1
+        acts = [
+            row for row in persistence.get_mutations(63)
+            if row["type"] == "SCALE_ACT" and row["node"] == region.name
+        ]
+        assert len(acts) == 1
+        with persistence._connection() as conn:
+            receipts = conn.execute(
+                "SELECT COUNT(*) FROM request_receipts WHERE world_seed = ?",
+                (63,),
+            ).fetchone()[0]
+        assert receipts == 1
 
     def test_act_at_the_horizon_stages_the_same_first_ring(self, srv, monkeypatch):
         # Every level, on more than one seed, at every depth where the place
