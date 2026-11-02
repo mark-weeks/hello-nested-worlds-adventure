@@ -7,17 +7,21 @@ still run.
 from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import ast
+import inspect
 import json
 import logging
 import socket
 import threading
 import time
 import traceback
+import urllib.request
 
 import pytest
 
 import persistence
 from consciousness import runtime
+import consciousness.openai_compat_provider as compat_module
 from consciousness.openai_compat_provider import (
     API_KEY_ENV,
     BASE_URL_ENV,
@@ -852,6 +856,56 @@ class TestUrllibLoopback:
         finally:
             _stop_loopback(stolen)
 
+    @pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
+    def test_opener_redirect_with_proxy_env_is_status_only(
+            self, loopback, monkeypatch, code):
+        stolen = _start_loopback()
+        try:
+            proxy = _start_loopback(mode="denied")
+            try:
+                self._assert_status_only_redirect(loopback, monkeypatch, stolen, proxy, code)
+            finally:
+                _stop_loopback(proxy)
+        finally:
+            _stop_loopback(stolen)
+
+    def _assert_status_only_redirect(self, loopback, monkeypatch, stolen, proxy, code):
+        loopback.mode = "redirect"
+        loopback.redirect_code = code
+        loopback.redirect_to = (
+            f"http://127.0.0.1:{stolen.server_address[1]}/stolen"
+        )
+        proxy_url = f"http://127.0.0.1:{proxy.server_address[1]}"
+        for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+            monkeypatch.setenv(name, proxy_url)
+
+        def _refuse_global_opener(*_args, **_kwargs):
+            raise AssertionError("urlopen or install_opener was called")
+
+        monkeypatch.setattr(urllib.request, "urlopen", _refuse_global_opener)
+        monkeypatch.setattr(urllib.request, "install_opener", _refuse_global_opener)
+        adapter, _timeout = self._adapter(loopback, monkeypatch)
+        before = len(loopback.seen)
+        with pytest.raises(ProviderHTTPError) as caught:
+            adapter.generate(
+                model="compat-node", system=(SystemBlock("bible"),),
+                messages=[{"role": "user", "content": _PLAYER}], max_tokens=16,
+            )
+        assert caught.value.status == code
+        assert str(caught.value) == f"HTTP {code}"
+        assert caught.value.__cause__ is None
+        _forbid(str(caught.value))
+        _forbid(_traceback(caught.value))
+        assert "stolen" not in str(caught.value)
+        assert proxy_url not in str(caught.value)
+        assert proxy_url not in _traceback(caught.value)
+        assert len(loopback.seen) == before + 1
+        assert loopback.seen[-1]["method"] == "POST"
+        assert loopback.seen[-1]["path"] == "/v1/chat/completions"
+        assert loopback.seen[-1]["authorization"] == f"Bearer {_SECRET}"
+        assert stolen.seen == []
+        assert proxy.seen == []
+
     def test_proxy_environment_is_ignored(self, loopback, monkeypatch):
         proxy = _start_loopback(mode="denied")
         try:
@@ -931,6 +985,18 @@ class TestUrllibLoopback:
                 model="compat-node", system=(SystemBlock("bible"),),
                 messages=[{"role": "user", "content": "Hello."}], max_tokens=8,
             )
+
+
+def test_adapter_source_never_calls_urlopen_or_install_opener():
+    tree = ast.parse(inspect.getsource(compat_module))
+    banned = {"urlopen", "install_opener"}
+    hits = [
+        node.id if isinstance(node, ast.Name) else node.attr
+        for node in ast.walk(tree)
+        if (isinstance(node, ast.Name) and node.id in banned)
+        or (isinstance(node, ast.Attribute) and node.attr in banned)
+    ]
+    assert hits == []
 
 
 def test_build_request_is_pure_and_has_no_transport():
