@@ -12,6 +12,8 @@ import inspect
 import json
 import logging
 import socket
+import ssl
+import subprocess
 import threading
 import time
 import traceback
@@ -27,17 +29,18 @@ from consciousness.openai_compat_provider import (
     BASE_URL_ENV,
     MAX_RESPONSE_BYTES,
     MAX_OUTPUT_PARAM_ENV,
+    MalformedProviderResponse,
     REASONING_EFFORT_ENV,
     SEND_STORE_FALSE_ENV,
     STRUCTURED_OUTPUTS_ENV,
     TIMEOUT_ENV,
-    MalformedProviderResponse,
     OpenAICompatibleProvider,
     ProviderConfigError,
     ProviderConnectionError,
     ProviderHTTPError,
     ProviderNotConfigured,
     ProviderTimeout,
+    decode_response,
     TransportRequest,
     UnsupportedCapability,
     build_request,
@@ -190,6 +193,31 @@ class TestConfiguration:
             _generate(adapter)
         _forbid(str(caught.value))
         _forbid(_traceback(caught.value))
+
+    def test_key_must_be_ascii_and_printable(self, monkeypatch):
+        for key in ("sk-test\r\nX: y", "sk-test-\u20ac", "sk-test-\u0007"):
+            _arm(monkeypatch, key=key)
+            adapter = OpenAICompatibleProvider(transport=_ok())
+            assert adapter.configured() is False
+            rendered = repr(compat_module._settings())
+            assert key not in rendered
+            assert "api_key" not in rendered
+            with pytest.raises(ProviderNotConfigured) as caught:
+                _generate(adapter)
+            assert key not in str(caught.value)
+            assert key not in _traceback(caught.value)
+        _arm(monkeypatch)
+        rendered = repr(compat_module._settings())
+        assert _SECRET not in rendered
+        assert "api_key" not in rendered
+
+    @pytest.mark.parametrize("url", [
+        "https://example..com/v1",
+        "https://.example.com/v1",
+        "https://\u0080.example/v1",
+    ])
+    def test_bad_idna_host_is_rejected(self, url):
+        assert parse_base_url(url) is None
 
     def test_no_default_model_and_no_id_judgment(self, monkeypatch):
         _arm(monkeypatch, models=False)
@@ -491,6 +519,31 @@ class TestResponseMapping:
         })
         assert completion_only.usage.output_tokens is None
         assert completion_only.usage.input_tokens is None
+        boolean = parse_response({
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "ok", "refusal": None},
+            }],
+            "usage": {
+                "prompt_tokens": True,
+                "completion_tokens": True,
+                "total_tokens": True,
+                "prompt_tokens_details": {
+                    "cached_tokens": True,
+                    "cache_write_tokens": True,
+                },
+            },
+        })
+        assert boolean.usage == TokenUsage(None, None, None, None)
+
+    def test_deeply_nested_json_is_malformed(self):
+        raw = b"[" * 2000 + b"]" * 2000
+        assert len(raw) < MAX_RESPONSE_BYTES
+        with pytest.raises(MalformedProviderResponse) as caught:
+            decode_response(200, raw)
+        assert str(caught.value) == "malformed response"
+        assert caught.value.__cause__ is None
+        assert caught.value.__suppress_context__ is True
 
 
 class TestErrorsAndSecrecy:
@@ -737,8 +790,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             elif mode == "split":
                 # Headers are flushed here. The body follows only after a
-                # gap, which is the race urllib's do_open loses if it
-                # closes the socket before this write.
+                # gap. The deadline socket must keep the descriptor open
+                # for that read.
                 payload = _chat_body(content="loopback-ok", model="echo-loopback")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -766,10 +819,75 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, f"not-json {_SECRET}".encode())
             elif mode == "denied":
                 self._send(401, json.dumps({"error": {"message": _SECRET}}).encode())
+            elif mode in ("conn_close", "http10", "no_length"):
+                self._delayed_completion(mode)
+            elif mode == "truncated":
+                self._truncated()
+            elif mode == "chunked_huge":
+                self._chunked_over_cap()
+            elif mode == "stream_huge":
+                self._stream_over_cap()
+            elif mode == "huge_500":
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(MAX_RESPONSE_BYTES + 8))
+                self.end_headers()
             else:
                 self._send(500, b"{}")
         except (BrokenPipeError, ConnectionResetError, OSError):
             return
+
+    def _delayed_completion(self, mode: str) -> None:
+        payload = _chat_body(content="loopback-ok", model="echo-loopback")
+        if mode == "http10":
+            status = b"HTTP/1.0 200 OK\r\n"
+            length = b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
+            extra = b""
+        elif mode == "no_length":
+            status = b"HTTP/1.1 200 OK\r\n"
+            length = b""
+            extra = b""
+        else:
+            status = b"HTTP/1.1 200 OK\r\n"
+            length = b"Content-Length: " + str(len(payload)).encode() + b"\r\n"
+            extra = b"Connection: close\r\n"
+        self.wfile.write(
+            status + b"Content-Type: application/json\r\n" + length + extra + b"\r\n"
+        )
+        self.wfile.flush()
+        time.sleep(0.2)
+        self.wfile.write(payload)
+        self.wfile.flush()
+        self.close_connection = True
+
+    def _truncated(self) -> None:
+        payload = _chat_body(content="loopback-ok", model="echo-loopback")
+        announced = len(payload) + 32
+        self.wfile.write(
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+            b"Content-Length: " + str(announced).encode() + b"\r\n"
+            b"Connection: close\r\n\r\n"
+        )
+        self.wfile.write(payload)
+        self.wfile.flush()
+        self.close_connection = True
+
+    def _chunked_over_cap(self) -> None:
+        self.wfile.write(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+        remaining = MAX_RESPONSE_BYTES + 64
+        piece = b"x" * 65536
+        while remaining:
+            block = piece[:min(len(piece), remaining)]
+            self.wfile.write(f"{len(block):x}\r\n".encode() + block + b"\r\n")
+            remaining -= len(block)
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
+
+    def _stream_over_cap(self) -> None:
+        self.wfile.write(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n")
+        self.wfile.write(b"x" * (MAX_RESPONSE_BYTES + 64))
+        self.wfile.flush()
+        self.close_connection = True
 
     def _send(self, status, payload: bytes):
         self.send_response(status)
@@ -878,6 +996,8 @@ class TestUrllibLoopback:
         proxy_url = f"http://127.0.0.1:{proxy.server_address[1]}"
         for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
             monkeypatch.setenv(name, proxy_url)
+        monkeypatch.delenv("NO_PROXY", raising=False)
+        monkeypatch.delenv("no_proxy", raising=False)
 
         def _refuse_global_opener(*_args, **_kwargs):
             raise AssertionError("urlopen or install_opener was called")
@@ -912,6 +1032,8 @@ class TestUrllibLoopback:
             proxy_url = f"http://127.0.0.1:{proxy.server_address[1]}"
             for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy"):
                 monkeypatch.setenv(name, proxy_url)
+            monkeypatch.delenv("NO_PROXY", raising=False)
+            monkeypatch.delenv("no_proxy", raising=False)
             adapter, _timeout = self._adapter(loopback, monkeypatch)
             result = adapter.generate(
                 model="compat-node", system=(SystemBlock("bible"),),
@@ -963,13 +1085,6 @@ class TestUrllibLoopback:
             )
         assert time.monotonic() - started < 2
         _forbid(_traceback(caught.value))
-        loopback.mode = "bad"
-        with pytest.raises(MalformedProviderResponse) as caught:
-            adapter.generate(
-                model="compat-node", system=(SystemBlock("bible"),),
-                messages=[{"role": "user", "content": "Hello."}], max_tokens=8,
-            )
-        _forbid(str(caught.value))
         loopback.mode = "denied"
         with pytest.raises(ProviderHTTPError) as caught:
             adapter.generate(
@@ -977,6 +1092,20 @@ class TestUrllibLoopback:
                 messages=[{"role": "user", "content": _PLAYER}], max_tokens=8,
             )
         assert caught.value.status == 401
+        assert str(caught.value) == "HTTP 401"
+        assert caught.value.__cause__ is None
+        assert caught.value.__suppress_context__ is True
+        _forbid(str(caught.value))
+        _forbid(_traceback(caught.value))
+        loopback.mode = "bad"
+        with pytest.raises(MalformedProviderResponse) as caught:
+            adapter.generate(
+                model="compat-node", system=(SystemBlock("bible"),),
+                messages=[{"role": "user", "content": "Hello."}], max_tokens=8,
+            )
+        assert str(caught.value) == "malformed response"
+        assert caught.value.__cause__ is None
+        assert caught.value.__suppress_context__ is True
         _forbid(str(caught.value))
         _forbid(_traceback(caught.value))
         loopback.mode = "huge"
@@ -985,6 +1114,226 @@ class TestUrllibLoopback:
                 model="compat-node", system=(SystemBlock("bible"),),
                 messages=[{"role": "user", "content": "Hello."}], max_tokens=8,
             )
+
+    @pytest.mark.parametrize("mode", ["conn_close", "http10", "no_length"])
+    def test_delayed_body_is_a_completion_when_the_connection_closes(
+            self, loopback, monkeypatch, mode):
+        adapter, _timeout = self._adapter(loopback, monkeypatch)
+        loopback.mode = mode
+        result = adapter.generate(
+            model="compat-node", system=(SystemBlock("bible"),),
+            messages=[{"role": "user", "content": "Hello."}], max_tokens=16,
+        )
+        assert result.text == "loopback-ok" and result.complete is True
+        assert result.resolved_model == "echo-loopback"
+        assert loopback.seen[-1]["authorization"] == f"Bearer {_SECRET}"
+
+    @pytest.mark.parametrize("mode", ["chunked_huge", "stream_huge", "truncated"])
+    def test_stream_over_the_cap_or_a_short_body_is_malformed(
+            self, loopback, monkeypatch, mode):
+        adapter, _timeout = self._adapter(loopback, monkeypatch)
+        loopback.mode = mode
+        with pytest.raises(MalformedProviderResponse) as caught:
+            adapter.generate(
+                model="compat-node", system=(SystemBlock("bible"),),
+                messages=[{"role": "user", "content": "Hello."}], max_tokens=8,
+            )
+        assert str(caught.value) == "malformed response"
+        assert caught.value.__cause__ is None
+        assert not isinstance(caught.value, ProviderConnectionError)
+
+    def test_oversized_error_status_is_the_status(self, loopback, monkeypatch):
+        adapter, _timeout = self._adapter(loopback, monkeypatch)
+        loopback.mode = "huge_500"
+        with pytest.raises(ProviderHTTPError) as caught:
+            adapter.generate(
+                model="compat-node", system=(SystemBlock("bible"),),
+                messages=[{"role": "user", "content": _PLAYER}], max_tokens=8,
+            )
+        assert caught.value.status == 500
+        assert str(caught.value) == "HTTP 500"
+        assert caught.value.__cause__ is None
+        _forbid(str(caught.value))
+        _forbid(_traceback(caught.value))
+
+    def test_https_loopback_sends_the_key(self, monkeypatch, tmp_path):
+        cert = tmp_path / "cert.pem"
+        key = tmp_path / "key.pem"
+        issued = subprocess.run(
+            [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", str(key), "-out", str(cert), "-days", "1",
+                "-subj", "/CN=127.0.0.1",
+                "-addext", "subjectAltName=IP:127.0.0.1",
+            ],
+            check=False, capture_output=True,
+        )
+        if issued.returncode != 0:
+            pytest.skip("openssl could not write a loopback certificate")
+        server = _start_tls_loopback(cert, key)
+        try:
+            monkeypatch.setenv("SSL_CERT_FILE", str(cert))
+            port = server.server_address[1]
+            _arm(monkeypatch, url=f"https://127.0.0.1:{port}/v1", key=_SECRET)
+            result = OpenAICompatibleProvider().generate(
+                model="compat-node", system=(SystemBlock("bible"),),
+                messages=[{"role": "user", "content": "Hello."}], max_tokens=16,
+            )
+            assert result.text == "loopback-ok" and result.complete is True
+            assert server.seen[-1]["authorization"] == f"Bearer {_SECRET}"
+            assert server.seen[-1]["path"] == "/v1/chat/completions"
+        finally:
+            _stop_loopback(server)
+
+
+def _start_tls_loopback(certfile, keyfile):
+    try:
+        server = _Loopback(("127.0.0.1", 0), _Handler)
+    except OSError as exc:
+        pytest.skip(f"loopback bind unavailable ({type(exc).__name__})")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certfile, keyfile)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.mode = "ok"
+    server.seen = []
+    server.redirect_code = 302
+    server.redirect_to = None
+    server._accepting = threading.Event()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server._thread = thread
+    thread.start()
+    if not server._accepting.wait(2):
+        _stop_loopback(server)
+        pytest.fail("loopback accept thread did not start")
+    client = ssl.create_default_context(cafile=str(certfile))
+    deadline = time.monotonic() + 2
+    while True:
+        raw = None
+        try:
+            raw = socket.create_connection(server.server_address, timeout=0.2)
+            tls = client.wrap_socket(raw, server_hostname="127.0.0.1")
+        except OSError:
+            if raw is not None:
+                raw.close()
+            if time.monotonic() >= deadline:
+                _stop_loopback(server)
+                pytest.fail("tls loopback port did not accept")
+            time.sleep(0.01)
+            continue
+        tls.close()
+        return server
+
+
+def test_connection_refused_is_connection_failed(monkeypatch):
+    held = socket.socket()
+    try:
+        held.bind(("127.0.0.1", 0))
+        port = held.getsockname()[1]
+        _arm(monkeypatch, url=f"http://127.0.0.1:{port}/v1")
+        with pytest.raises(ProviderConnectionError) as caught:
+            _generate(OpenAICompatibleProvider())
+        assert str(caught.value) == "connection failed"
+        assert caught.value.__cause__ is None
+        assert caught.value.__suppress_context__ is True
+        rendered = str(caught.value) + _traceback(caught.value)
+        assert "Connection refused" not in rendered
+        assert "Errno" not in rendered
+        _forbid(rendered)
+    finally:
+        held.close()
+
+
+def test_unicode_error_from_the_opener_is_connection_failed(monkeypatch):
+    def boom(self, fullurl, data=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT):
+        raise UnicodeEncodeError(
+            "latin-1", "Bearer " + _SECRET + "-\u20ac", 0, 1, "not latin-1",
+        )
+
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", boom)
+    _arm(monkeypatch)
+    with pytest.raises(ProviderConnectionError) as caught:
+        _generate(OpenAICompatibleProvider())
+    assert str(caught.value) == "connection failed"
+    assert caught.value.__cause__ is None
+    assert caught.value.__suppress_context__ is True
+    rendered = str(caught.value) + _traceback(caught.value)
+    assert "\u20ac" not in rendered
+    _forbid(rendered)
+
+
+def test_deadline_socket_waits_for_its_reader():
+    left, right = socket.socketpair()
+    try:
+        wrapped = compat_module._DeadlineSocket(left, time.monotonic() + 5)
+        reader = wrapped.makefile("rb")
+        wrapped.close()
+        right.sendall(b"still-open")
+        assert reader.read(10) == b"still-open"
+        reader.close()
+    finally:
+        right.close()
+        left.close()
+
+
+def test_status_and_no_redirect_raise_on_their_own():
+    status = compat_module._Status()
+
+    class Response:
+        def __init__(self, code):
+            self.code = code
+            self.msg = "Found"
+
+        def info(self):
+            return {}
+
+    with pytest.raises(ProviderHTTPError) as caught:
+        status.http_response(None, Response(302))
+    assert caught.value.status == 302
+    assert str(caught.value) == "HTTP 302"
+    assert caught.value.__cause__ is None
+    assert caught.value.__suppress_context__ is True
+    ok = Response(200)
+    assert status.http_response(None, ok) is ok
+    with pytest.raises(ProviderHTTPError) as caught:
+        status.https_response(None, Response(308))
+    assert caught.value.status == 308
+    redirect = compat_module._NoRedirect()
+    for name, code in (
+        ("http_error_301", 301),
+        ("http_error_302", 302),
+        ("http_error_303", 303),
+        ("http_error_307", 307),
+        ("http_error_308", 308),
+    ):
+        with pytest.raises(ProviderHTTPError) as caught:
+            getattr(redirect, name)(None, None, code, "Moved", {})
+        assert caught.value.status == code
+        assert caught.value.__cause__ is None
+        assert "Moved" not in str(caught.value)
+    with pytest.raises(ProviderHTTPError) as caught:
+        redirect.redirect_request(None, None, 301, "Moved", {}, "http://evil.example/next")
+    assert caught.value.status == 301
+    assert str(caught.value) == "HTTP 301"
+    assert "evil" not in str(caught.value)
+
+
+def test_models_names_an_unconfigured_provider_without_the_value(monkeypatch, capsys):
+    from main import main
+
+    secret_url = "https://user:pass@secret-host.example/v1?token=abc"
+    _arm(monkeypatch, url=secret_url, key="sk-test-\u20ac")
+    main(["models"])
+    out = capsys.readouterr().out
+    assert "provider not configured" in out
+    assert "secret-host" not in out
+    assert "user:pass" not in out
+    assert "token=abc" not in out
+    assert "\u20ac" not in out
+    _arm(monkeypatch)
+    main(["models"])
+    configured = capsys.readouterr().out
+    assert "text provider: openai_compatible" in configured
+    assert "provider not configured" not in configured
 
 
 def test_adapter_source_never_calls_urlopen_or_install_opener():

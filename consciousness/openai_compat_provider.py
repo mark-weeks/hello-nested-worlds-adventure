@@ -22,10 +22,15 @@ Voice publishes any non-None text through ``require_text`` without
 reading ``complete``, so those finishes must not carry text until a live
 check shows what the server meant. ADR-035 (Proposed) records the
 dialect choice; this module does not ratify it.
+
+The caller's timeout is a wall-clock budget for one POST. DNS lookup
+and individual TLS handshake bytes are not covered: the lookup runs
+before the socket exists, and the handshake runs on the raw socket
+before the deadline wrapper is installed.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import http.client
 import io
 import json
@@ -138,15 +143,14 @@ def _flag(name: str) -> bool:
 
 
 def _api_key() -> str | None:
-    # Strip, then reject internal whitespace and control characters so a
-    # key cannot inject a header line. The value is never logged.
+    # ASCII and printable only. A CR/LF would inject a header line, and a
+    # character outside latin-1 raises UnicodeEncodeError whose text
+    # contains the key. The value is never logged.
     raw = os.environ.get(API_KEY_ENV)
     if raw is None:
         return None
     text = raw.strip()
-    if not text:
-        return None
-    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in text):
+    if not text or not text.isascii() or not text.isprintable():
         return None
     return text
 
@@ -174,6 +178,10 @@ def parse_base_url(raw: str | None) -> ParsedBase | None:
         return None
     host = parts.hostname
     if not host or not parts.netloc:
+        return None
+    try:
+        host.encode("idna")
+    except UnicodeError:
         return None
     if "@" in parts.netloc:
         return None
@@ -252,7 +260,7 @@ def _call_timeout(caller: float | None) -> float:
 @dataclass(frozen=True)
 class _Settings:
     base: ParsedBase | None
-    api_key: str | None
+    api_key: str | None = field(repr=False)
     max_tokens_param: str | None
     structured_outputs: bool
     send_store_false: bool
@@ -465,12 +473,30 @@ def decode_response(status: int, raw: bytes) -> Completion:
         raise MalformedProviderResponse()
     try:
         body = json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, ValueError):
         raise MalformedProviderResponse() from None
     return parse_response(body)
 
 
-def _read_capped(response) -> bytes:
+def _announced_size(headers) -> int | None:
+    raw = None if headers is None else headers.get("Content-Length")
+    if not isinstance(raw, str):
+        return None
+    try:
+        size = int(raw.strip())
+    except ValueError:
+        return None
+    if size < 0:
+        return None
+    return size
+
+
+def _read_capped(response, announced: int | None) -> bytes:
+    """Read the body. ``read(amt)`` does not raise ``IncompleteRead``.
+
+    A short body whose ``Content-Length`` named a different size is
+    malformed. A stream with no length stops at ``MAX_RESPONSE_BYTES``.
+    """
     chunks: list[bytes] = []
     total = 0
     while True:
@@ -481,6 +507,8 @@ def _read_capped(response) -> bytes:
         if total > MAX_RESPONSE_BYTES:
             raise MalformedProviderResponse()
         chunks.append(chunk)
+    if announced is not None and total != announced:
+        raise MalformedProviderResponse()
     return b"".join(chunks)
 
 
@@ -497,12 +525,23 @@ class _DeadlineSocket:
     urllib's ``timeout`` is a limit on one socket operation. A header
     dribbled one byte at a time would otherwise run for many times the
     number the caller passed. The caller's number is the wall-clock
-    budget for the whole POST.
+    budget for the whole POST. DNS lookup happens before this wrapper
+    exists. The TLS handshake runs on the raw socket before the wrap,
+    so individual handshake bytes are not covered.
+
+    ``makefile`` counts its reader, and ``close`` leaves the real
+    descriptor open until that reader is gone. A stock socket does the
+    same with ``_io_refs``. ``http.client`` closes the connection when
+    the response will not stay open (``Connection: close``, HTTP/1.0,
+    or no length), and urllib closes it again after the headers. The
+    body stays readable.
     """
 
     def __init__(self, sock, deadline: float) -> None:
         self._sock = sock
         self._deadline = deadline
+        self._readers = 0
+        self._closing = False
 
     def _arm(self) -> None:
         self._sock.settimeout(_remaining(self._deadline))
@@ -536,11 +575,17 @@ class _DeadlineSocket:
 
     def makefile(self, mode="r", buffering=None, *args, **kwargs):
         raw = socket.SocketIO(self, mode)
+        self._readers += 1
         if buffering is None or buffering < 0:
             buffering = io.DEFAULT_BUFFER_SIZE
         if "r" in mode:
             return io.BufferedReader(raw, buffering)
         return io.BufferedWriter(raw, buffering)
+
+    def _decref_socketios(self):
+        self._readers -= 1
+        if self._closing and self._readers <= 0:
+            self._sock.close()
 
     def settimeout(self, value):
         # Callers pass their own per-operation number. Keep the budget.
@@ -553,7 +598,9 @@ class _DeadlineSocket:
         return self._sock.fileno()
 
     def close(self):
-        self._sock.close()
+        self._closing = True
+        if self._readers <= 0:
+            self._sock.close()
 
     def __getattr__(self, name):
         return getattr(self._sock, name)
@@ -584,83 +631,7 @@ def _connection(deadline: float, https: bool):
     return Conn
 
 
-def _exchange(handler, http_class, req, **http_conn_args):
-    """One request. The body is read before the socket is closed.
-
-    ``AbstractHTTPHandler.do_open`` closes the socket as soon as the
-    status line and headers have been parsed. A server that flushes
-    those headers before the body — ``BaseHTTPRequestHandler.end_headers``
-    does — can still be writing the body. The later ``read`` then calls
-    ``recv`` on a closed descriptor (``EBADF``) and looks like a dropped
-    connection. Read the capped body first, then close.
-    """
-    host = req.host
-    if not host:
-        raise urllib.error.URLError("no host given")
-    connection = http_class(host, timeout=req.timeout, **http_conn_args)
-    connection.set_debuglevel(handler._debuglevel)
-    headers = dict(req.unredirected_hdrs)
-    headers.update({key: value for key, value in req.headers.items() if key not in headers})
-    # One request. A kept-alive socket would block the next read.
-    headers["Connection"] = "close"
-    headers = {name.title(): value for name, value in headers.items()}
-    if req._tunnel_host:
-        tunnel_headers = {}
-        proxy_auth = "Proxy-Authorization"
-        if proxy_auth in headers:
-            tunnel_headers[proxy_auth] = headers.pop(proxy_auth)
-        connection.set_tunnel(req._tunnel_host, headers=tunnel_headers)
-    try:
-        try:
-            connection.request(
-                req.get_method(), req.selector, req.data, headers,
-                encode_chunked=req.has_header("Transfer-encoding"),
-            )
-        except OSError as err:
-            raise urllib.error.URLError(err) from None
-        response = connection.getresponse()
-    except Exception:
-        connection.close()
-        raise
-    try:
-        announced = response.headers.get("Content-Length")
-        if announced is not None:
-            try:
-                size = int(announced)
-            except ValueError:
-                size = None
-            if size is not None and size > MAX_RESPONSE_BYTES:
-                raise MalformedProviderResponse()
-        # Copy the body out before closing the descriptor. Leave the
-        # response itself open: opener.open is used as a context manager
-        # and refuses a response that is already closed.
-        response.enfolded_body = _read_capped(response)
-    except Exception:
-        _close_quietly(connection, response)
-        raise
-    _close_quietly(connection, None)
-    # urllib's error processor reads the reason phrase from msg.
-    response.msg = response.reason
-    return response
-
-
-def _close_quietly(connection, response) -> None:
-    try:
-        if connection.sock is not None:
-            connection.sock.close()
-            connection.sock = None
-        if response is not None:
-            response.close()
-    except OSError:
-        pass
-
-
-class _Exchange:
-    def do_open(self, http_class, req, **http_conn_args):
-        return _exchange(self, http_class, req, **http_conn_args)
-
-
-class _HTTPHandler(_Exchange, urllib.request.HTTPHandler):
+class _HTTPHandler(urllib.request.HTTPHandler):
     def __init__(self, deadline: float) -> None:
         super().__init__()
         self._deadline = deadline
@@ -669,7 +640,7 @@ class _HTTPHandler(_Exchange, urllib.request.HTTPHandler):
         return self.do_open(_connection(self._deadline, False), req)
 
 
-class _HTTPSHandler(_Exchange, urllib.request.HTTPSHandler):
+class _HTTPSHandler(urllib.request.HTTPSHandler):
     def __init__(self, deadline: float) -> None:
         super().__init__()
         self._deadline = deadline
@@ -682,7 +653,12 @@ class _HTTPSHandler(_Exchange, urllib.request.HTTPSHandler):
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Any 3xx stops here. The key is not copied onto a second request."""
+    """Second layer for a 3xx. ``_Status`` raises before this runs.
+
+    Kept so a redirect handler cannot copy ``Authorization`` onto
+    another request if the status processor is bypassed. Tested on
+    the methods themselves.
+    """
 
     def http_error_302(self, req, fp, code, msg, headers):
         raise ProviderHTTPError(int(code)) from None
@@ -694,6 +670,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class _Status(urllib.request.HTTPErrorProcessor):
+    """Any 3xx stops here, before urllib's redirect handler sees it."""
+
     def http_response(self, request, response):
         code = getattr(response, "code", None)
         if isinstance(code, int) and not isinstance(code, bool) and 300 <= code < 400:
@@ -710,8 +688,12 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
     not name. ``ProxyHandler({})`` is installed so ``HTTP_PROXY``,
     ``HTTPS_PROXY``, and ``ALL_PROXY`` are not read. The caller's timeout
     is a wall-clock budget for this POST, not urllib's per-socket timeout.
-    The body is read before the socket is closed. Failures become adapter
-    exceptions whose messages do not include the URL, the body, or the key.
+    DNS lookup and individual TLS handshake bytes are not covered.
+    ``_Status`` raises on any 3xx before a redirect handler runs.
+    ``_NoRedirect`` is the second layer. The status is read before the
+    body size, so an error response over the cap is still that HTTP
+    status. Failures become adapter exceptions whose messages do not
+    include the URL, the body, or the key.
     """
     deadline = time.monotonic() + request.timeout
     opener = urllib.request.build_opener(
@@ -732,13 +714,16 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
             status = response.getcode()
             if isinstance(status, bool) or not isinstance(status, int):
                 raise MalformedProviderResponse()
-            if 300 <= status < 400:
+            # 3xx is raised by _Status. A non-2xx that still arrives is
+            # that status, before any look at the body size.
+            if status < 200 or status >= 300:
                 raise ProviderHTTPError(status) from None
-            raw = getattr(response, "enfolded_body", None)
-            if not isinstance(raw, (bytes, bytearray)):
+            announced = _announced_size(response.headers)
+            if announced is not None and announced > MAX_RESPONSE_BYTES:
                 raise MalformedProviderResponse()
+            raw = _read_capped(response, announced)
             pairs = tuple((key, value) for key, value in response.headers.items())
-            return status, pairs, bytes(raw)
+            return status, pairs, raw
     except ProviderHTTPError as exc:
         raise ProviderHTTPError(exc.status) from None
     except ProviderTimeout:
@@ -759,6 +744,8 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
     except http.client.HTTPException:
         raise MalformedProviderResponse() from None
     except (ConnectionError, OSError):
+        raise ProviderConnectionError() from None
+    except (UnicodeError, ValueError):
         raise ProviderConnectionError() from None
 
 

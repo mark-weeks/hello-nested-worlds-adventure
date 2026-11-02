@@ -227,7 +227,7 @@ A failure log records the exception class only.
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS` | `1` sends strict `json_schema`. Unset, a task that needs a schema raises `UnsupportedCapability` and the caller serves the authored fallback. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false`. Unset sends nothing. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional `none`, `minimal`, `low`, `medium`, or `high`. Unset sends nothing. Any other value leaves the adapter unconfigured and is not forwarded. |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for one POST when the caller passes no timeout. Default 60. urllib's own timeout is a limit on one socket operation; this adapter does not pass the caller's number through as that. Moderation still passes 3 seconds. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for one POST when the caller passes no timeout. Default 60. urllib's own timeout is a limit on one socket operation; this adapter does not pass the caller's number through as that. DNS lookup and individual TLS handshake bytes are not covered. Moderation still passes 3 seconds. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | In-flight cap for this adapter. Default 8. It does not share the anthropic cap. |
 
 All four task model variables must be set. A reasoning model can spend
@@ -248,7 +248,8 @@ code only and is not followed, so `Authorization` is not sent to another
 host. `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and the lowercase forms are
 not read. The caller's timeout is a wall-clock budget for that one POST.
 urllib's own timeout is a limit on one socket operation, and this adapter
-does not pass the caller's number through as that. The chronicle stores a
+does not pass the caller's number through as that. DNS lookup and
+individual TLS handshake bytes are not covered. The chronicle stores a
 model id only after `_model_mark` in `persistence/__init__.py`: surrounding
 whitespace is stripped, and a non-string, a blank, a control character, or
 a value longer than 200 characters is dropped rather than stored or
