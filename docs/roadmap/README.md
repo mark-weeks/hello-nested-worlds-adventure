@@ -113,14 +113,15 @@ those batches merges first takes the next free number.
 Still open when the ensemble action plan was archived; its item numbers are
 kept so the archived text can be cross-read.
 
-- **1.2** Activate hosted backups: set `FLY_API_TOKEN`, `ENFOLDED_BACKUP_APP`
-  and, before permanent history, `ENFOLDED_BACKUP_REQUIRED=true`; dispatch
-  `.github/workflows/backup.yml` (now every 30 minutes with SQLite validation),
-  inspect the artifact, and prove freshness with `scripts/backup_health.py`
-  (runbook §7–§8; readiness record "Remaining gates").
+- **1.2** Activate hosted backups: set `FLY_API_TOKEN`, the private-bucket
+  secrets and variables in [backup-bucket.md](../infrastructure/backup-bucket.md),
+  `ENFOLDED_BACKUP_APP`, and, before permanent history, `ENFOLDED_BACKUP_REQUIRED=true`;
+  dispatch `.github/workflows/backup.yml` (every 30 minutes, SQLite validation,
+  private bucket, no GitHub artifact), and prove freshness with
+  `scripts/backup_health.py` (runbook §7–§8; readiness record "Remaining gates").
 - **1.3** Run the ADR-005 staging rehearsal on the disposable twin (runbook §3a):
   2–3 observed newcomer sessions, WebSocket soak, live-voice and intention
-  probes, and a restore of a downloaded hosted artifact into isolated staging.
+  probes, and a restore of a downloaded hosted backup into isolated staging.
 - **3.3** Cohort rhythm: a recurring gathering and a weekly read of
   `scripts/beta_metrics.py`. The
   [pilot protocol](../evaluation/2026-09-12-pilot-protocol.md) defines the

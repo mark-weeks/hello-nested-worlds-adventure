@@ -403,55 +403,73 @@ fly ssh console -C "python main.py backup --to /data/backups/worlds-$(date -u +%
 at most one hour of lost history. A schedule alone does not establish that bound:
 [GitHub documents delayed and dropped scheduled jobs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 The workflow takes an online backup, downloads a self-contained SQLite file,
-checks integrity and required tables, and retains it with 90-day retention even
-when validation fails. A failed check keeps the run failed and labels the artifact
-`unvalidated-worlds-backup-<app>-<UTC snapshot-start>` for operator salvage. These
-copies never count as healthy backups. A successful upload is not yet a restore rehearsal.
+checks integrity and required tables, and stores it in a private S3-compatible
+bucket. Cloudflare R2 is the documented default. Setup, the token, retention,
+and the rehearsal list are in [backup-bucket.md](backup-bucket.md).
 
-Before a separately authorized launch, configure the repository:
+GitHub's artifact list is available to anyone with read access to the
+repository ([artifact API](https://docs.github.com/en/rest/actions/artifacts#list-artifacts-for-a-repository)).
+This repository is public, so the database is not uploaded as an Actions
+artifact, including when validation fails or the bucket is not configured.
+A failed check keeps the run failed and stores the file as
+`offhost/unvalidated-worlds-backup-<app>-<UTC snapshot-start>.db` for operator
+salvage. A healthy object is
+`offhost/worlds-backup-<app>-<UTC snapshot-start>.db`. Quarantine names never
+count as healthy backups. A successful upload is not yet a restore rehearsal.
 
-- Secret `FLY_API_TOKEN`: deployment-scoped access to the intended Fly app.
+The bucket is private: no public `r2.dev` URL and no custom domain. The job
+reads only secrets and variables (`FLY_API_TOKEN`,
+`ENFOLDED_BACKUP_S3_ACCESS_KEY_ID`, `ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY`,
+`ENFOLDED_BACKUP_S3_BUCKET`, `ENFOLDED_BACKUP_S3_ENDPOINT`, and the optional
+region, retention, and app name). Until those values are set the scheduled run
+is an inactive no-op and uploads nothing.
+
+Before a separately authorized launch, configure the repository as in the
+bucket runbook, then:
+
 - Variable `ENFOLDED_BACKUP_APP`: the exact app name (default `enfolded-beta`).
   Use the staging app during rehearsal; switch deliberately before production.
 - Variable `ENFOLDED_BACKUP_REQUIRED`: exactly `true` before permanent history is
-  accepted. Missing credentials then fail the workflow. Before activation, a
-  missing token with the variable unset or exactly `false` produces an explicit
-  inactive warning and no recovery claim. Any other value fails configuration;
-  a typo cannot silently turn enforcement off.
+  accepted. Missing credentials or bucket settings then fail the workflow.
+  Before activation, a missing value with the variable unset or exactly `false`
+  produces an explicit inactive warning and no recovery claim. Any other value
+  fails configuration; a typo cannot silently turn enforcement off.
+- Variable `ENFOLDED_BACKUP_RETENTION_DAYS`: optional, default **30**. The
+  workflow deletes this app's backup objects whose snapshot-start is at least
+  that many days old. A lifecycle rule on prefix `offhost/` with the same day
+  count is the backstop when Actions does not run. This replaces the old
+  90-day artifact expiry.
 
-Manually dispatch `backup.yml`; inspect the artifact, not just the job badge.
-Artifacts are named `worlds-backup-<app>-<UTC snapshot-start>`; staging copies
-cannot satisfy the production check. Run this read-only check with authenticated
-GitHub CLI access (`actions:read`):
+Manually dispatch `backup.yml` and confirm the object, not just the job badge.
+Staging keys cannot satisfy the production check. Run this read-only check
+with the bucket variables and either the write key or the list-only key from
+the runbook. It does not use the GitHub API:
 
 ```bash
-python scripts/backup_health.py --repository mark-weeks/hello-nested-worlds-adventure --app enfolded-beta
+python scripts/backup_health.py --app enfolded-beta
 ```
 
-It queries artifact pages and checks the candidate's originating run. Only a
-completed, successful `backup.yml` run on `main`, triggered by the schedule or a
-manual dispatch from the same repository, qualifies. Workflow identity, branch,
-repository and commit metadata must match; an expected filename alone is not proof.
-It exits 0 for a qualifying nonempty, nonexpired artifact whose snapshot-start is
-no more than 60 minutes old; 1 for missing/stale; 2 when status cannot be determined.
-It does not download data, validate contents, or restore anything. Old artifact names
-and quarantined copies are not counted. Metadata follows the
-[GitHub artifact API](https://docs.github.com/en/rest/actions/artifacts) and
-[workflow-run API](https://docs.github.com/en/rest/actions/workflow-runs).
+It lists `offhost/` in the bucket and keeps the newest validated, nonempty
+object for that app. Exit 0 when that object's snapshot-start is no more than
+60 minutes old; 1 for missing or stale; 2 when the listing cannot be read.
+It does not download data, validate contents, or restore anything. Quarantine
+keys, other apps, empty objects, and future stamps are not counted. Age is the
+stamp in the name, so a slow upload cannot freshen an old snapshot.
 
 Run this check independently after workflow completion. A workflow cannot certify
 its own successful conclusion while still running, and cannot detect its own
 scheduler stopping. The backup job itself fails on invalid configuration,
-validation or upload failure. Arrange the independent check and operator notification
+validation, or upload failure. Arrange the independent check and operator notification
 before launch; this batch provides the command, not an external monitor.
 The `:17` and `:47` schedule leaves 30 minutes of nominal slack within the unchanged
 one-hour freshness limit; it does not guarantee timely scheduling. If measured
 cadence cannot meet that loss window, fix the transport/cadence or explicitly
-revisit ADR-005. Record several subsequent artifacts before calling automation proven.
+revisit ADR-005. Record several subsequent objects before calling automation proven.
 
-Download the selected artifact through GitHub, retain its run ID, snapshot time,
-app, release SHA and file checksum, and rehearse the restore below on an isolated
-instance. Treat downloaded data as private operator data, never a public fixture.
+Download the selected object with `python scripts/backup_store.py get` (see the
+runbook), retain its snapshot time, app, release SHA and file checksum, and
+rehearse the restore below on an isolated instance. Treat downloaded data as
+private operator data, never a public fixture.
 
 ### Restoring from a backup
 
@@ -473,15 +491,16 @@ fly ssh console -C "python main.py restore --from /data/backups/worlds-YYYYMMDD.
 fly machine restart <machine-id>
 ```
 
-If the backup only exists off-host, upload it first:
-`fly ssh sftp shell` then `put ./local-backups/worlds-YYYYMMDD.db /data/backups/`.
+If the backup only exists off-host, download it with `scripts/backup_store.py get`,
+run `scripts/validate_backup.py` on the file, then upload it:
+`fly ssh sftp shell` then `put ./worlds-backup.db /data/backups/`.
 Earlier local rehearsals covered backup → mutate → restore. They do not prove
-that this deployment's off-host artifact can be recovered. On isolated staging,
+that this deployment's off-host object can be recovered. On isolated staging,
 verify born rows/hinge and historical deltas, rotated identities and private-note
 access, pinned puzzles, saved positions, pending inputs and completed fences.
 Start a compatible build, confirm pending effects complete once, retry the original
 request IDs, and check that no other account can read private notes. Record the
-artifact checksum and elapsed recovery time. Never rehearse by rolling back the
+object checksum and elapsed recovery time. Never rehearse by rolling back the
 continuing participant world.
 
 ### Redaction — the sanctioned exception to append-only
@@ -509,8 +528,12 @@ fly ssh console -C "python main.py redact --id 12345 --scrub-name --reason 'ToS'
 No restart is needed — history is read per request. If the abusive text
 also fed a cached node image, delete that node's `node_images` row (the
 image regenerates on next request). Off-host backups made before the
-redaction still contain the original text; their 90-day artifact expiry
-is the retention bound.
+redaction still contain the original text. Delete those objects
+(`scripts/backup_store.py delete` for one key, or `delete-before` for every
+backup of this app whose snapshot-start is at or before the redaction). The
+default retention is 30 days, and a matching lifecycle rule is the backstop
+when the workflow does not run. Expiry is not a substitute for deleting a
+copy you were asked to remove.
 
 ---
 
@@ -542,12 +565,13 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
 
 **T-1 week:**
 
-- [ ] Backup target and token configured; `ENFOLDED_BACKUP_REQUIRED=true`.
-      Manual dispatch and subsequent scheduled runs produce fresh app-specific artifacts.
-- [ ] Isolated restore rehearsed from a downloaded artifact of the intended app;
+- [ ] Private bucket, token, and variables configured ([backup-bucket.md](backup-bucket.md));
+      `ENFOLDED_BACKUP_REQUIRED=true`. Manual dispatch and subsequent scheduled runs
+      produce fresh app-specific objects. The job does not publish a GitHub artifact.
+- [ ] Isolated restore rehearsed from a downloaded object of the intended app;
       before first production, use its staging twin, then verify production backup
       immediately after first deploy and before inviting participants.
-- [ ] Independent artifact-freshness monitoring and failure notification exercised.
+- [ ] Independent bucket-freshness monitoring and failure notification exercised.
       A green no-op and an uptime ping cannot satisfy this gate.
 - [ ] `SENTRY_DSN` set; `fly logs` shows `Sentry initialized` on boot.
 - [ ] External uptime ping pointed at `/guide` (ungated, exercises the
