@@ -495,7 +495,8 @@ def test_fixture_without_defaults_fails_startup_and_does_not_send_claude_ids(
     line = report.failure_line()
     assert 'has no default model' in line
     assert 'provider fixture' in line
-    assert runtime.NODE_MODEL_ENV in line
+    assert f'{runtime.NODE_MODEL_ENV} or {runtime.SHARED_MODEL_ENV}' in line
+    assert f'{runtime.MODERATION_MODEL_ENV} or {runtime.SHARED_MODEL_ENV}' not in line
     assert runtime.MODERATION_MODEL_ENV in line
     assert 'claude' not in line
     assert '\n' not in line
@@ -870,7 +871,8 @@ def test_openai_compatible_without_ids_fails_startup(monkeypatch, capsys):
     line = report.failure_line()
     assert 'has no default model' in line
     assert 'provider openai_compatible' in line
-    assert runtime.NODE_MODEL_ENV in line
+    assert f'{runtime.NODE_MODEL_ENV} or {runtime.SHARED_MODEL_ENV}' in line
+    assert f'{runtime.MODERATION_MODEL_ENV} or {runtime.SHARED_MODEL_ENV}' not in line
     assert runtime.MODERATION_MODEL_ENV in line
     assert 'claude' not in line
     with pytest.raises(SystemExit) as caught:

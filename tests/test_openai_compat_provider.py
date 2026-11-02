@@ -744,6 +744,27 @@ class TestErrorsAndSecrecy:
         assert caught.value.__cause__ is None
         assert charged == []
 
+        class Falsy:
+            name = "falsy"
+
+            def supports_json_schema(self):
+                return 0
+
+            def generate(self, **kwargs):
+                charged.append("call")
+                raise AssertionError("a falsy schema flag must not call the provider")
+
+        monkeypatch.setattr(runtime, "get_provider", lambda: Falsy())
+        with pytest.raises(UnsupportedCapability):
+            runtime.generate(
+                endpoint="intervention-proposal", model="compat-node", max_tokens=16,
+                system=(SystemBlock("bible"),),
+                messages=[{"role": "user", "content": _PLAYER}],
+                json_schema={"type": "object"},
+                voice_budget=True,
+            )
+        assert charged == []
+
 
 class TestVoiceBudget:
     def test_speak_charges_the_anthropic_bucket_once_and_an_unconfigured_call_charges_nothing(
@@ -1291,6 +1312,95 @@ class TestUrllibLoopback:
         assert sum(attempts) < budget * 2
         assert len(attempts) < 3
 
+    def test_connect_tries_next_address_after_refusal(self, monkeypatch):
+        seen = []
+
+        def getaddrinfo(host, port, *args, **kwargs):
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.1", 9)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.2", 9)),
+            ]
+
+        def connect(self, address):
+            seen.append(address)
+            if address[0] == "192.0.2.1":
+                raise ConnectionRefusedError(111, "Connection refused")
+
+        monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+        monkeypatch.setattr(socket.socket, "connect", connect)
+        deadline = time.monotonic() + 1.0
+        conn = compat_module._connection(deadline, False)("blackhole.invalid", 80)
+        conn.connect()
+        try:
+            assert seen == [("192.0.2.1", 9), ("192.0.2.2", 9)]
+            assert conn.sock is not None
+        finally:
+            conn.close()
+
+    def test_connect_budget_shared_after_slow_refusal(self, monkeypatch):
+        attempts = []
+        budget = 0.40
+
+        def getaddrinfo(host, port, *args, **kwargs):
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.1", 9)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.2", 9)),
+            ]
+
+        def connect(self, address):
+            timeout = self.gettimeout()
+            attempts.append(0.0 if timeout is None else timeout)
+            if address[0] == "192.0.2.1":
+                time.sleep(budget * 0.60)
+                raise ConnectionRefusedError(111, "Connection refused")
+            time.sleep(timeout if timeout and timeout > 0 else 0)
+            raise socket.timeout("timed out")
+
+        monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+        monkeypatch.setattr(socket.socket, "connect", connect)
+        deadline = time.monotonic() + budget
+        conn = compat_module._connection(deadline, False)("blackhole.invalid", 80)
+        started = time.monotonic()
+        with pytest.raises(ProviderTimeout) as caught:
+            conn.connect()
+        elapsed = time.monotonic() - started
+        assert str(caught.value) == "timed out"
+        assert caught.value.__cause__ is None
+        assert caught.value.__suppress_context__ is True
+        assert "192.0.2" not in str(caught.value)
+        assert "Connection refused" not in str(caught.value)
+        # A full budget on the blackhole after a 60% refusal would be ~1.6x.
+        assert elapsed < budget + 0.15
+        assert len(attempts) == 2
+        assert attempts[1] < budget * 0.75
+
+    def test_close_oserror_does_not_replace_the_http_status(self, monkeypatch):
+        def boom(self):
+            raise OSError("close failed")
+
+        monkeypatch.setattr(http.client.HTTPResponse, "close", boom)
+        for mode, code in (("denied", 401), ("redirect", 302)):
+            server = _start_loopback(mode=mode)
+            if mode == "redirect":
+                server.redirect_code = 302
+                server.redirect_to = "http://127.0.0.1:9/stolen"
+            try:
+                adapter, _timeout = self._adapter(server, monkeypatch)
+                with pytest.raises(ProviderHTTPError) as caught:
+                    adapter.generate(
+                        model="compat-node", system=(SystemBlock("bible"),),
+                        messages=[{"role": "user", "content": _PLAYER}],
+                        max_tokens=8, timeout=2,
+                    )
+                assert caught.value.status == code
+                assert str(caught.value) == f"HTTP {code}"
+                assert caught.value.__cause__ is None
+                assert caught.value.__suppress_context__ is True
+                assert "close failed" not in str(caught.value)
+                assert "close failed" not in _traceback(caught.value)
+            finally:
+                _stop_loopback(server)
+
     def test_peer_close_before_status_is_connection_failed(self, monkeypatch):
         server = _start_loopback(mode="early_close")
         try:
@@ -1667,6 +1777,19 @@ def test_models_names_an_unconfigured_provider_without_the_value(monkeypatch, ca
     configured = capsys.readouterr().out
     assert "text provider: openai_compatible" in configured
     assert "provider not configured" not in configured
+    assert "(structured outputs off - intent calls will be refused)" in configured
+    intent = next(line for line in configured.splitlines() if line.startswith("intent "))
+    assert intent.endswith("(structured outputs off - intent calls will be refused)")
+    assert not any(
+        line.startswith("node ") or line.startswith("inhabitant ")
+        or line.startswith("moderation ")
+        for line in configured.splitlines()
+        if "structured outputs off" in line
+    )
+    monkeypatch.setenv(STRUCTURED_OUTPUTS_ENV, "1")
+    main(["models"])
+    enabled = capsys.readouterr().out
+    assert "structured outputs off" not in enabled
 
 
 def test_adapter_source_never_calls_urlopen_or_install_opener():

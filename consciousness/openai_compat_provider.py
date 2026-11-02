@@ -547,8 +547,9 @@ def _connect_within_deadline(deadline: float):
     ``socket.create_connection`` applies the timeout it was given to each
     address in turn. Three blackholed results would then take three times
     the caller's budget. Each attempt here uses only the time still left.
-    DNS lookup is still outside the budget: ``getaddrinfo`` runs before
-    the first connect.
+    A blackholed earlier address can consume the whole budget; later
+    addresses are then not tried. DNS lookup is still outside the budget:
+    ``getaddrinfo`` runs before the first connect.
     """
 
     def create(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
@@ -775,7 +776,7 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
 
     A redirect would forward ``Authorization`` to a host the operator did
     not name. ``ProxyHandler({})`` is installed so ``HTTP_PROXY``,
-    ``HTTPS_PROXY``, and ``ALL_PROXY`` are not read.     The caller's timeout
+    ``HTTPS_PROXY``, and ``ALL_PROXY`` are not read. The caller's timeout
     is a wall-clock budget for this POST, not urllib's per-socket timeout.
     Each resolved address is tried with the time still left. DNS lookup
     and individual TLS handshake bytes are not covered.

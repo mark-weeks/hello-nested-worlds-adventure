@@ -319,11 +319,11 @@ class TextProvider(Protocol):
     Adapters that know which ids they serve also match
     ``ModelIdJudgingProvider``. The startup check uses getattr, so an
     adapter that omits ``model_id_validator`` is not asked and still
-    satisfies this protocol for type checkers.     ``default_model(task)`` is
+    satisfies this protocol for type checkers. ``default_model(task)`` is
     also optional. It returns the id to use when no setting names one.
     Omitting it does not borrow another adapter's ids.
     ``supports_json_schema()`` is optional too. When it is present and
-    returns False, ``generate`` raises before any charge if a schema was
+    false, ``generate`` raises before any charge if a schema was
     requested. Omitting it means the adapter accepts a schema.
     """
 
@@ -596,7 +596,7 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
 
     A missing or blank model id raises ``UnusableModelId`` before any cap
     and before the provider is called. When a schema is requested and the
-    selected adapter's ``supports_json_schema`` returns False, this raises
+    selected adapter's ``supports_json_schema`` is false, this raises
     ``UnsupportedCapability`` before the model-action cap and before the
     voice budget, and the provider is not called. An adapter that omits
     that method still accepts a schema. The model-action cap then runs,
@@ -611,7 +611,7 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
     provider = get_provider()
     if json_schema is not None:
         supports = getattr(provider, "supports_json_schema", None)
-        if callable(supports) and supports() is False:
+        if callable(supports) and not supports():
             from consciousness.openai_compat_provider import UnsupportedCapability
             raise UnsupportedCapability() from None
     if not isinstance(reservation, ModelReservation):

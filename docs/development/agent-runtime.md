@@ -230,7 +230,7 @@ breadcrumb. A failure log records the exception class only.
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS` | `1` sends strict `json_schema`. Unset, `runtime.generate` raises `UnsupportedCapability` before the model-action cap and the voice budget, sends nothing, and the caller serves the authored fallback. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false`. Unset sends nothing. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional `none`, `minimal`, `low`, `medium`, or `high`. Unset sends nothing. Any other value leaves the adapter unconfigured and is not forwarded. |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for one POST when the caller passes no timeout. Default 60. Each resolved address is tried with the time remaining, so the TCP connects stay inside that budget. DNS lookup and individual TLS handshake bytes are not covered. Moderation still passes 3 seconds. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for one POST when the caller passes no timeout. Default 60. Each resolved address is tried with the time remaining, so the TCP connects stay inside that budget. A blackholed earlier address can consume the whole budget; later addresses are then not tried. DNS lookup and individual TLS handshake bytes are not covered. Moderation still passes 3 seconds. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | In-flight cap for this adapter. Default 8. It does not share the anthropic cap. |
 
 `NESTED_WORLDS_MODEL` plus `NESTED_WORLDS_MODERATION_MODEL` is enough.
@@ -254,8 +254,9 @@ code only and is not followed, so `Authorization` is not sent to another
 host. `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and the lowercase forms are
 not read. The caller's timeout is a wall-clock budget for that one POST.
 Each resolved address is tried with the time remaining, so several
-addresses do not multiply the budget. DNS lookup and individual TLS
-handshake bytes are not covered. The chronicle stores a
+addresses do not multiply the budget. A blackholed earlier address can
+consume the whole budget; later addresses are then not tried. DNS lookup
+and individual TLS handshake bytes are not covered. The chronicle stores a
 model id only after `_model_mark` in `persistence/__init__.py`: surrounding
 whitespace is stripped, and a non-string, a blank, a control character, or
 a value longer than 200 characters is dropped rather than stored or
