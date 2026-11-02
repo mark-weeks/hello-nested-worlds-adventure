@@ -211,9 +211,12 @@ importing Enfolded does not require it, and `requirements.lock` still pins it
 for the production image. `openai_compatible` declares no SDK. The listed model
 IDs are the anthropic adapter's code defaults, not evidence that they remain
 the best available choices or are available to every account. Another adapter
-supplies its own defaults. `openai_compatible` supplies none: all four tasks
-must be set, or startup refuses, instead of sending an anthropic id. Verify
-availability and evaluate candidates before use. `python main.py models` prints, for each task, the
+supplies its own defaults. `openai_compatible` supplies none:
+`NESTED_WORLDS_MODEL` plus `NESTED_WORLDS_MODERATION_MODEL` is enough.
+A task variable overrides the shared model for that task. Moderation does
+not inherit the shared model. Startup refuses when a task still has no id,
+instead of sending an anthropic id. Verify availability and evaluate
+candidates before use. `python main.py models` prints, for each task, the
 selected provider, the resolved model, and where that id came from, without a
 live call. Run it before a release or `scripts/deploy.sh`. An unknown provider
 name, a missing SDK for the selected provider, or a blank model setting fails

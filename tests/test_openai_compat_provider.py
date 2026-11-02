@@ -12,6 +12,7 @@ import http.client
 import inspect
 import json
 import logging
+import os
 import socket
 import ssl
 import subprocess
@@ -211,7 +212,10 @@ class TestConfiguration:
         _arm(monkeypatch)
         rendered = repr(compat_module._settings())
         assert _SECRET not in rendered
+        assert _HOST not in rendered
+        assert _URL not in rendered
         assert "api_key" not in rendered
+        assert "url=" not in repr(compat_module._settings().base)
 
     def test_invalid_key_is_unconfigured_on_loopback(self, monkeypatch):
         calls = []
@@ -558,7 +562,9 @@ class TestResponseMapping:
         assert boolean.usage == TokenUsage(None, None, None, None)
 
     def test_deeply_nested_json_is_malformed(self):
-        raw = b"[" * 2000 + b"]" * 2000
+        # 2000 parses on 3.12 and 3.13. 100_000 still raises RecursionError
+        # on 3.11, 3.12, and 3.13, and stays under the 1 MiB cap.
+        raw = b"[" * 100_000 + b"]" * 100_000
         assert len(raw) < MAX_RESPONSE_BYTES
         with pytest.raises(MalformedProviderResponse) as caught:
             decode_response(200, raw)
@@ -670,6 +676,72 @@ class TestErrorsAndSecrecy:
                     messages=[{"role": "user", "content": _PLAYER}],
                     voice_budget=True,
                 )
+        assert charged == []
+
+    def test_supports_json_schema_follows_the_flag(self, monkeypatch):
+        _arm(monkeypatch)
+        adapter = OpenAICompatibleProvider(transport=_ok())
+        assert adapter.supports_json_schema() is False
+        monkeypatch.setenv(STRUCTURED_OUTPUTS_ENV, "1")
+        assert adapter.supports_json_schema() is True
+
+    def test_schema_refusal_charges_nothing_and_a_missing_method_still_calls(self, monkeypatch):
+        charged = []
+        monkeypatch.setattr(
+            guard, "consume_anthropic",
+            lambda **kwargs: charged.append("voice") or True,
+        )
+        monkeypatch.setattr(
+            guard, "consume_model_action",
+            lambda **kwargs: charged.append("model") or True,
+        )
+
+        class Plain:
+            name = "plain"
+
+            def generate(self, **kwargs):
+                charged.append("call")
+                return Completion(
+                    text="ok", complete=True, provider="plain", resolved_model="m",
+                )
+
+        monkeypatch.setattr(runtime, "get_provider", lambda: Plain())
+        result = runtime.generate(
+            endpoint="speak", model="compat-node", max_tokens=16,
+            system=(SystemBlock("bible"),),
+            messages=[{"role": "user", "content": _PLAYER}],
+            json_schema={"type": "object"},
+            voice_budget=True,
+            user_key="nw_" + "a" * 32,
+        )
+        assert result.text == "ok"
+        assert charged == ["model", "voice", "call"]
+
+        class Off:
+            name = "off"
+
+            def supports_json_schema(self):
+                return False
+
+            def generate(self, **kwargs):
+                charged.append("call")
+                raise AssertionError("schema-off must not call the provider")
+
+        charged.clear()
+        monkeypatch.setattr(runtime, "get_provider", lambda: Off())
+        held = runtime.ModelReservation("nw_" + "a" * 32)
+        with pytest.raises(UnsupportedCapability) as caught:
+            runtime.generate(
+                endpoint="intervention-proposal", model="compat-node", max_tokens=16,
+                system=(SystemBlock("bible"),),
+                messages=[{"role": "user", "content": _PLAYER}],
+                json_schema={"type": "object"},
+                voice_budget=True,
+                user_key="nw_" + "b" * 32,
+                reservation=held,
+            )
+        assert str(caught.value) == "structured outputs are not enabled"
+        assert caught.value.__cause__ is None
         assert charged == []
 
 
@@ -840,6 +912,13 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, f"not-json {_SECRET}".encode())
             elif mode == "denied":
                 self._send(401, json.dumps({"error": {"message": _SECRET}}).encode())
+            elif mode == "early_close":
+                self.close_connection = True
+                try:
+                    self.connection.shutdown(socket.SHUT_WR)
+                except OSError:
+                    pass
+                return
             elif mode in ("conn_close", "http10", "no_length"):
                 self._delayed_completion(mode)
             elif mode == "truncated":
@@ -1177,6 +1256,86 @@ class TestUrllibLoopback:
         _forbid(str(caught.value))
         _forbid(_traceback(caught.value))
 
+    def test_connect_budget_is_not_spent_once_per_address(self, monkeypatch):
+        attempts = []
+
+        def getaddrinfo(host, port, *args, **kwargs):
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.1", 9)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.2", 9)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.3", 9)),
+            ]
+
+        def connect(self, address):
+            timeout = self.gettimeout()
+            attempts.append(0.0 if timeout is None else timeout)
+            time.sleep(timeout if timeout and timeout > 0 else 0)
+            raise socket.timeout("timed out")
+
+        monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+        monkeypatch.setattr(socket.socket, "connect", connect)
+        budget = 0.35
+        deadline = time.monotonic() + budget
+        conn = compat_module._connection(deadline, False)("blackhole.invalid", 80)
+        started = time.monotonic()
+        with pytest.raises(ProviderTimeout) as caught:
+            conn.connect()
+        elapsed = time.monotonic() - started
+        assert str(caught.value) == "timed out"
+        assert caught.value.__cause__ is None
+        assert caught.value.__suppress_context__ is True
+        assert "192.0.2" not in str(caught.value)
+        assert "blackhole" not in str(caught.value)
+        # Three full attempts would be about 1.05s. The budget is spent once.
+        assert elapsed < budget * 2
+        assert sum(attempts) < budget * 2
+        assert len(attempts) < 3
+
+    def test_peer_close_before_status_is_connection_failed(self, monkeypatch):
+        server = _start_loopback(mode="early_close")
+        try:
+            adapter, _timeout = self._adapter(server, monkeypatch)
+            with pytest.raises(ProviderConnectionError) as caught:
+                adapter.generate(
+                    model="compat-node", system=(SystemBlock("bible"),),
+                    messages=[{"role": "user", "content": _PLAYER}], max_tokens=8,
+                    timeout=2,
+                )
+            assert str(caught.value) == "connection failed"
+            assert caught.value.__cause__ is None
+            assert caught.value.__suppress_context__ is True
+            assert not isinstance(caught.value, MalformedProviderResponse)
+            _forbid(str(caught.value))
+            _forbid(_traceback(caught.value))
+        finally:
+            _stop_loopback(server)
+
+    def test_held_http_errors_do_not_keep_the_socket(self, monkeypatch):
+        held = []
+        before = len(os.listdir("/proc/self/fd"))
+        for mode, code in (("denied", 401), ("redirect", 302), ("status500", 500)):
+            server = _start_loopback(mode=mode)
+            if mode == "redirect":
+                server.redirect_code = 302
+                server.redirect_to = "http://127.0.0.1:9/stolen"
+            try:
+                adapter, _timeout = self._adapter(server, monkeypatch)
+                for _index in range(20):
+                    with pytest.raises(ProviderHTTPError) as caught:
+                        adapter.generate(
+                            model="compat-node", system=(SystemBlock("bible"),),
+                            messages=[{"role": "user", "content": _PLAYER}],
+                            max_tokens=8, timeout=2,
+                        )
+                    held.append(caught.value)
+                    assert caught.value.status == code
+            finally:
+                _stop_loopback(server)
+        after = len(os.listdir("/proc/self/fd"))
+        assert len(held) == 60
+        # Holding the exceptions used to keep one client socket each.
+        assert after - before < 15
+
     def test_https_loopback_sends_the_key(self, monkeypatch, tmp_path):
         cert = tmp_path / "cert.pem"
         key = tmp_path / "key.pem"
@@ -1447,20 +1606,29 @@ def test_status_and_no_redirect_raise_on_their_own():
         def __init__(self, code):
             self.code = code
             self.msg = "Found"
+            self.closed = False
 
         def info(self):
             return {}
 
+        def close(self):
+            self.closed = True
+
+    redirect = Response(302)
     with pytest.raises(ProviderHTTPError) as caught:
-        status.http_response(None, Response(302))
+        status.http_response(None, redirect)
+    assert redirect.closed is True
     assert caught.value.status == 302
     assert str(caught.value) == "HTTP 302"
     assert caught.value.__cause__ is None
     assert caught.value.__suppress_context__ is True
     ok = Response(200)
     assert status.http_response(None, ok) is ok
+    assert ok.closed is False
+    moved = Response(308)
     with pytest.raises(ProviderHTTPError) as caught:
-        status.https_response(None, Response(308))
+        status.https_response(None, moved)
+    assert moved.closed is True
     assert caught.value.status == 308
     redirect = compat_module._NoRedirect()
     for name, code in (

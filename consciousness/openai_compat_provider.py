@@ -3,8 +3,11 @@
 The operator supplies the base URL. One adapter can then reach any server
 that speaks this dialect, for evaluation. Registering it does not approve a
 data destination and does not select a model. There is no default model id
-and no vendor SDK. The base URL and the API key are never logged and never
-placed in an exception message.
+and no vendor SDK. The base URL and the API key are never written to this
+process's logs, never placed in an exception message, and omitted from
+``repr``. When ``SENTRY_DSN`` is set, Sentry's stdlib integration still
+records the outbound URL in the httplib breadcrumb it builds from the HTTP
+client span. The API key is not in that breadcrumb.
 
 ``configured`` is false until the base URL is acceptable and a key is
 present, unless the host is loopback. A key that is present but rejected
@@ -25,10 +28,11 @@ reading ``complete``, so those finishes must not carry text until a live
 check shows what the server meant. ADR-035 (Proposed) records the
 dialect choice; this module does not ratify it.
 
-The caller's timeout is a wall-clock budget for one POST. DNS lookup
-and individual TLS handshake bytes are not covered: the lookup runs
-before the socket exists, and the handshake runs on the raw socket
-before the deadline wrapper is installed.
+The caller's timeout is a wall-clock budget for one POST. Each resolved
+address is tried with the time still left, so several addresses do not
+multiply that budget. DNS lookup and individual TLS handshake bytes are
+not covered: the lookup runs before the socket exists, and the handshake
+runs on the raw socket before the deadline wrapper is installed.
 """
 from __future__ import annotations
 
@@ -117,9 +121,13 @@ class UnsupportedCapability(OpenAICompatError):
 
 @dataclass(frozen=True)
 class ParsedBase:
-    """Normalized base URL. ``loopback`` is the key exemption."""
+    """Normalized base URL. ``loopback`` is the key exemption.
 
-    url: str
+    ``url`` is omitted from ``repr``. ``_Settings`` embeds this value, so
+    the settings repr omits it too.
+    """
+
+    url: str = field(repr=False)
     loopback: bool
 
 
@@ -533,6 +541,66 @@ def _remaining(deadline: float) -> float:
     return remaining
 
 
+def _connect_within_deadline(deadline: float):
+    """TCP connect that spends the budget once across every resolved address.
+
+    ``socket.create_connection`` applies the timeout it was given to each
+    address in turn. Three blackholed results would then take three times
+    the caller's budget. Each attempt here uses only the time still left.
+    DNS lookup is still outside the budget: ``getaddrinfo`` runs before
+    the first connect.
+    """
+
+    def create(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+               source_address=None, *, all_errors=False):
+        del timeout, all_errors
+        host, port = address
+        infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+        if not infos:
+            raise OSError("getaddrinfo returns an empty list")
+        last_error: BaseException | None = None
+        for af, socktype, proto, _canon, sa in infos:
+            if deadline - time.monotonic() <= 0:
+                raise ProviderTimeout() from None
+            sock = None
+            try:
+                sock = socket.socket(af, socktype, proto)
+                sock.settimeout(_remaining(deadline))
+                if source_address:
+                    sock.bind(source_address)
+                sock.connect(sa)
+                return sock
+            except ProviderTimeout:
+                if sock is not None:
+                    sock.close()
+                raise
+            except (TimeoutError, socket.timeout):
+                if sock is not None:
+                    sock.close()
+                if deadline - time.monotonic() <= 0:
+                    raise ProviderTimeout() from None
+                last_error = ProviderTimeout()
+            except OSError as exc:
+                if sock is not None:
+                    sock.close()
+                last_error = exc
+        if isinstance(last_error, ProviderTimeout):
+            raise ProviderTimeout() from None
+        if last_error is not None:
+            raise last_error
+        raise OSError("getaddrinfo returns an empty list")
+
+    return create
+
+
+def _close_quietly(response) -> None:
+    """Release an error body's socket. A close error must not replace the status."""
+    try:
+        response.close()
+    except OSError:
+        return
+
+
 class _DeadlineSocket:
     """Re-arm the underlying socket with the time left before each call.
 
@@ -640,7 +708,9 @@ def _connection(deadline: float, https: bool):
             self._deadline = deadline
 
         def connect(self):
-            self.timeout = _remaining(self._deadline)
+            # Replace create_connection before the TCP handshake. HTTPS
+            # still wraps the socket after super().connect() returns.
+            self._create_connection = _connect_within_deadline(self._deadline)
             super().connect()
             self.sock = _DeadlineSocket(self.sock, self._deadline)
 
@@ -693,6 +763,7 @@ class _Status(urllib.request.HTTPErrorProcessor):
     def http_response(self, request, response):
         code = getattr(response, "code", None)
         if isinstance(code, int) and not isinstance(code, bool) and 300 <= code < 400:
+            _close_quietly(response)
             raise ProviderHTTPError(code) from None
         return super().http_response(request, response)
 
@@ -704,9 +775,10 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
 
     A redirect would forward ``Authorization`` to a host the operator did
     not name. ``ProxyHandler({})`` is installed so ``HTTP_PROXY``,
-    ``HTTPS_PROXY``, and ``ALL_PROXY`` are not read. The caller's timeout
+    ``HTTPS_PROXY``, and ``ALL_PROXY`` are not read.     The caller's timeout
     is a wall-clock budget for this POST, not urllib's per-socket timeout.
-    DNS lookup and individual TLS handshake bytes are not covered.
+    Each resolved address is tried with the time still left. DNS lookup
+    and individual TLS handshake bytes are not covered.
     ``_Status`` raises on any 3xx before a redirect handler runs.
     ``_NoRedirect`` is the second layer. The status is read before the
     body size, so an error response over the cap is still that HTTP
@@ -753,6 +825,7 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
     except ProviderConnectionError:
         raise ProviderConnectionError() from None
     except urllib.error.HTTPError as exc:
+        _close_quietly(exc)
         raise ProviderHTTPError(int(exc.code)) from None
     except (TimeoutError, socket.timeout):
         raise ProviderTimeout() from None
@@ -760,6 +833,8 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
         reason = getattr(exc, "reason", None)
         if isinstance(reason, (TimeoutError, socket.timeout, ProviderTimeout)):
             raise ProviderTimeout() from None
+        raise ProviderConnectionError() from None
+    except http.client.RemoteDisconnected:
         raise ProviderConnectionError() from None
     except http.client.HTTPException:
         raise MalformedProviderResponse() from None
@@ -806,6 +881,14 @@ class OpenAICompatibleProvider:
 
     def configured(self) -> bool:
         return _settings().usable
+
+    def supports_json_schema(self) -> bool:
+        """True only when strict ``json_schema`` will be sent.
+
+        ``runtime.generate`` checks this before any budget charge. Unset
+        structured outputs leave ``configured()`` true and this false.
+        """
+        return _settings().structured_outputs
 
     def model_id_validator(self):
         # A gateway alias is not judged by prefix. Structural checks in

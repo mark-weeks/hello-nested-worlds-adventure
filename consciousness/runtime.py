@@ -319,9 +319,12 @@ class TextProvider(Protocol):
     Adapters that know which ids they serve also match
     ``ModelIdJudgingProvider``. The startup check uses getattr, so an
     adapter that omits ``model_id_validator`` is not asked and still
-    satisfies this protocol for type checkers. ``default_model(task)`` is
+    satisfies this protocol for type checkers.     ``default_model(task)`` is
     also optional. It returns the id to use when no setting names one.
     Omitting it does not borrow another adapter's ids.
+    ``supports_json_schema()`` is optional too. When it is present and
+    returns False, ``generate`` raises before any charge if a schema was
+    requested. Omitting it means the adapter accepts a schema.
     """
 
     name: str
@@ -589,24 +592,34 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
              user_key: str | None = None,
              reservation: ModelReservation | None = None,
              voice_budget: bool = False) -> Completion:
-    """One text completion. The model-action cap runs before the provider.
+    """One text completion. An unsupported schema charges nothing.
 
-    A missing or blank model id raises ``UnusableModelId`` before that cap
-    and before the voice budget, and the provider is not called.
-    ``voice_budget`` reserves one voice call in the existing ``anthropic``
-    bucket, whichever provider is selected, after that cap and before the
-    provider, so a refused cap does not spend the voice budget. The bucket
-    name is unchanged. A ``ModelReservation`` from ``reserve_model_action``
-    is not charged again.
+    A missing or blank model id raises ``UnusableModelId`` before any cap
+    and before the provider is called. When a schema is requested and the
+    selected adapter's ``supports_json_schema`` returns False, this raises
+    ``UnsupportedCapability`` before the model-action cap and before the
+    voice budget, and the provider is not called. An adapter that omits
+    that method still accepts a schema. The model-action cap then runs,
+    and ``voice_budget`` reserves one voice call in the existing
+    ``anthropic`` bucket, whichever provider is selected, after that cap
+    and before the provider, so a refused cap does not spend the voice
+    budget. The bucket name is unchanged. A ``ModelReservation`` from
+    ``reserve_model_action`` is not charged again. The schema check still
+    runs when a reservation is already held, and it does not charge again.
     """
     require_model_id(model)
+    provider = get_provider()
+    if json_schema is not None:
+        supports = getattr(provider, "supports_json_schema", None)
+        if callable(supports) and supports() is False:
+            from consciousness.openai_compat_provider import UnsupportedCapability
+            raise UnsupportedCapability() from None
     if not isinstance(reservation, ModelReservation):
         reservation = reserve_model_action(user_key)
     if voice_budget:
         from server import guard
         if not guard.consume_anthropic(user_key=reservation.key):
             raise VoiceBudgetLimited()
-    provider = get_provider()
     with _semaphore_for(provider.name):
         result = provider.generate(model=model, system=system, messages=messages,
                                    max_tokens=max_tokens, json_schema=json_schema,

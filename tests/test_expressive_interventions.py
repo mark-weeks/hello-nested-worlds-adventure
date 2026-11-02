@@ -306,6 +306,54 @@ def test_openai_compatible_intention_stays_in_fiction(http, monkeypatch, caplog)
         assert "secret-host.example" not in caplog.text
 
 
+def test_schema_off_intention_charges_nothing(http, accounts, monkeypatch, caplog):
+    """Three schema-off intentions send nothing and leave both budgets at zero."""
+    import logging
+    from consciousness import runtime
+    from consciousness.openai_compat_provider import (
+        API_KEY_ENV, BASE_URL_ENV, STRUCTURED_OUTPUTS_ENV, provider as compat,
+    )
+    from server import guard, intervention_api
+
+    calls = []
+
+    def transport(request):
+        calls.append(request)
+        raise AssertionError("schema-off must not send")
+
+    monkeypatch.setenv(runtime.PROVIDER_ENV, "openai_compatible")
+    monkeypatch.setenv(BASE_URL_ENV, "https://secret-host.example/v1")
+    monkeypatch.setenv(API_KEY_ENV, "sk-test-provider-SECRET")
+    monkeypatch.delenv(STRUCTURED_OUTPUTS_ENV, raising=False)
+    monkeypatch.setenv(runtime.INTENT_MODEL_ENV, "requested-intent-not-stored")
+    monkeypatch.setenv(runtime.NODE_MODEL_ENV, "compat-node")
+    monkeypatch.setenv(runtime.INHABITANT_MODEL_ENV, "compat-inhabitant")
+    monkeypatch.setenv(runtime.MODERATION_MODEL_ENV, "compat-moderation")
+    monkeypatch.setattr(compat, "_transport", transport)
+    name = NODES["instrument"]
+    assert http("/position", body={"node": name, "seed": 382, "depth": 9})[0] == 200
+    day = guard._utc_day()
+    user_voice = guard._user_bucket(guard.ANTHROPIC_BUCKET, accounts[0])
+    user_actions = guard._user_bucket(guard.MODEL_ACTIONS_BUCKET, accounts[0])
+    with caplog.at_level(logging.INFO):
+        for index in range(3):
+            status, data, _headers = http("/interventions/commit", body={
+                "node": name,
+                "intention": "cut a pattern",
+                "version": 3,
+                "request_id": f"compat-schema-off-{index}",
+            })
+            assert status == 200 and data["response"] == intervention_api._UNSETTLED, data
+            assert data["accepted"] is False
+        assert calls == []
+        assert "UnsupportedCapability" in caplog.text
+        assert "sk-test-provider-SECRET" not in caplog.text
+        assert "secret-host.example" not in caplog.text
+    assert db.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 0
+    assert db.get_cost_calls(user_voice, day) == 0
+    assert db.get_cost_calls(user_actions, day) == 0
+
+
 def test_senses_follow_literal_properties_and_material_history(owner):
     node=store.resolve_node_by_name(382,NODES['instrument'])
     before=describe(node)
