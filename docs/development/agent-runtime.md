@@ -223,11 +223,11 @@ A failure log records the exception class only.
 |---|---|
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL` | Required. `https`, or `http` on `127.0.0.1`, `localhost`, or `::1`. Userinfo, a query, and a fragment are rejected. Not logged. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` | Required except on loopback. Not logged. |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_TOKENS_PARAM` | `max_completion_tokens` (default) or `max_tokens`. Any other value leaves the adapter unconfigured. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` | Wire field for the caller's max output: `max_completion_tokens` (default) or `max_tokens`. Any other value leaves the adapter unconfigured. The name does not contain `TOKEN`, so `model_check` does not redact the value as a secret. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS` | `1` sends strict `json_schema`. Unset, a task that needs a schema raises `UnsupportedCapability` and the caller serves the authored fallback. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false`. Unset sends nothing. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional `none`, `minimal`, `low`, `medium`, or `high`. Unset sends nothing. Any other value leaves the adapter unconfigured and is not forwarded. |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Used when the caller passes no timeout. Default 60. Moderation still passes 3 seconds. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for one POST when the caller passes no timeout. Default 60. urllib's own timeout is a limit on one socket operation; this adapter does not pass the caller's number through as that. Moderation still passes 3 seconds. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | In-flight cap for this adapter. Default 8. It does not share the anthropic cap. |
 
 All four task model variables must be set. A reasoning model can spend
@@ -237,11 +237,25 @@ undecided, and every ambiguous line is then held. Use a non-reasoning
 model, or set the reasoning effort to `none` or `minimal` when the
 endpoint honors it. On some servers reasoning tokens sit outside
 `completion_tokens` and are not capped by that field. Output usage is
-`total_tokens - prompt_tokens` when both are present, so those tokens are
-still counted. The chronicle stores the model id the server echoed. A
-server may echo an alias such as `latest`; that string is stored as
-returned. The evaluation harness is unchanged. Production enablement is a
-separate decision and is not made by registering this adapter.
+`total_tokens - prompt_tokens` when both are present and the difference is
+non-negative, so those tokens are still counted. Without both fields,
+output usage is unknown. `completion_tokens` is not a fallback. The request
+never sends `n` or `stream`. Only `choices[0]` is read. More than one
+choice, or content that is present and not a string, is malformed and held.
+Empty or whitespace-only content is not complete. A missing `refusal`
+counts as null. Any HTTP 3xx raises `ProviderHTTPError` with the status
+code only and is not followed, so `Authorization` is not sent to another
+host. `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and the lowercase forms are
+not read. The caller's timeout is a wall-clock budget for that one POST.
+urllib's own timeout is a limit on one socket operation, and this adapter
+does not pass the caller's number through as that. The chronicle stores a
+model id only after `_model_mark` in `persistence/__init__.py`: surrounding
+whitespace is stripped, and a non-string, a blank, a control character, or
+a value longer than 200 characters is dropped rather than stored or
+truncated. A server may echo an alias such as `latest`; that string is
+kept when it survives that function. The evaluation harness is unchanged.
+Production enablement is a separate decision and is not made by registering
+this adapter.
 
 ## Voice and caching
 

@@ -22,7 +22,7 @@ from consciousness.openai_compat_provider import (
     API_KEY_ENV,
     BASE_URL_ENV,
     MAX_RESPONSE_BYTES,
-    MAX_TOKENS_PARAM_ENV,
+    MAX_OUTPUT_PARAM_ENV,
     REASONING_EFFORT_ENV,
     SEND_STORE_FALSE_ENV,
     STRUCTURED_OUTPUTS_ENV,
@@ -96,7 +96,7 @@ def _arm(monkeypatch, *, url=_URL, key=_SECRET, models=True):
         monkeypatch.setenv(runtime.INHABITANT_MODEL_ENV, "compat-inhabitant")
         monkeypatch.setenv(runtime.INTENT_MODEL_ENV, "compat-intent")
         monkeypatch.setenv(runtime.MODERATION_MODEL_ENV, "compat-moderation")
-    for name in (MAX_TOKENS_PARAM_ENV, STRUCTURED_OUTPUTS_ENV, SEND_STORE_FALSE_ENV,
+    for name in (MAX_OUTPUT_PARAM_ENV, STRUCTURED_OUTPUTS_ENV, SEND_STORE_FALSE_ENV,
                  REASONING_EFFORT_ENV, TIMEOUT_ENV, "OPENAI_API_KEY", "OPENAI_BASE_URL",
                  "XAI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
@@ -172,14 +172,14 @@ class TestConfiguration:
 
     def test_illegal_optional_settings_are_unconfigured(self, monkeypatch):
         _arm(monkeypatch)
-        monkeypatch.setenv(MAX_TOKENS_PARAM_ENV, "max_tokens;no")
+        monkeypatch.setenv(MAX_OUTPUT_PARAM_ENV, "max_tokens;no")
         adapter = OpenAICompatibleProvider(transport=_ok())
         assert adapter.configured() is False
         with pytest.raises(ProviderConfigError) as caught:
             _generate(adapter)
         assert "max_tokens;no" not in str(caught.value)
         _forbid(str(caught.value))
-        monkeypatch.setenv(MAX_TOKENS_PARAM_ENV, "max_tokens")
+        monkeypatch.setenv(MAX_OUTPUT_PARAM_ENV, "max_tokens")
         monkeypatch.setenv(REASONING_EFFORT_ENV, _SECRET)
         assert adapter.configured() is False
         with pytest.raises(ProviderConfigError) as caught:
@@ -199,6 +199,10 @@ class TestConfiguration:
         assert not callable(getattr(adapter, "default_model", None))
         assert adapter.model_id_validator() is None
         assert adapter.cache_reference_tokens("anything") is None
+        from consciousness.model_check import _SECRET_NAME
+        assert _SECRET_NAME.search(MAX_OUTPUT_PARAM_ENV) is None
+        assert _SECRET_NAME.search(BASE_URL_ENV) is None
+        assert _SECRET_NAME.search("NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_TOKENS_PARAM")
         monkeypatch.setattr(runtime, "get_provider", lambda: adapter)
         assert runtime.model_for(runtime.NODE_TASK) == ""
         assert runtime.model_for(runtime.MODERATION_TASK) == ""
@@ -245,6 +249,8 @@ class TestRequestShape:
             {"role": "user", "content": _PLAYER},
         ]
         assert "temperature" not in body
+        assert "n" not in body
+        assert "stream" not in body
         assert "user" not in body
         assert "safety_identifier" not in body
         assert "prompt_cache_key" not in body
@@ -265,7 +271,7 @@ class TestRequestShape:
         assert body["messages"][0]["content"] == "second\n\nfirst"
 
     def test_max_tokens_parameter_follows_the_setting(self, monkeypatch):
-        _request, body = self._sent(monkeypatch, env={MAX_TOKENS_PARAM_ENV: "max_tokens"})
+        _request, body = self._sent(monkeypatch, env={MAX_OUTPUT_PARAM_ENV: "max_tokens"})
         assert set(body) == {"model", "messages", "max_tokens"}
         assert body["max_tokens"] == 256
 
@@ -341,8 +347,10 @@ class TestRequestShape:
 class TestResponseMapping:
     @pytest.mark.parametrize("finish,content,refusal,complete,mapped,text", [
         ("stop", "ALLOW", None, True, "complete", "ALLOW"),
-        ("stop", "", None, True, "complete", ""),
+        ("stop", "", None, False, "unknown", None),
+        ("stop", "  \n", None, False, "unknown", None),
         ("length", "ALLOW", None, False, "length", "ALLOW"),
+        ("length", "  ", None, False, "length", None),
         ("length", None, None, False, "length", None),
         ("content_filter", "hidden", None, False, "filtered", None),
         ("stop", "ALLOW", "no", False, "refusal", None),
@@ -360,11 +368,32 @@ class TestResponseMapping:
             text, complete, None, mapped, "echo-model", "openai_compatible",
         )
 
-    def test_stop_without_a_string_is_not_complete(self):
+    def test_non_string_content_and_extra_choices_are_malformed(self):
         body = json.loads(_chat_body(content=["not", "a string"], finish="stop"))
+        with pytest.raises(MalformedProviderResponse) as caught:
+            parse_response(body)
+        _forbid(str(caught.value))
+        assert caught.value.__cause__ is None
+        doubled = json.loads(_chat_body(content="ALLOW", finish="stop"))
+        doubled["choices"].append(doubled["choices"][0])
+        with pytest.raises(MalformedProviderResponse):
+            parse_response(doubled)
+
+    def test_missing_refusal_is_null_and_blank_text_does_not_authorize(self):
+        import consciousness
+        body = {
+            "model": "echo-model",
+            "choices": [{"finish_reason": "stop", "message": {"content": "ALLOW"}}],
+        }
         result = parse_response(body)
-        assert result.complete is False and result.text is None
-        assert result.finish_reason == "unknown"
+        assert result.complete is True and result.text == "ALLOW"
+        assert result.finish_reason == "complete"
+        blank = parse_response({
+            "model": "echo-model",
+            "choices": [{"finish_reason": "stop", "message": {"content": "   "}}],
+        })
+        assert blank.complete is False and blank.text is None
+        assert consciousness.moderation_outcome(blank) == "undecided"
 
     def test_missing_choices_and_error_objects(self):
         empty = parse_response({"model": "echo-model", "choices": []})
@@ -450,6 +479,14 @@ class TestResponseMapping:
                 "content": "ok", "refusal": None}}],
         })
         assert no_usage.usage is None
+        completion_only = parse_response({
+            "model": "echo-model",
+            "choices": [{"finish_reason": "stop", "message": {
+                "content": "ok", "refusal": None}}],
+            "usage": {"completion_tokens": 9, "prompt_tokens": 32},
+        })
+        assert completion_only.usage.output_tokens is None
+        assert completion_only.usage.input_tokens is None
 
 
 class TestErrorsAndSecrecy:
@@ -621,11 +658,15 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         return
 
+    def do_GET(self):
+        self.do_POST()
+
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0") or "0")
         body = self.rfile.read(length) if length else b""
         self.server.seen.append({
             "path": self.path,
+            "method": self.command,
             "authorization": self.headers.get("Authorization"),
             "body": body,
         })
@@ -635,10 +676,19 @@ class _Handler(BaseHTTPRequestHandler):
                 payload = _chat_body(content="loopback-ok", model="echo-loopback")
                 self._send(200, payload)
             elif mode == "redirect":
-                self.send_response(302)
-                self.send_header("Location", "http://127.0.0.1:9/stolen")
+                self.send_response(self.server.redirect_code)
+                self.send_header("Location", self.server.redirect_to)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
+            elif mode == "drip":
+                raw = (
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                    b"Content-Length: 2\r\nConnection: close\r\n\r\n{}"
+                )
+                for index in range(len(raw)):
+                    time.sleep(0.05)
+                    self.wfile.write(raw[index:index + 1])
+                    self.wfile.flush()
             elif mode == "slow":
                 time.sleep(2)
                 self._send(200, _chat_body())
@@ -672,6 +722,8 @@ def loopback():
         pytest.skip(f"loopback bind unavailable ({type(exc).__name__})")
     server.mode = "ok"
     server.seen = []
+    server.redirect_code = 302
+    server.redirect_to = "http://127.0.0.1:9/stolen"
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -712,6 +764,82 @@ class TestUrllibLoopback:
         _forbid(str(caught.value))
         _forbid(_traceback(caught.value))
         assert "stolen" not in str(caught.value)
+
+    @pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
+    def test_redirect_status_does_not_carry_the_key_to_another_host(
+            self, loopback, monkeypatch, code):
+        stolen = _Loopback(("127.0.0.1", 0), _Handler)
+        stolen.mode = "ok"
+        stolen.seen = []
+        stolen.redirect_code = 302
+        stolen.redirect_to = "http://127.0.0.1:9/unused"
+        thread = threading.Thread(target=stolen.serve_forever, daemon=True)
+        thread.start()
+        try:
+            stolen_port = stolen.server_address[1]
+            loopback.mode = "redirect"
+            loopback.redirect_code = code
+            loopback.redirect_to = f"http://127.0.0.1:{stolen_port}/stolen"
+            adapter, _timeout = self._adapter(loopback, monkeypatch)
+            before = len(loopback.seen)
+            with pytest.raises(ProviderHTTPError) as caught:
+                adapter.generate(
+                    model="compat-node", system=(SystemBlock("bible"),),
+                    messages=[{"role": "user", "content": _PLAYER}], max_tokens=16,
+                )
+            assert caught.value.status == code
+            assert str(caught.value) == f"HTTP {code}"
+            assert caught.value.__cause__ is None
+            _forbid(str(caught.value))
+            _forbid(_traceback(caught.value))
+            assert "stolen" not in str(caught.value)
+            assert len(loopback.seen) == before + 1
+            assert stolen.seen == []
+        finally:
+            stolen.shutdown()
+            stolen.server_close()
+            thread.join(2)
+
+    def test_proxy_environment_is_ignored(self, loopback, monkeypatch):
+        proxy = _Loopback(("127.0.0.1", 0), _Handler)
+        proxy.mode = "denied"
+        proxy.seen = []
+        proxy.redirect_code = 302
+        proxy.redirect_to = "http://127.0.0.1:9/unused"
+        thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+        thread.start()
+        try:
+            proxy_url = f"http://127.0.0.1:{proxy.server_address[1]}"
+            for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy"):
+                monkeypatch.setenv(name, proxy_url)
+            adapter, _timeout = self._adapter(loopback, monkeypatch)
+            result = adapter.generate(
+                model="compat-node", system=(SystemBlock("bible"),),
+                messages=[{"role": "user", "content": "Hello."}], max_tokens=16,
+            )
+            assert result.text == "loopback-ok"
+            assert proxy.seen == []
+            assert loopback.seen[0]["authorization"] == f"Bearer {_SECRET}"
+        finally:
+            proxy.shutdown()
+            proxy.server_close()
+            thread.join(2)
+
+    def test_wall_clock_budget_stops_a_dribbled_header(self, loopback, monkeypatch):
+        adapter, _timeout = self._adapter(loopback, monkeypatch)
+        loopback.mode = "drip"
+        started = time.monotonic()
+        with pytest.raises(ProviderTimeout) as caught:
+            adapter.generate(
+                model="compat-node", system=(SystemBlock("bible"),),
+                messages=[{"role": "user", "content": _PLAYER}], max_tokens=8,
+                timeout=0.3,
+            )
+        elapsed = time.monotonic() - started
+        assert elapsed < 1.0
+        assert str(caught.value) == "timed out"
+        assert caught.value.__cause__ is None
+        _forbid(_traceback(caught.value))
 
     def test_timeout_malformed_denied_and_oversized(self, loopback, monkeypatch):
         adapter, _timeout = self._adapter(loopback, monkeypatch)

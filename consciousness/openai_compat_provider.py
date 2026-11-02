@@ -13,22 +13,26 @@ voice handler does not spend the voice budget on a typo. Moderation does
 not check ``configured`` before it classifies; ``generate`` still raises,
 and the screen holds.
 
-Only a finished ``stop`` with string content and no refusal is
-``complete``. Every other finish leaves ``complete`` false. ``length``
-keeps partial text, matching the Anthropic adapter. ``content_filter``,
-``refusal``, tool calls, xAI's ``end_turn``, and any unknown finish set
-text to None. Voice publishes any non-None text through ``require_text``
-without reading ``complete``, so those finishes must not carry text until
-a live check shows what the server meant. ADR-035 (Proposed) records the
+Only a finished ``stop`` with non-blank string content and no refusal is
+``complete``. Empty or whitespace-only content is not complete. Every
+other finish leaves ``complete`` false. ``length`` keeps partial text,
+matching the Anthropic adapter. ``content_filter``, ``refusal``, tool
+calls, xAI's ``end_turn``, and any unknown finish set text to None.
+Voice publishes any non-None text through ``require_text`` without
+reading ``complete``, so those finishes must not carry text until a live
+check shows what the server meant. ADR-035 (Proposed) records the
 dialect choice; this module does not ratify it.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+import http.client
+import io
 import json
 import math
 import os
 import socket
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
@@ -39,7 +43,9 @@ from consciousness.runtime import Completion, SystemBlock, TokenUsage
 # Operator settings. None of these names is OPENAI_* or XAI_*.
 BASE_URL_ENV = "NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL"
 API_KEY_ENV = "NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY"
-MAX_TOKENS_PARAM_ENV = "NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_TOKENS_PARAM"
+# The name must not contain TOKEN. model_check treats TOKEN as a secret
+# and would redact the parameter name from the startup report.
+MAX_OUTPUT_PARAM_ENV = "NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM"
 STRUCTURED_OUTPUTS_ENV = "NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS"
 SEND_STORE_FALSE_ENV = "NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE"
 REASONING_EFFORT_ENV = "NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT"
@@ -198,7 +204,7 @@ def chat_completions_url(base: str) -> str:
 
 
 def _max_tokens_param() -> str | None:
-    raw = os.environ.get(MAX_TOKENS_PARAM_ENV)
+    raw = os.environ.get(MAX_OUTPUT_PARAM_ENV)
     if raw is None or not raw.strip():
         return DEFAULT_MAX_TOKENS_PARAM
     text = raw.strip()
@@ -291,6 +297,8 @@ def build_request(
 
     A schema is sent only when structured outputs are enabled. Otherwise
     this raises ``UnsupportedCapability`` and the caller sends nothing.
+    ``n`` and ``stream`` are never sent: the adapter reads only the first
+    choice, and a stream is not a single completion.
     """
     wired: list[dict] = []
     if system:
@@ -346,12 +354,13 @@ def _usage(raw: object) -> TokenUsage | None:
     and a missing split is not evidence that the cache was zero. Output is
     ``total_tokens - prompt_tokens`` when both exist, so reasoning tokens
     that one server folds into ``completion_tokens`` and another leaves
-    outside it are both billed. A negative result is unknown.
+    outside it are both billed. Without both of those fields, output is
+    unknown. ``completion_tokens`` is not a substitute: it can omit
+    reasoning. A negative result is unknown.
     """
     if not isinstance(raw, dict):
         return None
     prompt = _nonneg_int(raw.get("prompt_tokens"))
-    completion = _nonneg_int(raw.get("completion_tokens"))
     total = _nonneg_int(raw.get("total_tokens"))
     details = raw.get("prompt_tokens_details")
     cached: int | None = None
@@ -373,8 +382,6 @@ def _usage(raw: object) -> TokenUsage | None:
     if prompt is not None and total is not None:
         output = total - prompt
         output_tokens = output if output >= 0 else None
-    elif completion is not None:
-        output_tokens = completion
     return TokenUsage(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
@@ -386,9 +393,12 @@ def _usage(raw: object) -> TokenUsage | None:
 def parse_response(body: dict) -> Completion:
     """Map one Chat Completions object onto ``Completion``.
 
-    A non-null ``error`` raises. Missing choices are an empty completion,
-    not a transport error, so voice raises ``NoTextError`` and moderation
-    holds. See the module docstring for which finishes carry text.
+    A non-null ``error`` raises. More than one choice, or content that is
+    present and not a string, raises ``MalformedProviderResponse``. Missing
+    choices are an empty completion, not a transport error, so voice raises
+    ``NoTextError`` and moderation holds. A missing ``refusal`` is null.
+    Empty or whitespace-only content is not complete. See the module
+    docstring for which finishes carry text.
     """
     if not isinstance(body, dict) or body.get("error") is not None:
         raise MalformedProviderResponse()
@@ -396,7 +406,9 @@ def parse_response(body: dict) -> Completion:
     echoed = body.get("model")
     resolved = echoed if isinstance(echoed, str) else None
     choices = body.get("choices")
-    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+    if isinstance(choices, list) and len(choices) > 1:
+        raise MalformedProviderResponse()
+    if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
         return Completion(
             text=None, complete=False, usage=usage, finish_reason="unknown",
             resolved_model=resolved, provider=OpenAICompatibleProvider.name,
@@ -408,8 +420,13 @@ def parse_response(body: dict) -> Completion:
     finish = choice.get("finish_reason")
     if not isinstance(finish, str):
         finish = None
+    # Absent, or JSON null. Only a present non-null value is a refusal.
     refusal = message.get("refusal") if "refusal" in message else None
     content = message.get("content")
+    if content is not None and not isinstance(content, str):
+        raise MalformedProviderResponse()
+    if isinstance(content, str) and not content.strip():
+        content = None
     text = content if isinstance(content, str) else None
     if refusal is not None:
         return Completion(
@@ -467,22 +484,166 @@ def _read_capped(response) -> bytes:
     return b"".join(chunks)
 
 
+def _remaining(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ProviderTimeout()
+    return remaining
+
+
+class _DeadlineSocket:
+    """Re-arm the underlying socket with the time left before each call.
+
+    urllib's ``timeout`` is a limit on one socket operation. A header
+    dribbled one byte at a time would otherwise run for many times the
+    number the caller passed. The caller's number is the wall-clock
+    budget for the whole POST.
+    """
+
+    def __init__(self, sock, deadline: float) -> None:
+        self._sock = sock
+        self._deadline = deadline
+
+    def _arm(self) -> None:
+        self._sock.settimeout(_remaining(self._deadline))
+
+    def recv(self, buflen, flags=0):
+        self._arm()
+        try:
+            return self._sock.recv(buflen, flags)
+        except (TimeoutError, socket.timeout):
+            raise ProviderTimeout() from None
+
+    def recv_into(self, buffer, nbytes=0, flags=0):
+        self._arm()
+        try:
+            return self._sock.recv_into(buffer, nbytes, flags)
+        except (TimeoutError, socket.timeout):
+            raise ProviderTimeout() from None
+
+    def send(self, data, flags=0):
+        self._arm()
+        try:
+            return self._sock.send(data, flags)
+        except (TimeoutError, socket.timeout):
+            raise ProviderTimeout() from None
+
+    def sendall(self, data, flags=0):
+        view = memoryview(data)
+        while view:
+            sent = self.send(view, flags)
+            view = view[sent:]
+
+    def makefile(self, mode="r", buffering=None, *args, **kwargs):
+        raw = socket.SocketIO(self, mode)
+        if buffering is None or buffering < 0:
+            buffering = io.DEFAULT_BUFFER_SIZE
+        if "r" in mode:
+            return io.BufferedReader(raw, buffering)
+        return io.BufferedWriter(raw, buffering)
+
+    def settimeout(self, value):
+        # Callers pass their own per-operation number. Keep the budget.
+        self._arm()
+
+    def gettimeout(self):
+        return self._sock.gettimeout()
+
+    def fileno(self):
+        return self._sock.fileno()
+
+    def close(self):
+        self._sock.close()
+
+    def __getattr__(self, name):
+        return getattr(self._sock, name)
+
+
+def _connection(deadline: float, https: bool):
+    base = http.client.HTTPSConnection if https else http.client.HTTPConnection
+
+    class Conn(base):
+        def __init__(self, host, port=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+                     source_address=None, *, context=None, check_hostname=None,
+                     blocksize=8192):
+            kwargs = {}
+            if https:
+                kwargs["context"] = context
+                kwargs["check_hostname"] = check_hostname
+            super().__init__(
+                host, port=port, timeout=_remaining(deadline),
+                source_address=source_address, blocksize=blocksize, **kwargs,
+            )
+            self._deadline = deadline
+
+        def connect(self):
+            self.timeout = _remaining(self._deadline)
+            super().connect()
+            self.sock = _DeadlineSocket(self.sock, self._deadline)
+
+    return Conn
+
+
+class _HTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, deadline: float) -> None:
+        super().__init__()
+        self._deadline = deadline
+
+    def http_open(self, req):
+        return self.do_open(_connection(self._deadline, False), req)
+
+
+class _HTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, deadline: float) -> None:
+        super().__init__()
+        self._deadline = deadline
+
+    def https_open(self, req):
+        return self.do_open(
+            _connection(self._deadline, True), req,
+            context=self._context, check_hostname=self._check_hostname,
+        )
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Any 3xx stops here. The key is not copied onto a second request."""
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        raise ProviderHTTPError(int(code)) from None
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ProviderHTTPError(int(code)) from None
+
+
+class _Status(urllib.request.HTTPErrorProcessor):
+    def http_response(self, request, response):
+        code = getattr(response, "code", None)
+        if isinstance(code, int) and not isinstance(code, bool) and 300 <= code < 400:
+            raise ProviderHTTPError(code) from None
+        return super().http_response(request, response)
+
+    https_response = http_response
+
+
 def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, str], ...], bytes]:
     """One POST. No retries, no redirects, no environment proxy.
 
     A redirect would forward ``Authorization`` to a host the operator did
-    not name. ``HTTP_PROXY`` and ``HTTPS_PROXY`` are ignored for the same
-    reason. Timeouts and connection failures become adapter exceptions
-    whose messages do not include the URL or the response.
+    not name. ``ProxyHandler({})`` is installed so ``HTTP_PROXY``,
+    ``HTTPS_PROXY``, and ``ALL_PROXY`` are not read. The caller's timeout
+    is a wall-clock budget for this POST, not urllib's per-socket timeout.
+    Failures become adapter exceptions whose messages do not include the
+    URL, the body, or the key.
     """
-
-    class _NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):
-            raise ProviderHTTPError(int(code))
-
+    deadline = time.monotonic() + request.timeout
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({}),
         _NoRedirect(),
+        _Status(),
+        _HTTPHandler(deadline),
+        _HTTPSHandler(deadline),
     )
     outgoing = urllib.request.Request(
         request.url,
@@ -492,7 +653,11 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
     )
     try:
         with opener.open(outgoing, timeout=request.timeout) as response:
-            status = int(response.getcode())
+            status = response.getcode()
+            if isinstance(status, bool) or not isinstance(status, int):
+                raise MalformedProviderResponse()
+            if 300 <= status < 400:
+                raise ProviderHTTPError(status) from None
             announced = response.headers.get("Content-Length")
             if announced is not None:
                 try:
@@ -504,17 +669,25 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
             raw = _read_capped(response)
             pairs = tuple((key, value) for key, value in response.headers.items())
             return status, pairs, raw
-    except (ProviderHTTPError, ProviderTimeout, MalformedProviderResponse, ProviderConnectionError):
-        raise
+    except ProviderHTTPError as exc:
+        raise ProviderHTTPError(exc.status) from None
+    except ProviderTimeout:
+        raise ProviderTimeout() from None
+    except MalformedProviderResponse:
+        raise MalformedProviderResponse() from None
+    except ProviderConnectionError:
+        raise ProviderConnectionError() from None
     except urllib.error.HTTPError as exc:
         raise ProviderHTTPError(int(exc.code)) from None
     except (TimeoutError, socket.timeout):
         raise ProviderTimeout() from None
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", None)
-        if isinstance(reason, (TimeoutError, socket.timeout)):
+        if isinstance(reason, (TimeoutError, socket.timeout, ProviderTimeout)):
             raise ProviderTimeout() from None
         raise ProviderConnectionError() from None
+    except http.client.HTTPException:
+        raise MalformedProviderResponse() from None
     except (ConnectionError, OSError):
         raise ProviderConnectionError() from None
 
