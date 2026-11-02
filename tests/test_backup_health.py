@@ -153,6 +153,9 @@ def test_gate_requires_bucket_config_when_backup_is_required(tmp_path, required,
     {'ENFOLDED_BACKUP_S3_ENDPOINT': 'http://example.r2.cloudflarestorage.com'},
     {'ENFOLDED_BACKUP_S3_ENDPOINT': 'https://user:secret@example.r2.cloudflarestorage.com'},
     {'ENFOLDED_BACKUP_S3_ENDPOINT': 'https://example.r2.cloudflarestorage.com/bucket'},
+    {'ENFOLDED_BACKUP_S3_ENDPOINT': 'https://example.r2.cloudflarestorage.com:bad'},
+    {'ENFOLDED_BACKUP_S3_ENDPOINT': 'https://example.r2.cloudflarestorage.com:65536'},
+    {'ENFOLDED_BACKUP_S3_ENDPOINT': 'https://example.r2.cloudflarestorage.com:0'},
     {'ENFOLDED_BACKUP_S3_BUCKET': 'Bad_Name'},
     {'ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY': 'has space'},
     {'FLY_APP': '../enfolded'},
@@ -166,13 +169,87 @@ def test_gate_rejects_malformed_bucket_configuration(tmp_path, extra):
     assert 'has space' not in result.stdout + result.stderr
 
 
+def _workflow_step(text, step_name):
+    lines = text.splitlines()
+    start = next(index for index, line in enumerate(lines)
+                 if line.strip() == f'- name: {step_name}')
+    block = []
+    for line in lines[start:]:
+        if block and line.startswith('      - '):
+            break
+        block.append(line)
+    step = '\n'.join(block)
+    identity = next((line.split(':', 1)[1].strip() for line in block if line.strip().startswith('id:')), '')
+    condition = next((line.split(':', 1)[1].strip() for line in block if line.strip().startswith('if:')), '')
+    run_lines = []
+    in_run = False
+    for line in block:
+        if not in_run:
+            if line.strip() == 'run: |':
+                in_run = True
+            continue
+        if line.startswith('          '):
+            run_lines.append(line[10:])
+        elif line.strip() == '':
+            run_lines.append('')
+        else:
+            break
+    return identity, condition, '\n'.join(run_lines) + '\n', step
+
+
 def test_backup_workflow_never_publishes_a_github_artifact():
     text = (Path(__file__).resolve().parents[1] / '.github/workflows/backup.yml').read_text()
     assert 'uses: actions/upload-artifact' not in text
     assert 'upload-artifact@' not in text
-    assert 'ENFOLDED_BACKUP_S3_BUCKET' in text
-    assert 'ENFOLDED_BACKUP_S3_ENDPOINT' in text
+    assert 'secrets.ENFOLDED_BACKUP_S3_BUCKET' in text
+    assert 'secrets.ENFOLDED_BACKUP_S3_ENDPOINT' in text
+    assert 'vars.ENFOLDED_BACKUP_S3_BUCKET' not in text
+    assert 'vars.ENFOLDED_BACKUP_S3_ENDPOINT' not in text
     assert 'ENFOLDED_BACKUP_S3_ACCESS_KEY_ID' in text
     assert 'ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY' in text
+    assert 'persist-credentials: false' in text
+    assert 'version: 0.5.1' in text
     assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in text
     assert "cron: '17,47 * * * *'" in text
+    store_id, store_if, _store_run, store_step = _workflow_step(text, 'Store the snapshot in the private bucket')
+    _prune_id, prune_if, _prune_run, _prune_step = _workflow_step(text, 'Prune private-bucket objects past retention')
+    assert store_id == 'store'
+    assert store_if == "always() && steps.download.outcome == 'success' && steps.aws.outcome == 'success'"
+    assert prune_if == "always() && steps.store.outcome == 'success'"
+    assert 'VALIDATE_OUTCOME: ${{ steps.validate.outcome }}' in store_step
+
+
+def test_store_step_quarantines_unless_validation_succeeded(tmp_path):
+    text = (Path(__file__).resolve().parents[1] / '.github/workflows/backup.yml').read_text()
+    _store_id, _store_if, script, _store_step = _workflow_step(text, 'Store the snapshot in the private bucket')
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    recorder = tmp_path / 'argv.jsonl'
+    fake = fake_bin / 'python3'
+    fake.write_text(f'#!{sys.executable}\n' + r'''
+import json, os, sys
+with open(os.environ['ARGV_LOG'], 'a') as fh:
+    fh.write(json.dumps(sys.argv) + '\n')
+print('offhost/worlds-backup-should-not-be-logged')
+''')
+    fake.chmod(0o755)
+    for outcome, quarantined, summary_line in (
+            ('success', False, 'Stored a validated snapshot.'),
+            ('failure', True, 'Stored a quarantine snapshot.'),
+            ('cancelled', True, 'Stored a quarantine snapshot.')):
+        recorder.write_text('')
+        summary = tmp_path / f'summary-{outcome}'
+        result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, env={
+            'PATH': str(fake_bin) + os.pathsep + '/usr/bin:/bin',
+            'ARGV_LOG': str(recorder),
+            'FLY_APP': 'enfolded-beta',
+            'STAMP': '20261003T113000Z',
+            'VALIDATE_OUTCOME': outcome,
+            'GITHUB_STEP_SUMMARY': str(summary),
+        })
+        assert result.returncode == 0, result.stderr
+        argv = json.loads(recorder.read_text().strip())
+        assert argv[1:5] == ['scripts/backup_store.py', 'put', '--app', 'enfolded-beta']
+        assert ('--quarantine' in argv) is quarantined
+        assert 'offhost/' not in result.stdout + result.stderr
+        assert summary.read_text().strip() == summary_line

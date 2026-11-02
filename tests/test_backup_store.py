@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from scripts.backup_store import expired_keys, object_key
+from scripts.backup_store import MAX_LIST_PAGES, expired_keys, list_object_pages, object_key, validate_endpoint
 
 APP = 'enfolded-beta'
 NOW = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
@@ -56,6 +56,9 @@ config = Path(os.environ['AWS_CONFIG_FILE']).read_text()
 record = {
     'argv': argv,
     'region': os.environ.get('AWS_DEFAULT_REGION'),
+    'aws_region': os.environ.get('AWS_REGION'),
+    'session': os.environ.get('AWS_SESSION_TOKEN'),
+    'profile': os.environ.get('AWS_PROFILE'),
     'checksum': os.environ.get('AWS_REQUEST_CHECKSUM_CALCULATION'),
     'response_checksum': os.environ.get('AWS_RESPONSE_CHECKSUM_VALIDATION'),
     'metadata_disabled': os.environ.get('AWS_EC2_METADATA_DISABLED'),
@@ -69,12 +72,47 @@ with open(os.environ['AWS_FAKE_CALLS'], 'a') as fh:
 if 'get-object' in argv:
     Path(argv[-1]).write_bytes(b'sqlite-bytes')
 if os.environ.get('AWS_FAKE_FAIL'):
-    sys.stderr.write('boom ' + secret)
+    endpoint = argv[argv.index('--endpoint-url') + 1]
+    bucket = argv[argv.index('--bucket') + 1]
+    key = argv[argv.index('--key') + 1] if '--key' in argv else 'offhost/worlds-backup-app.db'
+    sys.stderr.write(f'SSL validation failed for {endpoint}/{bucket}/{key} boom {secret}')
     sys.exit(1)
 if 'list-objects-v2' in argv:
-    pages = json.loads(Path(os.environ['AWS_FAKE_PAGES']).read_text())
-    index = 1 if '--continuation-token' in argv else 0
-    print(json.dumps(pages[index]))
+    prefix = argv[argv.index('--prefix') + 1]
+    if os.environ.get('AWS_FAKE_PAGE_COUNT'):
+        total = int(os.environ['AWS_FAKE_PAGE_COUNT'])
+        index = int(argv[argv.index('--continuation-token') + 1]) if '--continuation-token' in argv else 0
+        last = index + 1 >= total
+        body = {'Contents': [{'Key': prefix + '20200101T000000Z.db', 'Size': 8}],
+                'IsTruncated': not last, 'Prefix': prefix}
+        if not last:
+            body['NextContinuationToken'] = str(index + 1)
+        print(json.dumps(body))
+    else:
+        pages = json.loads(Path(os.environ['AWS_FAKE_PAGES']).read_text())
+        if isinstance(pages, dict) and 'Contents' not in pages and 'IsTruncated' not in pages and 'KeyCount' not in pages:
+            chosen = pages.get(prefix, [{'KeyCount': 0}])
+        else:
+            chosen = []
+            for page in pages:
+                contents = page.get('Contents') if isinstance(page, dict) else None
+                if not isinstance(contents, list):
+                    chosen.append(page)
+                    continue
+                matched = [item for item in contents
+                           if isinstance(item, dict) and str(item.get('Key', '')).startswith(prefix)]
+                copied = dict(page)
+                copied['Contents'] = matched
+                chosen.append(copied)
+        if '--continuation-token' in argv:
+            token = argv[argv.index('--continuation-token') + 1]
+            index = int(token) if token.isdigit() else 1
+        else:
+            index = 0
+        print(json.dumps(chosen[index] if index < len(chosen) else {'KeyCount': 0}))
+elif os.environ.get('AWS_FAKE_DELETE_ERRORS'):
+    print(json.dumps({'Errors': [{'Key': 'offhost/worlds-backup-enfolded-beta-20200101T000000Z.db',
+                                  'Code': 'AccessDenied', 'Message': 'no'}]}))
 else:
     print('{}')
 ''')
@@ -150,12 +188,24 @@ def test_quarantine_upload_and_empty_snapshot_never_call_the_store(tmp_path):
     assert WRITE_SECRET not in refused.stdout + refused.stderr
 
 
+def deleted_keys(recorded):
+    keys = []
+    for call in recorded:
+        argv = call['argv']
+        if 'delete-objects' not in argv:
+            continue
+        payload = json.loads(argv[argv.index('--delete') + 1])
+        keys.extend(item['Key'] for item in payload['Objects'])
+    return keys
+
+
 def test_delete_refuses_a_foreign_key_and_delete_before_keeps_newer_objects(tmp_path):
     refused, recorded = run_store(tmp_path, ['delete', '--app', APP, '--key', 'notes/player.db'],
                                   [{'Contents': []}])
     assert refused.returncode == 1
     assert recorded == []
-    assert 'notes/player.db' in refused.stderr
+    assert 'notes/player.db' not in refused.stderr
+    assert "outside this app's backup names" in refused.stderr
 
     older = object_key(APP, '20261003T090000Z')
     same = object_key(APP, '20261003T100000Z', quarantine=True)
@@ -165,8 +215,8 @@ def test_delete_refuses_a_foreign_key_and_delete_before_keeps_newer_objects(tmp_
     result, recorded = run_store(tmp_path, ['delete-before', '--app', APP, '--before', '20261003T100000Z'], pages)
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == [older, same]
-    deleted = [call['argv'][call['argv'].index('--key') + 1] for call in recorded if 'delete-object' in call['argv']]
-    assert deleted == [older, same]
+    assert deleted_keys(recorded) == [older, same]
+    assert all('delete-object' not in call['argv'] for call in recorded)
     assert all(call['secret_in_argv'] is False for call in recorded)
 
 
@@ -184,10 +234,10 @@ def test_prune_deletes_only_this_apps_expired_objects(tmp_path):
     result, recorded = run_store(tmp_path, ['prune', '--app', APP, '--retention-days', '30'], pages)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == old_key
-    deleted = [call['argv'][call['argv'].index('--key') + 1] for call in recorded if 'delete-object' in call['argv']]
-    assert deleted == [old_key]
-    listed = [call for call in recorded if 'list-objects-v2' in call['argv']]
-    assert listed and listed[0]['argv'][listed[0]['argv'].index('--prefix') + 1] == 'offhost/'
+    assert deleted_keys(recorded) == [old_key]
+    listed = [call['argv'][call['argv'].index('--prefix') + 1]
+              for call in recorded if 'list-objects-v2' in call['argv']]
+    assert listed == [f'offhost/worlds-backup-{APP}-', f'offhost/unvalidated-worlds-backup-{APP}-']
 
 
 def test_failed_download_redacts_the_secret_and_removes_the_partial_file(tmp_path):
@@ -199,19 +249,31 @@ def test_failed_download_redacts_the_secret_and_removes_the_partial_file(tmp_pat
                              '--dest', str(dest)], capture_output=True, text=True, env=env)
     assert result.returncode == 1
     assert not dest.exists()
-    assert WRITE_SECRET not in result.stdout + result.stderr
+    combined = result.stdout + result.stderr
+    assert WRITE_SECRET not in combined
+    assert ENDPOINT not in combined
+    assert 'enfolded-backups' not in combined
+    assert key not in combined
+    assert 'offhost/' not in combined
     assert '[redacted]' in result.stderr
 
 
 def test_health_lists_with_the_read_only_credential_and_follows_the_continuation_token(tmp_path):
     fresh = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    pages = [
-        {'Contents': [{'Key': object_key(APP, '20200101T000000Z'), 'Size': 8}],
-         'IsTruncated': True, 'NextContinuationToken': 'page-2', 'Prefix': 'offhost/'},
-        {'Contents': [{'Key': object_key(APP, fresh), 'Size': 8},
-                      {'Key': object_key(APP, fresh, quarantine=True), 'Size': 8}],
-         'IsTruncated': False, 'Prefix': 'offhost/'},
-    ]
+    validated = f'offhost/worlds-backup-{APP}-'
+    quarantine = f'offhost/unvalidated-worlds-backup-{APP}-'
+    pages = {
+        validated: [
+            {'Contents': [{'Key': object_key(APP, '20200101T000000Z'), 'Size': 8}],
+             'IsTruncated': True, 'NextContinuationToken': 'page-2'},
+            {'Contents': [{'Key': object_key(APP, fresh), 'Size': 8}],
+             'IsTruncated': False},
+        ],
+        quarantine: [
+            {'Contents': [{'Key': object_key(APP, fresh, quarantine=True), 'Size': 8}],
+             'IsTruncated': False},
+        ],
+    }
     calls = install_fake_aws(tmp_path, pages)
     env = bucket_env(tmp_path, calls,
                      ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID='list-key',
@@ -223,9 +285,134 @@ def test_health_lists_with_the_read_only_credential_and_follows_the_continuation
     assert report['status'] == 'fresh'
     assert report['key'] == object_key(APP, fresh)
     recorded = [json.loads(line) for line in calls.read_text().splitlines()]
-    assert [call['access_key_id'] for call in recorded] == ['list-key', 'list-key']
+    assert [call['access_key_id'] for call in recorded] == ['list-key', 'list-key', 'list-key']
     assert '--continuation-token' in recorded[1]['argv']
     assert recorded[1]['argv'][recorded[1]['argv'].index('--continuation-token') + 1] == 'page-2'
+    assert recorded[0]['argv'][recorded[0]['argv'].index('--prefix') + 1] == validated
     assert LIST_SECRET not in calls.read_text()
     assert WRITE_SECRET not in calls.read_text()
     assert 'upload-artifact' not in result.stdout
+
+
+def test_endpoint_rejects_a_port_that_is_not_a_number_in_range():
+    for value in ('https://example.r2.cloudflarestorage.com:bad',
+                  'https://example.r2.cloudflarestorage.com:65536',
+                  'https://example.r2.cloudflarestorage.com:0'):
+        try:
+            validate_endpoint(value)
+        except ValueError:
+            continue
+        raise AssertionError(value)
+    validate_endpoint('https://example.r2.cloudflarestorage.com:443')
+
+
+def test_retention_keeps_the_newest_validated_object_even_past_the_cutoff():
+    old = object_key(APP, '20260801T120000Z')
+    kept = object_key(APP, '20260903T120000Z')
+    quarantine = object_key(APP, '20260903T120000Z', quarantine=True)
+    future = object_key(APP, '20261103T120000Z')
+    pages = [{'Contents': [
+        {'Key': old, 'Size': 4},
+        {'Key': kept, 'Size': 4},
+        {'Key': quarantine, 'Size': 4},
+        {'Key': future, 'Size': 4},
+    ]}]
+    assert expired_keys(pages, app=APP, retention_days=30, now=NOW) == [old, quarantine]
+    alone = [{'Contents': [{'Key': kept, 'Size': 4}]}]
+    assert expired_keys(alone, app=APP, retention_days=30, now=NOW) == []
+
+
+def test_child_process_drops_ambient_aws_settings_and_uses_the_configured_region(tmp_path):
+    body = tmp_path / 'offhost.db'
+    body.write_bytes(b'not-empty')
+    result, recorded = run_store(tmp_path, [
+        'put', '--app', APP, '--stamp', '20261003T113000Z', '--body', str(body)], [{'Contents': []}],
+        AWS_REGION='us-west-2', AWS_DEFAULT_REGION='eu-west-1',
+        AWS_ACCESS_KEY_ID='ambient-key', AWS_SECRET_ACCESS_KEY='ambient-secret',
+        AWS_SESSION_TOKEN='ambient-session', AWS_PROFILE='ambient-profile')
+    assert result.returncode == 0, result.stderr
+    seen = recorded[0]
+    assert seen['aws_region'] == 'auto'
+    assert seen['region'] == 'auto'
+    assert seen['access_key_id'] == 'write-key'
+    assert seen['session'] in (None, '')
+    assert seen['profile'] in (None, '')
+    blob = json.dumps(seen) + result.stdout + result.stderr
+    assert 'ambient-secret' not in blob
+    assert 'ambient-session' not in blob
+    assert 'us-west-2' not in blob
+
+
+def test_get_uses_the_write_key_when_a_list_key_is_also_set(tmp_path):
+    dest = tmp_path / 'restored.db'
+    key = object_key(APP, '20261003T113000Z')
+    result, recorded = run_store(tmp_path, ['get', '--app', APP, '--key', key, '--dest', str(dest)],
+                                 [{'Contents': []}],
+                                 ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID='list-key',
+                                 ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY=LIST_SECRET)
+    assert result.returncode == 0, result.stderr
+    assert dest.read_bytes() == b'sqlite-bytes'
+    assert recorded[0]['access_key_id'] == 'write-key'
+    assert LIST_SECRET not in json.dumps(recorded)
+
+
+def test_prune_deletes_expired_keys_in_one_batch_and_keeps_the_newest(tmp_path):
+    now = datetime.now(timezone.utc)
+    oldest = object_key(APP, (now - timedelta(days=40)).strftime('%Y%m%dT%H%M%SZ'))
+    middle = object_key(APP, (now - timedelta(days=35)).strftime('%Y%m%dT%H%M%SZ'), quarantine=True)
+    kept = object_key(APP, (now - timedelta(days=31)).strftime('%Y%m%dT%H%M%SZ'))
+    pages = [{'Contents': [
+        {'Key': oldest, 'Size': 8},
+        {'Key': middle, 'Size': 8},
+        {'Key': kept, 'Size': 8},
+    ]}]
+    result, recorded = run_store(tmp_path, ['prune', '--app', APP, '--retention-days', '30'], pages)
+    assert result.returncode == 0, result.stderr
+    assert deleted_keys(recorded) == [oldest, middle]
+    assert sum('delete-objects' in call['argv'] for call in recorded) == 1
+    assert kept not in result.stdout
+
+
+def test_prune_splits_a_thousand_deletes_and_a_refused_batch_hides_the_key(tmp_path):
+    now = datetime.now(timezone.utc)
+    base = now - timedelta(days=400)
+    keys = [object_key(APP, (base + timedelta(minutes=index)).strftime('%Y%m%dT%H%M%SZ'), quarantine=True)
+            for index in range(1001)]
+    kept = object_key(APP, (now - timedelta(days=31)).strftime('%Y%m%dT%H%M%SZ'))
+    contents = [{'Key': key, 'Size': 8} for key in keys]
+    contents.append({'Key': kept, 'Size': 8})
+    pages = [{'Contents': contents}]
+    result, recorded = run_store(tmp_path, ['prune', '--app', APP, '--retention-days', '30'], pages)
+    assert result.returncode == 0, result.stderr
+    batches = [json.loads(call['argv'][call['argv'].index('--delete') + 1])
+               for call in recorded if 'delete-objects' in call['argv']]
+    assert [len(batch['Objects']) for batch in batches] == [1000, 1]
+    assert kept not in result.stdout
+
+    refused, recorded = run_store(tmp_path, ['delete', '--app', APP, '--key', keys[0]], [{'Contents': []}],
+                                  AWS_FAKE_DELETE_ERRORS='1')
+    assert refused.returncode == 1
+    assert 'offhost/' not in refused.stderr
+    assert keys[0] not in refused.stderr
+    assert 'refused to delete 1' in refused.stderr
+
+
+def test_listing_passes_one_hundred_pages_and_stops_at_the_cap(tmp_path):
+    assert MAX_LIST_PAGES > 100
+    assert MAX_LIST_PAGES * 1000 >= 3650 * 48
+    calls = install_fake_aws(tmp_path, [])
+    env = bucket_env(tmp_path, calls, AWS_FAKE_PAGE_COUNT='3')
+    pages = list_object_pages(env, app=APP, max_pages=3)
+    assert len(pages) == 6
+    recorded = [json.loads(line) for line in calls.read_text().splitlines()]
+    assert len(recorded) == 6
+    calls.write_text('')
+    env['AWS_FAKE_PAGE_COUNT'] = '4'
+    try:
+        list_object_pages(env, app=APP, max_pages=3)
+    except Exception as exc:
+        assert 'did not finish' in str(exc)
+    else:
+        raise AssertionError('expected the page cap')
+    recorded = [json.loads(line) for line in calls.read_text().splitlines() if line.strip()]
+    assert len(recorded) == 3

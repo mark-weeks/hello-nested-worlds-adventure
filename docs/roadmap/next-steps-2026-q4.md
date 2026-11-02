@@ -56,9 +56,10 @@ owner to rule on it.
 - Seven launch gates are open ([readiness record](../evaluation/2026-10-03-beta-readiness.md),
   "Remaining gates and owners"): hosted backup activation, hosted restore,
   freshness alerting, live models, hosted runtime and devices, first-session
-  observations, the seven-day return. The read-only bucket check returns
-  `missing` until a private bucket is configured; no Fly or model credential
-  exists in any checked environment.
+  observations, the seven-day return. Until the bucket and key are configured,
+  `backup_health.py` exits 2; once configured it reports `missing` until the
+  first validated object is stored. No Fly or model credential exists in any
+  checked environment.
 - Three issues are open (#87, #88, #89, all 2026-08-31 epics); the readiness
   record dispositions them. No pull request is open.
 - Four implemented contracts are still marked Proposed: ADR-019 to ADR-022,
@@ -159,7 +160,9 @@ Split by *when*, because a refactor in launch week is risk without reward.
   the per-user caps; runbook §8's budget-sizing step changes with it.
 - **4.1 Litestream-style continuous replication**, the first post-launch
   infrastructure batch ADR-005 names; it shrinks the loss window from one hour to
-  seconds and lets the half-hourly bucket cadence relax (ADR-005 "Revisit when").
+  seconds and lets the off-host cadence relax. ADR-005's revisit note still
+  describes the hourly artifact cadence; the private bucket and its retention
+  are pending and are not that note.
 - **D7 one client**: device gate evidence → ADR-005 revision → invite default to
   `/app` → explorer retirement plan. Each arrow is its own PR.
 - **3.3 cohort rhythm**: a recurring gathering and the weekly `beta_metrics.py`

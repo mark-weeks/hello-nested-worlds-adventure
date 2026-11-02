@@ -404,8 +404,10 @@ at most one hour of lost history. A schedule alone does not establish that bound
 [GitHub documents delayed and dropped scheduled jobs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 The workflow takes an online backup, downloads a self-contained SQLite file,
 checks integrity and required tables, and stores it in a private S3-compatible
-bucket. Cloudflare R2 is the documented default. Setup, the token, retention,
-and the rehearsal list are in [backup-bucket.md](backup-bucket.md).
+bucket. Cloudflare R2 is an example of that store, and a 30-day retention is
+the example used when the retention variable is unset. Mark has not recorded
+either choice. Setup, the token, retention, and the rehearsal list are in
+[backup-bucket.md](backup-bucket.md).
 
 GitHub's artifact list is available to anyone with read access to the
 repository ([artifact API](https://docs.github.com/en/rest/actions/artifacts#list-artifacts-for-a-repository)).
@@ -418,11 +420,14 @@ salvage. A healthy object is
 count as healthy backups. A successful upload is not yet a restore rehearsal.
 
 The bucket is private: no public `r2.dev` URL and no custom domain. The job
-reads only secrets and variables (`FLY_API_TOKEN`,
-`ENFOLDED_BACKUP_S3_ACCESS_KEY_ID`, `ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY`,
-`ENFOLDED_BACKUP_S3_BUCKET`, `ENFOLDED_BACKUP_S3_ENDPOINT`, and the optional
-region, retention, and app name). Until those values are set the scheduled run
-is an inactive no-op and uploads nothing.
+reads secrets and variables. `FLY_API_TOKEN` is a deploy token for one app
+(`fly tokens create deploy -a <app>`), not an organization token. The S3
+access key, secret, bucket, and endpoint are secrets. The endpoint contains
+the account id, and a bucket stored as a variable would appear in the public
+job log. Region, retention, the app name, and `ENFOLDED_BACKUP_REQUIRED` are
+variables. Until the token and the bucket settings are set, the scheduled run
+is an inactive no-op and uploads nothing. The job log does not print the
+object key.
 
 Before a separately authorized launch, configure the repository as in the
 bucket runbook, then:
@@ -434,16 +439,21 @@ bucket runbook, then:
   Before activation, a missing value with the variable unset or exactly `false`
   produces an explicit inactive warning and no recovery claim. Any other value
   fails configuration; a typo cannot silently turn enforcement off.
-- Variable `ENFOLDED_BACKUP_RETENTION_DAYS`: optional, default **30**. The
-  workflow deletes this app's backup objects whose snapshot-start is at least
-  that many days old. A lifecycle rule on prefix `offhost/` with the same day
-  count is the backstop when Actions does not run. This replaces the old
-  90-day artifact expiry.
+- Variable `ENFOLDED_BACKUP_RETENTION_DAYS`: optional. When it is unset the
+  workflow uses **30** as an example, not as a recorded retention period. It
+  deletes this app's backup objects whose snapshot-start is at least that many
+  days old, and it never deletes the newest validated object. Prune runs only
+  after the store step succeeded. A lifecycle rule on prefix `offhost/` must
+  be the retention plus 7 days or more. That rule expires by age and does not
+  keep the newest copy, so it is an outer bound, not a substitute for the
+  keep-newest prune. This replaces the old 90-day artifact expiry. The
+  replacement of that expiry is not itself a decision to keep copies for 30
+  days.
 
 Manually dispatch `backup.yml` and confirm the object, not just the job badge.
 Staging keys cannot satisfy the production check. Run this read-only check
-with the bucket variables and either the write key or the list-only key from
-the runbook. It does not use the GitHub API:
+with AWS CLI v2, the bucket, the endpoint, and either the write key or the
+list-only key from the runbook. It does not use the GitHub API:
 
 ```bash
 python scripts/backup_health.py --app enfolded-beta
@@ -484,16 +494,23 @@ event counts it prints.
 ```bash
 # 1. Stop all application/heartbeat writers while retaining maintenance access.
 #    Restore uses SQLite backup in reverse; --yes skips the confirmation prompt.
+#    A machine-local deploy copy is worlds-YYYYMMDD.db.
 fly ssh console -C "python main.py restore --from /data/backups/worlds-YYYYMMDD.db --yes"
+
+#    An off-host object is downloaded as ./worlds-backup.db and uploaded to
+#    the same name. Use that path, not the dated deploy-backup name:
+fly ssh console -C "python main.py restore --from /data/backups/worlds-backup.db --yes"
 
 # 2. Restart so in-memory state (rooms, puzzle sessions, rate buckets)
 #    matches the restored world.
 fly machine restart <machine-id>
 ```
 
-If the backup only exists off-host, download it with `scripts/backup_store.py get`,
-run `scripts/validate_backup.py` on the file, then upload it:
-`fly ssh sftp shell` then `put ./worlds-backup.db /data/backups/`.
+If the backup only exists off-host, download it with `scripts/backup_store.py get`
+to `./worlds-backup.db`, run `scripts/validate_backup.py ./worlds-backup.db`,
+then upload that same file: `fly ssh sftp shell`, then
+`put ./worlds-backup.db /data/backups/worlds-backup.db`. Restore from
+`/data/backups/worlds-backup.db`.
 Earlier local rehearsals covered backup → mutate → restore. They do not prove
 that this deployment's off-host object can be recovered. On isolated staging,
 verify born rows/hinge and historical deltas, rotated identities and private-note
@@ -531,9 +548,11 @@ image regenerates on next request). Off-host backups made before the
 redaction still contain the original text. Delete those objects
 (`scripts/backup_store.py delete` for one key, or `delete-before` for every
 backup of this app whose snapshot-start is at or before the redaction). The
-default retention is 30 days, and a matching lifecycle rule is the backstop
-when the workflow does not run. Expiry is not a substitute for deleting a
-copy you were asked to remove.
+example retention when the variable is unset is 30 days, which Mark has not
+adopted as a decision. The lifecycle rule, set to that retention plus 7 days
+or more, does not keep the newest object. Expiry is not a substitute for
+deleting a copy you were asked to remove. `delete` and `delete-before` can
+remove the newest validated object; the retention prune cannot.
 
 ---
 

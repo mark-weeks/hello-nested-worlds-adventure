@@ -3,8 +3,10 @@
 Object names keep the app and the UTC snapshot-start. A validation failure uses
 the unvalidated prefix; that name never satisfies the freshness check. The
 client shells out to a pinned AWS CLI and talks to whatever endpoint the
-operator configured. Cloudflare R2 is the documented default, not a hardcoded
-host. Credentials stay in the environment and are never printed.
+operator configured. Cloudflare R2 is an example, not a chosen vendor, and a
+30-day retention is the example used when the variable is unset. Neither is a
+recorded decision. Credentials stay in the environment and are never printed.
+Error text drops the endpoint, the bucket, and object keys.
 """
 import argparse
 from datetime import datetime, timedelta, timezone
@@ -25,12 +27,6 @@ _STAMP = re.compile(r'\d{8}T\d{6}Z')
 _APP = re.compile(r'[a-z0-9][a-z0-9-]{0,62}')
 _BUCKET = re.compile(r'[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]')
 _REGION = re.compile(r'[a-z0-9][a-z0-9-]{0,31}')
-_CREDENTIAL_ENV = (
-    'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN',
-    'AWS_SECURITY_TOKEN', 'AWS_PROFILE', 'AWS_DEFAULT_PROFILE',
-)
-
-
 class StoreError(RuntimeError):
     """The object store could not be used. The message contains no credential."""
 
@@ -62,8 +58,12 @@ def validate_endpoint(value):
     if not isinstance(value, str) or not value or len(value) > 256 or any(ch.isspace() for ch in value):
         raise ValueError('Endpoint must be an https URL.')
     parsed = urllib.parse.urlsplit(value)
-    if (parsed.scheme != 'https' or not parsed.hostname or parsed.username
-            or parsed.password or parsed.query or parsed.fragment
+    try:
+        port = parsed.port
+    except ValueError:
+        raise ValueError('Endpoint must be an https URL with a valid port.') from None
+    if (parsed.scheme != 'https' or not parsed.hostname or port == 0
+            or parsed.username or parsed.password or parsed.query or parsed.fragment
             or parsed.path not in ('', '/')):
         raise ValueError('Endpoint must be an https URL with no credentials, path, query, or fragment.')
 
@@ -188,10 +188,32 @@ def keys_older_than(pages, *, app, cutoff):
     return [key for _taken, key in sorted(chosen)]
 
 
+def newest_validated_key(pages, *, app, now):
+    """Newest validated snapshot at or before now. Future stamps do not count."""
+    best = None
+    for item in iter_objects(pages):
+        classified = classify(item.get('Key'), app)
+        if classified is None or classified[0] != 'validated' or classified[1] > now:
+            continue
+        if best is None or classified[1] > best[0]:
+            best = (classified[1], item['Key'])
+    return None if best is None else best[1]
+
+
 def expired_keys(pages, *, app, retention_days, now=None):
+    """Keys past retention, except the newest validated object for this app.
+
+    A quiet stretch longer than the retention period must not empty the bucket
+    of the last good copy. Quarantine objects are not protected. Explicit
+    ``delete`` and ``delete-before`` still remove the newest copy when asked.
+    """
     validate_retention(retention_days)
     now = now or datetime.now(timezone.utc)
-    return keys_older_than(pages, app=app, cutoff=now - timedelta(days=retention_days))
+    expired = keys_older_than(pages, app=app, cutoff=now - timedelta(days=retention_days))
+    keep = newest_validated_key(pages, app=app, now=now)
+    if keep is None:
+        return expired
+    return [key for key in expired if key != keep]
 
 
 def load_object_pages(path):
@@ -243,23 +265,44 @@ def _credentials(env, purpose):
 
 def _redact(text, secrets):
     redacted = text or ''
-    for secret in secrets:
-        if secret:
-            redacted = redacted.replace(secret, '[redacted]')
-    return redacted
+    for secret in sorted((item for item in secrets if item), key=len, reverse=True):
+        redacted = redacted.replace(secret, '[redacted]')
+    return re.sub(r'offhost(?:/|%2[Ff])\S+', '[redacted]', redacted)
+
+
+def _command_secrets(args, bucket, endpoint, access, secret):
+    host = urllib.parse.urlsplit(endpoint).hostname or ''
+    found = [access, secret, endpoint, host, bucket]
+    for index, arg in enumerate(args):
+        if arg in ('--key', '--prefix') and index + 1 < len(args):
+            found.append(args[index + 1])
+        elif arg == '--delete' and index + 1 < len(args):
+            found.append(args[index + 1])
+            try:
+                payload = json.loads(args[index + 1])
+            except json.JSONDecodeError:
+                continue
+            for item in payload.get('Objects', []):
+                if isinstance(item, dict) and isinstance(item.get('Key'), str):
+                    found.append(item['Key'])
+    return found
 
 
 def run_aws(args, *, env=None, purpose='write'):
     source = os.environ if env is None else env
     bucket, endpoint, region = _target(source)
     access, secret = _credentials(source, purpose)
-    child = dict(source)
+    # AWS_FAKE_* is how the tests hand a page fixture to the stand-in CLI.
+    # Every other AWS_* value belongs to the operator's shell. AWS CLI v2
+    # prefers AWS_REGION over AWS_DEFAULT_REGION, so the configured region
+    # has to be set, not merely left for the inherited one.
+    child = {key: value for key, value in source.items()
+             if not key.startswith('AWS_') or key.startswith('AWS_FAKE_')}
     child.setdefault('PATH', os.environ.get('PATH', ''))
-    for name in _CREDENTIAL_ENV:
-        child.pop(name, None)
     child.update({
         'AWS_ACCESS_KEY_ID': access,
         'AWS_SECRET_ACCESS_KEY': secret,
+        'AWS_REGION': region,
         'AWS_DEFAULT_REGION': region,
         'AWS_EC2_METADATA_DISABLED': 'true',
         'AWS_PAGER': '',
@@ -287,7 +330,7 @@ def run_aws(args, *, env=None, purpose='write'):
         except OSError as exc:
             raise StoreError('AWS CLI is not available.') from exc
     if result.returncode != 0:
-        detail = _redact(result.stderr, (access, secret)).strip()
+        detail = _redact(result.stderr, _command_secrets(args, bucket, endpoint, access, secret)).strip()
         message = 'Object storage command failed.'
         if detail:
             message = f'{message}\n{detail}'
@@ -295,28 +338,48 @@ def run_aws(args, *, env=None, purpose='write'):
     return result.stdout
 
 
-def list_object_pages(env=None):
+# 3,650 days at 48 snapshots a day is 175,200 keys. One thousand keys per page
+# needs 176 pages for a single app prefix. 250 leaves margin past the old
+# 100-page stop, which failed closed forever once a bucket crossed 100,000 keys.
+MAX_LIST_PAGES = 250
+_DELETE_BATCH = 1000
+
+
+def app_prefixes(app):
+    validate_app(app)
+    return (
+        f'{PREFIX}{VALIDATED_ROLE}-{app}-',
+        f'{PREFIX}{QUARANTINE_ROLE}-{app}-',
+    )
+
+
+def list_object_pages(env=None, *, app, max_pages=MAX_LIST_PAGES):
     source = os.environ if env is None else env
     bucket, _endpoint, _region = _target(source)
+    if type(max_pages) is not int or max_pages < 1:
+        raise ValueError('max_pages must be a positive integer.')
     pages = []
-    token = None
-    while len(pages) < 100:
-        args = ['s3api', 'list-objects-v2', '--bucket', bucket, '--prefix', PREFIX,
-                '--max-keys', '1000', '--output', 'json']
-        if token:
-            args += ['--continuation-token', token]
-        try:
-            page = json.loads(run_aws(args, env=source, purpose='list'))
-        except json.JSONDecodeError as exc:
-            raise StoreError('Object storage returned a response that was not JSON.') from exc
-        page_contents(page)
-        pages.append(page)
-        if page.get('IsTruncated') is not True:
-            return pages
-        token = page.get('NextContinuationToken')
-        if not isinstance(token, str) or not token:
-            raise StoreError('Truncated listing without a continuation token.')
-    raise StoreError('Object listing did not finish.')
+    for prefix in app_prefixes(app):
+        token = None
+        for _page_number in range(max_pages):
+            args = ['s3api', 'list-objects-v2', '--bucket', bucket, '--prefix', prefix,
+                    '--max-keys', '1000', '--output', 'json']
+            if token:
+                args += ['--continuation-token', token]
+            try:
+                page = json.loads(run_aws(args, env=source, purpose='list'))
+            except json.JSONDecodeError as exc:
+                raise StoreError('Object storage returned a response that was not JSON.') from exc
+            page_contents(page)
+            pages.append(page)
+            if page.get('IsTruncated') is not True:
+                break
+            token = page.get('NextContinuationToken')
+            if not isinstance(token, str) or not token:
+                raise StoreError('Truncated listing without a continuation token.')
+        else:
+            raise StoreError('Object listing did not finish.')
+    return pages
 
 
 def put_object(app, stamp, body, *, quarantine=False, env=None):
@@ -341,7 +404,7 @@ def get_object(app, key, dest, *, env=None):
     bucket, _endpoint, _region = _target(source)
     try:
         run_aws(['s3api', 'get-object', '--bucket', bucket, '--key', key,
-                 '--output', 'json', str(path)], env=source, purpose='list')
+                 '--output', 'json', str(path)], env=source, purpose='write')
     except Exception:
         if path.exists():
             path.unlink()
@@ -355,32 +418,46 @@ def get_object(app, key, dest, *, env=None):
 
 def delete_object(app, key, *, env=None):
     if classify(key, app) is None:
-        raise StoreError("Refusing to delete a key outside this app's backup names: " + key)
-    source = os.environ if env is None else env
-    bucket, _endpoint, _region = _target(source)
-    run_aws(['s3api', 'delete-object', '--bucket', bucket, '--key', key, '--output', 'json'],
-            env=source, purpose='write')
-    return key
+        raise StoreError("Refusing to delete a key outside this app's backup names.")
+    return _delete_many(app, [key], os.environ if env is None else env)[0]
 
 
 def _delete_many(app, keys, env):
+    if not keys:
+        return []
+    bucket, _endpoint, _region = _target(env)
     deleted = []
-    for key in keys:
-        delete_object(app, key, env=env)
-        deleted.append(key)
+    for start in range(0, len(keys), _DELETE_BATCH):
+        batch = list(keys[start:start + _DELETE_BATCH])
+        for key in batch:
+            if classify(key, app) is None:
+                raise StoreError("Refusing to delete a key outside this app's backup names.")
+        payload = json.dumps({'Objects': [{'Key': key} for key in batch], 'Quiet': True},
+                             separators=(',', ':'))
+        stdout = run_aws(['s3api', 'delete-objects', '--bucket', bucket, '--delete', payload,
+                          '--output', 'json'], env=env, purpose='write')
+        try:
+            body = json.loads(stdout or '{}')
+        except json.JSONDecodeError as exc:
+            raise StoreError('Object storage returned a response that was not JSON.') from exc
+        errors = body.get('Errors') or []
+        if errors:
+            raise StoreError(f'Object storage refused to delete {len(errors)} objects.')
+        deleted.extend(batch)
     return deleted
 
 
-def prune_objects(app, retention_days, *, env=None):
+def prune_objects(app, retention_days, *, env=None, now=None):
     source = os.environ if env is None else env
-    return _delete_many(app, expired_keys(list_object_pages(source), app=app,
-                                           retention_days=retention_days), source)
+    pages = list_object_pages(source, app=app)
+    return _delete_many(app, expired_keys(pages, app=app, retention_days=retention_days, now=now), source)
 
 
 def delete_before(app, stamp, *, env=None):
     cutoff = validate_stamp(stamp)
     source = os.environ if env is None else env
-    return _delete_many(app, keys_older_than(list_object_pages(source), app=app, cutoff=cutoff), source)
+    pages = list_object_pages(source, app=app)
+    return _delete_many(app, keys_older_than(pages, app=app, cutoff=cutoff), source)
 
 
 def main():
