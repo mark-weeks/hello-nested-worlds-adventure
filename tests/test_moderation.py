@@ -781,3 +781,107 @@ class TestUnicodeNormalization:
         # Names get the stricter local-only screen; the fold applies there
         # too ('а' below is U+0430, Cyrillic).
         assert moderation.name_refusal("fаggot") is not None
+
+
+# ── Both adapters: a clean stop is the only publish ─────────────────────────
+
+_SCREEN_LINE = "go kill yourself"
+_SCREEN_SECRET = "sk-test-provider-SECRET"
+_SCREEN_HOST = "secret-host.example"
+
+
+def _screen_chat(*, content="ALLOW", finish="stop", refusal=None):
+    message = {"role": "assistant", "content": content, "refusal": refusal}
+    return json.dumps({
+        "model": "echo-moderation",
+        "choices": [{"index": 0, "finish_reason": finish, "message": message}],
+    }).encode()
+
+
+def _install_anthropic_screen(monkeypatch, kind):
+    from types import SimpleNamespace
+
+    class _Messages:
+        def create(self, **_kwargs):
+            if kind == "http":
+                raise RuntimeError(f"HTTP 500 {_SCREEN_SECRET} {_SCREEN_LINE}")
+            if kind == "timeout":
+                raise TimeoutError(f"timed out {_SCREEN_SECRET} {_SCREEN_HOST}")
+            text = {"allow": "ALLOW", "block": "BLOCK", "undecided": "hmm, unsure",
+                    "refusal": "ALLOW", "length": "ALLOW"}[kind]
+            stop = {"allow": "end_turn", "block": "end_turn", "undecided": "end_turn",
+                    "refusal": "refusal", "length": "max_tokens"}[kind]
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="text", text=text)],
+                usage=None, stop_reason=stop, model="claude-haiku-4-5",
+            )
+
+    if kind == "unconfigured":
+        def unavailable():
+            raise RuntimeError(f"no client {_SCREEN_SECRET}")
+        monkeypatch.setattr(provider, "_get_client", unavailable)
+        return
+    monkeypatch.setattr(provider, "_client", SimpleNamespace(messages=_Messages()))
+
+
+def _install_openai_screen(monkeypatch, kind):
+    from consciousness.openai_compat_provider import (
+        API_KEY_ENV, BASE_URL_ENV, provider as compat,
+    )
+    from consciousness import runtime
+
+    calls = []
+
+    def transport(request):
+        calls.append(request)
+        if kind == "http":
+            raw = json.dumps({"error": {"message": _SCREEN_SECRET}}).encode()
+            return (500, (), raw)
+        if kind == "timeout":
+            raise TimeoutError(f"{_SCREEN_SECRET} {_SCREEN_HOST} {_SCREEN_LINE}")
+        text = {"allow": "ALLOW", "block": "BLOCK", "undecided": "hmm, unsure"}.get(kind, "ALLOW")
+        finish = "length" if kind == "length" else "stop"
+        refusal = "no" if kind == "refusal" else None
+        return (200, (), _screen_chat(content=text, finish=finish, refusal=refusal))
+
+    monkeypatch.setenv(runtime.PROVIDER_ENV, "openai_compatible")
+    monkeypatch.setenv(runtime.MODERATION_MODEL_ENV, "compat-moderation")
+    monkeypatch.setattr(compat, "_transport", transport)
+    if kind == "unconfigured":
+        monkeypatch.delenv(BASE_URL_ENV, raising=False)
+        monkeypatch.delenv(API_KEY_ENV, raising=False)
+    else:
+        monkeypatch.setenv(BASE_URL_ENV, f"https://{_SCREEN_HOST}/v1")
+        monkeypatch.setenv(API_KEY_ENV, _SCREEN_SECRET)
+    return calls
+
+
+@pytest.mark.parametrize("kind,outcome,allowed", [
+    ("allow", "allow", True),
+    ("block", "block", False),
+    ("undecided", "undecided", False),
+    ("refusal", "undecided", False),
+    ("length", "undecided", False),
+    ("http", "error", False),
+    ("timeout", "error", False),
+    ("unconfigured", "error", False),
+])
+@pytest.mark.parametrize("which", ["anthropic", "openai_compatible"])
+def test_screen_publishes_only_a_clean_stop(kind, outcome, allowed, which, monkeypatch, caplog):
+    """Ambiguous text is judged by the selected adapter. Anything but a finished ALLOW/BLOCK holds."""
+    calls = []
+    if which == "anthropic":
+        _install_anthropic_screen(monkeypatch, kind)
+    else:
+        calls = _install_openai_screen(monkeypatch, kind)
+    day = guard._utc_day()
+    before = persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day)
+    with caplog.at_level("INFO"):
+        verdict = moderation.screen(_SCREEN_LINE)
+    assert verdict.outcome == outcome and verdict.allowed is allowed
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == before
+    assert _SCREEN_SECRET not in caplog.text
+    assert _SCREEN_HOST not in caplog.text
+    assert _SCREEN_LINE not in caplog.text
+    if which == "openai_compatible" and kind == "unconfigured":
+        assert calls == []

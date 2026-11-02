@@ -973,6 +973,117 @@ def test_screen_sees_a_solve_already_held_by_the_room(srv, monkeypatch):
     assert will_store_guess(room, seed, root.name, puzzle.name, 0) is False
 
 
+_COMPAT_SECRET = "sk-test-provider-SECRET"
+_COMPAT_HOST = "secret-host.example"
+_COMPAT_LINE = "go kill yourself"
+
+
+def _compat_body(*, content, finish="stop", refusal=None, model="echo-model"):
+    return json.dumps({
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "finish_reason": finish,
+            "message": {"role": "assistant", "content": content, "refusal": refusal},
+        }],
+    }).encode()
+
+
+@pytest.mark.parametrize("mode", [
+    "allow", "block", "refusal", "length", "http", "timeout", "unconfigured",
+])
+def test_openai_compatible_holds_shared_routes_unless_moderation_stops(
+        srv, mode, monkeypatch, caplog):
+    """HTTP speech through the real adapter. A fake transport, never a provider host."""
+    from consciousness import runtime
+    from consciousness.openai_compat_provider import (
+        API_KEY_ENV, BASE_URL_ENV, provider as compat,
+    )
+    from tests.test_day_one_recording import _ws_connect, _ws_send_json
+
+    calls = []
+
+    def transport(request):
+        calls.append(request)
+        body = json.loads(request.body)
+        limit = body["max_completion_tokens"]
+        if limit == 32:
+            assert request.timeout == 3.0
+            if mode == "http":
+                return (500, (), json.dumps({"error": {"message": _COMPAT_SECRET}}).encode())
+            if mode == "timeout":
+                raise TimeoutError(f"{_COMPAT_SECRET} {_COMPAT_HOST} {_COMPAT_LINE}")
+            if mode == "refusal":
+                return (200, (), _compat_body(content="ALLOW", refusal="no"))
+            if mode == "length":
+                return (200, (), _compat_body(content="ALLOW", finish="length"))
+            verdict = "BLOCK" if mode == "block" else "ALLOW"
+            return (200, (), _compat_body(content=verdict, model="echo-moderation"))
+        if mode != "allow":
+            raise AssertionError("voice ran after a hold")
+        spoken = "A remembered voice." if limit == 256 else "An inhabitant answers."
+        return (200, (), _compat_body(content=spoken, model="echo-voice-20261101"))
+
+    monkeypatch.setenv(runtime.PROVIDER_ENV, "openai_compatible")
+    monkeypatch.setenv(runtime.NODE_MODEL_ENV, "compat-node")
+    monkeypatch.setenv(runtime.INHABITANT_MODEL_ENV, "compat-inhabitant")
+    monkeypatch.setenv(runtime.INTENT_MODEL_ENV, "compat-intent")
+    monkeypatch.setenv(runtime.MODERATION_MODEL_ENV, "compat-moderation")
+    monkeypatch.setattr(compat, "_transport", transport)
+    if mode == "unconfigured":
+        monkeypatch.delenv(BASE_URL_ENV, raising=False)
+        monkeypatch.delenv(API_KEY_ENV, raising=False)
+    else:
+        monkeypatch.setenv(BASE_URL_ENV, f"https://{_COMPAT_HOST}/v1")
+        monkeypatch.setenv(API_KEY_ENV, _COMPAT_SECRET)
+
+    seed = 980 + ["allow", "block", "refusal", "length", "http", "timeout", "unconfigured"].index(mode)
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    day = guard._utc_day()
+    with caplog.at_level("INFO"):
+        for route, kind, spoken in (
+            ("/speak", "PLAYER_SPEAK", "A remembered voice."),
+            ("/agent/voice", "AGENT_VOICE", "An inhabitant answers."),
+        ):
+            status, data = _post(srv, route, {
+                "node_name": node.name, "seed": seed, "agent_name": "Tessera",
+                "message": _COMPAT_LINE, "player_name": "Ada"})
+            assert status == 200, data
+            if mode == "allow":
+                assert data["ai"] is True and data["response"] == spoken
+                assert len(_rows(seed, node.name, kind)) == 1
+            elif mode == "block":
+                assert data.get("declined") is True and data["ai"] is False
+                assert data["response"] == moderation.DECLINE_LINE
+                assert _rows(seed, node.name, kind) == []
+            else:
+                assert data.get("held") is True and data["ai"] is False
+                assert data["response"] == moderation.HOLD_LINE
+                assert _rows(seed, node.name, kind) == []
+            assert _COMPAT_SECRET not in json.dumps(data)
+            assert _COMPAT_HOST not in json.dumps(data)
+        if mode == "timeout":
+            sender, status_line = _ws_connect(srv, seed, "Ada")
+            try:
+                assert b"101" in status_line
+                _read_ws_json_until(sender, "welcome")
+                _ws_send_json(sender, {"type": "chat", "text": _COMPAT_LINE})
+                assert _read_ws_json_until(sender, "chat_declined")["text"] == moderation.HOLD_LINE
+                assert _rows(seed, node.name, "PLAYER_CHAT") == []
+            finally:
+                sender.close()
+    if mode == "unconfigured":
+        assert calls == []
+    elif mode == "allow":
+        assert len(calls) == 4
+    else:
+        assert len(calls) == (3 if mode == "timeout" else 2)
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == (2 if mode == "allow" else 0)
+    assert _COMPAT_SECRET not in caplog.text
+    assert _COMPAT_HOST not in caplog.text
+    assert _COMPAT_LINE not in caplog.text
+
+
 def test_ideas_budget_and_cap_publish_nothing(http, monkeypatch):
     monkeypatch.setattr(guard, "moderation_reserve", lambda user_key=None: "budget")
     budget = http("/ideas/submit", body={

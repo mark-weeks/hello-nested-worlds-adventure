@@ -110,7 +110,7 @@ def test_blank_provider_fails_with_one_line(monkeypatch, raw):
     with pytest.raises(SystemExit) as caught:
         runtime.get_provider()
     line = str(caught.value)
-    assert line == 'NESTED_WORLDS_PROVIDER is empty (valid: anthropic)'
+    assert line == 'NESTED_WORLDS_PROVIDER is empty (valid: anthropic, openai_compatible)'
     assert '\n' not in line
 
 
@@ -123,7 +123,7 @@ def test_unknown_provider_names_the_variable_and_the_valid_names(monkeypatch):
     line = str(caught.value)
     assert line == (
         "NESTED_WORLDS_PROVIDER='openai' is not a known text provider "
-        "(valid: anthropic, fixture)"
+        "(valid: anthropic, fixture, openai_compatible)"
     )
     assert '\n' not in line
 
@@ -137,13 +137,16 @@ def test_unsafe_provider_value_is_not_echoed(monkeypatch):
     line = str(caught.value)
     assert secret not in line
     assert line == (
-        'NESTED_WORLDS_PROVIDER is not a known text provider (valid: anthropic)'
+        'NESTED_WORLDS_PROVIDER is not a known text provider '
+        '(valid: anthropic, openai_compatible)'
     )
 
 
 def test_builtin_provider_cannot_be_replaced():
     with pytest.raises(ValueError, match='built-in'):
         runtime.register_provider('Anthropic', lambda: FixtureProvider())
+    with pytest.raises(ValueError, match='built-in'):
+        runtime.register_provider('openai_compatible', lambda: FixtureProvider())
 
 
 def test_serve_rejects_an_unknown_provider_before_the_listener(monkeypatch):
@@ -163,7 +166,7 @@ def test_serve_rejects_an_unknown_provider_before_the_listener(monkeypatch):
     line = str(caught.value)
     assert line == (
         "NESTED_WORLDS_PROVIDER='openai' is not a known text provider "
-        "(valid: anthropic)"
+        "(valid: anthropic, openai_compatible)"
     )
 
 
@@ -825,3 +828,76 @@ def test_reentering_factory_does_not_deadlock(monkeypatch):
     selected = runtime.get_provider()
     assert selected.name == 'fixture'
     assert runtime.get_provider() is selected
+
+
+def test_openai_compatible_is_selectable_without_an_sdk(monkeypatch):
+    _isolate(monkeypatch)
+    _block_anthropic_import(monkeypatch)
+    monkeypatch.setenv(runtime.PROVIDER_ENV, 'openai_compatible')
+    for name, value in (
+        (runtime.NODE_MODEL_ENV, 'compat-node'),
+        (runtime.INHABITANT_MODEL_ENV, 'compat-inhabitant'),
+        (runtime.INTENT_MODEL_ENV, 'compat-intent'),
+        (runtime.MODERATION_MODEL_ENV, 'compat-moderation'),
+    ):
+        monkeypatch.setenv(name, value)
+    selected = runtime.get_provider()
+    assert selected.name == 'openai_compatible'
+    assert runtime.installation_error(selected) is None
+    assert not hasattr(selected, 'sdk_module')
+    assert 'openai_compatible' in runtime.provider_names()
+    report = check_model_configuration()
+    assert report.provider == 'openai_compatible'
+    assert report.hard == ()
+    assert [task.model for task in report.tasks] == [
+        'compat-node', 'compat-inhabitant', 'compat-intent', 'compat-moderation',
+    ]
+    assert all(problem.severity != 'soft' for task in report.tasks for problem in task.problems)
+    text = format_report(report)
+    assert 'provider=openai_compatible' in text
+    assert 'claude' not in text
+
+
+def test_openai_compatible_without_ids_fails_startup(monkeypatch, capsys):
+    import server
+
+    _isolate(monkeypatch)
+    monkeypatch.setenv(runtime.PROVIDER_ENV, 'openai_compatible')
+    assert runtime.model_for(runtime.NODE_TASK) == ''
+    assert runtime.model_for(runtime.MODERATION_TASK) == ''
+    report = check_model_configuration()
+    assert report.provider == 'openai_compatible'
+    line = report.failure_line()
+    assert 'has no default model' in line
+    assert 'provider openai_compatible' in line
+    assert runtime.NODE_MODEL_ENV in line
+    assert runtime.MODERATION_MODEL_ENV in line
+    assert 'claude' not in line
+    with pytest.raises(SystemExit) as caught:
+        main(['models'])
+    assert 'has no default model' in str(caught.value)
+    printed = capsys.readouterr().out
+    assert 'text provider: openai_compatible' in printed
+    assert 'provider=openai_compatible' in printed
+    assert 'model=(none)' in printed
+    assert 'claude-opus-4-8' not in printed
+    monkeypatch.setattr(server.observability, 'setup', lambda: None)
+    monkeypatch.setattr(server.guard, 'canonical_seed', lambda: None)
+
+    def opened(*args, **kwargs):
+        raise AssertionError('listener opened')
+
+    monkeypatch.setattr(server, '_ThreadedServer', opened)
+    with pytest.raises(SystemExit) as caught:
+        server.run(host='127.0.0.1', port=0)
+    assert 'has no default model' in str(caught.value)
+
+
+def test_openai_compatible_concurrency_does_not_use_the_anthropic_cap(monkeypatch):
+    monkeypatch.setenv('NESTED_WORLDS_ANTHROPIC_CONCURRENCY', '1')
+    monkeypatch.setenv('NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY', '3')
+    assert runtime._concurrency_limit('anthropic') == 1
+    assert runtime._concurrency_limit('openai_compatible') == 3
+    anthropic_gate = runtime._semaphore_for('anthropic')
+    compat_gate = runtime._semaphore_for('openai_compatible')
+    assert anthropic_gate is not compat_gate
