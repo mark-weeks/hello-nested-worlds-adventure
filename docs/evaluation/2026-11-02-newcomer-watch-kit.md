@@ -51,17 +51,35 @@ scratch database outside the repository on 2026-11-02.
      `NESTED_WORLDS_DISABLE_AI=1` and keep provider credentials out of the
      session's environment. Places and inhabitants answer the authored quiet
      line. Speak can then be observed as an action, not as a conversation.
+     The flag does not stop the classifier, which never reads it
+     (`server/moderation.py:160-229`); leaving the credentials out is what
+     keeps text from the provider in this mode.
    - *Live voice*: only with the owner's scoped S2 ruling for this disposable
      watch (packet decision 10). A participant's words to places and
      inhabitants, and chat lines at a node, are quoted into later prompts to
      the provider (`consciousness/__init__.py:868-873`). An intention they
      describe in Act is sent to the provider to be read
-     (`consciousness/interventions.py:57-81`), and a chat line the local
+     (`consciousness/interventions.py:57-81`). Any shared text the local
      screen cannot clear goes to the provider's classifier
-     (`server/moderation.py:184-224`). Disclose all three in consent, and set
-     low caps with `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
+     (`server/moderation.py:184-224`), from every screened surface: chat
+     lines (`server/websocket.py:227-228`), words to places and inhabitants
+     (`server/handlers.py:1188-1189`, `server/handlers.py:1424-1425`), an
+     incorrect puzzle guess the attempt will store
+     (`server/handlers.py:1915-1918`), Ideas submissions
+     (`server/ideas_api.py:80`), and profile text saved as published
+     (`server/participant_api.py:33-37`). Disclose all of these in consent.
+     The provider keeps its own copies under its own terms, which deleting
+     the scratch world and the research archive does not reach: record the
+     provider's current retention and deletion terms for API inputs in the
+     research basics, read from its published terms before the first
+     session, and state them in consent. Set low caps on every model budget
+     the session can spend: voice and intention with
+     `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
      `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` (`server/guard.py:43`,
-     `server/guard.py:50`).
+     `server/guard.py:50`), and classifier calls with
+     `NESTED_WORLDS_MODERATION_DAILY_CALLS` and
+     `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER`, whose defaults are
+     2,000 and 60 a day (`server/guard.py:80-86`).
 4. **Display names.** The facilitator assigns each participant a neutral world
    name: not their real name, not their P-code, not one of the twelve cast
    names (`consciousness/__init__.py:309-313`), and not Observer or Scout,
@@ -77,15 +95,43 @@ scratch database outside the repository on 2026-11-02.
 Run it in a throwaway `HOME`, never the participant's, so the participant's
 world contains no check traces.
 
-1. In a new terminal, follow "Session setup" below with a throwaway `HOME` and
-   a check name.
+1. In a new terminal, follow "Session setup" below with a throwaway `HOME`, a
+   check name, and the voice mode the sessions will use. Its server and key
+   checks must pass.
 2. Open the share URL in a private window. The explorer loads, the place panel
    shows a place, and the connection is live.
-3. Speak to the place: a reply, or the authored quiet line.
+3. Speak to the place, then confirm the voice mode from the server's answer,
+   not from the words: the explorer shows only the words
+   (`static/explorer.js:768`). In the same terminal:
+
+   ```bash
+   curl -s -X POST http://localhost:8080/speak -H "X-Beta-Key: $KEY" \
+     -H 'Content-Type: application/json' \
+     -d '{"node_name": "<the place in the panel>", "message": "Hello?"}'
+   ```
+
+   - *AI disabled*: `"ai": false` with "The worlds are quiet today. Try again
+     tomorrow." (`server/handlers.py:1158-1160`, `server/guard.py:786`).
+   - *Live voice*: `"ai": true` (`server/handlers.py:1227`). Here
+     `"ai": false` means `NESTED_WORLDS_DISABLE_AI=1` is still set, the
+     provider is not configured or failed, or a cap is spent
+     (`server/handlers.py:1193-1195`, `server/handlers.py:1228-1246`). Fix it
+     before any session; a live-voice session does not run on the quiet line.
+     Executed on 2026-11-02 with the setup block below: in AI-disabled mode
+     the answer was the quiet line with `"ai": false`; in live-voice mode
+     with an inherited `NESTED_WORLDS_DISABLE_AI=1` cleared but no
+     credentials, it was an authored line that reads like a reply, also with
+     `"ai": false`.
 4. **Commit one Act** and see its pending or arrived state.
-5. **Open the journal** (History & journal, then Journal) and save a note.
+5. **Open the journal** (History & journal, then Journal) and save a note
+   containing a marker word, such as `checkmarker`.
 6. Send one chat line.
-7. Stop the server, close the window, and delete the throwaway `HOME`.
+7. Run "After each session" steps 1 and 2 on this check world. Before moving
+   anything, `grep -c checkmarker "$HOME/session-raw.db"` must print `0`. Any
+   other count means private text would reach the research archive: fix the
+   step before any session.
+8. Stop the server with `kill "$SERVER_PID"`, close the window, and delete the
+   throwaway `HOME`.
 
 If step 4 or 5 fails, check the address bar first: it must read
 `http://localhost:8080` (`http://127.0.0.1:8080` is also a secure context),
@@ -99,11 +145,35 @@ terminal so that it uses the same `HOME`.
 ```bash
 export HOME="$(mktemp -d "${TMPDIR:-/tmp}/enfolded-watch.XXXXXX")"
 unset NESTED_WORLDS_CANONICAL_SEED       # the world falls back to seed 382
-export NESTED_WORLDS_DISABLE_AI=1        # omit only under the live-voice ruling
+export NESTED_WORLDS_DISABLE_AI=1        # AI-disabled mode
+# Live-voice mode only (the S2 ruling): replace the line above with
+#   unset NESTED_WORLDS_DISABLE_AI       # an inherited =1 would silence voice
 cd /path/to/the/checkout
-.venv/bin/python main.py serve &         # http://localhost:8080
+.venv/bin/python main.py serve > "$HOME/serve.log" 2>&1 &
+SERVER_PID=$!                            # stop this process, and only this one
 .venv/bin/python main.py invite mint --name "<neutral display name>"
+KEY='nw_…'                               # paste the key the mint just printed
+sleep 3
+kill -0 "$SERVER_PID" && echo "server running"
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/worlds
+curl -s -o /dev/null -w '%{http_code}\n' -H "X-Beta-Key: $KEY" http://localhost:8080/worlds
 ```
+
+Open the share URL only when all three checks pass: `server running` is
+printed, the keyless request returns `403`, and the keyed request returns
+`200`. Together they show that the server on port 8080 is the process just
+launched against this scratch world: only this world holds the new key, and
+minting it closed this world's invite gate (`server/guard.py:290-303`). A
+`000` means the server is still starting; wait and repeat the checks. If port
+8080 is taken, `main.py serve` exits with `OSError: [Errno 98] Address already
+in use` in `$HOME/serve.log`, but `invite mint` still succeeds against the
+scratch database, and the share URL would reach whichever server owns the
+port. Do not open it: stop the other server, or start this one with
+`--port <free port>` (`main.py:533`) and use that port wherever this kit says
+8080. Executed on 2026-11-02 in scratch `HOME`s: with the port held, `serve`
+exited with status 1 and the mint succeeded; with another Enfolded server
+holding its own key on the port, both requests returned 403; with the
+intended server, 403 then 200, and `kill "$SERVER_PID"` stopped it.
 
 Write the share URL with `<BASE>` replaced by `http://localhost:8080`. Record
 the scratch path, the display name and the P-code in the restricted record,
@@ -114,15 +184,20 @@ not in the repository.
 Open with protocol 2's explanation
 (`docs/evaluation/2026-09-12-pilot-protocol.md:35-37`), then say:
 
-- "This world is temporary. Everything you do here will be deleted on
-  <date>." Protocol 2 requires this (`docs/evaluation/2026-09-12-pilot-protocol.md:10-11`).
+- "This world is temporary. This world, and everything the research team keeps
+  from this session, will be deleted on <date>." Protocol 2 requires this
+  (`docs/evaluation/2026-09-12-pilot-protocol.md:10-11`).
   If the participant opens the guide, its permanence lines (the opening,
   `static/guide.html:37-40`, and the "Nothing is lost" section,
   `static/guide.html:159-167`) do not apply to this session.
 - "The named inhabitants you may meet are AI characters, not other people."
 - Live voice only: "Places and inhabitants answer through an AI model. What you
-  type to them, an intention you describe in Act, and some chat lines are sent
-  to that model's provider."
+  type to them and an intention you describe in Act are sent to that model's
+  provider. Chat lines, wrong puzzle guesses, Ideas you submit and a profile
+  you publish may also be sent to the same provider for a safety check. The
+  provider keeps its own copies under its own terms, which are <the terms
+  recorded in the research basics>; deleting this world does not delete
+  them."
 - "Participation and observation are voluntary."
 
 Then follow script steps 1 to 3
@@ -154,7 +229,12 @@ commit.
 - Step 2: the participant's account of the attempt, of the outcome, and of
   where they found the evidence.
 - Context the report schema does not take: a spoken 1-to-5 answer to "was it
-  interesting?" after each solve, with the puzzle's kind (checklist C2c); the
+  interesting?" after each solve, with the puzzle's kind (checklist C2c);
+  observed hint use, meaning whether the participant read a hint the puzzle
+  showed them (`Hint: …` under the puzzle after a wrong attempt,
+  `static/explorer.js:949`) and whether their next guess used it. The
+  chronicle shows only which hints were offered, never whether one was used
+  (checklist C2c). The
   end-of-session answer to "where are you, and how would you go back?"
   (checklist O4); any failed puzzle or sealed room, noted as a confusion.
 - A confusion list in the four buckets Q4 step P7 allows: entry, navigation,
@@ -172,18 +252,56 @@ private journal text or identifying details in it.
 
 ## After each session
 
-1. While the server is still running, in the same terminal, archive the
-   session database to the restricted store:
-   `.venv/bin/python main.py backup --to /restricted/store/<session>.db`
-   (`main.py:551-555`).
-2. Stop the server. Do not revoke the key first.
-3. Delete the scratch `HOME` once the archive is confirmed, and close the
+1. While the server is still running, in the same terminal, snapshot the
+   session database inside the scratch `HOME`, not yet in the restricted
+   store: `.venv/bin/python main.py backup --to "$HOME/session-raw.db"`
+   (`main.py:551-555`). The snapshot is a self-contained copy of the whole
+   database (`persistence/__init__.py:2728-2749`), so it includes every
+   journal note in plain text (`persistence/migrations/0021_participants.sql:26-34`).
+2. Remove private text from that copy before it leaves the scratch `HOME`.
+   Protocol 2 keeps private journal text out of research and says journal
+   access is not research consent
+   (`docs/evaluation/2026-09-12-pilot-protocol.md:57-59`). The step deletes
+   every journal note and blanks profile text that was never published
+   (`persistence/migrations/0021_participants.sql:16-25`), then rewrites the
+   file with `VACUUM`, because an SQLite build without secure delete leaves
+   deleted text in free pages:
+
+   ```bash
+   .venv/bin/python - "$HOME/session-raw.db" <<'EOF'
+   import sqlite3, sys
+   c = sqlite3.connect(sys.argv[1])
+   c.execute("DELETE FROM journal_notes")
+   c.execute("UPDATE participant_profiles SET bio='', goals='' WHERE published=0")
+   c.commit()
+   c.execute("VACUUM")
+   print(c.execute("SELECT (SELECT COUNT(*) FROM journal_notes), (SELECT COUNT(*)"
+                   " FROM participant_profiles WHERE published=0 AND bio||goals<>'')").fetchone())
+   c.close()
+   EOF
+   ```
+
+   It must print `(0, 0)`. The pre-session check's marker test shows, on the
+   facilitator's own machine, that the text is gone from the file itself.
+   Then move the copy to the restricted store:
+   `mv "$HOME/session-raw.db" /restricted/store/<session>.db`. This only
+   edits the archived copy, never a running world. Executed on 2026-11-02
+   against a scratch database: the raw snapshot held a journal marker and an
+   unpublished-profile marker; after this step `grep -c` found neither, a
+   published profile's text remained, and `PRAGMA integrity_check` returned
+   `ok`. With secure delete off, a deleted row's text stayed in the file
+   until `VACUUM` removed it.
+3. Stop the server you launched: `kill "$SERVER_PID"`, then confirm that
+   `kill -0 "$SERVER_PID"` now fails. Do not revoke the key first.
+4. Delete the scratch `HOME` once the archive is confirmed, and close the
    private window or discard the browser profile.
-4. Keep the archive only until the deletion date in the research record, then
-   delete it with the rest of the raw notes.
-5. Never restore an archived session into a running world to repair it. Restore
+5. Keep the archive only until the deletion date in the research record, then
+   delete it with the rest of the raw notes. This deletes the research team's
+   copies only. In live-voice mode, the provider's copies follow the terms
+   disclosed in consent.
+6. Never restore an archived session into a running world to repair it. Restore
    is the disaster path, not an edit path. If a puzzle fails and seals a room
    (packet decision 3), note it as a confusion and let the participant go
    elsewhere.
-6. Never tell a participant their history will persist. The archive exists for
+7. Never tell a participant their history will persist. The archive exists for
    the research record only.
