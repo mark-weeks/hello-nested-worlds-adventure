@@ -245,7 +245,7 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER` | Hosted beta: per-credential daily fal.ai image cap. | `60` |
 | `NESTED_WORLDS_ANTHROPIC_CONCURRENCY` | Max in-flight calls for the anthropic provider. Another provider uses `NESTED_WORLDS_<NAME>_CONCURRENCY` and does not share this limit. Unset uses 8. The name is unchanged. | `8` |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL` | Base URL for the evaluation adapter. `https`, or `http` on loopback. Required when that adapter is selected. Never logged. | unset |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` | Bearer token for that adapter. Required except on loopback. Never logged. Not read from `OPENAI_*` or `XAI_*`. | unset |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` | Bearer token for that adapter. Required except on loopback. A present value that is not ASCII, not printable, or contains whitespace leaves the adapter unconfigured on every host, including loopback. Never logged. Not read from `OPENAI_*` or `XAI_*`. | unset |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` | Wire field for the caller's max output: `max_completion_tokens` or `max_tokens`. Any other value leaves the adapter unconfigured. The name does not contain `TOKEN`, so the startup report does not treat the value as a secret. | `max_completion_tokens` |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS` | Set to `1` to send strict `json_schema`. Unset, a task that needs a schema serves the authored fallback. | unset |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | Set to `1` to send `"store": false`. Unset sends nothing. | unset |

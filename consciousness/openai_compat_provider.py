@@ -7,11 +7,13 @@ and no vendor SDK. The base URL and the API key are never logged and never
 placed in an exception message.
 
 ``configured`` is false until the base URL is acceptable and a key is
-present, unless the host is loopback. An optional setting that is present
-but not one of the allowed values also makes ``configured`` false, so the
-voice handler does not spend the voice budget on a typo. Moderation does
-not check ``configured`` before it classifies; ``generate`` still raises,
-and the screen holds.
+present, unless the host is loopback. A key that is present but rejected
+(not ASCII, not printable, or containing whitespace) makes ``configured``
+false on loopback too. An optional setting that is present but not one of
+the allowed values also makes ``configured`` false, so the voice handler
+does not spend the voice budget on a typo. Moderation does not check
+``configured`` before it classifies; ``generate`` still raises, and the
+screen holds.
 
 Only a finished ``stop`` with non-blank string content and no refusal is
 ``complete``. Empty or whitespace-only content is not complete. Every
@@ -142,17 +144,25 @@ def _flag(name: str) -> bool:
     return os.environ.get(name, "").strip() == "1"
 
 
-def _api_key() -> str | None:
-    # ASCII and printable only. A CR/LF would inject a header line, and a
-    # character outside latin-1 raises UnicodeEncodeError whose text
-    # contains the key. The value is never logged.
+def _api_key() -> tuple[str | None, bool]:
+    """``(key, invalid)``. Unset is ``(None, False)``.
+
+    A present value that is not ASCII, not printable, or contains
+    whitespace is ``(None, True)``. A CR/LF would inject a header line, a
+    character outside latin-1 raises ``UnicodeEncodeError`` whose text
+    contains the key, and ``str.isprintable`` still allows an internal
+    space. The value is never logged.
+    """
     raw = os.environ.get(API_KEY_ENV)
     if raw is None:
-        return None
+        return None, False
     text = raw.strip()
-    if not text or not text.isascii() or not text.isprintable():
-        return None
-    return text
+    if not text:
+        return None, False
+    if (not text.isascii() or not text.isprintable()
+            or any(ch.isspace() for ch in text)):
+        return None, True
+    return text, False
 
 
 def parse_base_url(raw: str | None) -> ParsedBase | None:
@@ -266,10 +276,12 @@ class _Settings:
     send_store_false: bool
     reasoning_effort: str | None
     reasoning_invalid: bool
+    key_invalid: bool
 
     @property
     def usable(self) -> bool:
-        if self.base is None or self.max_tokens_param is None or self.reasoning_invalid:
+        if (self.base is None or self.max_tokens_param is None
+                or self.reasoning_invalid or self.key_invalid):
             return False
         if self.api_key is None and not self.base.loopback:
             return False
@@ -278,14 +290,16 @@ class _Settings:
 
 def _settings() -> _Settings:
     effort, invalid = _reasoning_effort()
+    key, key_invalid = _api_key()
     return _Settings(
         base=parse_base_url(os.environ.get(BASE_URL_ENV)),
-        api_key=_api_key(),
+        api_key=key,
         max_tokens_param=_max_tokens_param(),
         structured_outputs=_flag(STRUCTURED_OUTPUTS_ENV),
         send_store_false=_flag(SEND_STORE_FALSE_ENV),
         reasoning_effort=effort,
         reasoning_invalid=invalid,
+        key_invalid=key_invalid,
     )
 
 
@@ -616,7 +630,9 @@ def _connection(deadline: float, https: bool):
             kwargs = {}
             if https:
                 kwargs["context"] = context
-                kwargs["check_hostname"] = check_hostname
+                # Python 3.12 removed check_hostname from HTTPSConnection.
+                if check_hostname is not None:
+                    kwargs["check_hostname"] = check_hostname
             super().__init__(
                 host, port=port, timeout=_remaining(deadline),
                 source_address=source_address, blocksize=blocksize, **kwargs,
@@ -646,10 +662,12 @@ class _HTTPSHandler(urllib.request.HTTPSHandler):
         self._deadline = deadline
 
     def https_open(self, req):
-        return self.do_open(
-            _connection(self._deadline, True), req,
-            context=self._context, check_hostname=self._check_hostname,
-        )
+        # _check_hostname is absent on Python 3.12 and later.
+        extra = {"context": self._context}
+        check_hostname = getattr(self, "_check_hostname", None)
+        if check_hostname is not None:
+            extra["check_hostname"] = check_hostname
+        return self.do_open(_connection(self._deadline, True), req, **extra)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -714,8 +732,10 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
             status = response.getcode()
             if isinstance(status, bool) or not isinstance(status, int):
                 raise MalformedProviderResponse()
-            # 3xx is raised by _Status. A non-2xx that still arrives is
-            # that status, before any look at the body size.
+            # Unreachable through this opener: HTTPErrorProcessor raises
+            # for every non-2xx before open() returns. Kept so a response
+            # that bypassed that processor is still a status, and the
+            # status is decided before the body size.
             if status < 200 or status >= 300:
                 raise ProviderHTTPError(status) from None
             announced = _announced_size(response.headers)
@@ -800,7 +820,8 @@ class OpenAICompatibleProvider:
                  json_schema: dict | None = None,
                  timeout: float | None = None) -> Completion:
         settings = _settings()
-        if settings.base is None or (settings.api_key is None and not settings.base.loopback):
+        if (settings.base is None or settings.key_invalid
+                or (settings.api_key is None and not settings.base.loopback)):
             raise ProviderNotConfigured()
         if settings.max_tokens_param is None or settings.reasoning_invalid:
             raise ProviderConfigError()
@@ -820,22 +841,36 @@ class OpenAICompatibleProvider:
             encoded = json.dumps(body).encode("utf-8")
         except (TypeError, ValueError):
             raise MalformedProviderResponse() from None
-        headers = [
-            ("Content-Type", "application/json"),
-            ("Accept", "application/json"),
-        ]
-        if settings.api_key is not None:
-            headers.append(("Authorization", f"Bearer {settings.api_key}"))
-        prepared = TransportRequest(
-            method="POST",
-            url=chat_completions_url(settings.base.url),
-            headers=tuple(headers),
-            body=encoded,
-            timeout=_call_timeout(timeout),
-        )
         transport = self._transport or urllib_transport
-        status, _ignored, raw = _invoke_transport(transport, prepared)
+        status, _ignored, raw = _post(
+            settings, encoded, _call_timeout(timeout), transport,
+        )
         return decode_response(status, raw)
+
+
+def _post(settings, encoded: bytes, timeout: float, transport):
+    """Send one request. The header list does not outlive this call.
+
+    ``generate`` must not keep a ``Bearer`` list in its own frame: a
+    crash reporter that records locals would capture it. The list is
+    dropped before the transport runs. ``TransportRequest`` hides the
+    headers from ``repr``.
+    """
+    headers = [
+        ("Content-Type", "application/json"),
+        ("Accept", "application/json"),
+    ]
+    if settings.api_key is not None:
+        headers.append(("Authorization", f"Bearer {settings.api_key}"))
+    prepared = TransportRequest(
+        method="POST",
+        url=chat_completions_url(settings.base.url),
+        headers=tuple(headers),
+        body=encoded,
+        timeout=timeout,
+    )
+    del headers
+    return _invoke_transport(transport, prepared)
 
 
 provider = OpenAICompatibleProvider()

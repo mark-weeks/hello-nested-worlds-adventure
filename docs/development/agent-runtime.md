@@ -222,7 +222,7 @@ A failure log records the exception class only.
 | Variable | Meaning |
 |---|---|
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL` | Required. `https`, or `http` on `127.0.0.1`, `localhost`, or `::1`. Userinfo, a query, and a fragment are rejected. Not logged. |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` | Required except on loopback. Not logged. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` | Required except on loopback. A present value that is not ASCII, not printable, or contains whitespace leaves the adapter unconfigured on every host, including loopback. Not logged. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` | Wire field for the caller's max output: `max_completion_tokens` (default) or `max_tokens`. Any other value leaves the adapter unconfigured. The name does not contain `TOKEN`, so `model_check` does not redact the value as a secret. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS` | `1` sends strict `json_schema`. Unset, a task that needs a schema raises `UnsupportedCapability` and the caller serves the authored fallback. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false`. Unset sends nothing. |

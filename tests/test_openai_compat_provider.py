@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import ast
+import http.client
 import inspect
 import json
 import logging
 import socket
 import ssl
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -195,7 +197,7 @@ class TestConfiguration:
         _forbid(_traceback(caught.value))
 
     def test_key_must_be_ascii_and_printable(self, monkeypatch):
-        for key in ("sk-test\r\nX: y", "sk-test-\u20ac", "sk-test-\u0007"):
+        for key in ("sk-test\r\nX: y", "sk-test-\u20ac", "sk-test-\u0007", "sk-a b"):
             _arm(monkeypatch, key=key)
             adapter = OpenAICompatibleProvider(transport=_ok())
             assert adapter.configured() is False
@@ -210,6 +212,25 @@ class TestConfiguration:
         rendered = repr(compat_module._settings())
         assert _SECRET not in rendered
         assert "api_key" not in rendered
+
+    def test_invalid_key_is_unconfigured_on_loopback(self, monkeypatch):
+        calls = []
+
+        def transport(request):
+            calls.append(request)
+            return (200, (), _chat_body())
+
+        for key in ("sk-test\r\nX: y", "sk-test-\u20ac", "sk-a b"):
+            _arm(monkeypatch, url="http://127.0.0.1:9/v1", key=key)
+            adapter = OpenAICompatibleProvider(transport=transport)
+            assert adapter.configured() is False
+            rendered = repr(compat_module._settings())
+            assert key not in rendered
+            with pytest.raises(ProviderNotConfigured) as caught:
+                _generate(adapter)
+            assert key not in str(caught.value)
+            assert key not in _traceback(caught.value)
+        assert calls == []
 
     @pytest.mark.parametrize("url", [
         "https://example..com/v1",
@@ -1185,6 +1206,60 @@ class TestUrllibLoopback:
         finally:
             _stop_loopback(server)
 
+    def test_https_loopback_survives_a_py312_connection(self, monkeypatch, tmp_path):
+        """A 3.12 connection rejects ``check_hostname`` and has no such attribute."""
+        cert = tmp_path / "cert.pem"
+        key = tmp_path / "key.pem"
+        issued = subprocess.run(
+            [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", str(key), "-out", str(cert), "-days", "1",
+                "-subj", "/CN=127.0.0.1",
+                "-addext", "subjectAltName=IP:127.0.0.1",
+            ],
+            check=False, capture_output=True,
+        )
+        if issued.returncode != 0:
+            pytest.skip("openssl could not write a loopback certificate")
+
+        class Py312(http.client.HTTPConnection):
+            default_port = http.client.HTTPS_PORT
+
+            def __init__(self, host, port=None, *,
+                         timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+                         source_address=None, context=None, blocksize=8192):
+                self._enfolded_context = context
+                super().__init__(host, port, timeout, source_address, blocksize)
+
+            def connect(self):
+                super().connect()
+                context = self._enfolded_context or ssl.create_default_context()
+                host = self._tunnel_host or self.host
+                self.sock = context.wrap_socket(self.sock, server_hostname=host)
+
+        monkeypatch.setattr(http.client, "HTTPSConnection", Py312)
+        real_init = compat_module._HTTPSHandler.__init__
+
+        def init(self, deadline):
+            real_init(self, deadline)
+            if hasattr(self, "_check_hostname"):
+                delattr(self, "_check_hostname")
+
+        monkeypatch.setattr(compat_module._HTTPSHandler, "__init__", init)
+        server = _start_tls_loopback(cert, key)
+        try:
+            monkeypatch.setenv("SSL_CERT_FILE", str(cert))
+            port = server.server_address[1]
+            _arm(monkeypatch, url=f"https://127.0.0.1:{port}/v1", key=_SECRET)
+            result = OpenAICompatibleProvider().generate(
+                model="compat-node", system=(SystemBlock("bible"),),
+                messages=[{"role": "user", "content": "Hello."}], max_tokens=16,
+            )
+            assert result.text == "loopback-ok" and result.complete is True
+            assert server.seen[-1]["authorization"] == f"Bearer {_SECRET}"
+        finally:
+            _stop_loopback(server)
+
 
 def _start_tls_loopback(certfile, keyfile):
     try:
@@ -1270,9 +1345,99 @@ def test_deadline_socket_waits_for_its_reader():
         right.sendall(b"still-open")
         assert reader.read(10) == b"still-open"
         reader.close()
+        assert left.fileno() == -1
     finally:
         right.close()
         left.close()
+
+
+def test_read_capped_stops_a_finite_stream_near_the_cap():
+    class Source:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+            self.pos = 0
+
+        def read(self, amt: int) -> bytes:
+            if self.pos >= len(self.payload):
+                return b""
+            chunk = self.payload[self.pos:self.pos + amt]
+            self.pos += len(chunk)
+            return chunk
+
+    source = Source(b"x" * (4 * 1024 * 1024))
+    with pytest.raises(MalformedProviderResponse):
+        compat_module._read_capped(source, None)
+    assert MAX_RESPONSE_BYTES < source.pos <= MAX_RESPONSE_BYTES + 65536
+
+
+def test_provider_semaphore_is_released(monkeypatch):
+    monkeypatch.setenv("NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY", "1")
+    _arm(monkeypatch)
+
+    def fail(request):
+        raise ProviderConnectionError()
+
+    failing = OpenAICompatibleProvider(transport=fail)
+    monkeypatch.setattr(runtime, "get_provider", lambda: failing)
+    gate = runtime._semaphore_for("openai_compatible")
+    assert gate.acquire(blocking=False)
+    gate.release()
+    with pytest.raises(ProviderConnectionError):
+        runtime.generate(
+            endpoint="speak", model="compat-node", max_tokens=8,
+            system=(SystemBlock("bible"),),
+            messages=[{"role": "user", "content": "hi"}],
+        )
+    assert gate.acquire(blocking=False)
+    gate.release()
+
+    def succeed(request):
+        return (200, (), _chat_body(content="released"))
+
+    monkeypatch.setattr(
+        runtime, "get_provider",
+        lambda: OpenAICompatibleProvider(transport=succeed),
+    )
+    box = []
+
+    def second():
+        try:
+            box.append(runtime.generate(
+                endpoint="speak", model="compat-node", max_tokens=8,
+                system=(SystemBlock("bible"),),
+                messages=[{"role": "user", "content": "hi"}],
+            ).text)
+        except Exception as exc:
+            box.append(exc)
+
+    worker = threading.Thread(target=second, daemon=True)
+    worker.start()
+    worker.join(1)
+    assert not worker.is_alive()
+    assert box == ["released"]
+    assert gate.acquire(blocking=False)
+    gate.release()
+
+
+def test_bearer_list_is_not_a_live_local(monkeypatch):
+    provider_file = compat_module.__file__
+
+    def transport(request):
+        frame = sys._getframe()
+        while frame is not None:
+            if frame.f_code.co_filename == provider_file:
+                for name, value in frame.f_locals.items():
+                    assert name != "headers"
+                    rendered = repr(value)
+                    assert _SECRET not in rendered
+                    assert "Bearer" not in rendered
+            frame = frame.f_back
+        assert ("Authorization", f"Bearer {_SECRET}") in request.headers
+        return (200, (), _chat_body(content="sent"))
+
+    _arm(monkeypatch)
+    result = _generate(OpenAICompatibleProvider(transport=transport))
+    assert result.text == "sent"
 
 
 def test_status_and_no_redirect_raise_on_their_own():
