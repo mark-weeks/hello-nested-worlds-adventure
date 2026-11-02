@@ -56,8 +56,10 @@ owner to rule on it.
 - Seven launch gates are open ([readiness record](../evaluation/2026-10-03-beta-readiness.md),
   "Remaining gates and owners"): hosted backup activation, hosted restore,
   freshness alerting, live models, hosted runtime and devices, first-session
-  observations, the seven-day return. The read-only artifact check returns
-  `missing`; no Fly or model credential exists in any checked environment.
+  observations, the seven-day return. Until the bucket and key are configured,
+  `backup_health.py` exits 2; once configured it reports `missing` until the
+  first validated object is stored. No Fly or model credential exists in any
+  checked environment.
 - Three issues are open (#87, #88, #89, all 2026-08-31 epics); the readiness
   record dispositions them. No pull request is open.
 - Four implemented contracts are still marked Proposed: ADR-019 to ADR-022,
@@ -84,10 +86,10 @@ the beta date; the slip rule below says what moves when a step does.
 
 | # | Step | Who | Needs | Done when | Target |
 |---|---|---|---|---|---|
-| P1 | **Activate hosted backups.** Set `FLY_API_TOKEN`, `ENFOLDED_BACKUP_APP`, then `ENFOLDED_BACKUP_REQUIRED=true`; dispatch `backup.yml`; inspect the artifact. | Operator | Fly app and token | `scripts/backup_health.py` exits 0 against a real app-specific artifact; a deliberately stale window exits nonzero (runbook §7–§8) | Oct 8 |
+| P1 | **Activate hosted backups.** Set `FLY_API_TOKEN`, the private-bucket secrets and variables (`docs/infrastructure/backup-bucket.md`), `ENFOLDED_BACKUP_APP`, then `ENFOLDED_BACKUP_REQUIRED=true`; dispatch `backup.yml`; confirm the object. | Operator | Fly app, token, and private bucket | `scripts/backup_health.py` exits 0 against a real app-specific object; a deliberately stale window exits nonzero (runbook §7–§8) | Oct 8 |
 | P2 | **Stand up the staging twin and a staging model credential** (runbook §3a). Decide the staging model via `NESTED_WORLDS_MODEL`. | Operator | Fly account; credential for the selected, implemented text provider (currently Anthropic) | `/health` ok; invite gate closed by the first minted key; `/speak` returns `"ai": true` | Oct 8 |
 | P3 | **Select and cut the release candidate.** Bump the package version, recheck dependencies (the `@xmldom/xmldom` advisory stays deferred only if the worker path stays unused), tag `v0.1.2-qa.1`. | Agent prepares the PR; owner cuts the tag | P-none | Release workflow green on the tag; wheel smoke passes; readiness record lists commit, bundle, schema, seed, client default | Oct 9 |
-| P4 | **Staging rehearsal** (runbook §3a and §8 "current experience rehearsal"): invite gating and rotation, private notes, pinned puzzles, saved position, direct Act submission, overlapping delayed v3 attempts, lost acknowledgements and retries, reconnect, process death with pending work, `scripts/ws_soak.py`, live-voice and intention probes including clarification and refusal, restore of a **downloaded** artifact into isolated staging, freshness alert exercised on a stale/missing condition. | Operator runs; agent scripts the probe list and records results | P1–P3 | Each check recorded with checksum, release, timing; no credential or private text in evidence | Oct 9–13 |
+| P4 | **Staging rehearsal** (runbook §3a and §8 "current experience rehearsal"): invite gating and rotation, private notes, pinned puzzles, saved position, direct Act submission, overlapping delayed v3 attempts, lost acknowledgements and retries, reconnect, process death with pending work, `scripts/ws_soak.py`, live-voice and intention probes including clarification and refusal, restore of a **downloaded** backup object into isolated staging, freshness alert exercised on a stale/missing condition. | Operator runs; agent scripts the probe list and records results | P1–P3 | Each check recorded with checksum, release, timing; no credential or private text in evidence | Oct 9–13 |
 | P5 | **Research prerequisites, before anyone is recruited** (protocol 2 "Scope and venue"; readiness record "Beta scope and promise"). Name the facilitator/research owner; fix observation dates; list the cohort's devices and complete the applicable browser, keyboard, accessibility and fallback checks for each one, excluding any device that cannot be verified; choose the client; write the consent wording and the retention/deletion date. | Research lead; agents run the device checks | None; precedes any invitation | All six protocol-2 fields are in the restricted research record, every included device has its checks recorded, and no newcomer has been approached | Oct 9–10 |
 | P6 | **Watch 2–3 newcomers on staging** (protocol 2, script steps 1–3). Tell them the world is temporary. | Research lead | P4, P5 | Observations recorded pseudonymously outside the repo; confusion list written | Oct 12–14 |
 | P7 | **Fix what confused them.** Only observed entry, navigation, acceptance and consequence-recognition failures; no new capability. Re-cut the tag if code changed. | Agents; owner reviews | P6 | Focused suites and `./scripts/check.sh` green; CHANGELOG entry; irreversibility check "none" | Oct 13–15 |
@@ -123,6 +125,7 @@ none is a decision.
 | F | D1–D5 (ADR-029 to ADR-033) ratification | At P11 or after | Ratify D1, D3, D5 at the read-out so November drafting can start; D2 with D1; **D4 only after pilot evidence**, as the assessment itself recommends. |
 | G | D7 (one client), D8 (dollar budgets), D9 (process re-tune) | After P11 | D8 and D9 are cheap and reversible; schedule both in November. D7 waits for the cohort's device evidence and needs an ADR-005 revision. |
 | H | Issue dispositions: revise #89's acceptance criteria (its per-response property-delta requirement conflicts with ADR-028's accepted/pending/partial/moot outcomes); keep #88 deferred; carry #87's unverified criteria into the pilot's orientation observations | Oct 15 (so #89 is not implemented against stale criteria) | Agent drafts the revised criteria as a comment; owner edits the issue. |
+| I | Off-host backup destination, vendor and retention (ADR-034 §5 scoped decision) | Before `ENFOLDED_BACKUP_REQUIRED=true` | Pending. Cloudflare R2 and 30 days are the examples in the workflow and the runbook. Neither is a decision. |
 
 ## Part 3. The parallel track: maintenance with no one-way door
 
@@ -158,7 +161,9 @@ Split by *when*, because a refactor in launch week is risk without reward.
   the per-user caps; runbook §8's budget-sizing step changes with it.
 - **4.1 Litestream-style continuous replication**, the first post-launch
   infrastructure batch ADR-005 names; it shrinks the loss window from one hour to
-  seconds and lets the artifact cadence relax (ADR-005 "Revisit when").
+  seconds and lets the off-host cadence relax. ADR-005's revisit note still
+  describes the hourly artifact cadence; the private bucket and its retention
+  are pending and are not that note.
 - **D7 one client**: device gate evidence → ADR-005 revision → invite default to
   `/app` → explorer retirement plan. Each arrow is its own PR.
 - **3.3 cohort rhythm**: a recurring gathering and the weekly `beta_metrics.py`
@@ -210,7 +215,7 @@ ADR-030 batches 2–3, ADR-031 batches 2–3, ADR-032 batches 2–3 and ADR-033 
   migration-first ruling at C (October 10) therefore also ratifies batch 1's
   scope alone, leaving the rest of D1 to F. Batch 1 then takes about two weeks
   (the assessment's Phase 0 estimate) after the backup audit, run on the staging
-  twin's downloaded artifact; P3 and P4 repeat on the migrated build; and the
+  twin's downloaded backup; P3 and P4 repeat on the migrated build; and the
   whole P9–P11 sequence shifts together: deploy about October 30, cohort
   October 31 to November 6, interviews to November 9, read-out November 10–13,
   beta date **November 14**.

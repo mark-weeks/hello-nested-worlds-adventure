@@ -3,15 +3,26 @@ name: Off-host backup
 # The volume holding worlds.db is the only live copy of the permanent
 # chronicle; Fly's automatic snapshots retain just 5 days and live on the
 # same platform. This schedule pulls an application-level backup off-host
-# into a GitHub artifact every 30 minutes. Scheduling can be delayed or
-# dropped; artifact freshness and a restore rehearsal establish readiness,
-# not a green workflow badge. ADR-005's one-hour recovery target still applies.
-# Litestream-style continuous replication remains the post-launch follow-up.
-# Half-hourly full copies leave slack within the one-hour freshness limit and
-# are cheap at beta scale; revisit the cadence if the DB outgrows a quick
-# sftp pull. Requires the FLY_API_TOKEN repo secret (fly tokens create
-# deploy). Before launch set ENFOLDED_BACKUP_REQUIRED=true as a repository
-# variable: a missing token then fails instead of returning a green no-op.
+# every 30 minutes into a private S3-compatible bucket. Cloudflare R2 is an
+# example of that store, and 30 days is the example retention when
+# ENFOLDED_BACKUP_RETENTION_DAYS is unset. Mark has not recorded either
+# choice. The repository is public, and GitHub's artifact list is available
+# to anyone with read access, so this workflow must never upload the database
+# with actions/upload-artifact, including when validation fails or the bucket
+# is not configured.
+#
+# Scheduling can be delayed or dropped; object freshness and a restore
+# rehearsal establish readiness, not a green workflow badge. ADR-005's
+# one-hour recovery target still applies. Litestream-style continuous
+# replication remains the post-launch follow-up. Half-hourly full copies
+# leave slack within that one-hour limit.
+#
+# Until FLY_API_TOKEN and the ENFOLDED_BACKUP_S3_* values are set, the gate
+# leaves the job as an inactive no-op and uploads nothing. Before launch set
+# ENFOLDED_BACKUP_REQUIRED=true: missing configuration then fails the job.
+# The S3 endpoint and bucket are secrets: the endpoint contains the account
+# id, and neither value is masked when it is only a repository variable.
+# Object keys are not written to the job log.
 on:
   schedule:
     - cron: '17,47 * * * *'   # off the top-of-hour congestion
@@ -19,7 +30,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: off-host-backup
@@ -34,16 +44,53 @@ jobs:
       FLY_APP: ${{ vars.ENFOLDED_BACKUP_APP || 'enfolded-beta' }}
       # Preserve typos so the gate can reject them instead of silently disabling backups.
       BACKUP_REQUIRED: ${{ vars.ENFOLDED_BACKUP_REQUIRED }}
+      ENFOLDED_BACKUP_S3_REGION: ${{ vars.ENFOLDED_BACKUP_S3_REGION || 'auto' }}
+      # Example only; Mark has not chosen a retention (ADR-034 §5).
+      ENFOLDED_BACKUP_RETENTION_DAYS: ${{ vars.ENFOLDED_BACKUP_RETENTION_DAYS || '30' }}
+      # Pinned installer zips. SHA-256 computed 2026-11-02 from those exact URLs.
+      AWS_CLI_VERSION: '2.39.3'
+      AWS_CLI_SHA256_X86_64: 14cb35809ad7547dd3c69fa9899a3975fbd850b6a6791f3fe264856490cd9a63
+      AWS_CLI_SHA256_AARCH64: f6eb845fbacb11bee87de3f5fbe8043773cbe89d0414607b44b71e216eb9226b
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
-      - name: Check for the Fly token
+      - name: Check for the Fly token and the private bucket
         id: gate
+        env:
+          ENFOLDED_BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.ENFOLDED_BACKUP_S3_ACCESS_KEY_ID }}
+          ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY }}
+          ENFOLDED_BACKUP_S3_BUCKET: ${{ secrets.ENFOLDED_BACKUP_S3_BUCKET }}
+          ENFOLDED_BACKUP_S3_ENDPOINT: ${{ secrets.ENFOLDED_BACKUP_S3_ENDPOINT }}
         run: bash scripts/backup_gate.sh
+
+      - name: Install AWS CLI
+        id: aws
+        if: steps.gate.outputs.ready == 'yes'
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64) asset='linux-x86_64'; expect="$AWS_CLI_SHA256_X86_64" ;;
+            aarch64|arm64) asset='linux-aarch64'; expect="$AWS_CLI_SHA256_AARCH64" ;;
+            *) echo "::error::Unsupported runner architecture: $arch" >&2; exit 1 ;;
+          esac
+          workdir="$(mktemp -d)"
+          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 \
+            -o "$workdir/awscliv2.zip" \
+            "https://awscli.amazonaws.com/awscli-exe-${asset}-${AWS_CLI_VERSION}.zip"
+          echo "${expect}  $workdir/awscliv2.zip" | sha256sum -c -
+          unzip -q "$workdir/awscliv2.zip" -d "$workdir"
+          sudo "$workdir/aws/install" --update
+          rm -rf "$workdir"
+          aws --version | grep -F "aws-cli/${AWS_CLI_VERSION} "
 
       - name: Set up flyctl
         if: steps.gate.outputs.ready == 'yes'
-        uses: superfly/flyctl-actions/setup-flyctl@master
+        uses: superfly/flyctl-actions/setup-flyctl@98172f70657cb3e15db199af139be99bd3e61200 # master 2026-10-30
+        with:
+          version: 0.5.1
 
       - name: Take an online backup on the machine
         if: steps.gate.outputs.ready == 'yes'
@@ -65,19 +112,46 @@ jobs:
         if: steps.gate.outputs.ready == 'yes'
         run: python3 scripts/validate_backup.py "offhost-$STAMP.db"
 
-      # Retain even an invalid/older snapshot for operator salvage. Failed validation
-      # still fails the run; quarantine names never satisfy backup_health.py.
-      - name: Retain the snapshot, quarantining validation failures (90 days)
-        if: always() && steps.download.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.validate.outcome == 'success' && 'worlds-backup' || 'unvalidated-worlds-backup' }}-${{ env.FLY_APP }}-${{ env.STAMP }}
-          path: offhost-*.db
-          retention-days: 90
-          if-no-files-found: error
+      # Retain even an invalid snapshot for operator salvage, in the private
+      # bucket only. Failed validation still fails the run. Quarantine names
+      # never satisfy backup_health.py. There is no artifact upload. Prune
+      # runs only after this step stores an object, and it never deletes the
+      # newest validated object.
+      - name: Store the snapshot in the private bucket
+        id: store
+        if: always() && steps.download.outcome == 'success' && steps.aws.outcome == 'success'
+        env:
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          ENFOLDED_BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.ENFOLDED_BACKUP_S3_ACCESS_KEY_ID }}
+          ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY }}
+          ENFOLDED_BACKUP_S3_BUCKET: ${{ secrets.ENFOLDED_BACKUP_S3_BUCKET }}
+          ENFOLDED_BACKUP_S3_ENDPOINT: ${{ secrets.ENFOLDED_BACKUP_S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          args=(python3 scripts/backup_store.py put --app "$FLY_APP" --stamp "$STAMP" --body "offhost-$STAMP.db")
+          if [ "$VALIDATE_OUTCOME" != "success" ]; then
+            args+=(--quarantine)
+            echo "Stored a quarantine snapshot." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Stored a validated snapshot." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          "${args[@]}" >/dev/null
+
+      - name: Prune private-bucket objects past retention
+        if: always() && steps.store.outcome == 'success'
+        env:
+          ENFOLDED_BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.ENFOLDED_BACKUP_S3_ACCESS_KEY_ID }}
+          ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY }}
+          ENFOLDED_BACKUP_S3_BUCKET: ${{ secrets.ENFOLDED_BACKUP_S3_BUCKET }}
+          ENFOLDED_BACKUP_S3_ENDPOINT: ${{ secrets.ENFOLDED_BACKUP_S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          python3 scripts/backup_store.py prune --app "$FLY_APP" --retention-days "$ENFOLDED_BACKUP_RETENTION_DAYS" \
+            >/dev/null
+          echo "Pruned expired snapshots. The newest validated object was kept." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prune old machine-local off-host copies
-        if: steps.gate.outputs.ready == 'yes'
+        if: always() && steps.gate.outputs.ready == 'yes'
         run: |
           flyctl ssh console -a "$FLY_APP" -C \
             "sh -c 'ls -t /data/backups/offhost-*.db 2>/dev/null | tail -n +7 | xargs -r rm'" \

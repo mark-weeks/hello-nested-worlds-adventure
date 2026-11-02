@@ -75,17 +75,22 @@ already emitted — read them from Sentry (uncaught exceptions) and the
 
 ### First post-launch batch (scheduled, not triggered): continuous backup
 
-Decided in ADR-005: the hourly off-host backup (`backup.yml`) is the
-launch-week posture, and **Litestream-style continuous WAL replication
-to object storage is the first post-launch infrastructure batch** — it
-shrinks the chronicle's loss window from an hour to seconds, which is
-what the continuity covenant actually deserves. It is deliberately NOT
-a pre-launch change: it is a new external seam (Litestream wants to own
-WAL checkpointing while the server checkpoints on SIGTERM; the
-entrypoint and the restore procedure both change), so it gets a full
-blind-spot pass and a restore rehearsal of its own, not a launch-week
-rush. When it lands, revisit the hourly cadence (the artifact trail may
-drop back to daily as a second net).
+ADR-005 records an hourly off-host backup as the launch-week posture, and
+**Litestream-style continuous WAL replication to object storage is the
+first post-launch infrastructure batch** — it shrinks the chronicle's
+loss window from an hour to seconds, which is what the continuity
+covenant actually deserves. It is deliberately NOT a pre-launch change:
+it is a new external seam (Litestream wants to own WAL checkpointing
+while the server checkpoints on SIGTERM; the entrypoint and the restore
+procedure both change), so it gets a full blind-spot pass and a restore
+rehearsal of its own, not a launch-week rush. When it lands, revisit that
+cadence (those copies may drop back to daily as a second net).
+
+`backup.yml` now runs every 30 minutes and can store the copy in a private
+S3-compatible bucket. Cloudflare R2 is an example of such a store. A 30-day
+retention is the example used when the retention variable is unset. The
+vendor and the retention period are pending Mark's decision. ADR-005 still
+describes hour-stamped artifacts kept for 90 days, and it was not amended.
 
 ---
 
