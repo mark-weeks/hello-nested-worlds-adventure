@@ -57,6 +57,9 @@ not ratified. The [discovery-and-return plan](docs/roadmap/discovery-and-return.
 still carries the open product milestones: the M7 pilot cohort and M8. The
 [beta readiness record](docs/evaluation/2026-10-03-beta-readiness.md) (#109)
 separates completed local work from the hosted and human gates that remain.
+The [beta launch checklist](docs/roadmap/beta-launch-checklist.md) is the
+living list of those gates. Its statuses are as of `main` at `38fbe6e`, and
+thresholds marked as proposals are not decided.
 
 ---
 
