@@ -24,6 +24,7 @@ from causality.wiring import (
     wire_world_handlers,
 )
 from consciousness import runtime
+from agents import identities
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
 from multiverse import store, wrap
@@ -1039,7 +1040,6 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/agent":
             try:
                 seed      = guard.world_seed(param("seed"))
-                name      = param("name",           "Scout")
                 threshold = int(param("threshold",  "6"))
                 # Clamped: this drives a per-request FSM walk over the full
                 # tree, and an unbounded client value was the one way to buy
@@ -1047,6 +1047,11 @@ class Handler(BaseHTTPRequestHandler):
                 max_nodes = max(1, min(500, int(param("max_nodes", "50"))))
             except ValueError as exc:
                 return self._send_error(str(exc))
+            # The walker is always Scout. Its name lands in AGENT_VISIT rows
+            # and keys agent_memory, so a client-chosen ``?name=`` is ignored
+            # (agents/identities.py). ``persona`` only picks an archetype
+            # from the fixed catalog; it never names anyone.
+            name = identities.SCOUT
             persona_arg = param("persona", "")
             persona = persona_by_name(persona_arg) or persona_for_name(name)
             root  = store.world_tree(seed=seed)
@@ -1406,14 +1411,23 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})
-        agent_name = str(body.get("agent_name", "Scout"))[:32]
+        # Only a server-owned identity can be voiced (agents/identities.py),
+        # in its canonical spelling: the name lands in AGENT_VOICE data.agent,
+        # which is neither redactable nor screened.
+        requested = body.get("agent_name", identities.SCOUT)
+        agent_name = identities.canonical(requested)
         node_name  = str(body.get("node_name",  ""))[:128]
         try:
             seed = guard.world_seed(body.get("seed"))
         except ValueError as exc:
             return self._send_error(str(exc))
         persona_arg = str(body.get("persona", ""))[:32]
-        persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
+        # The quiet line echoes an unknown name back to the one client that
+        # sent it (a stale trace from an old local DB reads in fiction). It
+        # is never stored, broadcast, or logged.
+        label = agent_name or (
+            requested.strip()[:32] if isinstance(requested, str) else "") or "Someone"
+        persona = persona_by_name(persona_arg) or persona_for_name(label)
 
         # Same order as /speak: the place is resolved before the screen, so
         # an unknown place is a 404 and costs nothing. The screen still runs
@@ -1421,6 +1435,10 @@ class Handler(BaseHTTPRequestHandler):
         node = _resolve_node(seed, node_name)
         if node is None:
             return self._send_error("no such place in this world", 404)
+        if agent_name is None:
+            # No agent by that name walks this world. Answered like an agent
+            # that cannot speak, before the screen, any budget, or any row.
+            return self._agent_voice_quiet(label, persona.name, node.name)
         verdict = moderation.screen(
             message, user_key=user_key or None, surface="agent")
         if not verdict.allowed:
@@ -1588,7 +1606,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error(str(exc))
 
         node_name  = qs.get("node_name", [""])[0]
-        agent_name = (qs.get("name", ["Observer"])[0] or "Observer")[:32]
+        # Always Observer. The walk records AGENT_VISIT rows and enters the
+        # room's live presence under this name, so a client-chosen ``?name=``
+        # (another player's, or a cast member's) is ignored.
+        agent_name = identities.OBSERVER
         persona_arg = qs.get("persona", [""])[0]
         persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
         target     = (find_node(root, node_name) if node_name else None) or root

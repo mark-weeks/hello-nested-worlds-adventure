@@ -902,12 +902,12 @@ class TestAgentMaxNodesClamp:
         # request; the walk is now capped at 500 visits regardless of ask.
         base, _ = srv
         data = _get_json(
-            f"{base}/agent?seed=42&name=ClampScout&max_nodes=999999")
+            f"{base}/agent?seed=42&max_nodes=999999")
         assert data["nodes_visited"] <= 500
 
     def test_nonpositive_max_nodes_still_answers(self, srv):
         base, _ = srv
-        data = _get_json(f"{base}/agent?seed=42&name=ClampScout2&max_nodes=-5")
+        data = _get_json(f"{base}/agent?seed=42&max_nodes=-5")
         assert data["nodes_visited"] >= 0
 
 

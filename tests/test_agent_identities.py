@@ -1,0 +1,328 @@
+"""Agent identities are server-owned; a client-chosen name never writes history.
+
+An agent's name lands in ``AGENT_VISIT`` / ``AGENT_VOICE`` ``data.agent``,
+keys ``agent_memory``, and becomes a Speak target in both clients.
+``data.agent`` is neither redactable nor screened, so these tests drive the
+real endpoints over HTTP, SSE and WebSocket and read what was stored.
+Stub providers only. No live model call.
+"""
+from __future__ import annotations
+
+import json
+import threading
+import urllib.error
+import urllib.request
+from urllib.parse import quote
+
+import pytest
+
+import persistence
+from agents import identities
+from agents.personas import CATALOG, for_name
+from consciousness import WANDERER_CAST, runtime
+from consciousness.runtime import Completion
+from multiverse.generator import generate_node_hierarchy
+from multiverse.situation import KEEPER
+from server import _Handler, _ThreadedServer, guard, moderation
+from tests.test_day_one_recording import _ws_connect
+from tests.test_moderation import _recv_exact
+
+ADA_KEY = "nw_" + "a" * 32
+BEA_KEY = "nw_" + "b" * 32
+_ARCHETYPES = {persona.name for persona in CATALOG}
+
+
+@pytest.fixture()
+def srv():
+    # Minting closes the invite gate: every request below is a named player.
+    persistence.mint_invite_key(ADA_KEY, "Ada")
+    persistence.mint_invite_key(BEA_KEY, "Bea")
+    server = _ThreadedServer(("127.0.0.1", 0), _Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield port
+    server.shutdown()
+    server.server_close()
+    thread.join(5)
+
+
+def _request(port, path, *, key=BEA_KEY, body=None):
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"X-Beta-Key": key, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+def _observe(port, seed, *, name, key=BEA_KEY):
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/observe?seed={seed}&depth=4&name={quote(name)}",
+        headers={"X-Beta-Key": key})
+    events = []
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        assert resp.headers.get_content_type() == "text/event-stream"
+        for raw in resp:
+            if raw.startswith(b"data: "):
+                event = json.loads(raw[6:])
+                events.append(event)
+                if event.get("done"):
+                    break
+    return events
+
+
+def _ws_frames_until(sock, msg_type, timeout=5.0):
+    """Every JSON text frame up to and including the first ``msg_type``."""
+    import struct
+    import time
+    sock.settimeout(timeout)
+    deadline = time.monotonic() + timeout
+    frames = []
+    while time.monotonic() < deadline:
+        hdr = _recv_exact(sock, 2)
+        length = hdr[1] & 0x7F
+        if length == 126:
+            length = struct.unpack(">H", _recv_exact(sock, 2))[0]
+        elif length == 127:
+            length = struct.unpack(">Q", _recv_exact(sock, 8))[0]
+        payload = _recv_exact(sock, length)
+        if hdr[0] & 0x0F != 1:
+            continue
+        msg = json.loads(payload)
+        frames.append(msg)
+        if msg.get("type") == msg_type:
+            return frames
+    raise AssertionError(f"no {msg_type!r} frame within {timeout}s")
+
+
+def _agent_rows(seed, kind):
+    return [row for row in persistence.get_mutations(seed, limit=1000)
+            if row["type"] == kind]
+
+
+# ── The one identity set ────────────────────────────────────────────────────
+
+def test_the_identity_set_is_the_cast_the_keeper_and_two_utility_walkers():
+    assert set(identities.SERVER_IDENTITIES) == {
+        *WANDERER_CAST, KEEPER, identities.SCOUT, identities.OBSERVER}
+    assert len(identities.SERVER_IDENTITIES) == len(set(identities.SERVER_IDENTITIES))
+    assert identities.canonical("  the locksmith ") == "The Locksmith"
+    assert identities.canonical("OBSERVER") == "Observer"
+    for stranger in ("Recorder", "Ada", "", "Tessera2", None, 5, ["Tessera"]):
+        assert identities.canonical(stranger) is None
+
+
+# ── GET /agent ──────────────────────────────────────────────────────────────
+
+def test_agent_walk_is_always_scout_and_never_touches_a_named_memory(srv):
+    seed = 4601
+    remembered = (["remembered-id"], [{"node": "Elsewhere-1", "action": "kept"}])
+    persistence.save_agent_memory("Tessera", seed, *remembered)
+    before = persistence.load_agent_memory("Tessera", seed)
+    long_name = "Z" * 300
+    for name in ("Recorder", "Tessera", "Ada", long_name):
+        status, data = _request(srv, f"/agent?seed={seed}&name={quote(name)}&max_nodes=10")
+        assert status == 200, data
+        assert data["agent"] == "Scout"
+    visits = _agent_rows(seed, "AGENT_VISIT")
+    assert visits and {row["data"]["agent"] for row in visits} == {"Scout"}
+    # The cast member's memory is exactly what it was.
+    assert persistence.load_agent_memory("Tessera", seed) == before
+    for name in ("Recorder", "Ada", long_name, long_name[:32]):
+        assert persistence.load_agent_memory(name, seed) is None
+    assert persistence.load_agent_memory("Scout", seed)["visited_ids"]
+    assert {run["agent_name"] for run in persistence.get_agent_runs(seed)} == {"Scout"}
+    assert {m["agent_name"] for m in persistence.list_agent_memories()} == {"Scout", "Tessera"}
+
+
+def test_agent_persona_picks_an_archetype_and_cannot_name_anyone(srv):
+    seed = 4602
+    status, data = _request(
+        srv, f"/agent?seed={seed}&max_nodes=5&persona=destabilizer&name=Mallory")
+    assert status == 200 and data["agent"] == "Scout"
+    assert data["persona"] == "destabilizer"
+    status, data = _request(
+        srv, f"/agent?seed={seed}&max_nodes=5&persona={quote('Mallory the Great')}")
+    assert status == 200 and data["agent"] == "Scout"
+    assert data["persona"] == for_name("Scout").name
+    visits = _agent_rows(seed, "AGENT_VISIT")
+    assert visits
+    assert {row["data"]["agent"] for row in visits} == {"Scout"}
+    assert {row["data"]["persona"] for row in visits} <= _ARCHETYPES
+    assert "Mallory" not in json.dumps(persistence.get_mutations(seed, limit=1000))
+
+
+# ── GET /observe ────────────────────────────────────────────────────────────
+
+def test_observe_walks_as_observer_never_as_a_registered_player(srv):
+    seed = 4603
+    ws, status = _ws_connect(srv, seed, "ignored", invite_key=ADA_KEY)
+    assert b"101" in status
+    try:
+        welcome = _ws_frames_until(ws, "welcome")[-1]
+        assert welcome["agents"] == []
+        # Bea asks for a walker named after Ada, a registered player.
+        events = _observe(srv, seed, name="Ada")
+        frames = _ws_frames_until(ws, "agent_leave")
+    finally:
+        ws.close()
+    assert events[-1]["done"] is True and events[-1]["nodes_visited"] > 0
+    walked = [event for event in events if not event.get("done")]
+    assert walked and {event["agent"] for event in walked} == {"Observer"}
+    # The live presence the room saw is Observer: it entered and left as
+    # Observer, and no presence frame carried Ada's name.
+    presence = [frame for frame in frames
+                if frame["type"] in {"agent_enter", "agent_move", "agent_leave"}]
+    assert presence[0] == {"type": "agent_enter", "name": "Observer",
+                           "persona": for_name("Observer").name}
+    assert {frame["name"] for frame in presence} == {"Observer"}
+    assert presence[-1] == {"type": "agent_leave", "name": "Observer"}
+    for frame in frames:
+        if frame["type"] == "causal_event":
+            assert frame["agent"] == "Observer"
+    visits = _agent_rows(seed, "AGENT_VISIT")
+    assert visits and {row["data"]["agent"] for row in visits} == {"Observer"}
+
+
+def test_observe_cannot_spawn_a_cast_member_or_a_long_name(srv):
+    seed = 4604
+    for name in ("Tessera", "x" * 200):
+        events = _observe(srv, seed, name=name)
+        assert {e["agent"] for e in events if not e.get("done")} == {"Observer"}
+    visits = _agent_rows(seed, "AGENT_VISIT")
+    assert visits and {row["data"]["agent"] for row in visits} == {"Observer"}
+
+
+# ── POST /agent/voice ───────────────────────────────────────────────────────
+
+class _Stub:
+    name = "fixture"
+
+    def __init__(self):
+        self.calls = []
+
+    def configured(self):
+        return True
+
+    def default_model(self, task):
+        return "fixture-model"
+
+    def cache_reference_tokens(self, model):
+        return None
+
+    def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        return Completion("Footsteps, then quiet.", True, provider=self.name)
+
+
+@pytest.fixture()
+def voice(monkeypatch):
+    """A configured voice with the real screen and the real budget ledger."""
+    stub = _Stub()
+    monkeypatch.delenv(guard.DISABLE_AI_ENV, raising=False)
+    monkeypatch.delenv(moderation.DISABLE_MODERATION_ENV, raising=False)
+    monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "100")
+    monkeypatch.setenv(guard.ANTHROPIC_PER_USER_CAP_ENV, "100")
+    monkeypatch.setattr(runtime, "get_provider", lambda: stub)
+    screens = []
+    real_screen = moderation.screen
+
+    def recording_screen(text, **kwargs):
+        screens.append(kwargs.get("surface"))
+        return real_screen(text, **kwargs)
+
+    monkeypatch.setattr(moderation, "screen", recording_screen)
+    return stub, screens
+
+
+def _counters(key):
+    day = guard._utc_day()
+    return {
+        "voice": persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day),
+        "user_voice": persistence.get_cost_calls(
+            guard._user_bucket(guard.ANTHROPIC_BUCKET, key), day),
+        "moderation": persistence.get_cost_calls(
+            guard._user_bucket(guard.MODERATION_ACTIONS_BUCKET, key), day),
+        "model": persistence.get_cost_calls(
+            guard._user_bucket(guard.MODEL_ACTIONS_BUCKET, key), day),
+    }
+
+
+def _quiet(label, node_name, persona=None):
+    persona = persona or for_name(label).name
+    return {
+        "agent": label,
+        "persona": persona,
+        "node": node_name,
+        "response": (f"{label} does not answer. Only the traces of a "
+                     f"{persona} remain here, already cooling."),
+        "ai": False,
+    }
+
+
+def test_unknown_agent_is_quiet_before_the_screen_budget_or_any_row(srv, voice):
+    stub, screens = voice
+    seed = 4605
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    # A stale trace an older local DB may still show as a Speak target.
+    persistence.record_mutation(seed, node.name, "AGENT_VISIT", None,
+                                {"agent": "Recorder", "persona": "scholar"})
+    asked = [("Recorder", "Recorder"), ("Ada", "Ada"), (" Bea ", "Bea"),
+             ("Tessera the Second", "Tessera the Second"), ("Y" * 80, "Y" * 32),
+             ("", "Someone"), ("   ", "Someone"), (None, "Someone"), (7, "Someone"),
+             (["Tessera"], "Someone"), ({"name": "Tessera"}, "Someone")]
+    for requested, label in asked:
+        status, data = _request(srv, "/agent/voice", body={
+            "seed": seed, "node_name": node.name, "agent_name": requested,
+            "message": "hello, old light"})
+        assert status == 200, (requested, data)
+        assert data == _quiet(label, node.name), requested
+    # A persona argument still only picks the archetype on the quiet line.
+    status, data = _request(srv, "/agent/voice", body={
+        "seed": seed, "node_name": node.name, "agent_name": "Recorder",
+        "persona": "tender", "message": "hello, old light"})
+    assert status == 200 and data == _quiet("Recorder", node.name, "tender")
+    assert screens == [] and stub.calls == []
+    assert _counters(BEA_KEY) == {"voice": 0, "user_voice": 0, "moderation": 0, "model": 0}
+    assert _agent_rows(seed, "AGENT_VOICE") == []
+    # The place is still resolved first: an unknown place is the 404.
+    status, data = _request(srv, "/agent/voice", body={
+        "seed": seed, "node_name": "Forged-11", "agent_name": "Recorder",
+        "message": "hello, old light"})
+    assert status == 404 and data["error"] == "no such place in this world"
+
+
+@pytest.mark.parametrize("requested,canonical", [
+    ("Tessera", "Tessera"), ("  aunt entropy ", "Aunt Entropy"),
+    ("SCOUT", "Scout"), ("observer", "Observer"),
+])
+def test_a_server_identity_is_voiced_under_its_canonical_name(srv, voice, requested, canonical):
+    stub, screens = voice
+    seed = 4606
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    status, data = _request(srv, "/agent/voice", body={
+        "seed": seed, "node_name": node.name, "agent_name": requested,
+        "message": "hello, old light"})
+    assert status == 200, data
+    assert data == {"agent": canonical, "persona": for_name(canonical).name,
+                    "node": node.name, "response": "Footsteps, then quiet.", "ai": True}
+    assert screens == ["agent"] and len(stub.calls) == 1
+    assert _counters(BEA_KEY) == {"voice": 1, "user_voice": 1, "moderation": 1, "model": 1}
+    rows = _agent_rows(seed, "AGENT_VOICE")
+    assert len(rows) == 1
+    assert rows[0]["data"]["agent"] == canonical
+    assert rows[0]["player"] == "Bea"
+
+
+def test_a_missing_agent_name_is_still_scout(srv, voice):
+    stub, _ = voice
+    seed = 4607
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    status, data = _request(srv, "/agent/voice", body={
+        "seed": seed, "node_name": node.name, "message": "hello, old light"})
+    assert status == 200 and data["agent"] == "Scout" and data["ai"] is True
+    assert [row["data"]["agent"] for row in _agent_rows(seed, "AGENT_VOICE")] == ["Scout"]

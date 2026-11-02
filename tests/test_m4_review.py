@@ -46,7 +46,7 @@ def dangerous_drop_in():
 
 def test_observe_endpoint_under_dangerous_ancestor_still_visits(http):
     target = dangerous_drop_in()
-    query = urllib.parse.urlencode({'node_name': target.name, 'depth': 11, 'name': 'ReviewObserver'})
+    query = urllib.parse.urlencode({'node_name': target.name, 'depth': 11})
     with urllib.request.urlopen(http.base_url + '/observe?' + query, timeout=10) as response:
         events = []
         for raw in response:

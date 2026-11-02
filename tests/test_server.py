@@ -169,6 +169,9 @@ class TestMutationRecording:
     def test_agent_traversal_records_visit_mutations(self, srv):
         base, _ = srv
         seed = 23456
+        # A client-chosen name is ignored: the walker is always Scout, a
+        # server-owned identity (agents/identities.py), because data.agent
+        # is neither redactable nor screened.
         _get(f"{base}/agent?seed={seed}&name=Recorder&max_nodes=10")
         muts = persistence.get_mutations(seed, limit=50)
         kinds = {m["type"] for m in muts}
@@ -178,7 +181,8 @@ class TestMutationRecording:
         # Agent attribution lives in the data payload (player_name slot is
         # reserved for humans).
         agent_muts = [m for m in muts if m["type"] == "AGENT_VISIT"]
-        assert any(m["data"].get("agent") == "Recorder" for m in agent_muts)
+        assert {m["data"].get("agent") for m in agent_muts} == {"Scout"}
+        assert persistence.load_agent_memory("Recorder", seed) is None
         # Persona is part of the same payload so consciousness prompts and
         # the event feed can read it without a side lookup.
         assert all("persona" in m["data"] for m in agent_muts)
@@ -267,27 +271,30 @@ class TestCoopPuzzles:
 
 class TestAgentPersonas:
     """The /agent endpoint should surface the chosen persona, and an
-    explicit persona param should override the auto-pick."""
+    explicit persona param should override the auto-pick. The walker is
+    always Scout; ``persona`` picks an archetype, never a name."""
 
     def test_agent_endpoint_returns_default_persona(self, srv):
         base, _ = srv
-        data, _, _ = _get(f"{base}/agent?seed=5&name=Argus&max_nodes=5")
+        data, _, _ = _get(f"{base}/agent?seed=5&max_nodes=5")
+        assert data["agent"] == "Scout"
         assert data["persona"] in {"tender", "destabilizer", "scholar", "wanderer"}
 
     def test_agent_endpoint_honours_explicit_persona(self, srv):
         base, _ = srv
         data, _, _ = _get(
-            f"{base}/agent?seed=5&name=Argus&max_nodes=5&persona=destabilizer"
+            f"{base}/agent?seed=5&max_nodes=5&persona=destabilizer"
         )
         assert data["persona"] == "destabilizer"
 
     def test_unknown_persona_falls_back_to_default(self, srv):
+        from agents.personas import for_name
         base, _ = srv
         data, _, _ = _get(
-            f"{base}/agent?seed=5&name=Argus&max_nodes=5&persona=warlord"
+            f"{base}/agent?seed=5&max_nodes=5&persona=warlord"
         )
-        # Falls back to for_name("Argus"), whatever that resolves to.
-        assert data["persona"] in {"tender", "destabilizer", "scholar", "wanderer"}
+        # Falls back to Scout's persona.
+        assert data["persona"] == for_name("Scout").name
         assert data["persona"] != "warlord"
 
 
