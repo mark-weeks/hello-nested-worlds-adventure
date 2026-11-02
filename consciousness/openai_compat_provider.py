@@ -584,7 +584,83 @@ def _connection(deadline: float, https: bool):
     return Conn
 
 
-class _HTTPHandler(urllib.request.HTTPHandler):
+def _exchange(handler, http_class, req, **http_conn_args):
+    """One request. The body is read before the socket is closed.
+
+    ``AbstractHTTPHandler.do_open`` closes the socket as soon as the
+    status line and headers have been parsed. A server that flushes
+    those headers before the body — ``BaseHTTPRequestHandler.end_headers``
+    does — can still be writing the body. The later ``read`` then calls
+    ``recv`` on a closed descriptor (``EBADF``) and looks like a dropped
+    connection. Read the capped body first, then close.
+    """
+    host = req.host
+    if not host:
+        raise urllib.error.URLError("no host given")
+    connection = http_class(host, timeout=req.timeout, **http_conn_args)
+    connection.set_debuglevel(handler._debuglevel)
+    headers = dict(req.unredirected_hdrs)
+    headers.update({key: value for key, value in req.headers.items() if key not in headers})
+    # One request. A kept-alive socket would block the next read.
+    headers["Connection"] = "close"
+    headers = {name.title(): value for name, value in headers.items()}
+    if req._tunnel_host:
+        tunnel_headers = {}
+        proxy_auth = "Proxy-Authorization"
+        if proxy_auth in headers:
+            tunnel_headers[proxy_auth] = headers.pop(proxy_auth)
+        connection.set_tunnel(req._tunnel_host, headers=tunnel_headers)
+    try:
+        try:
+            connection.request(
+                req.get_method(), req.selector, req.data, headers,
+                encode_chunked=req.has_header("Transfer-encoding"),
+            )
+        except OSError as err:
+            raise urllib.error.URLError(err) from None
+        response = connection.getresponse()
+    except Exception:
+        connection.close()
+        raise
+    try:
+        announced = response.headers.get("Content-Length")
+        if announced is not None:
+            try:
+                size = int(announced)
+            except ValueError:
+                size = None
+            if size is not None and size > MAX_RESPONSE_BYTES:
+                raise MalformedProviderResponse()
+        # Copy the body out before closing the descriptor. Leave the
+        # response itself open: opener.open is used as a context manager
+        # and refuses a response that is already closed.
+        response.enfolded_body = _read_capped(response)
+    except Exception:
+        _close_quietly(connection, response)
+        raise
+    _close_quietly(connection, None)
+    # urllib's error processor reads the reason phrase from msg.
+    response.msg = response.reason
+    return response
+
+
+def _close_quietly(connection, response) -> None:
+    try:
+        if connection.sock is not None:
+            connection.sock.close()
+            connection.sock = None
+        if response is not None:
+            response.close()
+    except OSError:
+        pass
+
+
+class _Exchange:
+    def do_open(self, http_class, req, **http_conn_args):
+        return _exchange(self, http_class, req, **http_conn_args)
+
+
+class _HTTPHandler(_Exchange, urllib.request.HTTPHandler):
     def __init__(self, deadline: float) -> None:
         super().__init__()
         self._deadline = deadline
@@ -593,7 +669,7 @@ class _HTTPHandler(urllib.request.HTTPHandler):
         return self.do_open(_connection(self._deadline, False), req)
 
 
-class _HTTPSHandler(urllib.request.HTTPSHandler):
+class _HTTPSHandler(_Exchange, urllib.request.HTTPSHandler):
     def __init__(self, deadline: float) -> None:
         super().__init__()
         self._deadline = deadline
@@ -634,8 +710,8 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
     not name. ``ProxyHandler({})`` is installed so ``HTTP_PROXY``,
     ``HTTPS_PROXY``, and ``ALL_PROXY`` are not read. The caller's timeout
     is a wall-clock budget for this POST, not urllib's per-socket timeout.
-    Failures become adapter exceptions whose messages do not include the
-    URL, the body, or the key.
+    The body is read before the socket is closed. Failures become adapter
+    exceptions whose messages do not include the URL, the body, or the key.
     """
     deadline = time.monotonic() + request.timeout
     opener = urllib.request.build_opener(
@@ -658,17 +734,11 @@ def urllib_transport(request: TransportRequest) -> tuple[int, tuple[tuple[str, s
                 raise MalformedProviderResponse()
             if 300 <= status < 400:
                 raise ProviderHTTPError(status) from None
-            announced = response.headers.get("Content-Length")
-            if announced is not None:
-                try:
-                    size = int(announced)
-                except ValueError:
-                    size = None
-                if size is not None and size > MAX_RESPONSE_BYTES:
-                    raise MalformedProviderResponse()
-            raw = _read_capped(response)
+            raw = getattr(response, "enfolded_body", None)
+            if not isinstance(raw, (bytes, bytearray)):
+                raise MalformedProviderResponse()
             pairs = tuple((key, value) for key, value in response.headers.items())
-            return status, pairs, raw
+            return status, pairs, bytes(raw)
     except ProviderHTTPError as exc:
         raise ProviderHTTPError(exc.status) from None
     except ProviderTimeout:

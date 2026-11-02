@@ -651,6 +651,54 @@ class TestVoiceBudget:
 class _Loopback(ThreadingHTTPServer):
     daemon_threads = True
 
+    def serve_forever(self, poll_interval=0.5):
+        # listen() already ran in server_activate. This event means the
+        # accept thread has entered the loop, so a connect is queued
+        # rather than racing the thread start.
+        self._accepting.set()
+        super().serve_forever(poll_interval=poll_interval)
+
+
+def _start_loopback(*, mode="ok"):
+    """Bind 127.0.0.1:0, accept on that socket, and wait until it does."""
+    try:
+        server = _Loopback(("127.0.0.1", 0), _Handler)
+    except OSError as exc:
+        pytest.skip(f"loopback bind unavailable ({type(exc).__name__})")
+    server.mode = mode
+    server.seen = []
+    server.redirect_code = 302
+    server.redirect_to = None
+    server._accepting = threading.Event()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server._thread = thread
+    thread.start()
+    if not server._accepting.wait(2):
+        _stop_loopback(server)
+        pytest.fail("loopback accept thread did not start")
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            probe = socket.create_connection(server.server_address, timeout=0.2)
+        except OSError:
+            if time.monotonic() >= deadline:
+                _stop_loopback(server)
+                pytest.fail("loopback port did not accept")
+            time.sleep(0.01)
+            continue
+        probe.close()
+        return server
+
+
+def _stop_loopback(server):
+    accepting = getattr(server, "_accepting", None)
+    if accepting is not None and accepting.is_set():
+        server.shutdown()
+    server.server_close()
+    thread = getattr(server, "_thread", None)
+    if thread is not None:
+        thread.join(2)
+
 
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -676,10 +724,25 @@ class _Handler(BaseHTTPRequestHandler):
                 payload = _chat_body(content="loopback-ok", model="echo-loopback")
                 self._send(200, payload)
             elif mode == "redirect":
+                target = self.server.redirect_to
+                if not isinstance(target, str) or not target:
+                    raise RuntimeError("redirect target was not set")
                 self.send_response(self.server.redirect_code)
-                self.send_header("Location", self.server.redirect_to)
+                self.send_header("Location", target)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
+            elif mode == "split":
+                # Headers are flushed here. The body follows only after a
+                # gap, which is the race urllib's do_open loses if it
+                # closes the socket before this write.
+                payload = _chat_body(content="loopback-ok", model="echo-loopback")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                time.sleep(0.2)
+                self.wfile.write(payload)
+                self.wfile.flush()
             elif mode == "drip":
                 raw = (
                     b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
@@ -716,22 +779,11 @@ class _Handler(BaseHTTPRequestHandler):
 def loopback():
     # The 2026-10-04 evaluation saw a sandbox refuse loopback bind. Skip
     # only this urllib path; fake-transport tests do not need the socket.
-    try:
-        server = _Loopback(("127.0.0.1", 0), _Handler)
-    except OSError as exc:
-        pytest.skip(f"loopback bind unavailable ({type(exc).__name__})")
-    server.mode = "ok"
-    server.seen = []
-    server.redirect_code = 302
-    server.redirect_to = "http://127.0.0.1:9/stolen"
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    server = _start_loopback()
     try:
         yield server
     finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(2)
+        _stop_loopback(server)
 
 
 class TestUrllibLoopback:
@@ -752,29 +804,31 @@ class TestUrllibLoopback:
         assert loopback.seen[0]["authorization"] == f"Bearer {_SECRET}"
         sent = json.loads(loopback.seen[0]["body"])
         assert sent["messages"][0] == {"role": "system", "content": "bible"}
-        loopback.mode = "redirect"
-        before = len(loopback.seen)
-        with pytest.raises(ProviderHTTPError) as caught:
-            adapter.generate(
-                model="compat-node", system=(SystemBlock("bible"),),
-                messages=[{"role": "user", "content": _PLAYER}], max_tokens=16,
+        stolen = _start_loopback()
+        try:
+            loopback.mode = "redirect"
+            loopback.redirect_to = (
+                f"http://127.0.0.1:{stolen.server_address[1]}/stolen"
             )
-        assert caught.value.status == 302
-        assert len(loopback.seen) == before + 1
-        _forbid(str(caught.value))
-        _forbid(_traceback(caught.value))
-        assert "stolen" not in str(caught.value)
+            before = len(loopback.seen)
+            with pytest.raises(ProviderHTTPError) as caught:
+                adapter.generate(
+                    model="compat-node", system=(SystemBlock("bible"),),
+                    messages=[{"role": "user", "content": _PLAYER}], max_tokens=16,
+                )
+            assert caught.value.status == 302
+            assert len(loopback.seen) == before + 1
+            assert stolen.seen == []
+            _forbid(str(caught.value))
+            _forbid(_traceback(caught.value))
+            assert "stolen" not in str(caught.value)
+        finally:
+            _stop_loopback(stolen)
 
     @pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
     def test_redirect_status_does_not_carry_the_key_to_another_host(
             self, loopback, monkeypatch, code):
-        stolen = _Loopback(("127.0.0.1", 0), _Handler)
-        stolen.mode = "ok"
-        stolen.seen = []
-        stolen.redirect_code = 302
-        stolen.redirect_to = "http://127.0.0.1:9/unused"
-        thread = threading.Thread(target=stolen.serve_forever, daemon=True)
-        thread.start()
+        stolen = _start_loopback()
         try:
             stolen_port = stolen.server_address[1]
             loopback.mode = "redirect"
@@ -796,18 +850,10 @@ class TestUrllibLoopback:
             assert len(loopback.seen) == before + 1
             assert stolen.seen == []
         finally:
-            stolen.shutdown()
-            stolen.server_close()
-            thread.join(2)
+            _stop_loopback(stolen)
 
     def test_proxy_environment_is_ignored(self, loopback, monkeypatch):
-        proxy = _Loopback(("127.0.0.1", 0), _Handler)
-        proxy.mode = "denied"
-        proxy.seen = []
-        proxy.redirect_code = 302
-        proxy.redirect_to = "http://127.0.0.1:9/unused"
-        thread = threading.Thread(target=proxy.serve_forever, daemon=True)
-        thread.start()
+        proxy = _start_loopback(mode="denied")
         try:
             proxy_url = f"http://127.0.0.1:{proxy.server_address[1]}"
             for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy"):
@@ -821,9 +867,19 @@ class TestUrllibLoopback:
             assert proxy.seen == []
             assert loopback.seen[0]["authorization"] == f"Bearer {_SECRET}"
         finally:
-            proxy.shutdown()
-            proxy.server_close()
-            thread.join(2)
+            _stop_loopback(proxy)
+
+    def test_body_written_after_the_headers_is_still_a_completion(
+            self, loopback, monkeypatch):
+        adapter, _timeout = self._adapter(loopback, monkeypatch)
+        loopback.mode = "split"
+        result = adapter.generate(
+            model="compat-node", system=(SystemBlock("bible"),),
+            messages=[{"role": "user", "content": "Hello."}], max_tokens=16,
+        )
+        assert result.text == "loopback-ok" and result.complete is True
+        assert result.resolved_model == "echo-loopback"
+        assert loopback.seen[0]["authorization"] == f"Bearer {_SECRET}"
 
     def test_wall_clock_budget_stops_a_dribbled_header(self, loopback, monkeypatch):
         adapter, _timeout = self._adapter(loopback, monkeypatch)
