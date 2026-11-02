@@ -125,6 +125,7 @@ none is a decision.
 | F | D1–D5 (ADR-029 to ADR-033) ratification | At P11 or after | Ratify D1, D3, D5 at the read-out so November drafting can start; D2 with D1; **D4 only after pilot evidence**, as the assessment itself recommends. |
 | G | D7 (one client), D8 (dollar budgets), D9 (process re-tune) | After P11 | D8 and D9 are cheap and reversible; schedule both in November. D7 waits for the cohort's device evidence and needs an ADR-005 revision. |
 | H | Issue dispositions: revise #89's acceptance criteria (its per-response property-delta requirement conflicts with ADR-028's accepted/pending/partial/moot outcomes); keep #88 deferred; carry #87's unverified criteria into the pilot's orientation observations | Oct 15 (so #89 is not implemented against stale criteria) | Agent drafts the revised criteria as a comment; owner edits the issue. |
+| I | Off-host backup destination, vendor and retention (ADR-034 §5 scoped decision) | Before `ENFOLDED_BACKUP_REQUIRED=true` | Pending. Cloudflare R2 and 30 days are the examples in the workflow and the runbook. Neither is a decision. |
 
 ## Part 3. The parallel track: maintenance with no one-way door
 

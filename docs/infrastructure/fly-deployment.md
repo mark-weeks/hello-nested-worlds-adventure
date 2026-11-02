@@ -453,7 +453,10 @@ bucket runbook, then:
 Manually dispatch `backup.yml` and confirm the object, not just the job badge.
 Staging keys cannot satisfy the production check. Run this read-only check
 with AWS CLI v2, the bucket, the endpoint, and either the write key or the
-list-only key from the runbook. It does not use the GitHub API:
+optional read key from the runbook. An R2 Object Read token can download every
+backup; it is not a list-only key, and prune and `delete-before` list with it
+when both read variables are set. The check itself only lists. It does not use
+the GitHub API:
 
 ```bash
 python scripts/backup_health.py --app enfolded-beta
@@ -545,14 +548,21 @@ fly ssh console -C "python main.py redact --id 12345 --scrub-name --reason 'ToS'
 No restart is needed — history is read per request. If the abusive text
 also fed a cached node image, delete that node's `node_images` row (the
 image regenerates on next request). Off-host backups made before the
-redaction still contain the original text. Delete those objects
-(`scripts/backup_store.py delete` for one key, or `delete-before` for every
-backup of this app whose snapshot-start is at or before the redaction). The
-example retention when the variable is unset is 30 days, which Mark has not
-adopted as a decision. The lifecycle rule, set to that retention plus 7 days
-or more, does not keep the newest object. Expiry is not a substitute for
-deleting a copy you were asked to remove. `delete` and `delete-before` can
-remove the newest validated object; the retention prune cannot.
+redaction still contain the original text, and so do the machine-local
+`/data/backups/*.db` copies and any downloaded `./worlds-backup.db`. Redact
+the live text first, dispatch `backup.yml` and wait for it, then confirm
+`backup_health.py` reports a snapshot taken after the redaction. Only then
+run `scripts/backup_store.py delete` for one key, or `delete-before` with
+`--after` and `--before` for the window that can still contain the text.
+`--dry-run` prints that window and deletes nothing. A future cutoff is
+refused. `delete` of one named key can remove the newest validated object.
+`delete-before` and the retention prune cannot: both keep the newest
+nonempty validated object. The example retention when the variable is unset
+is 30 days, which Mark has not adopted as a decision. Any lifecycle rule
+deletes the last copy once the schedule has been stopped that many days;
+retention + 7 only delays it by 7 days. The rule does not keep the newest
+object. Expiry is not a substitute for deleting a copy you were asked to
+remove.
 
 ---
 

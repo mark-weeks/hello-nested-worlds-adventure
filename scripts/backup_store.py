@@ -63,6 +63,7 @@ def validate_endpoint(value):
     except ValueError:
         raise ValueError('Endpoint must be an https URL with a valid port.') from None
     if (parsed.scheme != 'https' or not parsed.hostname or port == 0
+            or parsed.netloc.endswith(':')
             or parsed.username or parsed.password or parsed.query or parsed.fragment
             or parsed.path not in ('', '/')):
         raise ValueError('Endpoint must be an https URL with no credentials, path, query, or fragment.')
@@ -189,11 +190,18 @@ def keys_older_than(pages, *, app, cutoff):
 
 
 def newest_validated_key(pages, *, app, now):
-    """Newest validated snapshot at or before now. Future stamps do not count."""
+    """Newest nonempty validated snapshot at or before now.
+
+    Future stamps do not count. A missing, boolean, or non-positive ``Size``
+    does not count either: health would not report that object, so prune and
+    ``delete-before`` must not protect it while deleting an older good copy.
+    """
     best = None
     for item in iter_objects(pages):
         classified = classify(item.get('Key'), app)
-        if classified is None or classified[0] != 'validated' or classified[1] > now:
+        size = item.get('Size')
+        if (classified is None or classified[0] != 'validated' or classified[1] > now
+                or type(size) is not int or size <= 0):
             continue
         if best is None or classified[1] > best[0]:
             best = (classified[1], item['Key'])
@@ -201,11 +209,11 @@ def newest_validated_key(pages, *, app, now):
 
 
 def expired_keys(pages, *, app, retention_days, now=None):
-    """Keys past retention, except the newest validated object for this app.
+    """Keys past retention, except the newest nonempty validated object.
 
     A quiet stretch longer than the retention period must not empty the bucket
-    of the last good copy. Quarantine objects are not protected. Explicit
-    ``delete`` and ``delete-before`` still remove the newest copy when asked.
+    of the last good copy. Quarantine objects are not protected. ``delete`` of
+    one named key can still remove the newest copy. ``delete-before`` keeps it.
     """
     validate_retention(retention_days)
     now = now or datetime.now(timezone.utc)
@@ -249,7 +257,7 @@ def _credentials(env, purpose):
         access = env.get('ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID', '')
         secret = env.get('ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY', '')
         if not access or not secret:
-            raise StoreError('A list-only backup credential is incomplete.')
+            raise StoreError('A backup read credential is incomplete. Set both read variables or neither.')
     else:
         access = env.get('ENFOLDED_BACKUP_S3_ACCESS_KEY_ID', '')
         secret = env.get('ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY', '')
@@ -266,13 +274,14 @@ def _credentials(env, purpose):
 def _redact(text, secrets):
     redacted = text or ''
     for secret in sorted((item for item in secrets if item), key=len, reverse=True):
-        redacted = redacted.replace(secret, '[redacted]')
+        redacted = re.sub(re.escape(secret), '[redacted]', redacted, flags=re.I)
     return re.sub(r'offhost(?:/|%2[Ff])\S+', '[redacted]', redacted)
 
 
 def _command_secrets(args, bucket, endpoint, access, secret):
     host = urllib.parse.urlsplit(endpoint).hostname or ''
-    found = [access, secret, endpoint, host, bucket]
+    account = host.split('.')[0] if host else ''
+    found = [access, secret, endpoint, host, account, bucket]
     for index, arg in enumerate(args):
         if arg in ('--key', '--prefix') and index + 1 < len(args):
             found.append(args[index + 1])
@@ -324,7 +333,8 @@ def run_aws(args, *, env=None, purpose='write'):
         Path(child['AWS_SHARED_CREDENTIALS_FILE']).write_text('')
         try:
             result = subprocess.run(['aws', '--endpoint-url', endpoint, *args], env=child,
-                                    check=False, capture_output=True, text=True, timeout=120)
+                                    check=False, capture_output=True, text=True,
+                                    timeout=_command_timeout(args, source))
         except subprocess.TimeoutExpired as exc:
             raise StoreError('Object storage command timed out.') from exc
         except OSError as exc:
@@ -382,6 +392,28 @@ def list_object_pages(env=None, *, app, max_pages=MAX_LIST_PAGES):
     return pages
 
 
+def _command_timeout(args, env):
+    """List and delete stay at 120 seconds. A download or upload is longer.
+
+    ``ENFOLDED_BACKUP_S3_TIMEOUT_SECONDS`` overrides the transfer limit.
+    ``0`` or ``none`` waits until the process ends. The workflow job still
+    has its own 20-minute limit.
+    """
+    transfer = 'get-object' in args or 'put-object' in args
+    if not transfer:
+        return 120
+    raw = str(env.get('ENFOLDED_BACKUP_S3_TIMEOUT_SECONDS', '') or '').strip()
+    if raw == '':
+        return 3600
+    if raw.lower() == 'none' or raw == '0':
+        return None
+    if not raw.isdigit() or int(raw) > 86400:
+        raise StoreError(
+            'ENFOLDED_BACKUP_S3_TIMEOUT_SECONDS must be a whole number of seconds '
+            'up to 86400, 0 for no limit, or unset.')
+    return int(raw)
+
+
 def put_object(app, stamp, body, *, quarantine=False, env=None):
     key = object_key(app, stamp, quarantine=quarantine)
     path = Path(body)
@@ -402,17 +434,23 @@ def get_object(app, key, dest, *, env=None):
         raise StoreError('Refusing to overwrite an existing file.')
     source = os.environ if env is None else env
     bucket, _endpoint, _region = _target(source)
+    temporary = path.with_name(path.name + '.partial')
+    if temporary.exists():
+        raise StoreError('Refusing to overwrite an existing file.')
+    descriptor = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    os.close(descriptor)
     try:
         run_aws(['s3api', 'get-object', '--bucket', bucket, '--key', key,
-                 '--output', 'json', str(path)], env=source, purpose='write')
-    except Exception:
-        if path.exists():
-            path.unlink()
+                 '--output', 'json', str(temporary)], env=source, purpose='write')
+        if not temporary.is_file() or temporary.stat().st_size <= 0:
+            raise StoreError('Downloaded object was empty.')
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+        os.chmod(path, 0o600)
+    except BaseException:
+        if temporary.exists():
+            temporary.unlink()
         raise
-    if not path.is_file() or path.stat().st_size <= 0:
-        if path.exists():
-            path.unlink()
-        raise StoreError('Downloaded object was empty.')
     return path
 
 
@@ -440,6 +478,8 @@ def _delete_many(app, keys, env):
             body = json.loads(stdout or '{}')
         except json.JSONDecodeError as exc:
             raise StoreError('Object storage returned a response that was not JSON.') from exc
+        if not isinstance(body, dict):
+            raise StoreError('Object storage returned an unexpected delete response.')
         errors = body.get('Errors') or []
         if errors:
             raise StoreError(f'Object storage refused to delete {len(errors)} objects.')
@@ -453,11 +493,32 @@ def prune_objects(app, retention_days, *, env=None, now=None):
     return _delete_many(app, expired_keys(pages, app=app, retention_days=retention_days, now=now), source)
 
 
-def delete_before(app, stamp, *, env=None):
+def delete_before(app, stamp, *, env=None, now=None, dry_run=False, after=None):
+    """Delete this app's objects at or before ``stamp``, keeping the newest good copy.
+
+    A future cutoff is refused. ``--after`` limits the window to snapshots that
+    can contain text written at that time. ``dry_run`` lists the keys and does
+    not delete. The newest nonempty validated object is never included, so the
+    command cannot empty the bucket of its last good copy.
+    """
     cutoff = validate_stamp(stamp)
+    now = now or datetime.now(timezone.utc)
+    if cutoff > now:
+        raise StoreError('Refusing a cutoff in the future.')
+    after_time = validate_stamp(after) if after else None
+    if after_time is not None and after_time > cutoff:
+        raise StoreError('The lower bound is after the cutoff.')
     source = os.environ if env is None else env
     pages = list_object_pages(source, app=app)
-    return _delete_many(app, keys_older_than(pages, app=app, cutoff=cutoff), source)
+    keys = keys_older_than(pages, app=app, cutoff=cutoff)
+    if after_time is not None:
+        keys = [key for key in keys if classify(key, app)[1] >= after_time]
+    keep = newest_validated_key(pages, app=app, now=now)
+    if keep is not None:
+        keys = [key for key in keys if key != keep]
+    if dry_run:
+        return keys
+    return _delete_many(app, keys, source)
 
 
 def main():
@@ -482,6 +543,8 @@ def main():
     older = commands.add_parser('delete-before', help='delete this app\'s objects at or before a snapshot time')
     older.add_argument('--app', required=True)
     older.add_argument('--before', required=True)
+    older.add_argument('--after', help='also require the snapshot time to be at or after this stamp')
+    older.add_argument('--dry-run', action='store_true')
 
     prune = commands.add_parser('prune', help='delete this app\'s objects past retention')
     prune.add_argument('--app', required=True)
@@ -497,11 +560,13 @@ def main():
             print(delete_object(args.app, args.key))
         else:
             if args.command == 'delete-before':
-                keys = delete_before(args.app, args.before)
+                keys = delete_before(args.app, args.before, dry_run=args.dry_run, after=args.after)
             else:
                 keys = prune_objects(args.app, args.retention_days)
             if not keys:
                 print('No matching backup objects.', file=sys.stderr)
+            elif args.command == 'delete-before' and args.dry_run:
+                print('Dry run: nothing was deleted.', file=sys.stderr)
             for key in keys:
                 print(key)
     except (StoreError, ValueError, OSError) as exc:

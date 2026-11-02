@@ -5,7 +5,11 @@ from pathlib import Path
 import subprocess
 import sys
 
-from scripts.backup_store import MAX_LIST_PAGES, expired_keys, list_object_pages, object_key, validate_endpoint
+import pytest
+
+from scripts.backup_store import (
+    MAX_LIST_PAGES, classify, expired_keys, get_object, list_object_pages, object_key, validate_endpoint,
+)
 
 APP = 'enfolded-beta'
 NOW = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
@@ -71,6 +75,17 @@ with open(os.environ['AWS_FAKE_CALLS'], 'a') as fh:
     fh.write(json.dumps(record) + '\n')
 if 'get-object' in argv:
     Path(argv[-1]).write_bytes(b'sqlite-bytes')
+    delay = os.environ.get('AWS_FAKE_SLEEP')
+    if delay:
+        import time
+        time.sleep(float(delay))
+if os.environ.get('AWS_FAKE_LEAK'):
+    endpoint = argv[argv.index('--endpoint-url') + 1]
+    host = endpoint.split('://', 1)[-1].split('/')[0]
+    account = host.split('.')[0]
+    sys.stderr.write(
+        host.upper() + ' ' + account + ' offhost%2Fworlds-backup-enfolded-beta-secret.db boom ' + secret)
+    sys.exit(1)
 if os.environ.get('AWS_FAKE_FAIL'):
     endpoint = argv[argv.index('--endpoint-url') + 1]
     bucket = argv[argv.index('--bucket') + 1]
@@ -110,6 +125,8 @@ if 'list-objects-v2' in argv:
         else:
             index = 0
         print(json.dumps(chosen[index] if index < len(chosen) else {'KeyCount': 0}))
+elif os.environ.get('AWS_FAKE_DELETE_BODY'):
+    print(os.environ['AWS_FAKE_DELETE_BODY'])
 elif os.environ.get('AWS_FAKE_DELETE_ERRORS'):
     print(json.dumps({'Errors': [{'Key': 'offhost/worlds-backup-enfolded-beta-20200101T000000Z.db',
                                   'Code': 'AccessDenied', 'Message': 'no'}]}))
@@ -167,7 +184,7 @@ def test_put_uploads_the_named_object_with_write_credentials_not_on_the_command_
     assert LIST_SECRET not in json.dumps(recorded)
 
 
-def test_quarantine_upload_and_empty_snapshot_never_call_the_store(tmp_path):
+def test_quarantine_upload_uses_the_unvalidated_key_and_an_empty_snapshot_is_refused(tmp_path):
     body = tmp_path / 'offhost.db'
     body.write_bytes(b'not-empty')
     quarantined, recorded = run_store(tmp_path, [
@@ -297,7 +314,9 @@ def test_health_lists_with_the_read_only_credential_and_follows_the_continuation
 def test_endpoint_rejects_a_port_that_is_not_a_number_in_range():
     for value in ('https://example.r2.cloudflarestorage.com:bad',
                   'https://example.r2.cloudflarestorage.com:65536',
-                  'https://example.r2.cloudflarestorage.com:0'):
+                  'https://example.r2.cloudflarestorage.com:0',
+                  'https://example.r2.cloudflarestorage.com:',
+                  'https://h:'):
         try:
             validate_endpoint(value)
         except ValueError:
@@ -416,3 +435,166 @@ def test_listing_passes_one_hundred_pages_and_stops_at_the_cap(tmp_path):
         raise AssertionError('expected the page cap')
     recorded = [json.loads(line) for line in calls.read_text().splitlines() if line.strip()]
     assert len(recorded) == 3
+
+
+def test_newer_quarantine_does_not_discard_an_expired_validated_copy():
+    older = object_key(APP, '20260701T120000Z')
+    kept = object_key(APP, '20260801T120000Z')
+    quarantine = object_key(APP, '20261003T113000Z', quarantine=True)
+    other = object_key('enfolded-staging', '20261003T115900Z')
+    pages = [{'Contents': [
+        {'Key': older, 'Size': 8},
+        {'Key': kept, 'Size': 8},
+        {'Key': quarantine, 'Size': 8},
+        {'Key': other, 'Size': 8},
+    ]}]
+    assert expired_keys(pages, app=APP, retention_days=30, now=NOW) == [older]
+
+
+def test_keep_newest_skips_an_empty_or_invalid_size():
+    empty = object_key(APP, '20260903T120000Z')
+    kept = object_key(APP, '20260801T120000Z')
+    for size in (0, True, '8', None):
+        pages = [{'Contents': [
+            {'Key': kept, 'Size': 8},
+            {'Key': empty, 'Size': size} if size is not None else {'Key': empty},
+        ]}]
+        assert expired_keys(pages, app=APP, retention_days=30, now=NOW) == [empty]
+
+
+def test_delete_before_refuses_a_future_cutoff_and_keeps_the_newest(tmp_path):
+    future, recorded = run_store(
+        tmp_path, ['delete-before', '--app', APP, '--before', '20271102T000000Z', '--dry-run'],
+        [{'Contents': [{'Key': object_key(APP, '20261001T000000Z'), 'Size': 8}]}])
+    assert future.returncode == 1
+    assert 'future' in future.stderr
+    assert recorded == []
+    assert 'Dry run' not in future.stderr
+
+    older = object_key(APP, '20261001T000000Z')
+    quarantine = object_key(APP, '20261015T000000Z', quarantine=True)
+    kept = object_key(APP, '20261101T120000Z')
+    pages = [{'Contents': [{'Key': key, 'Size': 8} for key in (older, quarantine, kept)]}]
+    dry, recorded = run_store(tmp_path, [
+        'delete-before', '--app', APP, '--after', '20261015T000000Z', '--before', '20261101T120000Z',
+        '--dry-run'], pages)
+    assert dry.returncode == 0, dry.stderr
+    assert dry.stdout.split() == [quarantine]
+    assert 'Dry run: nothing was deleted.' in dry.stderr
+    assert deleted_keys(recorded) == []
+    assert all('delete-objects' not in call['argv'] for call in recorded)
+
+    removed, recorded = run_store(tmp_path, [
+        'delete-before', '--app', APP, '--before', '20261101T120000Z'], pages)
+    assert removed.returncode == 0, removed.stderr
+    assert removed.stdout.split() == [older, quarantine]
+    assert deleted_keys(recorded) == [older, quarantine]
+    assert kept not in removed.stdout
+
+    (tmp_path / 'calls.jsonl').unlink(missing_ok=True)
+    backwards, recorded = run_store(tmp_path, [
+        'delete-before', '--app', APP, '--after', '20261102T000000Z', '--before', '20261101T120000Z'],
+        pages)
+    assert backwards.returncode == 1
+    assert 'lower bound' in backwards.stderr
+    assert recorded == []
+
+
+def test_get_timeout_removes_the_partial_and_a_finished_download_is_private(tmp_path):
+    dest = tmp_path / 'restored.db'
+    key = object_key(APP, '20261003T113000Z')
+    timed, _recorded = run_store(
+        tmp_path, ['get', '--app', APP, '--key', key, '--dest', str(dest)], [{'Contents': []}],
+        AWS_FAKE_SLEEP='5', ENFOLDED_BACKUP_S3_TIMEOUT_SECONDS='1')
+    assert timed.returncode == 1
+    assert 'timed out' in timed.stderr
+    assert not dest.exists()
+    assert not Path(str(dest) + '.partial').exists()
+    assert 'Traceback' not in timed.stderr
+
+    finished, _recorded = run_store(
+        tmp_path, ['get', '--app', APP, '--key', key, '--dest', str(dest)], [{'Contents': []}],
+        ENFOLDED_BACKUP_S3_TIMEOUT_SECONDS='30')
+    assert finished.returncode == 0, finished.stderr
+    assert dest.read_bytes() == b'sqlite-bytes'
+    assert dest.stat().st_mode & 0o777 == 0o600
+    assert not Path(str(dest) + '.partial').exists()
+
+
+def test_interrupted_get_removes_the_partial_file(tmp_path, monkeypatch):
+    def interrupt(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr('scripts.backup_store.run_aws', interrupt)
+    dest = tmp_path / 'restored.db'
+    key = object_key(APP, '20261003T113000Z')
+    env = {
+        'ENFOLDED_BACKUP_S3_BUCKET': 'enfolded-backups',
+        'ENFOLDED_BACKUP_S3_ENDPOINT': ENDPOINT,
+        'ENFOLDED_BACKUP_S3_REGION': 'auto',
+        'ENFOLDED_BACKUP_S3_ACCESS_KEY_ID': 'write-key',
+        'ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY': WRITE_SECRET,
+    }
+    with pytest.raises(KeyboardInterrupt):
+        get_object(APP, key, dest, env=env)
+    assert not dest.exists()
+    assert not (tmp_path / 'restored.db.partial').exists()
+
+
+def test_failed_command_redacts_the_account_id_and_an_encoded_key(tmp_path):
+    dest = tmp_path / 'restored.db'
+    key = object_key(APP, '20261003T113000Z')
+    result, _recorded = run_store(
+        tmp_path, ['get', '--app', APP, '--key', key, '--dest', str(dest)], [{'Contents': []}],
+        AWS_FAKE_LEAK='1')
+    assert result.returncode == 1
+    combined = result.stdout + result.stderr
+    assert 'EXAMPLE.R2.CLOUDFLARESTORAGE.COM' not in combined
+    assert 'example' not in combined.lower()
+    assert 'offhost%2F' not in combined
+    assert 'offhost/' not in combined
+    assert WRITE_SECRET not in combined
+    assert '[redacted]' in result.stderr
+    assert not dest.exists()
+
+
+def test_half_set_read_pair_fails_closed(tmp_path):
+    calls = install_fake_aws(tmp_path, [{'Contents': []}])
+    env = bucket_env(tmp_path, calls, ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID='list-key-half')
+    result = subprocess.run([sys.executable, str(HEALTH), '--app', APP],
+                            capture_output=True, text=True, env=env)
+    assert result.returncode == 2
+    assert 'incomplete' in result.stderr
+    assert 'list-key-half' not in result.stdout + result.stderr
+    assert not calls.exists()
+
+    secret_only = bucket_env(tmp_path, calls, ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY=LIST_SECRET)
+    refused, recorded = run_store(
+        tmp_path, ['prune', '--app', APP, '--retention-days', '30'], [{'Contents': []}],
+        ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY=LIST_SECRET)
+    assert refused.returncode == 1
+    assert 'incomplete' in refused.stderr
+    assert LIST_SECRET not in refused.stdout + refused.stderr
+    assert recorded == []
+    assert secret_only['ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY'] == LIST_SECRET
+
+
+@pytest.mark.parametrize('body', ['[]', 'null'])
+def test_a_non_dict_delete_response_is_rejected(tmp_path, body):
+    key = object_key(APP, '20261003T113000Z')
+    result, _recorded = run_store(
+        tmp_path, ['delete', '--app', APP, '--key', key], [{'Contents': []}],
+        AWS_FAKE_DELETE_BODY=body)
+    assert result.returncode == 1
+    assert 'unexpected delete response' in result.stderr
+    assert 'Traceback' not in result.stderr
+    assert key not in result.stderr
+
+
+def test_name_variants_are_not_this_apps_backup():
+    named = object_key(APP, '20261003T113000Z')
+    assert classify(named + ' ', APP) is None
+    assert classify(named + '.bak', APP) is None
+    assert classify('offhost%2Fworlds-backup-enfolded-beta-20261003T113000Z.db', APP) is None
+    assert classify(named.replace('.db', '.DB'), APP) is None
+    assert classify(named, APP)[0] == 'validated'

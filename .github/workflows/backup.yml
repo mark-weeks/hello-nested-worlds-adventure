@@ -45,6 +45,7 @@ jobs:
       # Preserve typos so the gate can reject them instead of silently disabling backups.
       BACKUP_REQUIRED: ${{ vars.ENFOLDED_BACKUP_REQUIRED }}
       ENFOLDED_BACKUP_S3_REGION: ${{ vars.ENFOLDED_BACKUP_S3_REGION || 'auto' }}
+      # Example only; Mark has not chosen a retention (ADR-034 §5).
       ENFOLDED_BACKUP_RETENTION_DAYS: ${{ vars.ENFOLDED_BACKUP_RETENTION_DAYS || '30' }}
       # Pinned installer zips. SHA-256 computed 2026-11-02 from those exact URLs.
       AWS_CLI_VERSION: '2.39.3'
@@ -76,7 +77,8 @@ jobs:
             *) echo "::error::Unsupported runner architecture: $arch" >&2; exit 1 ;;
           esac
           workdir="$(mktemp -d)"
-          curl -fsSL -o "$workdir/awscliv2.zip" \
+          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 \
+            -o "$workdir/awscliv2.zip" \
             "https://awscli.amazonaws.com/awscli-exe-${asset}-${AWS_CLI_VERSION}.zip"
           echo "${expect}  $workdir/awscliv2.zip" | sha256sum -c -
           unzip -q "$workdir/awscliv2.zip" -d "$workdir"

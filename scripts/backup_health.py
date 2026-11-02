@@ -35,7 +35,9 @@ def main():
         else:
             pages = list_object_pages(os.environ, app=args.app)
         result = assess(pages, app=args.app, max_age_minutes=args.max_age_minutes)
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, StoreError):
+    except StoreError as exc:
+        parser.exit(2, f'Backup status unavailable: {exc}\n')
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
         parser.exit(2, 'Backup status unavailable: check input and bucket read access.\n')
     print(json.dumps(result, indent=2))
     if result['status'] != 'fresh':

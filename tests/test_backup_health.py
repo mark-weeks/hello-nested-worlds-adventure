@@ -145,6 +145,26 @@ def test_gate_requires_bucket_config_when_backup_is_required(tmp_path, required,
         assert 'artifact' not in summary
 
 
+def test_gate_names_a_missing_endpoint_on_its_own(tmp_path):
+    without_endpoint = {key: value for key, value in S3_READY.items()
+                        if key != 'ENFOLDED_BACKUP_S3_ENDPOINT'}
+    inactive_dir = tmp_path / 'inactive'
+    required_dir = tmp_path / 'required'
+    inactive_dir.mkdir()
+    required_dir.mkdir()
+    inactive, ready, summary = _gate(inactive_dir, BACKUP_REQUIRED='false', FLY_API_TOKEN='fixture-token',
+                                     **without_endpoint)
+    assert inactive.returncode == 0
+    assert ready == 'ready=no'
+    assert 'ENFOLDED_BACKUP_S3_ENDPOINT' in summary
+    assert 'artifact' not in summary
+    required, ready, _summary = _gate(required_dir, BACKUP_REQUIRED='true', FLY_API_TOKEN='fixture-token',
+                                      **without_endpoint)
+    assert required.returncode == 1
+    assert ready == ''
+    assert 'ENFOLDED_BACKUP_S3_ENDPOINT' in required.stderr
+
+
 @pytest.mark.parametrize('extra', [
     {'ENFOLDED_BACKUP_RETENTION_DAYS': 'thirty'},
     {'ENFOLDED_BACKUP_RETENTION_DAYS': '0'},
@@ -156,6 +176,8 @@ def test_gate_requires_bucket_config_when_backup_is_required(tmp_path, required,
     {'ENFOLDED_BACKUP_S3_ENDPOINT': 'https://example.r2.cloudflarestorage.com:bad'},
     {'ENFOLDED_BACKUP_S3_ENDPOINT': 'https://example.r2.cloudflarestorage.com:65536'},
     {'ENFOLDED_BACKUP_S3_ENDPOINT': 'https://example.r2.cloudflarestorage.com:0'},
+    {'ENFOLDED_BACKUP_S3_ENDPOINT': 'https://example.r2.cloudflarestorage.com:'},
+    {'ENFOLDED_BACKUP_S3_ENDPOINT': 'https://h:'},
     {'ENFOLDED_BACKUP_S3_BUCKET': 'Bad_Name'},
     {'ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY': 'has space'},
     {'FLY_APP': '../enfolded'},
@@ -211,6 +233,10 @@ def test_backup_workflow_never_publishes_a_github_artifact():
     assert 'version: 0.5.1' in text
     assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in text
     assert "cron: '17,47 * * * *'" in text
+    assert 'curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300' in text
+    assert '# Example only; Mark has not chosen a retention (ADR-034 §5).' in text
+    gate = (Path(__file__).resolve().parents[1] / 'scripts/backup_gate.sh').read_text()
+    assert '# Example only; Mark has not chosen a retention (ADR-034 §5).' in gate
     store_id, store_if, _store_run, store_step = _workflow_step(text, 'Store the snapshot in the private bucket')
     _prune_id, prune_if, _prune_run, _prune_step = _workflow_step(text, 'Prune private-bucket objects past retention')
     assert store_id == 'store'

@@ -11,6 +11,7 @@ esac
 
 retention="${ENFOLDED_BACKUP_RETENTION_DAYS:-}"
 if [ -z "$retention" ]; then
+  # Example only; Mark has not chosen a retention (ADR-034 §5).
   retention=30
 elif ! [[ "$retention" =~ ^[1-9][0-9]{0,3}$ ]] || [ "$retention" -gt 3650 ]; then
   echo '::error::ENFOLDED_BACKUP_RETENTION_DAYS must be an integer from 1 to 3650, or unset.' >&2

@@ -73,13 +73,25 @@ Object Read & Write is what the upload, the retention prune, and a deletion
 request call through the S3 API (`PutObject`, `ListObjectsV2`, `GetObject`,
 `DeleteObject`). Before setting `ENFOLDED_BACKUP_REQUIRED=true`, put a
 disposable object with the token and delete it, so a token that cannot delete
-is caught before the job depends on it. The secret access key is shown once.
+is caught before the job depends on it. Also delete two disposable objects in
+one `DeleteObjects` call: that batch API is what prune uses, and its billing
+is not the same documented free `DeleteObject`. The secret access key is shown
+once.
 
-Optional, for the freshness command only: a second token with **Object Read
-only**, same bucket. The health check uses it when both
-`ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID` and
-`ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY` are set. Otherwise it uses the
-write key. Do not set only one of the list pair.
+Optional read credential, not a list-only key: a second token with **Object
+Read only**, same bucket. Cloudflare defines that permission as read and list.
+R2 has no list-only permission, so this token can `GetObject` every backup,
+player chat and private notes included. Protect it the way you protect the
+database. A credential that can only list is a ListBucket-only S3 policy,
+which R2 does not offer.
+
+The health check, the retention prune, and `delete-before` list with this pair
+when both `ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID` and
+`ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY` are set. A download does not: `get`
+uses the write key. Set both variables or neither. One of them alone makes
+those listing commands fail closed. The variable names still say `LIST_`
+because that is the pair already documented for operators; the permission is
+read, not list-only.
 
 ## GitHub settings
 
@@ -124,6 +136,8 @@ quarantine key, a wrong app, an empty object, and a stamp in the future. Age is
 the stamp in the name, not the upload time.
 
 The runner's downloaded file is discarded with the job. It is not an artifact.
+An app name that is a prefix of another (`enfolded` and `enfolded-staging`)
+shares that list prefix. `enfolded-beta` and `enfolded-staging` do not.
 
 ## Retention and deletion
 
@@ -135,15 +149,18 @@ object is older than the retention period, so a stretch of failed backups
 cannot empty the bucket of the last good copy. Quarantine objects are not
 protected. The prune step runs only after the store step succeeded
 (`steps.store.outcome == 'success'`). Objects for another app, and any key
-that is not one of the two names above, are left alone. `delete` and
-`delete-before` are the explicit exception: they remove the newest validated
-object when an operator asks them to.
+that is not one of the two names above, are left alone. `delete` of one named
+key can still remove the newest validated object. `delete-before` cannot: it
+keeps the newest nonempty validated object, refuses a cutoff in the future,
+and can print the keys with `--dry-run` before it deletes. `--after` limits
+the window to snapshots that can contain text written at that time. A zero-byte
+or otherwise unusable `Size` is not the copy that floor protects.
 
 A bucket lifecycle rule is an outer age limit, not a copy of the workflow
 prune. It expires objects by age and cannot keep the newest one. Set it to
 the workflow retention plus 7 days or more, prefix `offhost/`, action delete.
-A rule with the same day count as the workflow will delete the last good
-copy when the schedule stops, which cancels the keep-newest floor. On R2 this
+Any lifecycle rule deletes the last copy once the schedule has been stopped
+that many days; retention + 7 only delays it by 7 days. On R2 this
 is the bucket's Settings → Object Lifecycle Rules. Wrangler can set the same
 rule; use the command on
 [object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)
@@ -162,23 +179,52 @@ python scripts/backup_store.py delete \
 ```
 
 The command refuses a key that is not a validated or quarantine object for
-that app. To delete every such object whose snapshot-start is at or before a
-time (the copies that still contain text you have since redacted):
+that app. It can remove the newest validated object, because it names one key.
+
+Redaction of the live database does not edit stored objects, and it does not
+edit the machine-local copies at `/data/backups/*.db` or a downloaded
+`./worlds-backup.db`. Those still hold the original words. Do this in order.
+The workflow concurrency group serializes workflow runs, not this shell, so a
+snapshot that started before the redaction can upload after a delete.
+
+1. Redact the live text.
+2. Dispatch `backup.yml` and wait until that run has finished.
+3. Confirm `python scripts/backup_health.py --app enfolded-beta` reports a
+   snapshot taken after the redaction. That newest nonempty validated object
+   is the one `delete-before` keeps. If you delete first, the copy that still
+   has the text is the one that stays.
+4. Dry-run, then delete only the window that can contain the text. `--after`
+   is when the text was written. `--before` is the last snapshot that can
+   still contain it. A future `--before` is refused, and the command does not
+   list or delete.
 
 ```bash
 python scripts/backup_store.py delete-before \
   --app enfolded-beta \
+  --after 20261001T000000Z \
+  --before 20261003T113000Z \
+  --dry-run
+python scripts/backup_store.py delete-before \
+  --app enfolded-beta \
+  --after 20261001T000000Z \
   --before 20261003T113000Z
 ```
 
-Redaction of the live database does not edit these objects. Delete the objects
-that still contain the original words. Retention is the bound only for copies
-you do not delete on request.
+Then delete the machine-local copies that still hold the text. Retention is
+the bound only for copies you do not delete on request.
 
 ## Restore
 
-List or name the object, download it, validate it, then restore on an isolated
-app. The health check does not download anything.
+Install AWS CLI v2 on the machine that runs these commands. List or name the
+object, download it, validate it, then restore on an isolated app. The health
+check does not download anything. `get` writes the destination as mode `0600`
+and removes a partial file if the transfer is interrupted. List and delete
+wait at most 120 seconds. A download or upload waits
+`ENFOLDED_BACKUP_S3_TIMEOUT_SECONDS` (default 3600; `0` or `none` waits until
+the process ends). The workflow job still ends at 20 minutes, which bounds the
+runner side. The child drops inherited `AWS_*` settings, including
+`AWS_CA_BUNDLE`, so an operator behind a TLS-intercepting proxy needs the
+store's certificate in the default trust store.
 
 ```bash
 export ENFOLDED_BACKUP_S3_BUCKET=enfolded-backups
@@ -206,9 +252,13 @@ participant world.
 ## Freshness
 
 Run this after the workflow has finished, from a shell with AWS CLI v2, the
-bucket, the endpoint, and either the list-only key or the write key. It is
-not a step in `backup.yml`. Until those values are set the command exits 2.
-Once they are set and no validated object exists, it reports `missing`.
+bucket, the endpoint, and either the write key or the optional read key. That
+read key can download every backup; it is not limited to this command, and
+prune and `delete-before` list with it whenever both read variables are set.
+The command itself only lists. It is not a step in `backup.yml`. Until those
+values are set the command exits 2. Once they are set and no validated object
+exists, it reports `missing`. A half-set read pair exits 2 and names the
+incomplete credential; it does not print the key.
 
 ```bash
 python scripts/backup_health.py --app enfolded-beta
@@ -263,10 +313,12 @@ measured on a hosted database; nothing is deployed, so there is no production
 `1,440 × 300 MB = 432,000 MB = 432 GB-month`
 
 At the published Standard rate of **$0.015 per GB-month**, 432 GB-month is
-**$6.48**, roughly **$6.30** a month if the file is a little under 300 MB.
-The included 10 GB-month holds about **7 MB** per copy (`10 GB / 1,440`),
-not a few hundred megabytes. At about 500 MB per copy the same count is
-about $10.80 a month (`1,440 × 0.5 GB × $0.015`). The puts and lists of one
-app stay inside the operation allowance. Check the pricing page again when
-the database has a measured size, or when Mark chooses a different retention.
-This note is not a bill, and it is not a decision to spend that money.
+**$6.48** before the included 10 GB-month. That allowance leaves **422
+GB-month**, which is **$6.33**. The free tier covers about **6.9 MB** per
+copy (`10 / 1,440` GB), not a few hundred megabytes. At 500 MB per copy the
+same count is 720 GB-month: **$10.80** before the allowance and **$10.65**
+after it (`710 × $0.015`). The puts and lists of one app stay inside the
+operation allowance, so that charge is **$0**. Check the pricing page again
+when the database has a measured size, or when Mark chooses a different
+retention. This note is not a bill, and it is not a decision to spend that
+money.
