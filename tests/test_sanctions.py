@@ -244,6 +244,25 @@ class TestSuspensionAndBan:
             sanctions.ban(bea, "which one?")
         assert _table("sanctions") == rows
 
+    def test_a_non_ascii_name_resolves_to_its_own_player(self):
+        # SQLite's lower() folds ASCII only, Python's folds Unicode. The
+        # target must be compared the way the unique name index is.
+        persistence.mint_invite_key(KEY_A, "Élodie")
+        b = sanctions.suspend("Élodie", HOUR, "names a non-ASCII player")
+        assert b["name"] == "Élodie"
+        assert persistence.lookup_invite_key(KEY_A) is None
+
+    def test_a_non_ascii_name_never_sanctions_its_case_twin(self):
+        # Both spellings register (the unique index is lower(trim(name)),
+        # which leaves 'É' as is), so they are two different players.
+        persistence.mint_invite_key(KEY_A, "Élodie")
+        persistence.mint_invite_key(KEY_B, "élodie")
+        b = sanctions.ban("Élodie", "the capitalised one")
+        assert b["name"] == "Élodie"
+        assert persistence.lookup_invite_key(KEY_A) is None
+        assert persistence.lookup_invite_key(KEY_B)["name"] == "élodie"
+        assert participants.identify(KEY_B)["id"] != b["participant"]
+
     def test_expired_suspension_no_longer_refuses_and_cannot_be_lifted(self):
         _mint_two()
         owner = participants.identify(KEY_A)["id"]

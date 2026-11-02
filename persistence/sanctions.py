@@ -77,8 +77,9 @@ def _clean_reason(reason: Any) -> str:
 def _resolve_on(conn, target: str) -> dict[str, Any]:
     """{'id', 'name'} for a registered name or a participant id.
 
-    Names match case- and whitespace-insensitively, the same comparison as
-    name uniqueness (migration 0011), and a revoked key's name still
+    Names match by SQLite's `lower(trim(name))`, the exact comparison the
+    unique name index uses (migration 0011; ASCII letters fold, others are
+    compared as written), and a revoked key's name still
     resolves. A registered player who has never made an authenticated read
     has no participant row yet; one is created with `participants._ensure`
     semantics, keyed by the credential's digest, so the sanction and every
@@ -88,9 +89,14 @@ def _resolve_on(conn, target: str) -> dict[str, Any]:
     if not isinstance(target, str) or not target.strip():
         raise ValueError("Name a registered player or a participant id.")
     target = target.strip()
+    # Both sides go through SQLite's lower(trim(...)), exactly as the unique
+    # name index does (migration 0011), so at most one row can match.
+    # Python's str.lower() folds non-ASCII letters that SQLite's lower()
+    # leaves alone: 'Élodie' would miss its own row and match 'élodie'.
     named = conn.execute(
-        "SELECT key, name FROM invite_keys WHERE lower(trim(name)) = ?",
-        (db._normalize_invite_name(target),)).fetchone()
+        "SELECT key, name FROM invite_keys "
+        "WHERE lower(trim(name)) = lower(trim(?))",
+        (target,)).fetchone()
     by_id = conn.execute(
         "SELECT id FROM participants WHERE id = ?", (target,)).fetchone()
     if named is not None:
