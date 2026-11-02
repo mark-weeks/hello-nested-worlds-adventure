@@ -120,16 +120,17 @@ that change is reviewed against.
   `consciousness/openai_compat_provider.py`. This record does not add it.
 - One POST to `<base>/chat/completions`, `Authorization: Bearer <key>`,
   **zero retries**. The number passed to `opener.open(req, timeout=...)` is
-  a socket timeout on each blocking operation, not a deadline for the whole
-  call. The adapter never calls `urllib.request.urlopen` or
-  `install_opener`, because plain `urlopen` uses the global opener, which
-  reads proxy environment variables and follows 301, 302, and 303. The
-  tests cover 301, 302, 303, 307, and 308 with a proxy variable set.
-  `http.client` says a socket timeout does not fire while data keeps
-  arriving inside every window. When the caller passes none, the adapter
-  default in the table below is that per-operation timeout. Moderation
-  passes 3.0 seconds, so each blocking operation on that call uses 3.0
-  seconds. That is not a 3.0 second cap on the classification.
+  a wall-clock budget for the whole POST. urllib's own timeout limits one
+  socket operation, so the adapter re-arms the socket with the time left
+  before each send and receive; a body that arrives one byte at a time
+  still ends when the budget is spent. DNS resolution and TLS handshake
+  bytes are not covered by the budget. The adapter never calls
+  `urllib.request.urlopen` or `install_opener`, because plain `urlopen`
+  uses the global opener, which reads proxy environment variables and
+  follows 301, 302, and 303. The tests cover 301, 302, 303, 307, and 308
+  with a proxy variable set. When the caller passes none, the adapter
+  default in the table below is that budget. Moderation passes 3.0
+  seconds, so that call's POST uses a 3.0 second wall-clock budget.
 - The wire format is confined to two functions, `build_request` and
   `parse_response`. If the owner later chooses a Responses dialect
   ([open decision](#open-decisions) 4), that is where it would go, without
@@ -189,7 +190,7 @@ reaches a host other than the base URL's.
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS` | `1` when the endpoint enforces `json_schema` | unset (off) |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false` | unset (do not send) |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional pass-through (`none`, `minimal`, `low`, and the other values the operator sets). Unset sends nothing | unset |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Per-operation socket timeout when the caller passes none. Voice and intention pass none. Moderation passes 3.0, which bounds each blocking operation, not the whole call | 60 |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for the whole POST when the caller passes none. Voice and intention pass none. Moderation passes 3.0, which is that call's budget. DNS resolution and TLS handshake bytes are not covered | 60 |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | Already derived by the per-provider concurrency rule | 8 |
 
 Base URL policy: `https` only, except `http` on `127.0.0.1`, `localhost`, or
@@ -248,7 +249,9 @@ servers might reject. Whether they reject it is unverified.
 ### 6. Token accounting
 
 `parse_response` fills `TokenUsage` for the harness and for the existing
-usage log. Missing means unknown, which is `None`, never a fabricated `0`.
+usage log. A missing count is unknown, which is `None`, never a fabricated
+`0`. The input count is the exception below: when `cached_tokens` is
+absent, it is the reported `prompt_tokens`, with nothing subtracted.
 
 - `cache_read_tokens` is `prompt_tokens_details.cached_tokens`, or None when
   the field is absent.
@@ -256,10 +259,15 @@ usage log. Missing means unknown, which is `None`, never a fabricated `0`.
   that field is present, otherwise None. OpenAI's usage object documents
   the field. xAI cache-write billing, and whether xAI reports a write
   field, are unverified. Unknown stays unknown.
-- `input_tokens` is `prompt_tokens − cached − (cache_write or 0)`. That is
-  ordinary input, the same meaning Anthropic's `input_tokens` has when cache
-  reads and writes are reported separately. The result is None when it
-  would be negative or when `prompt_tokens` is missing.
+- `input_tokens` is `prompt_tokens − cached − (cache_write or 0)` when
+  `cached_tokens` is present. That is ordinary input, the same meaning
+  Anthropic's `input_tokens` has when cache reads and writes are reported
+  separately. The result is None when it would be negative or when
+  `prompt_tokens` is missing. When `cached_tokens` is absent —
+  `prompt_tokens_details` present but without `cached_tokens`, or absent
+  entirely — and `prompt_tokens` is present, the input count is
+  `prompt_tokens`, with nothing subtracted. `cache_read_tokens` stays None
+  in that case.
 - `output_tokens` is `total_tokens − prompt_tokens` when both are present
   and that difference is not negative. It is None when `prompt_tokens` or
   `total_tokens` is missing, and None when the difference would be
@@ -300,11 +308,12 @@ provider. Only a clean `stop` is complete: `choices` has exactly one
 element, that element's `content` is a string containing non-whitespace
 text, and `refusal` is null or absent. Empty or whitespace-only content
 is incomplete and carries no text. The parser reads `choices[0]` only.
-The request never sends `n` or `stream`. More than one choice, or a
-`content` that is neither a string nor null (including a parts array),
-raises `MalformedProviderResponse`. Null or missing content gives text
-None. A present, non-null `refusal` is a refusal before content is read.
-A missing `refusal` counts as null.
+The request never sends `n` or `stream`. `choices` missing or empty, or
+`content` null or missing, with at most one choice, gives text None.
+More than one choice, or a `content` that is neither a string nor null
+(including a parts array), raises `MalformedProviderResponse`. A present,
+non-null `refusal` is a refusal before content is read. A missing
+`refusal` counts as null.
 
 | Wire result | `Completion` | Screen |
 |---|---|---|
@@ -453,11 +462,11 @@ if the record is ratified and an implementation follows it.
   treats missing usage as unknown cost cannot pass a max-cost gate on that
   route. Under-counting would be the worse error. xAI cache-write billing
   is unverified.
-- **Zero retries and a 60-second per-operation socket timeout** when the
-  caller passes none. Moderation passes 3.0, so each blocking operation on
-  that call uses 3.0 seconds. Neither number is a deadline for the whole
-  response. The Anthropic SDK's default retry count and timeout were not
-  re-verified for this record, so no comparison with them is stated.
+- **Zero retries and a 60-second wall-clock budget for the whole POST**
+  when the caller passes none. Moderation passes 3.0, so that POST uses a
+  3.0 second budget. DNS resolution and TLS handshake bytes are not covered
+  by the budget. The Anthropic SDK's default retry count and timeout were
+  not re-verified for this record, so no comparison with them is stated.
 - **No live quality, latency, or cost evidence is claimed.** Local contract
   tests, when they exist, will show mechanics. ADR-034 already says only a
   representative live evaluation establishes quality, caching, latency,
