@@ -195,7 +195,12 @@ def handle_websocket(
 
         try:
             while True:
-                payload = ws_recv(sock, send_lock=player.send_lock)
+                # The same throttled check also vets every frame inside an
+                # open fragmented message, which ws_recv reads without
+                # returning: interleaved pings would otherwise keep a revoked
+                # session subscribed.
+                payload = ws_recv(sock, send_lock=player.send_lock,
+                                  on_frame=still_authorized)
                 if payload is None:
                     break
                 # Throttled re-check on every frame, before anything else.
@@ -294,6 +299,11 @@ def handle_websocket(
                                 "text": moderation.player_line(verdict),
                             })
                             continue
+                        # Fresh again: screening can wait on a remote
+                        # classifier, and a credential revoked meanwhile
+                        # must not publish.
+                        if not still_authorized(fresh=True):
+                            break
                     if text:
                         broadcast(
                             room,

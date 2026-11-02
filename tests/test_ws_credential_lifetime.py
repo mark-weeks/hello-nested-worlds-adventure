@@ -445,6 +445,91 @@ class TestCredentialBucketsRegistry:
         assert not buckets.allow("busy")
 
 
+class TestRevocationMidMessage:
+    """Revocation lands while a message is still in flight: inside an open
+    fragmented message (which `ws_recv` reads without returning), or while
+    a chat line waits on moderation screening."""
+
+    @staticmethod
+    def _until_close_raw(sock, timeout=4.0):
+        """Read frames until close; return (status code, opcodes before it)."""
+        sock.settimeout(timeout)
+        opcodes = []
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            opcode, payload = _read_frame(sock)
+            if opcode == 0x8:
+                code = (struct.unpack(">H", payload[:2])[0]
+                        if len(payload) >= 2 else None)
+                return code, opcodes
+            opcodes.append(opcode)
+        raise AssertionError(f"no close frame within {timeout}s")
+
+    @pytest.mark.parametrize("filler", ["ping", "empty continuation"])
+    def test_frames_inside_an_open_fragment_are_still_checked(self, srv, filler):
+        seed = 2651 if filler == "ping" else 2652
+        ada, ada_sid, bea = _two_players(srv, seed)
+        # Open a fragmented chat message and leave it unfinished.
+        ada.sendall(_client_frame(b'{"type": "chat", ', fin=False))
+        persistence.revoke_invite_key(KEY_A)
+
+        frame = (_client_frame(b"", opcode=0x9) if filler == "ping"
+                 else _client_frame(b"", opcode=0x0, fin=False))
+        ada.sendall(frame)
+        code, opcodes = self._until_close_raw(ada)
+        assert code == 1008
+        assert 0xA not in opcodes  # the ping was refused, not answered
+        _until_eof(ada)
+
+        leave, before = _until_type(bea, "player_leave")
+        assert leave["session_id"] == ada_sid
+        assert not [m for m in before if m.get("type") == "chat"]
+        assert _rows(seed, "PLAYER_CHAT") == []
+        bea.close()
+
+    def test_a_live_key_still_assembles_a_fragmented_chat_across_pings(self, srv):
+        seed = 2653
+        ada, _, bea = _two_players(srv, seed)
+        ada.sendall(_client_frame(b'{"type": "chat", ', fin=False)
+                    + _client_frame(b"", opcode=0x9)
+                    + _client_frame(b'"text": "in pieces"}', opcode=0x0))
+        line, _ = _until_type(bea, "chat")
+        assert line["name"] == "Ada" and line["text"] == "in pieces"
+        assert [r["player"] for r in _wait_rows(seed, "PLAYER_CHAT", None, 1)] \
+            == ["Ada"]
+        ada.close()
+        bea.close()
+
+    def test_a_key_revoked_while_its_chat_is_screened_publishes_nothing(
+            self, srv, monkeypatch):
+        from server import moderation
+        real_screen = moderation.screen
+        entered, release = threading.Event(), threading.Event()
+
+        def slow_screen(*args, **kwargs):
+            if kwargs.get("surface") == "chat":
+                entered.set()
+                assert release.wait(5.0), "test never released the screen"
+            return real_screen(*args, **kwargs)
+
+        monkeypatch.setattr(moderation, "screen", slow_screen)
+        seed = 2654
+        ada, ada_sid, bea = _two_players(srv, seed)
+        _ws_send_json(ada, {"type": "chat", "text": "said while judged"})
+        assert entered.wait(4.0), "the chat never reached the screen"
+        persistence.revoke_invite_key(KEY_A)
+        release.set()
+
+        code, _ = _until_close(ada)
+        assert code == 1008
+        _until_eof(ada)
+        leave, before = _until_type(bea, "player_leave")
+        assert leave["session_id"] == ada_sid
+        assert not [m for m in before if m.get("type") == "chat"]
+        assert _rows(seed, "PLAYER_CHAT") == []
+        bea.close()
+
+
 class TestReauthorizationThrottle:
     """The production interval, restored from its test default of zero.
 

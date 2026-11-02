@@ -72,7 +72,7 @@ def _recv_frame(sock) -> tuple[int, bool, bytes]:
     return opcode, fin, bytes(payload)
 
 
-def ws_recv(sock, send_lock=None) -> bytes | None:
+def ws_recv(sock, send_lock=None, on_frame=None) -> bytes | None:
     """Return the next complete data-message payload.
 
     Reassembles fragmented messages, answers pings with pongs, ignores
@@ -83,10 +83,19 @@ def ws_recv(sock, send_lock=None) -> bytes | None:
     `send_lock` serializes the pong/close echoes written from the reader
     thread against the player's writer thread (see rooms.Player) so two
     threads never interleave bytes of different frames on one socket.
+
+    While a fragmented message is open, this keeps reading across
+    continuation and interleaved control frames without returning, so a
+    caller's per-message checks never see them. `on_frame`, if given, is
+    called before each such frame is handled; if it returns False this
+    returns None at once (the caller treats that as the session ending, and
+    `on_frame` is responsible for any close frame it wants sent).
     """
     fragments: list[bytes] = []
     while True:
         opcode, fin, payload = _recv_frame(sock)
+        if fragments and on_frame is not None and not on_frame():
+            return None
 
         if opcode == 0x8:  # close — echo it so the handshake completes
             try:
