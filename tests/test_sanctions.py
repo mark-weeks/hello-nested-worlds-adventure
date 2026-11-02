@@ -158,11 +158,14 @@ class TestSchema:
         assert [r[2] for r in _table("sanctions")] == ["suspension", "ban"]
         assert [(r[0], r[1]) for r in _table("sanction_lifts")] == [(1, "appeal")]
 
-    def test_upgrade_from_0028_keeps_every_existing_row_and_key(self, monkeypatch):
+    def test_upgrade_to_sanctions_keeps_every_existing_row_and_key(self, monkeypatch):
+        # Found by name, not number: numbers are assigned at merge and a
+        # later migration must not break this test.
         migrations = persistence._list_migrations()
-        assert migrations[-1][1].name == "0029_sanctions.sql"
+        version = next(v for v, path in migrations if path.name.endswith("_sanctions.sql"))
+        previous = max(v for v, _ in migrations if v < version)
         monkeypatch.setattr(persistence, "_list_migrations",
-                            lambda: [m for m in migrations if m[0] <= 28])
+                            lambda: [m for m in migrations if m[0] <= previous])
         persistence.mint_invite_key(KEY_A, "Ada")
         # Enrol the participant as identify() does; identify() itself reads
         # the sanction tables, which a 0028 database does not have yet.
@@ -174,14 +177,16 @@ class TestSchema:
                                          "participant_credentials", "journal_notes",
                                          "world_mutations")}
         with _db() as conn:
-            assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 28
+            assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == previous
             assert not conn.execute("SELECT 1 FROM sqlite_master WHERE name='sanctions'").fetchone()
 
         monkeypatch.setattr(persistence, "_list_migrations", lambda: migrations)
         persistence._initialized.discard(persistence._DB_PATH)
         persistence.init_db()
         with _db() as conn:
-            assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 29
+            assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == migrations[-1][0]
+            assert conn.execute("SELECT 1 FROM schema_version WHERE version = ?",
+                                (version,)).fetchone()
         assert {t: _table(t) for t in before} == before
         assert participants.identify(KEY_A)["id"] == owner
         assert persistence.lookup_invite_key(KEY_A)["name"] == "Ada"
@@ -423,6 +428,9 @@ class TestHttpGate:
         refused = http("/ideas/list", key=ada)
         assert refused[:2] == http("/ideas/list", key=KEY_C)[:2]
         assert refused[0] == 403 and "spam" not in json.dumps(refused[1])
+        # Ideas' own refusal, word for word as the runbook quotes it.
+        assert refused[1] == {
+            "error": "Open your current personal game invite to participate in Ideas."}
         assert http("/me", key=ada)[:2] == (403, {"error": "forbidden"})
         assert http("/me", key=bea)[0] == 200
 
@@ -527,7 +535,16 @@ class TestCli:
         (["sanction", "ban", "Nobody", "--reason", "spam"], "No registered player"),
         (["sanction", "suspend", "Ada", "--days", "366", "--reason", "spam"], "365 days"),
         (["sanction", "lift", "7", "--reason", "x"], "No sanction has id 7"),
-    ], ids=["blank-reason", "unknown-player", "too-long", "unknown-id"])
+        # Past what a timedelta or an SQLite INTEGER holds: the same clean
+        # refusal, never an OverflowError traceback.
+        (["sanction", "suspend", "Ada", "--hours", "100000000000", "--reason", "spam"],
+         "365 days"),
+        (["sanction", "suspend", "Ada", "--days", "10000000000", "--reason", "spam"],
+         "365 days"),
+        (["sanction", "lift", "99999999999999999999", "--reason", "x"],
+         "No sanction has id 99999999999999999999"),
+    ], ids=["blank-reason", "unknown-player", "too-long", "unknown-id",
+            "hours-past-timedelta", "days-past-timedelta", "id-past-sqlite-integer"])
     def test_refusals_exit_with_a_message_and_write_nothing(self, argv, message):
         persistence.mint_invite_key(KEY_A, "Ada")
         with pytest.raises(SystemExit) as exc:
