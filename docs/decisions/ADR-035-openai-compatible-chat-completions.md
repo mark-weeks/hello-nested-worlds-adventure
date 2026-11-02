@@ -1,7 +1,7 @@
 # ADR-035: Second text adapter — OpenAI-compatible Chat Completions
 
 **Status:** Proposed, 2026-11-01. Written from the second-text-adapter plan
-Mark Weeks, sole maintainer, approved the same day. **Not ratified.** This
+that Mark Weeks, the sole maintainer, approved the same day. **Not ratified.** This
 document introduces no runtime behavior, no registered adapter, no migration,
 and no write path. The open decisions below stay with the owner. Citing this
 record authorizes nothing: no destination for player text, no spend, no
@@ -119,12 +119,17 @@ that change is reviewed against.
   is unset, so no optional extra is required. The module would live at
   `consciousness/openai_compat_provider.py`. This record does not add it.
 - One POST to `<base>/chat/completions`, `Authorization: Bearer <key>`,
-  **zero retries**. The caller's timeout is the timeout; when the caller
-  passes none, the adapter default in the table below applies. Moderation
-  already passes 3.0 seconds, so that cap stays.
+  **zero retries**. The number passed to `urlopen` is a socket timeout on
+  each blocking operation, not a deadline for the whole call. `http.client`
+  says a socket timeout does not fire while data keeps arriving inside
+  every window. When the caller passes none, the adapter default in the
+  table below is that per-operation timeout. Moderation passes 3.0 seconds,
+  so each blocking operation on that call uses 3.0 seconds. That is not a
+  3.0 second cap on the classification.
 - The wire format is confined to two functions, `build_request` and
-  `parse_response`. A Responses dialect can be added there later without a
-  `TextProvider` change. Whether to add it is an [open decision](#open-decisions).
+  `parse_response`. If the owner later chooses a Responses dialect
+  ([open decision](#open-decisions) 4), that is where it would go, without
+  a `TextProvider` change. This record does not choose it.
 - Chat Completions is the dialect because it is the one format every target
   in Context documents. Responses is the forward path at xAI and OpenAI. It
   is not the intersection.
@@ -158,18 +163,29 @@ are not defaults.
 Every name below is new. None renames an existing variable. The adapter
 reads none of `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `XAI_API_KEY`, or any
 other vendor variable. A key is sent only to the base URL the operator set
-for this adapter.
+for this adapter. The opener is built with `urllib.request.ProxyHandler({})`
+and a redirect handler that replaces the default. `ProxyHandler({})` does
+not call `getproxies()`, so `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` are
+not used unless a later decision adds them. `build_opener` still installs
+`HTTPRedirectHandler` when the only extra handler is `ProxyHandler`
+(`urllib/request.py`, `build_opener`). A subclass of
+`HTTPRedirectHandler` is what skips that default. The default follows a
+POST 301, 302, or 303 as GET while copying `req.headers`, including
+`Authorization` (`redirect_request`). A POST 307 or 308 raises `HTTPError`
+instead. The adapter's opener follows no redirects: any 3xx raises
+`ProviderHTTPError` with the status code only, so `Authorization` never
+reaches a host other than the base URL's.
 
 | Variable | Meaning | Default |
 |---|---|---|
 | `NESTED_WORLDS_PROVIDER=openai_compatible` | Existing selector | `anthropic` |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL` | Endpoint the operator chooses, for example `https://api.x.ai/v1` | required |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL` | Endpoint the operator chooses. `https://<host>/v1` is a shape, not a destination (Open decision 1) | required |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` | Bearer key. Redacted by `model_check._SECRET_NAME` | required, except on loopback |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_TOKENS_PARAM` | `max_completion_tokens` or `max_tokens` | `max_completion_tokens` |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` | Wire field for the caller's `max_tokens`: `max_completion_tokens` or `max_tokens` | `max_completion_tokens` |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS` | `1` when the endpoint enforces `json_schema` | unset (off) |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false` | unset (do not send) |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional pass-through (`none`, `minimal`, `low`, and the other values the operator sets). Unset sends nothing | unset |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Used when the caller passes no timeout. Voice and intention pass none. Moderation passes 3.0 | 60 |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Per-operation socket timeout when the caller passes none. Voice and intention pass none. Moderation passes 3.0, which bounds each blocking operation, not the whole call | 60 |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | Already derived by the per-provider concurrency rule | 8 |
 
 Base URL policy: `https` only, except `http` on `127.0.0.1`, `localhost`, or
@@ -181,11 +197,19 @@ joined so a path such as Gemini's `/v1beta/openai/` still ends at
 `/chat/completions`. A loopback base URL may omit the key. Any other host
 without a key is not configured.
 
-`MAX_TOKENS_PARAM` defaults to `max_completion_tokens` because OpenAI and
+`MAX_OUTPUT_PARAM` defaults to `max_completion_tokens` because OpenAI and
 xAI document that name. Ollama's parameter list shows `max_tokens`, so the
 operator sets the name for that host. Whether vLLM accepts
 `max_completion_tokens` is unverified; the setting exists so the operator
-can match the server without a code change.
+can match the server without a code change. The environment name does not
+contain `TOKEN`. `model_check._SECRET_NAME` is
+`(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)`, case-insensitive, and
+`_secret_values` collects any value of length at least 8 whose variable
+name matches. `max_completion_tokens` is 21 characters, so a name containing
+`TOKEN` would treat that field name as a secret: the models report would
+redact it, and `_embeds_secret` would hard-fail a model id that contains
+it. `MAX_OUTPUT_PARAM` does not match the regex. `API_KEY` does, which is
+why the bearer key is redacted.
 
 `SEND_STORE_FALSE` defaults off. OpenAI documents `"store": false` on Chat
 Completions. Sending it only when the operator opts in avoids a field some
@@ -201,8 +225,8 @@ servers might reject. Whether they reject it is unverified.
   system message; that rejection is unverified per server, and one message
   is the portable form.
 - Caller messages pass through in order, roles unchanged.
-- The max-token field name is the setting in the table. The value is the
-  caller's `max_tokens`.
+- The max-token field name is `MAX_OUTPUT_PARAM`. The value is the
+  caller's `max_tokens`. The request does not send `n` or `stream`.
 - When `json_schema` is not None **and** structured outputs are declared on,
   send `response_format` as
   `{"type": "json_schema", "json_schema": {"name": "enfolded_output", "schema": <schema>, "strict": true}}`.
@@ -233,18 +257,26 @@ usage log. Missing means unknown, which is `None`, never a fabricated `0`.
   reads and writes are reported separately. The result is None when it
   would be negative or when `prompt_tokens` is missing.
 - `output_tokens` is `total_tokens − prompt_tokens` when both are present,
-  otherwise `completion_tokens`. OpenAI's documented `completion_tokens`
-  includes reasoning. xAI's documented example excludes it and puts
-  reasoning in the total. The difference of the two totals counts reasoning
-  in both of those published examples. It is a reading of the examples, not
-  a live measurement.
+  and None otherwise. There is no fallback to `completion_tokens`. OpenAI's
+  documented `completion_tokens` includes reasoning. xAI's documented
+  example excludes it and puts reasoning in the total. The difference of
+  the two totals counts reasoning in both of those published examples, and
+  a `completion_tokens` fallback would under-count on the xAI shape.
+  Under-counting is the worse error, so a missing total stays unknown.
+  It is a reading of the examples, not a live measurement.
 - `resolved_model` is the `model` string the body echoes.
-  `provider` is `openai_compatible`. Provenance
-  (`mutation_model_provenance`) stores that echo verbatim. An alias such as
-  `"latest"` would be stored as returned. xAI's Responses example echoes
-  `"model": "latest"`; whether Chat Completions does the same was not a
-  separate check. The side table is append-only with the chronicle row it
-  describes. This record adds no write path.
+  `provider` is `openai_compatible`. Provenance does not store that echo
+  verbatim. `_model_mark` (`persistence/__init__.py`) strips the string and
+  drops it when it is not a string, is blank after stripping, is longer
+  than 200 characters, or contains a character whose code point is below
+  32. A dropped value is absence, not a shortened id. `model_check` still
+  allows an id of up to 256 characters, so an echo of 201 to 256 characters
+  can pass startup and then be omitted from `mutation_model_provenance`.
+  An alias such as `"latest"` that passes those checks is stored as the
+  stripped text. xAI's Responses example echoes `"model": "latest"`;
+  whether Chat Completions does the same was not a separate check. The
+  side table is append-only with the chronicle row it describes. This
+  record adds no write path.
 
 The adapter does not read a provider-reported money field. Call caps are
 counts. Identical counts are not identical spend. Exposing a reported cost
@@ -255,19 +287,28 @@ would change `Completion` and is an open decision.
 Shared text is published only after the existing screen allows it.
 `moderation_outcome` allows only a complete reply whose text is exactly one
 verdict. The adapter's mapping is therefore the safety contract for this
-provider. Only a clean `stop` with text is complete.
+provider. Only a clean `stop` is complete: `choices` has exactly one
+element, that element's `content` is a string containing non-whitespace
+text, and `refusal` is null or absent. Empty or whitespace-only content
+is incomplete and carries no text. The parser reads `choices[0]` only.
+The request never sends `n` or `stream`. More than one choice, or a
+`content` that is not a string (including a parts array), raises
+`MalformedProviderResponse`. A present, non-null `refusal` is a refusal
+before content is read. A missing `refusal` counts as null.
 
 | Wire result | `Completion` | Screen |
 |---|---|---|
-| `finish_reason` `"stop"`, string `content`, `refusal` null | `complete=True`, `finish_reason="complete"` | verdict text decides |
+| `finish_reason` `"stop"`, exactly one choice, `content` a string with non-whitespace text, `refusal` null or absent | `complete=True`, `finish_reason="complete"`, text is that string | verdict text decides |
+| `"stop"` with `content` `""` or whitespace only | `complete=False`, text None | undecided, held |
 | `"length"` | `complete=False`, `finish_reason="length"` | undecided, held |
 | `"content_filter"` | `complete=False`, `finish_reason="filtered"`, text None | held |
-| `message.refusal` non-null, any finish | `complete=False`, `finish_reason="refusal"`, text None | held |
+| `message.refusal` present and not null, any finish | `complete=False`, `finish_reason="refusal"`, text None | held |
 | `"tool_calls"` or `"function_call"` | `complete=False`, `finish_reason="tool"` | held |
 | `"end_turn"` | `complete=False`, `finish_reason="unknown"` | held |
 | null, missing, or any other finish | `complete=False`, `finish_reason="unknown"` | held |
-| `choices` missing or empty, or `content` null | text None | voice raises `NoTextError`; moderation holds |
-| HTTP non-2xx, HTTP 200 with an `error` object, non-JSON, timeout, connection error | raise an adapter exception | screen's `except` holds |
+| `choices` missing or empty, or `content` null, with at most one choice | text None | voice raises `NoTextError`; moderation holds |
+| more than one choice, or `content` not a string | raise `MalformedProviderResponse` | screen's `except` holds |
+| HTTP non-2xx, HTTP 200 with an `error` object, non-JSON, timeout, connection error, any 3xx | raise an adapter exception, `from None`, fixed message | screen's `except` holds |
 | Unconfigured (no key, or no URL) | `configured()` is false; classify still raises at call time | held. `/speak` serves the authored fallback and does not charge the voice budget |
 
 `end_turn` stays incomplete on this adapter. The anthropic adapter treats
@@ -279,9 +320,18 @@ publish shared text on a finish this screen has not seen live. Hold is the
 contract until that live check exists.
 
 Adapter exceptions (`ProviderHTTPError` with the status code only,
-`ProviderTimeout`, `MalformedProviderResponse`) carry neither the response
-body, nor the key, nor the URL, nor the prompt. `failure_summary` logs the
-exception class only, matching the class-only provider logs on `main`.
+`ProviderTimeout`, `MalformedProviderResponse`, `UnsupportedCapability`)
+are raised `from None` with a fixed message. The message carries neither
+the response body, nor the key, nor the URL, nor the prompt, nor any
+upstream text. `from None` matters because a chained urllib error includes
+the target URL, and two loggers print the chain: `server/observability.py`
+`capture_exception` calls `_log.exception` when Sentry is off, and
+`server/heartbeat.py` has several `_log.exception` calls.
+`failure_summary` (`consciousness/runtime.py`) returns the class name
+only, except `NoTextError`, whose message is the normalized completion
+metadata. The dispatch catch-all in `server/handlers.py` `_fail_dispatch`
+still logs that traceback when Sentry is off. That is the #132 follow-up
+and is not this adapter.
 
 Vendor moderation endpoints, including a `moderation` parameter on Chat
 Completions, are a separate decision. The classifier prompt is unchanged.
@@ -324,8 +374,9 @@ These stay with Mark Weeks. This record does not choose them.
    as a preferred name for the same bucket. That is a separate decision.
 4. **Later Responses support, and vendor-named profiles** (`xai`, `openai`)
    so provenance and concurrency name the vendor rather than
-   `openai_compatible`. Both stay optional. This record isolates the dialect
-   so Responses can be added; it does not schedule that work. A native
+   `openai_compatible`. Both stay optional. The wire format is confined to
+   two functions. If the owner adds Responses, that is where it would go.
+   This record does not schedule that work. A native
    Gemini adapter, a per-task `reasoning_effort` (which needs `TextProvider`
    to learn the task), and a provider-reported cost on `Completion` are the
    same kind of later work, and they are not decided here.
@@ -379,18 +430,24 @@ if the record is ratified and an implementation follows it.
 - **The name `openai_compatible` hides the vendor** in provenance and in the
   concurrency setting. Vendor-named profiles are an open decision. Until
   one exists, the stored provider string is the adapter name, and the
-  echoed model id is whatever the server returned.
+  stored model id is what `_model_mark` keeps of the server's echo.
 - **The voice bucket keeps a vendor name.** A provider switch must not
-  replenish an allowance. The name is already documented as the voice budget
-  for any text provider. Renaming it is open. Reusing it is the point.
+  replenish an allowance. `docs/development/agent-runtime.md` says the
+  `anthropic` bucket and `NESTED_WORLDS_ANTHROPIC_*` names stay, and that
+  they must not be renamed or reset to make the interface look neutral or
+  to replenish an allowance. It does not call that bucket the voice budget
+  for every text provider. This record is the place that says the same
+  bucket counts those calls on whichever adapter is selected. Renaming it
+  is open. Reusing it is the point.
 - **`cache_write_tokens` stays None when the server omits it.** A meter that
   treats missing usage as unknown cost cannot pass a max-cost gate on that
   route. Under-counting would be the worse error. xAI cache-write billing
   is unverified.
-- **Zero retries and a 60-second default** (moderation still 3.0 seconds,
-  because the caller passes it) are this adapter's settings. The Anthropic
-  SDK's default retry count and timeout were not re-verified for this
-  record, so no comparison with them is stated.
+- **Zero retries and a 60-second per-operation socket timeout** when the
+  caller passes none. Moderation passes 3.0, so each blocking operation on
+  that call uses 3.0 seconds. Neither number is a deadline for the whole
+  response. The Anthropic SDK's default retry count and timeout were not
+  re-verified for this record, so no comparison with them is stated.
 - **No live quality, latency, or cost evidence is claimed.** Local contract
   tests, when they exist, will show mechanics. ADR-034 already says only a
   representative live evaluation establishes quality, caching, latency,
@@ -402,10 +459,11 @@ if the record is ratified and an implementation follows it.
   production. Each approval is its own decision. This clause does not grant
   it.
 - Chat Completions drift at a destination the owner has actually chosen, or
-  Responses becomes the only format that destination still documents. Add
-  the dialect inside `build_request` and `parse_response`. Keep Chat
-  Completions while a chosen target documents no Responses support.
-  Gemini-compat documents none. vLLM's Responses support is unverified.
+  Responses becomes the only format that destination still documents. If
+  the owner adds Responses (Open decision 4), the isolation point is
+  `build_request` and `parse_response`. This clause does not choose that
+  addition. Gemini-compat documents no Responses support. vLLM's Responses
+  support is unverified.
 - An evaluation selects Gemini and the native Interactions API
   (`client.interactions.create`, the surface Google's structured-output page
   documented on 2026-11-01) is stable enough to justify its own adapter.
@@ -433,13 +491,16 @@ if the record is ratified and an implementation follows it.
 - **Responses first.** The forward path at xAI and OpenAI. It drops
   Gemini-compat, which documents no Responses support, and it leaves vLLM
   unverified. Chat Completions is the only format every target in this
-  record documents. The wire format sits in two functions so Responses can
-  be added later. Adding it is not decided here.
+  record documents. The wire format sits in two functions. If the owner
+  adds Responses, that is the isolation point. Adding it is not decided
+  here.
 - **The `openai` SDK instead of stdlib.** The SDK reads `OPENAI_API_KEY` and
   `OPENAI_BASE_URL` from the environment implicitly, so a key can leave for
   a host the operator did not name on this adapter. It also adds version
   churn and an optional extra. `urllib.request` is already in the process,
-  and a test can replace the transport without a socket.
+  and a test can replace the transport without a socket. The default
+  opener is not that boundary by itself: it follows some redirects and
+  reads proxy variables. This adapter's opener closes both, as §4 states.
 - **A universal router.** Rejected by ADR-034. This record proposes one
   bounded adapter, not a router.
 - **Implicit vendor environment variables.** Rejected. Configuration is the
