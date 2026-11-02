@@ -1,15 +1,20 @@
 """Small text-provider boundary; world prompts and validators stay with their tasks.
 
 ``NESTED_WORLDS_PROVIDER`` selects a registered adapter. Unset means
-``anthropic``, the only built-in adapter. An unknown name fails startup.
-The first successful selection is cached for the process. Per-task
-settings choose a model id on that provider. When no setting names an id,
-the selected adapter's own ``default_model`` supplies it. An adapter that
-omits that method does not inherit another adapter's ids. An id never
-selects or replaces the provider, and a failed call is never retried on
-another id or another provider. Adding a provider still requires an
-adapter, a registry entry, and contract evaluation (ADR-034). This module
-does not import a provider SDK.
+``anthropic``. Built-in adapters are ``anthropic`` and
+``openai_compatible``. The second speaks OpenAI-compatible Chat
+Completions to an operator-supplied base URL. It is registered for
+evaluation. No destination is approved for production, and no provider
+other than the current default has been evaluated or approved (ADR-034;
+ADR-035 is Proposed and does not enable a destination). An unknown name
+fails startup. The first successful selection is cached for the process.
+Per-task settings choose a model id on that provider. When no setting
+names an id, the selected adapter's own ``default_model`` supplies it.
+An adapter that omits that method does not inherit another adapter's ids.
+An id never selects or replaces the provider, and a failed call is never
+retried on another id or another provider. Adding a provider still
+requires an adapter, a registry entry, and contract evaluation (ADR-034).
+This module does not import a provider SDK.
 """
 from __future__ import annotations
 
@@ -309,12 +314,17 @@ def reserve_model_action(user_key: str | None = None) -> ModelReservation:
 class TextProvider(Protocol):
     """Text adapter. Id judgment and default ids are not part of this protocol.
 
+    Built-in adapters share this protocol. The method set and the
+    ``Completion`` fields do not change when another adapter is registered.
     Adapters that know which ids they serve also match
     ``ModelIdJudgingProvider``. The startup check uses getattr, so an
     adapter that omits ``model_id_validator`` is not asked and still
     satisfies this protocol for type checkers. ``default_model(task)`` is
     also optional. It returns the id to use when no setting names one.
     Omitting it does not borrow another adapter's ids.
+    ``supports_json_schema()`` is optional too. When it is present and
+    false, ``generate`` raises before any charge if a schema was
+    requested. Omitting it means the adapter accepts a schema.
     """
 
     name: str
@@ -355,8 +365,15 @@ def _load_anthropic() -> TextProvider:
     return provider
 
 
+def _load_openai_compatible() -> TextProvider:
+    # Stdlib HTTP only. The module does not import a provider SDK.
+    from consciousness.openai_compat_provider import provider
+    return provider
+
+
 _BUILTINS: dict[str, Callable[[], TextProvider]] = {
     DEFAULT_PROVIDER: _load_anthropic,
+    "openai_compatible": _load_openai_compatible,
 }
 _REGISTERED: dict[str, Callable[[], TextProvider]] = {}
 _registry_lock = threading.Lock()
@@ -575,22 +592,34 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
              user_key: str | None = None,
              reservation: ModelReservation | None = None,
              voice_budget: bool = False) -> Completion:
-    """One text completion. The model-action cap runs before the provider.
+    """One text completion. An unsupported schema charges nothing.
 
-    A missing or blank model id raises ``UnusableModelId`` before that cap
-    and before the voice budget, and the provider is not called.
-    ``voice_budget`` reserves an ``anthropic`` call after that cap and before
-    the provider, so a refused cap does not spend the voice budget. A
-    ``ModelReservation`` from ``reserve_model_action`` is not charged again.
+    A missing or blank model id raises ``UnusableModelId`` before any cap
+    and before the provider is called. When a schema is requested and the
+    selected adapter's ``supports_json_schema`` is false, this raises
+    ``UnsupportedCapability`` before the model-action cap and before the
+    voice budget, and the provider is not called. An adapter that omits
+    that method still accepts a schema. The model-action cap then runs,
+    and ``voice_budget`` reserves one voice call in the existing
+    ``anthropic`` bucket, whichever provider is selected, after that cap
+    and before the provider, so a refused cap does not spend the voice
+    budget. The bucket name is unchanged. A ``ModelReservation`` from
+    ``reserve_model_action`` is not charged again. The schema check still
+    runs when a reservation is already held, and it does not charge again.
     """
     require_model_id(model)
+    provider = get_provider()
+    if json_schema is not None:
+        supports = getattr(provider, "supports_json_schema", None)
+        if callable(supports) and not supports():
+            from consciousness.openai_compat_provider import UnsupportedCapability
+            raise UnsupportedCapability() from None
     if not isinstance(reservation, ModelReservation):
         reservation = reserve_model_action(user_key)
     if voice_budget:
         from server import guard
         if not guard.consume_anthropic(user_key=reservation.key):
             raise VoiceBudgetLimited()
-    provider = get_provider()
     with _semaphore_for(provider.name):
         result = provider.generate(model=model, system=system, messages=messages,
                                    max_tokens=max_tokens, json_schema=json_schema,
