@@ -312,6 +312,30 @@ def test_unknown_agent_is_quiet_before_the_screen_budget_or_any_row(srv, voice):
     assert status == 404 and data["error"] == "no such place in this world"
 
 
+@pytest.mark.parametrize("requested", [
+    "\ud800", " " * 32 + "\ud800", "Ada\udfff",
+])
+def test_a_name_with_no_utf8_form_is_quiet_not_a_server_error(srv, voice, requested):
+    """A lone surrogate (an escaped ``\\ud800`` in the JSON body) is a client's
+    mistake. It cannot be hashed to a persona or echoed, so it reads as
+    "Someone" — HTTP 200, ``ai: false``, no screen, no budget, no row."""
+    stub, screens = voice
+    seed = 4612
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    body = {"seed": seed, "node_name": node.name, "agent_name": requested,
+            "message": "hello, old light"}
+    assert "\\ud" in json.dumps(body)  # the escape json.loads turns back into a surrogate
+    status, data = _request(srv, "/agent/voice", body=body)
+    assert status == 200, data
+    assert data == _quiet("Someone", node.name)
+    # A persona argument with no UTF-8 form only fails to pick an archetype.
+    status, data = _request(srv, "/agent/voice", body={**body, "persona": "\ud800"})
+    assert status == 200 and data == _quiet("Someone", node.name)
+    assert screens == [] and stub.calls == []
+    assert _counters(BEA_KEY) == {"voice": 0, "user_voice": 0, "moderation": 0, "model": 0}
+    assert _agent_rows(seed, "AGENT_VOICE") == []
+
+
 @pytest.mark.parametrize("requested,canonical", [
     ("Tessera", "Tessera"), ("  aunt entropy ", "Aunt Entropy"),
     ("SCOUT", "Scout"), ("observer", "Observer"),

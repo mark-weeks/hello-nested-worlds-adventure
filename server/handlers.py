@@ -1423,8 +1423,15 @@ class Handler(BaseHTTPRequestHandler):
         # The quiet line echoes an unknown name back to the one client that
         # sent it (a stale trace from an old local DB reads in fiction). It
         # is never stored, broadcast, or logged.
-        label = agent_name or (
-            requested.strip()[:32] if isinstance(requested, str) else "") or "Someone"
+        echo = requested.strip()[:32] if isinstance(requested, str) else ""
+        try:
+            echo.encode("utf-8")
+        except UnicodeEncodeError:
+            # A lone surrogate (an escaped "\ud800" in the body) has no UTF-8
+            # form to hash for a persona or to echo: a client's mistake, so
+            # it reads as "Someone", not a 500.
+            echo = ""
+        label = agent_name or echo or "Someone"
         persona = persona_by_name(persona_arg) or persona_for_name(label)
 
         # Same order as /speak: the place is resolved before the screen, so
