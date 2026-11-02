@@ -381,6 +381,64 @@ fly ssh console -C "python main.py invite tokens --all"
 fly ssh console -C "python main.py invite cancel nwr_<token>"
 ```
 
+### Suspending or banning a player
+
+Suspend or ban when a player should lose access but could come back.
+Revoke when access ends for good.
+
+| Action | Command | Ends | Name and key |
+|---|---|---|---|
+| Suspend | `sanction suspend <name> --hours N` or `--days N` (1 minute to 365 days) | At its expiry, or `sanction lift` | Kept. The same key works again afterwards. |
+| Ban | `sanction ban <name>` | Only by `sanction lift` | Kept. The same key works again once lifted. |
+| Revoke | `invite revoke <key>` | Never. There is no un-revoke. | Burned. Minting refuses the name, and a fresh invite creates a new participant with an empty journal and profile. |
+
+```bash
+# A reason is required for every suspend, ban and lift.
+fly ssh console -C "python main.py sanction suspend Alice --hours 24 --reason 'spam in chat, second warning'"
+fly ssh console -C "python main.py sanction ban Alice --reason 'threats to another player'"
+
+# Active sanctions, with their ids and reasons. --all adds lifted and expired ones.
+fly ssh console -C "python main.py sanction list"
+fly ssh console -C "python main.py sanction list --all"
+
+# End one early, by id from the list.
+fly ssh console -C "python main.py sanction lift 3 --reason 'appeal accepted'"
+```
+
+`<name>` is the registered name (any case) or the participant id. The
+sanction attaches to the participant, not to the key, so rotating the key
+does not escape it. No restart is needed. The player's next HTTP request is
+refused. An open WebSocket closes with status 1008 at the next frame it
+sends, so within about 20 s for a browser client, and a silent socket ends at
+the 60 s idle timeout. When the suspension expires or the sanction is lifted,
+the same key resolves to the same participant again. Journal, profile, home
+and saved position are untouched throughout.
+
+What the player sees: the same `403 {"error": "forbidden"}` as a revoked key
+(Ideas, which authenticates on its own, answers its usual 403 "A current
+personal invite is required."). No reason, kind or end time is shown. Telling the player what
+was decided and why, and any appeal, is checklist G8, a held owner decision.
+Neither client yet tells the player their invite stopped working.
+
+What is recorded: one `sanctions` row per suspension or ban and one
+`sanction_lifts` row per lift (migration 0029). No application command
+edits or deletes them, so `sanction list --all` is the complete history.
+Nothing is written to the chronicle. The disconnect writes the same
+`PLAYER_LEAVE` row as any other departure, and nothing marks it as a
+sanction. Overlapping sanctions each have to end: lifting a ban leaves an
+active suspension in force. Logs carry the sanction id and kind only, never
+the reason, the name or a credential.
+
+**Sanction reasons are private operator data, and they enter every
+backup.** They are never shown to players, but they sit in the live database
+and therefore in every machine-local `/data/backups/*.db` copy, every
+off-host object, and any downloaded `./worlds-backup.db` (§7). Unlike
+chronicle text, `redact` does not reach them. Write reasons you would be
+content to see restored from a backup. Keep them short and factual, with no
+contact details and no other player's private data. The player-facing
+privacy notice (checklist L3) must name this record: that sanction decisions
+and their reasons are kept, privately, for as long as backups are.
+
 ---
 
 ## 7. Backups
@@ -570,6 +628,10 @@ deletes the last copy once the schedule has been stopped that many days;
 retention + 7 only delays it by 7 days. The rule does not keep the newest
 object. Expiry is not a substitute for deleting a copy you were asked to
 remove.
+
+Redaction removes words from the chronicle. It does not keep their author
+out: suspend or ban them for that (§6, "Suspending or banning a player").
+Sanction reasons are not chronicle rows, and `redact` does not reach them.
 
 ---
 

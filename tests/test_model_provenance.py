@@ -102,7 +102,9 @@ def _rows():
 def test_migration_on_a_copy_leaves_prior_rows_byte_identical(tmp_path, monkeypatch):
     monkeypatch.delenv("NESTED_WORLDS_MUTATION_TTL_DAYS", raising=False)
     migrations = persistence._list_migrations()
-    assert max(version for version, _ in migrations) == 28
+    # Later additive migrations (0029 sanctions) apply in the same upgrade
+    # and must leave the chronicle byte-identical too.
+    assert max(version for version, _ in migrations) >= 28
     prior = [item for item in migrations if item[0] < 28]
     assert prior[-1][0] == 27
     with patch.object(persistence, "_list_migrations", return_value=prior):

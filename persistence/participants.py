@@ -27,7 +27,13 @@ def _ensure(conn, digest):
     return participant
 
 
-_LIVE_INVITE = "SELECT name FROM invite_keys WHERE key=? AND revoked_at IS NULL"
+# Live means not revoked and not sanctioned (migration 0029). A sanctioned
+# participant is refused here exactly as a revoked one is, so journal,
+# profile and Ideas read the same "current personal invite" refusal and
+# never learn why. Their data stays; the same credential resolves to the
+# same participant once the sanction ends.
+_LIVE_INVITE = ("SELECT name FROM invite_keys WHERE key=? AND revoked_at IS NULL "
+                f"AND {db._UNSANCTIONED}")
 
 
 def identify(key: str) -> dict:

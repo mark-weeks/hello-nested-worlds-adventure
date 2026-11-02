@@ -36,12 +36,12 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 
 ## At a glance
 
-95 items in 16 categories. 54 block beta, and 45 of them are still open.
+95 items in 16 categories. 54 block beta, and 44 of them are still open.
 
 | Status | Count |
 |---|---|
-| Done | 10 |
-| Partial | 36 |
+| Done | 11 |
+| Partial | 35 |
 | Not started | 44 |
 | Unknown | 5 |
 
@@ -63,7 +63,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Legal and policy | 5 | 1 | 1 | 1 | 2 |
 | Deployment and ops | 6 | 0 | 1 | 5 | 0 |
 | Community and beta cohort | 4 | 0 | 1 | 3 | 0 |
-| Community governance and self-policing | 12 | 0 | 2 | 10 | 0 |
+| Community governance and self-policing | 12 | 1 | 1 | 10 | 0 |
 | Distinctiveness: why players return | 7 | 0 | 3 | 4 | 0 |
 
 > **Biggest gaps:** The core loop is built and tested locally, but no one except Mark has played it. Blocking, reporting, alignment and tangible rewards don't exist yet, puzzle fun is unmeasured, and every hosted gate (Fly, backups, live models) waits on Mark's account and decisions.
@@ -194,7 +194,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 |---|---|---|---|---|---|
 | L1 | Open-source license and notices | License, NOTICE and third-party notices ship in the build. | Done | (Code) Apache-2.0 `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.txt`, ADR-023. | **Blocks beta** |
 | L2 | Terms of use and content policy | Linked from the invite and register page, and accepted at registration. | Not started | (Code) No terms page in `static/`. | **Blocks beta** |
-| L3 | Player-facing privacy notice | States what is kept forever, what can be redacted, and the retention date. | Partial | (Docs) ADR-004 data policy and protocol consent exist. No player-facing page found. | **Blocks beta** |
+| L3 | Player-facing privacy notice | States what is kept forever, what can be redacted, and the retention date. | Partial | (Docs) ADR-004 data policy and protocol consent exist. No player-facing page found. The notice must also name sanction records: suspensions and bans with their private reasons are kept in every backup and are not redactable ([fly-deployment.md §6](../infrastructure/fly-deployment.md#suspending-or-banning-a-player)). | **Blocks beta** |
 | L4 | Third-party provider terms reviewed | A data use note for each provider that receives player text or prompts. | Unknown | (Inference) Tied to S2. Not checked. | **Blocks beta** · Mark decides |
 | L5 | AI-generated content disclosure | The guide and UI say which text and art is generated. | Unknown | (Inference) Not audited. | Can follow |
 
@@ -226,7 +226,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | G2 | Report with a reason and optional evidence | Any player can report another with one reason category from a fixed list and optional evidence (chat lines or chronicle entries). The report is stored per reporter and confirmed to them, and it is never shown to the reported player as coming from a named person. | Not started | (Code) No report flow exists. Chat is stored as PLAYER_CHAT, which could serve as evidence. | **Blocks beta** |
 | G3 | Corroboration before any consequence | A case opens only after reports from N distinct established players. A test proves one report alone never triggers a consequence. | Not started | (Inference) Proposed design. N and the meaning of established are Mark's. | Can follow · Mark decides |
 | G4 | Graduated consequences | The ladder is written and enforced in code with tests: personal mute (instant), then a temporary suspension, then a permanent ban only after a recorded review. | Not started | (Inference) Proposed design. Who can suspend or ban is Mark's. | Can follow · Mark decides |
-| G5 | Owner can suspend or ban (sole reviewer early in beta) | Mark can suspend a player for a set time or ban them, effective within 1 min, recorded with a reason, and reversible. | Partial | (Code) `python main.py invite revoke` calls `persistence.revoke_invite_key`, and lookup skips a key with `revoked_at` set, so a revoked key stops authorizing new requests. An already-open WebSocket on a revoked key closes with status 1008 at its next move or chat, or its next other frame once 2 s have passed since its last check (a browser client pings every 20 s), and a silent one ends at the 60 s idle timeout (`tests/test_ws_credential_lifetime.py`). A timed suspension, a recorded reason and reversal are missing. | **Blocks beta** |
+| G5 | Owner can suspend or ban (sole reviewer early in beta) | Mark can suspend a player for a set time or ban them, effective within 1 min, recorded with a reason, and reversible. | Done | (Code) `python main.py sanction suspend <name> --hours N` (or `--days N`), `sanction ban`, `sanction lift <id>` and `sanction list [--all]` (`persistence/sanctions.py`, migration 0029). Every action needs a non-empty reason, enforced by CHECK constraints. Rows are insert-only. A sanction is keyed to the participant. While it is active, `lookup_invite_key` and `participants.identify` refuse every credential of that player with the revoked-key 403 and no reason. An open WebSocket closes with status 1008 at its next move or chat, or its next other frame once 2 s have passed since its last check (a browser client pings every 20 s; a silent one ends at the 60 s idle timeout). After expiry or a lift the same key returns to the same participant, journal intact. The invite gate never reopens (`tests/test_sanctions.py`). `invite revoke` stays the permanent, name-burning action. Telling the player and any appeal are G8. | **Blocks beta** |
 | G6 | Rotating random jury | Jurors are drawn at random from the trusted pool for each case, see only the evidence, and vote independently. There is no open vote by all players. | Not started | (Inference) Proposed design. Open voting is easy to brigade. Jury size is Mark's. | Can follow · Mark decides |
 | G7 | Trust standing for jurors and reporters | Standing is computed from account age, fair-play record and past reports that were upheld, and it is pinned by tests. | Not started | (Inference) No standing or reputation data exists. Thresholds are Mark's. | Can follow · Mark decides |
 | G8 | Notice and appeal | The accused is told what was decided and why, and can appeal once to a different reviewer within a set window. | Not started | (Inference) Proposed design. Appeal rules are Mark's. | Can follow · Mark decides |
