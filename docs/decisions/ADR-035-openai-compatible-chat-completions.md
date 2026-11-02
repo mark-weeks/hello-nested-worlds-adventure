@@ -124,7 +124,11 @@ that change is reviewed against.
   socket operation, so the adapter re-arms the socket with the time left
   before each send and receive; a body that arrives one byte at a time
   still ends when the budget is spent. DNS resolution and TLS handshake
-  bytes are not covered by the budget. The adapter never calls
+  bytes are not covered by the budget. Each resolved address is tried with
+  the time still left, so several addresses do not multiply the budget.
+  A response body over 1 MiB (1,048,576 bytes), including an announced
+  Content-Length over that cap, is `MalformedProviderResponse`. The adapter
+  never calls
   `urllib.request.urlopen` or `install_opener`, because plain `urlopen`
   uses the global opener, which reads proxy environment variables and
   follows 301, 302, and 303. PR #134's tests cover 301, 302, 303, 307, and 308
@@ -139,9 +143,14 @@ that change is reviewed against.
   in Context documents. Responses is the forward path at xAI and OpenAI. It
   is not the intersection.
 
-### 2. No `TextProvider` change
+### 2. No required `TextProvider` change
 
-`generate` keeps its current parameters. It does not learn which task it is
+No required `TextProvider` change. Adapters may add optional
+`supports_json_schema()`, which `runtime.generate` checks before any
+charge. When a schema is requested and the method returns false, it raises
+`UnsupportedCapability` and charges nothing. An adapter that omits the
+method still accepts a schema. `generate` keeps its current parameters.
+It does not learn which task it is
 serving, so this adapter cannot send a different reasoning effort per task.
 That would be a protocol change and is an open decision, not this one.
 `model_id_validator` returns None. `model_check`'s structural rules still
@@ -189,7 +198,7 @@ reaches a host other than the base URL's.
 |---|---|---|
 | `NESTED_WORLDS_PROVIDER=openai_compatible` | Existing selector | `anthropic` |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL` | Endpoint the operator chooses. `https://<host>/v1` is a shape, not a destination (Open decision 1) | required |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` | Bearer key. Redacted by `model_check._SECRET_NAME`. Absent on loopback is allowed. A present key that is not ASCII, not printable, or contains whitespace is unconfigured on every host | required off loopback |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` | Bearer key. Redacted by `model_check._SECRET_NAME`. Absent on loopback is allowed. A present key that is not ASCII, not printable, or contains whitespace after stripping is unconfigured on every host | required off loopback |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` | Wire field for the caller's `max_tokens`: `max_completion_tokens` or `max_tokens` | `max_completion_tokens` |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS` | `1` when the endpoint enforces `json_schema` | unset (off) |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false` | unset (do not send) |
@@ -199,7 +208,10 @@ reaches a host other than the base URL's.
 
 Base URL policy: `https` only, except `http` on `127.0.0.1`, `localhost`, or
 `::1`. Userinfo, query, and fragment are rejected. The URL is never logged
-and never echoed. Its name contains neither `KEY` nor `TOKEN`, so
+and never echoed, except the host in Sentry's stdlib httplib breadcrumbs
+(`data.url`) when `SENTRY_DSN` is set; no key or path secret is recorded.
+The base URL is omitted from `repr`. Its name contains neither `KEY` nor
+`TOKEN`, so
 `model_check._secret_values` will not redact it. That is a reason to keep
 it out of logs, not a reason to treat it as public. A trailing slash is
 joined so a path such as Gemini's `/v1beta/openai/` still ends at
@@ -338,7 +350,7 @@ counts as null.
 | `choices` missing or empty, or `content` null or missing, with at most one choice | text None | voice raises `NoTextError`; moderation holds |
 | more than one choice, or `content` neither a string nor null | raise `MalformedProviderResponse` | screen's `except` holds |
 | HTTP non-2xx, HTTP 200 with an `error` object, non-JSON, timeout, connection error, any 3xx | raise an adapter exception, `from None`, fixed message | screen's `except` holds |
-| Unconfigured (rejected base URL or no URL; no key off loopback; a present key that is not ASCII, not printable, or contains whitespace, on any host including loopback; invalid `MAX_OUTPUT_PARAM` or `REASONING_EFFORT`) | `configured()` is false; classify still raises at call time | held. `/speak` serves the authored fallback and does not charge the voice budget |
+| Unconfigured (rejected base URL or no URL; no key off loopback; a present key that is not ASCII, not printable, or contains whitespace after stripping, on any host including loopback; invalid `MAX_OUTPUT_PARAM` or `REASONING_EFFORT`) | `configured()` is false; classify still raises at call time | held. `/speak` serves the authored fallback and does not charge the voice budget |
 
 `end_turn` stays incomplete on this adapter. The anthropic adapter treats
 its own `stop_reason` `end_turn` as complete. That is a different wire
@@ -357,6 +369,8 @@ upstream text. `from None` matters because a chained urllib error includes
 the target URL, and two loggers print the chain: `server/observability.py`
 `capture_exception` calls `_log.exception` when Sentry is off, and
 `server/heartbeat.py` has several `_log.exception` calls.
+A peer that closes before the status line
+(`http.client.RemoteDisconnected`) is `ProviderConnectionError`.
 `failure_summary` (`consciousness/runtime.py`) returns the class name
 only, except `NoTextError`, whose message is the normalized completion
 metadata. The dispatch catch-all in `server/handlers.py` `_fail_dispatch`
