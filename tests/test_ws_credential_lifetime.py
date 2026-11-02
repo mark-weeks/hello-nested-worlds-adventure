@@ -445,6 +445,102 @@ class TestCredentialBucketsRegistry:
         assert not buckets.allow("busy")
 
 
+class TestReauthorizationThrottle:
+    """The production interval, restored from its test default of zero.
+
+    Frames that write nothing re-check at most once per
+    `guard.WS_REAUTH_INTERVAL_SEC`, so a frame flood is not a database-read
+    flood. A move or chat that passes its throttle re-checks fresh, so a
+    revoked credential still writes nothing inside the interval.
+    """
+
+    @staticmethod
+    def _count_lookups(monkeypatch):
+        calls = []
+        real = persistence.lookup_invite_key
+
+        def counting(key):
+            calls.append(key)
+            return real(key)
+
+        monkeypatch.setattr(persistence, "lookup_invite_key", counting)
+        return calls
+
+    def test_a_frame_flood_costs_one_read_per_interval(self, srv, monkeypatch):
+        monkeypatch.setattr(guard, "WS_REAUTH_INTERVAL_SEC", 60.0)
+        seed = 2631
+        persistence.mint_invite_key(KEY_A, "Ada")
+        ada, _ = _join(srv, seed, "x", KEY_A)
+        calls = self._count_lookups(monkeypatch)
+
+        for _ in range(50):
+            ada.sendall(_client_frame(b"not json"))
+        for _ in range(25):
+            ada.sendall(_client_frame(b"", opcode=0x9))
+        _ws_send_json(ada, {"type": "ping"})
+        _until_type(ada, "pong")
+
+        # 76 frames, one re-check (the first frame after the upgrade).
+        assert len(calls) == 1
+        ada.close()
+
+    def test_a_chat_inside_the_interval_is_still_checked_fresh(
+            self, srv, monkeypatch):
+        monkeypatch.setattr(guard, "WS_REAUTH_INTERVAL_SEC", 60.0)
+        seed = 2632
+        ada, ada_sid, bea = _two_players(srv, seed)
+        # A checked frame starts the interval; the revocation lands inside it.
+        _ws_send_json(ada, {"type": "ping"})
+        _until_type(ada, "pong")
+        persistence.revoke_invite_key(KEY_A)
+
+        _ws_send_json(ada, {"type": "chat", "text": "inside the interval"})
+        assert _until_close(ada)[0] == 1008
+        _until_eof(ada)
+        leave, before = _until_type(bea, "player_leave")
+        assert leave["session_id"] == ada_sid
+        assert not [m for m in before if m.get("type") == "chat"]
+        assert _rows(seed, "PLAYER_CHAT") == []
+        bea.close()
+
+    def test_a_move_inside_the_interval_is_still_checked_fresh(
+            self, srv, monkeypatch):
+        monkeypatch.setattr(guard, "WS_REAUTH_INTERVAL_SEC", 60.0)
+        seed = 2633
+        target = generate_node_hierarchy(seed=seed, max_depth=2).children[0]
+        ada, _, bea = _two_players(srv, seed)
+        _ws_send_json(ada, {"type": "ping"})
+        _until_type(ada, "pong")
+        persistence.revoke_invite_key(KEY_A)
+
+        _ws_send_json(ada, {"type": "move", "node": target.name})
+        assert _until_close(ada)[0] == 1008
+        _until_eof(ada)
+        assert _rows(seed, "PLAYER_MOVE", "Ada") == []
+        bea.close()
+
+    def test_a_listening_socket_closes_on_its_first_frame_after_the_interval(
+            self, srv, monkeypatch):
+        monkeypatch.setattr(guard, "WS_REAUTH_INTERVAL_SEC", 0.5)
+        seed = 2634
+        ada, _, bea = _two_players(srv, seed)
+        _ws_send_json(ada, {"type": "ping"})
+        _until_type(ada, "pong")
+        persistence.revoke_invite_key(KEY_A)
+
+        # Inside the interval a frame that writes nothing is not re-checked.
+        _ws_send_json(ada, {"type": "ping"})
+        _until_type(ada, "pong")
+        # The first such frame after the interval is, and it ends the session.
+        time.sleep(0.6)
+        _ws_send_json(ada, {"type": "ping"})
+        code, seen = _until_close(ada)
+        assert code == 1008
+        assert not [m for m in seen if m.get("type") == "pong"]
+        _until_eof(ada)
+        bea.close()
+
+
 class TestPlayersRouteRemoved:
     def test_players_answers_like_any_unknown_route_for_an_invited_caller(self, srv):
         persistence.mint_invite_key(KEY_A, "Ada")

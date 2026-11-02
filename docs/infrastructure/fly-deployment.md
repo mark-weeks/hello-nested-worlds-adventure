@@ -347,9 +347,10 @@ player (ADR-004 §7). Gate semantics: the gate is OPEN until the first per-user
 key or registration invite below is issued, so everything before this step is
 publicly reachable — **mint the first key before you share the URL anywhere.**
 The gate then latches: revoking every key does not reopen it. Revoking a key
-also closes that player's open WebSocket (status 1008) at the next frame it
-sends, keepalives included, so within about 20 s for a browser client; a
-silent socket ends at the 60 s idle timeout. Any keyless socket opened before
+also closes that player's open WebSocket (status 1008): at once if it next
+moves or chats, otherwise at its next frame of any kind once 2 s have passed
+since its last check (keepalives included), so within about 20 s for a
+browser client; a silent socket ends at the 60 s idle timeout. Any keyless socket opened before
 the first key closes the same way.
 `fly ssh console` opens a shell inside the running machine.
 

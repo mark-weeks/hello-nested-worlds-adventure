@@ -352,13 +352,25 @@ def check_invite_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) ->
     return not invite_gate_active()
 
 
+# How often an open socket re-checks its authorization on frames that write
+# nothing (protocol pings and pongs, application pings, bad JSON, unknown
+# types, a move or chat its throttle refused). A move or chat that passes its
+# throttle is always re-checked fresh before it writes or broadcasts, so a
+# revoked credential never writes again. This interval bounds the rest: a
+# revoked listen-only session stays subscribed at most this long past its
+# next frame, and a frame flood costs at most one database read per interval
+# instead of one per frame.
+WS_REAUTH_INTERVAL_SEC = 2.0
+
+
 def ws_session_authorized(ws_key: str, credentialed: bool) -> bool:
     """Whether an open WebSocket may still act. One database read.
 
     The upgrade is authorized once, but a session can outlive its
-    credential. The message loop calls this before it acts on every client
-    frame, control frames and ignored frames included, since any frame
-    keeps the session (and its room broadcasts) alive:
+    credential. The message loop calls this before a move or chat writes
+    anything, and at most once per `WS_REAUTH_INTERVAL_SEC` on every other
+    client frame, control frames and ignored frames included, since any
+    frame keeps the session (and its room broadcasts) alive:
 
       * `credentialed` (the socket upgraded with a live per-user key): it
         stays authorized only while that key is live. A revoked or rotated
