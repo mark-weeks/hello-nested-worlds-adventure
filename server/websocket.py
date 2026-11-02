@@ -167,11 +167,13 @@ def handle_websocket(
             ws_key if credentialed else None)
 
         def still_authorized() -> bool:
-            # One database read. Called before every frame type that can
-            # write or broadcast (move, chat) and on application pings, so
-            # a revoked credential or a newly closed gate ends the session
-            # at its next action. Ignored frames (bad JSON, unknown types)
-            # write nothing and are not checked.
+            # One database read, before EVERY client frame is acted on, so a
+            # revoked credential or a newly closed gate ends the session at
+            # its next frame of any kind. Frames that write nothing (protocol
+            # pings and pongs, bad JSON, unknown types, a rate-limited move
+            # or chat) are checked too: each one resets the idle timer, and
+            # an unchecked one would keep a revoked session subscribed to
+            # every room broadcast for as long as it kept sending them.
             if guard.ws_session_authorized(ws_key, credentialed):
                 return True
             logger.info("WebSocket session %s closed: no longer authorized",
@@ -183,6 +185,10 @@ def handle_websocket(
             while True:
                 payload = ws_recv(sock, send_lock=player.send_lock)
                 if payload is None:
+                    break
+                # Authorization comes before anything else, the throttles
+                # included, so a refused frame spends no shared allowance.
+                if not still_authorized():
                     break
                 if not payload:
                     continue
@@ -200,8 +206,6 @@ def handle_websocket(
                 if message_type == "move":
                     if not move_bucket.allow():
                         continue
-                    if not still_authorized():
-                        break
                     node_name = str(message.get("node", ""))[:64]
                     target = (
                         store.resolve_node_by_name(seed, node_name)
@@ -253,8 +257,6 @@ def handle_websocket(
                 elif message_type == "chat":
                     if not chat_bucket.allow():
                         continue
-                    if not still_authorized():
-                        break
                     # Same rule as /speak: a non-string is not a line. Do not
                     # stringify it, screen it, or write it. The sender hears
                     # the same private refusal; nobody else does.
@@ -294,8 +296,6 @@ def handle_websocket(
                             actor_identity=ws_identity,
                         )
                 elif message_type == "ping":
-                    if not still_authorized():
-                        break
                     player.send({"type": "pong"})
         except ProtocolError:
             try:

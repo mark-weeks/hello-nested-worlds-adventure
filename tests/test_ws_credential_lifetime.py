@@ -22,6 +22,7 @@ from multiverse.generator import generate_node_hierarchy
 from server import guard
 from tests.test_day_one_recording import _ws_connect, _ws_send_json
 from tests.test_moderation import _read_ws_json_until, _recv_exact
+from tests.test_server_protocol import _client_frame
 
 KEY_A = "nw_" + "a" * 32
 KEY_B = "nw_" + "b" * 32
@@ -219,6 +220,63 @@ class TestRevokedCredentialLosesItsSocket:
         _ws_send_json(ada, {"type": "chat", "text": "old key"})
         assert _until_close(ada)[0] == 1008
         assert _rows(seed, "PLAYER_CHAT") == []
+
+    # Frames that write nothing still reset the 60 s idle timer, so a client
+    # that sends only these after revocation would otherwise stay subscribed
+    # to every room broadcast (chat text, moves, joins) indefinitely.
+    _SILENT_FRAMES = {
+        "protocol-ping": _client_frame(b"hb", opcode=0x9),
+        "protocol-pong": _client_frame(b"", opcode=0xA),
+        "unknown-type": _client_frame(b'{"type": "wave"}'),
+        "invalid-json": _client_frame(b"{not json"),
+        "non-object-json": _client_frame(b"[1, 2]"),
+        "empty-text": _client_frame(b""),
+    }
+
+    @pytest.mark.parametrize("kind", sorted(_SILENT_FRAMES))
+    def test_a_revoked_socket_cannot_stay_subscribed_on_frames_that_write_nothing(
+            self, srv, kind):
+        seed = 2640 + sorted(self._SILENT_FRAMES).index(kind)
+        ada, ada_sid, bea = _two_players(srv, seed)
+        persistence.revoke_invite_key(KEY_A)
+
+        ada.sendall(self._SILENT_FRAMES[kind])
+        code, seen = _until_close(ada)
+        assert code == 1008, kind
+        _until_eof(ada)
+        assert not [m for m in seen if m.get("type") == "chat"]
+
+        # The usual single departure, and Bea's later line reaches no one
+        # but Bea.
+        leave, _ = _until_type(bea, "player_leave")
+        assert leave["session_id"] == ada_sid
+        assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
+        _ws_send_json(bea, {"type": "chat", "text": "after"})
+        _until_type(bea, "chat")
+        bea.close()
+
+    def test_a_revoked_socket_with_a_spent_chat_bucket_still_closes(
+            self, srv, monkeypatch):
+        # A dropped (rate-limited) frame writes nothing, but it must not be a
+        # way to keep a revoked session alive and listening either. A
+        # near-zero refill keeps the bucket spent for the whole test.
+        monkeypatch.setattr(guard, "WS_CHAT_BUCKETS",
+                            guard.CredentialBuckets(0.0001, guard.WS_CHAT_BURST))
+        seed = 2649
+        ada, _, bea = _two_players(srv, seed)
+        for i in range(guard.WS_CHAT_BURST):
+            _ws_send_json(ada, {"type": "chat", "text": f"line {i}"})
+        _ws_send_json(ada, {"type": "ping"})
+        _until_type(ada, "pong")
+        assert len(_wait_rows(seed, "PLAYER_CHAT", "Ada", guard.WS_CHAT_BURST)) \
+            == guard.WS_CHAT_BURST
+
+        persistence.revoke_invite_key(KEY_A)
+        _ws_send_json(ada, {"type": "chat", "text": "over the limit"})
+        assert _until_close(ada)[0] == 1008
+        _until_eof(ada)
+        assert len(_rows(seed, "PLAYER_CHAT", "Ada")) == guard.WS_CHAT_BURST
+        bea.close()
 
     def test_a_failing_credential_lookup_closes_the_socket(self, srv, monkeypatch):
         seed = 2606

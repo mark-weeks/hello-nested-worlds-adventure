@@ -356,8 +356,9 @@ def ws_session_authorized(ws_key: str, credentialed: bool) -> bool:
     """Whether an open WebSocket may still act. One database read.
 
     The upgrade is authorized once, but a session can outlive its
-    credential. The message loop calls this before each frame that can
-    write or broadcast, and on application pings:
+    credential. The message loop calls this before it acts on every client
+    frame, control frames and ignored frames included, since any frame
+    keeps the session (and its room broadcasts) alive:
 
       * `credentialed` (the socket upgraded with a live per-user key): it
         stays authorized only while that key is live. A revoked or rotated
