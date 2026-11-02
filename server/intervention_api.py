@@ -33,8 +33,10 @@ def _quiet(line, *, ai=False, declined=False, clarification=False):
 def _propose(intention, key, name, node, props):
     if guard.ai_disabled() or not runtime.configured():
         return None, _quiet(_UNSHAPED)
-    # The model-action cap and the voice budget are charged inside
-    # runtime.generate, in that order, when propose() asks for a completion.
+    # A schema the selected adapter refuses is raised inside
+    # runtime.generate before either charge. Otherwise the model-action
+    # cap and the voice budget are charged there, in that order, when
+    # propose() asks for a completion.
     from consciousness.interventions import Clarification, Unsupported, propose
     from consciousness.runtime import ModelActionLimited, VoiceBudgetLimited
     try:

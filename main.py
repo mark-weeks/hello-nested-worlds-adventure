@@ -170,18 +170,28 @@ def cmd_models(args):
     ``anthropic``). ``--probe`` makes one tiny live call per distinct model
     id. It is off unless this flag is passed. Server startup, tests, and CI
     do not pass it. An unconfigured provider prints
+    ``provider not configured`` and, with ``--probe``,
     ``skipped: provider not configured`` and exits 1. That path does not
-    call the provider. A missing SDK for the selected provider exits with
-    one line naming the optional extra, and does not probe. A task that
-    would use the default, on an adapter that does not supply one, is a
-    hard problem: the report is printed and the process exits.
+    call the provider and does not echo the base URL or the key. A missing
+    SDK for the selected provider exits with one line naming the optional
+    extra, and does not probe. A task that would use the default, on an
+    adapter that does not supply one, is a hard problem: the report is
+    printed and the process exits. That line names the task variable or
+    ``NESTED_WORLDS_MODEL`` for node voice, inhabitant voice, and intention.
+    Moderation names only its own variable. When the selected adapter's
+    ``supports_json_schema`` is false, the intent row says structured
+    outputs are off and intent calls will be refused. That note is not a
+    hard problem.
     """
+    from consciousness import runtime
     from consciousness.model_check import (
         check_model_configuration, format_report, probe_distinct_models,
     )
 
-    report = check_model_configuration()
-    print(format_report(report))
+    provider = runtime.get_provider()
+    report = check_model_configuration(provider)
+    print(_with_schema_note(format_report(report), provider))
+    _print_unconfigured_hint(provider)
     if report.hard:
         raise SystemExit(report.failure_line())
     if not args.probe:
@@ -192,6 +202,49 @@ def cmd_models(args):
         failed = failed or not result.accepted
     if failed:
         raise SystemExit(1)
+
+
+_SCHEMA_OFF_NOTE = "(structured outputs off - intent calls will be refused)"
+
+
+def _with_schema_note(text: str, provider) -> str:
+    """Mark the intent row when this adapter will refuse a schema.
+
+    An adapter that omits ``supports_json_schema`` still accepts a schema.
+    The note is not a startup failure.
+    """
+    supports = getattr(provider, "supports_json_schema", None)
+    if not callable(supports):
+        return text
+    try:
+        enabled = bool(supports())
+    except Exception:
+        return text
+    if enabled:
+        return text
+    lines = []
+    for line in text.split("\n"):
+        if line.startswith("intent ") and _SCHEMA_OFF_NOTE not in line:
+            line = f"{line} {_SCHEMA_OFF_NOTE}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _print_unconfigured_hint(provider) -> None:
+    """One neutral line when the selected adapter is not usable.
+
+    The base URL and the key are not printed. A provider with no
+    ``configured`` method is left alone.
+    """
+    configured = getattr(provider, "configured", None)
+    if not callable(configured):
+        return
+    try:
+        ready = bool(configured())
+    except Exception:
+        ready = False
+    if not ready:
+        print("provider not configured")
 
 
 def cmd_backup(args):
@@ -489,8 +542,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Make one tiny live call per distinct model id. Off unless "
              "passed. Not used by server startup, tests, or CI. An "
-             "unconfigured provider prints 'skipped: provider not configured' "
-             "and exits 1 without calling the provider.",
+             "unconfigured provider prints 'provider not configured', and "
+             "with this flag also 'skipped: provider not configured', then "
+             "exits 1 without calling the provider.",
     )
     p_models.set_defaults(func=cmd_models)
 
