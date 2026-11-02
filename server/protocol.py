@@ -141,6 +141,20 @@ def _send_frame(sock, opcode: int, data: bytes, lock=None) -> None:
         sock.sendall(frame)
 
 
+# RFC 6455 §7.4.1 status codes the server sends.
+CLOSE_PROTOCOL_ERROR = 1002
+CLOSE_POLICY_VIOLATION = 1008
+
+
+def send_close(sock, code: int, send_lock=None) -> None:
+    """Send a close frame carrying `code` (§5.5.1), no reason text.
+
+    The caller ends the session afterwards; this does not wait for the
+    peer's echo. Raises OSError if the socket is already gone.
+    """
+    _send_frame(sock, 0x8, struct.pack(">H", code), lock=send_lock)
+
+
 def ws_send(sock, data: str | bytes, send_lock=None) -> None:
     if isinstance(data, str):
         data = data.encode()

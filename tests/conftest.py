@@ -62,18 +62,23 @@ def _reset_text_provider():
 
 @pytest.fixture(autouse=True)
 def _isolate_rate_limits():
-    """The per-IP rate limiter and WS connection limiter are module-level
-    singletons; one test file's requests must not 429 the next file's."""
+    """The per-IP rate limiter, WS connection limiter and per-credential WS
+    message buckets are module-level singletons; one test file's requests
+    must not 429 the next file's."""
     from server import guard
     guard.RATE_LIMITER.reset()
     guard.READ_RATE_LIMITER.reset()
     guard.IDEAS_AUTH_FAILURE_RATE_LIMITER.reset()
     guard.WS_LIMITER.reset()
+    guard.WS_MOVE_BUCKETS.reset()
+    guard.WS_CHAT_BUCKETS.reset()
     yield
     guard.RATE_LIMITER.reset()
     guard.READ_RATE_LIMITER.reset()
     guard.IDEAS_AUTH_FAILURE_RATE_LIMITER.reset()
     guard.WS_LIMITER.reset()
+    guard.WS_MOVE_BUCKETS.reset()
+    guard.WS_CHAT_BUCKETS.reset()
 
 
 @pytest.fixture

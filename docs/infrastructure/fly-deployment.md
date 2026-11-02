@@ -222,7 +222,8 @@ fly secrets set \
 
 # REQUIRED for any public deployment: close the invite gate. There is no
 # shared key — the gate is the per-user `invite_keys` table and stays OPEN
-# until the first per-user key is minted (§6). An ungated server is an open
+# until the first per-user key or registration invite is issued (§6);
+# from then on it stays closed, even if every key is later revoked. An ungated server is an open
 # proxy to the configured provider's budget (currently Anthropic). The daily
 # caps bound the damage; they don't prevent strangers spending it. Mint the
 # first per-user key in §6 BEFORE you announce the URL, and do not share the
@@ -343,8 +344,12 @@ Per-user keys give you revocable, attributable access for each tester, and
 they are the whole invite gate — there is no shared key. Every key carries a
 unique registered name, so a gated session is always a known, non-anonymous
 player (ADR-004 §7). Gate semantics: the gate is OPEN until the first per-user
-key below is minted, so everything before this step is publicly reachable —
-**mint the first key before you share the URL anywhere.**
+key or registration invite below is issued, so everything before this step is
+publicly reachable — **mint the first key before you share the URL anywhere.**
+The gate then latches: revoking every key does not reopen it. Revoking a key
+also ends that player's open WebSocket at its next move, chat or ping (close
+status 1008), and any keyless socket opened before the first key closes the
+same way.
 `fly ssh console` opens a shell inside the running machine.
 
 Two ways to invite, both single-use per person:
