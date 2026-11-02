@@ -174,12 +174,10 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
     return find_node(deeper, node_name)
 
 
-# The wandering cast's names are world canon: their chronicle rows must be
-# unimpersonatable, so no player may claim them. Imported here, after the
-# module-level constants it sits beside, by design.
-from consciousness import WANDERER_CAST as _WANDERER_CAST  # noqa: E402
-
-_RESERVED_PLAYER_NAMES = {n.lower() for n in _WANDERER_CAST}
+# Every server-owned agent identity is world canon: the wandering cast
+# (ADR-004 §7) and the Scout and Observer walkers (agents/identities.py).
+# Their chronicle rows must be unimpersonatable, so no player may claim them.
+_RESERVED_PLAYER_NAMES = {n.lower() for n in identities.SERVER_IDENTITIES}
 
 
 def _normalize_client_name(raw: Any) -> str | None:
@@ -187,8 +185,8 @@ def _normalize_client_name(raw: Any) -> str | None:
 
     Trimming before the reserved-name check closes the whitespace-bypass a
     cap-then-strip order left open (" Tessera" once evaded the cast block).
-    Reserved (wanderer-cast) names normalize to None — the action still
-    happens, anonymously, rather than in an agent's name.
+    Reserved (server-owned agent) names normalize to None — the action
+    still happens, anonymously, rather than in an agent's name.
     """
     if not raw:
         return None
@@ -1515,8 +1513,8 @@ class Handler(BaseHTTPRequestHandler):
         if len(name) > 32:
             return self._send_error("name too long (32 characters max)", 400)
         if name.lower() in _RESERVED_PLAYER_NAMES:
-            # Same rule as the WS join and the mint CLI: the wandering cast's
-            # names are world canon and unimpersonatable.
+            # Same rule as the WS join and the mint CLI: the server-owned
+            # agent names are world canon and unimpersonatable.
             return self._send_error(
                 f"'{name}' belongs to the world — choose another name", 403)
         # The invite token is not authenticated until redemption below, so

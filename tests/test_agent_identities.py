@@ -326,3 +326,88 @@ def test_a_missing_agent_name_is_still_scout(srv, voice):
         "seed": seed, "node_name": node.name, "message": "hello, old light"})
     assert status == 200 and data["agent"] == "Scout" and data["ai"] is True
     assert [row["data"]["agent"] for row in _agent_rows(seed, "AGENT_VOICE")] == ["Scout"]
+
+
+# ── No player may claim a server-owned identity ─────────────────────────────
+
+@pytest.fixture()
+def open_srv():
+    """No key minted: the ungated local-dev path where names are client-chosen."""
+    server = _ThreadedServer(("127.0.0.1", 0), _Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield port
+    server.shutdown()
+    server.server_close()
+    thread.join(5)
+
+
+@pytest.mark.parametrize("name", ["Scout", "observer", " OBSERVER ", "Tessera"])
+def test_registration_refuses_an_agent_name_and_keeps_the_token(open_srv, name):
+    persistence.create_registration_token("nwr_live")
+    status, data = _request(open_srv, "/register", key="",
+                            body={"invite": "nwr_live", "name": name})
+    assert status == 403 and data["error"] == (
+        f"'{name.strip()}' belongs to the world — choose another name")
+    assert persistence.lookup_registration_token("nwr_live") is not None
+    assert persistence.list_invite_keys() == []
+    # Not over-broad: a name that merely contains one is a player's.
+    status, data = _request(open_srv, "/register", key="",
+                            body={"invite": "nwr_live", "name": "Scoutmaster"})
+    assert status == 200, data
+    assert [row["name"] for row in persistence.list_invite_keys()] == ["Scoutmaster"]
+
+
+@pytest.mark.parametrize("name", ["Scout", "%20observer", "OBSERVER"])
+def test_keyless_ws_join_as_an_agent_is_refused(open_srv, name):
+    sock, status = _ws_connect(open_srv, 4610, name)
+    try:
+        assert b"403" in status
+    finally:
+        sock.close()
+    assert persistence.get_mutations(4610) == []
+
+
+def test_keyless_body_name_of_an_agent_is_recorded_anonymously(open_srv):
+    seed = 4611
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    for name in ("Observer", " scout "):
+        status, _ = _request(open_srv, "/puzzle/attempt", key="", body={
+            "seed": seed, "depth": 1, "node_name": node.name,
+            "answer": "not it", "player_name": name})
+        assert status == 200
+    attempts = [row for row in persistence.get_mutations(seed)
+                if row["type"] == "PUZZLE_ATTEMPT"]
+    assert len(attempts) == 2 and {row["player"] for row in attempts} == {None}
+
+
+@pytest.mark.parametrize("name", ["Scout", " observer "])
+def test_mint_cli_refuses_an_agent_name(name):
+    import main
+
+    class Args:
+        invite_action = "mint"
+        note = None
+        unscreened = True
+
+    Args.name = name
+    with pytest.raises(SystemExit, match="reserved world name"):
+        main.cmd_invite(Args())
+    assert persistence.list_invite_keys() == []
+
+
+@pytest.mark.parametrize("name", ["Observer", "SCOUT"])
+def test_play_cli_refuses_an_agent_name(monkeypatch, name):
+    import main
+    started = []
+    monkeypatch.setattr("interface.run_session", lambda **kwargs: started.append(kwargs))
+
+    class Args:
+        seed = 42
+        depth = 1
+
+    Args.name = name
+    with pytest.raises(SystemExit, match="reserved world name"):
+        main.cmd_play(Args())
+    assert started == []

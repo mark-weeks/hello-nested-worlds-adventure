@@ -136,14 +136,15 @@ def cmd_play(args):
         # unknown presence there. No anonymous gameplay (ADR-004 §7): require a
         # name so every recorded actor is known.
         raise SystemExit("A player name is required — pass --name <you>.")
-    from consciousness import WANDERER_CAST
-    if name.lower() in {n.lower() for n in WANDERER_CAST}:
+    from agents.identities import canonical
+    if canonical(name) is not None:
         # CLI play writes to the same permanent chronicle as everyone else;
-        # a reserved cast name would impersonate an agent there (world
-        # covenant). Reject it here too. (ADR-004 §7 / reserved-names.)
+        # a server-owned agent name (the wandering cast, Scout, Observer)
+        # would impersonate an agent there (world covenant). Reject it here
+        # too. (ADR-004 §7 / reserved-names, agents/identities.py.)
         raise SystemExit(
-            f"'{name}' is a reserved world name (the wandering cast) — "
-            "choose another with --name.")
+            f"'{name}' is a reserved world name (one of the world's own "
+            "agents) — choose another with --name.")
     from server.moderation import name_refusal, writes_shared_chronicle
     # Local multi-world play is the operator terminal. A name is screened
     # only when this session writes the hosted canonical world.
@@ -331,18 +332,18 @@ def invite_share_url(key: str, name: str, base: str = "<BASE>") -> str:
 def cmd_invite(args):
     action = args.invite_action
     if action == "mint":
-        from consciousness import WANDERER_CAST
+        from agents.identities import canonical
         from server.moderation import name_refusal
         name = args.name.strip()
         if not name:
             raise SystemExit("A registered name must not be empty.")
-        if name.lower() in {n.lower() for n in WANDERER_CAST}:
+        if canonical(name) is not None:
             raise SystemExit(
-                f"'{name}' is a reserved world name (the wandering cast) — "
-                "choose another.")
+                f"'{name}' is a reserved world name (one of the world's own "
+                "agents) — choose another.")
         # Minted names are shared. --unscreened is the explicit operator
         # override for when the screen is off or the operator accepts the
-        # name anyway. Reserved cast names are still refused above.
+        # name anyway. Reserved agent names are still refused above.
         if not getattr(args, "unscreened", False):
             refusal = name_refusal(name)
             if refusal:
@@ -612,7 +613,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--unscreened", action="store_true",
         help="Mint without the moderation screen. Operator override for "
              "when NESTED_WORLDS_DISABLE_MODERATION is set, or when you "
-             "accept the name yourself. Cast names stay reserved.")
+             "accept the name yourself. Agent names stay reserved.")
     p_invite_mint.set_defaults(func=cmd_invite)
 
     p_invite_list = invite_sub.add_parser("list", help="List issued invite keys")
