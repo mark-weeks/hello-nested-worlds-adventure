@@ -36,6 +36,9 @@ MAX_REASON_CHARS = 500
 # A longer exclusion is a ban, which is lifted explicitly.
 MAX_SUSPENSION = datetime.timedelta(days=365)
 MIN_SUSPENSION = datetime.timedelta(minutes=1)
+# SQLite's INTEGER range. A larger id cannot be bound to a query at all
+# (OverflowError), so it is refused as the unknown id it must be.
+_MAX_ID = 2 ** 63 - 1
 
 _ROW = """SELECT s.id, s.participant_id, s.kind, s.reason, s.created_at,
        s.expires_at, l.reason, l.lifted_at,
@@ -170,6 +173,8 @@ def lift(sanction_id: int, reason: str) -> dict[str, Any]:
     reason = _clean_reason(reason)
     if isinstance(sanction_id, bool) or not isinstance(sanction_id, int):
         raise ValueError("A sanction id is a whole number.")
+    if not 1 <= sanction_id <= _MAX_ID:
+        raise ValueError(f"No sanction has id {sanction_id}.")
     with db.transaction() as conn:
         row = conn.execute(_select("s.id = ?"), (sanction_id,)).fetchone()
         if row is None:

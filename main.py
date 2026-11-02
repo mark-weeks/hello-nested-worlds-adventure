@@ -458,10 +458,15 @@ def cmd_sanction(args):
     action = args.sanction_action
     try:
         if action == "suspend":
-            if args.days is not None:
-                duration = datetime.timedelta(days=args.days)
-            else:
-                duration = datetime.timedelta(hours=args.hours)
+            try:
+                if args.days is not None:
+                    duration = datetime.timedelta(days=args.days)
+                else:
+                    duration = datetime.timedelta(hours=args.hours)
+            except OverflowError:
+                # Past what a timedelta can hold, so far past the cap:
+                # suspend() refuses it with the allowed-range message.
+                duration = datetime.timedelta.max
             s = sanctions.suspend(args.player, duration, args.reason)
             print(f"Suspended {s['name'] or s['participant']} until "
                   f"{s['expires_at']} UTC (sanction {s['id']}).")
