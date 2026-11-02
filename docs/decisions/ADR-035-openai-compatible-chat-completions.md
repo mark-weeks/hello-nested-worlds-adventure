@@ -154,14 +154,18 @@ sent. The anthropic adapter sends none either.
 
 ### 3. No default model ids
 
-The adapter omits `default_model`. Startup refuses until the operator has
-set every task: `NESTED_WORLDS_MODEL` plus `NESTED_WORLDS_MODERATION_MODEL`,
-or each of `NESTED_WORLDS_NODE_MODEL`, `NESTED_WORLDS_INHABITANT_MODEL`,
-`NESTED_WORLDS_INTENT_MODEL`, and `NESTED_WORLDS_MODERATION_MODEL`.
-Moderation does not inherit the shared voice id. The refusal is the existing
-hard problem, "is unset and provider openai_compatible has no default
-model." No id is endorsed before evidence. Vendor documentation examples
-are not defaults.
+The adapter omits `default_model` and does not read the task model
+variables. An empty id still fails startup. `model_for` resolves each
+task: node voice, inhabitant voice, and intention use
+`NESTED_WORLDS_NODE_MODEL`, `NESTED_WORLDS_INHABITANT_MODEL`, and
+`NESTED_WORLDS_INTENT_MODEL` when those are set, and otherwise
+`NESTED_WORLDS_MODEL`. Moderation uses only
+`NESTED_WORLDS_MODERATION_MODEL` and does not inherit that shared id.
+`NESTED_WORLDS_MODEL` plus `NESTED_WORLDS_MODERATION_MODEL` is enough.
+The four per-task variables are not all required. The refusal is the
+existing hard problem, "is unset and provider openai_compatible has no
+default model." No id is endorsed before evidence. Vendor documentation
+examples are not defaults.
 
 ### 4. Configuration
 
@@ -185,7 +189,7 @@ reaches a host other than the base URL's.
 |---|---|---|
 | `NESTED_WORLDS_PROVIDER=openai_compatible` | Existing selector | `anthropic` |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL` | Endpoint the operator chooses. `https://<host>/v1` is a shape, not a destination (Open decision 1) | required |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` | Bearer key. Redacted by `model_check._SECRET_NAME` | required, except on loopback |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` | Bearer key. Redacted by `model_check._SECRET_NAME`. Absent on loopback is allowed. A present key that is not ASCII, not printable, or contains whitespace is unconfigured on every host | required off loopback |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` | Wire field for the caller's `max_tokens`: `max_completion_tokens` or `max_tokens` | `max_completion_tokens` |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS` | `1` when the endpoint enforces `json_schema` | unset (off) |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false` | unset (do not send) |
@@ -199,7 +203,10 @@ and never echoed. Its name contains neither `KEY` nor `TOKEN`, so
 `model_check._secret_values` will not redact it. That is a reason to keep
 it out of logs, not a reason to treat it as public. A trailing slash is
 joined so a path such as Gemini's `/v1beta/openai/` still ends at
-`/chat/completions`. A loopback base URL may omit the key. Any other host
+`/chat/completions`. A loopback base URL may omit the key. A missing,
+empty, or whitespace-only key is that omission. A present key that, after
+stripping, is not ASCII, not printable, or still contains whitespace leaves
+the adapter unconfigured on every host, loopback included. Any other host
 without a key is not configured.
 
 `MAX_OUTPUT_PARAM` defaults to `max_completion_tokens` because OpenAI and
@@ -237,9 +244,14 @@ servers might reject. Whether they reject it is unverified.
   `{"type": "json_schema", "json_schema": {"name": "enfolded_output", "schema": <schema>, "strict": true}}`.
   When `json_schema` is not None and structured outputs are off, raise
   `UnsupportedCapability` and send nothing. The schema is never dropped.
-  Intention's caller already catches `Exception` and answers the authored
-  unsettled line (`server/intervention_api.py`), which is the fallback this
-  decision means. Application validators in `consciousness/interventions.py`
+  A schema-off intention is refused before any budget reservation.
+  `runtime.generate` checks `supports_json_schema()` before
+  `reserve_model_action`. When `json_schema` is not None and that check
+  returns false, it raises `UnsupportedCapability` and charges nothing:
+  neither the model-action cap nor the voice budget. Intention's caller
+  already catches `Exception` and answers the authored unsettled line
+  (`server/intervention_api.py`), which is the fallback this decision
+  means. Application validators in `consciousness/interventions.py`
   still decide a body that parses.
 - `"store": false` only when that setting is on. The request never carries
   `user`, `safety_identifier`, or `prompt_cache_key` derived from a player
@@ -326,7 +338,7 @@ counts as null.
 | `choices` missing or empty, or `content` null or missing, with at most one choice | text None | voice raises `NoTextError`; moderation holds |
 | more than one choice, or `content` neither a string nor null | raise `MalformedProviderResponse` | screen's `except` holds |
 | HTTP non-2xx, HTTP 200 with an `error` object, non-JSON, timeout, connection error, any 3xx | raise an adapter exception, `from None`, fixed message | screen's `except` holds |
-| Unconfigured (rejected base URL or no URL; no key off loopback, including a key that is not ASCII and printable; invalid `MAX_OUTPUT_PARAM` or `REASONING_EFFORT`) | `configured()` is false; classify still raises at call time | held. `/speak` serves the authored fallback and does not charge the voice budget |
+| Unconfigured (rejected base URL or no URL; no key off loopback; a present key that is not ASCII, not printable, or contains whitespace, on any host including loopback; invalid `MAX_OUTPUT_PARAM` or `REASONING_EFFORT`) | `configured()` is false; classify still raises at call time | held. `/speak` serves the authored fallback and does not charge the voice budget |
 
 `end_turn` stays incomplete on this adapter. The anthropic adapter treats
 its own `stop_reason` `end_turn` as complete. That is a different wire
@@ -525,7 +537,10 @@ if the record is ratified and an implementation follows it.
   `NESTED_WORLDS_OPENAI_COMPATIBLE_*` names only.
 - **Default model ids taken from vendor examples.** Pricing and the best id
   per task are unverified. An id in a documentation example is not a
-  selection. Startup refuses until the operator sets the four tasks.
+  selection. Startup refuses until every task has an id.
+  `NESTED_WORLDS_MODEL` covers node voice, inhabitant voice, and intention;
+  moderation needs `NESTED_WORLDS_MODERATION_MODEL`. The four per-task
+  variables are not all required.
 - **Dropping `json_schema` when support is uncertain.** `TextProvider`
   forbids a silent drop. The adapter raises, and the player reads the
   authored unsettled line.
