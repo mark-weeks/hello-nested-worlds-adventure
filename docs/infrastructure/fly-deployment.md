@@ -415,10 +415,17 @@ the same key resolves to the same participant again. Journal, profile, home
 and saved position are untouched throughout.
 
 What the player sees: the same `403 {"error": "forbidden"}` as a revoked key
-(Ideas, which authenticates on its own, answers its usual 403 "A current
-personal invite is required."). No reason, kind or end time is shown. Telling the player what
-was decided and why, and any appeal, is checklist G8, a held owner decision.
-Neither client yet tells the player their invite stopped working.
+(Ideas, which authenticates on its own, answers its usual 403 "Open your
+current personal game invite to participate in Ideas."). No reason, kind or
+end time is shown. Telling the player what was decided and why, and any
+appeal, is checklist G8, a held owner decision. Neither client yet tells the
+player their invite stopped working.
+
+What other players see: the player leaves the room as from any other
+departure. A published profile stays readable at `/profile` while the
+sanction lasts. Revoking a key makes the profile read as unavailable. Whether
+a suspension or ban should also hide the profile is an owner decision that
+has not been made.
 
 What is recorded: one `sanctions` row per suspension or ban and one
 `sanction_lifts` row per lift (migration 0029). No application command
