@@ -54,13 +54,19 @@ scratch database outside the repository on 2026-11-02.
    - *Live voice*: only with the owner's scoped S2 ruling for this disposable
      watch (packet decision 10). A participant's words to places and
      inhabitants, and chat lines at a node, are quoted into later prompts to
-     the provider (`consciousness/__init__.py:868-873`). Disclose it in
-     consent, and set low caps with `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
+     the provider (`consciousness/__init__.py:868-873`). An intention they
+     describe in Act is sent to the provider to be read
+     (`consciousness/interventions.py:57-81`), and a chat line the local
+     screen cannot clear goes to the provider's classifier
+     (`server/moderation.py:184-224`). Disclose all three in consent, and set
+     low caps with `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
      `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` (`server/guard.py:43`,
      `server/guard.py:50`).
 4. **Display names.** The facilitator assigns each participant a neutral world
-   name: not their real name, not their P-code, and not one of the twelve cast
-   names (`consciousness/__init__.py:309-313`). The map from display name to
+   name: not their real name, not their P-code, not one of the twelve cast
+   names (`consciousness/__init__.py:309-313`), and not Observer or Scout,
+   the names the agent endpoints default to (`server/handlers.py:1042`,
+   `server/handlers.py:1591`; packet decision 7). The map from display name to
    P-code is kept only in the restricted record, outside the repository and
    outside the world database (`docs/evaluation/2026-09-12-pilot-protocol.md:57-60`).
 5. **Consent.** Verbal or written, as the research basics specify, because a
@@ -82,7 +88,8 @@ world contains no check traces.
 7. Stop the server, close the window, and delete the throwaway `HOME`.
 
 If step 4 or 5 fails, check the address bar first: it must read
-`http://localhost:8080`, not an IP address.
+`http://localhost:8080` (`http://127.0.0.1:8080` is also a secure context),
+not a LAN address such as `http://192.168.…`.
 
 ## Session setup
 
@@ -109,11 +116,13 @@ Open with protocol 2's explanation
 
 - "This world is temporary. Everything you do here will be deleted on
   <date>." Protocol 2 requires this (`docs/evaluation/2026-09-12-pilot-protocol.md:10-11`).
-  If the participant opens the guide, its "Nothing is lost" section
-  (`static/guide.html:159-167`) does not apply to this session.
+  If the participant opens the guide, its permanence lines (the opening,
+  `static/guide.html:37-40`, and the "Nothing is lost" section,
+  `static/guide.html:159-167`) do not apply to this session.
 - "The named inhabitants you may meet are AI characters, not other people."
 - Live voice only: "Places and inhabitants answer through an AI model. What you
-  type to them is sent to that model's provider."
+  type to them, an intention you describe in Act, and some chat lines are sent
+  to that model's provider."
 - "Participation and observation are voluntary."
 
 Then follow script steps 1 to 3

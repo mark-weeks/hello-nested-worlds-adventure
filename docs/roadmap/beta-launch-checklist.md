@@ -161,7 +161,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | ID | Item | Exit criterion | Status | Evidence | Gate |
 |---|---|---|---|---|---|
 | B1 | Error reporting | `SENTRY_DSN` set on production, and a test error arrives. | Partial | (Code) `server/observability.py` is wired. The DSN is unset. | **Blocks beta** |
-| B2 | Privacy-respecting beta metrics | `beta_metrics.py --days 1` is read daily during the cohort. | Partial | (Code) `scripts/beta_metrics.py` reads the chronicle, with no third-party analytics. No cohort has run, so the daily read has not happened. It omits INTERVENTION_COMMITTED, the row an Act commit writes (`scripts/beta_metrics.py:40-44`, `persistence/interventions.py:110`, `persistence/interventions.py:138`), so an Act-only tester is not counted. It counts raw PUZZLE_FAILED rows, which repeat after a pool is exhausted (`scripts/beta_metrics.py:141`, `server/handlers.py:1995-2005`). | **Blocks beta** |
+| B2 | Privacy-respecting beta metrics | `beta_metrics.py --days 1` is read daily during the cohort. | Partial | (Code) `scripts/beta_metrics.py` reads the chronicle, with no third-party analytics. No cohort has run, so the daily read has not happened. It omits INTERVENTION_COMMITTED, the row an Act commit writes (`scripts/beta_metrics.py:40-44`, `persistence/interventions.py:110`, `persistence/interventions.py:138`), so Act use is not counted: an Act-only tester appears as a visitor, through the PLAYER_JOIN and PLAYER_MOVE rows every connection writes, with no recorded action (executed on a scratch database 2026-11-02). It counts raw PUZZLE_FAILED rows, which repeat after a pool is exhausted (`scripts/beta_metrics.py:141`, `server/handlers.py:1995-2005`). | **Blocks beta** |
 | B3 | Uptime ping | A `/guide` ping alerts within 5 min. | Not started | (Docs) Q4 plan step P9. | **Blocks beta** |
 | B4 | In-game feedback channel | Testers can post ideas, and the owner reviews them weekly. | Partial | (Code) Ideas board (`static/ideas.html`, ADR-026). Not hosted. | Can follow |
 | B5 | Model provenance | Every model-written chronicle row records the provider and resolved model the call reported. | Done | (Code) Migration `0028_model_provenance.sql`. A row is written for a model-written chronicle row, not for every generated line. | Can follow |
@@ -186,7 +186,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Y3 | Keyboard-only play | The full loop (move, speak, puzzle, act) works by keyboard on every cohort device. | Partial | (Code) Playwright focus and keyboard coverage in `frontend/e2e`. Chromium only. | **Blocks beta** |
 | Y4 | Screen reader | Main loop usable with VoiceOver or NVDA in one recorded session. | Partial | (Code) aria-labels exist in components. No assistive-technology session recorded. | Can follow |
 | Y5 | Cohort device matrix | Each cohort device passes browser, keyboard and fallback checks, or is excluded. | Not started | (Docs) Q4 plan step P5. Only desktop Chromium is exercised. | **Blocks beta** |
-| Y6 | Text alternative for sound and visual meaning | State carried by music or art is also stated in text. | Partial | (Code) Conditions, properties and passage badges are stated in text (`static/interface.js:59-63`). The score's minor mode (`static/score.js:25`) and its change cue (`static/score.js:191-192`) have no text equivalent, and no feed or reply is an aria-live region (grep of `static/index.html` and `frontend/src/components`). | Can follow |
+| Y6 | Text alternative for sound and visual meaning | State carried by music or art is also stated in text. | Partial | (Code) Conditions, properties and passage badges are stated in text (`static/interface.js:59-63`). The score's minor mode (`static/score.js:25`) and its change cue (`static/score.js:191-192`) have no text equivalent. The event and chat feeds and Speak replies are not live regions; only status lines are (`static/index.html:132`, `static/explorer.js:892`, `static/interventions.js:192`; grep of both clients for `aria-live` and `role="status"`). | Can follow |
 
 ## Legal and policy
 
@@ -290,8 +290,10 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 - [ ] Agent presence and live lines labeled; history labels are not required until decided (A1)
 - [ ] Chat privacy consented, or chat kept out of the chronicle (S5)
 - [ ] Call caps enforced, and sized to the cohort (E1)
+- [ ] One key cannot exhaust the global budget, and the invite gate closes after the first key (E4); the gate reopens when every key is revoked, pending the integrity PR
 - [ ] Latency targets written and met on staging (P1)
 - [ ] Hosted load soak with 12 or more clients (P2)
+- [ ] Every migration additive, and the schema version pinned (P6); a binary does not yet check for a newer database
 - [ ] Live voice quality meets the rubric (D3)
 - [ ] Beta metrics read daily during the cohort (B2)
 - [ ] Research lead and consent written (K1)
@@ -339,5 +341,5 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 - Inference: items marked Inference, and the latency and percentage thresholds, are proposed in this checklist, not decided. They are not repo facts.
 - Puzzles: `WORLD_READING_FAMILIES` in `puzzles/quality.py`, the 55% world-reading test gate, and [docs/evaluation/2026-09-07-concept-and-implementation.md](../evaluation/2026-09-07-concept-and-implementation.md).
 - Governance (G1 to G12) is a proposed design from Mark's feedback on Nov 1, 2026, not repo code.
-- Corrections on 2026-11-02 at `23b8830`, from the [week-plan audit](../evaluation/2026-11-02-week-plan.md): S1, E4 and P6 moved from Done to Partial; F4 from Not started to Partial; L5 from Unknown to Not started; Y6 from Unknown to Partial. Evidence was corrected for C2c, C7, O1, S5, B2, M2, G5, G9 and P3 to P5 (P4's wording follows P3), and decision I was added to the held table as proposed by agent. Statuses follow the code at `23b8830`; the pull requests named as pending are not merged. No exit criterion's bar and no held decision changed.
+- Corrections on 2026-11-02 at `23b8830`, from the [week-plan audit](../evaluation/2026-11-02-week-plan.md): S1, E4 and P6 moved from Done to Partial; F4 from Not started to Partial; L5 from Unknown to Not started; Y6 from Unknown to Partial. Evidence was corrected for C2c, C7, O1, S5, B2, M2, G5, G9 and P3 to P5 (P4's wording follows P3), and decision I was added to the held table as proposed by agent. The go/no-go list unchecks S1 and names E4 and P6, which are open blockers again. Statuses follow the code at `23b8830`; the pull requests named as pending are not merged. No exit criterion's bar and no held decision changed.
 - Not verified: live model quality, hosted anything, real players.

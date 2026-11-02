@@ -112,23 +112,32 @@ server still accepts attempts. Each extra wrong guess writes another
 `PUZZLE_FAILED`, and the released answer solves with a material reward
 (`server/handlers.py:1921-1929`, `server/handlers.py:1995-2005`,
 `server/handlers.py:2021`; re-executed on a scratch database, audit F10).
-Failed puzzles never re-arm: `_maybe_rearm` writes `PUZZLE_REARM` only while
-solves exceed rearms (`causality/wiring.py:51-66`), and a seal opens only on a
-solve (`puzzles/gates.py:84-87`). The explorer closes the input at zero
-remaining (`static/explorer.js:877-878`); `/app` re-enables it after a reopen
-(`frontend/src/components/Interact.jsx:164-171`).
+Nothing re-arms a puzzle because players failed it: `_maybe_rearm` writes
+`PUZZLE_REARM` only while the node's `PUZZLE_SOLVED` rows outnumber its
+`PUZZLE_REARM` rows (`causality/wiring.py:51-66`). That count includes ambient
+agents' rolled solves (`persistence/__init__.py:914-922`,
+`agents/agent.py:105-115`), which the seal and the co-op session ignore
+(`persistence/__init__.py:584-599`). So a failed puzzle renews only by
+accident, when a cast member's roll "solves" it there before decay lands
+(executed in review on a scratch database), and a seal opens only on a
+player's solve (`puzzles/gates.py:84-87`). The explorer closes the input at
+zero remaining (`static/explorer.js:877-878`); `/app` re-enables it after a
+reopen (`frontend/src/components/Interact.jsx:164-171`).
 
 | Option | Cost |
 |---|---|
-| (a) Refuse attempts after a failure, and nothing else | A failed sealed room stays sealed for everyone, permanently, and one player can cause that (*inferred*). It is not imprisonment: anyone already inside can still leave (`puzzles/gates.py:81-82`). |
-| (b) Refuse attempts after a failure, and re-arm failed puzzles through the existing decay | `_maybe_rearm`'s condition must be restated from "solves exceed rearms" to "the current epoch's puzzle is resolved (solved or failed)". Under the current counter, a failure-triggered rearm makes rearms exceed solves, and the next solve at that node would silently stop re-arming (*inferred* from `causality/wiring.py:61-66`). The epoch is the count of `PUZZLE_REARM` rows and feeds seals, mechanics, pressure and Wayback, so the epoch invariant needs tests. This changes an existing `world_mutations` write path (fewer `PUZZLE_ATTEMPT` and `PUZZLE_FAILED` rows, a new trigger for `PUZZLE_REARM`): an irreversibility-check write-path door with the owner's sign-off at merge. Answers do not change, so there is no golden re-pin and `tests/test_continuity_freeze.py` is untouched. About 1.5 agent-days. |
+| (a) Refuse attempts after a failure, and nothing else | A failed sealed room stays sealed for everyone until a cast member's roll happens to re-arm it, and one player can cause that (*inferred*). It is not imprisonment: anyone already inside can still leave (`puzzles/gates.py:81-82`). |
+| (b) Refuse attempts after a failure, and re-arm failed puzzles through the existing decay | `_maybe_rearm`'s condition must be restated from "solves exceed rearms" to "the current epoch's puzzle is resolved (solved or failed)", counting player outcomes only. Today's counter also counts ambient agents' solves, so an ambient roll can renew a puzzle that players are still working on and reset its pool (*inferred* from `causality/wiring.py:61-66` and `persistence/__init__.py:914-922`); the restated condition should not carry that over. Under the current counter, a failure-triggered rearm makes rearms exceed solves, and the next solve at that node would silently stop re-arming (*inferred* from `causality/wiring.py:61-66`). The epoch is the count of `PUZZLE_REARM` rows and feeds seals, mechanics, pressure and Wayback, so the epoch invariant needs tests. This changes an existing `world_mutations` write path (fewer `PUZZLE_ATTEMPT` and `PUZZLE_FAILED` rows, a new trigger for `PUZZLE_REARM`): an irreversibility-check write-path door with the owner's sign-off at merge. Answers do not change, so there is no golden re-pin and `tests/test_continuity_freeze.py` is untouched. About 1.5 agent-days. |
 | (c) Stop releasing the answer on failure, and keep accepting attempts | Less answer reuse across sibling puzzles, but failure no longer ends anything, and the failure counts stay inflated. |
 | (d) Give each player their own attempt pool | Changes the pooled co-op the guide promises (`static/guide.html:60`); a larger redesign. |
 
 **Recommendation (proposed by agent; not decided):** (b). The server refuses
 attempts once the current epoch has failed, reports `failed` on the puzzle
 read, `/app` matches the explorer, and decay re-arms the failed puzzle so no
-room stays shut forever. Answer secrecy (`tests/test_puzzles.py`) stays green.
+room stays shut forever. "Failed" and "solved" come from players' pooled
+attempts, never from an ambient agent's `PUZZLE_FAILED` or `PUZZLE_SOLVED`
+row (`agents/agent.py:105-115`): an ambient roll neither closes a puzzle to
+players nor counts as resolving it. Answer secrecy (`tests/test_puzzles.py`) stays green.
 
 ## 4. World status (Q4 decision B)
 
@@ -139,8 +148,9 @@ research: it may be kept, but persistence is never promised and then wiped
 (`docs/evaluation/2026-09-12-pilot-protocol.md:14-16`).
 
 **Costs.** The copy today assumes (a): `/register` says every trace is recorded
-"permanently" (`static/register.html:49-52`) and the guide's "Nothing is lost"
-section promises continuity (`static/guide.html:159-167`). Protocol 2 requires
+"permanently" (`static/register.html:49-52`), the guide opens by saying every
+word joins "the world's permanent chronicle" (`static/guide.html:37-40`), and
+its "Nothing is lost" section promises continuity (`static/guide.html:159-167`). Protocol 2 requires
 staging newcomers to be told their history is temporary, so the copy must
 depend on the deployment either way: a small code change after this decision.
 Choosing (a) starts never-wipe at the first invited outside player.
@@ -254,8 +264,10 @@ revised criteria; the owner posts them or edits the issue. Not cohort-blocking.
 **What reaches which provider today.** The configured text provider receives a
 player's speech to places and inhabitants, plus earlier players' names,
 messages and chat lines from that node's history
-(`consciousness/__init__.py:843-877`). Shared text that the local screen cannot
-clear goes to the moderation classifier (`server/moderation.py:184-224`). Image
+(`consciousness/__init__.py:843-877`). An intention a player describes in Act
+goes to the provider to be read (`consciousness/interventions.py:57-81`). Shared
+text that the local screen cannot clear goes to the moderation classifier
+(`server/moderation.py:184-224`). Image
 prompts carry counts of history kinds and of distinct speakers, not player text
 (`server/imageprompt.py:83-89`, `server/imageprompt.py:121-141`).
 
@@ -296,7 +308,8 @@ losing on every day of the window.
 The Q4 plan lists this as pending and needed before
 `ENFOLDED_BACKUP_REQUIRED=true`. Cloudflare R2 and 30 days appear only as
 examples in the workflow and the runbook; neither is a decision
-(`docs/infrastructure/fly-deployment.md:560-561`). The checklist's held table
+(`docs/infrastructure/fly-deployment.md:405-409`,
+`docs/infrastructure/fly-deployment.md:560-561`). The checklist's held table
 did not list it; this batch adds the row, marked proposed by agent. The
 retention period also sets the tail in decision 1 and the backup sentence in
 the privacy notice.
