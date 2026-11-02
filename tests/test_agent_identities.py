@@ -104,6 +104,18 @@ def _agent_rows(seed, kind):
             if row["type"] == kind]
 
 
+def _chronicled_agents(seed):
+    """Every ``data.agent`` any row in this world carries, whatever its type.
+
+    A walker's name rides on every event it fires — ``AGENT_VISIT``, and the
+    ``DANGER_ALERT``, ``PUZZLE_SOLVED``/``PUZZLE_FAILED`` and
+    ``PUZZLE_REARM`` rows the substance handler records from the same
+    payload — so checking ``AGENT_VISIT`` alone would miss a leak there.
+    """
+    return {row["data"]["agent"] for row in persistence.get_mutations(seed, limit=1000)
+            if row["data"].get("agent") is not None}
+
+
 # ── The one identity set ────────────────────────────────────────────────────
 
 def test_the_identity_set_is_the_cast_the_keeper_and_two_utility_walkers():
@@ -130,6 +142,7 @@ def test_agent_walk_is_always_scout_and_never_touches_a_named_memory(srv):
         assert data["agent"] == "Scout"
     visits = _agent_rows(seed, "AGENT_VISIT")
     assert visits and {row["data"]["agent"] for row in visits} == {"Scout"}
+    assert _chronicled_agents(seed) == {"Scout"}
     # The cast member's memory is exactly what it was.
     assert persistence.load_agent_memory("Tessera", seed) == before
     for name in ("Recorder", "Ada", long_name, long_name[:32]):
@@ -152,6 +165,7 @@ def test_agent_persona_picks_an_archetype_and_cannot_name_anyone(srv):
     visits = _agent_rows(seed, "AGENT_VISIT")
     assert visits
     assert {row["data"]["agent"] for row in visits} == {"Scout"}
+    assert _chronicled_agents(seed) == {"Scout"}
     assert {row["data"]["persona"] for row in visits} <= _ARCHETYPES
     assert "Mallory" not in json.dumps(persistence.get_mutations(seed, limit=1000))
 
@@ -186,6 +200,7 @@ def test_observe_walks_as_observer_never_as_a_registered_player(srv):
             assert frame["agent"] == "Observer"
     visits = _agent_rows(seed, "AGENT_VISIT")
     assert visits and {row["data"]["agent"] for row in visits} == {"Observer"}
+    assert _chronicled_agents(seed) == {"Observer"}
 
 
 def test_observe_cannot_spawn_a_cast_member_or_a_long_name(srv):
@@ -195,6 +210,7 @@ def test_observe_cannot_spawn_a_cast_member_or_a_long_name(srv):
         assert {e["agent"] for e in events if not e.get("done")} == {"Observer"}
     visits = _agent_rows(seed, "AGENT_VISIT")
     assert visits and {row["data"]["agent"] for row in visits} == {"Observer"}
+    assert _chronicled_agents(seed) == {"Observer"}
 
 
 # ── POST /agent/voice ───────────────────────────────────────────────────────
@@ -311,6 +327,10 @@ def test_a_server_identity_is_voiced_under_its_canonical_name(srv, voice, reques
     assert data == {"agent": canonical, "persona": for_name(canonical).name,
                     "node": node.name, "response": "Footsteps, then quiet.", "ai": True}
     assert screens == ["agent"] and len(stub.calls) == 1
+    # The voice prompt names the agent by its canonical spelling; the
+    # client's raw string never reaches the model as an identity.
+    agent_block = stub.calls[0]["system"][-1].text
+    assert agent_block.startswith(f"You are {canonical}, a {for_name(canonical).name}. ")
     assert _counters(BEA_KEY) == {"voice": 1, "user_voice": 1, "moderation": 1, "model": 1}
     rows = _agent_rows(seed, "AGENT_VOICE")
     assert len(rows) == 1
