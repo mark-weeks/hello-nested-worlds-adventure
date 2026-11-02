@@ -127,7 +127,7 @@ that change is reviewed against.
   bytes are not covered by the budget. The adapter never calls
   `urllib.request.urlopen` or `install_opener`, because plain `urlopen`
   uses the global opener, which reads proxy environment variables and
-  follows 301, 302, and 303. The tests cover 301, 302, 303, 307, and 308
+  follows 301, 302, and 303. PR #134's tests cover 301, 302, 303, 307, and 308
   with a proxy variable set. When the caller passes none, the adapter
   default in the table below is that budget. Moderation passes 3.0
   seconds, so that call's POST uses a 3.0 second wall-clock budget.
@@ -189,7 +189,7 @@ reaches a host other than the base URL's.
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` | Wire field for the caller's `max_tokens`: `max_completion_tokens` or `max_tokens` | `max_completion_tokens` |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS` | `1` when the endpoint enforces `json_schema` | unset (off) |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false` | unset (do not send) |
-| `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional pass-through (`none`, `minimal`, `low`, and the other values the operator sets). Unset sends nothing | unset |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | One of `none`, `minimal`, `low`, `medium`, or `high`. Unset sends nothing. Any other value leaves the provider unconfigured and is not sent | unset |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for the whole POST when the caller passes none. Voice and intention pass none. Moderation passes 3.0, which is that call's budget. DNS resolution and TLS handshake bytes are not covered | 60 |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | Already derived by the per-provider concurrency rule | 8 |
 
@@ -250,8 +250,7 @@ servers might reject. Whether they reject it is unverified.
 
 `parse_response` fills `TokenUsage` for the harness and for the existing
 usage log. A missing count is unknown, which is `None`, never a fabricated
-`0`. The input count is the exception below: when `cached_tokens` is
-absent, it is the reported `prompt_tokens`, with nothing subtracted.
+`0`.
 
 - `cache_read_tokens` is `prompt_tokens_details.cached_tokens`, or None when
   the field is absent.
@@ -259,15 +258,12 @@ absent, it is the reported `prompt_tokens`, with nothing subtracted.
   that field is present, otherwise None. OpenAI's usage object documents
   the field. xAI cache-write billing, and whether xAI reports a write
   field, are unverified. Unknown stays unknown.
-- `input_tokens` is `prompt_tokens − cached − (cache_write or 0)` when
-  `cached_tokens` is present. That is ordinary input, the same meaning
-  Anthropic's `input_tokens` has when cache reads and writes are reported
-  separately. The result is None when it would be negative or when
-  `prompt_tokens` is missing. When `cached_tokens` is absent —
-  `prompt_tokens_details` present but without `cached_tokens`, or absent
-  entirely — and `prompt_tokens` is present, the input count is
-  `prompt_tokens`, with nothing subtracted. `cache_read_tokens` stays None
-  in that case.
+- `input_tokens` is `prompt_tokens − cached_tokens − (cache_write or 0)`
+  when `prompt_tokens` and `cached_tokens` are both present and valid. It
+  is None when `prompt_tokens` or `cached_tokens` is missing, when a
+  reported `cache_write_tokens` is not a non-negative integer, or when the
+  result would be negative. A missing `cached_tokens` is not evidence that
+  nothing was cached.
 - `output_tokens` is `total_tokens − prompt_tokens` when both are present
   and that difference is not negative. It is None when `prompt_tokens` or
   `total_tokens` is missing, and None when the difference would be
@@ -312,14 +308,16 @@ The request never sends `n` or `stream`. `choices` missing or empty, or
 `content` null or missing, with at most one choice, gives text None.
 More than one choice, or a `content` that is neither a string nor null
 (including a parts array), raises `MalformedProviderResponse`. A present,
-non-null `refusal` is a refusal before content is read. A missing
-`refusal` counts as null.
+non-null `refusal` gives `finish_reason="refusal"` and text None, whatever
+the finish. Content that is neither a string nor null still raises
+`MalformedProviderResponse`, even with a refusal. A missing `refusal`
+counts as null.
 
 | Wire result | `Completion` | Screen |
 |---|---|---|
 | `finish_reason` `"stop"`, exactly one choice, `content` a string with non-whitespace text, `refusal` null or absent | `complete=True`, `finish_reason="complete"`, text is that string | verdict text decides |
 | `"stop"` with `content` `""` or whitespace only | `complete=False`, text None | undecided, held |
-| `"length"` | `complete=False`, `finish_reason="length"` | undecided, held |
+| `"length"` | `complete=False`, `finish_reason="length"`, text is the partial string, or None when blank | undecided, held |
 | `"content_filter"` | `complete=False`, `finish_reason="filtered"`, text None | held |
 | `message.refusal` present and not null, any finish | `complete=False`, `finish_reason="refusal"`, text None | held |
 | `"tool_calls"` or `"function_call"` | `complete=False`, `finish_reason="tool"` | held |
@@ -328,7 +326,7 @@ non-null `refusal` is a refusal before content is read. A missing
 | `choices` missing or empty, or `content` null or missing, with at most one choice | text None | voice raises `NoTextError`; moderation holds |
 | more than one choice, or `content` neither a string nor null | raise `MalformedProviderResponse` | screen's `except` holds |
 | HTTP non-2xx, HTTP 200 with an `error` object, non-JSON, timeout, connection error, any 3xx | raise an adapter exception, `from None`, fixed message | screen's `except` holds |
-| Unconfigured (no key, or no URL) | `configured()` is false; classify still raises at call time | held. `/speak` serves the authored fallback and does not charge the voice budget |
+| Unconfigured (rejected base URL or no URL; no key off loopback, including a key that is not ASCII and printable; invalid `MAX_OUTPUT_PARAM` or `REASONING_EFFORT`) | `configured()` is false; classify still raises at call time | held. `/speak` serves the authored fallback and does not charge the voice budget |
 
 `end_turn` stays incomplete on this adapter. The anthropic adapter treats
 its own `stop_reason` `end_turn` as complete. That is a different wire
@@ -339,7 +337,8 @@ publish shared text on a finish this screen has not seen live. Hold is the
 contract until that live check exists.
 
 Adapter exceptions (`ProviderHTTPError` with the status code only,
-`ProviderTimeout`, `MalformedProviderResponse`, `UnsupportedCapability`)
+`ProviderTimeout`, `ProviderConnectionError`, `MalformedProviderResponse`,
+`ProviderNotConfigured`, `ProviderConfigError`, `UnsupportedCapability`)
 are raised `from None` with a fixed message. The message carries neither
 the response body, nor the key, nor the URL, nor the prompt, nor any
 upstream text. `from None` matters because a chained urllib error includes
