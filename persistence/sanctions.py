@@ -5,7 +5,8 @@ not to a credential, and while it is active every credential of that
 participant is not live: `persistence.lookup_invite_key` and
 `participants.identify` both refuse it (`persistence._UNSANCTIONED`). The
 player meets the same invite-gate 403 as a revoked key, an open WebSocket
-closes with 1008 at its next frame, and no reason is disclosed. When the
+closes with 1008 at its next move or chat or within one re-check interval,
+and no reason is disclosed. When the
 suspension expires or the sanction is lifted, the same credential works
 again and resolves to the same participant, journal and profile intact.
 

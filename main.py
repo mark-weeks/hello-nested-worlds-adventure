@@ -499,7 +499,7 @@ def cmd_sanction(args):
     except ValueError as exc:
         raise SystemExit(str(exc))
     if action in ("suspend", "ban"):
-        print("Their open sessions close at the next frame they send; new "
+        print("Their open sessions close within about 20 seconds; new "
               "requests are refused. The player is not told the reason.")
 
 

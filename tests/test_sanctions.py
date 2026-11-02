@@ -4,7 +4,7 @@ Beta checklist G5. Before this suite, `invite revoke` was the only sanction:
 permanent, name-burning, and with no recorded reason. A sanction is keyed
 to the participant, refuses every credential of that participant while it
 is active (the same 403 as a revoked key, no reason disclosed), closes an
-open socket at its next frame, never reopens the invite gate, and ends by
+open socket on its next re-check, never reopens the invite gate, and ends by
 expiry or lift with the same credential and the same participant (journal
 intact). Every test drives the real store, server, socket or CLI.
 """

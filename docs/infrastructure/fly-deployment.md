@@ -408,9 +408,10 @@ fly ssh console -C "python main.py sanction lift 3 --reason 'appeal accepted'"
 `<name>` is the registered name (any case) or the participant id. The
 sanction attaches to the participant, not to the key, so rotating the key
 does not escape it. No restart is needed. The player's next HTTP request is
-refused. An open WebSocket closes with status 1008 at the next frame it
-sends, so within about 20 s for a browser client, and a silent socket ends at
-the 60 s idle timeout. When the suspension expires or the sanction is lifted,
+refused. An open WebSocket closes with status 1008 at its next move or chat,
+or its next other frame once 2 s have passed since its last check, so within
+about 20 s for a browser client, and a silent socket ends at the 60 s idle
+timeout. When the suspension expires or the sanction is lifted,
 the same key resolves to the same participant again. Journal, profile, home
 and saved position are untouched throughout.
 
