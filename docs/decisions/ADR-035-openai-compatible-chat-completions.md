@@ -119,13 +119,17 @@ that change is reviewed against.
   is unset, so no optional extra is required. The module would live at
   `consciousness/openai_compat_provider.py`. This record does not add it.
 - One POST to `<base>/chat/completions`, `Authorization: Bearer <key>`,
-  **zero retries**. The number passed to `urlopen` is a socket timeout on
-  each blocking operation, not a deadline for the whole call. `http.client`
-  says a socket timeout does not fire while data keeps arriving inside
-  every window. When the caller passes none, the adapter default in the
-  table below is that per-operation timeout. Moderation passes 3.0 seconds,
-  so each blocking operation on that call uses 3.0 seconds. That is not a
-  3.0 second cap on the classification.
+  **zero retries**. The number passed to `opener.open(req, timeout=...)` is
+  a socket timeout on each blocking operation, not a deadline for the whole
+  call. The adapter never calls `urllib.request.urlopen` or
+  `install_opener`, because plain `urlopen` uses the global opener, which
+  reads proxy environment variables and follows 301, 302, and 303. The
+  tests cover 301, 302, 303, 307, and 308 with a proxy variable set.
+  `http.client` says a socket timeout does not fire while data keeps
+  arriving inside every window. When the caller passes none, the adapter
+  default in the table below is that per-operation timeout. Moderation
+  passes 3.0 seconds, so each blocking operation on that call uses 3.0
+  seconds. That is not a 3.0 second cap on the classification.
 - The wire format is confined to two functions, `build_request` and
   `parse_response`. If the owner later chooses a Responses dialect
   ([open decision](#open-decisions) 4), that is where it would go, without
@@ -256,22 +260,27 @@ usage log. Missing means unknown, which is `None`, never a fabricated `0`.
   ordinary input, the same meaning Anthropic's `input_tokens` has when cache
   reads and writes are reported separately. The result is None when it
   would be negative or when `prompt_tokens` is missing.
-- `output_tokens` is `total_tokens − prompt_tokens` when both are present,
-  and None otherwise. There is no fallback to `completion_tokens`. OpenAI's
+- `output_tokens` is `total_tokens − prompt_tokens` when both are present
+  and that difference is not negative. It is None when `prompt_tokens` or
+  `total_tokens` is missing, and None when the difference would be
+  negative. There is no fallback to `completion_tokens`. OpenAI's
   documented `completion_tokens` includes reasoning. xAI's documented
   example excludes it and puts reasoning in the total. The difference of
   the two totals counts reasoning in both of those published examples, and
   a `completion_tokens` fallback would under-count on the xAI shape.
-  Under-counting is the worse error, so a missing total stays unknown.
-  It is a reading of the examples, not a live measurement.
+  Under-counting is the worse error, so a missing total stays unknown, and
+  a negative difference stays unknown. It is a reading of the examples,
+  not a live measurement.
 - `resolved_model` is the `model` string the body echoes.
   `provider` is `openai_compatible`. Provenance does not store that echo
   verbatim. `_model_mark` (`persistence/__init__.py`) strips the string and
   drops it when it is not a string, is blank after stripping, is longer
   than 200 characters, or contains a character whose code point is below
-  32. A dropped value is absence, not a shortened id. `model_check` still
-  allows an id of up to 256 characters, so an echo of 201 to 256 characters
-  can pass startup and then be omitted from `mutation_model_provenance`.
+  32. A dropped value is absence, not a shortened id. `model_check`'s
+  256-character limit is a check on the configured model id, not on the
+  response echo. A configured id of 201 to 256 characters can pass startup.
+  The echoed id is a separate value and is omitted from
+  `mutation_model_provenance` when it fails `_model_mark`.
   An alias such as `"latest"` that passes those checks is stored as the
   stripped text. xAI's Responses example echoes `"model": "latest"`;
   whether Chat Completions does the same was not a separate check. The
@@ -292,9 +301,10 @@ element, that element's `content` is a string containing non-whitespace
 text, and `refusal` is null or absent. Empty or whitespace-only content
 is incomplete and carries no text. The parser reads `choices[0]` only.
 The request never sends `n` or `stream`. More than one choice, or a
-`content` that is not a string (including a parts array), raises
-`MalformedProviderResponse`. A present, non-null `refusal` is a refusal
-before content is read. A missing `refusal` counts as null.
+`content` that is neither a string nor null (including a parts array),
+raises `MalformedProviderResponse`. Null or missing content gives text
+None. A present, non-null `refusal` is a refusal before content is read.
+A missing `refusal` counts as null.
 
 | Wire result | `Completion` | Screen |
 |---|---|---|
@@ -306,8 +316,8 @@ before content is read. A missing `refusal` counts as null.
 | `"tool_calls"` or `"function_call"` | `complete=False`, `finish_reason="tool"` | held |
 | `"end_turn"` | `complete=False`, `finish_reason="unknown"` | held |
 | null, missing, or any other finish | `complete=False`, `finish_reason="unknown"` | held |
-| `choices` missing or empty, or `content` null, with at most one choice | text None | voice raises `NoTextError`; moderation holds |
-| more than one choice, or `content` not a string | raise `MalformedProviderResponse` | screen's `except` holds |
+| `choices` missing or empty, or `content` null or missing, with at most one choice | text None | voice raises `NoTextError`; moderation holds |
+| more than one choice, or `content` neither a string nor null | raise `MalformedProviderResponse` | screen's `except` holds |
 | HTTP non-2xx, HTTP 200 with an `error` object, non-JSON, timeout, connection error, any 3xx | raise an adapter exception, `from None`, fixed message | screen's `except` holds |
 | Unconfigured (no key, or no URL) | `configured()` is false; classify still raises at call time | held. `/speak` serves the authored fallback and does not charge the voice budget |
 
