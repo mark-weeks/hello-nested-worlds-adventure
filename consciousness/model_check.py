@@ -228,9 +228,15 @@ def _problems_for(choice: runtime.ModelResolution, provider_name: str,
     # An empty fallback id must not also be reported as an empty setting.
     # The adapter did not supply a default, so startup stops on that fact.
     if choice.source == runtime.SOURCE_DEFAULT and not choice.adapter_default:
+        # Voice tasks can also be set with the shared model. Moderation
+        # cannot, so its line names only its own variable.
+        if choice.task == runtime.MODERATION_TASK:
+            named = choice.env_var
+        else:
+            named = f"{choice.env_var} or {runtime.SHARED_MODEL_ENV}"
         add(
             "hard", "default", choice.env_var,
-            f"{choice.env_var} is unset and provider {provider_name} "
+            f"{named} is unset and provider {provider_name} "
             "has no default model",
         )
         return problems

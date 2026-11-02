@@ -103,9 +103,13 @@ do not prove rare-event safety or small quality differences.
 
 ## Configure and budget a live baseline
 
-Only the existing Anthropic adapter is implemented. A second provider requires a
-task-compatible adapter, contract tests and explicit wiring. Unsupported providers
-fail; there is no hidden fallback.
+`openai_compatible` is a registered text adapter for evaluation. This harness
+still accepts only `anthropic` and `fixture` (`validate_candidate` in
+`evals/harness.py`). Any other provider fails with
+`provider has no evaluated adapter; no implicit fallback`. A harness
+candidate still needs a task-compatible adapter, contract tests, and
+explicit wiring here. Registering the runtime adapter does not add that
+wiring.
 
 Copy [candidates/anthropic.template.json](candidates/anthropic.template.json).
 Confirm the effective deployed configuration separately: code defaults do not

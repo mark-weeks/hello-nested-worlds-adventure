@@ -36,7 +36,10 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
   ADR-015 through ADR-018 (referential puzzles, spoken interaction,
   multidimensional leaderboards, collectibles), which remain unimplemented
   directions pending both implementation and ratification; ratification of
-  the ADR-029 through ADR-033 drafts; the decision agenda below.
+  the ADR-029 through ADR-033 drafts; ratification of
+  [ADR-035](../decisions/ADR-035-openai-compatible-chat-completions.md), a
+  Proposed design for a second text adapter that registers nothing and
+  changes no runtime behavior; the decision agenda below.
 
 ## Live documents
 
@@ -46,7 +49,8 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 | [Phase 2 scale plan](phase-2-scale.md) | The standing continuity policy; capacity triggers at 100 users and beyond | Standing; edit in place as triggers fire |
 | [Community Ideas board](community-ideas.md) | Player-submitted ideas, support votes, moderation, explicit GitHub promotion | Merged (#102–#104); not deployed |
 | [Expressive world: next steps](expressive-world-next-steps.md) | The boundary of the #105–#107 batches and their remaining gaps | Checkpoint; the gaps feed the decision agenda |
-| [Beta readiness record](../evaluation/2026-10-03-beta-readiness.md) | Beta scope and promise, the remaining launch gates and their owners, the October 31 conditional target | Current (#109); not launch approval |
+| [Beta readiness record](../evaluation/2026-10-03-beta-readiness.md) | Beta scope and promise, the #109 evidence for the remaining launch gates and their owners, the October 31 conditional target | Current (#109); not launch approval. The checklist governs exit criteria; the Q4 plan governs order |
+| [Beta launch checklist](beta-launch-checklist.md) | Exit criteria before 8 to 12 invited people play: 95 items, evidence, and the decisions held for the owner. The Q4 plan governs order | Living. Statuses are as of `main` at `38fbe6e` (2026-11-01). Thresholds marked as proposals are not decided |
 | [Pilot protocol 2](../evaluation/2026-09-12-pilot-protocol.md) | The M7 study: curiosity, attempted-action and observed-consequence understanding, unprompted and useful return | Ready to run; no cohort observed |
 | [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md) | The decision agenda and a proposed 90-day sequence | Findings for the owner; ratifies nothing |
 | [Next steps, Q4 2026](next-steps-2026-q4.md) | The dated critical path to the M7 pilot, the owner's decisions and their needed-by dates, the parallel maintenance track, and the November–January batch order for ADR-029 to ADR-033 as ratified | Plan (2026-10-04); ratifies nothing |
@@ -54,6 +58,14 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 The owner's 2026-10-04 provider/model optionality direction is recorded in
 [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). It supersedes
 ADR-005's vendor-family preference, not the release gates or the open decisions below.
+
+[ADR-035](../decisions/ADR-035-openai-compatible-chat-completions.md)
+(Proposed, 2026-11-01) records the design of one further text adapter,
+`openai_compatible`: stdlib HTTP, OpenAI-compatible Chat Completions, an
+operator-set base URL, no default model ids, and the existing voice-budget
+bucket left in place. Mark Weeks approved the source plan the same day. The
+record is not accepted. It registers no adapter, approves no destination for
+player text, and sets no spend ceiling. Citing it authorizes nothing.
 
 ## Decision agenda (the owner's; nothing here is ratified)
 
@@ -135,6 +147,9 @@ kept so the archived text can be cross-read.
   under [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). The
   assessment's model recommendation is a candidate, not a standing preference;
   select on observed quality, capability, latency, reliability and total cost.
+  [ADR-035](../decisions/ADR-035-openai-compatible-chat-completions.md)
+  (Proposed) is the adapter shape for that comparison. It selects no model,
+  approves no destination, and does not run the comparison.
 - **4.5** Routing extraction from `server/handlers.py` (1,612 lines). The
   sub-API modules (`server/intervention_api.py`, `ideas_api.py`,
   `participant_api.py`, `situation_api.py`) are the pattern to follow.

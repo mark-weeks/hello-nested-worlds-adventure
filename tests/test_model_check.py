@@ -601,6 +601,54 @@ def test_probe_skips_when_the_provider_is_not_configured(monkeypatch, capsys, re
     assert calls == []
 
 
+def test_openai_compatible_probe_accepts_length_and_names_only_the_class(monkeypatch):
+    import json
+    from consciousness.openai_compat_provider import (
+        API_KEY_ENV, BASE_URL_ENV, OpenAICompatibleProvider,
+    )
+
+    _clear(monkeypatch)
+    monkeypatch.setenv(runtime.PROVIDER_ENV, 'openai_compatible')
+    monkeypatch.setenv(BASE_URL_ENV, 'https://secret-host.example/v1')
+    monkeypatch.setenv(API_KEY_ENV, _SECRET)
+    monkeypatch.setenv(runtime.NODE_MODEL_ENV, 'compat-length')
+    monkeypatch.setenv(runtime.INHABITANT_MODEL_ENV, 'compat-length')
+    monkeypatch.setenv(runtime.MODERATION_MODEL_ENV, 'compat-length')
+    monkeypatch.setenv(runtime.INTENT_MODEL_ENV, 'compat-down')
+    seen = []
+
+    def transport(request):
+        body = json.loads(request.body)
+        seen.append(body)
+        assert request.timeout == 30.0
+        assert body['max_completion_tokens'] == 1
+        if body['model'] == 'compat-down':
+            raise TimeoutError(f'upstream {_SECRET} secret-host.example prompt leak')
+        return (200, (), json.dumps({
+            'model': 'compat-length',
+            'choices': [{
+                'finish_reason': 'length',
+                'message': {'content': 'A', 'refusal': None},
+            }],
+        }).encode())
+
+    adapter = OpenAICompatibleProvider(transport=transport)
+    report = check_model_configuration(adapter)
+    assert report.hard == ()
+    assert report.provider == 'openai_compatible'
+    results = probe_distinct_models(report, adapter)
+    assert [item.model for item in results] == ['compat-length', 'compat-down']
+    assert [item.accepted for item in results] == [True, False]
+    assert results[1].detail == 'ProviderTimeout'
+    rendered = '\n'.join(item.line() for item in results)
+    assert 'accepted' in rendered
+    assert 'refused (ProviderTimeout)' in rendered
+    assert _SECRET not in rendered
+    assert 'secret-host.example' not in rendered
+    assert 'prompt leak' not in rendered
+    assert [body['model'] for body in seen] == ['compat-length', 'compat-down']
+
+
 def test_check_source_names_no_provider_and_ci_does_not_probe():
     text = (Path(__file__).resolve().parents[1] / 'consciousness/model_check.py').read_text().lower()
     for needle in ('claude', 'anthropic', 'openai', 'gpt-', 'gemini', 'grok', 'xai'):
