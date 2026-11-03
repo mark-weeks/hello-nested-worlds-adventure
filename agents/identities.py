@@ -6,8 +6,9 @@ both clients turn ``data.agent`` in node history into a Speak target.
 ``data.agent`` is not a redactable field (``persistence._REDACTABLE_FIELDS``)
 and moderation never screens it, so a name a client chose there could only be
 removed by a whole-DB restore — outside the chronicle's three sanctioned
-mechanisms. No HTTP or socket path takes an agent name from a client: it
-comes from this set, defined once here.
+mechanisms. No HTTP or socket path lets a client choose a name outside this
+set, defined once here: ``POST /agent/voice`` accepts a requested name only
+through ``canonical``, and every other path names its agent itself.
 
 - The wandering cast (``consciousness.WANDERER_CAST``), walked by the
   heartbeat.
