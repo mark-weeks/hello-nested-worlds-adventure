@@ -435,10 +435,11 @@ appeal, is checklist G8, a held owner decision. Neither client yet tells the
 player their invite stopped working.
 
 What other players see: the player leaves the room as from any other
-departure. A published profile stays readable at `/profile` while the
-sanction lasts. Revoking a key makes the profile read as unavailable. Whether
-a suspension or ban should also hide the profile is an owner decision that
-has not been made.
+departure. While the sanction lasts, their published profile reads as
+unavailable at `/profile` (`400 {"error": "That profile is unavailable."}`),
+exactly as a revoked player's does. It is visible again once the sanction is
+lifted or expires. The owner's 2026-11-03 direction settled this (ADR-004,
+sanction-records amendment).
 
 What is recorded: one `sanctions` row per suspension or ban and one
 `sanction_lifts` row per lift (migration 0029). No application command
@@ -477,7 +478,52 @@ chronicle text, `redact` does not reach them. Write reasons you would be
 content to see restored from a backup. Keep them short and factual, with no
 contact details and no other player's private data. The player-facing
 privacy notice (checklist L3) must name this record: that sanction decisions
-and their reasons are kept, privately, for as long as backups are.
+and their reasons are kept, privately, for as long as backups are. The
+backup retention period is not decided yet (decision I in the
+[Q4 plan](../roadmap/next-steps-2026-q4.md)).
+
+**Erasing a sanction reason (break-glass).** No application command edits
+or deletes a sanction. If a reason must be erased, for example on an erasure
+request, this manual procedure is the one ADR-004 accepts for beta (the
+2026-11-03 sanction-records amendment, under §1's narrow break-glass). It
+replaces the reason with `[erased]`, as `redact` does for chronicle words,
+and keeps the row, so the decision stays recorded and an active sanction
+stays in force. Deleting the row instead would end the sanction.
+
+1. Stop all application and heartbeat writers while keeping maintenance
+   access, as in step 1 of "Restoring from a backup" (§7).
+2. Find the sanction's id with `sanction list --all`, then run this from an
+   interactive `fly ssh console` shell, with that id in place of `3`. It
+   tombstones the sanction's reason and its lift's reason, if any. `VACUUM`
+   rewrites the file so no free page keeps the old text, and the checkpoint
+   empties the write-ahead log.
+
+   ```bash
+   cd /app && python - <<'EOF'
+   import sqlite3
+   db = sqlite3.connect("/data/.nested-worlds/worlds.db")
+   with db:
+       db.execute("UPDATE sanctions SET reason = '[erased]' WHERE id = ?", (3,))
+       db.execute("UPDATE sanction_lifts SET reason = '[erased]' WHERE sanction_id = ?", (3,))
+   db.execute("VACUUM")
+   db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+   db.close()
+   EOF
+   ```
+
+3. Start the writers again, and check `sanction list --all` shows `[erased]`.
+4. Remove the older copies that still hold the reason, in the order given for
+   redacted text ([backup-bucket.md](backup-bucket.md), "Retention and
+   deletion"): dispatch `backup.yml`, confirm `backup_health.py` reports a
+   snapshot taken after the erasure, then `scripts/backup_store.py
+   delete-before` with `--after` set to when the reason was written (the
+   sanction's `created_at`, or the lift's `lifted_at`, as a UTC stamp such
+   as `20261001T000000Z`) and `--before` set to the last snapshot that can
+   still hold it, dry run first. Delete the
+   machine-local `/data/backups/*.db` copies and any downloaded
+   `./worlds-backup.db` made since then. Fly's volume snapshots also hold it
+   until they expire (5 days, §7). A reason typed on a command line is also
+   in that shell's history (above).
 
 ---
 

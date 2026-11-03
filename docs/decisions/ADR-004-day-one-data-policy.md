@@ -28,7 +28,25 @@ being live is closed as the runbook describes
 ([fly-deployment.md](../infrastructure/fly-deployment.md) §6). Nothing else
 in §7 changes.
 
-**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction.
+**2026-11-03 sanction-records amendment:** Directed by the owner, Mark Weeks,
+on 2026-11-03, who instructed the merge of #138 and delegated its open
+choices. This records the scoped decision that
+[ADR-034](ADR-034-provider-and-model-optionality.md) §5 requires for the
+private operator data migration 0029 adds. Sanction and lift reasons are kept
+in the database and in every backup for the backup retention period. That
+period is decision I in the [Q4 plan](../roadmap/next-steps-2026-q4.md) and is
+not chosen here. The application's logs never carry the reasons, and `redact`
+does not reach them. An erasure request for a reason is handled by the manual
+break-glass procedure in the runbook
+([fly-deployment.md](../infrastructure/fly-deployment.md) §6, "Erasing a
+sanction reason"), within §1's narrow break-glass: stop the writers,
+overwrite the reason in the two tables with SQL, then delete or let expire
+the backups that still hold it. This is accepted for beta. A suspension is
+capped at 365 days; a longer exclusion must be a ban. A sanctioned player's
+published profile is hidden from other players as a revoked player's is,
+until the sanction is lifted or expires.
+
+**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction; sanction records 2026-11-03 on the owner's direction.
 
 ---
 
