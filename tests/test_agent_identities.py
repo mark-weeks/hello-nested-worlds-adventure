@@ -373,6 +373,65 @@ def test_a_server_identity_is_voiced_under_its_canonical_name(srv, voice, reques
     assert rows[0]["player"] == "Bea"
 
 
+def test_a_voiced_identity_recalls_the_memory_kept_under_its_canonical_name(srv, voice):
+    """``agent_memory`` is keyed by the canonical spelling, so a trimmed,
+    lower-case request must still read the cast member's own memory."""
+    stub, _ = voice
+    seed = 4613
+    assert "Aunt Entropy" in WANDERER_CAST
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    persistence.save_agent_memory(
+        "Aunt Entropy", seed, [node.name],
+        [{"node": "Kiln Seam-7", "action": "listened to the glaze cooling"}])
+    status, data = _request(srv, "/agent/voice", body={
+        "seed": seed, "node_name": node.name, "agent_name": "  aunt entropy ",
+        "message": "hello, old light"})
+    assert status == 200 and data["agent"] == "Aunt Entropy" and data["ai"] is True, data
+    assert len(stub.calls) == 1
+    agent_block = stub.calls[0]["system"][-1].text
+    assert "you know 1 place(s) in this world" in agent_block
+    assert f"You have stood at {node.name} before" in agent_block
+    assert "Kiln Seam-7 — listened to the glaze cooling" in agent_block
+    assert "newly arrived" not in agent_block
+
+
+def test_the_keeper_voiced_by_any_spelling_recalls_its_public_commitment(srv, voice, monkeypatch):
+    """``keeper_history`` matches the situation's keeper exactly, so the
+    canonical name must reach it: ``"tessera"`` still recalls the decision
+    the keeper is bound to."""
+    from datetime import datetime, timedelta
+
+    from multiverse.situation import NODES
+    from persistence import participants, situations
+
+    stub, _ = voice
+    seed = 382  # the authored situation's world
+    start = datetime(2026, 9, 12, 12)
+    monkeypatch.setattr(situations, "_now", lambda: start)
+    situations.install(seed)
+    ada = participants.identify(ADA_KEY)["id"]
+    for role in ("instrument", "regulator"):
+        situations.discover(seed, ada, NODES[role])
+    situations.choose(seed, ada, "keeper-recall-choice", "preserve")
+    situations.advance(seed, now=start + timedelta(seconds=61))
+    committed = [row for row in persistence.get_mutations(seed, limit=1000)
+                 if row["type"] == "SITUATION_COMMITTED"]
+    assert len(committed) == 1 and committed[0]["node"] == NODES["regulator"]
+    holds = "The shared decision holds: Keep the signal under Tessera’s care."
+    assert committed[0]["data"]["flavor"].startswith(holds)
+    # Voiced at the gallery: the commitment was recorded at the regulator,
+    # so only the keeper's recall can bring it into the prompt.
+    gallery = NODES["gallery"]
+    assert holds not in json.dumps(persistence.get_node_history(seed, gallery))
+    status, data = _request(srv, "/agent/voice", body={
+        "seed": seed, "node_name": gallery, "agent_name": "tessera",
+        "message": "what did we decide?"})
+    assert status == 200 and data["agent"] == KEEPER == "Tessera" and data["ai"] is True, data
+    assert len(stub.calls) == 1
+    agent_block = stub.calls[0]["system"][-1].text
+    assert holds in agent_block
+
+
 def test_a_missing_agent_name_is_still_scout(srv, voice):
     stub, _ = voice
     seed = 4607
