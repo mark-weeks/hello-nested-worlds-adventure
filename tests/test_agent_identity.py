@@ -156,6 +156,23 @@ class TestAgentVoiceAcceptance:
         assert status == 404 and voices == ["Wayfarer-7"]
 
 
+    def test_a_failing_trace_lookup_answers_in_character(
+            self, base, voices, monkeypatch):
+        # Review of #141: the presence check reads the store, so a store
+        # failure must reach the authored quiet line, not a 500.
+        import sqlite3
+
+        def locked(*_args, **_kwargs):
+            raise sqlite3.OperationalError("database is locked")
+        monkeypatch.setattr(persistence, "has_agent_trace", locked)
+        root, _ = _nodes()
+        status, data = _post(base, "/agent/voice", {
+            "node_name": root.name, "agent_name": "Wren", "message": "hello"})
+        assert status == 200 and data["ai"] is False
+        assert data["response"].startswith("Wren does not answer.")
+        assert voices == [] and _voice_rows(root.name) == []
+
+
 class TestObserveIsLiveOnly:
     def test_a_requested_name_cannot_walk_the_room(self, base):
         root, _ = _nodes()
@@ -222,3 +239,65 @@ class TestSimulationPinsNoPuzzle:
         assert any("puzzle" in e["action"] for e in data["events"])
         with persistence._connect() as conn:
             assert conn.execute("SELECT COUNT(*) FROM puzzle_instances").fetchone()[0] == 0
+
+
+class TestObserverWalksTakeTurns:
+    """Every walk is the one reserved Observer presence (review of #141)."""
+
+    def test_overlapping_walks_never_share_the_presence(self, base, monkeypatch):
+        import threading
+        import time
+        from server import rooms
+
+        presence = []
+        real_broadcast = rooms.broadcast
+
+        def record(room, msg):
+            if msg.get("type") in ("agent_enter", "agent_leave") and msg.get("name") == "Observer":
+                presence.append(msg["type"])
+            return real_broadcast(room, msg)
+        monkeypatch.setattr(rooms, "broadcast", record)
+
+        real_traverse = handlers.Agent.traverse
+
+        def slow_traverse(self, *args, **kwargs):
+            time.sleep(0.3)  # long enough for the two walks to overlap
+            return real_traverse(self, *args, **kwargs)
+        monkeypatch.setattr(handlers.Agent, "traverse", slow_traverse)
+
+        root, _ = _nodes()
+        done = []
+
+        def watch():
+            with urllib.request.urlopen(
+                    f"{base}/observe?node_name={urllib.parse.quote(root.name)}",
+                    timeout=20) as resp:
+                for raw in resp:
+                    if raw.startswith(b"data: "):
+                        event = json.loads(raw[6:])
+                        if event.get("done"):
+                            done.append(event)
+                            break
+
+        walkers = [threading.Thread(target=watch) for _ in range(2)]
+        for w in walkers:
+            w.start()
+        for w in walkers:
+            w.join(30)
+        assert len(done) == 2 and all(e["nodes_visited"] > 0 for e in done)
+        assert presence == ["agent_enter", "agent_leave", "agent_enter", "agent_leave"]
+
+    def test_a_watcher_who_cannot_get_a_turn_is_told_so(self, base, monkeypatch):
+        monkeypatch.setattr(handlers, "_OBSERVE_WAIT_SEC", 0.05)
+        room = get_room(SEED)
+        assert room.observer_lock.acquire(timeout=1)
+        try:
+            root, _ = _nodes()
+            with urllib.request.urlopen(
+                    f"{base}/observe?node_name={urllib.parse.quote(root.name)}",
+                    timeout=20) as resp:
+                events = [json.loads(raw[6:]) for raw in resp if raw.startswith(b"data: ")]
+        finally:
+            room.observer_lock.release()
+        assert events == [{"done": True, "nodes_visited": 0, "busy": True}]
+        assert "Observer" not in room.active_agents

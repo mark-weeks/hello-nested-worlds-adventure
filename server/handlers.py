@@ -182,6 +182,9 @@ _RESERVED_PLAYER_NAMES = {n.lower() for n in _RESERVED_NAMES}
 
 _CAST_BY_LOWER = {n.lower(): n for n in _WANDERER_CAST}
 
+# How long a second watcher waits for the live observer walk to finish.
+_OBSERVE_WAIT_SEC = 10.0
+
 
 def _limit_reason(exc: BaseException) -> str:
     """The voice-outcome reason for a refused-before-the-provider call."""
@@ -1456,7 +1459,15 @@ class Handler(BaseHTTPRequestHandler):
         # now, or one whose own traces lie at this place. Otherwise a player
         # could have the world speak, and record, in any name — another
         # player's included. Like an unknown place, it costs nothing.
-        canonical = _addressable_agent(seed, node.name, agent_name)
+        try:
+            canonical = _addressable_agent(seed, node.name, agent_name)
+        except sqlite3.Error as exc:
+            # The trace lookup reads the store; a failing store answers in
+            # character like every other store failure on this surface. The
+            # unverified name stays out of the log.
+            _log.warning("agent voice fallback (presence check): %s", exc)
+            observability.voice_outcome("agent_voice", "db", exc)
+            return self._agent_voice_quiet(agent_name, persona.name, node.name)
         if canonical is None:
             return self._send_error("no such presence here", 404)
         agent_name = canonical
@@ -1654,7 +1665,15 @@ class Handler(BaseHTTPRequestHandler):
         distance_map = build_distance_map(target)
         room         = get_room(seed)
 
-        agent_enter(room, agent_name, persona=persona.name)
+        # Walks take turns on the one Observer presence (Room.observer_lock).
+        # A walk is short; a watcher who cannot get a turn in time is told so
+        # and nothing walks.
+        if not room.observer_lock.acquire(timeout=_OBSERVE_WAIT_SEC):
+            try:
+                self._sse_event({"done": True, "nodes_visited": 0, "busy": True})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
 
         def handler(node: SpatialNode, event: causality.CausalEvent) -> None:
             # The strength shown is the event's REAL propagated strength —
@@ -1697,12 +1716,15 @@ class Handler(BaseHTTPRequestHandler):
                 broadcast(room, encounter)
 
         # Per-request bus keeps observation isolated from the global event
-        # stream — concurrent /observe calls no longer need to serialise.
+        # stream (the presence, not the bus, is why walks take turns).
         # Only the live handler is registered: no record, ripple or
         # substance handler, so watching a walk changes nothing it passes.
-        bus = CausalityBus()
-        bus.register_handler(handler)
         try:
+            # Inside the try, so the finally always ends the presence and
+            # releases the turn.
+            agent_enter(room, agent_name, persona=persona.name)
+            bus = CausalityBus()
+            bus.register_handler(handler)
             agent = Agent(name=agent_name, danger_threshold=7, bus=bus,
                           persona=persona, world_seed=seed, pin_puzzles=False)
             agent.traverse(target, max_nodes=40)
@@ -1714,6 +1736,7 @@ class Handler(BaseHTTPRequestHandler):
             pass
         finally:
             agent_leave(room, agent_name)
+            room.observer_lock.release()
 
     # ── Puzzle ──
 
