@@ -173,13 +173,12 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
 # The wandering cast's names are world canon: their chronicle rows must be
 # unimpersonatable, so no player may claim them. Imported here, after the
 # module-level constants it sits beside, by design.
-from consciousness import WANDERER_CAST as _WANDERER_CAST  # noqa: E402
+from consciousness import (  # noqa: E402
+    OBSERVER_NAME, RESERVED_NAMES as _RESERVED_NAMES, WANDERER_CAST as _WANDERER_CAST,
+)
 
-_RESERVED_PLAYER_NAMES = {n.lower() for n in _WANDERER_CAST}
-
-# The one name a live `/observe` walk carries. Server-assigned, never read
-# from the request.
-OBSERVER_NAME = "Observer"
+# The cast and the server's own observer (consciousness.RESERVED_NAMES).
+_RESERVED_PLAYER_NAMES = {n.lower() for n in _RESERVED_NAMES}
 
 _CAST_BY_LOWER = {n.lower(): n for n in _WANDERER_CAST}
 
@@ -193,7 +192,7 @@ def _addressable_agent(seed: int, node_name: str, name: str) -> str | None:
     """The canonical name of an agent a player may address here, else None.
 
     Addressable: a wandering-cast member (case-insensitive, canonical
-    spelling returned), an agent present in the room right now, or an agent
+    spelling returned), an agent standing at this node right now, or an agent
     whose own walked traces lie at this node (`persistence.has_agent_trace`).
     """
     if not name:
@@ -203,7 +202,7 @@ def _addressable_agent(seed: int, node_name: str, name: str) -> str | None:
         return cast
     room = get_room(seed)
     with room.lock:
-        live = name in room.active_agents
+        live = room.active_agents.get(name) == node_name
     if live or persistence.has_agent_trace(seed, node_name, name):
         return name
     return None
@@ -1091,7 +1090,8 @@ class Handler(BaseHTTPRequestHandler):
             # An unwired per-request bus: events reach no substance, ripple
             # or record handler, so the walk changes nothing it visits.
             agent = Agent(name=name, danger_threshold=threshold,
-                          bus=CausalityBus(), persona=persona, world_seed=seed)
+                          bus=CausalityBus(), persona=persona, world_seed=seed,
+                          pin_puzzles=False)
             agent.traverse(root, max_nodes=max_nodes)
             events = [{"node": e.node_name, "level": e.level,
                        "state": e.state.name, "action": e.action,
@@ -1252,8 +1252,6 @@ class Handler(BaseHTTPRequestHandler):
                     model_provider=getattr(response, "provider", None),
                     resolved_model=getattr(response, "resolved_model", None),
                 )
-                observability.voice_outcome("speak", "ok")
-                self._send_json({"response": response, "ai": True})
             except (runtime.ModelActionLimited, runtime.VoiceBudgetLimited) as exc:
                 observability.voice_outcome("speak", _limit_reason(exc))
                 return self._send_json({"response": guard.QUIET_RESPONSE,
@@ -1277,6 +1275,12 @@ class Handler(BaseHTTPRequestHandler):
                     "response": consciousness.fallback_voice(node),
                     "ai": False,
                 })
+            else:
+                # Outside the classifying try: a player who hung up before
+                # the reply arrived is not a provider failure. The reply goes
+                # out before the counter write, so the write never delays it.
+                self._send_json({"response": response, "ai": True})
+                observability.voice_outcome("speak", "ok")
 
         elif path == "/puzzle/attempt":
             self._do_puzzle_attempt(body, user_key=user_key)
@@ -1497,14 +1501,6 @@ class Handler(BaseHTTPRequestHandler):
                 model_provider=getattr(response, "provider", None),
                 resolved_model=getattr(response, "resolved_model", None),
             )
-            observability.voice_outcome("agent_voice", "ok")
-            self._send_json({
-                "agent":    agent_name,
-                "persona":  persona.name,
-                "node":     node.name,
-                "response": response,
-                "ai":       True,
-            })
         except (runtime.ModelActionLimited, runtime.VoiceBudgetLimited) as exc:
             observability.voice_outcome("agent_voice", _limit_reason(exc))
             return self._send_json({"response": guard.QUIET_RESPONSE,
@@ -1524,6 +1520,16 @@ class Handler(BaseHTTPRequestHandler):
             _log.warning("agent voice fallback (%s): %s", agent_name, type(exc).__name__)
             observability.voice_outcome("agent_voice", "provider", exc)
             self._agent_voice_quiet(agent_name, persona.name, node.name)
+        else:
+            # Same split as /speak: send first, then count.
+            self._send_json({
+                "agent":    agent_name,
+                "persona":  persona.name,
+                "node":     node.name,
+                "response": response,
+                "ai":       True,
+            })
+            observability.voice_outcome("agent_voice", "ok")
 
     def _do_register(self, body: dict) -> None:
         """POST /register — invite-gated self-service registration (ADR-004 §7).
@@ -1546,7 +1552,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error("name too long (32 characters max)", 400)
         if name.lower() in _RESERVED_PLAYER_NAMES:
             # Same rule as the WS join and the mint CLI: the wandering cast's
-            # names are world canon and unimpersonatable.
+            # names, and the observer's, are world canon and unimpersonatable.
             return self._send_error(
                 f"'{name}' belongs to the world — choose another name", 403)
         # The invite token is not authenticated until redemption below, so
@@ -1677,7 +1683,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._sse_event(payload)
             except (BrokenPipeError, ConnectionResetError):
                 pass
-            broadcast(room, {"type": "causal_event", **payload})
+            # The walk is streamed to the watcher only. Nothing it fires is
+            # applied, so it must not reach the room as a causal_event: both
+            # clients render those as world events (a feed line, a flash, a
+            # ripple at your feet) that a reload would contradict. Presence
+            # (agent_enter/move/encounter/leave) is live fact and still goes out.
 
             # Check for agent-to-agent encounters at this node
             others = agent_move(room, agent_name, node.name)
@@ -1701,7 +1711,7 @@ class Handler(BaseHTTPRequestHandler):
         bus.register_handler(handler)
         try:
             agent = Agent(name=agent_name, danger_threshold=7, bus=bus,
-                          persona=persona, world_seed=seed)
+                          persona=persona, world_seed=seed, pin_puzzles=False)
             agent.traverse(target, max_nodes=40)
             nodes_visited = len(agent.visited)
             self._sse_event({"done": True, "nodes_visited": nodes_visited})

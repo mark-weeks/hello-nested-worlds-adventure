@@ -312,6 +312,14 @@ WANDERER_CAST = [
     "Bellhollow", "Karst", "Marginalia", "Petrichor",
 ]
 
+# The one name a live observer walk carries (`/observe`, the CLI ambient
+# mode). Server-assigned, so no player may hold it either: otherwise every
+# observe walk would broadcast that player's name walking the room.
+OBSERVER_NAME = "Observer"
+
+# Names no player may register, mint or play under: the cast and the observer.
+RESERVED_NAMES = (*WANDERER_CAST, OBSERVER_NAME)
+
 
 _WORLD_PREMISE = (
     "THE MULTIVERSE\n"

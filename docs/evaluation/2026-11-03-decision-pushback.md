@@ -184,15 +184,18 @@ abstraction or capability work and only make that step easier.
   behaviour. An exception while deciding, or an unrecognised value, denies; an
   unrecognised value also fails the boot, and the boot log prints the gate state.
   In auto mode `invite revoke` refuses the last active key unless `--allow-open`
-  is passed; `invite mint` and `invite revoke` print the gate state.
+  is passed (matching revocation's own parsing, the listing's `…` included);
+  `invite mint` and `invite revoke` print the gate state.
 - **R2.** `GET /agent` is a simulation: an unwired bus, no chronicle row, ripple,
-  property delta, agent run or agent memory, and a capped name that cannot be a
-  cast member's. `GET /observe` streams and broadcasts a live walk under the
-  server's own `Observer` name and stores nothing. Operator walks go through the
+  property delta, agent run, agent memory or puzzle pin (`Agent.pin_puzzles`),
+  and a capped name that cannot be a cast member's. `GET /observe` streams a
+  live walk to the watcher under the server's own `Observer` name, which is now
+  reserved like the cast names, and stores nothing; its unapplied events no
+  longer reach the room as `causal_event`s (presence still does). Operator walks go through the
   CLI (`python main.py agent`, and the `play` ambient mode, which records
   traces), unchanged. `POST /agent/voice` speaks only as a
-  cast member (canonical spelling), an agent present in the room, or an agent
-  whose own walked traces lie at that node (`persistence.has_agent_trace`, which
+  cast member (canonical spelling), an agent standing at that node now, or an
+  agent whose own walked traces lie there (`persistence.has_agent_trace`, which
   ignores AGENT_VOICE rows so a typed name cannot bootstrap itself); anything
   else is a 404 before the screen, at no cost.
 - **R3.** Every player-facing voice surface (`speak`, `agent_voice`, `intention`)
@@ -201,12 +204,26 @@ abstraction or capability work and only make that step easier.
   so a Sentry event, for `provider`, `db` and `unconfigured`; WARNING for
   `budget`, `action_cap` and `disabled`) and a daily counter in `cost_budget`
   under the `voice_outcome:` prefix (surface and reason only; store failures are
-  logged, not counted). `python main.py voice-health` reports the window and
+  logged, not counted). The counter waits at most 50 ms on a locked store, and
+  an answered line is counted after its reply is written, so a player who hung
+  up is never counted as a provider failure. `python main.py voice-health` reports the window and
   exits 1 on failures or, with `--probe`, a failed live probe.
   `scripts/beta_metrics.py` reports answered and quiet lines.
 
+**Review of this batch.** An adversarial review of the diff (three lenses, each
+verified) found seven defects in the first commit, all fixed here: the revoke
+guard missed the listing's `…` form; `Observer` was a registrable player name,
+and room-wide live presence let any player voice it anywhere; `/observe` still
+broadcast unapplied `DANGER_ALERT`/visit events room-wide; a disconnect after a
+successful reply was counted as a provider failure; the counter write could
+hold a quiet reply for the 5 s busy timeout (measured 5.05 s against 0.04 s); the
+"store nothing" walks still pinned puzzle definitions (20 from one GET); and
+the fly.toml gate line and boot check had no test. Refuted: counting store
+failures (deliberately logged instead).
+
 **Product-visible change.** Explorer "Observe" walks no longer leave traces in
-history. The ambient cast still walks and records continuously, and the CLI
+history, and other players no longer see their unapplied events as causal
+notices; they still see the observer walk. The ambient cast still walks and records continuously, and the CLI
 paths are unchanged.
 
 ## Not verified here

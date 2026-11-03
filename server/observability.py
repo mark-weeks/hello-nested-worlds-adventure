@@ -103,14 +103,20 @@ def voice_bucket(surface: str, reason: str) -> str:
     return f"{VOICE_OUTCOME_PREFIX}:{surface}:{reason}"
 
 
+_VOICE_COUNTER_WAIT_MS = 50
+
+
 def voice_outcome(surface: str, reason: str,
                   exc: BaseException | None = None) -> None:
-    """Record one voice answer. Never raises; never delays a failing store.
+    """Record one voice answer. Never raises; waits at most 50 ms on the store.
 
     `exc` contributes its class name only: a provider message can carry a
     credential or the player's words. A `db` outcome is logged but not
     counted, because the store is what failed and a second write would only
-    wait on it again.
+    wait on it again. The counter write uses a short lock wait so a locked
+    store (a long transaction, a redact or restore) cannot hold a quiet
+    reply for the usual five-second busy timeout; a counter lost that way is
+    logged as unavailable.
     """
     if surface not in VOICE_SURFACES or reason not in VOICE_REASONS:
         raise ValueError(f"unknown voice outcome {surface}/{reason}")
@@ -124,7 +130,8 @@ def voice_outcome(surface: str, reason: str,
         import persistence
         from server import guard
         persistence.increment_cost_calls(voice_bucket(surface, reason),
-                                         guard._utc_day())
+                                         guard._utc_day(),
+                                         wait_ms=_VOICE_COUNTER_WAIT_MS)
     except Exception as err:  # the answer must still reach the player
         _voice.warning("voice_outcome counter unavailable surface=%s reason=%s "
                        "exception=%s", surface, reason, type(err).__name__)

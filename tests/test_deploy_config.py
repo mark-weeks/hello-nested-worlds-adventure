@@ -71,6 +71,26 @@ class TestFlyToml:
         assert seed is not None and str(seed).strip()
         assert int(seed) == DEFAULT_WORLD_SEED
 
+    def test_hosted_invite_gate_is_required(self, cfg):
+        # 2026-11-03 evaluation R1: the hosted gate is configuration, not
+        # data. Without this line the server falls back to auto mode, which
+        # is open with an empty key table and reopens after the last revoke.
+        assert cfg["env"].get("NESTED_WORLDS_INVITE_GATE") == "required"
+
+    def test_server_refuses_an_unknown_gate_mode_before_the_listener(
+            self, monkeypatch):
+        import server
+
+        monkeypatch.setenv("NESTED_WORLDS_INVITE_GATE", "reqired")
+        monkeypatch.setattr(server.observability, "setup", lambda: None)
+
+        def opened(*_args, **_kwargs):
+            raise AssertionError("listener opened")
+
+        monkeypatch.setattr(server, "_ThreadedServer", opened)
+        with pytest.raises(ValueError, match="NESTED_WORLDS_INVITE_GATE"):
+            server.run(host="127.0.0.1", port=0)
+
     def test_ws_connection_cap_within_proxy_hard_limit(self, cfg):
         # The app's WS cap must not exceed the Fly proxy connection hard_limit,
         # or the proxy would shed connections the app still thinks it can hold.

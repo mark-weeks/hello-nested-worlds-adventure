@@ -136,14 +136,14 @@ def cmd_play(args):
         # unknown presence there. No anonymous gameplay (ADR-004 §7): require a
         # name so every recorded actor is known.
         raise SystemExit("A player name is required — pass --name <you>.")
-    from consciousness import WANDERER_CAST
-    if name.lower() in {n.lower() for n in WANDERER_CAST}:
+    from consciousness import RESERVED_NAMES
+    if name.lower() in {n.lower() for n in RESERVED_NAMES}:
         # CLI play writes to the same permanent chronicle as everyone else;
         # a reserved cast name would impersonate an agent there (world
         # covenant). Reject it here too. (ADR-004 §7 / reserved-names.)
         raise SystemExit(
-            f"'{name}' is a reserved world name (the wandering cast) — "
-            "choose another with --name.")
+            f"'{name}' is a reserved world name (the wandering cast or the "
+            "observer) — choose another with --name.")
     from server.moderation import name_refusal, writes_shared_chronicle
     # Local multi-world play is the operator terminal. A name is screened
     # only when this session writes the hosted canonical world.
@@ -393,8 +393,9 @@ def _revoke_would_open_gate(supplied: str) -> bool:
     """True when revoking `supplied` would leave an auto-mode gate open.
 
     Only the last active key matters, and only in auto mode: required mode
-    stays closed with an empty table. `supplied` is matched the way
-    `revoke_invite_key` matches it (plaintext, or a ≥12-hex digest prefix).
+    stays closed with an empty table. `supplied` is matched exactly as
+    `revoke_invite_key` matches it (`persistence.resolve_active_invite_key`):
+    the plaintext key, or the listing's digest prefix with or without its `…`.
     """
     from server import guard
     try:
@@ -405,27 +406,21 @@ def _revoke_would_open_gate(supplied: str) -> bool:
     rows = persistence.list_invite_keys()
     if len(rows) != 1:
         return False
-    digest = rows[0]["key"]
-    supplied = supplied.strip()
-    if persistence._credential_digest(supplied) == digest:
-        return True
-    is_prefix = (len(supplied) >= 12
-                 and all(c in "0123456789abcdef" for c in supplied.lower()))
-    return is_prefix and digest.startswith(supplied.lower())
+    return persistence.resolve_active_invite_key(supplied) == rows[0]["key"]
 
 
 def cmd_invite(args):
     action = args.invite_action
     if action == "mint":
-        from consciousness import WANDERER_CAST
+        from consciousness import RESERVED_NAMES
         from server.moderation import name_refusal
         name = args.name.strip()
         if not name:
             raise SystemExit("A registered name must not be empty.")
-        if name.lower() in {n.lower() for n in WANDERER_CAST}:
+        if name.lower() in {n.lower() for n in RESERVED_NAMES}:
             raise SystemExit(
-                f"'{name}' is a reserved world name (the wandering cast) — "
-                "choose another.")
+                f"'{name}' is a reserved world name (the wandering cast or "
+                "the observer) — choose another.")
         # Minted names are shared. --unscreened is the explicit operator
         # override for when the screen is off or the operator accepts the
         # name anyway. Reserved cast names are still refused above.

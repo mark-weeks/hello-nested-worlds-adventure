@@ -70,6 +70,16 @@ def _count(surface, reason):
                                       guard._utc_day())
 
 
+def _eventually(check, timeout=3.0):
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if check():
+            return True
+        time.sleep(0.02)
+    return check()
+
+
 def _voice_records(caplog):
     return [(r.levelno, r.getMessage()) for r in caplog.records
             if r.name == "nested_worlds.voice"]
@@ -104,7 +114,8 @@ class TestSpeakOutcomes:
         caplog.set_level(logging.WARNING, logger="nested_worlds")
         status, data = _speak(base)
         assert status == 200 and data["ai"] is True
-        assert _count("speak", "ok") == 1
+        # Counted after the reply is written, so the client can read first.
+        assert _eventually(lambda: _count("speak", "ok") == 1)
         assert _voice_records(caplog) == []
 
     def test_budget_is_a_warning_not_an_alert(self, base, voiced, monkeypatch, caplog):
@@ -161,6 +172,30 @@ class TestSpeakOutcomes:
         assert _count("speak", "disabled") == 1
 
 
+    def test_a_player_who_hung_up_is_not_a_provider_failure(
+            self, base, voiced, monkeypatch, caplog):
+        # The success reply is written outside the classifying try, so a
+        # socket closed before the reply arrives cannot be counted as a
+        # provider failure (review of R3).
+        import consciousness
+        from server import handlers
+        monkeypatch.setattr(consciousness, "speak", lambda *_a, **_k: "A reply.")
+        real = handlers.Handler._send_json
+
+        def hang_up(self, data, *args, **kwargs):
+            if data.get("ai") is True:
+                raise ConnectionResetError("peer went away")
+            return real(self, data, *args, **kwargs)
+        monkeypatch.setattr(handlers.Handler, "_send_json", hang_up)
+        caplog.set_level(logging.WARNING, logger="nested_worlds")
+        try:
+            _speak(base)  # the dispatcher's own error path answers, or not
+        except (urllib.error.URLError, ConnectionError):
+            pass
+        assert _count("speak", "provider") == 0
+        assert _voice_records(caplog) == []
+
+
 class TestOtherSurfaces:
     def test_agent_voice_provider_failure_is_counted(
             self, base, voiced, monkeypatch, caplog):
@@ -209,6 +244,25 @@ class TestOutcomeRecording:
         messages = [m for _, m in _voice_records(caplog)]
         assert messages[0].startswith("voice_fallback surface=speak reason=provider")
         assert messages[1].startswith("voice_outcome counter unavailable")
+
+    def test_a_locked_store_cannot_hold_the_reply(self, caplog):
+        # Another writer holds the write lock (a long transaction, a redact).
+        # The counter waits at most ~50 ms, not the usual 5 s, then gives up.
+        import time
+        persistence.get_cost_calls("warm", guard._utc_day())  # create the DB
+        holder = sqlite3.connect(persistence._DB_PATH)
+        holder.execute("BEGIN IMMEDIATE")
+        caplog.set_level(logging.WARNING, logger="nested_worlds")
+        try:
+            started = time.monotonic()
+            observability.voice_outcome("speak", "disabled")
+            elapsed = time.monotonic() - started
+        finally:
+            holder.rollback()
+            holder.close()
+        assert elapsed < 1.0
+        assert any(m.startswith("voice_outcome counter unavailable")
+                   for _, m in _voice_records(caplog))
 
     def test_unknown_outcomes_are_a_programming_error(self):
         with pytest.raises(ValueError):

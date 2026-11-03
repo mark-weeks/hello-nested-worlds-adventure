@@ -250,6 +250,15 @@ class TestInviteRevokeCli:
             self._revoke(prefix)
         assert persistence.lookup_invite_key("nw_only") is not None
 
+    def test_last_key_refused_with_the_listing_text_verbatim(self):
+        # `invite list` prints a 12-hex prefix plus "…"; revocation accepts
+        # that exact text, so the guard must too (review of R1).
+        persistence.mint_invite_key("nw_only", "Only")
+        listed = persistence.list_invite_keys()[0]["key"][:12] + "…"
+        with pytest.raises(SystemExit, match="last active key"):
+            self._revoke(listed)
+        assert persistence.lookup_invite_key("nw_only") is not None
+
     def test_allow_open_revokes_and_reports_open(self, capsys):
         persistence.mint_invite_key("nw_only", "Only")
         self._revoke("nw_only", "--allow-open")

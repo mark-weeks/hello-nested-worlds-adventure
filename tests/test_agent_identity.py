@@ -21,7 +21,8 @@ import pytest
 import persistence
 from multiverse import store
 from server import _Handler, _ThreadedServer, moderation
-from server.rooms import agent_enter, agent_leave, get_room
+from server import handlers
+from server.rooms import agent_enter, agent_leave, agent_move, get_room
 
 SEED = 382
 
@@ -134,11 +135,16 @@ class TestAgentVoiceAcceptance:
             "node_name": root.name, "agent_name": "Ben", "message": "hello"})
         assert status == 404 and voices == []
 
-    def test_a_live_presence_is_addressable_while_present(self, base, voices):
-        root, _ = _nodes()
+    def test_a_live_presence_is_addressable_only_where_it_stands(self, base, voices):
+        root, child = _nodes()
         room = get_room(SEED)
         agent_enter(room, "Wayfarer-7", persona="wanderer")
         try:
+            agent_move(room, "Wayfarer-7", root.name)
+            status, _ = _post(base, "/agent/voice", {
+                "node_name": child.name, "agent_name": "Wayfarer-7",
+                "message": "hello"})
+            assert status == 404 and voices == []
             status, _ = _post(base, "/agent/voice", {
                 "node_name": root.name, "agent_name": "Wayfarer-7",
                 "message": "hello"})
@@ -166,5 +172,53 @@ class TestObserveIsLiveOnly:
         assert {e["agent"] for e in events if "agent" in e} == {"Observer"}
         assert persistence.get_mutations(SEED, limit=20) == []
         assert persistence.load_ripple_scores(SEED) == {}
+        # Puzzles were resolved, never pinned: no question was opened.
+        with persistence._connect() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM puzzle_instances").fetchone()[0] == 0
         # The live presence left with the walk.
         assert "Observer" not in get_room(SEED).active_agents
+
+    def test_the_walk_is_streamed_to_the_watcher_not_broadcast_as_world_events(
+            self, base, monkeypatch):
+        # Nothing the walk fires is applied, so it must not reach the room as
+        # a causal_event (clients render those as world events). Presence is
+        # live fact and still goes out.
+        sent = []
+        real = handlers.broadcast
+        monkeypatch.setattr(handlers, "broadcast",
+                            lambda room, msg: sent.append(msg["type"]) or real(room, msg))
+        root, _ = _nodes()
+        with urllib.request.urlopen(
+                f"{base}/observe?node_name={urllib.parse.quote(root.name)}",
+                timeout=20) as resp:
+            for raw in resp:
+                if raw.startswith(b"data: ") and json.loads(raw[6:]).get("done"):
+                    break
+        assert "causal_event" not in sent
+        assert "agent_done" in sent
+
+
+class TestObserverNameIsReserved:
+    """The server's observer name is no player's to hold (review of R2)."""
+
+    def test_registration_refuses_the_observer_name(self, base):
+        token = "nwr_" + "c" * 32
+        persistence.create_registration_token(token)
+        status, data = _post(base, "/register", {"invite": token, "name": "observer"})
+        assert status == 403 and "belongs to the world" in data["error"]
+
+    def test_mint_refuses_the_observer_name(self):
+        import main
+        args = main.build_parser().parse_args(["invite", "mint", "--name", "Observer"])
+        with pytest.raises(SystemExit, match="reserved world name"):
+            args.func(args)
+
+
+class TestSimulationPinsNoPuzzle:
+    def test_agent_simulation_opens_no_question(self, base):
+        with urllib.request.urlopen(
+                f"{base}/agent?threshold=10&max_nodes=200", timeout=30) as resp:
+            data = json.load(resp)
+        assert any("puzzle" in e["action"] for e in data["events"])
+        with persistence._connect() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM puzzle_instances").fetchone()[0] == 0

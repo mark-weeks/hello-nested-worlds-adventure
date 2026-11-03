@@ -2323,9 +2323,16 @@ def get_cost_calls(bucket: str, day: str) -> int:
 
 
 @_with_db
-def increment_cost_calls(bucket: str, day: str) -> int:
-    """Atomically bump the (bucket, day) counter and return the new value."""
+def increment_cost_calls(bucket: str, day: str, *,
+                         wait_ms: int | None = None) -> int:
+    """Atomically bump the (bucket, day) counter and return the new value.
+
+    `wait_ms` shortens the lock wait for best-effort counters that must not
+    hold up a reply (voice outcomes); budget charges keep the full timeout.
+    """
     with _connect() as conn:
+        if wait_ms is not None:
+            conn.execute(f"PRAGMA busy_timeout={max(0, int(wait_ms))}")
         conn.execute(
             f"""INSERT INTO cost_budget (bucket, day, calls, created_at)
                VALUES (?, ?, 1, {_NOW})
@@ -2525,6 +2532,45 @@ def revoke_invite_key(key: str) -> bool:
         return _revoke_by_digest_prefix(conn, "invite_keys", "key", key)
 
 
+def _digest_prefix(supplied: str) -> str | None:
+    """The digest prefix a CLI revoke argument names, else None.
+
+    Accepts the listing's form (12+ lowercase hex, optionally ending in the
+    listing's `…`). Shared by revocation and the last-key guard in main.py so
+    the two can never disagree about which row an argument names.
+    """
+    prefix = supplied.strip().rstrip("…")
+    if len(prefix) < 12 or not all(c in "0123456789abcdef" for c in prefix):
+        return None
+    return prefix
+
+
+@_with_db
+def resolve_active_invite_key(supplied: str) -> str | None:
+    """The stored digest of the active key `revoke_invite_key(supplied)` would revoke.
+
+    Same matching as revocation: the plaintext key's digest, else a unique
+    digest prefix from the listing. None when nothing (or nothing unique)
+    matches. Read-only.
+    """
+    with _connect() as conn:
+        digest = _credential_digest(supplied)
+        row = conn.execute(
+            "SELECT key FROM invite_keys WHERE key = ? AND revoked_at IS NULL",
+            (digest,),
+        ).fetchone()
+        if row:
+            return row[0]
+        prefix = _digest_prefix(supplied)
+        if prefix is None:
+            return None
+        rows = conn.execute(
+            "SELECT key FROM invite_keys WHERE key LIKE ? AND revoked_at IS NULL",
+            (prefix + "%",),
+        ).fetchall()
+        return rows[0][0] if len(rows) == 1 else None
+
+
 def _revoke_by_digest_prefix(conn, table: str, column: str,
                              supplied: str) -> bool:
     """Revoke by a digest prefix from the CLI listing. Ops convenience only.
@@ -2533,8 +2579,8 @@ def _revoke_by_digest_prefix(conn, table: str, column: str,
     prefix revokes nothing rather than guessing. Table/column are internal
     constants supplied by the two callers, never user input.
     """
-    prefix = supplied.strip().rstrip("…")
-    if len(prefix) < 12 or not all(c in "0123456789abcdef" for c in prefix):
+    prefix = _digest_prefix(supplied)
+    if prefix is None:
         return False
     rows = conn.execute(
         f"""SELECT {column} FROM {table}
