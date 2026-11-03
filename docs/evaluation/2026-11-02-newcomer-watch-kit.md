@@ -34,7 +34,7 @@ scratch database outside the repository on 2026-11-02.
 | `invite mint --name X` prints the key once and a share line of the form `<BASE>/?key=nw_…&name=X`, which lands on the explorer and never visits `/register`. | `main.py:318-328`, `main.py:354-366`; executed | Replace `<BASE>` with `http://localhost:8080`. The participant never sees `/register`'s consent line (`static/register.html:49-52`), which in any case promises permanence. Consent is verbal or written. |
 | Minting the first key closes the invite gate; revoking the only key reopens it. | `server/guard.py:290-303`; executed (a keyless request got 403 after the mint and 200 after the revoke) | Never revoke the session key while its server runs. Stop the server instead. This stays true until the integrity PR in this batch lands. |
 | Act requires a live personal invite, and derives request IDs with `crypto.subtle.digest` and `crypto.randomUUID`. The journal calls `crypto.randomUUID` when it loads. | `persistence/participants.py:33-48`, `static/intents.js:7`, `static/intents.js:32`, `static/interventions.js:86`, `static/journal.js:6` | Use `http://localhost`, which browsers treat as a secure context. A plain-http LAN address is not one, so Act commits and the journal would fail there. This is web-platform behaviour, not executed for this kit; the pre-session check below confirms it on the actual machine. |
-| `NESTED_WORLDS_DISABLE_AI=1` makes `/speak` and `/agent/voice` answer the authored quiet line with HTTP 200 and `"ai": false`. | `server/handlers.py:1158-1160`, `server/handlers.py:1405-1408`; executed for `/speak` | The no-model option stays in fiction. |
+| `NESTED_WORLDS_DISABLE_AI=1` quiets three paths: `/speak` and `/agent/voice` answer the authored quiet line with HTTP 200 and `"ai": false` before the screen runs, and an Act intention that the local parser cannot read gets the authored "clearer shape" line instead of going to a model. It does not quiet the moderation classifier, which never reads the flag: a chat line, an incorrect puzzle guess the attempt will store, an Ideas submission or profile text saved as published that the local screen cannot clear still goes to the provider whenever one is configured, and a credential in the environment is enough. It does not stop images either. | `server/handlers.py:1158-1160`, `server/handlers.py:1405-1408`, `server/intervention_api.py:141-144`, `server/intervention_api.py:34-35`, `server/moderation.py:160-229`, `server/websocket.py:227-228`, `server/handlers.py:1915-1918`, `server/ideas_api.py:80`, `server/participant_api.py:33-37`, `server/handlers.py:1301-1302`, `server/handlers.py:1332-1336`; executed for `/speak`, and on 2026-11-03 for a held chat line | The no-model option stays in fiction, but only an environment with no configured provider keeps player text on the machine. Session setup unsets the credentials and the image key, and the pre-session check proves it. |
 | Chat lines the local screen clears are shared. A line it cannot clear needs the classifier and is held, in fiction, if the classifier cannot run. | `server/moderation.py:177-199`, `server/moderation.py:208-229` | With no working classifier, expect some ordinary chat lines to be held with the authored hold line. Record a held line as an observation, not a fault. |
 | The heartbeat cast walks and talks unless `NESTED_WORLDS_HEARTBEAT=0`, and their conversation renders like human chat. | `server/heartbeat.py:22`, `server/heartbeat.py:71`, `static/explorer.js:1190-1195` against `static/explorer.js:1227-1236` | Say aloud that the named inhabitants are AI characters, not other people, until live labels ship. |
 | The browser keeps the key and Act receipts in local storage. | `static/journal.js:4`, `static/intents.js:11-13`, `static/intents.js:29-34` | Use a fresh browser profile or a private window for each participant. |
@@ -48,12 +48,15 @@ scratch database outside the repository on 2026-11-02.
    default), consent wording, and the deletion date.
 3. **Voice mode.**
    - *AI disabled* (recommended unless the owner rules otherwise): set
-     `NESTED_WORLDS_DISABLE_AI=1` and keep provider credentials out of the
-     session's environment. Places and inhabitants answer the authored quiet
-     line. Speak can then be observed as an action, not as a conversation.
-     The flag does not stop the classifier, which never reads it
-     (`server/moderation.py:160-229`); leaving the credentials out is what
-     keeps text from the provider in this mode.
+     `NESTED_WORLDS_DISABLE_AI=1` and remove every provider credential from
+     the session's environment, as "Session setup" does. Places and
+     inhabitants answer the authored quiet line. Speak can then be observed
+     as an action, not as a conversation. The flag does not stop the
+     classifier, which never reads it (`server/moderation.py:160-229`):
+     chat lines, stored wrong guesses, Ideas and published profile text
+     still reach it (setup facts above). Removing the credentials is what
+     keeps text from the provider in this mode, and the pre-session check
+     confirms it with `main.py models` and a held chat line.
    - *Live voice*: only with the owner's scoped S2 ruling for this disposable
      watch (packet decision 10). A participant's words to places and
      inhabitants, and chat lines at a node, are quoted into later prompts to
@@ -115,22 +118,49 @@ world contains no check traces.
      That answer comes from the flag alone, so also run
      `.venv/bin/python main.py models` in the same terminal: it must print
      `provider not configured` (`main.py:239-247`). If it does not, a
-     credential is in the environment and the classifier can still receive
-     text (voice-mode item 3): remove it before any session.
+     credential is still in the environment and the classifier can still
+     receive text (voice-mode item 3): unset it and restart from step 1.
    - *Live voice*: `"ai": true` (`server/handlers.py:1227`). Here
      `"ai": false` means `NESTED_WORLDS_DISABLE_AI=1` is still set, the
      provider is not configured or failed, or a cap is spent
      (`server/handlers.py:1193-1195`, `server/handlers.py:1228-1246`). Fix it
      before any session; a live-voice session does not run on the quiet line.
-     Executed on 2026-11-02 with the setup block below: in AI-disabled mode
-     the answer was the quiet line with `"ai": false`; in live-voice mode
-     with an inherited `NESTED_WORLDS_DISABLE_AI=1` cleared but no
-     credentials, it was an authored line that reads like a reply, also with
-     `"ai": false`.
+     Executed on 2026-11-02, and again on 2026-11-03 with the setup block
+     below as it now stands: in AI-disabled mode the answer was the quiet
+     line with `"ai": false`; in live-voice mode with an inherited
+     `NESTED_WORLDS_DISABLE_AI=1` cleared but no credentials, it was an
+     authored line that reads like a reply, also with `"ai": false`.
 4. **Commit one Act** and see its pending or arrived state.
 5. **Open the journal** (History & journal, then Journal) and save a note
    containing a marker word, such as `checkmarker`.
-6. Send one chat line.
+6. Send one chat line, such as `Hello there`. It appears in the feed under
+   the check name.
+   - *AI disabled*: then send `Check 1234567`. A run of seven or more
+     digits, separators ignored, is harmless text that the local screen
+     always sends to the classifier and never blocks on its own
+     (`content_screen.py:200-203`, `content_screen.py:235-239`), so it
+     tests the classifier path without typing anything offensive. With no
+     provider configured the classifier cannot run, and the line must be
+     held: only the sender sees `✕ The worlds hold those words for now.
+     They are not shared. Say it another way, or try again later.`
+     (`server/moderation.py:62-65`, `server/websocket.py:227-233`,
+     `static/explorer.js:1195-1199`). If the line appears as an ordinary
+     chat line, or is declined with "The worlds decline to carry those
+     words", a classifier answered, so the text reached a provider: stop,
+     unset the credential, and restart from step 1. A held line alone does
+     not prove that nothing was sent, because a provider that is reached
+     but fails also holds the line; the `models` check in step 3 is what
+     shows that no provider is configured. Executed on 2026-11-03 in
+     scratch `HOME`s, with fake values for `ANTHROPIC_API_KEY`,
+     `ANTHROPIC_AUTH_TOKEN`, `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` and
+     `FAL_KEY`, `NESTED_WORLDS_PROVIDER=openai_compatible`, and both base
+     URLs pointed at a local recorder: the setup block as written made
+     `models` print `provider not configured`, shared `Hello there`, held
+     `Check 1234567` with the hold line, and the recorder received
+     nothing. With the AI-disabled `unset` removed and a fake key on the
+     default adapter, `models` printed no such line and the digit line
+     reached the recorder: held when the recorder answered with an error,
+     shared when it answered ALLOW.
 7. Run "After each session" step 1 and the scrub in step 2 on this check
    world, but do not move the copy to the restricted store.
    `grep -c checkmarker "$HOME/session-raw.db"` must print `0`. Any other
@@ -151,8 +181,15 @@ terminal so that it uses the same `HOME`.
 ```bash
 export HOME="$(mktemp -d "${TMPDIR:-/tmp}/enfolded-watch.XXXXXX")"
 unset NESTED_WORLDS_CANONICAL_SEED       # the world falls back to seed 382
-export NESTED_WORLDS_DISABLE_AI=1        # AI-disabled mode
-# Live-voice mode only (the S2 ruling): replace the line above with
+unset FAL_KEY                            # no image provider, in either mode
+export NESTED_WORLDS_DISABLE_IMAGES=1
+# AI-disabled mode: no text-provider credential or selection in this terminal
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_PROFILE \
+  ANTHROPIC_CONFIG_DIR ANTHROPIC_IDENTITY_TOKEN ANTHROPIC_IDENTITY_TOKEN_FILE \
+  NESTED_WORLDS_PROVIDER NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY
+export NESTED_WORLDS_DISABLE_AI=1
+# Live-voice mode only (the S2 ruling): replace the AI-disabled unset and
+# export above with
 #   unset NESTED_WORLDS_DISABLE_AI       # an inherited =1 would silence voice
 cd /path/to/the/checkout
 .venv/bin/python main.py serve > "$HOME/serve.log" 2>&1 &
@@ -164,6 +201,25 @@ kill -0 "$SERVER_PID" && echo "server running"
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/worlds
 curl -s -o /dev/null -w '%{http_code}\n' -H "X-Beta-Key: $KEY" http://localhost:8080/worlds
 ```
+
+The AI-disabled `unset` removes each credential source that the code and its
+pinned SDK read. The pinned Anthropic SDK (`requirements.lock:7`) builds its
+client from `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, a named profile or
+config directory (`ANTHROPIC_PROFILE`, `ANTHROPIC_CONFIG_DIR`) or a
+workload-identity token, and the adapter counts each as configured
+(`consciousness/anthropic_provider.py:96-104`,
+`consciousness/anthropic_provider.py:131-132`). The fresh `HOME` already
+hides the SDK's default profile directory, `~/.config/anthropic`. Unsetting
+`NESTED_WORLDS_PROVIDER` keeps the default adapter selected
+(`consciousness/runtime.py:38`, `consciousness/runtime.py:427-428`), so the
+evaluation adapter, which needs no key for a loopback base URL, is not used
+(`consciousness/openai_compat_provider.py:294-295`); its key,
+`NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY`, goes too
+(`consciousness/openai_compat_provider.py:56`). `FAL_KEY` is the image key
+(`server/handlers.py:1332`), and `NESTED_WORLDS_DISABLE_IMAGES=1` makes
+`/image` answer before it is read (`server/handlers.py:1301-1302`). Only
+`/app` requests images; the explorer does not. A source this list misses
+still shows in the pre-session check.
 
 Open the share URL only when all three checks pass: `server running` is
 printed, the keyless request returns `403`, and the keyed request returns

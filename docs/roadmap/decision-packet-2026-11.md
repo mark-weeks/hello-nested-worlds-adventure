@@ -54,7 +54,7 @@ permanent going forward at any time.
 | What changes | Nothing in storage. Consent wording at `/register` and at first entry for minted keys; the privacy notice says chat is permanent and readable in full by invited players. | Chat is broadcast live only; `PLAYER_CHAT` is no longer written. | Chat goes to a new private table that only operators read, with a fixed time-to-live; never to `world_mutations`, `/chronicle`, `/history` or prompts. |
 | Migration door | None. | None. | Yes: one additive table. The irreversibility-check human gate applies at merge, and the table holds player text in every backup. |
 | ADR-004 amendment | None required: section 6 already names `PLAYER_CHAT` as stored in full (`docs/decisions/ADR-004-day-one-data-policy.md:270-281`) and section 4 is unchanged. A note recording the consent requirement is optional. | Section 6 drops `PLAYER_CHAT` from the full-storage sites; section 4 (`docs/decisions/ADR-004-day-one-data-policy.md:253-258`) states that chat is live presence, not recorded participation. | As (b), plus a retention statement for the log. |
-| Backup-retention tail | Permanent. Removing words means redaction, then the backup-deletion procedure. | None for chat sent after the change. | Backups copy the whole database and the time-to-live does not reach them, so real retention runs from the last backup that still contains the line. A backup taken just before the line expires keeps it for the full backup retention (decision 12): a 30-day window with 30-day backups can reach about 60 days, not 30. The prune runs only after a backup stores an object, and it never deletes the newest nonempty validated snapshot (`.github/workflows/backup.yml:140-141`, `scripts/backup_store.py:211-224`). If backups stop, nothing is pruned until they resume; if they keep failing validation, the newest validated copy stays until a newer one exists. Meanwhile, only a bucket lifecycle rule, if one is set (retention plus 7 days or more, `docs/infrastructure/fly-deployment.md:446-449`), or deletion by hand removes the line. Machine-local and downloaded copies need their own deletion (`docs/infrastructure/fly-deployment.md:548-565`). |
+| Backup-retention tail | Permanent. Removing words means redaction, then the backup-deletion procedure. | None for chat sent after the change. | Backups copy the whole database and the time-to-live does not reach them, so real retention runs from the last backup that still contains the line. A backup taken just before the line expires keeps it for the full backup retention (decision 12): a 30-day window with 30-day backups can reach about 60 days, not 30. The prune runs only after a backup stores an object, and it never deletes the newest nonempty validated snapshot (`.github/workflows/backup.yml:140-141`, `scripts/backup_store.py:211-224`). If backups stop, nothing is pruned until they resume; if they keep failing validation, the newest validated copy stays until a newer one exists. Meanwhile, only a bucket lifecycle rule, if one is set (retention plus 7 days or more, `docs/infrastructure/fly-deployment.md:446-449`), or deletion by hand removes the line. The machine-local `/data/backups/*.db` copies sit outside the bucket and its retention: each deploy writes one, and `scripts/deploy.sh` keeps the newest five and prunes only when it deploys (`scripts/deploy.sh:16`, `scripts/deploy.sh:29-33`). They and any downloaded copy need their own deletion (`docs/infrastructure/fly-deployment.md:548-565`). |
 | Node voices | Unchanged: chat stays in place memory and reaches the voice provider (ties to decision 10). | Lose chat memory; `/speak` and inhabitant exchanges remain. | As (b). |
 | Art wear | Unchanged. | Chat rows stop counting toward wear, and the scene-art cooperation modifier counts only `/speak` speakers (`server/imageprompt.py:83-89`). | As (b). |
 | Report evidence | Chat rows exist to cite. A chat line still has no client-side ID (`persistence/__init__.py:729-764` returns nothing), so the server must attach evidence by actor identity. | Nothing is stored to cite. G2's "chat lines as evidence" needs text the reporter supplies, or a new store. | Rows can be cited until they expire. A report must either copy the line (a second store of player text that redaction and the privacy notice must cover) or tolerate expiry. |
@@ -186,16 +186,16 @@ lands November 14, the cohort runs November 15 to 22, interviews finish
 November 25, the read-out runs November 26 to 29, and the beta date is
 **November 29**. Thanksgiving (Thursday November 26) falls inside the read-out.
 
-**Why not adopt it.** The slip is 29 days, and the plan's own rule says a slip
-longer than two weeks is re-planned, not absorbed. The mechanical date also
-ignores the checklist's blocking build work that must be in the release
-candidate before P4 and P6 (block, report and suspension; terms, privacy and
-age; E2; P1 targets; F4), the held Fly account, and the unnamed research lead
-(P5).
+**Why not adopt it.** The slip is 29 days, and the plan's proposed slip rule
+says a slip longer than two weeks is re-planned, not absorbed. The mechanical
+date also ignores the checklist's blocking build work that must be in the
+release candidate before P4 and P6 (block, report and suspension; terms,
+privacy and age; E2; P1 targets; F4), the held Fly account, and the unnamed
+research lead (P5).
 
 | Option | Cohort window | Assumes | Risk |
 |---|---|---|---|
-| Mechanical | November 15 to 22; beta November 29 | P1/P2 by November 6; no new build work | Contradicts the plan's two-week rule; read-out over Thanksgiving |
+| Mechanical | November 15 to 22; beta November 29 | P1/P2 by November 6; no new build work | Contradicts the plan's proposed slip rule (two weeks); read-out over Thanksgiving |
 | December | About December 8 to 15; read-out about December 19 to 22 | Decisions this week; P1/P2 by about November 13; release candidate about November 20 to 23; newcomers after Thanksgiving | Tight. Any slip pushes the overlapping seven-day windows into the year-end holidays |
 | Early-to-mid January | For example the weeks of January 4 or January 11 | The watch in November (if decision 2 allows it); the safety and policy build in November and December; Fly and the release candidate in December | A later beta, in exchange for room to decide and build; avoids December 20 to January 3 |
 
@@ -310,9 +310,26 @@ The Q4 plan lists this as pending and needed before
 examples in the workflow and the runbook; neither is a decision
 (`docs/infrastructure/fly-deployment.md:405-409`,
 `docs/infrastructure/fly-deployment.md:560-561`). The checklist's held table
-did not list it; this batch adds the row, marked proposed by agent. The
-retention period also sets the tail in decision 1 and the backup sentence in
-the privacy notice.
+did not list it; this batch adds the row from the Q4 plan's decision I,
+which is pending and not decided. The retention period also sets the tail in
+decision 1 and the backup sentence in the privacy notice, and that tail is
+longer than the retention period. A line that leaves the live database stays
+in every backup taken before it left, and each of those backups is kept for
+the full backup retention. Under decision 1(c), the tail is the time-to-live
+plus the full backup retention: a 30-day window with 30-day backups can reach
+about 60 days. The prune runs only after a backup stores an object, and it
+never deletes the newest nonempty validated snapshot
+(`.github/workflows/backup.yml:140-141`, `scripts/backup_store.py:211-224`).
+If backups stop, nothing is pruned until they resume; if they keep failing
+validation, the newest validated copy stays until a newer one exists.
+Meanwhile only a bucket lifecycle rule, if one is set (retention plus 7 days
+or more, `docs/infrastructure/fly-deployment.md:446-449`), or deletion by hand
+removes the line. The machine-local `/data/backups/*.db` copies sit outside
+the bucket and its retention: each deploy writes one, and `scripts/deploy.sh`
+keeps the newest five and prunes only when it deploys (`scripts/deploy.sh:16`,
+`scripts/deploy.sh:29-33`). They and any downloaded copy need their own
+deletion (`docs/infrastructure/fly-deployment.md:548-565`). The privacy
+notice's backup sentence should state all of this.
 
 **Recommendation (proposed by agent; not decided):** a private S3-compatible
 bucket on an account you already hold, with a retention period chosen
