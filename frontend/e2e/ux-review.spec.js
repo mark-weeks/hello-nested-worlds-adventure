@@ -220,3 +220,15 @@ test(`${route==='/app'?'scene':'map'} navigation keeps the player located when a
   expect(await page.evaluate(()=>document.activeElement===document.body)).toBe(false);
  }finally{await server.close();}
 });
+
+test('map observe tells a turned-away watcher the Observer is busy',async({page})=>{
+ // Review of #141: one Observer walks a world at a time; a watcher who cannot
+ // get a turn receives {done, nodes_visited:0, busy} and must be told so.
+ const server=await start(page,'/');try{
+  await page.route('**/observe?*',r=>r.fulfill({status:200,headers:{'Content-Type':'text/event-stream','Cache-Control':'no-cache'},
+   body:'data: {"done": true, "nodes_visited": 0, "busy": true}\n\n'}));
+  await disclose(page,'Travelers & chat');await page.locator('#btn-observe').click();
+  await page.locator('#btn-do-observe').click();
+  await expect(page.locator('#status')).toHaveText('The Observer is already walking. Try again in a moment.');
+ }finally{await server.close();}
+});

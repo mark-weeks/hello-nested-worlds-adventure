@@ -14,6 +14,9 @@ from the world's own memory:
     puzzle attempts and solves, scale verbs, chat
   * where they went (top nodes by human activity)
   * whether the world itself is alive (total chronicle size, first event)
+  * whether the world could answer: voice lines answered vs. quiet, by
+    surface and reason (the daily voice-outcome counters, never the
+    chronicle), so "didn't talk" and "talked to silence" stay separable
 
 Run against the live DB (read-only connection, safe alongside the
 server), or against any backup file:
@@ -44,6 +47,25 @@ _HUMAN_TYPES = (
 )
 
 _CONVERSATION_TYPES = ("PLAYER_SPEAK", "AGENT_VOICE")
+
+# server.observability.VOICE_OUTCOME_PREFIX; read here as SQL so a backup
+# file can be inspected without importing the server.
+_VOICE_PREFIX = "voice_outcome:"
+
+
+def _voice_outcomes(conn: sqlite3.Connection, days: int) -> dict:
+    """``{surface: {reason: count}}`` summed over the window's UTC days."""
+    rows = conn.execute(
+        """SELECT bucket, SUM(calls) FROM cost_budget
+           WHERE substr(bucket, 1, ?) = ? AND day >= date('now', ?)
+           GROUP BY bucket""",
+        (len(_VOICE_PREFIX), _VOICE_PREFIX, f"-{max(1, int(days)) - 1} days"),
+    ).fetchall()
+    out: dict = {}
+    for bucket, calls in rows:
+        _, surface, reason = bucket.split(":", 2)
+        out.setdefault(surface, {})[reason] = int(calls)
+    return out
 
 
 def _default_db() -> Path:
@@ -146,6 +168,7 @@ def compute_metrics(db_path: Path, days: int = 7,
             "chronicle_total_rows": total_rows,
             "chronicle_first_event": first_at,
             "model_provenance": model_provenance,
+            "voice_outcomes": _voice_outcomes(conn, days),
         }
     finally:
         conn.close()
@@ -177,6 +200,14 @@ def render(m: dict) -> str:
         f"chronicle: {m['chronicle_total_rows']} rows total, first event "
         f"{m['chronicle_first_event'] or '(none yet)'}",
     ]
+    if m.get("voice_outcomes"):
+        lines += ["", "voice (all callers, by UTC day; answered / quiet):"]
+        for surface, counts in sorted(m["voice_outcomes"].items()):
+            quiet = {r: n for r, n in counts.items() if r != "ok" and n}
+            detail = ", ".join(f"{r} {n}" for r, n in sorted(quiet.items()))
+            lines.append(
+                f"  {surface:<12} {counts.get('ok', 0):>5} / {sum(quiet.values()):<5}"
+                + (f"  ({detail})" if detail else ""))
     if m.get("model_provenance"):
         lines += ["", "model-written rows in this window:"]
         lines += [

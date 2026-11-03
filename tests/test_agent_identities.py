@@ -140,16 +140,16 @@ def test_agent_walk_is_always_scout_and_never_touches_a_named_memory(srv):
         status, data = _request(srv, f"/agent?seed={seed}&name={quote(name)}&max_nodes=10")
         assert status == 200, data
         assert data["agent"] == "Scout"
-    visits = _agent_rows(seed, "AGENT_VISIT")
-    assert visits and {row["data"]["agent"] for row in visits} == {"Scout"}
-    assert _chronicled_agents(seed) == {"Scout"}
+    # Since #141 the walk is a simulation that stores nothing (2026-11-03
+    # evaluation, R2): no chronicle row under any name, Scout's included.
+    assert _agent_rows(seed, "AGENT_VISIT") == []
+    assert _chronicled_agents(seed) == set()
     # The cast member's memory is exactly what it was.
     assert persistence.load_agent_memory("Tessera", seed) == before
-    for name in ("Recorder", "Ada", long_name, long_name[:32]):
+    for name in ("Recorder", "Ada", long_name, long_name[:32], "Scout"):
         assert persistence.load_agent_memory(name, seed) is None
-    assert persistence.load_agent_memory("Scout", seed)["visited_ids"]
-    assert {run["agent_name"] for run in persistence.get_agent_runs(seed)} == {"Scout"}
-    assert {m["agent_name"] for m in persistence.list_agent_memories()} == {"Scout", "Tessera"}
+    assert persistence.get_agent_runs(seed) == []
+    assert {m["agent_name"] for m in persistence.list_agent_memories()} == {"Tessera"}
 
 
 def test_agent_persona_picks_an_archetype_and_cannot_name_anyone(srv):
@@ -162,11 +162,11 @@ def test_agent_persona_picks_an_archetype_and_cannot_name_anyone(srv):
         srv, f"/agent?seed={seed}&max_nodes=5&persona={quote('Mallory the Great')}")
     assert status == 200 and data["agent"] == "Scout"
     assert data["persona"] == for_name("Scout").name
-    visits = _agent_rows(seed, "AGENT_VISIT")
-    assert visits
-    assert {row["data"]["agent"] for row in visits} == {"Scout"}
-    assert _chronicled_agents(seed) == {"Scout"}
-    assert {row["data"]["persona"] for row in visits} <= _ARCHETYPES
+    # The simulation stores nothing (#141), so neither name nor persona can
+    # reach the chronicle.
+    assert _agent_rows(seed, "AGENT_VISIT") == []
+    assert _chronicled_agents(seed) == set()
+    assert data["persona"] in _ARCHETYPES
     assert "Mallory" not in json.dumps(persistence.get_mutations(seed, limit=1000))
 
 
@@ -195,12 +195,11 @@ def test_observe_walks_as_observer_never_as_a_registered_player(srv):
                            "persona": for_name("Observer").name}
     assert {frame["name"] for frame in presence} == {"Observer"}
     assert presence[-1] == {"type": "agent_leave", "name": "Observer"}
-    for frame in frames:
-        if frame["type"] == "causal_event":
-            assert frame["agent"] == "Observer"
-    visits = _agent_rows(seed, "AGENT_VISIT")
-    assert visits and {row["data"]["agent"] for row in visits} == {"Observer"}
-    assert _chronicled_agents(seed) == {"Observer"}
+    # Since #141 the walk is live-only: its unapplied events are streamed to
+    # the watcher, never broadcast as causal_events, and nothing is stored.
+    assert not [frame for frame in frames if frame["type"] == "causal_event"]
+    assert _agent_rows(seed, "AGENT_VISIT") == []
+    assert _chronicled_agents(seed) == set()
 
 
 def test_observe_cannot_spawn_a_cast_member_or_a_long_name(srv):
@@ -208,9 +207,9 @@ def test_observe_cannot_spawn_a_cast_member_or_a_long_name(srv):
     for name in ("Tessera", "x" * 200):
         events = _observe(srv, seed, name=name)
         assert {e["agent"] for e in events if not e.get("done")} == {"Observer"}
-    visits = _agent_rows(seed, "AGENT_VISIT")
-    assert visits and {row["data"]["agent"] for row in visits} == {"Observer"}
-    assert _chronicled_agents(seed) == {"Observer"}
+    # Live-only since #141: nothing is stored under any name.
+    assert _agent_rows(seed, "AGENT_VISIT") == []
+    assert _chronicled_agents(seed) == set()
 
 
 # ── POST /agent/voice ───────────────────────────────────────────────────────

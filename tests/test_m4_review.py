@@ -57,7 +57,11 @@ def test_observe_endpoint_under_dangerous_ancestor_still_visits(http):
                     break
     assert events[-1]['nodes_visited'] > 0
     assert any(e.get('node') == target.name and e.get('kind') == 'AGENT_VISIT' for e in events)
-    assert persistence.get_node_history(SEED, target.name)
+    # Live-only since #141 (2026-11-03 evaluation, R2): the walk streams to
+    # its watcher under the server-owned Observer name and stores nothing.
+    assert {e['agent'] for e in events if 'agent' in e} == {'Observer'}
+    assert persistence.get_node_history(SEED, target.name) == []
+    assert persistence.load_ripple_scores(SEED) == {}
 
 
 def test_cli_ambient_under_dangerous_ancestor_leaves_traces(capsys):

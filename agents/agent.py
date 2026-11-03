@@ -38,6 +38,10 @@ class Agent:
     persona: Optional[Persona] = None
     world_seed: Optional[int] = None
     scan_cursor: Optional[str] = None
+    # False for walks that must leave no durable trace (GET /agent, /observe):
+    # puzzles are resolved with `peek_puzzle`, which reads a pinned
+    # definition but never opens (pins) a new one.
+    pin_puzzles: bool = True
 
     def __post_init__(self) -> None:
         if self.persona is None:
@@ -77,9 +81,13 @@ class Agent:
             import persistence
             epoch = (persistence.count_node_mutations(self.world_seed, node.name, "PUZZLE_REARM")
                      if self.world_seed is not None else 0)
-        from puzzles.instances import get_puzzle
-        puzzle = (get_puzzle(self.world_seed, node, epoch) if self.world_seed is not None
-                  else build_puzzle(node, epoch))
+        from puzzles.instances import get_puzzle, peek_puzzle
+        if self.world_seed is None:
+            puzzle = build_puzzle(node, epoch)
+        elif self.pin_puzzles:
+            puzzle = get_puzzle(self.world_seed, node, epoch)
+        else:
+            puzzle = peek_puzzle(self.world_seed, node, epoch)
         # Preserve the existing epoch-zero roll; renewal is a new opportunity.
         token = f"attempt:{self.name}:{node.name}" + (f":{epoch}" if epoch else "")
         digest = hashlib.sha256(

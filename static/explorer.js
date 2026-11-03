@@ -788,6 +788,14 @@ function observe() {
 
   observeES.onmessage = e => {
     const d = JSON.parse(e.data);
+    if (d.busy) {
+      // Another watcher's walk holds the one Observer presence; nothing
+      // walked for this request.
+      setStatus('The Observer is already walking. Try again in a moment.');
+      observeES.close();
+      observeES = null;
+      return;
+    }
     if (d.done) {
       setStatus(`Observer visited ${d.nodes_visited} node(s).`);
       observeES.close();

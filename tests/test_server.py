@@ -178,26 +178,26 @@ class TestMutationRecording:
         kinds = {m["type"] for m in persistence.get_mutations(seed)}
         assert "PUZZLE_FAILED" in kinds
 
-    def test_agent_traversal_records_visit_mutations(self, srv):
+    def test_agent_endpoint_is_a_simulation_that_stores_nothing(self, srv):
+        # 2026-11-03 evaluation R2: a player-reachable GET must not let one
+        # person pick the performer of permanent acts. The walk still runs
+        # and answers; nothing it does reaches the chronicle, ripple scores,
+        # property overlays, agent runs or agent memory.
         base, _ = srv
         seed = 23456
-        # A client-chosen name is ignored: the walker is always Scout, a
-        # server-owned identity (agents/identities.py), because data.agent
-        # is neither redactable nor screened.
-        _get(f"{base}/agent?seed={seed}&name=Recorder&max_nodes=10")
-        muts = persistence.get_mutations(seed, limit=50)
-        kinds = {m["type"] for m in muts}
-        assert "AGENT_VISIT" in kinds, (
-            f"agent run should record AGENT_VISIT mutations; got {kinds}"
-        )
-        # Agent attribution lives in the data payload (player_name slot is
-        # reserved for humans).
-        agent_muts = [m for m in muts if m["type"] == "AGENT_VISIT"]
-        assert {m["data"].get("agent") for m in agent_muts} == {"Scout"}
-        assert persistence.load_agent_memory("Recorder", seed) is None
-        # Persona is part of the same payload so consciousness prompts and
-        # the event feed can read it without a side lookup.
-        assert all("persona" in m["data"] for m in agent_muts)
+        data, status, _ = _get(
+            f"{base}/agent?seed={seed}&name=Tessera&threshold=10&max_nodes=60")
+        assert status == 200 and data["recorded"] is False
+        assert data["events"] and data["nodes_visited"] > 0
+        # The walker is always Scout (agents/identities.py): a requested
+        # name, a cast member's included, is ignored.
+        assert data["agent"] == "Scout"
+        assert persistence.get_mutations(seed, limit=50) == []
+        assert persistence.load_ripple_scores(seed) == {}
+        assert persistence.load_node_property_overrides(seed) == {}
+        assert persistence.load_agent_memory("Scout", seed) is None
+        assert persistence.load_agent_memory("Tessera", seed) is None
+        assert persistence.get_agent_runs(seed) == []
 
 
 class TestCoopPuzzles:
