@@ -352,9 +352,15 @@ closes it at once (status 1008), and any other frame, keepalives included,
 closes it once 2 s have passed since its last check. The server does not
 wait for frames: it re-checks every open socket whose last check is 5 s old,
 whether or not the client sends anything. A socket that only listens, or
-holds a frame open, therefore stops receiving room broadcasts and is closed
-(status 1008) within about 5 s of revocation: one 5 s sweep interval plus
-one database read. A frame must still finish arriving within 10 s of its
+holds a frame open, therefore stops receiving room broadcasts within about
+5 s of revocation: one 5 s sweep interval plus one database read. Its close
+(status 1008) and its departure from the room follow within about 1 s more,
+even if the client has stopped reading: the server waits at most 1 s to
+write a close frame, then shuts the socket down without one. One exception
+remains, an open owner decision: a chat whose screening waits for a slot
+under the model provider's concurrency limit. Nothing reaches that client
+meanwhile and the chat is refused afterwards, but its close and departure
+wait for the slot. A frame must still finish arriving within 10 s of its
 first byte or the socket is closed (status 1002). Any keyless socket opened
 before the first key or invite closes the same way. `fly ssh console` opens
 a shell inside the running machine.
@@ -421,8 +427,10 @@ participant id. The sanction attaches to the participant, not to the key,
 so rotating the key does not escape it. No restart is needed. The player's
 next HTTP request is refused. An open WebSocket closes the same way as a
 revoked key's (see the invite-gate paragraph above): at once on a move or chat
-its rate limit admits, otherwise within about 5 s, including a client that
-sends nothing or trickles a frame.
+its rate limit admits. Otherwise it stops receiving the world within about
+5 s, including a client that sends nothing or trickles a frame, and is closed
+and leaves the room within about 1 s more, except while a chat waits for a
+model-provider slot (the exception above).
 When the suspension expires or the sanction is lifted,
 the same key resolves to the same participant again. Journal, profile, home
 and saved position are untouched throughout.
