@@ -468,7 +468,10 @@ def _reason_arg(reason: str) -> str:
               flush=True)
     try:
         reason = sys.stdin.read()
-    except UnicodeDecodeError:
+        # Under a UTF-8 or C locale, Python reads stdin with surrogateescape,
+        # so undecodable bytes arrive as lone surrogates, not as an error.
+        reason.encode("utf-8")
+    except UnicodeError:
         raise SystemExit("The reason on standard input is not valid text; "
                          "nothing changed.")
     for newline in ("\r\n", "\n"):

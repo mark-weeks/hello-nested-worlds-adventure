@@ -778,7 +778,12 @@ class TestCli:
         (io.StringIO(""), "visible character"),
         (io.TextIOWrapper(io.BytesIO(b"\xff\xfe spam\n"), encoding="utf-8"),
          "not valid text"),
-    ], ids=["two-newlines", "two-lines", "invisible", "empty", "not-utf-8"])
+        # How the image reads stdin (LANG=C.UTF-8): bad bytes become lone
+        # surrogates instead of raising, and must be refused the same way.
+        (io.TextIOWrapper(io.BytesIO(b"\xff\xfe spam\n"), encoding="utf-8",
+                          errors="surrogateescape"), "not valid text"),
+    ], ids=["two-newlines", "two-lines", "invisible", "empty", "not-utf-8",
+            "not-utf-8-surrogateescape"])
     def test_a_stdin_reason_is_refused_like_any_other(self, stdin, message, monkeypatch):
         persistence.mint_invite_key(KEY_A, "Ada")
         monkeypatch.setattr("sys.stdin", stdin)
@@ -801,10 +806,12 @@ class TestCli:
             conn.execute("INSERT INTO sanction_lifts (sanction_id, reason) VALUES (2, ?)",
                          ("\x07bell",))
         _cli("sanction", "lift", "1", "--reason", "appeal")
+        _cli("sanction", "suspend", "Ada\x1b[31m", "--hours", "1", "--reason", "spam")
         _cli("sanction", "list", "--all")
         out = capsys.readouterr().out
         assert not [c for c in out if not c.isprintable() and c != "\n"]
         for shown in ("Banned Ada\\x1b[31m until lifted", "on Ada\\x1b[31m.",
+                      "Suspended Ada\\x1b[31m until ",
                       "zero\\u200bwidth", "\\x1b[2Jwiped", "\\x07bell"):
             assert shown in out, shown
 
