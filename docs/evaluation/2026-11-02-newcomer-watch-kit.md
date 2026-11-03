@@ -72,8 +72,8 @@ scratch database outside the repository on 2026-11-02.
      the scratch world and the research archive does not reach: record the
      provider's current retention and deletion terms for API inputs in the
      research basics, read from its published terms before the first
-     session, and state them in consent. Set low caps on every model budget
-     the session can spend: voice and intention with
+     session, and state them in consent. Set low caps on every text-model
+     budget the session can spend: voice and intention with
      `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
      `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` (`server/guard.py:43`,
      `server/guard.py:50`), and classifier calls with
@@ -112,6 +112,11 @@ world contains no check traces.
 
    - *AI disabled*: `"ai": false` with "The worlds are quiet today. Try again
      tomorrow." (`server/handlers.py:1158-1160`, `server/guard.py:786`).
+     That answer comes from the flag alone, so also run
+     `.venv/bin/python main.py models` in the same terminal: it must print
+     `provider not configured` (`main.py:239-247`). If it does not, a
+     credential is in the environment and the classifier can still receive
+     text (voice-mode item 3): remove it before any session.
    - *Live voice*: `"ai": true` (`server/handlers.py:1227`). Here
      `"ai": false` means `NESTED_WORLDS_DISABLE_AI=1` is still set, the
      provider is not configured or failed, or a cap is spent
@@ -126,10 +131,11 @@ world contains no check traces.
 5. **Open the journal** (History & journal, then Journal) and save a note
    containing a marker word, such as `checkmarker`.
 6. Send one chat line.
-7. Run "After each session" steps 1 and 2 on this check world. Before moving
-   anything, `grep -c checkmarker "$HOME/session-raw.db"` must print `0`. Any
-   other count means private text would reach the research archive: fix the
-   step before any session.
+7. Run "After each session" step 1 and the scrub in step 2 on this check
+   world, but do not move the copy to the restricted store.
+   `grep -c checkmarker "$HOME/session-raw.db"` must print `0`. Any other
+   count means private text would reach the research archive: fix the step
+   before any session.
 8. Stop the server with `kill "$SERVER_PID"`, close the window, and delete the
    throwaway `HOME`.
 
@@ -165,10 +171,10 @@ printed, the keyless request returns `403`, and the keyed request returns
 launched against this scratch world: only this world holds the new key, and
 minting it closed this world's invite gate (`server/guard.py:290-303`). A
 `000` means the server is still starting; wait and repeat the checks. If port
-8080 is taken, `main.py serve` exits with `OSError: [Errno 98] Address already
-in use` in `$HOME/serve.log`, but `invite mint` still succeeds against the
-scratch database, and the share URL would reach whichever server owns the
-port. Do not open it: stop the other server, or start this one with
+8080 is taken, `main.py serve` exits with an `Address already in use` error in
+`$HOME/serve.log` (`[Errno 98]` on Linux), but `invite mint` still succeeds
+against the scratch database, and the share URL would reach whichever server
+owns the port. Do not open it: stop the other server, or start this one with
 `--port <free port>` (`main.py:533`) and use that port wherever this kit says
 8080. Executed on 2026-11-02 in scratch `HOME`s: with the port held, `serve`
 exited with status 1 and the mint succeeded; with another Enfolded server
@@ -193,11 +199,12 @@ Open with protocol 2's explanation
 - "The named inhabitants you may meet are AI characters, not other people."
 - Live voice only: "Places and inhabitants answer through an AI model. What you
   type to them and an intention you describe in Act are sent to that model's
-  provider. Chat lines, wrong puzzle guesses, Ideas you submit and a profile
-  you publish may also be sent to the same provider for a safety check. The
-  provider keeps its own copies under its own terms, which are <the terms
-  recorded in the research basics>; deleting this world does not delete
-  them."
+  provider. Chat lines can be sent to it too, because a place quotes chat said
+  there when someone speaks to it. Chat lines, wrong puzzle guesses, Ideas you
+  submit and a profile you publish may also be sent to the same provider for
+  a safety check. The provider keeps its own copies under its own terms,
+  which are <the terms recorded in the research basics>; deleting this world
+  does not delete them."
 - "Participation and observation are voluntary."
 
 Then follow script steps 1 to 3
@@ -259,8 +266,8 @@ private journal text or identifying details in it.
    database (`persistence/__init__.py:2728-2749`), so it includes every
    journal note in plain text (`persistence/migrations/0021_participants.sql:26-34`).
 2. Remove private text from that copy before it leaves the scratch `HOME`.
-   Protocol 2 keeps private journal text out of research and says journal
-   access is not research consent
+   Protocol 2 keeps private journal text out of the report input and says
+   journal access is not research consent
    (`docs/evaluation/2026-09-12-pilot-protocol.md:57-59`). The step deletes
    every journal note and blanks profile text that was never published
    (`persistence/migrations/0021_participants.sql:16-25`), then rewrites the
