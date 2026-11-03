@@ -524,16 +524,18 @@ class TestSweepVerdictEndsTheSession:
         assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
         bea.close()
 
-    @pytest.mark.parametrize("action", ["move", "chat"])
+    @pytest.mark.parametrize("action,refusal", [
+        ("move", "revoked"), ("chat", "revoked"), ("move", "read_error")])
     def test_a_refusal_during_the_actions_own_check_wins(
-            self, srv, sweep, monkeypatch, action):
+            self, srv, sweep, monkeypatch, action, refusal):
         # The reader is inside the last fresh read before a move or chat is
         # written (for chat, the one after screening) when the sweep refuses
-        # the session (its own read already sees the key revoked). The
-        # reader's read began earlier and passes; the sweep's verdict must
-        # still win, so nothing is written or broadcast and the session ends
-        # with the one policy close.
-        seed = 2816 if action == "move" else 2817
+        # the session: its own read already sees the key revoked, or fails
+        # closed on a read error. The reader's read began earlier and
+        # passes; the sweep's verdict must still win, so nothing is written
+        # or broadcast and the session ends with the one policy close.
+        seed = {("move", "revoked"): 2816, ("chat", "revoked"): 2817,
+                ("move", "read_error"): 2818}[(action, refusal)]
         # Throttled re-checks never read again after the first frame, so
         # the reader's next read is the action's own fresh check.
         monkeypatch.setattr(guard, "WS_REAUTH_INTERVAL_SEC", 3600.0)
@@ -551,6 +553,9 @@ class TestSweepVerdictEndsTheSession:
             if key == KEY_A:
                 if threading.current_thread().name == SWEEP_THREAD:
                     if sweep_refuses.is_set():
+                        if refusal == "read_error":
+                            raise persistence.sqlite3.OperationalError(
+                                "disk I/O error")
                         return None  # the sweep's read sees it revoked
                 elif armed.is_set():
                     reader_reads.append(key)
