@@ -1,6 +1,7 @@
 import argparse
 import logging
 import secrets
+import sys
 from pathlib import Path
 
 import persistence
@@ -447,11 +448,42 @@ def _positive_int(text: str) -> int:
     return value
 
 
+def _shown(text) -> str:
+    """`text` for the operator's terminal: every non-printable character is
+    written as its escape (\\x1b, \\u200b), so a control sequence held in a
+    name or an older reason is shown, never emitted."""
+    return "".join(c if c.isprintable()
+                   else c.encode("unicode_escape").decode("ascii")
+                   for c in str(text))
+
+
+def _reason_arg(reason: str) -> str:
+    """`--reason -` reads the reason from standard input, keeping it out of
+    shell history and process arguments. One trailing newline is dropped;
+    the rest is checked exactly as a reason given on the command line."""
+    if reason != "-":
+        return reason
+    if sys.stdin.isatty():
+        print("Reason (one line), then Enter and Ctrl-D:", file=sys.stderr,
+              flush=True)
+    try:
+        reason = sys.stdin.read()
+    except UnicodeDecodeError:
+        raise SystemExit("The reason on standard input is not valid text; "
+                         "nothing changed.")
+    for newline in ("\r\n", "\n"):
+        if reason.endswith(newline):
+            return reason[:-len(newline)]
+    return reason
+
+
 def cmd_sanction(args):
     """Owner-only suspend / ban / lift / list (beta checklist G5).
 
     Output goes to the operator's terminal. Reasons are printed only by
-    `list`; nothing here logs a reason, a name or a credential.
+    `list`; nothing here logs a reason, a name or a credential. Names and
+    reasons are printed through `_shown`, so no control sequence reaches
+    the terminal.
     """
     import datetime
     from persistence import sanctions
@@ -467,17 +499,18 @@ def cmd_sanction(args):
                 # Past what a timedelta can hold, so far past the cap:
                 # suspend() refuses it with the allowed-range message.
                 duration = datetime.timedelta.max
-            s = sanctions.suspend(args.player, duration, args.reason)
-            print(f"Suspended {s['name'] or s['participant']} until "
+            s = sanctions.suspend(args.player, duration,
+                                  _reason_arg(args.reason))
+            print(f"Suspended {_shown(s['name'] or s['participant'])} until "
                   f"{s['expires_at']} UTC (sanction {s['id']}).")
         elif action == "ban":
-            s = sanctions.ban(args.player, args.reason)
-            print(f"Banned {s['name'] or s['participant']} until lifted "
+            s = sanctions.ban(args.player, _reason_arg(args.reason))
+            print(f"Banned {_shown(s['name'] or s['participant'])} until lifted "
                   f"(sanction {s['id']}).")
         elif action == "lift":
-            s = sanctions.lift(args.sanction_id, args.reason)
+            s = sanctions.lift(args.sanction_id, _reason_arg(args.reason))
             print(f"Lifted sanction {s['id']} ({s['kind']}) on "
-                  f"{s['name'] or s['participant']}.")
+                  f"{_shown(s['name'] or s['participant'])}.")
         elif action == "list":
             rows = sanctions.list_sanctions(include_all=args.all)
             if not rows:
@@ -489,11 +522,12 @@ def cmd_sanction(args):
             print("-" * 110)
             for r in rows:
                 until = r["expires_at"] or "no end"
-                print(f"{r['id']:>4}  {(r['name'] or r['participant']):<20}  "
+                print(f"{r['id']:>4}  {_shown(r['name'] or r['participant']):<20}  "
                       f"{r['kind']:<10}  {r['status']:<8}  {r['created_at']:<19}  "
-                      f"{until:<19}  {r['reason']}")
+                      f"{until:<19}  {_shown(r['reason'])}")
                 if r["lifted_at"]:
-                    print(f"{'':>4}  lifted {r['lifted_at']}: {r['lift_reason']}")
+                    print(f"{'':>4}  lifted {r['lifted_at']}: "
+                          f"{_shown(r['lift_reason'])}")
         else:  # pragma: no cover — argparse already constrains this
             raise SystemExit(f"unknown sanction action: {action}")
     except ValueError as exc:
@@ -714,6 +748,9 @@ def build_parser() -> argparse.ArgumentParser:
                                  help="The registration token to cancel")
     p_invite_cancel.set_defaults(func=cmd_invite)
 
+    reason_help = ("Why (required; private operator data, never shown to "
+                   "the player; - reads it from standard input, keeping it "
+                   "out of shell history)")
     p_sanction = sub.add_parser("sanction",
         help="Suspend or ban a player with a reason, lift it, or list "
              "sanctions (owner only; reversible, unlike invite revoke)")
@@ -721,7 +758,8 @@ def build_parser() -> argparse.ArgumentParser:
                                              required=True)
 
     p_sanction_suspend = sanction_sub.add_parser("suspend",
-        help="Suspend a player for a set time (1 minute to 365 days)")
+        help="Suspend a player for a set time (1 hour to 365 days, whole "
+             "hours or days)")
     p_sanction_suspend.add_argument(
         "player", help="Registered name, or participant id")
     span = p_sanction_suspend.add_mutually_exclusive_group(required=True)
@@ -729,7 +767,7 @@ def build_parser() -> argparse.ArgumentParser:
     span.add_argument("--days", type=_positive_int, help="Length in days")
     p_sanction_suspend.add_argument(
         "--reason", required=True,
-        help="Why (required; private operator data, never shown to the player)")
+        help=reason_help)
     p_sanction_suspend.set_defaults(func=cmd_sanction)
 
     p_sanction_ban = sanction_sub.add_parser("ban",
@@ -738,7 +776,7 @@ def build_parser() -> argparse.ArgumentParser:
         "player", help="Registered name, or participant id")
     p_sanction_ban.add_argument(
         "--reason", required=True,
-        help="Why (required; private operator data, never shown to the player)")
+        help=reason_help)
     p_sanction_ban.set_defaults(func=cmd_sanction)
 
     p_sanction_lift = sanction_sub.add_parser("lift",
@@ -746,7 +784,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_sanction_lift.add_argument("sanction_id", type=_positive_int,
                                  help="Sanction id from sanction list")
     p_sanction_lift.add_argument("--reason", required=True,
-                                 help="Why it is lifted (required)")
+                                 help="Why it is lifted (required; - reads "
+                                      "it from standard input)")
     p_sanction_lift.set_defaults(func=cmd_sanction)
 
     p_sanction_list = sanction_sub.add_parser("list",

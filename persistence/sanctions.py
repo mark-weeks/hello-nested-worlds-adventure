@@ -15,8 +15,12 @@ Unlike `invite revoke`, nothing here burns the name or the credential.
 Insert-only, like `persistence.pin_world_meta`: this module offers no
 update and no delete. A sanction ends at its expiry or by a lift row.
 Nothing here writes to `world_mutations`. Reasons are private operator data:
-returned to the operator's CLI, never logged, never sent to a client. They
-do enter every backup of the database.
+returned to the operator's CLI and never sent to a client. This module's log
+lines carry the sanction id and kind only, never a reason. A reason can
+still be recorded outside the database: one typed as `--reason "..."` lands
+in the operator's shell history and, while the command runs, in the process
+arguments on both ends of `fly ssh console`; `--reason -` reads it from
+standard input instead. Reasons also enter every backup of the database.
 
 Operator-only: called from `python main.py sanction ...`. There is no HTTP
 surface.
@@ -25,6 +29,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import unicodedata
 from typing import Any
 
 import persistence as db
@@ -65,10 +70,31 @@ def _as_dict(row) -> dict[str, Any]:
     }
 
 
+def _visible(char: str) -> bool:
+    # Spaces and separators (Z*), control (Cc) and format (Cf) characters,
+    # such as a zero-width space, print nothing a reader can see.
+    category = unicodedata.category(char)
+    return category[0] != "Z" and category not in ("Cc", "Cf")
+
+
 def _clean_reason(reason: Any) -> str:
-    if not isinstance(reason, str) or not reason.strip():
+    """The reason as stored: one line with at least one visible character.
+
+    Every control character (Cc) is refused, tab and newline included: a
+    reason is one line, and an escape sequence must never reach the
+    operator's terminal from `sanction list`. A reason with no visible
+    character (only spaces, separators and format characters such as a
+    zero-width space) is refused as empty. Applies to lift reasons too.
+    """
+    if not isinstance(reason, str):
         raise ValueError("A reason is required and must not be empty.")
+    if any(unicodedata.category(c) == "Cc" for c in reason):
+        raise ValueError("A reason is one line of text: tabs, newlines and other "
+                         "control characters are refused.")
     reason = reason.strip()
+    if not any(_visible(c) for c in reason):
+        raise ValueError("A reason is required and must contain at least one "
+                         "visible character.")
     if len(reason) > MAX_REASON_CHARS:
         raise ValueError(f"A reason may contain up to {MAX_REASON_CHARS} characters.")
     return reason
@@ -117,7 +143,12 @@ def _resolve_on(conn, target: str) -> dict[str, Any]:
 
 
 def resolve(target: str) -> dict[str, Any]:
-    """Resolve a registered name or participant id; see `_resolve_on`."""
+    """Resolve a registered name or participant id; see `_resolve_on`.
+
+    Not a pure read: for a registered player who has never made an
+    authenticated read, this creates and commits their participant row,
+    exactly as their first read would have, before returning it.
+    """
     with db.transaction() as conn:
         return _resolve_on(conn, target)
 
@@ -147,6 +178,9 @@ def _record(target: str, kind: str, reason: str,
 
 def suspend(target: str, duration: datetime.timedelta, reason: str) -> dict[str, Any]:
     """Suspend a player from now for `duration` (1 minute to 365 days).
+
+    That range is the library's. `python main.py sanction suspend` takes
+    whole `--hours` or `--days`, so its shortest suspension is 1 hour.
 
     Returns the recorded sanction. Effective on the player's next request
     or socket frame. Raises ValueError, writing nothing, for an unknown

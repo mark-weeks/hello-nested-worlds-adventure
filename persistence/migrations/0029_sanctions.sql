@@ -14,7 +14,9 @@
 -- here is written to world_mutations.
 --
 -- Reasons are private operator data. They are never shown to the sanctioned
--- player and never logged, but they enter every backup of this database.
+-- player and never written to the application's logs, but they enter every
+-- backup of this database, and one typed on the command line also lands in
+-- the operator's shell history (fly-deployment.md section 6).
 --
 -- Timestamps use datetime('now')'s UTC 'YYYY-MM-DD HH:MM:SS' form, which the
 -- CHECKs below enforce, so text comparison against datetime('now') is a time

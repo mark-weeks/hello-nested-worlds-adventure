@@ -11,6 +11,7 @@ intact). Every test drives the real store, server, socket or CLI.
 from __future__ import annotations
 
 import datetime
+import io
 import json
 import logging
 from contextlib import contextmanager
@@ -263,6 +264,72 @@ class TestSuspensionAndBan:
         assert persistence.lookup_invite_key(KEY_B)["name"] == "élodie"
         assert participants.identify(KEY_B)["id"] != b["participant"]
 
+    def test_the_shown_name_comes_from_the_live_key_not_a_revoked_one(self):
+        # A participant holding a revoked credential beside a live one under
+        # another name. Rotation keeps one invite row, so the second
+        # credential is linked directly here, as an operator could.
+        persistence.mint_invite_key(KEY_A, "Old Name")
+        owner = participants.identify(KEY_A)["id"]
+        persistence.revoke_invite_key(KEY_A)
+        persistence.mint_invite_key(KEY_C, "New Name")
+        digest = persistence._credential_digest(KEY_C)
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO participant_credentials "
+                "(credential_digest, participant_id, actor_identity) VALUES (?, ?, ?)",
+                (digest, owner, digest[:16]))
+        assert participants.identify(KEY_C) == {"id": owner, "name": "New Name"}
+        assert sanctions.resolve(owner) == {"id": owner, "name": "New Name"}
+        s = sanctions.suspend(owner, HOUR, "by id")
+        assert s["name"] == "New Name"
+        assert [r["name"] for r in sanctions.list_sanctions()] == ["New Name"]
+
+    @pytest.mark.parametrize("duration", [
+        datetime.timedelta(days=365), datetime.timedelta(minutes=1),
+    ], ids=["exactly-365-days", "exactly-1-minute"])
+    def test_the_library_accepts_both_ends_of_the_range(self, duration):
+        persistence.mint_invite_key(KEY_A, "Ada")
+        s = sanctions.suspend("Ada", duration, "at the edge of the range")
+        assert s["status"] == "active"
+        assert _seconds_between(s["created_at"], s["expires_at"]) == duration.total_seconds()
+        assert persistence.lookup_invite_key(KEY_A) is None
+
+    def test_a_suspension_is_over_at_its_expiry_second(self):
+        # Active means the expiry is still ahead. SQLite's 'now' is whole
+        # seconds of text, so the row gets expires_at = datetime('now') and
+        # every read below must run inside that same second. An attempt
+        # whose reads cross into the next second proves nothing about the
+        # boundary and is repeated.
+        persistence.mint_invite_key(KEY_A, "Ada")
+        owner = participants.identify(KEY_A)["id"]
+        for _ in range(10):
+            time.sleep(1 - time.time() % 1)  # just after a second begins
+            sid = _insert_suspension(owner, "-1 hour", "+0 seconds")
+            with _db() as conn:
+                expires = conn.execute("SELECT expires_at FROM sanctions WHERE id = ?",
+                                       (sid,)).fetchone()[0]
+            live = persistence.lookup_invite_key(KEY_A)
+            sanctioned = sanctions.is_sanctioned(owner)
+            status = {r["id"]: r["status"] for r in sanctions.list_sanctions(include_all=True)}
+            with _db() as conn:
+                now = conn.execute("SELECT datetime('now')").fetchone()[0]
+            if now == expires:
+                break
+        else:
+            pytest.fail("no attempt kept its reads inside the expiry second")
+        assert live is not None and live["name"] == "Ada"
+        assert not sanctioned
+        assert status[sid] == "expired"
+
+    def test_a_bool_is_not_a_sanction_id(self):
+        persistence.mint_invite_key(KEY_A, "Ada")
+        b = sanctions.ban("Ada", "threats")
+        assert b["id"] == 1  # so True, which equals 1, would name it
+        with pytest.raises(ValueError, match="whole number"):
+            sanctions.lift(True, "x")
+        assert _table("sanction_lifts") == []
+        assert persistence.lookup_invite_key(KEY_A) is None
+
     def test_expired_suspension_no_longer_refuses_and_cannot_be_lifted(self):
         _mint_two()
         owner = participants.identify(KEY_A)["id"]
@@ -350,6 +417,48 @@ class TestSuspensionAndBan:
         assert _count("sanctions") == 0
         assert _count("participants") == 0
         assert persistence.lookup_invite_key(KEY_A)["name"] == "Ada"
+
+
+class TestReasons:
+    """A reason is one line with at least one visible character."""
+
+    @pytest.mark.parametrize("reason, message", [
+        ("​", "visible"),
+        ("​‍﻿­", "visible"),
+        (" 　   ", "visible"),
+        ("\x1b[2J", "control characters"),
+        ("spam\x1b[2J", "control characters"),
+        ("first line\nsecond line", "control characters"),
+        ("tab\tseparated", "control characters"),
+        ("spam\r", "control characters"),
+        ("spam\x85", "control characters"),
+    ], ids=["zero-width-space", "format-characters-only", "separators-only",
+            "escape-sequence", "text-then-escape", "newline", "tab",
+            "carriage-return", "c1-control"])
+    def test_invisible_or_control_reasons_are_refused(self, reason, message):
+        persistence.mint_invite_key(KEY_A, "Ada")
+        with pytest.raises(ValueError, match=message):
+            sanctions.suspend("Ada", HOUR, reason)
+        with pytest.raises(ValueError, match=message):
+            sanctions.ban("Ada", reason)
+        assert _count("sanctions") == 0 and _count("participants") == 0
+        assert persistence.lookup_invite_key(KEY_A)["name"] == "Ada"
+
+    def test_a_lift_reason_follows_the_same_rule(self):
+        persistence.mint_invite_key(KEY_A, "Ada")
+        b = sanctions.ban("Ada", "threats")
+        for reason in ("​", "\x1b[2J", "appeal\nupheld", "\t"):
+            with pytest.raises(ValueError, match="visible|control characters"):
+                sanctions.lift(b["id"], reason)
+        assert _table("sanction_lifts") == []
+        assert persistence.lookup_invite_key(KEY_A) is None
+
+    def test_visible_text_keeps_its_format_characters(self):
+        # A format character beside visible text is allowed (an emoji
+        # joiner is one); only a reason made of nothing else is refused.
+        persistence.mint_invite_key(KEY_A, "Ada")
+        s = sanctions.ban("Ada", "  zero​width  ")
+        assert s["reason"] == "zero​width"
 
 
 class TestInsertOnly:
@@ -562,8 +671,14 @@ class TestCli:
          "365 days"),
         (["sanction", "lift", "99999999999999999999", "--reason", "x"],
          "No sanction has id 99999999999999999999"),
+        (["sanction", "ban", "Ada", "--reason", "\x1b[2J"],
+         "A reason is one line of text: tabs, newlines and other control "
+         "characters are refused."),
+        (["sanction", "ban", "Ada", "--reason", "​"],
+         "must contain at least one visible character"),
     ], ids=["blank-reason", "unknown-player", "too-long", "unknown-id",
-            "hours-past-timedelta", "days-past-timedelta", "id-past-sqlite-integer"])
+            "hours-past-timedelta", "days-past-timedelta", "id-past-sqlite-integer",
+            "control-character-reason", "invisible-reason"])
     def test_refusals_exit_with_a_message_and_write_nothing(self, argv, message):
         persistence.mint_invite_key(KEY_A, "Ada")
         with pytest.raises(SystemExit) as exc:
@@ -598,6 +713,100 @@ class TestCli:
         sanctions.lift(2, "served")
         _cli("sanction", "list")
         assert capsys.readouterr().out.strip() == "No active sanctions."
+
+    def test_suspending_by_participant_id_prints_the_registered_name(self, capsys):
+        _mint_two()
+        bea = participants.identify(KEY_B)["id"]
+        _cli("sanction", "suspend", bea, "--hours", "1", "--reason", "by id")
+        out = capsys.readouterr().out
+        assert out.startswith("Suspended Bea until ")
+        assert bea not in out
+
+    @pytest.mark.parametrize("argv, first_line", [
+        (["sanction", "ban", "Ada", "--reason", "threats"],
+         "Banned Ada until lifted (sanction 1)."),
+        (["sanction", "suspend", "Ada", "--hours", "1", "--reason", "spam"],
+         "Suspended Ada until "),
+    ], ids=["ban", "suspend"])
+    def test_ban_and_suspend_print_the_session_close_note(self, argv, first_line, capsys):
+        persistence.mint_invite_key(KEY_A, "Ada")
+        _cli(*argv)
+        lines = capsys.readouterr().out.splitlines()
+        assert lines[0].startswith(first_line)
+        assert lines[1:] == ["Their open sessions close within about 20 seconds; new "
+                             "requests are refused. The player is not told the reason."]
+        _cli("sanction", "lift", "1", "--reason", "appeal")
+        lifted = capsys.readouterr().out  # a lift closes nothing, so no note
+        assert lifted.startswith("Lifted sanction 1 (") and lifted.count("\n") == 1
+
+    @pytest.mark.parametrize("given", ["spam in chat\n", "spam in chat\r\n", "spam in chat"],
+                             ids=["newline", "crlf", "no-newline"])
+    @pytest.mark.parametrize("argv", [
+        ["sanction", "suspend", "Ada", "--hours", "1", "--reason", "-"],
+        ["sanction", "ban", "Ada", "--reason", "-"],
+    ], ids=["suspend", "ban"])
+    def test_reason_dash_reads_the_reason_from_stdin(self, argv, given, monkeypatch, capsys):
+        persistence.mint_invite_key(KEY_A, "Ada")
+        monkeypatch.setattr("sys.stdin", io.StringIO(given))
+        _cli(*argv)
+        assert [r["reason"] for r in sanctions.list_sanctions()] == ["spam in chat"]
+        assert capsys.readouterr().err == ""  # no prompt when stdin is not a terminal
+
+    def test_lift_reason_dash_reads_the_reason_from_stdin(self, monkeypatch, capsys):
+        persistence.mint_invite_key(KEY_A, "Ada")
+        sanctions.ban("Ada", "threats")
+        monkeypatch.setattr("sys.stdin", io.StringIO("appeal upheld\n"))
+        _cli("sanction", "lift", "1", "--reason", "-")
+        (row,) = sanctions.list_sanctions(include_all=True)
+        assert (row["status"], row["lift_reason"]) == ("lifted", "appeal upheld")
+
+    def test_reason_dash_prompts_on_a_terminal(self, monkeypatch, capsys):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        persistence.mint_invite_key(KEY_A, "Ada")
+        monkeypatch.setattr("sys.stdin", Terminal("typed at the prompt\n"))
+        _cli("sanction", "ban", "Ada", "--reason", "-")
+        assert capsys.readouterr().err == "Reason (one line), then Enter and Ctrl-D:\n"
+        assert sanctions.list_sanctions()[0]["reason"] == "typed at the prompt"
+
+    @pytest.mark.parametrize("stdin, message", [
+        (io.StringIO("spam\n\n"), "control characters"),  # one newline is dropped, not two
+        (io.StringIO("first line\nsecond line\n"), "control characters"),
+        (io.StringIO("\u200b\n"), "visible character"),
+        (io.StringIO(""), "visible character"),
+        (io.TextIOWrapper(io.BytesIO(b"\xff\xfe spam\n"), encoding="utf-8"),
+         "not valid text"),
+    ], ids=["two-newlines", "two-lines", "invisible", "empty", "not-utf-8"])
+    def test_a_stdin_reason_is_refused_like_any_other(self, stdin, message, monkeypatch):
+        persistence.mint_invite_key(KEY_A, "Ada")
+        monkeypatch.setattr("sys.stdin", stdin)
+        with pytest.raises(SystemExit) as exc:
+            _cli("sanction", "ban", "Ada", "--reason", "-")
+        assert message in str(exc.value.code)
+        assert _count("sanctions") == 0 and _count("participants") == 0
+
+    def test_names_and_reasons_never_reach_the_terminal_raw(self, capsys):
+        # A name minted with a control sequence, an older reason written
+        # before reasons were checked (the CHECK allows it), and a format
+        # character inside an accepted reason: each is printed escaped.
+        persistence.mint_invite_key(KEY_A, "Ada\x1b[31m")
+        persistence.mint_invite_key(KEY_B, "Bea")
+        bea = participants.identify(KEY_B)["id"]
+        _cli("sanction", "ban", "Ada\x1b[31m", "--reason", "zero\u200bwidth")
+        with _db() as conn:
+            conn.execute("""INSERT INTO sanctions (participant_id, kind, reason, created_at)
+                            VALUES (?, 'ban', ?, datetime('now'))""", (bea, "\x1b[2Jwiped"))
+            conn.execute("INSERT INTO sanction_lifts (sanction_id, reason) VALUES (2, ?)",
+                         ("\x07bell",))
+        _cli("sanction", "lift", "1", "--reason", "appeal")
+        _cli("sanction", "list", "--all")
+        out = capsys.readouterr().out
+        assert not [c for c in out if not c.isprintable() and c != "\n"]
+        for shown in ("Banned Ada\\x1b[31m until lifted", "on Ada\\x1b[31m.",
+                      "zero\\u200bwidth", "\\x1b[2Jwiped", "\\x07bell"):
+            assert shown in out, shown
 
     def test_logs_carry_neither_reasons_nor_credentials(self, srv, caplog, capsys):
         caplog.set_level(logging.DEBUG)
