@@ -4,12 +4,12 @@ Six pieces wired into `server/handlers.py`:
 
   1. `check_invite_key`   — per-user invite-key gate (the `invite_keys` table),
                             applied to every request including the WebSocket
-                            upgrade. There is no shared key: every credential
-                            is individually minted, named, and revocable, so a
-                            gated session is always a known, unique player.
-                            `NESTED_WORLDS_INVITE_GATE=required` (the hosted
-                            setting) keeps it closed whatever the table holds;
-                            an undecidable gate is closed.
+                            upgrade, and re-checked on an open socket's frames
+                            (`ws_session_authorized`). There is no shared key:
+                            every credential is individually minted, named, and
+                            revocable, so a gated session is always a known,
+                            unique player. The gate latches closed once any
+                            credential was ever issued.
   2. `RateLimiter`        — per-IP fixed-window limiter for the AI / image /
                             puzzle-attempt endpoints.
   3. `consume_anthropic`  — daily call cap on Anthropic, persisted in SQLite.
@@ -31,15 +31,18 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import logging
 import math
 import os
 import threading
 import time
+from collections import OrderedDict
 from typing import Any, Mapping
 
 import persistence
 from multiverse.generator import DEFAULT_WORLD_SEED
 
+_log = logging.getLogger("nested_worlds.guard")
 
 # ── Env vars ────────────────────────────────────────────────────────────────
 
@@ -292,67 +295,28 @@ def registered_name(supplied: str) -> str | None:
     return row["name"] if row else None
 
 
-INVITE_GATE_ENV = "NESTED_WORLDS_INVITE_GATE"
-INVITE_GATE_REQUIRED = "required"
-INVITE_GATE_AUTO = "auto"
-_INVITE_GATE_MODES = (INVITE_GATE_REQUIRED, INVITE_GATE_AUTO)
-
-
-def invite_gate_mode() -> str:
-    """The configured gate mode: ``required`` or ``auto`` (the default).
-
-    ``required`` is the hosted setting (fly.toml): every gated request needs
-    an active per-user credential whatever the table holds, so revoking every
-    key, restoring a pre-mint backup or a failing lookup closes the world
-    instead of opening it. ``auto`` keeps the local-development and test
-    behaviour: the gate is open until the first key is minted. An
-    unrecognised value raises; ``server.run`` validates it before the port
-    opens, so a typo fails the boot rather than guessing.
-    """
-    raw = os.environ.get(INVITE_GATE_ENV, "").strip().lower()
-    if not raw:
-        return INVITE_GATE_AUTO
-    if raw not in _INVITE_GATE_MODES:
-        raise ValueError(
-            f"invalid {INVITE_GATE_ENV}: {raw!r} "
-            f"(expected one of: {', '.join(_INVITE_GATE_MODES)})")
-    return raw
-
-
 def invite_gate_active() -> bool:
-    """True when gated requests need a valid per-user credential.
+    """True once any credential has ever been issued; True on any error.
 
-    Always true in ``required`` mode. In ``auto`` mode, true once at least
-    one active per-user key exists: tests and pure local dev (no minted
-    keys) leave the gate off — the only path on which a session can be
-    nameless, and it never touches real play. Any failure to decide (a bad
-    mode value, a store that cannot be read) counts as active: the gate
-    fails closed, because what an open gate lets in writes permanent rows.
+    The gate latches. Minting the first per-user key, or creating the first
+    registration invite, closes it, and nothing reopens it: revoking every
+    key, cancelling every invite, or a redeemed invite whose key was later
+    revoked all leave the world closed. Every request then needs a live
+    per-user credential. Only a database where nothing was ever issued
+    (pure local dev and most tests) leaves the gate off; that is the one
+    path on which a session can be nameless, and it never touches real
+    play.
+
+    Fails closed: if the latch cannot be read, the gate is treated as
+    active and the error is logged by exception class only. The class name
+    carries no credential, digest, or player name.
     """
     try:
-        if invite_gate_mode() == INVITE_GATE_REQUIRED:
-            return True
-        return bool(persistence.list_invite_keys())
-    except Exception:
+        return persistence.credentials_ever_issued()
+    except Exception as exc:  # noqa: BLE001 — any failure must close the gate
+        _log.error("invite gate check failed (%s); treating the gate as "
+                   "closed", type(exc).__name__)
         return True
-
-
-def invite_gate_status() -> str:
-    """One operator-facing line describing the gate as a request would see it."""
-    try:
-        mode = invite_gate_mode()
-    except ValueError as exc:
-        return f"invite gate: CLOSED ({exc})"
-    try:
-        active = len(persistence.list_invite_keys())
-    except Exception:
-        return f"invite gate: CLOSED (mode {mode}; the key store could not be read)"
-    if mode == INVITE_GATE_REQUIRED:
-        return f"invite gate: closed (mode required; {active} active key(s))"
-    if active:
-        return f"invite gate: closed (mode auto; {active} active key(s))"
-    return (f"invite gate: OPEN (mode auto; no active keys). "
-            f"Set {INVITE_GATE_ENV}={INVITE_GATE_REQUIRED} on a hosted server.")
 
 
 def supplied_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) -> str:
@@ -375,19 +339,61 @@ def check_invite_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) ->
     an active row matches, the request is authorized and the row's
     `last_used_at` is bumped (throttled).
 
-    The gate is open only in ``auto`` mode with no active per-user key (pure
-    local dev / tests); ``required`` mode never opens it, and an undecidable
-    gate stays closed (`invite_gate_active`). Accepts either the
-    `X-Beta-Key` header (preferred) or a
-    `?key=` query param so the WebSocket connector — which can't easily set
-    headers in the browser — can still authenticate.
+    The gate is open only when no credential was ever issued (pure local
+    dev / tests); see `invite_gate_active`. Accepts either the `X-Beta-Key`
+    header (preferred) or a `?key=` query param so the WebSocket connector —
+    which can't easily set headers in the browser — can still authenticate.
     """
     supplied = supplied_key(headers, qs)
 
     if _per_user_key_match(supplied):
         return True
 
-    # Open only when the gate is decidably off (auto mode, no active key).
+    # The gate blocks once any credential was ever issued, and when that
+    # cannot be read.
+    return not invite_gate_active()
+
+
+# How often an open socket re-checks its authorization on frames that write
+# nothing (protocol pings and pongs, application pings, bad JSON, unknown
+# types, a move or chat its throttle refused). A move or chat that passes its
+# throttle is always re-checked fresh before it writes or broadcasts, so a
+# revoked credential never writes again. This interval bounds the rest: a
+# revoked session is closed at its first complete frame once this long has
+# passed since its last check, and a frame flood costs at most one database
+# read per interval instead of one per frame. Only a complete frame is
+# checked. A socket that sends nothing keeps receiving room broadcasts until
+# the 60 s idle timeout; one that starts a frame must finish it within
+# `protocol._FRAME_DEADLINE_SEC` or be closed.
+WS_REAUTH_INTERVAL_SEC = 2.0
+
+
+def ws_session_authorized(ws_key: str, credentialed: bool) -> bool:
+    """Whether an open WebSocket may still act. One database read.
+
+    The upgrade is authorized once, but a session can outlive its
+    credential. The message loop calls this before a move or chat writes
+    anything, and at most once per `WS_REAUTH_INTERVAL_SEC` on every other
+    client frame, control frames and ignored frames included, since any
+    frame keeps the session (and its room broadcasts) alive:
+
+      * `credentialed` (the socket upgraded with a live per-user key): it
+        stays authorized only while that key is live. A revoked or rotated
+        key fails, whatever the gate state.
+      * otherwise (keyless, or an unrecognized key on an open dev server):
+        it stays authorized only while the gate is open, so the first
+        credential ever issued ends every keyless session.
+
+    Fails closed: a read error ends the session. Errors are logged by
+    exception class only, never with the key.
+    """
+    if credentialed:
+        try:
+            return persistence.lookup_invite_key(ws_key) is not None
+        except Exception as exc:  # noqa: BLE001 — any failure ends the session
+            _log.error("WebSocket credential re-check failed (%s); closing "
+                       "the session", type(exc).__name__)
+            return False
     return not invite_gate_active()
 
 
@@ -658,16 +664,18 @@ WS_LIMITER = ConnectionLimiter()
 
 
 class TokenBucket:
-    """Per-connection message throttle (continuous refill).
+    """Message throttle (continuous refill).
 
-    ConnectionLimiter bounds how many sockets exist; this bounds what one
-    socket can DO. Every WS move/chat writes a permanent chronicle row and
+    ConnectionLimiter bounds how many sockets exist; this bounds what a
+    player can DO. Every WS move/chat writes a permanent chronicle row and
     broadcasts to every player in the room, so an unthrottled connection is
     an unbounded chronicle writer and a broadcast amplifier. One bucket per
-    connection per message type; excess messages are dropped silently (an
-    abuse guard, not UX — no human clicks 3 times a second for a sustained
-    minute). Single-threaded use: each WS connection reads its own socket
-    from one thread, so no lock."""
+    message type, per credential for keyed sockets (`CredentialBuckets`) and
+    per connection for keyless dev sockets; excess messages are dropped
+    silently (an abuse guard, not UX — no human clicks 3 times a second for
+    a sustained minute). Not thread-safe on its own: a per-connection bucket
+    is read from its socket's one thread, and a shared one is only touched
+    under `CredentialBuckets`' lock."""
 
     def __init__(self, rate: float, burst: int):
         self.rate = float(rate)      # tokens replenished per second
@@ -690,6 +698,102 @@ class TokenBucket:
 # rate is what caps a flood.
 WS_MOVE_RATE, WS_MOVE_BURST = 3.0, 20
 WS_CHAT_RATE, WS_CHAT_BURST = 0.5, 5
+
+
+def credential_identity(user_key: str) -> str:
+    """The in-memory identity of a credential: sha256 hex, first 16 chars.
+
+    The same scheme as the cost-ledger buckets and chronicle actor identity,
+    so the plaintext key is never a dictionary key in process memory.
+    """
+    return hashlib.sha256(user_key.encode("utf-8")).hexdigest()[:16]
+
+
+class CredentialBuckets:
+    """One shared `TokenBucket` per credential identity, lock-protected.
+
+    Several sockets may carry the same credential (8 per IP by default,
+    `MAX_WS_PER_IP_ENV`, and more across IPs); per-socket buckets would give
+    one player that many times the chat and move rate. Every socket on a
+    credential draws from the same bucket here.
+
+    Bounded: once the registry outgrows `max_entries`, buckets that have
+    refilled to their burst are dropped first (indistinguishable from a
+    fresh bucket, so nothing is forgiven), then the least recently used.
+    """
+
+    def __init__(self, rate: float, burst: int, max_entries: int = 4096):
+        self._rate = rate
+        self._burst = burst
+        self._max = max_entries
+        self._lock = threading.Lock()
+        self._buckets: OrderedDict[str, TokenBucket] = OrderedDict()
+
+    def allow(self, identity: str) -> bool:
+        with self._lock:
+            bucket = self._buckets.get(identity)
+            if bucket is None:
+                bucket = TokenBucket(self._rate, self._burst)
+                self._buckets[identity] = bucket
+            else:
+                self._buckets.move_to_end(identity)
+            allowed = bucket.allow()
+            if len(self._buckets) > self._max:
+                self._evict(keep=identity)
+            return allowed
+
+    def _evict(self, keep: str) -> None:
+        now = time.monotonic()
+        refill = self._burst / self._rate if self._rate > 0 else float("inf")
+        for ident in [i for i, b in self._buckets.items()
+                      if i != keep and now - b.last >= refill]:
+            del self._buckets[ident]
+        while len(self._buckets) > self._max:
+            oldest = next(iter(self._buckets))
+            if oldest == keep:
+                break
+            del self._buckets[oldest]
+
+    def handle(self, identity: str) -> "_SharedBucket":
+        """A per-socket view with the same `.allow()` as a `TokenBucket`."""
+        return _SharedBucket(self, identity)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._buckets)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._buckets.clear()
+
+
+class _SharedBucket:
+    __slots__ = ("_registry", "_identity")
+
+    def __init__(self, registry: CredentialBuckets, identity: str):
+        self._registry = registry
+        self._identity = identity
+
+    def allow(self) -> bool:
+        return self._registry.allow(self._identity)
+
+
+WS_MOVE_BUCKETS = CredentialBuckets(WS_MOVE_RATE, WS_MOVE_BURST)
+WS_CHAT_BUCKETS = CredentialBuckets(WS_CHAT_RATE, WS_CHAT_BURST)
+
+
+def ws_message_buckets(credential: str | None):
+    """(move, chat) throttles for one socket.
+
+    A socket that upgraded with a live per-user credential shares both
+    buckets with every other socket on that credential. A keyless dev
+    socket (`credential` empty or None) gets its own pair.
+    """
+    if credential:
+        identity = credential_identity(credential)
+        return WS_MOVE_BUCKETS.handle(identity), WS_CHAT_BUCKETS.handle(identity)
+    return (TokenBucket(WS_MOVE_RATE, WS_MOVE_BURST),
+            TokenBucket(WS_CHAT_RATE, WS_CHAT_BURST))
 
 
 # ── Daily cost caps ─────────────────────────────────────────────────────────

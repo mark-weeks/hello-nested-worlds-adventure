@@ -29,7 +29,8 @@ as **significant**; none as fundamental. They fall into two groups:
 The architectural choices that look most alarming to a newcomer held up (see
 [Looks wrong, holds up](#looks-wrong-holds-up)).
 
-This batch fixes R1–R3. R4–R9 need owner decisions, credentials, or both.
+This batch fixes R2 and R3. R1 is fixed on `main` by #137, which landed while this
+batch was in review. R4–R9 need owner decisions, credentials, or both.
 
 ## Method
 
@@ -47,7 +48,7 @@ the code on a scratch database; *read* means verified from source and docs.
 
 ## Findings
 
-### R1 — The invite gate failed open (fixed here)
+### R1 — The invite gate failed open (fixed on `main` by #137)
 
 *Executed.* Whether a credential was needed was inferred per request from
 whether `invite_keys` held an active row, and any exception counted as "no
@@ -61,6 +62,19 @@ admits `/speak` (bounded only by the global cap, since per-user caps need a
 credential) and `/ws` with an unscreened `?name=`, and every act becomes a
 permanent row. The owner had already moved shared-text moderation to fail-closed
 on 2026-10-25; authentication had not followed.
+
+**Resolution.** #137 latches the gate closed once any key or registration invite
+has ever been issued and fails closed on a read error (ADR-004 §7, amended
+2026-11-03 at the owner's direction). It also ends a revoked credential's open
+socket. That covers revoke-all, suspend-all and a failing read. This batch had
+built a separate fix, a configured `NESTED_WORLDS_INVITE_GATE=required` mode with
+a last-key revoke guard. It withdrew both at the merge rather than run a second
+gate mechanism beside a ratified one. One window remains by design: a server
+where no credential was ever issued is open. That covers the first deploy before
+the first mint and a restore from a backup taken before first issuance. The
+runbook's "mint before you share the URL" step covers the first deploy. Closing
+that window by configuration (the withdrawn `required` mode) is an owner choice
+if wanted.
 
 ### R2 — Agent runs and voices took their identity from the caller (fixed here)
 
@@ -179,13 +193,6 @@ abstraction or capability work and only make that step easier.
 
 ## What this batch changes
 
-- **R1.** `NESTED_WORLDS_INVITE_GATE=required` (set in `fly.toml`) keeps the gate
-  closed whatever the key table holds. Unset or `auto` keeps the local-development
-  behaviour. An exception while deciding, or an unrecognised value, denies; an
-  unrecognised value also fails the boot, and the boot log prints the gate state.
-  In auto mode `invite revoke` refuses the last active key unless `--allow-open`
-  is passed (matching revocation's own parsing, the listing's `…` included);
-  `invite mint` and `invite revoke` print the gate state.
 - **R2.** `GET /agent` is a simulation: an unwired bus, no chronicle row, ripple,
   property delta, agent run, agent memory or puzzle pin (`Agent.pin_puzzles`),
   and a capped name that cannot be a cast member's. `GET /observe` streams a
@@ -211,14 +218,16 @@ abstraction or capability work and only make that step easier.
   `scripts/beta_metrics.py` reports answered and quiet lines.
 
 **Review of this batch.** An adversarial review of the diff (three lenses, each
-verified) found seven defects in the first commit, all fixed here: the revoke
-guard missed the listing's `…` form; `Observer` was a registrable player name,
+verified) found seven defects in the first commit, all fixed: the revoke
+guard missed the listing's `…` form (moot once the guard was withdrawn);
+`Observer` was a registrable player name,
 and room-wide live presence let any player voice it anywhere; `/observe` still
 broadcast unapplied `DANGER_ALERT`/visit events room-wide; a disconnect after a
 successful reply was counted as a provider failure; the counter write could
 hold a quiet reply for the 5 s busy timeout (measured 5.05 s against 0.04 s); the
 "store nothing" walks still pinned puzzle definitions (20 from one GET); and
-the fly.toml gate line and boot check had no test. Refuted: counting store
+the fly.toml gate line and boot check had no test (withdrawn with the gate
+mode). Refuted: counting store
 failures (deliberately logged instead).
 
 **Product-visible change.** Explorer "Observe" walks no longer leave traces in
@@ -228,9 +237,7 @@ paths are unchanged.
 
 ## Not verified here
 
-- Nothing is deployed, so no hosted behaviour was observed. Whether `fly ssh
-  console -C` sessions carry the machine's `[env]` (which the `invite revoke`
-  check reads) is assumed from Fly's documented behaviour, not tested.
+- Nothing is deployed, so no hosted behaviour was observed.
 - That an ERROR record on `nested_worlds.voice` becomes a Sentry event relies on
   the SDK's default logging integration (event level ERROR); no live DSN was used.
 - No scheduler runs `voice-health`. Where it runs and whom it alerts is the same

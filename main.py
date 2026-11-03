@@ -1,6 +1,7 @@
 import argparse
 import logging
 import secrets
+import sys
 from pathlib import Path
 
 import persistence
@@ -245,7 +246,6 @@ def cmd_voice_health(args):
         print(f"kill switch: {guard.DISABLE_AI_ENV}=1 (the world is quiet on purpose)")
     ready = runtime.configured()
     print("voice provider: configured" if ready else "voice provider: NOT configured")
-    print(guard.invite_gate_status())
     problems = []
     if failures:
         problems.append(f"{failures} voice failure(s) in the window")
@@ -389,26 +389,6 @@ def invite_share_url(key: str, name: str, base: str = "<BASE>") -> str:
     return f"{base}/?key={key}&name={quote(name)}"
 
 
-def _revoke_would_open_gate(supplied: str) -> bool:
-    """True when revoking `supplied` would leave an auto-mode gate open.
-
-    Only the last active key matters, and only in auto mode: required mode
-    stays closed with an empty table. `supplied` is matched exactly as
-    `revoke_invite_key` matches it (`persistence.resolve_active_invite_key`):
-    the plaintext key, or the listing's digest prefix with or without its `…`.
-    """
-    from server import guard
-    try:
-        if guard.invite_gate_mode() == guard.INVITE_GATE_REQUIRED:
-            return False
-    except ValueError:
-        return False
-    rows = persistence.list_invite_keys()
-    if len(rows) != 1:
-        return False
-    return persistence.resolve_active_invite_key(supplied) == rows[0]["key"]
-
-
 def cmd_invite(args):
     action = args.invite_action
     if action == "mint":
@@ -445,8 +425,6 @@ def cmd_invite(args):
         print(f"\nShare the URL: {invite_share_url(key, name)}")
         print("(Keys are stored hashed — this is the only time the key is "
               "shown. If it is lost, use invite rotate with its digest prefix.)")
-        from server import guard
-        print(guard.invite_gate_status())
     elif action == "list":
         rows = persistence.list_invite_keys(include_revoked=args.all)
         if not rows:
@@ -461,22 +439,11 @@ def cmd_invite(args):
             last = r["last_used_at"] or "—"
             print(f"{r['name']:<20}  {r['key'][:12] + '…':<14}  {r['created_at']:<20}  {last:<20}  {status}")
     elif action == "revoke":
-        from server import guard
-        if _revoke_would_open_gate(args.key) and not args.allow_open:
-            raise SystemExit(
-                "Refused: this is the last active key, and with "
-                f"{guard.INVITE_GATE_ENV} unset (auto mode) revoking it opens "
-                "the world to anyone with the URL. Set "
-                f"{guard.INVITE_GATE_ENV}={guard.INVITE_GATE_REQUIRED} (the "
-                "hosted setting) so an empty table stays closed, or pass "
-                "--allow-open. This check reads this shell's environment; "
-                "the server reads its own.")
         ok = persistence.revoke_invite_key(args.key)
         if ok:
             print(f"Revoked: {args.key}")
         else:
             print(f"No active key matched: {args.key}")
-        print(guard.invite_gate_status())
     elif action == "rotate":
         from persistence.participants import rotate
         key = "nw_" + secrets.token_hex(16)
@@ -529,6 +496,108 @@ def cmd_invite(args):
             print(f"No redeemable registration invite matched: {args.token}")
     else:  # pragma: no cover — argparse already constrains this
         raise SystemExit(f"unknown invite action: {action}")
+
+
+def _positive_int(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number")
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
+def _shown(text) -> str:
+    """`text` for the operator's terminal: every non-printable character is
+    written as its escape (\\x1b, \\u200b), so a control sequence held in a
+    name or an older reason is shown, never emitted."""
+    return "".join(c if c.isprintable()
+                   else c.encode("unicode_escape").decode("ascii")
+                   for c in str(text))
+
+
+def _reason_arg(reason: str) -> str:
+    """`--reason -` reads the reason from standard input, keeping it out of
+    shell history and process arguments. One trailing newline is dropped;
+    the rest is checked exactly as a reason given on the command line."""
+    if reason != "-":
+        return reason
+    if sys.stdin.isatty():
+        print("Reason (one line), then Enter and Ctrl-D:", file=sys.stderr,
+              flush=True)
+    try:
+        reason = sys.stdin.read()
+        # Under a UTF-8 or C locale, Python reads stdin with surrogateescape,
+        # so undecodable bytes arrive as lone surrogates, not as an error.
+        reason.encode("utf-8")
+    except UnicodeError:
+        raise SystemExit("The reason on standard input is not valid text; "
+                         "nothing changed.")
+    for newline in ("\r\n", "\n"):
+        if reason.endswith(newline):
+            return reason[:-len(newline)]
+    return reason
+
+
+def cmd_sanction(args):
+    """Owner-only suspend / ban / lift / list (beta checklist G5).
+
+    Output goes to the operator's terminal. Reasons are printed only by
+    `list`; nothing here logs a reason, a name or a credential. Names and
+    reasons are printed through `_shown`, so no control sequence reaches
+    the terminal.
+    """
+    import datetime
+    from persistence import sanctions
+    action = args.sanction_action
+    try:
+        if action == "suspend":
+            try:
+                if args.days is not None:
+                    duration = datetime.timedelta(days=args.days)
+                else:
+                    duration = datetime.timedelta(hours=args.hours)
+            except OverflowError:
+                # Past what a timedelta can hold, so far past the cap:
+                # suspend() refuses it with the allowed-range message.
+                duration = datetime.timedelta.max
+            s = sanctions.suspend(args.player, duration,
+                                  _reason_arg(args.reason))
+            print(f"Suspended {_shown(s['name'] or s['participant'])} until "
+                  f"{s['expires_at']} UTC (sanction {s['id']}).")
+        elif action == "ban":
+            s = sanctions.ban(args.player, _reason_arg(args.reason))
+            print(f"Banned {_shown(s['name'] or s['participant'])} until lifted "
+                  f"(sanction {s['id']}).")
+        elif action == "lift":
+            s = sanctions.lift(args.sanction_id, _reason_arg(args.reason))
+            print(f"Lifted sanction {s['id']} ({s['kind']}) on "
+                  f"{_shown(s['name'] or s['participant'])}.")
+        elif action == "list":
+            rows = sanctions.list_sanctions(include_all=args.all)
+            if not rows:
+                print("No sanctions recorded." if args.all
+                      else "No active sanctions.")
+                return
+            print(f"{'ID':>4}  {'Name':<20}  {'Kind':<10}  {'Status':<8}  "
+                  f"{'Since (UTC)':<19}  {'Until (UTC)':<19}  Reason")
+            print("-" * 110)
+            for r in rows:
+                until = r["expires_at"] or "no end"
+                print(f"{r['id']:>4}  {_shown(r['name'] or r['participant']):<20}  "
+                      f"{r['kind']:<10}  {r['status']:<8}  {r['created_at']:<19}  "
+                      f"{until:<19}  {_shown(r['reason'])}")
+                if r["lifted_at"]:
+                    print(f"{'':>4}  lifted {r['lifted_at']}: "
+                          f"{_shown(r['lift_reason'])}")
+        else:  # pragma: no cover — argparse already constrains this
+            raise SystemExit(f"unknown sanction action: {action}")
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+    if action in ("suspend", "ban"):
+        print("Their open sessions close within about 20 seconds; new "
+              "requests are refused. The player is not told the reason.")
 
 
 def cmd_speak(args):
@@ -729,11 +798,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_invite_revoke = invite_sub.add_parser("revoke",
         help="Revoke an invite key (irreversible)")
     p_invite_revoke.add_argument("key", type=str, help="The key string to revoke")
-    p_invite_revoke.add_argument(
-        "--allow-open", action="store_true",
-        help="Revoke the last active key even though, in auto gate mode, "
-             "that opens the world. Not needed when "
-             "NESTED_WORLDS_INVITE_GATE=required.")
     p_invite_revoke.set_defaults(func=cmd_invite)
 
     p_invite_rotate = invite_sub.add_parser("rotate", help="Replace a live key, preserving participant ownership")
@@ -758,6 +822,52 @@ def build_parser() -> argparse.ArgumentParser:
     p_invite_cancel.add_argument("token", type=str,
                                  help="The registration token to cancel")
     p_invite_cancel.set_defaults(func=cmd_invite)
+
+    reason_help = ("Why (required; private operator data, never shown to "
+                   "the player; - reads it from standard input, keeping it "
+                   "out of shell history)")
+    p_sanction = sub.add_parser("sanction",
+        help="Suspend or ban a player with a reason, lift it, or list "
+             "sanctions (owner only; reversible, unlike invite revoke)")
+    sanction_sub = p_sanction.add_subparsers(dest="sanction_action",
+                                             required=True)
+
+    p_sanction_suspend = sanction_sub.add_parser("suspend",
+        help="Suspend a player for a set time (1 hour to 365 days, whole "
+             "hours or days)")
+    p_sanction_suspend.add_argument(
+        "player", help="Registered name, or participant id")
+    span = p_sanction_suspend.add_mutually_exclusive_group(required=True)
+    span.add_argument("--hours", type=_positive_int, help="Length in hours")
+    span.add_argument("--days", type=_positive_int, help="Length in days")
+    p_sanction_suspend.add_argument(
+        "--reason", required=True,
+        help=reason_help)
+    p_sanction_suspend.set_defaults(func=cmd_sanction)
+
+    p_sanction_ban = sanction_sub.add_parser("ban",
+        help="Ban a player until the ban is lifted")
+    p_sanction_ban.add_argument(
+        "player", help="Registered name, or participant id")
+    p_sanction_ban.add_argument(
+        "--reason", required=True,
+        help=reason_help)
+    p_sanction_ban.set_defaults(func=cmd_sanction)
+
+    p_sanction_lift = sanction_sub.add_parser("lift",
+        help="End an active suspension or ban early")
+    p_sanction_lift.add_argument("sanction_id", type=_positive_int,
+                                 help="Sanction id from sanction list")
+    p_sanction_lift.add_argument("--reason", required=True,
+                                 help="Why it is lifted (required; - reads "
+                                      "it from standard input)")
+    p_sanction_lift.set_defaults(func=cmd_sanction)
+
+    p_sanction_list = sanction_sub.add_parser("list",
+        help="List active sanctions")
+    p_sanction_list.add_argument("--all", action="store_true",
+                                 help="Include lifted and expired sanctions")
+    p_sanction_list.set_defaults(func=cmd_sanction)
 
     p_speak = sub.add_parser("speak", help="Speak to a node using the configured voice model")
     _accept_seed(p_speak)

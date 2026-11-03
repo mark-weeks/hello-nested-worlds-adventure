@@ -68,9 +68,10 @@ def _get_json(url: str) -> dict:
 class TestInviteGate:
     """The gate is the per-user `invite_keys` table only — there is no shared
     key (removed pre-launch: a shared credential let many players collapse to
-    one identity and could play anonymously, ADR-004 §7). No key minted → open
-    (local dev / tests). One key minted → every request needs a valid, named
-    credential."""
+    one identity and could play anonymously, ADR-004 §7). Nothing ever issued
+    → open (local dev / tests). One key or registration invite ever issued →
+    every request needs a valid, named credential, for good (the gate
+    latches)."""
 
     def _gate_on(self):
         # Minting one active per-user key closes the gate for this test's
@@ -130,13 +131,53 @@ class TestPerUserInviteKeys:
 
     def test_revoked_per_user_key_rejected(self, srv):
         persistence.mint_invite_key("k_alice", "Alice")
+        persistence.mint_invite_key("k_bob", "Bob")
         persistence.revoke_invite_key("k_alice")
         base, _ = srv
-        # After revocation only inactive rows exist — gate is no longer
-        # "active" and the server reverts to open. To keep the gate up
-        # we add another active row.
-        persistence.mint_invite_key("k_bob", "Bob")
         assert _get_status(f"{base}/worlds?key=k_alice") == 403
+        assert _get_status(f"{base}/worlds?key=k_bob") == 200
+
+    def test_revoking_the_only_key_keeps_the_gate_closed(self, srv):
+        # REGRESSION: the gate used to count ACTIVE rows, so revoking the
+        # last live key reopened the world to keyless play.
+        persistence.mint_invite_key("k_alice", "Alice")
+        persistence.revoke_invite_key("k_alice")
+        assert persistence.list_invite_keys() == []
+        base, _ = srv
+        assert _get_status(f"{base}/worlds") == 403
+        assert _get_status(f"{base}/worlds?key=k_alice") == 403
+        _, port = srv
+        assert _ws_upgrade(port, "/ws?seed=42&name=Ada")[0] == 403
+        assert _ws_upgrade(port, "/ws?seed=42&name=Ada&key=k_alice")[0] == 403
+
+    def test_a_registration_invite_alone_closes_the_gate(self, srv):
+        # An operator who only creates self-service invites (no minted key
+        # yet) has still closed the beta; the world must not stay open.
+        persistence.create_registration_token("nwr_only")
+        base, port = srv
+        assert _get_status(f"{base}/worlds") == 403
+        assert _ws_upgrade(port, "/ws?seed=42&name=Ada")[0] == 403
+        # ...and cancelling it does not reopen the world.
+        assert persistence.cancel_registration_token("nwr_only") is True
+        assert _get_status(f"{base}/worlds") == 403
+
+    def test_a_failing_gate_lookup_keeps_the_gate_closed(
+            self, srv, monkeypatch, caplog):
+        # REGRESSION: any exception in the gate lookup used to open the gate.
+        def broken():
+            raise persistence.sqlite3.OperationalError("disk I/O error")
+        monkeypatch.setattr(persistence, "credentials_ever_issued", broken)
+        base, port = srv
+        with caplog.at_level("ERROR", logger="nested_worlds.guard"):
+            assert _get_status(f"{base}/worlds") == 403
+            assert _ws_upgrade(port, "/ws?seed=42&name=Ada")[0] == 403
+        errors = [r for r in caplog.records
+                  if r.name == "nested_worlds.guard" and r.levelname == "ERROR"]
+        assert errors
+        assert all("OperationalError" in r.getMessage() for r in errors)
+        assert all("disk I/O" not in r.getMessage() for r in errors)
+        # The ungated surfaces are unaffected.
+        assert _get_status(f"{base}/health") == 200
 
     def test_unknown_key_rejected_when_per_user_gate_active(self, srv):
         persistence.mint_invite_key("k_alice", "Alice")
@@ -162,121 +203,14 @@ class TestPerUserInviteKeys:
         assert row is not None and row["last_used_at"] is not None
 
     def test_unit_invite_gate_active_reflects_db(self):
-        # With no per-user rows the gate is open.
+        # Nothing ever issued: the gate is open.
         assert guard.invite_gate_active() is False
         # Mint a row — gate flips active.
         persistence.mint_invite_key("k_alice", "Alice")
         assert guard.invite_gate_active() is True
-
-
-class TestInviteGateFailsClosed:
-    """The hosted gate is configuration, not data (2026-11-03 evaluation).
-
-    In ``auto`` mode an empty key table is the local-dev open world; the
-    hosted ``required`` mode stays closed whatever the table holds, so
-    revoking every key or restoring a pre-mint backup cannot open a
-    permanent world. A gate that cannot be decided is closed in both modes.
-    """
-
-    def test_required_mode_closes_an_empty_table(self, srv, monkeypatch):
-        monkeypatch.setenv(guard.INVITE_GATE_ENV, "required")
-        base, _ = srv
-        assert _get_status(f"{base}/players") == 403
-        assert _get_status(f"{base}/health") == 200
-
-    def test_required_mode_stays_closed_after_revoking_every_key(
-            self, srv, monkeypatch):
-        monkeypatch.setenv(guard.INVITE_GATE_ENV, "required")
-        persistence.mint_invite_key("nw_only", "Only")
-        base, _ = srv
-        assert _get_status(f"{base}/players?key=nw_only") == 200
-        assert persistence.revoke_invite_key("nw_only")
-        assert _get_status(f"{base}/players") == 403
-        assert _get_status(f"{base}/history") == 403
-        assert _get_status(f"{base}/players?key=nw_only") == 403
-
-    def test_auto_mode_revoking_the_last_key_reopens_as_documented(self, srv):
-        # The local-development contract is unchanged, which is exactly why
-        # the hosted server must not run in auto mode.
-        persistence.mint_invite_key("nw_only", "Only")
-        base, _ = srv
-        assert _get_status(f"{base}/players") == 403
-        persistence.revoke_invite_key("nw_only")
-        assert _get_status(f"{base}/players") == 200
-
-    def test_unreadable_key_store_denies_keyless_requests(
-            self, srv, monkeypatch):
-        def broken(*_a, **_k):
-            raise RuntimeError("store unavailable")
-        monkeypatch.setattr(persistence, "list_invite_keys", broken)
-        base, _ = srv
-        assert _get_status(f"{base}/players") == 403
+        # Revoking every key leaves it active: the gate latches.
+        persistence.revoke_invite_key("k_alice")
         assert guard.invite_gate_active() is True
-
-    def test_unknown_mode_fails_closed_and_refuses_boot(self, monkeypatch):
-        monkeypatch.setenv(guard.INVITE_GATE_ENV, "reqired")
-        assert guard.invite_gate_active() is True
-        with pytest.raises(ValueError, match="NESTED_WORLDS_INVITE_GATE"):
-            guard.invite_gate_mode()
-        assert "CLOSED" in guard.invite_gate_status()
-
-    def test_status_line_names_the_open_state(self, monkeypatch):
-        assert "OPEN" in guard.invite_gate_status()
-        persistence.mint_invite_key("nw_only", "Only")
-        assert "closed (mode auto; 1 active" in guard.invite_gate_status()
-        monkeypatch.setenv(guard.INVITE_GATE_ENV, "REQUIRED")
-        assert guard.invite_gate_mode() == "required"
-        assert "closed (mode required" in guard.invite_gate_status()
-
-
-class TestInviteRevokeCli:
-    """`invite revoke` refuses to open an auto-mode world by accident."""
-
-    def _revoke(self, key, *extra):
-        import main
-        args = main.build_parser().parse_args(["invite", "revoke", key, *extra])
-        args.func(args)
-
-    def test_last_key_refused_in_auto_mode(self, capsys):
-        persistence.mint_invite_key("nw_only", "Only")
-        with pytest.raises(SystemExit, match="last active key"):
-            self._revoke("nw_only")
-        assert persistence.lookup_invite_key("nw_only") is not None
-
-    def test_last_key_refused_by_digest_prefix_too(self):
-        persistence.mint_invite_key("nw_only", "Only")
-        prefix = persistence._credential_digest("nw_only")[:12]
-        with pytest.raises(SystemExit, match="last active key"):
-            self._revoke(prefix)
-        assert persistence.lookup_invite_key("nw_only") is not None
-
-    def test_last_key_refused_with_the_listing_text_verbatim(self):
-        # `invite list` prints a 12-hex prefix plus "…"; revocation accepts
-        # that exact text, so the guard must too (review of R1).
-        persistence.mint_invite_key("nw_only", "Only")
-        listed = persistence.list_invite_keys()[0]["key"][:12] + "…"
-        with pytest.raises(SystemExit, match="last active key"):
-            self._revoke(listed)
-        assert persistence.lookup_invite_key("nw_only") is not None
-
-    def test_allow_open_revokes_and_reports_open(self, capsys):
-        persistence.mint_invite_key("nw_only", "Only")
-        self._revoke("nw_only", "--allow-open")
-        assert persistence.lookup_invite_key("nw_only") is None
-        assert "invite gate: OPEN" in capsys.readouterr().out
-
-    def test_required_mode_needs_no_override(self, capsys, monkeypatch):
-        monkeypatch.setenv(guard.INVITE_GATE_ENV, "required")
-        persistence.mint_invite_key("nw_only", "Only")
-        self._revoke("nw_only")
-        assert persistence.lookup_invite_key("nw_only") is None
-        assert "closed (mode required; 0 active" in capsys.readouterr().out
-
-    def test_other_keys_revoke_freely(self):
-        persistence.mint_invite_key("nw_a", "Ana")
-        persistence.mint_invite_key("nw_b", "Ben")
-        self._revoke("nw_a")
-        assert persistence.lookup_invite_key("nw_a") is None
 
 
 # ── World-parameter bounds ──────────────────────────────────────────────────
@@ -850,7 +784,7 @@ class TestStaticAssetGate:
         # Data / paid endpoints are never public.
         for p in ("/world", "/ws", "/agent", "/observe", "/puzzle",
                   "/puzzle/attempt", "/speak", "/image", "/agent/voice",
-                  "/players", "/history", "/worlds"):
+                  "/history", "/worlds"):
             assert not Handler._is_public_asset(p), p
 
     def test_vendored_d3_served_ungated(self, srv):
@@ -962,7 +896,7 @@ class TestReadRateLimit:
         base, port = srv
         assert _get_status(f"{base}/history?seed=42") == 200
         for path in ("/health", "/", "/app", "/journal", "/journal.js",
-                     "/clientlogic.js", "/position", "/players?seed=42", "/worlds"):
+                     "/clientlogic.js", "/position", "/worlds"):
             assert _get_status(base + path) == 200, path
         code, sock = _ws_upgrade(port, "/ws?seed=42&name=ReadQuota", hold=True)
         try:

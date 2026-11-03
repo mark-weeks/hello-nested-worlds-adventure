@@ -38,7 +38,7 @@ from puzzles.engine import PuzzleEngine
 from server import guard, imageprompt, moderation, observability
 from server.rooms import (
     agent_enter, agent_leave, agent_move, agent_persona, broadcast, get_room,
-    puzzle_attempt, refresh_puzzle_session, snapshot, will_store_guess,
+    puzzle_attempt, refresh_puzzle_session, will_store_guess,
 )
 from server.world_mechanics import (
     CONSTELLATION_LEVELS as _CONSTELLATION_LEVELS,
@@ -321,7 +321,7 @@ _RATE_LIMITED_PATHS = frozenset({
 # API reads are limited by default, including newly added routes. Static shells
 # and assets are exempt; these cheap control reads keep their existing policy.
 # WebSocket upgrades have a separate connection cap and message-rate guard.
-_READ_UNLIMITED_PATHS = frozenset({"/worlds", "/players", "/position", "/ws"})
+_READ_UNLIMITED_PATHS = frozenset({"/worlds", "/position", "/ws"})
 
 # The player-facing pace line (429). Rate limiting is a mechanical guard, but
 # the explorer renders this text verbatim in the speak/puzzle panels, so it
@@ -537,8 +537,8 @@ class Handler(BaseHTTPRequestHandler):
         never get far enough to send the key anywhere. Health check is exempt
         so platform load balancers can probe without the key. Every
         data-bearing or paid endpoint (`/world`, `/ws`, `/agent`, `/observe`,
-        `/puzzle*`, `/speak`, `/image`, `/agent/voice`, `/players`,
-        `/history`, `/wayback`, `/worlds`) stays gated.
+        `/puzzle*`, `/speak`, `/image`, `/agent/voice`, `/history`,
+        `/wayback`, `/worlds`) stays gated.
         """
         if urlparse(self.path).path.rstrip('/').startswith('/ideas/'):
             self._private_response = True
@@ -930,13 +930,6 @@ class Handler(BaseHTTPRequestHandler):
             if hosted is not None:
                 worlds = [world for world in worlds if world["seed"] == hosted]
             self._send_json(worlds)
-
-        elif path == "/players":
-            try:
-                seed = guard.world_seed(param("seed"))
-            except ValueError as exc:
-                return self._send_error(str(exc))
-            self._send_json({"players": snapshot(get_room(seed))})
 
         elif path == "/history":
             try:

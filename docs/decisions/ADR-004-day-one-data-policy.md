@@ -18,7 +18,35 @@ unchanged. One sentence in §3 states when the never-wipe covenant starts.
 The running screen implements this failure rule. The starting per-user cap
 values are configuration recorded with the implementation.
 
-**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat.
+**2026-11-03 invite-gate amendment:** Directed by the owner, Mark Weeks, on
+2026-11-03, who instructed the merge of #137 and delegated its open choices.
+This amends §7. The invite gate latches: the first per-user key *or*
+registration invite closes it for good, revoking every key or cancelling every
+invite does not reopen it, and a failed gate check counts as closed. There is
+no supported way to reopen a world. An open WebSocket whose credential stops
+being live is closed as the runbook describes
+([fly-deployment.md](../infrastructure/fly-deployment.md) §6). Nothing else
+in §7 changes.
+
+**2026-11-03 sanction-records amendment:** Directed by the owner, Mark Weeks,
+on 2026-11-03, who instructed the merge of #138 and delegated its open
+choices. This records the scoped decision that
+[ADR-034](ADR-034-provider-and-model-optionality.md) §5 requires for the
+private operator data migration 0029 adds. Sanction and lift reasons are kept
+in the database and in every backup for the backup retention period. That
+period is decision I in the [Q4 plan](../roadmap/next-steps-2026-q4.md) and is
+not chosen here. The application's logs never carry the reasons, and `redact`
+does not reach them. An erasure request for a reason is handled by the manual
+break-glass procedure in the runbook
+([fly-deployment.md](../infrastructure/fly-deployment.md) §6, "Erasing a
+sanction reason"), within §1's narrow break-glass: stop the writers,
+overwrite the reason in the two tables with SQL, then delete or let expire
+the backups that still hold it. This is accepted for beta. A suspension is
+capped at 365 days; a longer exclusion must be a ban. A sanctioned player's
+published profile is hidden from other players as a revoked player's is,
+until the sanction is lifted or expires.
+
+**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction; sanction records 2026-11-03 on the owner's direction.
 
 ---
 
@@ -304,10 +332,13 @@ the shared key entirely:
   names, merged transcripts and budget buckets, and no way to tell them apart
   — which is exactly the anonymity this policy forbids. The gate is now the
   per-user `invite_keys` table alone (`server/guard.check_invite_key`); minting
-  the first key closes it, and from then on every request is a named player.
-- **The one keyless path is ungated local dev.** With no key minted the gate is
-  open (tests, a developer's own machine) and a session may be nameless — but
-  it never touches real, gated play. The CLI `python main.py play` still
+  the first key, or creating the first registration invite, closes it for good
+  (2026-11-03 amendment), and from then on every request is a named player.
+- **The one keyless path is ungated local dev.** With nothing ever issued the
+  gate is open (tests, a developer's own machine) and a session may be
+  nameless — but it never touches real, gated play. The first key or
+  registration invite closes it for good; revoking every key or cancelling
+  every invite does not reopen it (2026-11-03 amendment). The CLI `python main.py play` still
   **requires `--name`** so even a local session records a known actor, never an
   unknown presence, in the shared chronicle.
 - **Self-service registration, invite-gated** *(implemented)*. An operator
