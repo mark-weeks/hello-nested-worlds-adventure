@@ -21,8 +21,10 @@ Plus `world_seed` and `validate_world_params`, which confine the public server
 to one operator-selected world and clamp the remaining view-depth input so a
 bad client can't ask for a 100k-deep tree.
 
-Everything here is read at request time (no caching), so toggling an env
-var on the host is immediate. Counters are stored UTC-day-keyed in
+Everything here is read at request time (no caching), so a changed env var
+takes effect on the next request without code changes. On Fly the only way
+to change one is `fly secrets set` or a deploy, and either restarts the one
+machine (every socket reconnects). Counters are stored UTC-day-keyed in
 `persistence.cost_budget` and reset naturally at the day boundary.
 """
 from __future__ import annotations

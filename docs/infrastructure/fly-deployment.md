@@ -793,6 +793,25 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       `curl -s -X POST https://<app>/speak -H 'X-Beta-Key: <key>' -H 'Content-Type: application/json' -d '{"message":"hello"}' | grep -o '"ai": true'`
 - [ ] Watch spend as the cohort arrives: the `cost_budget` table carries
       per-day counters — `fly ssh console -C "sqlite3 /data/.nested-worlds/worlds.db 'SELECT * FROM cost_budget ORDER BY day DESC LIMIT 20'"`.
+- [ ] Watch the voice, not just the server. `fly ssh console -C "python main.py voice-health"`
+      prints answered and quiet lines per surface (`speak`, `agent_voice`,
+      `intention`) and reason (`provider`, `unconfigured`, `screen`, `db`,
+      `budget`, `action_cap`, `disabled`) and the day's budget use. `screen`
+      means the moderation classifier failed or gave no usable verdict, so
+      shared text was held before the voice was asked; moderation's own
+      budget, per-user cap and disable switch count as `budget`, `action_cap`
+      and `disabled`, and a content decline is policy and is not recorded. It
+      exits 1 when the window holds a provider or
+      screen failure, the voice is not configured, or the model configuration
+      has a hard problem (the check `models` and the boot run); add `--probe`
+      for the tiny live call `models --probe` makes.
+      Every quiet line also logs `voice_fallback surface=... reason=...` on
+      `nested_worlds.voice`, at ERROR (a Sentry event) for failures and WARNING
+      for limits. Store errors are logged, not counted, and a counter write
+      that cannot get the store within 50 ms is dropped (and logged), so the
+      counts are a lower bound under heavy write contention. Where the scheduled
+      check runs, and who it pages, is the P5 monitoring decision; `/health`
+      and the `/guide` ping cannot see a quiet voice.
 - [ ] Mint **one key per person** (`python main.py invite mint --name ...`).
       This is the only way in — there is no shared key (it was removed
       because one credential merges transcript identities, budget buckets,

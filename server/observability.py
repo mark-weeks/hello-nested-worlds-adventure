@@ -77,6 +77,87 @@ def capture_exception(exc: BaseException | None = None) -> None:
     _log.exception("unhandled request error", exc_info=exc)
 
 
+# ── Voice outcomes ──────────────────────────────────────────────────────────
+# "Failure stays in fiction" governs what a player reads; it never meant the
+# operator should not know. Every player-facing voice surface reports each
+# answer here: a structured log line for every quiet one (ERROR for the
+# failures an operator must fix, so Sentry raises an event; WARNING for limits
+# and switches working as designed) and a daily counter, so `python main.py
+# voice-health` and scripts/beta_metrics.py can separate "didn't talk" from
+# "talked to silence" (2026-11-03 evaluation, finding R3).
+#
+# The counters reuse `cost_budget`'s (bucket, UTC day) rows under the
+# `voice_outcome:` prefix, as the per-user action caps already do. They hold
+# no player text, name, credential or node: surface and reason only.
+
+_voice = logging.getLogger("nested_worlds.voice")
+
+VOICE_OUTCOME_PREFIX = "voice_outcome"
+VOICE_SURFACES = ("speak", "agent_voice", "intention")
+# `screen`: the moderation classifier failed (timeout, error) or gave no usable
+# verdict, so shared text was held before the voice was asked. Moderation's
+# own budget, per-user cap and disable switch count as `budget`, `action_cap`
+# and `disabled`. Content declines are policy, not outages, and are not
+# recorded.
+VOICE_FAILURES = ("provider", "db", "unconfigured", "screen")
+VOICE_LIMITS = ("budget", "action_cap", "disabled")
+VOICE_REASONS = ("ok",) + VOICE_LIMITS + VOICE_FAILURES
+
+
+def voice_bucket(surface: str, reason: str) -> str:
+    return f"{VOICE_OUTCOME_PREFIX}:{surface}:{reason}"
+
+
+_VOICE_COUNTER_WAIT_MS = 50
+
+
+def voice_outcome(surface: str, reason: str,
+                  exc: BaseException | None = None) -> None:
+    """Record one voice answer. Never raises; waits at most 50 ms on the store.
+
+    `exc` contributes its class name only: a provider message can carry a
+    credential or the player's words. A `db` outcome is logged but not
+    counted, because the store is what failed and a second write would only
+    wait on it again. The counter write uses a short lock wait so a locked
+    store (a long transaction, a redact or restore) cannot hold a quiet
+    reply for the usual five-second busy timeout; a counter lost that way is
+    logged as unavailable, so under heavy write contention the daily counts
+    are a lower bound (one review measured 388 of 400 with 8 writer threads).
+    """
+    if surface not in VOICE_SURFACES or reason not in VOICE_REASONS:
+        raise ValueError(f"unknown voice outcome {surface}/{reason}")
+    if reason != "ok":
+        level = logging.ERROR if reason in VOICE_FAILURES else logging.WARNING
+        _voice.log(level, "voice_fallback surface=%s reason=%s exception=%s",
+                   surface, reason, type(exc).__name__ if exc is not None else "-")
+    if reason == "db":
+        return
+    try:
+        import persistence
+        from server import guard
+        persistence.increment_cost_calls(voice_bucket(surface, reason),
+                                         guard._utc_day(),
+                                         wait_ms=_VOICE_COUNTER_WAIT_MS)
+    except Exception as err:  # the answer must still reach the player
+        _voice.warning("voice_outcome counter unavailable surface=%s reason=%s "
+                       "exception=%s", surface, reason, type(err).__name__)
+
+
+def voice_outcome_summary(days: int = 1) -> dict[str, dict[str, dict[str, int]]]:
+    """``{day: {surface: {reason: count}}}`` for the last `days` UTC days, today included."""
+    import datetime
+
+    import persistence
+    from server import guard
+    today = datetime.date.fromisoformat(guard._utc_day())
+    since = (today - datetime.timedelta(days=max(1, int(days)) - 1)).isoformat()
+    summary: dict[str, dict[str, dict[str, int]]] = {}
+    for bucket, day, calls in persistence.cost_rows(VOICE_OUTCOME_PREFIX + ":", since):
+        _, surface, reason = bucket.split(":", 2)
+        summary.setdefault(day, {}).setdefault(surface, {})[reason] = calls
+    return summary
+
+
 def hash_ip(ip: str) -> str:
     """Stable 8-char hash so the access log can bucket abusers without PII."""
     return hashlib.sha1(ip.encode("utf-8")).hexdigest()[:8]

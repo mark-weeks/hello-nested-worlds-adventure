@@ -2300,9 +2300,16 @@ def get_cost_calls(bucket: str, day: str) -> int:
 
 
 @_with_db
-def increment_cost_calls(bucket: str, day: str) -> int:
-    """Atomically bump the (bucket, day) counter and return the new value."""
+def increment_cost_calls(bucket: str, day: str, *,
+                         wait_ms: int | None = None) -> int:
+    """Atomically bump the (bucket, day) counter and return the new value.
+
+    `wait_ms` shortens the lock wait for best-effort counters that must not
+    hold up a reply (voice outcomes); budget charges keep the full timeout.
+    """
     with _connect() as conn:
+        if wait_ms is not None:
+            conn.execute(f"PRAGMA busy_timeout={max(0, int(wait_ms))}")
         conn.execute(
             f"""INSERT INTO cost_budget (bucket, day, calls, created_at)
                VALUES (?, ?, 1, {_NOW})
@@ -2314,6 +2321,22 @@ def increment_cost_calls(bucket: str, day: str) -> int:
             (bucket, day),
         ).fetchone()
         return int(row[0]) if row else 0
+
+
+@_with_db
+def cost_rows(prefix: str, since_day: str) -> list[tuple[str, str, int]]:
+    """``(bucket, day, calls)`` for buckets starting with `prefix`, from `since_day` on.
+
+    Prefix-matched with substr rather than LIKE, so `_` in a bucket name is
+    literal. Ordered by day, then bucket.
+    """
+    with _connect() as conn:
+        return [(r[0], r[1], int(r[2])) for r in conn.execute(
+            """SELECT bucket, day, calls FROM cost_budget
+               WHERE substr(bucket, 1, ?) = ? AND day >= ?
+               ORDER BY day, bucket""",
+            (len(prefix), prefix, since_day),
+        )]
 
 
 @_with_db

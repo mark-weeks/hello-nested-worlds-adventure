@@ -132,6 +132,10 @@ class Room:
     # Acceptance owns the room lock across its DB transaction and calls the
     # existing session helpers, which acquire the same lock themselves.
     lock: threading.RLock = field(default_factory=threading.RLock, compare=False, repr=False)
+    # One live `/observe` walk at a time: every walk carries the server's one
+    # reserved `Observer` presence, so overlapping walks would overwrite its
+    # position and one walk's leave would end the other's presence.
+    observer_lock: threading.Lock = field(default_factory=threading.Lock, compare=False, repr=False)
 
 
 _rooms: dict[int, Room] = {}
