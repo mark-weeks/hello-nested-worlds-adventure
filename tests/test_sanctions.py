@@ -818,7 +818,7 @@ class TestCli:
         _cli(*argv)
         lines = capsys.readouterr().out.splitlines()
         assert lines[0].startswith(first_line)
-        assert lines[1:] == ["Their open sessions close within about 20 seconds; new "
+        assert lines[1:] == ["Their open sessions close within about 5 seconds; new "
                              "requests are refused. The player is not told the reason."]
         _cli("sanction", "lift", "1", "--reason", "appeal")
         lifted = capsys.readouterr().out  # a lift closes nothing, so no note
