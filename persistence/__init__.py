@@ -2364,7 +2364,11 @@ def name_key(name: str) -> str:
     Confusable letters from other scripts (Cyrillic 'а' for Latin 'a') are
     not folded, and no invisible default-ignorable character is removed: a
     zero-width space, a soft hyphen, a combining grapheme joiner, a
-    variation selector or a Hangul filler keeps two names apart.
+    variation selector or a Hangul filler keeps two names apart. Turkish
+    dotted and dotless i follow Unicode's default (not Turkish) case
+    folding: 'I' folds to 'i' and 'İ' to 'i' plus U+0307, while 'ı' stays
+    'ı', so 'Işık', 'ışık' and 'İŞİK' are three different names and
+    'IŞIK' is the same name as 'işik'.
 
     Never truncated: the 32-character cap belongs to the displayed name and
     is applied first by the callers that cap (`/register` refuses a longer

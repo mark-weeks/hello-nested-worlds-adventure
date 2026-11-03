@@ -137,6 +137,11 @@ def cmd_play(args):
         # unknown presence there. No anonymous gameplay (ADR-004 §7): require a
         # name so every recorded actor is known.
         raise SystemExit("A player name is required — pass --name <you>.")
+    from server.handlers import _has_utf8_form
+    if not _has_utf8_form(name):
+        # An argv byte that is not UTF-8 arrives as a lone surrogate, which
+        # no row can store; refuse it before a session writes anything.
+        raise SystemExit("A player name must be plain text — pass --name <you>.")
     from agents.identities import canonical
     if canonical(name) is not None:
         # CLI play writes to the same permanent chronicle as everyone else;
@@ -335,9 +340,14 @@ def cmd_invite(args):
     if action == "mint":
         from agents.identities import canonical
         from server.moderation import name_refusal
+        from server.handlers import _has_utf8_form
         name = args.name.strip()
         if not name:
             raise SystemExit("A registered name must not be empty.")
+        if not _has_utf8_form(name):
+            # A non-UTF-8 argv byte arrives as a lone surrogate; the INSERT
+            # would raise UnicodeEncodeError with a traceback.
+            raise SystemExit("A registered name must be plain text.")
         if canonical(name) is not None:
             raise SystemExit(
                 f"'{name}' is a reserved world name (one of the world's own "
@@ -491,7 +501,12 @@ def cmd_sanction(args):
     """
     import datetime
     from persistence import sanctions
+    from server.handlers import _has_utf8_form
     action = args.sanction_action
+    if action in ("suspend", "ban") and not _has_utf8_form(args.player):
+        # A non-UTF-8 argv byte arrives as a lone surrogate. The lookup would
+        # raise UnicodeEncodeError, a ValueError, and print the codec's text.
+        raise SystemExit("A player name must be plain text.")
     try:
         if action == "suspend":
             try:

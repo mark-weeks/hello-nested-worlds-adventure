@@ -493,3 +493,76 @@ def test_keyless_ws_join_trims_again_after_the_cap(open_srv):
     finally:
         sock.close()
     assert [row["player"] for row in joins] == ["Ada"]
+
+
+# ── Review follow-up: revoked names, the body-name re-trim, operator argv ────
+
+def test_a_revoked_name_stays_taken_in_any_spelling(open_srv, capsys):
+    # The scan compares every registered name, revoked ones included: a
+    # revoked player's name is not free for someone else to take.
+    _mint_cli(ELODIE)
+    (row,) = persistence.list_invite_keys(include_revoked=True)
+    assert persistence.revoke_invite_key(row["key"][:16])  # digest prefix
+    with pytest.raises(SystemExit, match="already registered"):
+        _mint_cli(ELODIE_LOWER)
+    persistence.create_registration_token("nwr_one")
+    status, data = _register(open_srv, "nwr_one", ELODIE_NFD)
+    assert status == 409, data
+    assert persistence.lookup_registration_token("nwr_one") is not None
+    assert _stored_names() == [ELODIE]
+
+
+def test_a_keyless_body_name_is_trimmed_again_after_the_cap(open_srv):
+    # Trim, cap at 32, trim again: a cap that ends on spaces leaves none in
+    # the name the chronicle records.
+    seed = 4625
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    status, _ = _request(open_srv, "/puzzle/attempt", key="", body={
+        "seed": seed, "depth": 1, "node_name": node.name,
+        "answer": "not it", "player_name": "Ada" + " " * 29 + "trailing"})
+    assert status == 200
+    attempts = [row for row in persistence.get_mutations(seed)
+                if row["type"] == "PUZZLE_ATTEMPT"]
+    assert [row["player"] for row in attempts] == ["Ada"]
+
+
+# A byte that is not UTF-8 on the command line reaches Python as a lone
+# surrogate (surrogateescape): `--name $'\xff'` is "\udcff".
+ARGV_NOT_UTF8 = "\udcff"
+
+
+def test_the_mint_cli_refuses_a_name_with_no_utf8_form_cleanly(capsys):
+    with pytest.raises(SystemExit, match="must be plain text"):
+        _mint_cli(ARGV_NOT_UTF8 + "Ada")
+    assert persistence.list_invite_keys(include_revoked=True) == []
+
+
+def test_the_play_cli_refuses_a_name_with_no_utf8_form_before_a_session(monkeypatch):
+    started = []
+    monkeypatch.setattr("interface.run_session", lambda **kwargs: started.append(kwargs))
+
+    class PlayArgs:
+        seed = 42
+        depth = 1
+        name = "Ada" + ARGV_NOT_UTF8
+
+    with pytest.raises(SystemExit, match="must be plain text"):
+        main.cmd_play(PlayArgs())
+    assert started == []
+
+
+@pytest.mark.parametrize("action", ["suspend", "ban"])
+def test_the_sanction_cli_refuses_a_target_with_no_utf8_form_cleanly(action, capsys):
+    _mint_cli("Ada")
+
+    class SanctionArgs:
+        sanction_action = action
+        player = "Ada" + ARGV_NOT_UTF8
+        reason = "spam"
+        hours = 24
+        days = None
+
+    with pytest.raises(SystemExit) as exc:
+        main.cmd_sanction(SanctionArgs())
+    assert str(exc.value) == "A player name must be plain text."
+

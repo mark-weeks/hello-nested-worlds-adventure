@@ -416,8 +416,9 @@ fly ssh console -C "python main.py sanction lift 3 --reason 'appeal accepted'"
 ```
 
 `<name>` is the registered name in any case or Unicode form, compared as
-registration compares names (`persistence.name_key`: trimmed,
-NFKC-normalized and case-folded), or the participant id. A database
+registration compares names (`persistence.name_key`: trimmed, then
+Unicode's compatibility caseless match, which is NFD, case fold, NFKD, case
+fold again, recomposed as NFKC, and trimmed again), or the participant id. A database
 written before that comparison can hold two names with one key (`Élodie`
 and `élodie`); such a name is refused as ambiguous, listing each spelling
 and its participant id where one exists, and nothing is recorded: name the
