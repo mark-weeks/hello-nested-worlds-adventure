@@ -66,7 +66,16 @@ class Player:
             if item is _STOP:
                 return
             try:
-                ws_send(self.sock, item, send_lock=self.send_lock)
+                with self.send_lock:
+                    # Re-checked under the lock: a session that closes its
+                    # socket marks the player dead before writing the close
+                    # frame under this same lock (`stop_writer`, then
+                    # `protocol.send_close`), so no data frame dequeued in
+                    # the meantime can follow the close frame (RFC 6455
+                    # §5.5.1).
+                    if self._dead.is_set():
+                        return
+                    ws_send(self.sock, item)
             except OSError:
                 self._dead.set()
                 return

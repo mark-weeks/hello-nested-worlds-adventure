@@ -267,6 +267,29 @@ class TestNonBlockingBroadcast:
         p._writer.join(timeout=2)
         assert not p._writer.is_alive()
 
+    def test_no_data_frame_is_written_once_the_session_is_closing(self):
+        # A session closing its socket (websocket._close_unauthorized) calls
+        # stop_writer() and then writes its close frame under the send lock.
+        # stop_writer() can land after the writer dequeues a frame but before
+        # it writes it; that frame must then be dropped, not written after
+        # the close frame. Force exactly that interleaving.
+        sock = FakeSock()
+        p = Player(name="X", seed=1, current_node="root", session_id="x",
+                   sock=sock)
+        p.outbox.put_nowait(json.dumps({"type": "chat", "text": "late"}))
+        dequeue = p.outbox.get
+
+        def dequeue_then_session_closes(*args, **kwargs):
+            item = dequeue(*args, **kwargs)
+            p.stop_writer()
+            return item
+
+        p.outbox.get = dequeue_then_session_closes
+        p.start_writer()
+        p._writer.join(timeout=2)
+        assert not p._writer.is_alive()
+        assert sock.sent == []
+
 
 class TestPuzzleSession:
     """Shared puzzle state for co-op solving inside one room."""
