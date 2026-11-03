@@ -420,9 +420,13 @@ def test_the_keeper_voiced_by_any_spelling_recalls_its_public_commitment(srv, vo
     holds = "The shared decision holds: Keep the signal under Tessera’s care."
     assert committed[0]["data"]["flavor"].startswith(holds)
     # Voiced at the gallery: the commitment was recorded at the regulator,
-    # so only the keeper's recall can bring it into the prompt.
+    # so only the keeper's recall can bring it into the prompt. Unescaped:
+    # by default json.dumps writes the apostrophe as an escape, and the
+    # check could never fail.
     gallery = NODES["gallery"]
-    assert holds not in json.dumps(persistence.get_node_history(seed, gallery))
+    gallery_history = persistence.get_node_history(seed, gallery)
+    assert committed[0]["id"] not in {event.get("id") for event in gallery_history}
+    assert holds not in json.dumps(gallery_history, ensure_ascii=False)
     status, data = _request(srv, "/agent/voice", body={
         "seed": seed, "node_name": gallery, "agent_name": "tessera",
         "message": "what did we decide?"})
