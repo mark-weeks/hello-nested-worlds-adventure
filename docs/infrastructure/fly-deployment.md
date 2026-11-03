@@ -357,13 +357,14 @@ holds a frame open, therefore stops receiving room broadcasts within about
 (status 1008) and its departure from the room follow within about 1 s more,
 even if the client has stopped reading: the server waits at most 1 s to
 write a close frame, then shuts the socket down without one. One exception
-remains, an open owner decision: a chat whose screening waits for a slot
-under the model provider's concurrency limit. Nothing reaches that client
-meanwhile and the chat is refused afterwards, but its close and departure
-wait for the slot. A frame must still finish arriving within 10 s of its
-first byte or the socket is closed (status 1002). Any keyless socket opened
-before the first key or invite closes the same way. `fly ssh console` opens
-a shell inside the running machine.
+remains, an open owner decision: a chat being screened by the model
+provider. Nothing reaches that client meanwhile and the chat is refused
+afterwards, but its close and departure wait for the screening: seconds for
+the classify call itself, and without limit while it waits for a slot under
+the provider's concurrency limit. A frame must still finish arriving within
+10 s of its first byte or the socket is closed (status 1002). Any keyless
+socket opened before the first key or invite closes the same way.
+`fly ssh console` opens a shell inside the running machine.
 
 Two ways to invite, both single-use per person:
 
@@ -429,8 +430,8 @@ next HTTP request is refused. An open WebSocket closes the same way as a
 revoked key's (see the invite-gate paragraph above): at once on a move or chat
 its rate limit admits. Otherwise it stops receiving the world within about
 5 s, including a client that sends nothing or trickles a frame, and is closed
-and leaves the room within about 1 s more, except while a chat waits for a
-model-provider slot (the exception above).
+and leaves the room within about 1 s more, except while a chat is being
+screened by the model provider (the exception above).
 When the suspension expires or the sanction is lifted,
 the same key resolves to the same participant again. Journal, profile, home
 and saved position are untouched throughout.

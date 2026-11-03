@@ -1020,6 +1020,19 @@ class TestStalledWriter:
         _stream_ends_inside_the_flood(ada)
         bea.close()
 
+    def test_a_protocol_error_behind_the_writer_does_not_wait_for_it(
+            self, srv, install_sweep):
+        # No refusal either: Ada's unmasked frame is a protocol error, and
+        # the 1002 close frame is the write that would wait.
+        install_sweep(interval=3600.0)
+        seed = 2855
+        ada, ada_sid, bea, room, player = self._stalled(srv, seed)
+        ada.sendall(bytes([0x81, 0x02]) + b"hi")  # unmasked: RFC 6455 §5.1
+
+        self._left_once(seed, room, ada_sid, bea, player)
+        _stream_ends_inside_the_flood(ada)
+        bea.close()
+
     def test_a_reader_stuck_answering_a_ping_is_released_after_the_refusal(
             self, srv, sweep, monkeypatch):
         # A protocol ping: the reader's pong waits for the send lock behind
