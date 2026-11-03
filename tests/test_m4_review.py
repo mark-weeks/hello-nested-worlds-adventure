@@ -46,7 +46,7 @@ def dangerous_drop_in():
 
 def test_observe_endpoint_under_dangerous_ancestor_still_visits(http):
     target = dangerous_drop_in()
-    query = urllib.parse.urlencode({'node_name': target.name, 'depth': 11, 'name': 'ReviewObserver'})
+    query = urllib.parse.urlencode({'node_name': target.name, 'depth': 11})
     with urllib.request.urlopen(http.base_url + '/observe?' + query, timeout=10) as response:
         events = []
         for raw in response:
@@ -57,8 +57,8 @@ def test_observe_endpoint_under_dangerous_ancestor_still_visits(http):
                     break
     assert events[-1]['nodes_visited'] > 0
     assert any(e.get('node') == target.name and e.get('kind') == 'AGENT_VISIT' for e in events)
-    # Live-only since the 2026-11-03 evaluation (R2): the walk streams and
-    # broadcasts under the server's own observer name, and stores nothing.
+    # Live-only since #141 (2026-11-03 evaluation, R2): the walk streams to
+    # its watcher under the server-owned Observer name and stores nothing.
     assert {e['agent'] for e in events if 'agent' in e} == {'Observer'}
     assert persistence.get_node_history(SEED, target.name) == []
     assert persistence.load_ripple_scores(SEED) == {}

@@ -193,6 +193,8 @@ class TestSpeakOutcomes:
         except (urllib.error.URLError, ConnectionError):
             pass
         assert _count("speak", "provider") == 0
+        # Counted after the reply is written (mutant M17): no reply, no "ok".
+        assert _count("speak", "ok") == 0
         assert _voice_records(caplog) == []
 
 
@@ -259,6 +261,14 @@ class TestOtherSurfaces:
         proposal, quiet = intervention_api._propose("tidy", "", "Room-1", node, {})
         assert proposal is None and quiet["ai"] is False
         assert _count("intention", "provider") == 1
+
+        def clarify(*_a, **_k):
+            raise interventions.Clarification("Which shelf?")
+        monkeypatch.setattr(interventions, "propose", clarify)
+        proposal, quiet = intervention_api._propose("tidy", "", "Room-1", node, {})
+        # The model answered by asking; that is an answer (mutant M20).
+        assert proposal is None and quiet["clarification"] is True and quiet["ai"] is True
+        assert _count("intention", "ok") == 2 and _count("intention", "provider") == 1
 
         monkeypatch.setenv(guard.DISABLE_AI_ENV, "1")
         intervention_api._propose("tidy", "", "Room-1", node, {})
@@ -358,6 +368,22 @@ class TestVoiceHealthCommand:
 
 
 class TestBetaMetrics:
+    def test_the_window_counts_today_and_the_days_before_it(self):
+        # Mutant M19: --days 1 is today only; --days 2 adds yesterday.
+        import datetime
+        today = datetime.date.fromisoformat(guard._utc_day())
+        yesterday = (today - datetime.timedelta(days=1)).isoformat()
+        two_ago = (today - datetime.timedelta(days=2)).isoformat()
+        persistence.increment_cost_calls(observability.voice_bucket("speak", "ok"), yesterday)
+        persistence.increment_cost_calls(observability.voice_bucket("speak", "ok"), two_ago)
+        observability.voice_outcome("speak", "ok")
+        assert beta_metrics.compute_metrics(persistence._DB_PATH, days=1)[
+            "voice_outcomes"] == {"speak": {"ok": 1}}
+        assert beta_metrics.compute_metrics(persistence._DB_PATH, days=2)[
+            "voice_outcomes"] == {"speak": {"ok": 2}}
+        assert observability.voice_outcome_summary(days=2) == {
+            yesterday: {"speak": {"ok": 1}}, guard._utc_day(): {"speak": {"ok": 1}}}
+
     def test_report_separates_answered_from_quiet(self):
         observability.voice_outcome("speak", "ok")
         observability.voice_outcome("speak", "ok")

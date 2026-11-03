@@ -451,14 +451,14 @@ def test_agent_voice_fallback_logs_the_exception_class_only(http, monkeypatch, c
     node = store.world_tree(382)
     caplog.set_level(logging.WARNING, logger="nested_worlds")
     status, body, _ = http("/agent/voice", body={
-        "agent_name": "Tessera", "node_name": node.name, "message": _PLAYER,
+        "agent_name": "Scout", "node_name": node.name, "message": _PLAYER,
     })
     assert status == 200, body
-    assert body == _quiet_agent_body(node.name, "Tessera")
+    assert body == _quiet_agent_body(node.name)
     assert _SECRET not in json.dumps(body)
     assert _PLAYER not in json.dumps(body)
     assert _fallback_lines(caplog, "agent voice fallback") == [
-        "agent voice fallback (Tessera): RuntimeError"
+        "agent voice fallback (Scout): RuntimeError"
     ]
     assert _SECRET not in caplog.text
     assert _PLAYER not in caplog.text
@@ -474,13 +474,13 @@ def test_agent_voice_sqlite_error_logs_the_database_message(http, monkeypatch, c
     node = store.world_tree(382)
     caplog.set_level(logging.WARNING, logger="nested_worlds")
     status, body, _ = http("/agent/voice", body={
-        "agent_name": "Tessera", "node_name": node.name, "message": _PLAYER,
+        "agent_name": "Scout", "node_name": node.name, "message": _PLAYER,
     })
     assert status == 200, body
-    assert body == _quiet_agent_body(node.name, "Tessera")
+    assert body == _quiet_agent_body(node.name)
     assert _PLAYER not in json.dumps(body)
     assert _fallback_lines(caplog, "agent voice fallback") == [
-        "agent voice fallback (Tessera): database is locked"
+        "agent voice fallback (Scout): database is locked"
     ]
     assert _PLAYER not in caplog.text
     assert _SECRET not in caplog.text

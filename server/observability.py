@@ -119,7 +119,8 @@ def voice_outcome(surface: str, reason: str,
     wait on it again. The counter write uses a short lock wait so a locked
     store (a long transaction, a redact or restore) cannot hold a quiet
     reply for the usual five-second busy timeout; a counter lost that way is
-    logged as unavailable.
+    logged as unavailable, so under heavy write contention the daily counts
+    are a lower bound (one review measured 388 of 400 with 8 writer threads).
     """
     if surface not in VOICE_SURFACES or reason not in VOICE_REASONS:
         raise ValueError(f"unknown voice outcome {surface}/{reason}")

@@ -9,7 +9,10 @@ superseded. The [roadmap index](README.md) carries it.*
 
 **Status note (2026-10-25):** The October needed-by dates and the October 31
 beta target have lapsed. The plan is awaiting a re-plan by the owner. The
-steps and dates below are unchanged.
+steps and dates below are unchanged. The
+[November decision packet](decision-packet-2026-11.md) (2026-11-02) sets out
+the re-plan options and the other decisions now due; every recommendation in
+it is proposed by agent and not decided.
 
 ## Thesis
 

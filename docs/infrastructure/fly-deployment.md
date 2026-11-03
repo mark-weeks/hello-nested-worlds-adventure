@@ -804,7 +804,9 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       for the tiny live call `models --probe` makes.
       Every quiet line also logs `voice_fallback surface=... reason=...` on
       `nested_worlds.voice`, at ERROR (a Sentry event) for failures and WARNING
-      for limits. Store errors are logged, not counted. Where the scheduled
+      for limits. Store errors are logged, not counted, and a counter write
+      that cannot get the store within 50 ms is dropped (and logged), so the
+      counts are a lower bound under heavy write contention. Where the scheduled
       check runs, and who it pages, is the P5 monitoring decision; `/health`
       and the `/guide` ping cannot see a quiet voice.
 - [ ] Mint **one key per person** (`python main.py invite mint --name ...`).

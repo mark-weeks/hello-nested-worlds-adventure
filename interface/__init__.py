@@ -18,7 +18,7 @@ from multiverse.utils import (
 from puzzles.engine import PuzzleEngine
 from puzzles.types import PuzzleResult
 from agents.agent import Agent
-from consciousness import OBSERVER_NAME
+from agents.identities import OBSERVER
 
 _log = logging.getLogger("nested_worlds.cli")
 if not _log.handlers:
@@ -159,7 +159,7 @@ def _ambient_mode(node: SpatialNode, seed: int) -> None:
     bus = CausalityBus()
     bus.register_handler(_handler)
     wire_world_handlers(bus, seed)
-    agent = Agent(name=OBSERVER_NAME, danger_threshold=7, bus=bus, world_seed=seed)
+    agent = Agent(name=OBSERVER, danger_threshold=7, bus=bus, world_seed=seed)
     agent.traverse(node, max_nodes=40)
     print(f"\n{_DIM}Observer visited {len(agent.visited)} node(s). Press Enter to continue.{_RESET}")
     try:

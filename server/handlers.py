@@ -21,6 +21,7 @@ import persistence
 from causality import CausalityBus, EventKind
 from causality.delivery import accept_event, accept_verb
 from consciousness import runtime
+from agents import identities
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
 from multiverse import store, wrap
@@ -170,20 +171,15 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
     return find_node(deeper, node_name)
 
 
-# The wandering cast's names are world canon: their chronicle rows must be
-# unimpersonatable, so no player may claim them. Imported here, after the
-# module-level constants it sits beside, by design.
-from consciousness import (  # noqa: E402
-    OBSERVER_NAME, RESERVED_NAMES as _RESERVED_NAMES, WANDERER_CAST as _WANDERER_CAST,
-)
+# Every server-owned agent identity is world canon: the wandering cast
+# (ADR-004 §7) and the Scout and Observer walkers (agents/identities.py).
+# Their chronicle rows must be unimpersonatable, so no player may claim them.
+_RESERVED_PLAYER_NAMES = {n.lower() for n in identities.SERVER_IDENTITIES}
 
-# The cast and the server's own observer (consciousness.RESERVED_NAMES).
-_RESERVED_PLAYER_NAMES = {n.lower() for n in _RESERVED_NAMES}
-
-_CAST_BY_LOWER = {n.lower(): n for n in _WANDERER_CAST}
-
-# How long a second watcher waits for the live observer walk to finish.
-_OBSERVE_WAIT_SEC = 10.0
+# How long a second watcher waits for the live observer walk. The turn is
+# held only while the walk is computed, never while it streams, so the wait
+# is short and a slow reader cannot keep the turn.
+_OBSERVE_WAIT_SEC = 2.0
 
 
 def _limit_reason(exc: BaseException) -> str:
@@ -191,33 +187,13 @@ def _limit_reason(exc: BaseException) -> str:
     return "action_cap" if isinstance(exc, runtime.ModelActionLimited) else "budget"
 
 
-def _addressable_agent(seed: int, node_name: str, name: str) -> str | None:
-    """The canonical name of an agent a player may address here, else None.
-
-    Addressable: a wandering-cast member (case-insensitive, canonical
-    spelling returned), an agent standing at this node right now, or an agent
-    whose own walked traces lie at this node (`persistence.has_agent_trace`).
-    """
-    if not name:
-        return None
-    cast = _CAST_BY_LOWER.get(name.lower())
-    if cast:
-        return cast
-    room = get_room(seed)
-    with room.lock:
-        live = room.active_agents.get(name) == node_name
-    if live or persistence.has_agent_trace(seed, node_name, name):
-        return name
-    return None
-
-
 def _normalize_client_name(raw: Any) -> str | None:
     """Normalize a client-supplied display name: trim FIRST, then cap at 32.
 
     Trimming before the reserved-name check closes the whitespace-bypass a
     cap-then-strip order left open (" Tessera" once evaded the cast block).
-    Reserved (wanderer-cast) names normalize to None — the action still
-    happens, anonymously, rather than in an agent's name.
+    Reserved (server-owned agent) names normalize to None — the action
+    still happens, anonymously, rather than in an agent's name.
     """
     if not raw:
         return None
@@ -1070,7 +1046,6 @@ class Handler(BaseHTTPRequestHandler):
             # 2026-11-03 evaluation, finding R2.
             try:
                 seed      = guard.world_seed(param("seed"))
-                name      = _normalize_client_name(param("name")) or "Scout"
                 threshold = int(param("threshold",  "6"))
                 # Clamped: this drives a per-request FSM walk over the full
                 # tree, and an unbounded client value was the one way to buy
@@ -1078,6 +1053,10 @@ class Handler(BaseHTTPRequestHandler):
                 max_nodes = max(1, min(500, int(param("max_nodes", "50"))))
             except ValueError as exc:
                 return self._send_error(str(exc))
+            # The walker is always Scout (agents/identities.py); a
+            # client-chosen ``?name=`` is ignored. ``persona`` only picks an
+            # archetype from the fixed catalog; it never names anyone.
+            name = identities.SCOUT
             persona_arg = param("persona", "")
             persona = persona_by_name(persona_arg) or persona_for_name(name)
             root  = store.world_tree(seed=seed)
@@ -1441,14 +1420,30 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})
-        agent_name = " ".join(str(body.get("agent_name", "Scout")).split())[:32]
+        # Only a server-owned identity can be voiced (agents/identities.py),
+        # in its canonical spelling: the name lands in AGENT_VOICE data.agent,
+        # which is neither redactable nor screened.
+        requested = body.get("agent_name", identities.SCOUT)
+        agent_name = identities.canonical(requested)
         node_name  = str(body.get("node_name",  ""))[:128]
         try:
             seed = guard.world_seed(body.get("seed"))
         except ValueError as exc:
             return self._send_error(str(exc))
         persona_arg = str(body.get("persona", ""))[:32]
-        persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
+        # The quiet line echoes an unknown name back to the one client that
+        # sent it (a stale trace from an old local DB reads in fiction). It
+        # is never stored, broadcast, or logged.
+        echo = requested.strip()[:32] if isinstance(requested, str) else ""
+        if not echo.isprintable():
+            # Only a printable name is echoed. A control character (NUL), a
+            # format character (zero-width space, a BOM) or a lone surrogate
+            # (an escaped "\ud800" in the body, which has no UTF-8 form to
+            # hash for a persona) is a client's mistake: the quiet line reads
+            # "Someone", never the raw character and never a 500.
+            echo = ""
+        label = agent_name or echo or "Someone"
+        persona = persona_by_name(persona_arg) or persona_for_name(label)
 
         # Same order as /speak: the place is resolved before the screen, so
         # an unknown place is a 404 and costs nothing. The screen still runs
@@ -1456,24 +1451,10 @@ class Handler(BaseHTTPRequestHandler):
         node = _resolve_node(seed, node_name)
         if node is None:
             return self._send_error("no such place in this world", 404)
-        # The addressee must be an agent that exists here, checked at
-        # acceptance like the node: a cast member, an agent walking the room
-        # now, or one whose own traces lie at this place. Otherwise a player
-        # could have the world speak, and record, in any name — another
-        # player's included. Like an unknown place, it costs nothing.
-        try:
-            canonical = _addressable_agent(seed, node.name, agent_name)
-        except sqlite3.Error as exc:
-            # The trace lookup reads the store; a failing store answers in
-            # character like every other store failure on this surface. The
-            # unverified name stays out of the log.
-            _log.warning("agent voice fallback (presence check): %s", exc)
-            observability.voice_outcome("agent_voice", "db", exc)
-            return self._agent_voice_quiet(agent_name, persona.name, node.name)
-        if canonical is None:
-            return self._send_error("no such presence here", 404)
-        agent_name = canonical
-        persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
+        if agent_name is None:
+            # No agent by that name walks this world. Answered like an agent
+            # that cannot speak, before the screen, any budget, or any row.
+            return self._agent_voice_quiet(label, persona.name, node.name)
         verdict = moderation.screen(
             message, user_key=user_key or None, surface="agent")
         if not verdict.allowed:
@@ -1559,8 +1540,8 @@ class Handler(BaseHTTPRequestHandler):
         if len(name) > 32:
             return self._send_error("name too long (32 characters max)", 400)
         if name.lower() in _RESERVED_PLAYER_NAMES:
-            # Same rule as the WS join and the mint CLI: the wandering cast's
-            # names, and the observer's, are world canon and unimpersonatable.
+            # Same rule as the WS join and the mint CLI: the server-owned
+            # agent names are world canon and unimpersonatable.
             return self._send_error(
                 f"'{name}' belongs to the world — choose another name", 403)
         # The invite token is not authenticated until redemption below, so
@@ -1650,11 +1631,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error(str(exc))
 
         node_name  = qs.get("node_name", [""])[0]
-        # The observer is the server's, not the caller's: a client-chosen
-        # name let one player walk a cast member's (or another player's)
-        # presence through the room. The walk is live-only — it broadcasts
-        # and streams, and stores nothing (2026-11-03 evaluation, R2).
-        agent_name = OBSERVER_NAME
+        # Always Observer. The walk enters the room's live presence under
+        # this name, so a client-chosen ``?name=`` (another player's, or a
+        # cast member's) is ignored. It stores nothing (2026-11-03
+        # evaluation, R2): no chronicle row, ripple, delta or puzzle pin.
+        agent_name = identities.OBSERVER
         persona_arg = qs.get("persona", [""])[0]
         persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
         target     = (find_node(root, node_name) if node_name else None) or root
@@ -1670,14 +1651,18 @@ class Handler(BaseHTTPRequestHandler):
         room         = get_room(seed)
 
         # Walks take turns on the one Observer presence (Room.observer_lock).
-        # A walk is short; a watcher who cannot get a turn in time is told so
-        # and nothing walks.
+        # The turn covers only computing the walk; the watcher's stream is
+        # written after it is released, so a slow reader cannot hold the turn
+        # or keep Observe busy for others. A watcher who cannot get a turn in
+        # time is told so and nothing walks.
         if not room.observer_lock.acquire(timeout=_OBSERVE_WAIT_SEC):
             try:
                 self._sse_event({"done": True, "nodes_visited": 0, "busy": True})
             except (BrokenPipeError, ConnectionResetError):
                 pass
             return
+
+        stream: list[dict] = []
 
         def handler(node: SpatialNode, event: causality.CausalEvent) -> None:
             # The strength shown is the event's REAL propagated strength —
@@ -1695,10 +1680,7 @@ class Handler(BaseHTTPRequestHandler):
                 "agent":    agent_name,
                 "persona":  persona.name,
             }
-            try:
-                self._sse_event(payload)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
+            stream.append(payload)
             # The walk is streamed to the watcher only. Nothing it fires is
             # applied, so it must not reach the room as a causal_event: both
             # clients render those as world events (a feed line, a flash, a
@@ -1733,14 +1715,17 @@ class Handler(BaseHTTPRequestHandler):
                           persona=persona, world_seed=seed, pin_puzzles=False)
             agent.traverse(target, max_nodes=40)
             nodes_visited = len(agent.visited)
-            self._sse_event({"done": True, "nodes_visited": nodes_visited})
-            broadcast(get_room(seed), {"type": "agent_done", "node": target.name,
-                                       "nodes_visited": nodes_visited})
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+            broadcast(room, {"type": "agent_done", "node": target.name,
+                             "nodes_visited": nodes_visited})
         finally:
             agent_leave(room, agent_name)
             room.observer_lock.release()
+        try:
+            for payload in stream:
+                self._sse_event(payload)
+            self._sse_event({"done": True, "nodes_visited": nodes_visited})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     # ── Puzzle ──
 

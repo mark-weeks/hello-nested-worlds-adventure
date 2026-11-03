@@ -29,8 +29,8 @@ as **significant**; none as fundamental. They fall into two groups:
 The architectural choices that look most alarming to a newcomer held up (see
 [Looks wrong, holds up](#looks-wrong-holds-up)).
 
-This batch fixes R2 and R3. R1 is fixed on `main` by #137, which landed while this
-batch was in review. R4–R9 need owner decisions, credentials, or both.
+This batch fixes R3 and the write half of R2. While it was in review, `main`
+fixed R1 (#137) and the identity half of R2 (#139). R4–R9 need owner decisions, credentials, or both.
 
 ## Method
 
@@ -77,7 +77,7 @@ runbook's "mint before you share the URL" step covers the first deploy. Closing
 that window by configuration (the withdrawn `required` mode) is an owner choice
 if wanted.
 
-### R2 — Agent runs and voices took their identity from the caller (fixed here)
+### R2 — Agent runs and voices took their identity from the caller (fixed here and by #139)
 
 *Executed.* `GET /agent` ran a 500-node FSM walk under any `name`, persona and
 threshold on a bus wired to the record, ripple and substance handlers, then
@@ -91,6 +91,13 @@ reserved-cast check applied only to player names, and the rows carried no
 Redaction keeps mechanical fields, so none of it could be removed short of a
 whole-database restore. This breaks the first covenant: a human selected an
 agent, or another player's name, as the performer of permanent acts.
+
+**Resolution.** #139, merged while this batch was in review, made agent
+identities server-owned (`agents/identities.py`: the cast, the keeper, Scout and
+Observer; `/agent/voice` accepts only `canonical()` names). This batch withdrew
+its own addressee rule in favour of that, and keeps what #139 does not cover:
+on `main`, `GET /agent` still ran a fully wired walk as Scout and saved runs and
+memory, and `/observe` still recorded its visits and broadcast `causal_event`s.
 
 ### R3 — "Failure stays in fiction" had no operator counterpart (fixed here)
 
@@ -199,17 +206,15 @@ abstraction or capability work and only make that step easier.
 ## What this batch changes
 
 - **R2.** `GET /agent` is a simulation: an unwired bus, no chronicle row, ripple,
-  property delta, agent run, agent memory or puzzle pin (`Agent.pin_puzzles`),
-  and a capped name that cannot be a cast member's. `GET /observe` streams a
-  live walk to the watcher under the server's own `Observer` name, which is now
-  reserved like the cast names, and stores nothing; its unapplied events no
-  longer reach the room as `causal_event`s (presence still does). Operator walks go through the
+  property delta, agent run, agent memory or puzzle pin (`Agent.pin_puzzles`).
+  `GET /observe` streams a live walk to its watcher and stores nothing; its
+  unapplied events no longer reach the room as `causal_event`s (presence still
+  does). Both walk under #139's server-owned names (Scout, Observer). Walks take
+  turns on the one Observer presence (`Room.observer_lock`): the turn covers
+  only computing the walk, the stream is written after release, and a watcher
+  who cannot get a turn within 2 s is told `busy`. Operator walks go through the
   CLI (`python main.py agent`, and the `play` ambient mode, which records
-  traces), unchanged. `POST /agent/voice` speaks only as a
-  cast member (canonical spelling), an agent standing at that node now, or an
-  agent whose own walked traces lie there (`persistence.has_agent_trace`, which
-  ignores AGENT_VOICE rows so a typed name cannot bootstrap itself); anything
-  else is a 404 before the screen, at no cost.
+  traces), unchanged. Voice addressees follow #139's `canonical()` rule.
 - **R3.** Every player-facing voice surface (`speak`, `agent_voice`, `intention`)
   reports each answer to `server.observability.voice_outcome`: a
   `voice_fallback surface=... reason=...` line on `nested_worlds.voice` (ERROR,
