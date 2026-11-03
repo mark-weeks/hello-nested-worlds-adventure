@@ -524,6 +524,63 @@ class TestSweepVerdictEndsTheSession:
         assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
         bea.close()
 
+    @pytest.mark.parametrize("action", ["move", "chat"])
+    def test_a_refusal_during_the_actions_own_check_wins(
+            self, srv, sweep, monkeypatch, action):
+        # The reader is inside the last fresh read before a move or chat is
+        # written (for chat, the one after screening) when the sweep refuses
+        # the session (its own read already sees the key revoked). The
+        # reader's read began earlier and passes; the sweep's verdict must
+        # still win, so nothing is written or broadcast and the session ends
+        # with the one policy close.
+        seed = 2816 if action == "move" else 2817
+        # Throttled re-checks never read again after the first frame, so
+        # the reader's next read is the action's own fresh check.
+        monkeypatch.setattr(guard, "WS_REAUTH_INTERVAL_SEC", 3600.0)
+        ada, ada_sid, bea = _two_players(srv, seed)
+        session = _session_of(sweep, ada_sid)
+        _ws_send_json(ada, {"type": "ping"})  # the one throttled read
+        _until_type(ada, "pong")
+        armed, reader_held = threading.Event(), threading.Event()
+        release_reader, sweep_refuses = threading.Event(), threading.Event()
+        hold_read = 1 if action == "move" else 2  # chat: before and after screening
+        reader_reads = []
+        real = persistence.lookup_invite_key
+
+        def lookup(key):
+            if key == KEY_A:
+                if threading.current_thread().name == SWEEP_THREAD:
+                    if sweep_refuses.is_set():
+                        return None  # the sweep's read sees it revoked
+                elif armed.is_set():
+                    reader_reads.append(key)
+                    if len(reader_reads) == hold_read:
+                        reader_held.set()
+                        assert release_reader.wait(5.0)
+            return real(key)
+
+        monkeypatch.setattr(persistence, "lookup_invite_key", lookup)
+        armed.set()
+        if action == "move":
+            _ws_send_json(ada, {"type": "move", "node": store.root_name(seed)})
+        else:
+            _ws_send_json(ada, {"type": "chat", "text": "one last word"})
+        assert reader_held.wait(CLOSE_WITHIN), "the reader never ran its fresh check"
+        sweep_refuses.set()
+        _until(lambda: session.revoked, "the sweep's refusal")
+        release_reader.set()
+
+        code, _ = _closed_once(_frames_until_eof(ada))
+        assert code == protocol.CLOSE_POLICY_VIOLATION
+        leave, before = _until_type(bea, "player_leave")
+        assert leave["session_id"] == ada_sid
+        assert not [m for m in before
+                    if m.get("type") in ("player_move", "chat")]
+        assert _rows(seed, "PLAYER_MOVE", "Ada") == []
+        assert _rows(seed, "PLAYER_CHAT", "Ada") == []
+        assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
+        bea.close()
+
     def test_a_refusal_after_the_reader_let_go_touches_nothing(
             self, srv, install_sweep, monkeypatch, caplog):
         # The sweep is reading when the client closes, and its refusal lands

@@ -368,6 +368,12 @@ def handle_websocket(
                     and now - last_authorized < guard.WS_REAUTH_INTERVAL_SEC):
                 return True
             if guard.ws_session_authorized(ws_key, credentialed):
+                # The sweep may have refused this session while that read
+                # ran (its own read saw the revocation, or failed closed).
+                # Its verdict wins: a pass that started earlier is stale.
+                if session.revoked:
+                    session.close(CLOSE_POLICY_VIOLATION)
+                    return False
                 last_authorized = now
                 session.checked(now)
                 return True
