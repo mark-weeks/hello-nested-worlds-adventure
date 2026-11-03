@@ -18,7 +18,17 @@ unchanged. One sentence in §3 states when the never-wipe covenant starts.
 The running screen implements this failure rule. The starting per-user cap
 values are configuration recorded with the implementation.
 
-**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat.
+**2026-11-03 invite-gate amendment:** Directed by the owner, Mark Weeks, on
+2026-11-03, who instructed the merge of #137 and delegated its open choices.
+This amends §7. The invite gate latches: the first per-user key *or*
+registration invite closes it for good, revoking every key or cancelling every
+invite does not reopen it, and a failed gate check counts as closed. There is
+no supported way to reopen a world. An open WebSocket whose credential stops
+being live is closed as the runbook describes
+([fly-deployment.md](../infrastructure/fly-deployment.md) §6). Nothing else
+in §7 changes.
+
+**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction.
 
 ---
 
@@ -304,10 +314,13 @@ the shared key entirely:
   names, merged transcripts and budget buckets, and no way to tell them apart
   — which is exactly the anonymity this policy forbids. The gate is now the
   per-user `invite_keys` table alone (`server/guard.check_invite_key`); minting
-  the first key closes it, and from then on every request is a named player.
-- **The one keyless path is ungated local dev.** With no key minted the gate is
-  open (tests, a developer's own machine) and a session may be nameless — but
-  it never touches real, gated play. The CLI `python main.py play` still
+  the first key, or creating the first registration invite, closes it for good
+  (2026-11-03 amendment), and from then on every request is a named player.
+- **The one keyless path is ungated local dev.** With nothing ever issued the
+  gate is open (tests, a developer's own machine) and a session may be
+  nameless — but it never touches real, gated play. The first key or
+  registration invite closes it for good; revoking every key or cancelling
+  every invite does not reopen it (2026-11-03 amendment). The CLI `python main.py play` still
   **requires `--name`** so even a local session records a known actor, never an
   unknown presence, in the shared chronicle.
 - **Self-service registration, invite-gated** *(implemented)*. An operator

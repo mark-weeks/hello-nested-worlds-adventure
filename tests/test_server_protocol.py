@@ -1,9 +1,12 @@
 """Tests for the hand-rolled WebSocket framing in server/protocol.py."""
 import io
+import socket
 import struct
+import time
 
 import pytest
 
+from server import protocol
 from server.protocol import _MAX_FRAME, ProtocolError, ws_recv, ws_send
 
 
@@ -13,9 +16,16 @@ class FakeSock:
     def __init__(self, incoming: bytes = b""):
         self._in = io.BytesIO(incoming)
         self.sent = bytearray()
+        self.timeout = None
 
     def recv(self, n: int) -> bytes:
         return self._in.read(n)
+
+    def gettimeout(self):
+        return self.timeout
+
+    def settimeout(self, value) -> None:
+        self.timeout = value
 
     def sendall(self, data: bytes) -> None:
         self.sent.extend(data)
@@ -217,6 +227,16 @@ class TestControlFrameLimits:
         assert sock.sent[0] == 0x88  # FIN + close
         assert bytes(sock.sent[2:]) == status
 
+    def test_before_close_runs_before_the_close_is_echoed(self):
+        # The caller stops its writer here, so no data frame follows the echo.
+        status = struct.pack(">H", 1000)
+        sock = FakeSock(_client_frame(status, opcode=0x8))
+        sent_when_called = []
+        assert ws_recv(sock, before_close=lambda: sent_when_called.append(
+            bytes(sock.sent))) is None
+        assert sent_when_called == [b""]
+        assert sock.sent[0] == 0x88 and bytes(sock.sent[2:]) == status
+
     def test_unsupported_opcode_is_a_protocol_error(self):
         sock = FakeSock(_client_frame(b"", opcode=0x3))  # reserved opcode
         with pytest.raises(ProtocolError, match="unsupported opcode"):
@@ -229,6 +249,39 @@ class TestControlFrameLimits:
         sock = FakeSock(frames)
         with pytest.raises(ProtocolError, match="too large"):
             ws_recv(sock)
+
+
+class TestFrameDeadline:
+    """Real sockets: a frame that stalls after its first byte is a protocol
+    error at the deadline, and the socket's idle timeout comes back."""
+
+    def test_a_frame_stalled_after_its_first_bytes_is_a_protocol_error(
+            self, monkeypatch):
+        monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 0.2)
+        server_side, client_side = socket.socketpair()
+        try:
+            server_side.settimeout(60)
+            client_side.sendall(_client_frame(b"hello")[:3])
+            started = time.monotonic()
+            with pytest.raises(ProtocolError, match="frame too slow"):
+                ws_recv(server_side)
+            assert time.monotonic() - started < 5
+            assert server_side.gettimeout() == 60
+        finally:
+            server_side.close()
+            client_side.close()
+
+    def test_a_complete_frame_restores_the_idle_timeout(self, monkeypatch):
+        monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 0.2)
+        server_side, client_side = socket.socketpair()
+        try:
+            server_side.settimeout(60)
+            client_side.sendall(_client_frame(b"hello"))
+            assert ws_recv(server_side) == b"hello"
+            assert server_side.gettimeout() == 60
+        finally:
+            server_side.close()
+            client_side.close()
 
 
 class TestRoundtrip:

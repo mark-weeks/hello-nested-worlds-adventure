@@ -2528,6 +2528,24 @@ def list_invite_keys(include_revoked: bool = False) -> list[dict[str, Any]]:
         ]
 
 
+@_with_db
+def credentials_ever_issued() -> bool:
+    """True once any play credential or registration invite has ever existed.
+
+    Counts every `invite_keys` row (revoked or not) and every
+    `registration_tokens` row (redeemed, cancelled or still live). This is
+    the invite gate's latch: revoking the last key or cancelling the last
+    invite never reopens a world that was closed. Two EXISTS probes; no row
+    data, digest or name is read.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT EXISTS(SELECT 1 FROM invite_keys)
+                   OR EXISTS(SELECT 1 FROM registration_tokens)"""
+        ).fetchone()
+        return bool(row[0])
+
+
 class TokenInvalid(ValueError):
     """A registration was attempted with an unknown, spent, or cancelled token.
 

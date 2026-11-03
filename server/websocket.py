@@ -5,7 +5,7 @@ import base64
 import hashlib
 import json
 import logging
-import struct
+import time
 import uuid
 from collections.abc import Callable
 
@@ -13,7 +13,13 @@ import persistence
 from multiverse import store
 from puzzles import gates
 from server import guard, moderation
-from server.protocol import ProtocolError, _send_frame, ws_recv
+from server.protocol import (
+    CLOSE_POLICY_VIOLATION,
+    CLOSE_PROTOCOL_ERROR,
+    ProtocolError,
+    send_close,
+    ws_recv,
+)
 from server.rooms import (
     Player,
     agents_snapshot,
@@ -24,6 +30,20 @@ from server.rooms import (
 
 
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+
+def _close_unauthorized(player: Player, sock) -> None:
+    """Close a session whose credential is no longer authorized (1008).
+
+    Stops the writer first so queued room traffic does not follow the close
+    frame. The caller then leaves the loop through the normal disconnect
+    path, which removes the player and records the departure once.
+    """
+    player.stop_writer()
+    try:
+        send_close(sock, CLOSE_POLICY_VIOLATION, send_lock=player.send_lock)
+    except OSError:
+        pass
 
 
 def handle_websocket(
@@ -52,6 +72,16 @@ def handle_websocket(
 
     ws_key = guard.supplied_key(request.headers, qs)
     registered = guard.registered_name(ws_key)
+    if registered is None and guard.invite_gate_active():
+        # The gate admitted this request, but its credential was revoked (or
+        # the gate closed) before the name was read. Refuse as the gate does,
+        # before any row or broadcast, rather than join under ?name=.
+        request._send_error("forbidden", 403)
+        return
+    # Upgraded with a live per-user credential. Such a session lives only as
+    # long as that credential does; any other session lives only while the
+    # invite gate is open (guard.ws_session_authorized).
+    credentialed = registered is not None
     if registered:
         name = registered
     else:
@@ -88,6 +118,8 @@ def handle_websocket(
         # that window; protocol pings and {"type":"ping"} both run under the
         # same timer. A silent socket — a gone client — still ends here.
         # TimeoutError is an OSError, so it leaves through the handler below.
+        # Once a frame starts, protocol._FRAME_DEADLINE_SEC bounds the rest
+        # of it; a frame past that is a ProtocolError (close 1002).
         sock.settimeout(60)
         session_id = uuid.uuid4().hex[:8]
         ws_identity = actor_identity(ws_key, name)
@@ -138,12 +170,53 @@ def handle_websocket(
             actor_identity=ws_identity,
         )
 
-        move_bucket = guard.TokenBucket(guard.WS_MOVE_RATE, guard.WS_MOVE_BURST)
-        chat_bucket = guard.TokenBucket(guard.WS_CHAT_RATE, guard.WS_CHAT_BURST)
+        # Keyed sockets share their buckets with every socket on the same
+        # credential; keyless dev sockets get their own.
+        move_bucket, chat_bucket = guard.ws_message_buckets(
+            ws_key if credentialed else None)
+
+        last_authorized = float("-inf")
+
+        def still_authorized(*, fresh: bool = False) -> bool:
+            # A revoked credential or a newly closed gate ends the session.
+            # Frames that write nothing (protocol pings and pongs, bad JSON,
+            # unknown types, application pings, a rate-limited move or chat)
+            # re-check at most once per guard.WS_REAUTH_INTERVAL_SEC: each
+            # one resets the idle timer, so an unchecked stream would keep a
+            # revoked session subscribed to every room broadcast, but a
+            # database read per frame would let one client turn a frame flood
+            # into a read flood. A move or chat that passes its throttle
+            # re-checks fresh before it writes or broadcasts, so a revoked
+            # credential writes nothing; the throttle bounds those reads.
+            nonlocal last_authorized
+            now = time.monotonic()
+            if (not fresh
+                    and now - last_authorized < guard.WS_REAUTH_INTERVAL_SEC):
+                return True
+            if guard.ws_session_authorized(ws_key, credentialed):
+                last_authorized = now
+                return True
+            logger.info("WebSocket session %s closed: no longer authorized",
+                        session_id)
+            _close_unauthorized(player, sock)
+            return False
+
         try:
             while True:
-                payload = ws_recv(sock, send_lock=player.send_lock)
+                # The same throttled check also vets the frame that opens a
+                # fragmented message and every frame inside it, which
+                # ws_recv reads without returning: an opening fragment or
+                # interleaved pings would otherwise keep a revoked session
+                # subscribed.
+                # before_close stops the writer before the peer's close is
+                # echoed, so no queued data frame follows the echo.
+                payload = ws_recv(sock, send_lock=player.send_lock,
+                                  on_frame=still_authorized,
+                                  before_close=player.stop_writer)
                 if payload is None:
+                    break
+                # Throttled re-check on every frame, before anything else.
+                if not still_authorized():
                     break
                 if not payload:
                     continue
@@ -161,6 +234,9 @@ def handle_websocket(
                 if message_type == "move":
                     if not move_bucket.allow():
                         continue
+                    # Fresh: a move writes a chronicle row and broadcasts.
+                    if not still_authorized(fresh=True):
+                        break
                     node_name = str(message.get("node", ""))[:64]
                     target = (
                         store.resolve_node_by_name(seed, node_name)
@@ -212,6 +288,9 @@ def handle_websocket(
                 elif message_type == "chat":
                     if not chat_bucket.allow():
                         continue
+                    # Fresh: a chat writes a chronicle row and broadcasts.
+                    if not still_authorized(fresh=True):
+                        break
                     # Same rule as /speak: a non-string is not a line. Do not
                     # stringify it, screen it, or write it. The sender hears
                     # the same private refusal; nobody else does.
@@ -232,6 +311,11 @@ def handle_websocket(
                                 "text": moderation.player_line(verdict),
                             })
                             continue
+                        # Fresh again: screening can wait on a remote
+                        # classifier, and a credential revoked meanwhile
+                        # must not publish.
+                        if not still_authorized(fresh=True):
+                            break
                     if text:
                         broadcast(
                             room,
@@ -253,13 +337,12 @@ def handle_websocket(
                 elif message_type == "ping":
                     player.send({"type": "pong"})
         except ProtocolError:
+            # Writer first, as in _close_unauthorized: no queued data frame
+            # may follow the close frame.
+            player.stop_writer()
             try:
-                _send_frame(
-                    sock,
-                    0x8,
-                    struct.pack(">H", 1002),
-                    lock=player.send_lock,
-                )
+                send_close(sock, CLOSE_PROTOCOL_ERROR,
+                           send_lock=player.send_lock)
             except OSError:
                 pass
         except (OSError, ConnectionResetError, BrokenPipeError):

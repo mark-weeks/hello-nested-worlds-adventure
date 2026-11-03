@@ -222,7 +222,8 @@ fly secrets set \
 
 # REQUIRED for any public deployment: close the invite gate. There is no
 # shared key — the gate is the per-user `invite_keys` table and stays OPEN
-# until the first per-user key is minted (§6). An ungated server is an open
+# until the first per-user key or registration invite is issued (§6);
+# from then on it stays closed, even if every key is later revoked. An ungated server is an open
 # proxy to the configured provider's budget (currently Anthropic). The daily
 # caps bound the damage; they don't prevent strangers spending it. Mint the
 # first per-user key in §6 BEFORE you announce the URL, and do not share the
@@ -343,9 +344,20 @@ Per-user keys give you revocable, attributable access for each tester, and
 they are the whole invite gate — there is no shared key. Every key carries a
 unique registered name, so a gated session is always a known, non-anonymous
 player (ADR-004 §7). Gate semantics: the gate is OPEN until the first per-user
-key below is minted, so everything before this step is publicly reachable —
-**mint the first key before you share the URL anywhere.**
-`fly ssh console` opens a shell inside the running machine.
+key or registration invite below is issued, so everything before this step is
+publicly reachable — **mint the first key before you share the URL anywhere.**
+The gate then latches: revoking every key does not reopen it. Revoking a key
+also ends that player's open WebSocket, but only a complete frame from the
+socket is checked. A move or chat its rate limit admits closes it at once
+(status 1008); any other frame, keepalives included, closes it once 2 s have
+passed since its last check, so a browser client, which pings every 20 s, is closed within about
+20 s. A frame must finish arriving within 10 s of its first byte or the
+socket is closed (status 1002). A socket that sends nothing is not checked:
+it keeps receiving room broadcasts until the 60 s idle timeout ends it. A
+hostile client can therefore stay subscribed for up to about 72 s after
+revocation (2 s + 60 s + 10 s). Any keyless socket opened before the first
+key or invite closes the same way. `fly ssh console` opens a shell inside the
+running machine.
 
 Two ways to invite, both single-use per person:
 

@@ -61,19 +61,29 @@ def _reset_text_provider():
 
 
 @pytest.fixture(autouse=True)
-def _isolate_rate_limits():
-    """The per-IP rate limiter and WS connection limiter are module-level
-    singletons; one test file's requests must not 429 the next file's."""
+def _isolate_rate_limits(monkeypatch):
+    """The per-IP rate limiter, WS connection limiter and per-credential WS
+    message buckets are module-level singletons; one test file's requests
+    must not 429 the next file's."""
     from server import guard
     guard.RATE_LIMITER.reset()
     guard.READ_RATE_LIMITER.reset()
     guard.IDEAS_AUTH_FAILURE_RATE_LIMITER.reset()
     guard.WS_LIMITER.reset()
+    guard.WS_MOVE_BUCKETS.reset()
+    guard.WS_CHAT_BUCKETS.reset()
+    # Open sockets re-check authorization on every frame in tests, so a
+    # suite can revoke and send one frame without waiting out the
+    # production throttle. The throttle itself is pinned in
+    # tests/test_ws_credential_lifetime.py::TestReauthorizationThrottle.
+    monkeypatch.setattr(guard, "WS_REAUTH_INTERVAL_SEC", 0.0)
     yield
     guard.RATE_LIMITER.reset()
     guard.READ_RATE_LIMITER.reset()
     guard.IDEAS_AUTH_FAILURE_RATE_LIMITER.reset()
     guard.WS_LIMITER.reset()
+    guard.WS_MOVE_BUCKETS.reset()
+    guard.WS_CHAT_BUCKETS.reset()
 
 
 @pytest.fixture
