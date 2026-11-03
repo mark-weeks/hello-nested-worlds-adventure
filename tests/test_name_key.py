@@ -253,6 +253,12 @@ def test_confusable_scripts_are_not_folded():
     # apart from Latin 'A', and a zero-width space survives the trim.
     assert persistence.name_key("\u0410da") != persistence.name_key("Ada")
     assert persistence.name_key("Ada\u200b") != persistence.name_key("Ada")
+    # The same holds for the other invisible default-ignorable characters,
+    # so each of these displays as Scout yet is not the reserved name. An
+    # open question for the owner (CHANGELOG), not a decision made here.
+    from agents import identities
+    for name in ("Scout\u034f", "Scout\ufe0f", "Sc\u00adout", "\u3164Scout"):
+        assert identities.canonical(name) is None, ascii(name)
 
 
 def test_the_key_is_never_truncated():

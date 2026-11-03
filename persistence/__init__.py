@@ -2356,12 +2356,15 @@ def name_key(name: str) -> str:
     and folding U+1FB4 gives 'ά' + 'ι', so the U+0313 lands on the iota,
     while the capital 'Ά' has no such composite and keeps it on the alpha;
     with NFKC first, those two case variants had different keys.
-    So 'Élodie', 'élodie' and 'E' + U+0301 'lodie' are one
-    name, a fullwidth 'Ｓcout' is 'Scout', and 'Straße' is 'STRASSE'
-    (`casefold` maps ß and ẞ to 'ss'). Inner whitespace is kept, except
-    that NFKC turns a no-break or other compatibility space into a plain
-    one. Confusable letters from other scripts (Cyrillic 'а' for Latin 'a')
-    and invisible format characters (a zero-width space) are not folded.
+
+    So 'Élodie', 'élodie' and 'E' + U+0301 'lodie' are one name, a
+    fullwidth 'Ｓcout' is 'Scout', and 'Straße' is 'STRASSE' (`casefold`
+    maps ß and ẞ to 'ss'). Inner whitespace is kept, except that NFKC
+    turns a no-break or other compatibility space into a plain one.
+    Confusable letters from other scripts (Cyrillic 'а' for Latin 'a') are
+    not folded, and no invisible default-ignorable character is removed: a
+    zero-width space, a soft hyphen, a combining grapheme joiner, a
+    variation selector or a Hangul filler keeps two names apart.
 
     Never truncated: the 32-character cap belongs to the displayed name and
     is applied first by the callers that cap (`/register` refuses a longer
