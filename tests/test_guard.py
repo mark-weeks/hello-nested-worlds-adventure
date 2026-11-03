@@ -169,6 +169,107 @@ class TestPerUserInviteKeys:
         assert guard.invite_gate_active() is True
 
 
+class TestInviteGateFailsClosed:
+    """The hosted gate is configuration, not data (2026-11-03 evaluation).
+
+    In ``auto`` mode an empty key table is the local-dev open world; the
+    hosted ``required`` mode stays closed whatever the table holds, so
+    revoking every key or restoring a pre-mint backup cannot open a
+    permanent world. A gate that cannot be decided is closed in both modes.
+    """
+
+    def test_required_mode_closes_an_empty_table(self, srv, monkeypatch):
+        monkeypatch.setenv(guard.INVITE_GATE_ENV, "required")
+        base, _ = srv
+        assert _get_status(f"{base}/players") == 403
+        assert _get_status(f"{base}/health") == 200
+
+    def test_required_mode_stays_closed_after_revoking_every_key(
+            self, srv, monkeypatch):
+        monkeypatch.setenv(guard.INVITE_GATE_ENV, "required")
+        persistence.mint_invite_key("nw_only", "Only")
+        base, _ = srv
+        assert _get_status(f"{base}/players?key=nw_only") == 200
+        assert persistence.revoke_invite_key("nw_only")
+        assert _get_status(f"{base}/players") == 403
+        assert _get_status(f"{base}/history") == 403
+        assert _get_status(f"{base}/players?key=nw_only") == 403
+
+    def test_auto_mode_revoking_the_last_key_reopens_as_documented(self, srv):
+        # The local-development contract is unchanged, which is exactly why
+        # the hosted server must not run in auto mode.
+        persistence.mint_invite_key("nw_only", "Only")
+        base, _ = srv
+        assert _get_status(f"{base}/players") == 403
+        persistence.revoke_invite_key("nw_only")
+        assert _get_status(f"{base}/players") == 200
+
+    def test_unreadable_key_store_denies_keyless_requests(
+            self, srv, monkeypatch):
+        def broken(*_a, **_k):
+            raise RuntimeError("store unavailable")
+        monkeypatch.setattr(persistence, "list_invite_keys", broken)
+        base, _ = srv
+        assert _get_status(f"{base}/players") == 403
+        assert guard.invite_gate_active() is True
+
+    def test_unknown_mode_fails_closed_and_refuses_boot(self, monkeypatch):
+        monkeypatch.setenv(guard.INVITE_GATE_ENV, "reqired")
+        assert guard.invite_gate_active() is True
+        with pytest.raises(ValueError, match="NESTED_WORLDS_INVITE_GATE"):
+            guard.invite_gate_mode()
+        assert "CLOSED" in guard.invite_gate_status()
+
+    def test_status_line_names_the_open_state(self, monkeypatch):
+        assert "OPEN" in guard.invite_gate_status()
+        persistence.mint_invite_key("nw_only", "Only")
+        assert "closed (mode auto; 1 active" in guard.invite_gate_status()
+        monkeypatch.setenv(guard.INVITE_GATE_ENV, "REQUIRED")
+        assert guard.invite_gate_mode() == "required"
+        assert "closed (mode required" in guard.invite_gate_status()
+
+
+class TestInviteRevokeCli:
+    """`invite revoke` refuses to open an auto-mode world by accident."""
+
+    def _revoke(self, key, *extra):
+        import main
+        args = main.build_parser().parse_args(["invite", "revoke", key, *extra])
+        args.func(args)
+
+    def test_last_key_refused_in_auto_mode(self, capsys):
+        persistence.mint_invite_key("nw_only", "Only")
+        with pytest.raises(SystemExit, match="last active key"):
+            self._revoke("nw_only")
+        assert persistence.lookup_invite_key("nw_only") is not None
+
+    def test_last_key_refused_by_digest_prefix_too(self):
+        persistence.mint_invite_key("nw_only", "Only")
+        prefix = persistence._credential_digest("nw_only")[:12]
+        with pytest.raises(SystemExit, match="last active key"):
+            self._revoke(prefix)
+        assert persistence.lookup_invite_key("nw_only") is not None
+
+    def test_allow_open_revokes_and_reports_open(self, capsys):
+        persistence.mint_invite_key("nw_only", "Only")
+        self._revoke("nw_only", "--allow-open")
+        assert persistence.lookup_invite_key("nw_only") is None
+        assert "invite gate: OPEN" in capsys.readouterr().out
+
+    def test_required_mode_needs_no_override(self, capsys, monkeypatch):
+        monkeypatch.setenv(guard.INVITE_GATE_ENV, "required")
+        persistence.mint_invite_key("nw_only", "Only")
+        self._revoke("nw_only")
+        assert persistence.lookup_invite_key("nw_only") is None
+        assert "closed (mode required; 0 active" in capsys.readouterr().out
+
+    def test_other_keys_revoke_freely(self):
+        persistence.mint_invite_key("nw_a", "Ana")
+        persistence.mint_invite_key("nw_b", "Ben")
+        self._revoke("nw_a")
+        assert persistence.lookup_invite_key("nw_a") is None
+
+
 # ── World-parameter bounds ──────────────────────────────────────────────────
 
 class TestWorldBounds:

@@ -204,6 +204,67 @@ def cmd_models(args):
         raise SystemExit(1)
 
 
+def cmd_voice_health(args):
+    """Report how the world's voice has actually answered, for the operator.
+
+    Reads the daily voice-outcome counters every player-facing voice surface
+    writes (`server.observability.voice_outcome`): answered lines and each
+    kind of quiet one. Exits 1 when the window holds a failure an operator
+    must fix (a provider error, or a server with no usable voice), or when
+    `--probe` is passed and the tiny live probe fails. Limits and the kill
+    switch are reported and do not fail the check. Store errors are not
+    counted (the store is what failed); they reach the ERROR log and Sentry.
+    Run it on the host (`fly ssh console -C "python main.py voice-health"`)
+    from whatever scheduler alerts the operator.
+    """
+    from consciousness import runtime
+    from server import guard, observability
+
+    summary = observability.voice_outcome_summary(days=args.days)
+    print(f"Voice outcomes, last {args.days} UTC day(s), today included")
+    failures = 0
+    if not summary:
+        print("  (no voice requests recorded)")
+    for day in sorted(summary):
+        print(day)
+        for surface in observability.VOICE_SURFACES:
+            counts = summary[day].get(surface, {})
+            if not counts:
+                continue
+            quiet = ", ".join(
+                f"{reason} {counts[reason]}"
+                for reason in observability.VOICE_REASONS
+                if reason != "ok" and counts.get(reason))
+            print(f"  {surface:<12} answered {counts.get('ok', 0):>4}"
+                  + (f"   quiet: {quiet}" if quiet else ""))
+            failures += sum(counts.get(r, 0) for r in observability.VOICE_FAILURES)
+    used = persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, guard._utc_day())
+    cap = guard._cap_for(guard.ANTHROPIC_CAP_ENV, guard._DEFAULT_ANTHROPIC_DAILY)
+    print(f"voice budget today: {used}/{cap} calls")
+    if guard.ai_disabled():
+        print(f"kill switch: {guard.DISABLE_AI_ENV}=1 (the world is quiet on purpose)")
+    ready = runtime.configured()
+    print("voice provider: configured" if ready else "voice provider: NOT configured")
+    print(guard.invite_gate_status())
+    problems = []
+    if failures:
+        problems.append(f"{failures} voice failure(s) in the window")
+    if not ready and not guard.ai_disabled():
+        problems.append("no usable voice provider")
+    if args.probe:
+        from consciousness.model_check import (
+            check_model_configuration, probe_distinct_models,
+        )
+        report = check_model_configuration(runtime.get_provider())
+        for result in probe_distinct_models(report):
+            print(result.line())
+            if not result.accepted:
+                problems.append("live probe failed")
+    if problems:
+        raise SystemExit("voice-health: " + "; ".join(dict.fromkeys(problems)))
+    print("voice-health: ok")
+
+
 _SCHEMA_OFF_NOTE = "(structured outputs off - intent calls will be refused)"
 
 
@@ -328,6 +389,31 @@ def invite_share_url(key: str, name: str, base: str = "<BASE>") -> str:
     return f"{base}/?key={key}&name={quote(name)}"
 
 
+def _revoke_would_open_gate(supplied: str) -> bool:
+    """True when revoking `supplied` would leave an auto-mode gate open.
+
+    Only the last active key matters, and only in auto mode: required mode
+    stays closed with an empty table. `supplied` is matched the way
+    `revoke_invite_key` matches it (plaintext, or a ≥12-hex digest prefix).
+    """
+    from server import guard
+    try:
+        if guard.invite_gate_mode() == guard.INVITE_GATE_REQUIRED:
+            return False
+    except ValueError:
+        return False
+    rows = persistence.list_invite_keys()
+    if len(rows) != 1:
+        return False
+    digest = rows[0]["key"]
+    supplied = supplied.strip()
+    if persistence._credential_digest(supplied) == digest:
+        return True
+    is_prefix = (len(supplied) >= 12
+                 and all(c in "0123456789abcdef" for c in supplied.lower()))
+    return is_prefix and digest.startswith(supplied.lower())
+
+
 def cmd_invite(args):
     action = args.invite_action
     if action == "mint":
@@ -364,6 +450,8 @@ def cmd_invite(args):
         print(f"\nShare the URL: {invite_share_url(key, name)}")
         print("(Keys are stored hashed — this is the only time the key is "
               "shown. If it is lost, use invite rotate with its digest prefix.)")
+        from server import guard
+        print(guard.invite_gate_status())
     elif action == "list":
         rows = persistence.list_invite_keys(include_revoked=args.all)
         if not rows:
@@ -378,11 +466,22 @@ def cmd_invite(args):
             last = r["last_used_at"] or "—"
             print(f"{r['name']:<20}  {r['key'][:12] + '…':<14}  {r['created_at']:<20}  {last:<20}  {status}")
     elif action == "revoke":
+        from server import guard
+        if _revoke_would_open_gate(args.key) and not args.allow_open:
+            raise SystemExit(
+                "Refused: this is the last active key, and with "
+                f"{guard.INVITE_GATE_ENV} unset (auto mode) revoking it opens "
+                "the world to anyone with the URL. Set "
+                f"{guard.INVITE_GATE_ENV}={guard.INVITE_GATE_REQUIRED} (the "
+                "hosted setting) so an empty table stays closed, or pass "
+                "--allow-open. This check reads this shell's environment; "
+                "the server reads its own.")
         ok = persistence.revoke_invite_key(args.key)
         if ok:
             print(f"Revoked: {args.key}")
         else:
             print(f"No active key matched: {args.key}")
+        print(guard.invite_gate_status())
     elif action == "rotate":
         from persistence.participants import rotate
         key = "nw_" + secrets.token_hex(16)
@@ -548,6 +647,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_models.set_defaults(func=cmd_models)
 
+    p_voice = sub.add_parser(
+        "voice-health",
+        help="Report answered and quiet voice lines; exit 1 on voice failures",
+    )
+    p_voice.add_argument("--days", type=int, default=1,
+                         help="UTC days to report, today included (default 1)")
+    p_voice.add_argument(
+        "--probe", action="store_true",
+        help="Also make the tiny live probe from `models --probe` (one call "
+             "per distinct model id; no chronicle row, no voice budget).")
+    p_voice.set_defaults(func=cmd_voice_health)
+
     p_backup = sub.add_parser("backup",
         help="Write an online snapshot of the SQLite store to a target path")
     p_backup.add_argument("--to", type=str, required=True,
@@ -623,6 +734,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_invite_revoke = invite_sub.add_parser("revoke",
         help="Revoke an invite key (irreversible)")
     p_invite_revoke.add_argument("key", type=str, help="The key string to revoke")
+    p_invite_revoke.add_argument(
+        "--allow-open", action="store_true",
+        help="Revoke the last active key even though, in auto gate mode, "
+             "that opens the world. Not needed when "
+             "NESTED_WORLDS_INVITE_GATE=required.")
     p_invite_revoke.set_defaults(func=cmd_invite)
 
     p_invite_rotate = invite_sub.add_parser("rotate", help="Replace a live key, preserving participant ownership")

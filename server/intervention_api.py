@@ -7,7 +7,7 @@ from consciousness import runtime
 from persistence import participants, interventions, intents
 from multiverse import interventions_v3 as physics
 from puzzles.gates import seal_check
-from server import guard
+from server import guard, observability
 
 _log = logging.getLogger(__name__)
 ROUTES = {'/interventions', '/interventions/preview', '/interventions/commit'}
@@ -32,6 +32,8 @@ def _quiet(line, *, ai=False, declined=False, clarification=False):
 
 def _propose(intention, key, name, node, props):
     if guard.ai_disabled() or not runtime.configured():
+        observability.voice_outcome(
+            'intention', 'disabled' if guard.ai_disabled() else 'unconfigured')
         return None, _quiet(_UNSHAPED)
     # A schema the selected adapter refuses is raised inside
     # runtime.generate before either charge. Otherwise the model-action
@@ -40,25 +42,34 @@ def _propose(intention, key, name, node, props):
     from consciousness.interventions import Clarification, Unsupported, propose
     from consciousness.runtime import ModelActionLimited, VoiceBudgetLimited
     try:
-        return propose(intention, {'name': name, 'level': node.level, 'properties': props},
-                       user_key=key, voice_budget=True), None
-    except (ModelActionLimited, VoiceBudgetLimited):
+        proposal = propose(intention, {'name': name, 'level': node.level, 'properties': props},
+                           user_key=key, voice_budget=True)
+    except (ModelActionLimited, VoiceBudgetLimited) as exc:
+        observability.voice_outcome(
+            'intention', 'action_cap' if isinstance(exc, ModelActionLimited) else 'budget')
         return None, _quiet(guard.QUIET_RESPONSE)
     except Clarification as exc:
+        # The model answered; asking for a clearer shape is a real reply.
+        observability.voice_outcome('intention', 'ok')
         return None, _quiet(str(exc), ai=True, clarification=True)
     except Unsupported as exc:
+        observability.voice_outcome('intention', 'ok')
         return None, _quiet(str(exc), ai=True, declined=True)
     except sqlite3.Error as exc:
         # propose() charges the voice budget, which writes the cost ledger.
         # SQLite's own message distinguishes a lock from a bad migration
         # and does not include bound values. Same split as /speak.
         _log.warning('Intention interpretation unavailable: %s', exc)
+        observability.voice_outcome('intention', 'db', exc)
         return None, _quiet(_UNSETTLED)
     except Exception as exc:
         # A provider message can carry a credential or the player's
         # intention. The class only, and no traceback.
         _log.warning('Intention interpretation unavailable: %s', type(exc).__name__)
+        observability.voice_outcome('intention', 'provider', exc)
         return None, _quiet(_UNSETTLED)
+    observability.voice_outcome('intention', 'ok')
+    return proposal, None
 
 
 def handle(handler, path, qs, body=None):

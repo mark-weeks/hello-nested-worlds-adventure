@@ -220,13 +220,15 @@ fly secrets set \
   FAL_KEY=... \
   SENTRY_DSN=https://...ingest.sentry.io/...
 
-# REQUIRED for any public deployment: close the invite gate. There is no
-# shared key — the gate is the per-user `invite_keys` table and stays OPEN
-# until the first per-user key is minted (§6). An ungated server is an open
-# proxy to the configured provider's budget (currently Anthropic). The daily
-# caps bound the damage; they don't prevent strangers spending it. Mint the
-# first per-user key in §6 BEFORE you announce the URL, and do not share the
-# URL until then.
+# The invite gate is closed from the first boot. fly.toml sets
+# NESTED_WORLDS_INVITE_GATE=required, so every gated request needs an active
+# per-user key (§6) even while the table is empty, and revoking every key or
+# restoring a pre-mint backup leaves the world closed rather than open. There
+# is no shared key. Keep that line in fly.toml: without it the server falls
+# back to auto mode, which is OPEN until the first key is minted and OPEN
+# again after the last key is revoked — an open proxy to the provider budget
+# whose every act becomes permanent history. The boot log prints the gate
+# state ("invite gate: closed (mode required; ...)").
 
 # Deploy. (--first-deploy skips the pre-deploy backup — nothing to back
 # up yet. Every subsequent deploy goes through scripts/deploy.sh plain.)
@@ -342,9 +344,14 @@ URLs you mint afterwards (§6) can be shared with either hostname.
 Per-user keys give you revocable, attributable access for each tester, and
 they are the whole invite gate — there is no shared key. Every key carries a
 unique registered name, so a gated session is always a known, non-anonymous
-player (ADR-004 §7). Gate semantics: the gate is OPEN until the first per-user
-key below is minted, so everything before this step is publicly reachable —
-**mint the first key before you share the URL anywhere.**
+player (ADR-004 §7). Gate semantics: with `NESTED_WORLDS_INVITE_GATE=required`
+(fly.toml) the gate is closed before the first key and stays closed with none;
+mint keys here to let people in. In auto mode (local development, or a
+deployment that dropped the setting) the gate is OPEN until the first key and
+after the last is revoked, so `invite revoke` refuses the last active key there
+unless `--allow-open` is passed. Every `invite mint` and `invite revoke` prints
+the gate state; the check reads the shell's environment, and `fly ssh console`
+carries the machine's.
 `fly ssh console` opens a shell inside the running machine.
 
 Two ways to invite, both single-use per person:
@@ -633,6 +640,17 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       `curl -s -X POST https://<app>/speak -H 'X-Beta-Key: <key>' -H 'Content-Type: application/json' -d '{"message":"hello"}' | grep -o '"ai": true'`
 - [ ] Watch spend as the cohort arrives: the `cost_budget` table carries
       per-day counters — `fly ssh console -C "sqlite3 /data/.nested-worlds/worlds.db 'SELECT * FROM cost_budget ORDER BY day DESC LIMIT 20'"`.
+- [ ] Watch the voice, not just the server. `fly ssh console -C "python main.py voice-health"`
+      prints answered and quiet lines per surface (`speak`, `agent_voice`,
+      `intention`) and reason (`provider`, `unconfigured`, `db`, `budget`,
+      `action_cap`, `disabled`), the day's budget use and the gate state. It
+      exits 1 when the window holds a provider failure or the voice is not
+      configured; add `--probe` for the tiny live call `models --probe` makes.
+      Every quiet line also logs `voice_fallback surface=... reason=...` on
+      `nested_worlds.voice`, at ERROR (a Sentry event) for failures and WARNING
+      for limits. Store errors are logged, not counted. Where the scheduled
+      check runs, and who it pages, is the P5 monitoring decision; `/health`
+      and the `/guide` ping cannot see a quiet voice.
 - [ ] Mint **one key per person** (`python main.py invite mint --name ...`).
       This is the only way in — there is no shared key (it was removed
       because one credential merges transcript identities, budget buckets,

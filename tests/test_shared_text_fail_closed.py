@@ -671,7 +671,7 @@ def test_model_action_cap_quiets_voice_and_leaves_mechanical_play(http, monkeypa
     assert status == 200 and data["response"] == guard.QUIET_RESPONSE and data["ai"] is False
     assert _rows(382, root.name, "PLAYER_SPEAK") == []
     voice = http("/agent/voice", body={
-        "node_name": root.name, "agent_name": "Scout", "message": "hello, old light"})
+        "node_name": root.name, "agent_name": "Tessera", "message": "hello, old light"})
     assert voice[0] == 200 and voice[1]["response"] == guard.QUIET_RESPONSE and voice[1]["ai"] is False
     assert voice[1]["agent"] == "" and _rows(382, root.name, "AGENT_VOICE") == []
     assert charged == []
@@ -772,7 +772,7 @@ def test_unknown_place_is_404_before_the_screen(srv, monkeypatch):
     assert screens == ["speak"] and generated == []
     assert _rows(seed, node.name, "PLAYER_SPEAK") == []
     voice_status, voice = _post(srv, "/agent/voice", {
-        "node_name": node.name, "seed": seed, "agent_name": "Scout",
+        "node_name": node.name, "seed": seed, "agent_name": "Tessera",
         "message": "go kill yourself"}, key=key)
     assert voice_status == 200 and voice.get("held") is True
     assert screens == ["speak", "agent"]

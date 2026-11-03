@@ -7,6 +7,9 @@ Six pieces wired into `server/handlers.py`:
                             upgrade. There is no shared key: every credential
                             is individually minted, named, and revocable, so a
                             gated session is always a known, unique player.
+                            `NESTED_WORLDS_INVITE_GATE=required` (the hosted
+                            setting) keeps it closed whatever the table holds;
+                            an undecidable gate is closed.
   2. `RateLimiter`        — per-IP fixed-window limiter for the AI / image /
                             puzzle-attempt endpoints.
   3. `consume_anthropic`  — daily call cap on Anthropic, persisted in SQLite.
@@ -18,8 +21,10 @@ Plus `world_seed` and `validate_world_params`, which confine the public server
 to one operator-selected world and clamp the remaining view-depth input so a
 bad client can't ask for a 100k-deep tree.
 
-Everything here is read at request time (no caching), so toggling an env
-var on the host is immediate. Counters are stored UTC-day-keyed in
+Everything here is read at request time (no caching), so a changed env var
+takes effect on the next request without code changes. On Fly the only way
+to change one is `fly secrets set` or a deploy, and either restarts the one
+machine (every socket reconnects). Counters are stored UTC-day-keyed in
 `persistence.cost_budget` and reset naturally at the day boundary.
 """
 from __future__ import annotations
@@ -287,20 +292,67 @@ def registered_name(supplied: str) -> str | None:
     return row["name"] if row else None
 
 
-def invite_gate_active() -> bool:
-    """True once at least one active per-user invite key exists.
+INVITE_GATE_ENV = "NESTED_WORLDS_INVITE_GATE"
+INVITE_GATE_REQUIRED = "required"
+INVITE_GATE_AUTO = "auto"
+_INVITE_GATE_MODES = (INVITE_GATE_REQUIRED, INVITE_GATE_AUTO)
 
-    Minting the first per-user key closes the gate; from then on every
-    request needs a valid credential. Tests and pure local dev (no minted
-    keys) leave the gate off and the server stays open — the only path on
-    which a session can be nameless, and it never touches real play.
+
+def invite_gate_mode() -> str:
+    """The configured gate mode: ``required`` or ``auto`` (the default).
+
+    ``required`` is the hosted setting (fly.toml): every gated request needs
+    an active per-user credential whatever the table holds, so revoking every
+    key, restoring a pre-mint backup or a failing lookup closes the world
+    instead of opening it. ``auto`` keeps the local-development and test
+    behaviour: the gate is open until the first key is minted. An
+    unrecognised value raises; ``server.run`` validates it before the port
+    opens, so a typo fails the boot rather than guessing.
+    """
+    raw = os.environ.get(INVITE_GATE_ENV, "").strip().lower()
+    if not raw:
+        return INVITE_GATE_AUTO
+    if raw not in _INVITE_GATE_MODES:
+        raise ValueError(
+            f"invalid {INVITE_GATE_ENV}: {raw!r} "
+            f"(expected one of: {', '.join(_INVITE_GATE_MODES)})")
+    return raw
+
+
+def invite_gate_active() -> bool:
+    """True when gated requests need a valid per-user credential.
+
+    Always true in ``required`` mode. In ``auto`` mode, true once at least
+    one active per-user key exists: tests and pure local dev (no minted
+    keys) leave the gate off — the only path on which a session can be
+    nameless, and it never touches real play. Any failure to decide (a bad
+    mode value, a store that cannot be read) counts as active: the gate
+    fails closed, because what an open gate lets in writes permanent rows.
     """
     try:
+        if invite_gate_mode() == INVITE_GATE_REQUIRED:
+            return True
         return bool(persistence.list_invite_keys())
     except Exception:
-        # DB not initialized yet (e.g. fresh checkout, no migrations run);
-        # behave as if no per-user keys exist.
-        return False
+        return True
+
+
+def invite_gate_status() -> str:
+    """One operator-facing line describing the gate as a request would see it."""
+    try:
+        mode = invite_gate_mode()
+    except ValueError as exc:
+        return f"invite gate: CLOSED ({exc})"
+    try:
+        active = len(persistence.list_invite_keys())
+    except Exception:
+        return f"invite gate: CLOSED (mode {mode}; the key store could not be read)"
+    if mode == INVITE_GATE_REQUIRED:
+        return f"invite gate: closed (mode required; {active} active key(s))"
+    if active:
+        return f"invite gate: closed (mode auto; {active} active key(s))"
+    return (f"invite gate: OPEN (mode auto; no active keys). "
+            f"Set {INVITE_GATE_ENV}={INVITE_GATE_REQUIRED} on a hosted server.")
 
 
 def supplied_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) -> str:
@@ -323,8 +375,10 @@ def check_invite_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) ->
     an active row matches, the request is authorized and the row's
     `last_used_at` is bumped (throttled).
 
-    The gate is open only when no per-user key has been minted (pure local
-    dev / tests). Accepts either the `X-Beta-Key` header (preferred) or a
+    The gate is open only in ``auto`` mode with no active per-user key (pure
+    local dev / tests); ``required`` mode never opens it, and an undecidable
+    gate stays closed (`invite_gate_active`). Accepts either the
+    `X-Beta-Key` header (preferred) or a
     `?key=` query param so the WebSocket connector — which can't easily set
     headers in the browser — can still authenticate.
     """
@@ -333,7 +387,7 @@ def check_invite_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) ->
     if _per_user_key_match(supplied):
         return True
 
-    # Gate only blocks once at least one per-user key has been minted.
+    # Open only when the gate is decidably off (auto mode, no active key).
     return not invite_gate_active()
 
 

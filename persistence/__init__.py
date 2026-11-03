@@ -922,6 +922,29 @@ def count_node_mutations(world_seed: int, node_name: str,
         ).fetchone()[0]
 
 
+@_with_db
+def has_agent_trace(world_seed: int, node_name: str, agent: str) -> bool:
+    """True when `agent` has walked this node: an agent-authored row names it.
+
+    Agent-authored means the row carries ``data.agent`` and no human
+    ``player_name``. AGENT_VOICE rows are excluded: a player addressing an
+    agent records the agent's name, so counting those rows would let any
+    name a player once typed become addressable.
+    """
+    with _connection() as conn:
+        row = conn.execute(
+            """SELECT 1 FROM world_mutations
+               WHERE world_seed = ? AND node_name = ?
+                 AND mutation_type != 'AGENT_VOICE'
+                 AND player_name IS NULL
+                 AND json_valid(data)
+                 AND json_extract(data, '$.agent') = ?
+               LIMIT 1""",
+            (world_seed, node_name, agent),
+        ).fetchone()
+        return row is not None
+
+
 def _history_read(conn: sqlite3.Connection, sql: str, params, *, index: str) -> sqlite3.Cursor:
     """Use a sparse index when present; tolerate an older live-restored schema.
 
@@ -2314,6 +2337,22 @@ def increment_cost_calls(bucket: str, day: str) -> int:
             (bucket, day),
         ).fetchone()
         return int(row[0]) if row else 0
+
+
+@_with_db
+def cost_rows(prefix: str, since_day: str) -> list[tuple[str, str, int]]:
+    """``(bucket, day, calls)`` for buckets starting with `prefix`, from `since_day` on.
+
+    Prefix-matched with substr rather than LIKE, so `_` in a bucket name is
+    literal. Ordered by day, then bucket.
+    """
+    with _connect() as conn:
+        return [(r[0], r[1], int(r[2])) for r in conn.execute(
+            """SELECT bucket, day, calls FROM cost_budget
+               WHERE substr(bucket, 1, ?) = ? AND day >= ?
+               ORDER BY day, bucket""",
+            (len(prefix), prefix, since_day),
+        )]
 
 
 @_with_db

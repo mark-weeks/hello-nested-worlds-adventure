@@ -246,13 +246,14 @@ def test_voice_credentials_gate_budget_and_history(http, accounts, monkeypatch, 
     monkeypatch.setattr(adapter, 'generate', lambda **kwargs: calls.append(kwargs) or Completion('A reply.', True))
     node = store.world_tree(382)
     try:
-        status, result, _ = http(endpoint, body={'node_name': node.name, 'message': 'hello'})
+        # Tessera is a cast member, so /agent/voice accepts the addressee.
+        status, result, _ = http(endpoint, body={'node_name': node.name, 'message': 'hello', 'agent_name': 'Tessera'})
         assert status == 200 and result['ai'] is bool(auth_env)
         if auth_env:
             assert result['response'] == 'A reply.'
         else:
             assert result['response'] == (consciousness.fallback_voice(node) if endpoint == '/speak'
-                else f"Scout does not answer. Only the traces of a {result['persona']} remain here, already cooling.")
+                else f"Tessera does not answer. Only the traces of a {result['persona']} remain here, already cooling.")
         expected = int(bool(auth_env))
         assert len(calls) == expected
         for bucket in (guard.ANTHROPIC_BUCKET, guard._user_bucket(guard.ANTHROPIC_BUCKET, accounts[0])):
