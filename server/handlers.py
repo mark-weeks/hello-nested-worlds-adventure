@@ -181,6 +181,29 @@ _RESERVED_PLAYER_NAMES = {n.lower() for n in identities.SERVER_IDENTITIES}
 # is short and a slow reader cannot keep the turn.
 _OBSERVE_WAIT_SEC = 2.0
 
+# The pause between the Observer's presence moves. The walk itself has no I/O,
+# so without it a deep walk would put dozens of frames into every player's
+# bounded outbox (rooms.OUTBOX_LIMIT) faster than their writer threads drain
+# them, and a full outbox evicts the player. At most one move per visited node
+# (40), so a walk holds its turn for well under a second.
+_OBSERVE_STEP_SEC = 0.01
+
+
+# A moderation hold the voice never got past, as a voice outcome. The classifier
+# failing or giving no usable verdict is a failure (`screen`); moderation's own
+# budget, per-user cap and disable switch are limits under the existing names.
+# A content decline (`block`) is policy, not an outage, and is not recorded.
+_SCREEN_HOLD_REASONS = {
+    "error": "screen", "undecided": "screen",
+    "budget": "budget", "user_cap": "action_cap", "disabled": "disabled",
+}
+
+
+def _record_screen_hold(surface: str, verdict: Any) -> None:
+    reason = _SCREEN_HOLD_REASONS.get(verdict.outcome)
+    if reason:
+        observability.voice_outcome(surface, reason)
+
 
 def _limit_reason(exc: BaseException) -> str:
     """The voice-outcome reason for a refused-before-the-provider call."""
@@ -1190,8 +1213,7 @@ class Handler(BaseHTTPRequestHandler):
             verdict = moderation.screen(
                 message, user_key=user_key or None, surface="speak")
             if not verdict.allowed:
-                if verdict.outcome == "error":
-                    observability.voice_outcome("speak", "screen")
+                _record_screen_hold("speak", verdict)
                 return self._send_json(moderation.http_body(verdict))
 
             import consciousness
@@ -1458,8 +1480,7 @@ class Handler(BaseHTTPRequestHandler):
         verdict = moderation.screen(
             message, user_key=user_key or None, surface="agent")
         if not verdict.allowed:
-            if verdict.outcome == "error":
-                observability.voice_outcome("agent_voice", "screen")
+            _record_screen_hold("agent_voice", verdict)
             return self._send_json(moderation.http_body(
                 verdict, agent=agent_name, persona=persona.name, node=node.name))
         voice_ready = runtime.configured()
@@ -1663,6 +1684,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         stream: list[dict] = []
+        last_stand = [None]
 
         def handler(node: SpatialNode, event: causality.CausalEvent) -> None:
             # The strength shown is the event's REAL propagated strength —
@@ -1687,6 +1709,14 @@ class Handler(BaseHTTPRequestHandler):
             # ripple at your feet) that a reload would contradict. Presence
             # (agent_enter/move/encounter/leave) is live fact and still goes out.
 
+            # Presence follows the walker, not its ripples: move only to the
+            # node where the walker acts (the event's origin), once per stop.
+            # Every ripple used to move it, which with no I/O to pace the walk
+            # flooded each player's outbox and evicted them (review of #141).
+            if event.origin_id != node.id or last_stand[0] == node.name:
+                return
+            last_stand[0] = node.name
+            time.sleep(_OBSERVE_STEP_SEC)
             # Check for agent-to-agent encounters at this node
             others = agent_move(room, agent_name, node.name)
             for other_name in others:

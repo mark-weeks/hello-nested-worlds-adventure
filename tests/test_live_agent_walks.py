@@ -191,3 +191,85 @@ class TestObserverWalksTakeTurns:
             room.observer_lock.release()
         assert events == [{"done": True, "nodes_visited": 0, "busy": True}]
         assert "Observer" not in room.active_agents
+
+
+class TestObserveKeepsTheRoomAlive:
+    """Review of #141: an unpaced walk flooded every player's bounded outbox
+    (rooms.OUTBOX_LIMIT) and evicted them; presence must follow the walker."""
+
+    def test_a_deep_walk_does_not_evict_a_connected_player(self, base):
+        import time
+        connect = pytest.importorskip("websockets.sync.client").connect
+        root = store.world_tree(SEED)
+        received = []
+        port = base.rsplit(":", 1)[1]
+        with connect(f"ws://127.0.0.1:{port}/ws?name=Watcher",
+                     open_timeout=5, close_timeout=5) as ws:
+            stop = threading.Event()
+
+            def drain():
+                while not stop.is_set():
+                    try:
+                        received.append(json.loads(ws.recv(timeout=0.2)))
+                    except TimeoutError:
+                        continue
+                    except Exception:
+                        return
+            reader = threading.Thread(target=drain, daemon=True)
+            reader.start()
+            deadline = time.monotonic() + 5
+            while not get_room(SEED).players and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert len(get_room(SEED).players) == 1
+            query = urllib.parse.urlencode({"node_name": root.name, "depth": 11})
+            events = []
+            with urllib.request.urlopen(f"{base}/observe?{query}", timeout=30) as resp:
+                for raw in resp:
+                    if raw.startswith(b"data: "):
+                        events.append(json.loads(raw[6:]))
+                        if events[-1].get("done"):
+                            break
+            deadline = time.monotonic() + 5
+            while not any(m.get("type") == "agent_leave" for m in received) \
+                    and time.monotonic() < deadline:
+                time.sleep(0.02)
+            # Still a member of the room after the walk: not evicted.
+            still_present = len(get_room(SEED).players) == 1
+            stop.set()
+            reader.join(2)
+        # The walk was deep enough to overflow an outbox one frame per event.
+        assert len(events) > 64
+        assert any(m.get("type") == "agent_leave" for m in received)
+        moves = [m for m in received if m.get("type") == "agent_move"]
+        assert 0 < len(moves) <= 40
+        assert still_present
+
+
+class TestObserveTurnIsNotHeldWhileStreaming:
+    def test_a_slow_reader_does_not_keep_the_turn(self, base, monkeypatch):
+        # Review of #141: the stream is written after the turn is released,
+        # so a stalled watcher cannot make the next watcher wait or be busy.
+        release = threading.Event()
+        first = threading.Event()
+        real = handlers.Handler._sse_event
+
+        def slow(self, payload):
+            if not first.is_set():
+                first.set()
+                release.wait(10)  # the first watcher's stream stalls
+            return real(self, payload)
+        monkeypatch.setattr(handlers.Handler, "_sse_event", slow)
+        root, _ = _nodes()
+        url = f"{base}/observe?node_name={urllib.parse.quote(root.name)}"
+        stalled = threading.Thread(target=lambda: urllib.request.urlopen(url, timeout=20).read(),
+                                   daemon=True)
+        stalled.start()
+        assert first.wait(10)
+        try:
+            with urllib.request.urlopen(url, timeout=20) as resp:
+                second = [json.loads(raw[6:]) for raw in resp if raw.startswith(b"data: ")]
+        finally:
+            release.set()
+            stalled.join(10)
+        assert second[-1]["done"] is True and not second[-1].get("busy")
+        assert second[-1]["nodes_visited"] > 0

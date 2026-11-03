@@ -94,9 +94,11 @@ _voice = logging.getLogger("nested_worlds.voice")
 
 VOICE_OUTCOME_PREFIX = "voice_outcome"
 VOICE_SURFACES = ("speak", "agent_voice", "intention")
-# `screen`: the moderation classifier failed (timeout or error), so shared
-# text was held before the voice was asked. Content declines are policy, not
-# outages, and are not recorded.
+# `screen`: the moderation classifier failed (timeout, error) or gave no usable
+# verdict, so shared text was held before the voice was asked. Moderation's
+# own budget, per-user cap and disable switch count as `budget`, `action_cap`
+# and `disabled`. Content declines are policy, not outages, and are not
+# recorded.
 VOICE_FAILURES = ("provider", "db", "unconfigured", "screen")
 VOICE_LIMITS = ("budget", "action_cap", "disabled")
 VOICE_REASONS = ("ok",) + VOICE_LIMITS + VOICE_FAILURES

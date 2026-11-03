@@ -218,6 +218,22 @@ class TestSpeakOutcomes:
         assert status == 200 and data.get("held") is True
         assert _count("agent_voice", "screen") == 1
 
+    @pytest.mark.parametrize("outcome,reason", [
+        ("undecided", "screen"), ("budget", "budget"),
+        ("user_cap", "action_cap"), ("disabled", "disabled"),
+    ])
+    def test_every_moderation_hold_but_a_decline_is_recorded(
+            self, base, monkeypatch, outcome, reason):
+        # Review of #141: a held line is talking to silence whatever held it.
+        from consciousness import runtime
+        monkeypatch.delenv(guard.DISABLE_AI_ENV, raising=False)
+        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(moderation, "screen",
+                            lambda text, **_kwargs: moderation.Verdict(False, outcome, outcome))
+        status, data = _speak(base)
+        assert status == 200 and data.get("held") is True
+        assert _count("speak", reason) == 1
+
     def test_a_content_decline_is_policy_not_an_outage(self, base, monkeypatch):
         from consciousness import runtime
         monkeypatch.delenv(guard.DISABLE_AI_ENV, raising=False)
@@ -227,6 +243,38 @@ class TestSpeakOutcomes:
         status, data = _speak(base)
         assert status == 200 and data.get("declined") is True
         assert observability.voice_outcome_summary() == {}
+
+
+class TestAgentVoiceCounting:
+    def _voice(self, base):
+        return _post(base, "/agent/voice", {
+            "node_name": store.world_tree(SEED).name, "agent_name": "Tessera",
+            "message": "what arrived?"})
+
+    def test_an_answer_is_counted(self, base, voiced, monkeypatch):
+        import consciousness
+        monkeypatch.setattr(consciousness, "voice_agent", lambda *_a, **_k: "Footsteps.")
+        status, data = self._voice(base)
+        assert status == 200 and data["ai"] is True
+        assert _eventually(lambda: _count("agent_voice", "ok") == 1)
+
+    def test_a_hang_up_counts_nothing(self, base, voiced, monkeypatch):
+        import consciousness
+        from server import handlers
+        monkeypatch.setattr(consciousness, "voice_agent", lambda *_a, **_k: "Footsteps.")
+        real = handlers.Handler._send_json
+
+        def hang_up(self, data, *args, **kwargs):
+            if data.get("ai") is True:
+                raise ConnectionResetError("peer went away")
+            return real(self, data, *args, **kwargs)
+        monkeypatch.setattr(handlers.Handler, "_send_json", hang_up)
+        try:
+            self._voice(base)
+        except (urllib.error.URLError, ConnectionError):
+            pass
+        assert _count("agent_voice", "ok") == 0
+        assert _count("agent_voice", "provider") == 0
 
 
 class TestOtherSurfaces:
@@ -357,6 +405,18 @@ class TestVoiceHealthCommand:
         assert "node has no model id" in capsys.readouterr().out
         monkeypatch.setenv(guard.DISABLE_AI_ENV, "1")
         self._run()
+
+    def test_a_failed_probe_fails_and_an_accepted_one_passes(self, monkeypatch, capsys):
+        from consciousness import model_check, runtime
+        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(model_check, "probe_distinct_models", lambda *_a: (
+            model_check.ProbeResult("fixture-model", False, "HTTP 401"),))
+        with pytest.raises(SystemExit, match="live probe failed"):
+            self._run("--probe")
+        monkeypatch.setattr(model_check, "probe_distinct_models", lambda *_a: (
+            model_check.ProbeResult("fixture-model", True, "ok"),))
+        self._run("--probe")
+        assert capsys.readouterr().out.rstrip().endswith("voice-health: ok")
 
     def test_no_usable_provider_fails_unless_switched_off(self, monkeypatch):
         from consciousness import runtime

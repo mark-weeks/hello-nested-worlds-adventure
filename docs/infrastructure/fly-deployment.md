@@ -797,8 +797,11 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       prints answered and quiet lines per surface (`speak`, `agent_voice`,
       `intention`) and reason (`provider`, `unconfigured`, `screen`, `db`,
       `budget`, `action_cap`, `disabled`) and the day's budget use. `screen`
-      means the moderation classifier failed and shared text was held before
-      the voice was asked. It exits 1 when the window holds a provider or
+      means the moderation classifier failed or gave no usable verdict, so
+      shared text was held before the voice was asked; moderation's own
+      budget, per-user cap and disable switch count as `budget`, `action_cap`
+      and `disabled`, and a content decline is policy and is not recorded. It
+      exits 1 when the window holds a provider or
       screen failure, the voice is not configured, or the model configuration
       has a hard problem (the check `models` and the boot run); add `--probe`
       for the tiny live call `models --probe` makes.

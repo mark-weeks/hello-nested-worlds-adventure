@@ -219,12 +219,15 @@ abstraction or capability work and only make that step easier.
   reports each answer to `server.observability.voice_outcome`: a
   `voice_fallback surface=... reason=...` line on `nested_worlds.voice` (ERROR,
   so a Sentry event, for `provider`, `db`, `unconfigured` and `screen`, a
-  moderation-classifier failure that held shared text; WARNING for
+  moderation-classifier failure or unusable verdict that held shared text;
+  moderation's own limits count under the limit reasons; WARNING for
   `budget`, `action_cap` and `disabled`) and a daily counter in `cost_budget`
   under the `voice_outcome:` prefix (surface and reason only; store failures are
-  logged, not counted). The counter waits at most 50 ms on a locked store, and
-  an answered line is counted after its reply is written, so a player who hung
-  up is never counted as a provider failure. `python main.py voice-health` reports the window and
+  logged, not counted). The counter waits at most 50 ms on a locked store, so
+  the counts are a lower bound under heavy write contention. On `speak` and
+  `agent_voice` an answered line is counted after its reply is written, so a
+  player who hung up is never counted at all; `intention` counts when the model
+  answers, before the commit that follows it. `python main.py voice-health` reports the window and
   exits 1 on failures, on a hard model-configuration problem, or, with
   `--probe`, a failed live probe.
   `scripts/beta_metrics.py` reports answered and quiet lines.
