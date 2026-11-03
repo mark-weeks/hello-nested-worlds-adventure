@@ -9,22 +9,30 @@ stays fast.
 """
 from __future__ import annotations
 
+import ast
+import base64
 import datetime
+import inspect
 import json
 import logging
+import os
+import re
+import socket
 import struct
 import threading
 import time
 
 import pytest
 
+import main
 import persistence
 from multiverse import store
 from persistence import sanctions
 from persistence.participants import rotate
 from server import guard, protocol, websocket
-from server.rooms import broadcast, get_room
+from server.rooms import Player, broadcast, get_room
 from tests.test_day_one_recording import _ws_send_json
+from tests.test_moderation import _read_ws_json_until
 from tests.test_server_protocol import _client_frame
 from tests.test_ws_credential_lifetime import (
     KEY_A,
@@ -42,6 +50,9 @@ INTERVAL = 0.2
 # One interval plus generous slack for a loaded machine. Without the sweep
 # none of these sockets would close before the 60 s idle timeout.
 CLOSE_WITHIN = 3.0
+# A stalled writer adds the close grace (websocket._CLOSE_GRACE_SEC, 1 s).
+# Without it the departure waits for the writer's 60 s socket timeout.
+LEAVE_WITHIN = 4.0
 SWEEP_THREAD = "ws-credential-sweep"
 
 
@@ -650,6 +661,93 @@ class TestSweepVerdictEndsTheSession:
         persistence.revoke_invite_key(KEY_B)
         assert _closed_once(_frames_until_eof(bea))[0] == 1008
 
+    def test_an_error_outside_the_read_closes_and_the_sweep_goes_on(
+            self, srv, sweep, caplog):
+        # The read passes; recording it raises. Before the fix nothing
+        # caught an error outside the read: the sweep thread died, add()
+        # kept trusting it, and no socket was swept again.
+        caplog.set_level(logging.INFO)
+        seed = 2819
+        ada, ada_sid, bea = _two_players(srv, seed)
+        thread = _watching(sweep, 2)
+        session = _session_of(sweep, ada_sid)
+        real_checked = session.checked
+
+        def checked(at):
+            if threading.current_thread().name == SWEEP_THREAD:
+                raise RuntimeError(f"cannot record a check for {KEY_A}")
+            real_checked(at)
+
+        session.checked = checked
+        assert _closed_once(_frames_until_eof(ada))[0] == 1008
+        assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
+        logged = "\n".join(f"{r.getMessage()} {r.args!r}" for r in caplog.records)
+        assert "RuntimeError" in logged
+        assert KEY_A not in logged and guard.credential_identity(KEY_A) not in logged
+
+        time.sleep(INTERVAL * 3)  # Bea's live key passes several sweeps
+        assert thread.is_alive() and sweep._thread is thread
+        persistence.revoke_invite_key(KEY_B)
+        assert _closed_once(_frames_until_eof(bea))[0] == 1008
+
+    def test_a_ping_read_after_the_refusal_inside_the_throttle_gets_no_pong(
+            self, srv, sweep, monkeypatch):
+        # At the production throttle a frame inside the interval is not
+        # read again, so only the session's own record of the sweep's
+        # refusal stops it. (tests/conftest.py sets the throttle to 0 for
+        # every other test, where that frame's own read refuses too.)
+        monkeypatch.setattr(guard, "WS_REAUTH_INTERVAL_SEC", 2.0)
+        seed = 2862
+        ada, ada_sid, bea = _two_players(srv, seed)
+        session = _session_of(sweep, ada_sid)
+        player = get_room(seed).players[ada_sid]
+        held, release = threading.Event(), threading.Event()
+        answered = []  # session.revoked each time the reader answers a ping
+        real_send = player.send
+
+        def send(msg):
+            if msg.get("type") == "pong":
+                answered.append(session.revoked)
+                if not held.is_set():
+                    held.set()
+                    assert release.wait(5.0)
+            return real_send(msg)
+
+        player.send = send
+        # The first ping is read and passes; answering it holds the reader.
+        _ws_send_json(ada, {"type": "ping"})
+        assert held.wait(CLOSE_WITHIN), "the reader never answered the ping"
+        # The second waits in the socket, inside the throttle interval,
+        # while the sweep refuses the session.
+        _ws_send_json(ada, {"type": "ping"})
+        persistence.revoke_invite_key(KEY_A)
+        _until(lambda: session.revoked, "the sweep's refusal")
+        release.set()
+
+        code, heard = _closed_once(_frames_until_eof(ada))
+        assert code == protocol.CLOSE_POLICY_VIOLATION
+        assert answered == [False]  # the second ping was never answered
+        assert not [m for m in heard if m.get("type") == "pong"]
+        leave, _ = _until_type(bea, "player_leave")
+        assert leave["session_id"] == ada_sid
+        assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
+        bea.close()
+
+
+class _DiesOnce(websocket._CredentialSweep):
+    """The sweep loop itself raises, once, after `die` is set."""
+
+    def __init__(self):
+        super().__init__()
+        self.die = threading.Event()
+        self._died = False
+
+    def _next_due(self, me):
+        if self.die.is_set() and not self._died:
+            self._died = True
+            raise RuntimeError("the sweep loop failed")
+        return super()._next_due(me)
+
 
 class TestSweepThread:
     @staticmethod
@@ -681,6 +779,32 @@ class TestSweepThread:
         assert restarted is not None and restarted is not thread
         persistence.revoke_invite_key(KEY_A)
         assert _closed_once(_frames_until_eof(again))[0] == 1008
+
+    def test_a_sweep_thread_that_died_is_replaced_by_the_next_socket(
+            self, srv, install_sweep, monkeypatch):
+        # Anything that escapes the loop itself ends the thread. Before the
+        # fix add() kept trusting the dead thread, so no socket, old or
+        # new, was swept again.
+        sweep = install_sweep(_DiesOnce())
+        died = []
+        monkeypatch.setattr(threading, "excepthook", died.append)
+        persistence.mint_invite_key(KEY_A, "Ada")
+        persistence.mint_invite_key(KEY_B, "Bea")
+        ada, _ = _join(srv, 2844, "x", KEY_A)
+        thread = _watching(sweep, 1)
+        sweep.die.set()
+        thread.join(CLOSE_WITHIN)
+        assert not thread.is_alive()
+        assert [type(args.exc_value) for args in died] == [RuntimeError]
+        assert sweep._thread is None
+
+        bea, _ = _join(srv, 2844, "x", KEY_B)
+        restarted = _watching(sweep, 2)
+        assert restarted is not None and restarted is not thread
+        persistence.revoke_invite_key(KEY_A)  # an earlier socket is swept too
+        assert _closed_once(_frames_until_eof(ada))[0] == 1008
+        assert restarted.is_alive()
+        bea.close()
 
     def test_a_socket_leaves_the_sweep_it_joined(self, srv, install_sweep):
         # Tests replace the module's sweep between sockets. A socket still
@@ -723,3 +847,228 @@ class TestSweepThread:
         thread.join(CLOSE_WITHIN)
         assert not thread.is_alive() and sweep._thread is None
         ada.close()
+
+
+def _join_small_window(port, seed, key):
+    """Join on `key` with a client that can stop reading: its receive buffer
+    is shrunk before it connects, so the window it advertises stays small.
+    Returns (socket, session id) once the welcome has been read."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    sock.settimeout(5)
+    sock.connect(("127.0.0.1", port))
+    sock.sendall((
+        f"GET /ws?seed={seed}&name=x&key={key} HTTP/1.1\r\nHost: t\r\n"
+        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        f"Sec-WebSocket-Key: {base64.b64encode(os.urandom(16)).decode()}\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n").encode())
+    head = b""
+    while not head.endswith(b"\r\n\r\n"):  # byte-wise: keep the welcome
+        chunk = sock.recv(1)
+        assert chunk, head
+        head += chunk
+    assert head.startswith(b"HTTP/1.1 101"), head
+    return sock, _read_ws_json_until(sock, "welcome")["session_id"]
+
+
+# One room broadcast larger than every buffer between the server's writer
+# and a client that has stopped reading, once both ends' buffers are small.
+_FLOOD = {"type": "chat", "name": "World", "text": "x" * 1_000_000,
+          "session_id": "w"}
+
+
+def _stall_writer(room, sid, exclude):
+    """Broadcast `_FLOOD` to `sid`, whose client reads nothing, so its
+    writer stays blocked in sendall holding the send lock. Returns the
+    player."""
+    player = room.players[sid]
+    # A fixed send buffer: autotuning could otherwise absorb the frame.
+    player.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+    broadcast(room, _FLOOD, exclude=exclude)
+    _until(lambda: player.outbox.empty() and player.send_lock.locked(),
+           "the writer taking the broadcast")
+    time.sleep(0.3)
+    assert player.send_lock.locked() and player._writer.is_alive(), (
+        "the writer finished the broadcast; nothing is stalled")
+    return player
+
+
+def _stream_ends_inside_the_flood(sock, timeout=CLOSE_WITHIN):
+    """Read a stalled client's bytes to the end of the stream. After the
+    welcome (already read) comes part of the flood's frame, and then
+    nothing: no close frame, and no other frame, follows the frame that
+    was cut short."""
+    sock.settimeout(timeout)
+    data = bytearray()
+    deadline = time.monotonic() + timeout
+    while True:
+        assert time.monotonic() < deadline, "the server kept the socket open"
+        try:
+            chunk = sock.recv(65536)
+        except ConnectionResetError:
+            break
+        if not chunk:
+            break
+        data += chunk
+
+    flood = json.dumps(_FLOOD).encode()
+    assert data[:2] == bytes([0x81, 127]), bytes(data[:16])
+    assert struct.unpack(">Q", data[2:10])[0] == len(flood)
+    rest = bytes(data[10:])
+    assert 0 < len(rest) < len(flood) and rest == flood[:len(rest)]
+
+
+class TestStalledWriter:
+    """A client that has stopped reading leaves its writer blocked in
+    sendall, holding the send lock, for up to the socket's 60 s timeout.
+    Before the fix the reader's close waited for that lock, and then up to
+    another 60 s to write its close frame, so the player stayed listed with
+    no departure for about two minutes. Now the departure follows the
+    refusal within about one close grace (1 s), once, and no close frame
+    follows the data frame that was cut short."""
+
+    @staticmethod
+    def _stalled(port, seed):
+        persistence.mint_invite_key(KEY_A, "Ada")
+        persistence.mint_invite_key(KEY_B, "Bea")
+        bea, bea_sid = _join(port, seed, "x", KEY_B)
+        ada, ada_sid = _join_small_window(port, seed, KEY_A)
+        _until_type(bea, "player_join")
+        room = get_room(seed)
+        player = _stall_writer(room, ada_sid, exclude=bea_sid)
+        return ada, ada_sid, bea, room, player
+
+    @staticmethod
+    def _left_once(seed, room, ada_sid, bea, player):
+        leave, _ = _until_type(bea, "player_leave", timeout=LEAVE_WITHIN)
+        assert leave["session_id"] == ada_sid
+        assert ada_sid not in room.players
+        assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
+        _until(lambda: not player._writer.is_alive(), "the writer ending")
+        assert _leaves_heard(bea, ada_sid) == []
+        assert len(_rows(seed, "PLAYER_LEAVE", "Ada")) == 1
+
+    def test_a_revoked_client_that_stopped_reading_leaves_promptly(
+            self, srv, sweep):
+        seed = 2851
+        ada, ada_sid, bea, room, player = self._stalled(srv, seed)
+        persistence.revoke_invite_key(KEY_A)
+
+        self._left_once(seed, room, ada_sid, bea, player)
+        _stream_ends_inside_the_flood(ada)
+        bea.close()
+
+    def test_the_readers_own_refusal_does_not_wait_for_the_writer(
+            self, srv, install_sweep):
+        # The sweep is not due, so only the reader's check of Ada's frame
+        # refuses her: its close frame is the write that would wait.
+        install_sweep(interval=3600.0)
+        seed = 2852
+        ada, ada_sid, bea, room, player = self._stalled(srv, seed)
+        persistence.revoke_invite_key(KEY_A)
+        _ws_send_json(ada, {"type": "ping"})
+
+        self._left_once(seed, room, ada_sid, bea, player)
+        _stream_ends_inside_the_flood(ada)
+        bea.close()
+
+    def test_a_close_frame_on_a_full_window_waits_only_the_grace(self):
+        # The send lock is free, but the client's window is full, so the
+        # close frame's own sendall is the write that would wait: for the
+        # session's idle timeout (60 s in production, 10 s here).
+        server_end, client_end = socket.socketpair()
+        try:
+            server_end.setblocking(False)
+            for size in (65536, 4096, 64, 1):
+                while True:
+                    try:
+                        server_end.send(b"\0" * size)
+                    except BlockingIOError:
+                        break
+            server_end.settimeout(10.0)
+            player = Player(name="Ada", seed=0, current_node="",
+                            session_id="s", sock=server_end)
+            session = websocket._Session(player, server_end, KEY_A, True,
+                                         time.monotonic(),
+                                         logging.getLogger(__name__))
+            started = time.monotonic()
+            session.close(protocol.CLOSE_POLICY_VIOLATION)
+            assert time.monotonic() - started < websocket._CLOSE_GRACE_SEC + 0.5
+            assert session.shut_down and not player.send_lock.locked()
+            session.close(protocol.CLOSE_POLICY_VIOLATION)  # still one attempt
+            # The client reads what was queued, then the end of the stream:
+            # no close frame after it.
+            client_end.settimeout(CLOSE_WITHIN)
+            tail = b""
+            while chunk := client_end.recv(65536):
+                tail = (tail + chunk)[-4:]
+            assert tail == b"\0" * 4
+        finally:
+            server_end.close()
+            client_end.close()
+
+    def test_a_peer_close_behind_the_writer_does_not_wait_for_it(
+            self, srv, install_sweep):
+        # No refusal at all: Ada closes, and her echo is the write that
+        # would wait. The socket is shut down instead of echoing.
+        install_sweep(interval=3600.0)
+        seed = 2854
+        ada, ada_sid, bea, room, player = self._stalled(srv, seed)
+        ada.sendall(_client_frame(struct.pack(">H", 1000), opcode=0x8))
+
+        self._left_once(seed, room, ada_sid, bea, player)
+        _stream_ends_inside_the_flood(ada)
+        bea.close()
+
+    def test_a_reader_stuck_answering_a_ping_is_released_after_the_refusal(
+            self, srv, sweep, monkeypatch):
+        # A protocol ping: the reader's pong waits for the send lock behind
+        # the stalled writer, where the sweep's shutdown of the read side
+        # does not reach it.
+        seed = 2853
+        ada, ada_sid, bea, room, player = self._stalled(srv, seed)
+        ponging = threading.Event()
+        real_send_frame = protocol._send_frame
+
+        def send_frame(sock, opcode, data, lock=None):
+            if opcode == 0xA:
+                ponging.set()
+            real_send_frame(sock, opcode, data, lock=lock)
+
+        monkeypatch.setattr(protocol, "_send_frame", send_frame)
+        ada.sendall(_client_frame(b"", opcode=0x9))
+        assert ponging.wait(CLOSE_WITHIN), "the reader never answered the ping"
+        time.sleep(0.2)
+        assert player.send_lock.locked()  # the pong is still waiting
+        persistence.revoke_invite_key(KEY_A)
+
+        self._left_once(seed, room, ada_sid, bea, player)
+        _stream_ends_inside_the_flood(ada)
+        bea.close()
+
+
+class TestShippedInterval:
+    """tests/conftest.py sets the sweep interval to an hour for every test,
+    so a change to the shipped constant would otherwise go unnoticed. It
+    is read from the source."""
+
+    @staticmethod
+    def _shipped(module, name):
+        for node in ast.parse(inspect.getsource(module)).body:
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and getattr(node.targets[0], "id", None) == name):
+                return ast.literal_eval(node.value)
+        raise AssertionError(f"{module.__name__}.{name} is not a literal")
+
+    def test_the_interval_is_short_and_is_the_one_the_owner_is_told(
+            self, capsys):
+        interval = self._shipped(guard, "WS_SWEEP_INTERVAL_SEC")
+        assert 0 < interval <= 10  # well inside checklist G5's 1 minute
+        persistence.mint_invite_key(KEY_A, "Ada")
+        main.main(["sanction", "ban", "Ada", "--reason", "threats"])
+        note = capsys.readouterr().out.splitlines()[1]
+        stops, closes = re.search(
+            r"within about (\d+) seconds and close within about (\d+)",
+            note).groups()
+        assert int(stops) == interval
+        assert int(closes) == interval + websocket._CLOSE_GRACE_SEC

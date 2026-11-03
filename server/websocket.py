@@ -33,6 +33,17 @@ from server.rooms import (
 
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
+# How long a closing session waits to write its close frame (or the echo of
+# the client's): first for the send lock, which a writer blocked in
+# ``sendall`` to a client that has stopped reading holds for up to the
+# socket's 60 s timeout, then for the frame itself, which a full receive
+# window can hold as long. Past this the session shuts the socket down
+# instead and sends no close frame; a client that reads nothing would not
+# read one either. The shutdown ends the writer's ``sendall`` at once, so
+# the departure follows. The sweep gives a refused session's reader the
+# same grace before it ends a write the reader is stuck in.
+_CLOSE_GRACE_SEC = 1.0
+
 
 class _Session:
     """One upgraded socket, shared by its reader loop and the credential sweep.
@@ -41,7 +52,9 @@ class _Session:
     reads the credential, and when it is no longer live sets ``revoked``,
     stops the writer and shuts the socket's read side, which wakes the
     reader; the reader then closes with 1008 and leaves through the normal
-    disconnect path, once.
+    disconnect path, once. A reader still stuck writing to a client that has
+    stopped reading a grace period later is released by the sweep shutting
+    the socket down (``_CredentialSweep._release_stuck``).
     """
 
     def __init__(self, player: Player, sock, ws_key: str, credentialed: bool,
@@ -54,11 +67,16 @@ class _Session:
         # Monotonic time of the last check that found this session
         # authorized: the upgrade, a frame's re-check or a sweep.
         self.last_checked = checked_at
-        # Set by the sweep, under its lock, when the credential failed.
+        # Set by the sweep, under its lock, when the credential failed, with
+        # the monotonic time it did.
         self.revoked = False
-        # Set, under the send lock, once a close frame is written or a peer's
-        # close is about to be echoed: a session sends one close frame.
+        self.revoked_at = 0.0
+        # Reader thread only. Set once this session's close frame is
+        # written or attempted, or a peer's close is about to be echoed: a
+        # session sends at most one close frame.
         self._close_sent = False
+        # Set once the socket is shut down in both directions.
+        self.shut_down = False
 
     def checked(self, at: float) -> None:
         if at > self.last_checked:
@@ -74,25 +92,67 @@ class _Session:
 
         Stops the writer first, and writes under the send lock that every
         data frame takes, so queued room traffic never follows the close
-        frame (RFC 6455 §5.5.1). The caller then leaves the loop through the
-        normal disconnect path, which removes the player and records the
-        departure once.
+        frame (RFC 6455 §5.5.1). Waits at most ``_CLOSE_GRACE_SEC`` for the
+        lock and the frame; past that the socket is shut down without one.
+        The caller then leaves the loop through the normal disconnect path,
+        which removes the player and records the departure once.
         """
         self.player.stop_writer()
-        with self.player.send_lock:
-            if self._close_sent:
-                return
-            self._close_sent = True
-            try:
-                send_close(self.sock, code)
-            except OSError:
-                pass
+        if self._close_sent:
+            return
+        self._close_sent = True
+        if not self._lock_for_close():
+            return
+        try:
+            send_close(self.sock, code)
+        except OSError:  # includes the grace running out on a full window
+            self.shut_down_socket()
+        finally:
+            self.player.send_lock.release()
 
     def peer_closing(self) -> None:
-        """``ws_recv``'s ``before_close``: the echo is this session's close."""
+        """``ws_recv``'s ``before_close``: the echo is this session's close.
+
+        Bounded as ``close`` is: the echo, which ``ws_recv`` writes next,
+        gets what is left of the grace. If the send lock stays taken the
+        socket is shut down instead, and this raises so no echo is tried;
+        the reader leaves through its disconnect path.
+        """
         self.player.stop_writer()
-        with self.player.send_lock:
-            self._close_sent = True
+        self._close_sent = True
+        if not self._lock_for_close():
+            raise ConnectionAbortedError("WebSocket client is not reading")
+        # The writer is stopped: it can only take the lock to see that.
+        self.player.send_lock.release()
+
+    def _lock_for_close(self) -> bool:
+        """Take the send lock for a close frame within ``_CLOSE_GRACE_SEC``.
+
+        True with the lock held and the socket's timeout cut to the rest of
+        the grace: the reader writes nothing after its close frame, so the
+        session's idle timer is not needed again. False, with the socket
+        shut down, if the lock stayed taken.
+        """
+        deadline = time.monotonic() + _CLOSE_GRACE_SEC
+        if not self.player.send_lock.acquire(timeout=_CLOSE_GRACE_SEC):
+            self.shut_down_socket()
+            return False
+        self.sock.settimeout(max(deadline - time.monotonic(), 0.01))
+        return True
+
+    def shut_down_socket(self) -> None:
+        """End the socket in both directions, without a close frame.
+
+        Any ``sendall`` on it, the writer's or the reader's, fails at once.
+        Called only while the socket is open: by the reader before its
+        handler returns, or by the sweep under its lock while the session
+        is registered.
+        """
+        self.shut_down = True
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
 
 
 class _CredentialSweep:
@@ -104,9 +164,12 @@ class _CredentialSweep:
     shutdown), reads each socket's credential once its last successful
     check is ``guard.WS_SWEEP_INTERVAL_SEC`` old: one read per socket per
     interval at most, none while the socket's own frames keep it checked,
-    and never one per broadcast. Reads run outside every lock. A failed or
-    erroring read revokes the session (``_revoke``); nothing here blocks on
-    a socket, so one stalled client cannot delay the sweep of the others.
+    and never one per broadcast. Reads run outside every lock. A failed
+    read, or anything raised while checking one session, revokes that
+    session (``_sweep``, ``_revoke``); nothing here blocks on a socket, so
+    one stalled client cannot delay the sweep of the others. Reads run one
+    socket after another, so one slow read delays the checks queued behind
+    it.
     """
 
     def __init__(self) -> None:
@@ -140,12 +203,19 @@ class _CredentialSweep:
 
     def _run(self) -> None:
         me = threading.current_thread()
-        while True:
-            due = self._next_due(me)
-            if due is None:
-                return
-            for session in due:
-                self._check(session)
+        try:
+            while True:
+                due = self._next_due(me)
+                if due is None:
+                    return
+                for session in due:
+                    self._sweep(session)
+        finally:
+            # If this thread dies, the next socket starts another, rather
+            # than add() trusting a dead thread to sweep it.
+            with self._cond:
+                if self._thread is me:
+                    self._thread = None
 
     def _next_due(self, me: threading.Thread) -> list[_Session] | None:
         """Wait until some open socket is due. None ends this thread."""
@@ -158,26 +228,59 @@ class _CredentialSweep:
                     return None
                 interval = guard.WS_SWEEP_INTERVAL_SEC
                 now = time.monotonic()
+                wakes = self._release_stuck(now)
                 live = [s for s in self._sessions if not s.ending]
                 due = [s for s in live if now - s.last_checked >= interval]
                 if due:
                     return due
-                # Sleep until the next socket is due. With only ending
-                # sockets left, wait for their readers to discard them.
-                timeout = (min(s.last_checked for s in live) + interval - now
-                           if live else None)
-                self._cond.wait(timeout)
+                # Sleep until the next socket is due or a refused session's
+                # grace ends. With neither, wait for the readers of ending
+                # sockets to discard them.
+                wakes += [s.last_checked + interval for s in live]
+                self._cond.wait(min(wakes) - now if wakes else None)
 
-    def _check(self, session: _Session) -> None:
-        started = time.monotonic()
+    def _release_stuck(self, now: float) -> list[float]:
+        """Shut down refused sockets whose reader is stuck writing.
+
+        A refused session's reader normally sends its close frame and lets
+        go at once. If it still holds the session a grace period after the
+        refusal while the send lock is taken, it is stuck behind or in a
+        write to a client that has stopped reading: a pong, the echo of the
+        client's close, or its own close frame, queued behind the writer's
+        ``sendall`` or blocked on a full receive window. Shutting the read
+        side wakes only a read. Shutting both ends those writes, and the
+        writer's, so the reader goes on to its departure. A reader waiting
+        on anything else, with the send lock free, is looked at again a
+        grace period later. Under the sweep lock, so each socket is still
+        open. Returns when to look again.
+        """
+        wakes = []
+        for session in self._sessions:
+            if not session.revoked or session.shut_down:
+                continue
+            grace_ends = session.revoked_at + _CLOSE_GRACE_SEC
+            if now < grace_ends:
+                wakes.append(grace_ends)
+            elif session.player.send_lock.locked():
+                session.shut_down_socket()
+            else:
+                wakes.append(now + _CLOSE_GRACE_SEC)
+        return wakes
+
+    def _sweep(self, session: _Session) -> None:
+        """Check one session. Whatever escapes the check closes that session
+        (fail closed) and never ends the thread, so every other socket is
+        still swept. Logged by exception class, never with the key."""
         try:
-            authorized = guard.ws_session_authorized(
-                session.ws_key, session.credentialed)
+            self._check(session)
         except Exception as exc:  # noqa: BLE001 — fail closed, never a key
             session.logger.error("WebSocket credential sweep failed (%s); "
                                  "closing the session", type(exc).__name__)
-            authorized = False
-        if authorized:
+            self._revoke(session)
+
+    def _check(self, session: _Session) -> None:
+        started = time.monotonic()
+        if guard.ws_session_authorized(session.ws_key, session.credentialed):
             session.checked(started)
         else:
             self._revoke(session)
@@ -193,6 +296,7 @@ class _CredentialSweep:
             if session not in self._sessions or session.revoked:
                 return
             session.revoked = True
+            session.revoked_at = time.monotonic()
             session.player.stop_writer()
             try:
                 session.sock.shutdown(socket.SHUT_RD)
