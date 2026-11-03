@@ -51,9 +51,12 @@ def _ws_connect(port: int, seed: int, name: str, invite_key: str | None = None):
         "Upgrade: websocket\r\nConnection: Upgrade\r\n"
         f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
     ).encode())
+    # One byte at a time: the server's first frame (the welcome) can arrive
+    # in the same read as the 101 headers, and a larger read would swallow
+    # it, so a caller waiting for the welcome timed out after a good upgrade.
     head = b""
-    while b"\r\n\r\n" not in head:
-        chunk = s.recv(4096)
+    while not head.endswith(b"\r\n\r\n"):
+        chunk = s.recv(1)
         if not chunk:
             break
         head += chunk
@@ -111,6 +114,34 @@ class TestPresenceLifecycle:
         _wait_for_rows(seed, target.name, "PLAYER_MOVE")
         counts = persistence.count_mutations_by_node(seed)
         assert counts.get(target.name, 0) >= 1
+        s.close()
+
+    def test_the_helper_leaves_the_welcome_for_the_caller(self, srv, monkeypatch):
+        # The client reads the 101 only after the welcome has arrived too,
+        # so both sit in one receive buffer. _ws_connect used to swallow
+        # the welcome with the headers, and a caller then timed out waiting
+        # for it after a good upgrade (seen in full-suite runs).
+        from tests.test_moderation import _read_ws_json_until
+        real = socket.create_connection
+
+        class LateReader:
+            def __init__(self, sock):
+                self._sock, self._late = sock, True
+
+            def recv(self, n):
+                if self._late:
+                    self._late = False
+                    time.sleep(0.5)
+                return self._sock.recv(n)
+
+            def __getattr__(self, name):
+                return getattr(self._sock, name)
+
+        monkeypatch.setattr(socket, "create_connection",
+                            lambda *a, **k: LateReader(real(*a, **k)))
+        s, status = _ws_connect(srv, 253, "Cal")
+        assert b"101" in status
+        assert _read_ws_json_until(s, "welcome")["type"] == "welcome"
         s.close()
 
 
