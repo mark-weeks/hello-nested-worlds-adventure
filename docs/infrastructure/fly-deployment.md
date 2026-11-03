@@ -496,7 +496,10 @@ stays in force. Deleting the row instead would end the sanction.
    interactive `fly ssh console` shell, with that id in place of `3`. It
    tombstones the sanction's reason and its lift's reason, if any. `VACUUM`
    rewrites the file so no free page keeps the old text, and the checkpoint
-   empties the write-ahead log.
+   empties the write-ahead log. The checkpoint cannot finish while another
+   connection is still open, and the old text then stays in the database
+   file. The snippet prints `busy` in that case: stop whatever still has the
+   database open and run the snippet again.
 
    ```bash
    cd /app && python - <<'EOF'
@@ -506,8 +509,9 @@ stays in force. Deleting the row instead would end the sanction.
        db.execute("UPDATE sanctions SET reason = '[erased]' WHERE id = ?", (3,))
        db.execute("UPDATE sanction_lifts SET reason = '[erased]' WHERE sanction_id = ?", (3,))
    db.execute("VACUUM")
-   db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+   busy = db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
    db.close()
+   print("busy: another connection is open; the old text is still on disk" if busy else "erased")
    EOF
    ```
 
@@ -517,8 +521,9 @@ stays in force. Deleting the row instead would end the sanction.
    deletion"): dispatch `backup.yml`, confirm `backup_health.py` reports a
    snapshot taken after the erasure, then `scripts/backup_store.py
    delete-before` with `--after` set to when the reason was written (the
-   sanction's `created_at`, or the lift's `lifted_at`, as a UTC stamp such
-   as `20261001T000000Z`) and `--before` set to the last snapshot that can
+   sanction's `created_at` when its reason must go; the lift's `lifted_at`
+   only when the lift's reason alone must go), as a UTC stamp such
+   as `20261001T000000Z`, and `--before` set to the last snapshot that can
    still hold it, dry run first. Delete the
    machine-local `/data/backups/*.db` copies and any downloaded
    `./worlds-backup.db` made since then. Fly's volume snapshots also hold it
