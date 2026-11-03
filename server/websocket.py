@@ -376,10 +376,13 @@ def handle_websocket(
             session.close(CLOSE_POLICY_VIOLATION)
             return False
 
+        # The sweep this session joins is the one it leaves, even if the
+        # module's sweep is replaced meanwhile (tests install their own).
+        sweep = _SWEEP
         try:
             # From here a socket that sends nothing is still re-checked; the
             # finally below discards it before the socket can close.
-            _SWEEP.add(session)
+            sweep.add(session)
             while True:
                 # The same throttled check also vets the frame that opens a
                 # fragmented message and every frame inside it, which
@@ -517,14 +520,17 @@ def handle_websocket(
                     player.send({"type": "pong"})
         except ProtocolError:
             # Writer first (_Session.close): no queued data frame may follow
-            # the close frame.
-            session.close(CLOSE_PROTOCOL_ERROR)
+            # the close frame. A session the sweep already ended closes with
+            # 1008 whatever bytes the client had queued behind its last
+            # check: its credential, not its framing, ended it.
+            session.close(CLOSE_POLICY_VIOLATION if session.revoked
+                          else CLOSE_PROTOCOL_ERROR)
         except (OSError, ConnectionResetError, BrokenPipeError):
             # Includes the end of input after the credential sweep shut the
             # read side; the close frame for that is sent below.
             pass
         finally:
-            _SWEEP.discard(session)
+            sweep.discard(session)
             if session.revoked:
                 # The sweep revoked this session while the reader waited.
                 # A no-op if a close frame was already sent.

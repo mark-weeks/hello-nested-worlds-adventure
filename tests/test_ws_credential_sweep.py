@@ -19,6 +19,7 @@ import time
 import pytest
 
 import persistence
+from multiverse import store
 from persistence import sanctions
 from persistence.participants import rotate
 from server import guard, protocol, websocket
@@ -74,6 +75,20 @@ class _RevokeBeforeDiscard(websocket._CredentialSweep):
                 time.sleep(0.005)
             self.held = session.revoked
         super().discard(session)
+
+
+class _RecordingSweep(websocket._CredentialSweep):
+    """Signals each time the sweep has finished acting on a refusal."""
+
+    def __init__(self):
+        super().__init__()
+        self.revoke_returned = threading.Event()
+
+    def _revoke(self, session):
+        try:
+            super()._revoke(session)
+        finally:
+            self.revoke_returned.set()
 
 
 @pytest.fixture()
@@ -154,6 +169,27 @@ def _lookups(monkeypatch):
 
     monkeypatch.setattr(persistence, "lookup_invite_key", counting)
     return calls
+
+
+def _session_of(sweep, sid, timeout=CLOSE_WITHIN):
+    """The sweep's session for the socket `sid`, once the sweep watches it."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with sweep._cond:
+            for session in sweep._sessions:
+                if session.player.session_id == sid:
+                    return session
+        time.sleep(0.01)
+    raise AssertionError(f"the sweep never watched {sid}")
+
+
+def _until(condition, what, timeout=CLOSE_WITHIN):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if condition():
+            return
+        time.sleep(0.005)
+    raise AssertionError(f"{what} never happened within {timeout}s")
 
 
 class TestListenOnlySocketIsClosed:
@@ -437,6 +473,122 @@ class TestOneCloseOneLeave:
         bea.close()
 
 
+class TestSweepVerdictEndsTheSession:
+    """Once the sweep refuses a session, the session is over, whatever the
+    reader does next, and the sweep touches nothing once the reader has let
+    go of the session."""
+
+    @pytest.mark.parametrize("queued", ["move", "malformed"])
+    def test_frames_queued_behind_a_failed_check_are_not_acted_on(
+            self, srv, sweep, monkeypatch, queued):
+        # The sweep's read fails (fail closed) while the reader's own reads
+        # still pass, and the client has a frame queued behind one the
+        # reader is still checking. A queued move is neither written nor
+        # broadcast, and a queued malformed frame does not turn the policy
+        # close into a protocol error (1002).
+        seed = 2814 if queued == "move" else 2815
+        ada, ada_sid, bea = _two_players(srv, seed)
+        session = _session_of(sweep, ada_sid)
+        reader_held, release_reader = threading.Event(), threading.Event()
+        sweep_fails = threading.Event()
+        real = persistence.lookup_invite_key
+
+        def lookup(key):
+            if key == KEY_A:
+                if threading.current_thread().name == SWEEP_THREAD:
+                    if sweep_fails.is_set():
+                        raise persistence.sqlite3.OperationalError("disk I/O error")
+                elif not release_reader.is_set():
+                    reader_held.set()
+                    assert release_reader.wait(5.0)
+            return real(key)
+
+        monkeypatch.setattr(persistence, "lookup_invite_key", lookup)
+        _ws_send_json(ada, {"type": "ping"})
+        assert reader_held.wait(CLOSE_WITHIN), "the reader never checked the ping"
+        if queued == "move":
+            _ws_send_json(ada, {"type": "move", "node": store.root_name(seed)})
+        else:
+            ada.sendall(bytes([0x81, 0x02]) + b"{}")  # unmasked: a protocol error
+        sweep_fails.set()
+        _until(lambda: session.revoked, "the sweep's refusal")
+        release_reader.set()
+
+        code, heard = _closed_once(_frames_until_eof(ada))
+        assert code == protocol.CLOSE_POLICY_VIOLATION
+        assert not [m for m in heard if m.get("type") == "pong"]
+        leave, before = _until_type(bea, "player_leave")
+        assert leave["session_id"] == ada_sid
+        assert not [m for m in before if m.get("type") == "player_move"]
+        assert _rows(seed, "PLAYER_MOVE", "Ada") == []
+        assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
+        bea.close()
+
+    def test_a_refusal_after_the_reader_let_go_touches_nothing(
+            self, srv, install_sweep, monkeypatch, caplog):
+        # The sweep is reading when the client closes, and its refusal lands
+        # after the reader has left. The sweep does not act on a session its
+        # reader let go of: no shutdown of a socket that may be closed and
+        # its descriptor reused, and no second account of the departure.
+        caplog.set_level(logging.INFO)
+        sweep = install_sweep(_RecordingSweep())
+        seed = 2816
+        ada, ada_sid, bea = _two_players(srv, seed)
+        session = _session_of(sweep, ada_sid)
+        reading, refuse = threading.Event(), threading.Event()
+        real = guard.ws_session_authorized
+
+        def held_then_refused(ws_key, credentialed):
+            if ws_key != KEY_A or threading.current_thread().name != SWEEP_THREAD:
+                return real(ws_key, credentialed)
+            reading.set()
+            assert refuse.wait(5.0)
+            return False
+
+        monkeypatch.setattr(guard, "ws_session_authorized", held_then_refused)
+        assert reading.wait(CLOSE_WITHIN), "the sweep never read Ada's key"
+        ada.sendall(_client_frame(struct.pack(">H", 1000), opcode=0x8))
+        assert _closed_once(_frames_until_eof(ada))[0] == 1000  # Ada's echo
+        _until(lambda: session not in sweep._sessions, "the reader letting go")
+        refuse.set()
+        assert sweep.revoke_returned.wait(CLOSE_WITHIN)
+
+        assert session.revoked is False
+        assert not [r for r in caplog.records
+                    if r.threadName == SWEEP_THREAD and ada_sid in r.getMessage()]
+        assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
+        bea.close()
+
+    def test_an_error_escaping_the_check_closes_and_the_sweep_goes_on(
+            self, srv, sweep, monkeypatch, caplog):
+        # guard.ws_session_authorized catches its own read errors today; the
+        # sweep does not depend on that. Anything its check raises ends that
+        # session, is logged by exception class and never with the key, and
+        # leaves the same thread sweeping every other socket.
+        caplog.set_level(logging.INFO)
+        seed = 2817
+        ada, _, bea = _two_players(srv, seed)
+        thread = _watching(sweep, 2)
+        real = guard.ws_session_authorized
+
+        def raising(ws_key, credentialed):
+            if ws_key == KEY_A and threading.current_thread().name == SWEEP_THREAD:
+                raise RuntimeError(f"no answer for {ws_key}")
+            return real(ws_key, credentialed)
+
+        monkeypatch.setattr(guard, "ws_session_authorized", raising)
+        assert _closed_once(_frames_until_eof(ada))[0] == 1008
+        assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
+        logged = "\n".join(f"{r.getMessage()} {r.args!r}" for r in caplog.records)
+        assert "RuntimeError" in logged
+        assert KEY_A not in logged and guard.credential_identity(KEY_A) not in logged
+
+        time.sleep(INTERVAL * 3)  # Bea's live key passes several sweeps
+        assert thread.is_alive() and sweep._thread is thread
+        persistence.revoke_invite_key(KEY_B)
+        assert _closed_once(_frames_until_eof(bea))[0] == 1008
+
+
 class TestSweepThread:
     @staticmethod
     def _peer_close(sock):
@@ -467,6 +619,20 @@ class TestSweepThread:
         assert restarted is not None and restarted is not thread
         persistence.revoke_invite_key(KEY_A)
         assert _closed_once(_frames_until_eof(again))[0] == 1008
+
+    def test_a_socket_leaves_the_sweep_it_joined(self, srv, install_sweep):
+        # Tests replace the module's sweep between sockets. A socket still
+        # leaves the sweep that watches it, so no sweep keeps a session, or
+        # a thread, for a socket that has gone.
+        first = install_sweep()
+        persistence.mint_invite_key(KEY_A, "Ada")
+        ada, _ = _join(srv, 2843, "x", KEY_A)
+        thread = _watching(first, 1)
+        install_sweep()  # another sweep takes the module's place
+        self._peer_close(ada)
+        thread.join(CLOSE_WITHIN)
+        assert not thread.is_alive()
+        assert first._sessions == set() and first._thread is None
 
     def test_server_shutdown_stops_the_sweep(self, srv, sweep, monkeypatch):
         import server
