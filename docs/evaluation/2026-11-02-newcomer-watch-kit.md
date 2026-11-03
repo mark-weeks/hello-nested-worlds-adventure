@@ -24,7 +24,9 @@ exists for that session only and is deleted on the stated date.
 ## Setup facts, verified against the code
 
 Each fact was read at `23b8830`. "Executed" means it was also run against a
-scratch database outside the repository on 2026-11-02.
+scratch database outside the repository on 2026-11-02. Updated 2026-11-03:
+the invite-gate fact and the display-name rule (step 4 below) changed when
+#137 and #139 merged, and they cite the merged code.
 
 | Fact | Evidence | What it means for the session |
 |---|---|---|
@@ -32,7 +34,7 @@ scratch database outside the repository on 2026-11-02.
 | The world database is `$HOME/.nested-worlds/worlds.db`, with no override. | `persistence/__init__.py:28` | A fresh scratch `HOME` per session is **mandatory**. Without one, the session's rows land in the facilitator's own database. The server and every CLI command for that session must use the same `HOME`. |
 | With `NESTED_WORLDS_CANONICAL_SEED` unset, the server hosts seed 382. | `server/guard.py:133-135`, `multiverse/generator.py:30`; executed | Leave the variable unset. |
 | `invite mint --name X` prints the key once and a share line of the form `<BASE>/?key=nw_…&name=X`, which lands on the explorer and never visits `/register`. | `main.py:318-328`, `main.py:354-366`; executed | Replace `<BASE>` with `http://localhost:8080`. The participant never sees `/register`'s consent line (`static/register.html:49-52`), which in any case promises permanence. Consent is verbal or written. |
-| Minting the first key closes the invite gate; revoking the only key reopens it. | `server/guard.py:290-303`; executed (a keyless request got 403 after the mint and 200 after the revoke) | Never revoke the session key while its server runs. Stop the server instead. This stays true until the integrity PR in this batch lands. |
+| Minting the first key closes the invite gate for good. Revoking a key no longer reopens it (#137), and an open socket whose key is revoked is closed. | `server/guard.py:296-317` (`invite_gate_active`, `persistence.credentials_ever_issued`); on `23b8830` revoking the only key reopened the gate (executed 2026-11-02) | End a session by stopping the server. Revoking the key is not needed: the scratch `HOME` is deleted. |
 | Act requires a live personal invite, and derives request IDs with `crypto.subtle.digest` and `crypto.randomUUID`. The journal calls `crypto.randomUUID` when it loads. | `persistence/participants.py:33-48`, `static/intents.js:7`, `static/intents.js:32`, `static/interventions.js:86`, `static/journal.js:6` | Use `http://localhost`, which browsers treat as a secure context. A plain-http LAN address is not one, so Act commits and the journal would fail there. This is web-platform behaviour, not executed for this kit; the pre-session check below confirms it on the actual machine. |
 | `NESTED_WORLDS_DISABLE_AI=1` quiets three paths: `/speak` and `/agent/voice` answer the authored quiet line with HTTP 200 and `"ai": false` before the screen runs, and an Act intention that the local parser cannot read gets the authored "clearer shape" line instead of going to a model. It does not quiet the moderation classifier, which never reads the flag: a chat line, an incorrect puzzle guess the attempt will store, an Ideas submission or profile text saved as published that the local screen cannot clear still goes to the provider whenever one is configured, and a credential in the environment is enough. It does not stop images either. | `server/handlers.py:1158-1160`, `server/handlers.py:1405-1408`, `server/intervention_api.py:141-144`, `server/intervention_api.py:34-35`, `server/moderation.py:160-229`, `server/websocket.py:227-228`, `server/handlers.py:1915-1918`, `server/ideas_api.py:80`, `server/participant_api.py:33-37`, `server/handlers.py:1301-1302`, `server/handlers.py:1332-1336`; executed for `/speak`, and on 2026-11-03 for a held chat line | The no-model option stays in fiction, but only an environment with no configured provider keeps player text on the machine. Session setup unsets the credentials and the image key, and the pre-session check proves it. |
 | Chat lines the local screen clears are shared. A line it cannot clear needs the classifier and is held, in fiction, if the classifier cannot run. | `server/moderation.py:177-199`, `server/moderation.py:208-229` | With no working classifier, expect some ordinary chat lines to be held with the authored hold line. Record a held line as an observation, not a fault. |
@@ -86,8 +88,8 @@ scratch database outside the repository on 2026-11-02.
 4. **Display names.** The facilitator assigns each participant a neutral world
    name: not their real name, not their P-code, not one of the twelve cast
    names (`consciousness/__init__.py:309-313`), and not Observer or Scout,
-   the names the agent endpoints default to (`server/handlers.py:1042`,
-   `server/handlers.py:1591`; packet decision 7). The map from display name to
+   the server-owned agent walkers (`agents/identities.py`), which minting
+   refuses since #139 (packet decision 7). The map from display name to
    P-code is kept only in the restricted record, outside the repository and
    outside the world database (`docs/evaluation/2026-09-12-pilot-protocol.md:57-60`).
 5. **Consent.** Verbal or written, as the research basics specify, because a
@@ -355,7 +357,7 @@ private journal text or identifying details in it.
    `ok`. With secure delete off, a deleted row's text stayed in the file
    until `VACUUM` removed it.
 3. Stop the server you launched: `kill "$SERVER_PID"`, then confirm that
-   `kill -0 "$SERVER_PID"` now fails. Do not revoke the key first.
+   `kill -0 "$SERVER_PID"` now fails. Revoking the key is not needed.
 4. Delete the scratch `HOME` once the archive is confirmed, and close the
    private window or discard the browser profile.
 5. Keep the archive only until the deletion date in the research record, then

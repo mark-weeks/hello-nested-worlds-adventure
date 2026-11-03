@@ -1,7 +1,9 @@
 # Enfolded Beta Launch Checklist
 
 *Living checklist carried by the [roadmap index](README.md). Statuses below
-are as of 2026-11-02, `main` at `23b8830`. Thresholds marked as proposals are
+are as of 2026-11-02, `main` at `23b8830`, updated 2026-11-03 for the merged
+integrity (#137), suspension (#138) and agent-identity (#139) PRs in rows S1,
+E4, G5, C7, G9 and P6; line numbers in other rows cite `23b8830`. Thresholds marked as proposals are
 not decided. Decisions held for the owner are listed in this page and are not
 made by recording it. It ratifies no ADR and authorizes no deployment. The
 [Q4 plan](next-steps-2026-q4.md) governs order; this checklist governs exit
@@ -36,12 +38,12 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 
 ## At a glance
 
-95 items in 16 categories. 54 block beta, and 48 of them are still open.
+95 items in 16 categories. 54 block beta, and 45 of them are still open.
 
 | Status | Count |
 |---|---|
-| Done | 7 |
-| Partial | 41 |
+| Done | 10 |
+| Partial | 38 |
 | Not started | 44 |
 | Unknown | 3 |
 
@@ -54,8 +56,8 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Retention and return | 5 | 0 | 3 | 1 | 1 |
 | Content depth and variety | 5 | 2 | 2 | 1 | 0 |
 | AI players and agent policy | 4 | 0 | 3 | 1 | 0 |
-| Safety and moderation | 5 | 0 | 3 | 2 | 0 |
-| Economy, budgets and cost | 5 | 0 | 2 | 3 | 0 |
+| Safety and moderation | 5 | 1 | 2 | 2 | 0 |
+| Economy, budgets and cost | 5 | 1 | 1 | 3 | 0 |
 | Performance and reliability | 7 | 0 | 3 | 3 | 1 |
 | Observability and feedback | 5 | 1 | 3 | 1 | 0 |
 | Model agnosticism | 6 | 1 | 2 | 3 | 0 |
@@ -63,7 +65,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Legal and policy | 5 | 1 | 1 | 2 | 1 |
 | Deployment and ops | 6 | 0 | 2 | 4 | 0 |
 | Community and beta cohort | 4 | 0 | 1 | 3 | 0 |
-| Community governance and self-policing | 12 | 0 | 2 | 10 | 0 |
+| Community governance and self-policing | 12 | 1 | 1 | 10 | 0 |
 | Distinctiveness: why players return | 7 | 0 | 3 | 4 | 0 |
 
 > **Biggest gaps:** The core loop is built and tested locally, but no one except Mark has played it. Blocking, reporting, alignment and tangible rewards don't exist yet, puzzle fun is unmeasured, and every hosted gate (Fly, backups, live models) waits on Mark's account and decisions.
@@ -82,7 +84,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | C4 | Players experience other players' and agents' effects | A returning player's recap shows at least one change made by someone else. Player B's act is visible to player A live and after a reload. Permanent history does not have to label the actor human or agent; that labeling is an open decision, not a requirement. | Partial | (Code) Append-only chronicle, `participants.recap()`, Wayback, ripple propagation in `causality/`, heartbeat agents acting in `server/heartbeat.py`, and delayed v3 attempts. Implemented locally. No human has observed it yet. The chronicle covenant (AGENTS.md) leaves a stored trace unlabeled. | **Blocks beta** |
 | C5 | Actions dynamically adjust alignment scores | Every committed act maps to one or more documented axes. The player sees the change and the reason in the same session. The mapping is pinned by tests. | Not started | (Code) No alignment code: 'alignment' appears only as an orbital property in `interventions_v3.py`. ADR-014 proposes independent disposition meters, explicitly not an alignment axis, and ADR-017 rules out ranking by alignment extremity. | Can follow · Mark decides |
 | C6 | Players communicate, collaborate and compete | Two testers can find each other, chat, and co-solve a puzzle with shared credit. Competition (standings, ADR-017) follows the first cohort; Mark decides. | Partial | (Code) WebSocket `chat` in `server/websocket.py` is moderated, rate-limited, 256 chars, broadcast world-wide and persisted as PLAYER_CHAT. Puzzle co-op is pooled. The retired scripted situation is not beta onboarding, and its opposing choices are not this gate. No direct messages, groups or competitive standings. | **Blocks beta** |
-| C7 | Players can disengage from or block other players | A player can mute or block someone from chat or presence. The block persists per participant, hides that player's chat and presence, and is covered by tests. A report goes to an operator queue. | Not started | (Code) No block, mute or report in `server/` or `frontend/src/components/TextPanel.jsx`. Chat reaches every connected player in the world, the sender included (`server/websocket.py:236-244`). `GET /players` returns every live player's position to any invited requester, and no client calls it (`server/handlers.py:907-912`); its removal is pending the integrity PR. The Chronicle shows every move as 'X passed into Y' (`static/clientlogic.js:255`), so a block can hide live presence but not location; hiding Chronicle moves is an owner question. | **Blocks beta** |
+| C7 | Players can disengage from or block other players | A player can mute or block someone from chat or presence. The block persists per participant, hides that player's chat and presence, and is covered by tests. A report goes to an operator queue. | Not started | (Code) No block, mute or report in `server/` or `frontend/src/components/TextPanel.jsx`. Chat reaches every connected player in the world, the sender included (`server/websocket.py:236-244`). `GET /players`, which returned every live player's position to any invited requester and which no client called, was removed by #137. The Chronicle shows every move as 'X passed into Y' (`static/clientlogic.js:255`), so a block can hide live presence but not location; hiding Chronicle moves is an owner question. | **Blocks beta** |
 
 **On puzzles:** world-reading means the answer comes from the node itself, from its own properties and its place in the hierarchy, not from a generic anagram, cipher or number pattern (the decode family). The seven world-reading families in `WORLD_READING_FAMILIES` (`puzzles/quality.py`) are sealed_lock, lineage, bond, enfold, keeper_witness, ancestral_compass and causal_augury. The D2 gate proves puzzles are tied to nodes, not that they are deep or fun, so C2c measures that with players.
 
@@ -128,7 +130,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 
 | ID | Item | Exit criterion | Status | Evidence | Gate |
 |---|---|---|---|---|---|
-| S1 | Shared text fails closed | When moderation errors or is out of budget, no other player sees the text. | Partial | (Code) ADR-004 amendment (2026-10-25), `server/moderation.py`, `tests/test_shared_text_fail_closed.py`. Not met on the agent-name path: `/agent?name=` (uncapped, `server/handlers.py:1042`), `/observe?name=` (`server/handlers.py:1591`) and the `agent_name` that `/agent/voice` stores (`server/handlers.py:1409`, `server/handlers.py:1447-1451`) never reach moderation, other players see them, and `agent` is not a redactable field (`persistence/__init__.py:833`). Pending the server-owned agent identities PR. | **Blocks beta** |
+| S1 | Shared text fails closed | When moderation errors or is out of budget, no other player sees the text. | Done | (Code) ADR-004 amendment (2026-10-25), `server/moderation.py`, `tests/test_shared_text_fail_closed.py`. The agent-name path that bypassed it on `23b8830` (`/agent?name=`, `/observe?name=` and the `agent_name` that `/agent/voice` stored, none screened and `agent` not a redactable field) is closed by #139: an agent acts or speaks only under a server-owned name from `agents/identities.py`, `/agent` and `/observe` ignore `?name=`, and `/agent/voice` answers any other name with the quiet line before the screen, any charge or any row (`tests/test_agent_identities.py`). | **Blocks beta** |
 | S2 | Destinations that may receive player text | A written allowlist of the providers that can receive player text, enforced in config. | Not started | (Docs) Held for Mark. It gates any second provider. | **Blocks beta** · Mark decides |
 | S3 | Report and abuse handling | A report reaches an operator within 24 h, and redaction is rehearsed on staging. | Partial | (Code) `main.py redact` (ADR-004 redaction). Break-glass delete is a documented manual procedure, not an application command. No player report flow. | **Blocks beta** |
 | S4 | Minors and age policy | A minimum age is stated in the invite and terms. | Not started | (Docs) No age policy found in ADRs, runbook or README. | **Blocks beta** |
@@ -141,7 +143,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | E1 | Daily call caps, global and per user | Caps are sized to cohort × exchanges × cost and enforced. | Partial | (Code) `server/guard.py` enforces text 500 per day and 150 per user, fal 200 and 60, moderation 2,000 and 60, per-user `moderation_actions` 600 and `model_actions` 200, and a rate limit of 20 per minute. Sizing those caps to the cohort is not done (Q4 plan step P9; it waits on E2). | **Blocks beta** |
 | E2 | Dollar spend ceiling | A hard dollar ceiling, with the amount and the period set by Mark, that degrades in fiction when reached. | Not started | (Docs) D8 recommends dollars per day and is not decided. The ceiling is held for Mark. | **Blocks beta** · Mark decides |
 | E3 | Budget-bucket rename | If Mark decides to rename the buckets, the new names are neutral and the old `NESTED_WORLDS_ANTHROPIC_*` names are still accepted. | Not started | (Code) The `anthropic` bucket is unchanged in `guard.py`. Held. | Can follow · Mark decides |
-| E4 | Abuse resistance | One key cannot exhaust the global budget, and the invite gate closes after the first key. | Partial | (Code) Per-user caps, the invite gate (`guard.py`), `NESTED_WORLDS_DISABLE_AI` and `DISABLE_IMAGES` kill switches. The gate fails open: it is active only while a live key exists, and a database error counts as no keys (`server/guard.py:290-303`, `server/guard.py:337`), so revoking the last live key reopens the world to keyless play (`tests/test_guard.py:131-139`; executed on a scratch database 2026-11-02). Pending the integrity PR. | **Blocks beta** |
+| E4 | Abuse resistance | One key cannot exhaust the global budget, and the invite gate closes after the first key. | Done | (Code) Per-user caps, the invite gate (`guard.py`), `NESTED_WORLDS_DISABLE_AI` and `DISABLE_IMAGES` kill switches. The gate failed open on `23b8830`: revoking the last live key reopened it, a failed gate read opened it, and registration invites alone never closed it. #137 fixes this: the gate latches closed once any key or registration invite is issued, and a failed read keeps it closed (`tests/test_guard.py`, `tests/test_ws_credential_lifetime.py`). | **Blocks beta** |
 | E5 | Player token budget as a game resource | Rewards cannot raise anyone's real spend above the ceiling. | Not started | (Inference) No player-facing budget exists. It couples game rewards to real cost. | Can follow |
 
 ## Performance and reliability
@@ -153,7 +155,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | P3 | Hosted backups | `backup_health.py` exits 0 on a real validated private-bucket object. | Not started | (Docs) Since #136, backups are private-bucket objects, not GitHub artifacts (`scripts/backup_health.py`). The check exits 2 until the bucket and key are configured, then reports missing until the first validated object is stored. Needs Fly credentials and decision I. | **Blocks beta** |
 | P4 | Hosted restore rehearsal | A downloaded backup object is restored into staging, with checksum and timing recorded. | Not started | (Code) Local cold restore passes (`tests/test_beta_rehearsal.py`). | **Blocks beta** |
 | P5 | Freshness alerting | A stale or missing private-bucket object triggers a notification. | Partial | (Code) `scripts/backup_health.py` reads the private bucket (#136), and the workflow exists. The scheduler and notification destination are not configured. | **Blocks beta** |
-| P6 | Additive migrations | Every migration is additive, and the schema version is pinned. | Partial | (Code) `persistence/migrations` 0001 to 0028 are additive. The schema version is not pinned: `_run_migrations` applies missing migrations and never compares the highest applied version with the highest this binary knows (`persistence/__init__.py:225-252`), so an older binary runs silently against a newer database. | **Blocks beta** |
+| P6 | Additive migrations | Every migration is additive, and the schema version is pinned. | Partial | (Code) `persistence/migrations` 0001 to 0029 are additive (0029, the sanction tables, landed with #138). The schema version is not pinned: `_run_migrations` applies missing migrations and never compares the highest applied version with the highest this binary knows (`persistence/__init__.py:225-252`), so an older binary runs silently against a newer database. | **Blocks beta** |
 | P7 | SQLite single-writer limits known | Measured writer ceiling recorded, with headroom 5x over the cohort. | Unknown | (Docs) Litestream replication (roadmap 4.1) is post-launch. | Can follow |
 
 ## Observability and feedback
@@ -194,7 +196,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 |---|---|---|---|---|---|
 | L1 | Open-source license and notices | License, NOTICE and third-party notices ship in the build. | Done | (Code) Apache-2.0 `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.txt`, ADR-023. | **Blocks beta** |
 | L2 | Terms of use and content policy | Linked from the invite and register page, and accepted at registration. | Not started | (Code) No terms page in `static/`. | **Blocks beta** |
-| L3 | Player-facing privacy notice | States what is kept forever, what can be redacted, and the retention date. | Partial | (Docs) ADR-004 data policy and protocol consent exist. No player-facing page found. | **Blocks beta** |
+| L3 | Player-facing privacy notice | States what is kept forever, what can be redacted, and the retention date. | Partial | (Docs) ADR-004 data policy and protocol consent exist. No player-facing page found. The notice must also name sanction records: suspensions and bans with their private reasons are kept in every backup and are not redactable ([fly-deployment.md §6](../infrastructure/fly-deployment.md#suspending-or-banning-a-player)). | **Blocks beta** |
 | L4 | Third-party provider terms reviewed | A data use note for each provider that receives player text or prompts. | Unknown | (Inference) Tied to S2. Not checked. | **Blocks beta** · Mark decides |
 | L5 | AI-generated content disclosure | The guide and UI say which text and art is generated. | Not started | (Code) Audited: the guide names a model only for intention reading (`static/guide.html:83`). Nothing in the guide or either client says that place and inhabitant replies or `/app` scene images are model-generated, and neither client reads the `ai` flag. | Can follow |
 
@@ -226,11 +228,11 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | G2 | Report with a reason and optional evidence | Any player can report another with one reason category from a fixed list and optional evidence (chat lines or chronicle entries). The report is stored per reporter and confirmed to them, and it is never shown to the reported player as coming from a named person. | Not started | (Code) No report flow exists. Chat is stored as PLAYER_CHAT, which could serve as evidence. | **Blocks beta** |
 | G3 | Corroboration before any consequence | A case opens only after reports from N distinct established players. A test proves one report alone never triggers a consequence. | Not started | (Inference) Proposed design. N and the meaning of established are Mark's. | Can follow · Mark decides |
 | G4 | Graduated consequences | The ladder is written and enforced in code with tests: personal mute (instant), then a temporary suspension, then a permanent ban only after a recorded review. | Not started | (Inference) Proposed design. Who can suspend or ban is Mark's. | Can follow · Mark decides |
-| G5 | Owner can suspend or ban (sole reviewer early in beta) | Mark can suspend a player for a set time or ban them, effective within 1 min, recorded with a reason, and reversible. | Partial | (Code) `python main.py invite revoke` calls `persistence.revoke_invite_key`, and lookup skips a key with `revoked_at` set, so a revoked key stops authorizing new requests. A timed suspension, a recorded reason and reversal are missing. Checked by reading (not executed): an already-open WebSocket does not close. The credential is read once at the upgrade and the message loop never re-checks it (`server/websocket.py:53-54`, `server/websocket.py:144-254`), so a revoked player keeps chatting and moving while the client pings (20 s keepalive, `static/clientlogic.js:324`; 60 s idle timer, `server/websocket.py:91`). Revocation cannot be undone and burns the name: minting refuses any name held by any row, revoked rows included (`persistence/__init__.py:2407-2412`, migration 0011), and `rotate` needs a live key (`persistence/participants.py:63-76`). Pending the integrity PR (open sockets) and the suspension PR (reversible sanctions). | **Blocks beta** |
+| G5 | Owner can suspend or ban (sole reviewer early in beta) | Mark can suspend a player for a set time or ban them, effective within 1 min, recorded with a reason, and reversible. | Done | (Code) `python main.py sanction suspend <name> --hours N` (or `--days N`), `sanction ban`, `sanction lift <id>` and `sanction list [--all]` (`persistence/sanctions.py`, migration 0029). Every action needs a reason, one line with a visible character, and CHECK constraints refuse an empty one. Rows are insert-only. A sanction is keyed to the participant. While it is active, `lookup_invite_key` and `participants.identify` refuse every credential of that player with the revoked-key 403 and no reason. An open WebSocket is checked only on a complete frame: it closes with status 1008 at its next move or chat that its rate limit admits, or at its next other frame once 2 s have passed since its last check (a browser client pings every 20 s). A frame must finish arriving within 10 s of its first byte (status 1002 otherwise), and a socket that sends nothing keeps receiving room broadcasts until the 60 s idle timeout, so a hostile client can stay subscribed for up to about 72 s. After expiry or a lift the same key returns to the same participant, journal intact. The invite gate never reopens (`tests/test_sanctions.py`). `invite revoke` stays the permanent, name-burning action. Telling the player and any appeal are G8. (Docs) Sign-off recorded in the [ADR-004](../decisions/ADR-004-day-one-data-policy.md) 2026-11-03 sanction-records amendment, directed by the owner on 2026-11-03, who instructed the merge of #138 and delegated its open choices ([ADR-034](../decisions/ADR-034-provider-and-model-optionality.md) Decision 5): reasons stay in every backup for the backup retention period, an erasure request uses the break-glass procedure in runbook §6, suspensions stay capped at 365 days, and other players read a sanctioned player's published profile as unavailable, as a revoked player's (`participants.profile`). Revocation bound: HTTP is refused at once, and an admitted move or chat closes a sanctioned socket at once; otherwise a browser client is closed within about 20 s, and a hostile client that only listens within about 72 s, which is over the 1 min criterion. A follow-up is to add a server-side re-check. | **Blocks beta** |
 | G6 | Rotating random jury | Jurors are drawn at random from the trusted pool for each case, see only the evidence, and vote independently. There is no open vote by all players. | Not started | (Inference) Proposed design. Open voting is easy to brigade. Jury size is Mark's. | Can follow · Mark decides |
 | G7 | Trust standing for jurors and reporters | Standing is computed from account age, fair-play record and past reports that were upheld, and it is pinned by tests. | Not started | (Inference) No standing or reputation data exists. Thresholds are Mark's. | Can follow · Mark decides |
 | G8 | Notice and appeal | The accused is told what was decided and why, and can appeal once to a different reviewer within a set window. | Not started | (Inference) Proposed design. Appeal rules are Mark's. | Can follow · Mark decides |
-| G9 | Anti-brigading limits | Report weight is capped per reporter per day and per target. False or coordinated reports lower the reporter's standing. Tests cover a coordinated burst. | Not started | (Inference) Proposed design. Chat and move rate limits are per connection, not per user: each socket gets its own buckets (`server/websocket.py:141-142`; chat 0.5/s, burst 5, `server/guard.py:638`), and one IP may hold 8 sockets (`server/guard.py:543`). The only per-person ceiling is 600 moderation actions a day across shared-text surfaces (`server/guard.py:97`). Per-credential buckets are pending the integrity PR. | Can follow |
+| G9 | Anti-brigading limits | Report weight is capped per reporter per day and per target. False or coordinated reports lower the reporter's standing. Tests cover a coordinated burst. | Not started | (Inference) Proposed design. Since #137, chat and move rate limits are per credential: keyed sockets share `guard.CredentialBuckets` (chat 0.5/s, burst 5), so 8 sockets on one key (the per-IP socket cap) no longer get 8 times the chat rate; keyless sockets keep per-socket buckets. The only per-person ceiling is 600 moderation actions a day across shared-text surfaces (`server/guard.py:97`). | Can follow |
 | G10 | Consistent rules for humans and AI agents | New accounts and AI agents cannot serve on juries. Human and AI-agent players can be reported and face the same ladder. | Not started | (Docs) Agents are labeled personas (`agents/roster.py`). ADR-032's `participants.kind` column doesn't exist yet. How agents are treated is Mark's. | Can follow · Mark decides |
 | G11 | Hard-rule violations skip the jury | Reports of illegal content, threats or doxxing go straight to central moderation and reach an operator within 24 h, with redaction available. | Partial | (Code) Moderation fails closed (`server/moderation.py`) and `main.py redact` exists. No report routing. | **Blocks beta** |
 | G12 | Action log and owner override | Every report, vote, consequence and appeal is logged append-only, and Mark can overturn any outcome with a recorded reason. | Not started | (Code) The append-only `world_mutations` pattern exists. No governance records. | Can follow |
@@ -263,16 +265,17 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 | Community governance: jury size, report thresholds, who can suspend or ban, appeal rules, AI-agent treatment | Held | G3, G4, G6 to G8, G10 |
 | Whether permanent history labels a player human or agent | Held | C4, A1 |
 | Off-host backup destination, vendor and retention (Q4 decision I). Row added from the Q4 plan's decision I (pending); not decided | Held | P3 to P5, the backup-retention line in L3 |
+| Sign-off on migration 0029: sanction reasons kept in every backup, and the erasure path (ADR-034 Decision 5) | Decided 2026-11-03 (owner-directed merge of #138) | G5 |
 
 ## Go/no-go gate
 
-### Blocks beta (status as of Nov 2, 2026, `main` at `23b8830`)
+### Blocks beta (status as of Nov 3, 2026, after #137, #138 and #139)
 
-- [ ] Shared text fails closed (S1); the agent-name path is unscreened, pending the server-owned agent identities PR
+- [x] Shared text fails closed (S1); the agent-name path is closed by #139
 - [x] Content variety gates pass on seed 382 (D1, D2)
 - [ ] Player-text destinations, spend ceiling and provider terms decided (Mark; S2, E2, L4)
 - [ ] Block, mute and report shipped (C7, S3, G1, G2)
-- [ ] Owner can suspend or ban; hard-rule reports reach an operator (G5, G11)
+- [ ] Owner can suspend or ban; hard-rule reports reach an operator (G5, G11); G5 is done by #138, G11 is open
 - [ ] Puzzle depth and fun measured in the pilot (C2c)
 - [ ] Terms, privacy notice and age policy published (L2, L3, S4)
 - [ ] Staging twin up; live-model probes pass (F1, M4)
@@ -290,7 +293,7 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 - [ ] Agent presence and live lines labeled; history labels are not required until decided (A1)
 - [ ] Chat privacy consented, or chat kept out of the chronicle (S5)
 - [ ] Call caps enforced, and sized to the cohort (E1)
-- [ ] One key cannot exhaust the global budget, and the invite gate closes after the first key (E4); the gate reopens when every key is revoked, pending the integrity PR
+- [x] One key cannot exhaust the global budget, and the invite gate closes after the first key (E4); the gate latches closed since #137
 - [ ] Latency targets written and met on staging (P1)
 - [ ] Hosted load soak with 12 or more clients (P2)
 - [ ] Every migration additive, and the schema version pinned (P6); a binary does not yet check for a newer database
@@ -342,4 +345,5 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 - Puzzles: `WORLD_READING_FAMILIES` in `puzzles/quality.py`, the 55% world-reading test gate, and [docs/evaluation/2026-09-07-concept-and-implementation.md](../evaluation/2026-09-07-concept-and-implementation.md).
 - Governance (G1 to G12) is a proposed design from Mark's feedback on Nov 1, 2026, not repo code.
 - Corrections on 2026-11-02 at `23b8830`, from the [week-plan audit](../evaluation/2026-11-02-week-plan.md): S1, E4 and P6 moved from Done to Partial; F4 from Not started to Partial; L5 from Unknown to Not started; Y6 from Unknown to Partial. Evidence was corrected for C2c, C7, O1, S5, B2, M2, G5, G9 and P3 to P5 (P4's wording follows P3), and the Q4 plan's pending decision I was added to the held table, not decided. The go/no-go list unchecks S1 and names E4 and P6, which are open blockers again. Statuses follow the code at `23b8830`; the pull requests named as pending are not merged. No exit criterion's bar and no held decision changed.
+- Update on 2026-11-03 after #137, #138 and #139 merged: E4 and S1 are Done again with the fixes cited; G5 is Done from #138 with its sign-off recorded in ADR-004 and its revocation bound stated (a hostile listen-only client can stay subscribed for about 72 s, over the 1 min criterion; a server-side re-check is a follow-up). C7 and G9 evidence now cites #137's removal of `GET /players` and its per-credential buckets; P6 counts migration 0029. The go/no-go list checks S1 and E4. The held table records the owner's 2026-11-03 sign-off on migration 0029. P6 stays Partial: no merged PR pins the schema version. The owner's reserved-name decision is recorded in ADR-004's 2026-11-03 amendment and in the [decision packet](decision-packet-2026-11.md) (decision 7).
 - Not verified: live model quality, hosted anything, real players.

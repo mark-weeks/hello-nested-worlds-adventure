@@ -209,6 +209,10 @@ def test_promotion_upgrade_preserves_main_and_board_data(monkeypatch, base_versi
     migrations = db._list_migrations()
     with monkeypatch.context() as previous:
         previous.setattr(db, '_list_migrations', lambda: [(v, path) for v, path in migrations if v <= base_version])
+        # The liveness read as it stood before migration 0029 added sanctions:
+        # the current one reads tables this older schema does not have yet.
+        previous.setattr(participants, '_LIVE_INVITE',
+                         'SELECT name FROM invite_keys WHERE key=? AND revoked_at IS NULL')
         db.init_db()
         key = 'nw_' + 'd' * 32
         db.mint_invite_key(key, 'Upgrade fixture')

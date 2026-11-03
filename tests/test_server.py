@@ -131,11 +131,23 @@ class TestServerHTTP:
         conn.close()
         assert status == 413
 
-    def test_players(self, srv):
+    def test_players_roster_route_is_gone(self, srv):
+        # GET /players returned every live player's position to any
+        # requester, and no client used it. It now answers exactly like any
+        # other unknown route.
         base, _ = srv
-        data, status, _ = _get(f"{base}/players?seed=1")
-        assert status == 200
-        assert "players" in data
+
+        def fetch(path):
+            try:
+                with urllib.request.urlopen(base + path) as resp:
+                    return resp.status, json.loads(resp.read())
+            except urllib.error.HTTPError as exc:
+                return exc.code, json.loads(exc.read())
+
+        gone = fetch("/players?seed=1")
+        unknown = fetch("/no-such-route?seed=1")
+        assert gone == unknown
+        assert gone[0] == 404 and "players" not in gone[1]
 
     def test_static_html(self, srv):
         base, _ = srv

@@ -1,8 +1,9 @@
 # Owner decision packet — November 2026
 
 *Prepared 2026-11-02 against `main` at `23b8830` for the owner, Mark Weeks.
-Every recommendation on this page is **proposed by agent; not decided**. The
-page records no decision, ratifies no ADR, publishes nothing, and authorizes no
+Every recommendation on this page is **proposed by agent; not decided**,
+except decision 7, which the owner settled on 2026-11-03 and which ADR-004
+records; this page only notes that outcome. The page records no decision, ratifies no ADR, publishes nothing, and authorizes no
 implementation, deployment, recruitment, tag or merge. The evidence behind it
 is in the [2026-11-02 week-plan audit](../evaluation/2026-11-02-week-plan.md).
 The [beta launch checklist](beta-launch-checklist.md) governs exit criteria;
@@ -11,7 +12,7 @@ the [Q4 plan](next-steps-2026-q4.md) governs order until it is re-planned
 
 ## Summary
 
-All recommendations in this table are proposed by agent; not decided.
+All recommendations in this table are proposed by agent; not decided, except decision 7 (decided 2026-11-03).
 
 | # | Decision | Needed by | Blocks | Recommendation |
 |---|---|---|---|---|
@@ -21,7 +22,7 @@ All recommendations in this table are proposed by agent; not decided.
 | 4 | [World status (Q4 B)](#4-world-status-q4-decision-b) | Before any copy goes to recruits, and before the first invited outside player | R3, K2, "World status declared"; the permanence copy on `/register` and in the guide; L3 | Production for the cohort world if P4's restore and freshness checks pass; any staging or local watch declared disposable |
 | 5 | [Minimum tester age (S4)](#5-minimum-tester-age-s4) | Before recruitment (Q4 P5) and before any terms or invite text | S4; the terms text (L2); the invite template | 18 or older |
 | 6 | [Re-plan date (Q4 A, lapsed Oct 10)](#6-re-plan-date-q4-decision-a) | Now | Every dated step | Do not adopt the mechanical November 29 date. Plan an early-to-mid January cohort and set the exact date after the watch, once Fly timing is known |
-| 7 | [Reserve Observer and Scout](#7-reserve-observer-and-scout) | Before the server-owned agent identities PR merges | That one hunk | Reserve both now, while no player is registered |
+| 7 | [Reserve Observer and Scout](#7-reserve-observer-and-scout) | Decided 2026-11-03 | Nothing now | Reserved, as recommended; recorded in ADR-004's 2026-11-03 reserved-names amendment |
 | 8 | [D6 timing (Q4 C, lapsed Oct 10)](#8-d6-timing-q4-decision-c) | Before the first production deploy; a migration-first answer needs about two more weeks before it | ADR-029 batch 1 ordering; how urgent the consumer inventory is | The Q4 recommendation stands: before the first structural operation, not before the pilot |
 | 9 | [#89 criteria (Q4 H, lapsed Oct 15)](#9-89-criteria-q4-decision-h) | Before anyone implements #89 | #89 only | The agent drafts revised criteria; the owner posts them or edits the issue |
 | 10 | [Player-text destinations (S2, with L4)](#10-player-text-destinations-s2) | Before any outside participant's text reaches a model: the first watch session with live voice, and P9 | S2, L4; the destinations named in the privacy notice; live voice in the watch; any second provider | One text provider for voice, intention and moderation, chosen by decision D's probes. Record that image prompts carry no player text |
@@ -209,9 +210,13 @@ timing is known. A migration-first ruling on decision 8 adds about two weeks
 
 ## 7. Reserve Observer and Scout
 
-*Proposed by agent; not decided.*
+*Decided 2026-11-03.* The owner, Mark Weeks, directed the merge of #139 on
+2026-11-03 and delegated its open choices. The reservation was kept and is
+recorded in [ADR-004](../decisions/ADR-004-day-one-data-policy.md)'s
+2026-11-03 reserved-names amendment. The analysis below is as prepared on
+2026-11-02.
 
-**Today.** Only the twelve cast names are reserved
+**Then (`23b8830`).** Only the twelve cast names are reserved
 (`server/handlers.py:176-181`; ADR-004 section 7,
 `docs/decisions/ADR-004-day-one-data-policy.md:291-294`). `/observe` defaults
 its agent to "Observer" (`server/handlers.py:1591`); `/agent` and
