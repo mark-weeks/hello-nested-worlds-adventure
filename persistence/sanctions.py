@@ -107,26 +107,34 @@ def _clean_reason(reason: Any) -> str:
 def _resolve_on(conn, target: str) -> dict[str, Any]:
     """{'id', 'name'} for a registered name or a participant id.
 
-    Names match by SQLite's `lower(trim(name))`, the exact comparison the
-    unique name index uses (migration 0011; ASCII letters fold, others are
-    compared as written), and a revoked key's name still
-    resolves. A registered player who has never made an authenticated read
-    has no participant row yet; one is created with `participants._ensure`
+    Names match by `persistence.name_key`, the comparison registration
+    enforces uniqueness by, and a revoked key's name still resolves. A
+    registered player who has never made an authenticated read has no
+    participant row yet; one is created with `participants._ensure`
     semantics, keyed by the credential's digest, so the sanction and every
     later read agree on who the player is. An argument that names one
     player and is another player's id is refused as ambiguous.
+
+    Registration refuses a second name with the same key, but a database
+    written before that check can hold two ('Élodie' and 'élodie', or a
+    composed and a decomposed 'Élodie' that look identical). Such a name
+    is refused as ambiguous, writing nothing: the operator names the
+    participant id instead. Exact spelling never picks one, because two
+    spellings can look the same on the operator's screen.
     """
     if not isinstance(target, str) or not target.strip():
         raise ValueError("Name a registered player or a participant id.")
     target = target.strip()
-    # Both sides go through SQLite's lower(trim(...)), exactly as the unique
-    # name index does (migration 0011), so at most one row can match.
-    # Python's str.lower() folds non-ASCII letters that SQLite's lower()
-    # leaves alone: 'Élodie' would miss its own row and match 'élodie'.
-    named = conn.execute(
-        "SELECT key, name FROM invite_keys "
-        "WHERE lower(trim(name)) = lower(trim(?))",
-        (target,)).fetchone()
+    # Every registered name is compared by its key in Python: SQLite's
+    # lower() folds ASCII only. invite_keys holds one row per invited
+    # player, so reading all of it is cheap.
+    wanted = db.name_key(target)
+    matches = [(key, name) for key, name in conn.execute(
+        "SELECT key, name FROM invite_keys ORDER BY key")
+        if db.name_key(name) == wanted]
+    if len(matches) > 1:
+        raise ValueError(_ambiguous_name(conn, target, matches))
+    named = matches[0] if matches else None
     by_id = conn.execute(
         "SELECT id FROM participants WHERE id = ?", (target,)).fetchone()
     if named is not None:
@@ -144,6 +152,25 @@ def _resolve_on(conn, target: str) -> dict[str, Any]:
             (by_id[0],)).fetchone()
         return {"id": by_id[0], "name": name[0] if name else None}
     raise ValueError(f"No registered player or participant matches {target!r}.")
+
+
+def _ambiguous_name(conn, target: str, matches) -> str:
+    """The refusal for a name more than one registered player shares by key.
+
+    Each spelling is shown with `ascii()`, so a composed and a decomposed
+    form read differently, beside its participant id where one exists.
+    Read-only: no participant row is created on a refusal.
+    """
+    shown = []
+    for key, name in matches:
+        row = conn.execute(
+            "SELECT participant_id FROM participant_credentials "
+            "WHERE credential_digest = ?", (key,)).fetchone()
+        shown.append(f"{ascii(name)} (participant {row[0]})" if row
+                     else f"{ascii(name)} (no participant yet)")
+    return (f"{target!r} matches {len(matches)} registered players whose "
+            f"names differ only in case or Unicode form: {', '.join(shown)}. "
+            "Name the participant id instead; nothing changed.")
 
 
 def resolve(target: str) -> dict[str, Any]:

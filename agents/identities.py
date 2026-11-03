@@ -24,6 +24,7 @@ from typing import Any
 
 from consciousness import WANDERER_CAST
 from multiverse.situation import KEEPER
+from persistence import name_key
 
 SCOUT = "Scout"
 OBSERVER = "Observer"
@@ -34,15 +35,19 @@ UTILITY_IDENTITIES: tuple[str, ...] = (SCOUT, OBSERVER)
 SERVER_IDENTITIES: tuple[str, ...] = tuple(
     dict.fromkeys([*WANDERER_CAST, KEEPER, *UTILITY_IDENTITIES]))
 
-_CANONICAL: dict[str, str] = {name.lower(): name for name in SERVER_IDENTITIES}
+# Keyed by ``persistence.name_key``, the comparison every name check uses.
+_CANONICAL: dict[str, str] = {name_key(name): name for name in SERVER_IDENTITIES}
 
 
 def canonical(raw: Any) -> str | None:
     """The canonical spelling of a server-owned identity, or None.
 
-    Case-insensitive and trimmed: ``" tessera "`` is ``"Tessera"``. Anything
-    else, including a non-string, is not an agent this world knows.
+    Compared by ``persistence.name_key``: trimmed, case-folded and
+    NFKC-normalized, so ``" tessera "`` and a fullwidth ``"Ｔｅｓｓｅｒａ"`` are
+    ``"Tessera"``. Anything else, including a non-string, is not an agent
+    this world knows. The reserved-name checks call this, or compare the
+    same key, so no spelling of a server identity is left for a player.
     """
     if not isinstance(raw, str):
         return None
-    return _CANONICAL.get(raw.strip().lower())
+    return _CANONICAL.get(name_key(raw))

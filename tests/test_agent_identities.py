@@ -350,6 +350,8 @@ def test_an_unprintable_name_is_quiet_as_someone_not_echoed_or_a_server_error(
 @pytest.mark.parametrize("requested,canonical", [
     ("Tessera", "Tessera"), ("  aunt entropy ", "Aunt Entropy"),
     ("SCOUT", "Scout"), ("observer", "Observer"),
+    # A compatibility spelling is the same identity (persistence.name_key).
+    ("\uff33\uff43\uff4f\uff55\uff54", "Scout"),
 ])
 def test_a_server_identity_is_voiced_under_its_canonical_name(srv, voice, requested, canonical):
     stub, screens = voice

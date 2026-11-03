@@ -177,7 +177,10 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
 # Every server-owned agent identity is world canon: the wandering cast
 # (ADR-004 §7) and the Scout and Observer walkers (agents/identities.py).
 # Their chronicle rows must be unimpersonatable, so no player may claim them.
-_RESERVED_PLAYER_NAMES = {n.lower() for n in identities.SERVER_IDENTITIES}
+# Held as `persistence.name_key` keys, so a check compares the key of the
+# name it is given: case, trim and Unicode compatibility forms all fold.
+_RESERVED_PLAYER_NAMES = frozenset(
+    persistence.name_key(n) for n in identities.SERVER_IDENTITIES)
 
 
 def _normalize_client_name(raw: Any) -> str | None:
@@ -193,7 +196,7 @@ def _normalize_client_name(raw: Any) -> str | None:
     name = str(raw).strip()[:32].strip()
     if not name:
         return None
-    if name.lower() in _RESERVED_PLAYER_NAMES:
+    if persistence.name_key(name) in _RESERVED_PLAYER_NAMES:
         return None
     return name
 
@@ -1512,7 +1515,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error("a name is required", 400)
         if len(name) > 32:
             return self._send_error("name too long (32 characters max)", 400)
-        if name.lower() in _RESERVED_PLAYER_NAMES:
+        if persistence.name_key(name) in _RESERVED_PLAYER_NAMES:
             # Same rule as the WS join and the mint CLI: the server-owned
             # agent names are world canon and unimpersonatable.
             return self._send_error(

@@ -20,6 +20,7 @@ import os
 import sqlite3
 import stat
 import threading
+import unicodedata
 from pathlib import Path
 from typing import Any, Callable
 
@@ -2335,14 +2336,37 @@ class NameUnavailable(ValueError):
     """
 
 
-def _normalize_invite_name(name: str) -> str:
-    """The comparison form used for name-uniqueness: trimmed and lowercased.
+def name_key(name: str) -> str:
+    """The one comparison key for a player or agent name (ADR-004 §7).
 
-    Kept in lockstep with the DB's `lower(trim(name))` UNIQUE index
-    (migration 0011) so the application check and the database backstop
-    agree on what counts as 'the same name'.
+    Two names are the same name when their keys are equal. Every path that
+    claims or checks a name compares this key: invite minting and
+    registration (`_mint_invite_key_on`), the sanction target lookup, the
+    reserved server-owned names (`agents.identities.canonical`, the
+    handlers' reserved set, the keyless WebSocket join) and the CLI.
+
+    Trimmed with `str.strip()` (Unicode whitespace, as every caller already
+    trims the name it stores), NFKC-normalized, case-folded, normalized
+    again (case folding can produce text that is not in NFKC) and trimmed
+    again (NFKC turns a spacing accent such as U+00B4 into a space and a
+    combining mark). So 'Élodie', 'élodie' and 'E' + U+0301 'lodie' are one
+    name, a fullwidth 'Ｓcout' is 'Scout', and 'Straße' is 'STRASSE'
+    (`casefold` maps ß and ẞ to 'ss'). Inner whitespace is kept, except
+    that NFKC turns a no-break or other compatibility space into a plain
+    one. Confusable letters from other scripts (Cyrillic 'а' for Latin 'a')
+    and invisible format characters (a zero-width space) are not folded.
+
+    Never truncated: the 32-character cap belongs to the displayed name and
+    is applied first by the callers that cap (`/register` refuses a longer
+    name; the body-name and keyless WebSocket paths cut it), and NFKC can
+    expand a name past 32 characters. Never stored either: stored names
+    stay as typed, and the key is computed at each comparison. For ASCII
+    text it equals the `lower(trim(name))` of the UNIQUE index (migration
+    0011), which stays as the backstop; that index folds ASCII only, so it
+    cannot enforce this key alone.
     """
-    return name.strip().lower()
+    folded = unicodedata.normalize("NFKC", name.strip()).casefold()
+    return unicodedata.normalize("NFKC", folded).strip()
 
 
 def _credential_digest(secret: str) -> str:
@@ -2403,13 +2427,20 @@ def _mint_invite_key_on(conn, key: str, name: str,
     must mint inside its OWN transaction (consume the token and mint the key
     as one unit — and roll back together if the name is taken), and a second
     writer connection opened mid-transaction would risk SQLITE_BUSY.
+
+    The check and the INSERT run under one BEGIN IMMEDIATE, so a concurrent
+    claim of the same name waits for this one to commit and then sees it.
+    The UNIQUE index on `lower(trim(name))` folds ASCII only, so it cannot
+    stop 'Élodie' beside 'élodie'; the check compares `name_key` against
+    every registered name, revoked ones included (a revoked name stays
+    taken). That is a full read of `invite_keys`, which holds one row per
+    invited player (a cohort of about twelve), so it is cheap.
     """
-    norm = _normalize_invite_name(name)
-    taken = conn.execute(
-        "SELECT 1 FROM invite_keys WHERE lower(trim(name)) = ?", (norm,)
-    ).fetchone()
-    if taken is not None:
-        raise NameUnavailable(f"the name {name!r} is already registered")
+    _begin_write(conn)
+    wanted = name_key(name)
+    for (existing,) in conn.execute("SELECT name FROM invite_keys"):
+        if name_key(existing) == wanted:
+            raise NameUnavailable(f"the name {name!r} is already registered")
     conn.execute(
         "INSERT INTO invite_keys (key, name, note) VALUES (?, ?, ?)",
         (_credential_digest(key), name, note),
@@ -2420,9 +2451,10 @@ def _mint_invite_key_on(conn, key: str, name: str,
 def mint_invite_key(key: str, name: str, note: str | None = None) -> None:
     """Insert a new invite key. Caller generates the random key string.
 
-    The name must be unique (case- and whitespace-insensitively) across all
-    invite keys — it becomes the player's authoritative display name at
-    runtime (ADR-004 §7). Raises NameUnavailable if the name is already
+    The name must be unique across all invite keys under `name_key` (case-,
+    whitespace- and Unicode-form-insensitively) — it becomes the player's
+    authoritative display name at runtime (ADR-004 §7). The name is stored
+    exactly as given. Raises NameUnavailable if the name is already
     registered, and sqlite3.IntegrityError on a key collision so the caller
     can retry with a new random key (at 32 hex chars, key collisions are
     astronomically unlikely).
@@ -2639,8 +2671,11 @@ def redeem_registration_token(token: str, key: str, name: str) -> None:
     (NameUnavailable) rolls the whole thing back and the token stays
     redeemable for another try, while a successful redeem can never leave the
     token live. Raises TokenInvalid for an unknown/spent/cancelled token.
+    The transaction is BEGIN IMMEDIATE from its first read, so the token
+    check and the name check both see every claim committed before it.
     """
     with _connect() as conn:
+        _begin_write(conn)
         token_digest = _credential_digest(token)
         live = conn.execute(
             """SELECT 1 FROM registration_tokens
