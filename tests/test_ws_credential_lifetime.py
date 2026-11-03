@@ -8,7 +8,11 @@ chat and move allowance. Every test here drives a real server socket.
 """
 from __future__ import annotations
 
+import base64
 import json
+import os
+import re
+import socket
 import struct
 import threading
 import time
@@ -19,7 +23,8 @@ import pytest
 
 import persistence
 from multiverse.generator import generate_node_hierarchy
-from server import guard
+from server import guard, protocol
+from server.rooms import get_room
 from tests.test_day_one_recording import _ws_connect, _ws_send_json
 from tests.test_moderation import _read_ws_json_until, _recv_exact
 from tests.test_server_protocol import _client_frame
@@ -395,7 +400,20 @@ class TestPerCredentialRateLimits:
 
 
 class TestCredentialBucketsRegistry:
-    def test_concurrent_sockets_cannot_overdraw_a_shared_bucket(self):
+    def test_concurrent_sockets_cannot_overdraw_a_shared_bucket(self, monkeypatch):
+        class ContendedBucket(guard.TokenBucket):
+            # Widens allow()'s read-modify-write window, so without the
+            # registry's lock concurrent sockets read the same balance and
+            # all spend it.
+            def allow(self):
+                tokens = self.tokens
+                time.sleep(0.002)
+                if tokens >= 1.0:
+                    self.tokens = tokens - 1.0
+                    return True
+                return False
+
+        monkeypatch.setattr(guard, "TokenBucket", ContendedBucket)
         buckets = guard.CredentialBuckets(rate=0.001, burst=5)
         allowed = []
         lock = threading.Lock()
@@ -485,6 +503,22 @@ class TestRevocationMidMessage:
         assert leave["session_id"] == ada_sid
         assert not [m for m in before if m.get("type") == "chat"]
         assert _rows(seed, "PLAYER_CHAT") == []
+        bea.close()
+
+    def test_the_frame_that_opens_a_fragmented_message_is_checked(self, srv):
+        # The opening fragment is a complete frame that ws_recv reads without
+        # returning. Unchecked, it reset the idle timer once more and the
+        # session stayed subscribed for another idle period.
+        seed = 2655
+        ada, ada_sid, bea = _two_players(srv, seed)
+        persistence.revoke_invite_key(KEY_A)
+
+        ada.sendall(_client_frame(b'{"type": "chat", ', fin=False))
+        code, _ = self._until_close_raw(ada)
+        assert code == 1008
+        _until_eof(ada)
+        leave, _ = _until_type(bea, "player_leave")
+        assert leave["session_id"] == ada_sid
         bea.close()
 
     def test_a_live_key_still_assembles_a_fragmented_chat_across_pings(self, srv):
@@ -648,4 +682,238 @@ class TestPlayersRouteRemoved:
         with pytest.raises(urllib.error.HTTPError) as exc:
             urllib.request.urlopen(f"http://127.0.0.1:{srv}/players?seed=2631")
         assert exc.value.code == 403
+        ada.close()
+
+
+def _upgrade_reply(port, path):
+    """A raw upgrade request: (status, JSON body), or (101, None) if the
+    server upgraded."""
+    sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+    try:
+        sock.sendall((
+            f"GET {path} HTTP/1.1\r\nHost: t\r\n"
+            "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {base64.b64encode(os.urandom(16)).decode()}\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n").encode())
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = sock.recv(4096)
+            assert chunk, data
+            data += chunk
+        head, _, body = data.partition(b"\r\n\r\n")
+        status = int(head.split(b" ", 2)[1])
+        if status == 101:
+            return status, None
+        length = int(re.search(rb"(?im)^content-length:\s*(\d+)", head).group(1))
+        while len(body) < length:
+            chunk = sock.recv(4096)
+            assert chunk, body
+            body += chunk
+        return status, json.loads(body[:length])
+    finally:
+        sock.close()
+
+
+class TestUpgradeRace:
+    def test_a_key_revoked_during_the_upgrade_is_refused_before_any_join(
+            self, srv, monkeypatch):
+        # The gate admits the upgrade on a live key; the key is revoked
+        # before the session reads its registered name. Before the fix the
+        # session fell into the keyless branch and joined under ?name=,
+        # here another player's registered name.
+        seed = 2661
+        persistence.mint_invite_key(KEY_A, "Ada")
+        persistence.mint_invite_key(KEY_B, "Bea")
+        bea, _ = _join(srv, seed, "x", KEY_B)
+        real = guard.registered_name
+
+        def revoked_meanwhile(supplied):
+            if supplied == KEY_A:
+                persistence.revoke_invite_key(KEY_A)
+            return real(supplied)
+
+        monkeypatch.setattr(guard, "registered_name", revoked_meanwhile)
+        raced = _upgrade_reply(srv, f"/ws?seed={seed}&name=Bea&key={KEY_A}")
+        # The gate's own refusal of a keyless upgrade, for comparison.
+        gate = _upgrade_reply(srv, f"/ws?seed={seed}&name=Bea")
+        assert raced == gate == (403, {"error": "forbidden"})
+
+        assert [r["player"] for r in _rows(seed, "PLAYER_JOIN")] == ["Bea"]
+        _ws_send_json(bea, {"type": "ping"})
+        _, heard = _until_type(bea, "pong")
+        assert not [m for m in heard if m.get("type") == "player_join"]
+        bea.close()
+
+
+class TestNoDataFrameAfterClose:
+    """Every close the server writes is written after the writer stopped, so
+    a queued room broadcast cannot follow it (RFC 6455 §5.5.1)."""
+
+    @pytest.mark.parametrize("cause", ["revoked", "protocol error"])
+    def test_the_writer_stops_before_the_server_sends_close(
+            self, srv, monkeypatch, cause):
+        from server import websocket
+        seed = 2671 if cause == "revoked" else 2672
+        persistence.mint_invite_key(KEY_A, "Ada")
+        ada, ada_sid = _join(srv, seed, "x", KEY_A)
+        player = get_room(seed).players[ada_sid]
+        calls = []
+        real = websocket.send_close
+
+        def recording(sock, code, send_lock=None):
+            calls.append((code, player._dead.is_set()))
+            real(sock, code, send_lock=send_lock)
+
+        monkeypatch.setattr(websocket, "send_close", recording)
+        if cause == "revoked":
+            persistence.revoke_invite_key(KEY_A)
+            _ws_send_json(ada, {"type": "chat", "text": "after revocation"})
+            expected = protocol.CLOSE_POLICY_VIOLATION
+        else:
+            ada.sendall(_client_frame(b"unmasked", masked=False))
+            expected = protocol.CLOSE_PROTOCOL_ERROR
+        assert _until_close(ada)[0] == expected
+        _until_eof(ada)
+        assert calls == [(expected, True)]
+
+    def test_the_writer_stops_before_a_peer_close_is_echoed(
+            self, srv, monkeypatch):
+        seed = 2673
+        persistence.mint_invite_key(KEY_A, "Ada")
+        ada, ada_sid = _join(srv, seed, "x", KEY_A)
+        player = get_room(seed).players[ada_sid]
+        echoes = []
+        real = protocol._send_frame
+
+        def recording(sock, opcode, data, lock=None):
+            if opcode == 0x8:
+                echoes.append(player._dead.is_set())
+            real(sock, opcode, data, lock=lock)
+
+        monkeypatch.setattr(protocol, "_send_frame", recording)
+        ada.sendall(_client_frame(struct.pack(">H", 1000), opcode=0x8))
+        assert _until_close(ada)[0] == 1000
+        _until_eof(ada)
+        assert echoes == [True]
+
+
+class TestFrameDeadline:
+    """Every authorization check runs on a completed frame, and the 60 s idle
+    timer resets on every recv. Once a frame's first byte arrives, the rest
+    must arrive within `protocol._FRAME_DEADLINE_SEC`, so a client cannot
+    hold one frame open, unchecked and subscribed, by trickling bytes."""
+
+    @staticmethod
+    def _nodelay(sock):
+        # Small writes leave as separate segments, not coalesced.
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+    @staticmethod
+    def _frames_until_close(sock, timeout=4.0):
+        """(close code, or None if none came; JSON messages before it)."""
+        sock.settimeout(timeout)
+        seen = []
+        deadline = time.monotonic() + timeout
+        try:
+            while time.monotonic() < deadline:
+                opcode, payload = _read_frame(sock)
+                if opcode == 0x8:
+                    return struct.unpack(">H", payload[:2])[0], seen
+                if opcode == 0x1:
+                    seen.append(json.loads(payload))
+        except TimeoutError:
+            pass
+        return None, seen
+
+    def test_a_revoked_client_trickling_one_frame_is_closed_at_the_deadline(
+            self, srv, monkeypatch):
+        monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 0.5)
+        seed = 2691
+        ada, ada_sid, bea = _two_players(srv, seed)
+        self._nodelay(ada)
+        persistence.revoke_invite_key(KEY_A)
+
+        frame = _client_frame(json.dumps({"type": "chat", "text": "x" * 64}).encode())
+        sent = [0]
+        stop = threading.Event()
+
+        def trickle():
+            # One byte every 0.2 s: the idle timer never fires, and the
+            # frame (about 18 s of bytes) never completes during the test.
+            for byte in frame:
+                try:
+                    ada.sendall(bytes([byte]))
+                except OSError:
+                    return
+                sent[0] += 1
+                if stop.wait(0.2):
+                    return
+
+        trickler = threading.Thread(target=trickle, daemon=True)
+        trickler.start()
+        try:
+            # Three deadlines in, another player speaks.
+            time.sleep(1.5)
+            _ws_send_json(bea, {"type": "chat", "text": "during the trickle"})
+            chat, before = _until_type(bea, "chat")
+            assert sent[0] < len(frame)
+            code, seen = self._frames_until_close(ada)
+        finally:
+            stop.set()
+            trickler.join(timeout=2)
+
+        assert not [m for m in seen if m.get("type") == "chat"]
+        assert code == protocol.CLOSE_PROTOCOL_ERROR
+        _until_eof(ada)
+        # Ada had left before Bea's line was broadcast.
+        assert chat["name"] == "Bea"
+        assert [m["session_id"] for m in before
+                if m.get("type") == "player_leave"] == [ada_sid]
+        assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
+        assert _rows(seed, "PLAYER_CHAT", "Ada") == []
+        bea.close()
+
+    def test_a_frame_sent_in_quick_chunks_still_arrives(self, srv, monkeypatch):
+        monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 1.0)
+        seed = 2692
+        ada, _, bea = _two_players(srv, seed)
+        self._nodelay(ada)
+        frame = _client_frame(json.dumps({"type": "chat", "text": "in chunks"}).encode())
+        # Split inside the header, inside the mask key and inside the payload.
+        for chunk in (frame[:1], frame[1:4], frame[4:10], frame[10:]):
+            ada.sendall(chunk)
+            time.sleep(0.05)
+        line, _ = _until_type(bea, "chat")
+        assert line["name"] == "Ada" and line["text"] == "in chunks"
+        assert [r["player"] for r in _wait_rows(seed, "PLAYER_CHAT", None, 1)] \
+            == ["Ada"]
+        ada.close()
+        bea.close()
+
+    def test_the_deadline_is_per_frame_not_per_fragmented_message(
+            self, srv, monkeypatch):
+        monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 0.5)
+        seed = 2693
+        ada, _, bea = _two_players(srv, seed)
+        ada.sendall(_client_frame(b'{"type": "chat", ', fin=False))
+        time.sleep(1.0)  # two deadlines between the message's two frames
+        ada.sendall(_client_frame(b'"text": "between frames"}', opcode=0x0))
+        line, _ = _until_type(bea, "chat")
+        assert line["name"] == "Ada" and line["text"] == "between frames"
+        ada.close()
+        bea.close()
+
+    def test_the_wait_before_a_frame_is_still_the_idle_timer(
+            self, srv, monkeypatch):
+        monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 0.5)
+        seed = 2694
+        persistence.mint_invite_key(KEY_A, "Ada")
+        ada, _ = _join(srv, seed, "x", KEY_A)
+        # A complete frame first: reading it shortens the socket's timeout,
+        # which must be back to the idle timer before the next frame.
+        _ws_send_json(ada, {"type": "ping"})
+        _until_type(ada, "pong")
+        time.sleep(1.5)  # silent for three deadlines, well inside 60 s
+        _ws_send_json(ada, {"type": "ping"})
+        _until_type(ada, "pong")
         ada.close()
