@@ -36,12 +36,12 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 
 ## At a glance
 
-95 items in 16 categories. 54 block beta, and 44 of them are still open.
+95 items in 16 categories. 54 block beta, and 45 of them are still open.
 
 | Status | Count |
 |---|---|
-| Done | 11 |
-| Partial | 35 |
+| Done | 10 |
+| Partial | 36 |
 | Not started | 44 |
 | Unknown | 5 |
 
@@ -63,7 +63,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Legal and policy | 5 | 1 | 1 | 1 | 2 |
 | Deployment and ops | 6 | 0 | 1 | 5 | 0 |
 | Community and beta cohort | 4 | 0 | 1 | 3 | 0 |
-| Community governance and self-policing | 12 | 1 | 1 | 10 | 0 |
+| Community governance and self-policing | 12 | 0 | 2 | 10 | 0 |
 | Distinctiveness: why players return | 7 | 0 | 3 | 4 | 0 |
 
 > **Biggest gaps:** The core loop is built and tested locally, but no one except Mark has played it. Blocking, reporting, alignment and tangible rewards don't exist yet, puzzle fun is unmeasured, and every hosted gate (Fly, backups, live models) waits on Mark's account and decisions.
@@ -226,7 +226,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | G2 | Report with a reason and optional evidence | Any player can report another with one reason category from a fixed list and optional evidence (chat lines or chronicle entries). The report is stored per reporter and confirmed to them, and it is never shown to the reported player as coming from a named person. | Not started | (Code) No report flow exists. Chat is stored as PLAYER_CHAT, which could serve as evidence. | **Blocks beta** |
 | G3 | Corroboration before any consequence | A case opens only after reports from N distinct established players. A test proves one report alone never triggers a consequence. | Not started | (Inference) Proposed design. N and the meaning of established are Mark's. | Can follow · Mark decides |
 | G4 | Graduated consequences | The ladder is written and enforced in code with tests: personal mute (instant), then a temporary suspension, then a permanent ban only after a recorded review. | Not started | (Inference) Proposed design. Who can suspend or ban is Mark's. | Can follow · Mark decides |
-| G5 | Owner can suspend or ban (sole reviewer early in beta) | Mark can suspend a player for a set time or ban them, effective within 1 min, recorded with a reason, and reversible. | Done | (Code) `python main.py sanction suspend <name> --hours N` (or `--days N`), `sanction ban`, `sanction lift <id>` and `sanction list [--all]` (`persistence/sanctions.py`, migration 0029). Every action needs a non-empty reason, enforced by CHECK constraints. Rows are insert-only. A sanction is keyed to the participant. While it is active, `lookup_invite_key` and `participants.identify` refuse every credential of that player with the revoked-key 403 and no reason. An open WebSocket closes with status 1008 at its next move or chat, or its next other frame once 2 s have passed since its last check (a browser client pings every 20 s; a silent one ends at the 60 s idle timeout). After expiry or a lift the same key returns to the same participant, journal intact. The invite gate never reopens (`tests/test_sanctions.py`). `invite revoke` stays the permanent, name-burning action. Telling the player and any appeal are G8. | **Blocks beta** |
+| G5 | Owner can suspend or ban (sole reviewer early in beta) | Mark can suspend a player for a set time or ban them, effective within 1 min, recorded with a reason, and reversible. | Partial | (Code) The code is complete. `python main.py sanction suspend <name> --hours N` (or `--days N`), `sanction ban`, `sanction lift <id>` and `sanction list [--all]` (`persistence/sanctions.py`, migration 0029). Every action needs a reason, one line with a visible character, and CHECK constraints refuse an empty one. Rows are insert-only. A sanction is keyed to the participant. While it is active, `lookup_invite_key` and `participants.identify` refuse every credential of that player with the revoked-key 403 and no reason. An open WebSocket closes with status 1008 at its next move or chat, or its next other frame once 2 s have passed since its last check (a browser client pings every 20 s; a silent one ends at the 60 s idle timeout). After expiry or a lift the same key returns to the same participant, journal intact. The invite gate never reopens (`tests/test_sanctions.py`). `invite revoke` stays the permanent, name-burning action. Telling the player and any appeal are G8. G5 becomes Done on the owner's recorded sign-off on migration 0029: [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md) Decision 5 makes a change to retention a scoped decision, here the sanction reasons kept in every backup and how an erasure request is handled when the tables are insert-only. That sign-off is not recorded. | **Blocks beta** · Mark decides |
 | G6 | Rotating random jury | Jurors are drawn at random from the trusted pool for each case, see only the evidence, and vote independently. There is no open vote by all players. | Not started | (Inference) Proposed design. Open voting is easy to brigade. Jury size is Mark's. | Can follow · Mark decides |
 | G7 | Trust standing for jurors and reporters | Standing is computed from account age, fair-play record and past reports that were upheld, and it is pinned by tests. | Not started | (Inference) No standing or reputation data exists. Thresholds are Mark's. | Can follow · Mark decides |
 | G8 | Notice and appeal | The accused is told what was decided and why, and can appeal once to a different reviewer within a set window. | Not started | (Inference) Proposed design. Appeal rules are Mark's. | Can follow · Mark decides |
@@ -262,6 +262,7 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 | World status: retained research or production | Held | R3, K2 (never-wipe starts here) |
 | Community governance: jury size, report thresholds, who can suspend or ban, appeal rules, AI-agent treatment | Held | G3, G4, G6 to G8, G10 |
 | Whether permanent history labels a player human or agent | Held | C4, A1 |
+| Sign-off on migration 0029: sanction reasons kept in every backup, and the erasure path (ADR-034 Decision 5) | Held | G5 |
 
 ## Go/no-go gate
 

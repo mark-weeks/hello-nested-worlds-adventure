@@ -388,7 +388,7 @@ Revoke when access ends for good.
 
 | Action | Command | Ends | Name and key |
 |---|---|---|---|
-| Suspend | `sanction suspend <name> --hours N` or `--days N` (1 minute to 365 days) | At its expiry, or `sanction lift` | Kept. The same key works again afterwards. |
+| Suspend | `sanction suspend <name> --hours N` or `--days N` (1 hour to 365 days, whole hours or days) | At its expiry, or `sanction lift` | Kept. The same key works again afterwards. |
 | Ban | `sanction ban <name>` | Only by `sanction lift` | Kept. The same key works again once lifted. |
 | Revoke | `invite revoke <key>` | Never. There is no un-revoke. | Burned. Minting refuses the name, and a fresh invite creates a new participant with an empty journal and profile. |
 
@@ -396,6 +396,11 @@ Revoke when access ends for good.
 # A reason is required for every suspend, ban and lift.
 fly ssh console -C "python main.py sanction suspend Alice --hours 24 --reason 'spam in chat, second warning'"
 fly ssh console -C "python main.py sanction ban Alice --reason 'threats to another player'"
+
+# Or keep the reason off every command line: open a shell on the machine,
+# pass --reason -, type the reason, then press Enter and Ctrl-D.
+fly ssh console
+cd /app && python main.py sanction ban Alice --reason -
 
 # Active sanctions, with their ids and reasons. --all adds lifted and expired ones.
 fly ssh console -C "python main.py sanction list"
@@ -405,10 +410,11 @@ fly ssh console -C "python main.py sanction list --all"
 fly ssh console -C "python main.py sanction lift 3 --reason 'appeal accepted'"
 ```
 
-`<name>` is the registered name (any case) or the participant id. The
-sanction attaches to the participant, not to the key, so rotating the key
-does not escape it. No restart is needed. The player's next HTTP request is
-refused. An open WebSocket closes with status 1008 at its next move or chat,
+`<name>` is the registered name, ASCII letters in any case and other
+letters exactly as registered (the unique index's comparison), or the
+participant id. The sanction attaches to the participant, not to the key,
+so rotating the key does not escape it. No restart is needed. The player's
+next HTTP request is refused. An open WebSocket closes with status 1008 at its next move or chat,
 or its next other frame once 2 s have passed since its last check, so within
 about 20 s for a browser client, and a silent socket ends at the 60 s idle
 timeout. When the suspension expires or the sanction is lifted,
@@ -434,8 +440,28 @@ edits or deletes them, so `sanction list --all` is the complete history.
 Nothing is written to the chronicle. The disconnect writes the same
 `PLAYER_LEAVE` row as any other departure, and nothing marks it as a
 sanction. Overlapping sanctions each have to end: lifting a ban leaves an
-active suspension in force. Logs carry the sanction id and kind only, never
-the reason, the name or a credential.
+active suspension in force. The application's logs carry the sanction id
+and kind only, never the reason, the name or a credential.
+
+A reason is one line with at least one visible character: tabs, newlines,
+other control characters, and a reason made only of spaces or zero-width
+characters are refused. `sanction list` and the other `sanction` output
+print any non-printable character in a name or reason as an escape such as
+`\x1b`, so a stored control sequence never reaches your terminal.
+
+**A reason on the command line is recorded outside the database.**
+`fly ssh console -C "... --reason '...'"` is a command line on your machine,
+so the reason goes into your local shell history, and while the command runs
+it is in the process arguments of `flyctl` on your machine and of `python`
+on the app machine. `--reason -` on `suspend`, `ban` and `lift` reads the
+reason from standard input instead; one trailing newline is dropped. Run it
+from an interactive `fly ssh console` shell, as above, so the reason is
+typed into the program and not into any shell. If you do type a reason on
+the command line, keep it out of your history: in bash, set
+`HISTCONTROL=ignorespace` (or `ignoreboth`) and start the command with a
+space (zsh: `setopt HIST_IGNORE_SPACE`). Otherwise delete the entry
+afterwards (bash: `history -d <number>`) and check that your history file,
+such as `~/.bash_history`, no longer holds it.
 
 **Sanction reasons are private operator data, and they enter every
 backup.** They are never shown to players, but they sit in the live database
