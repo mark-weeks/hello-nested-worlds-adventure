@@ -2361,9 +2361,9 @@ def name_key(name: str) -> str:
     name; the body-name and keyless WebSocket paths cut it), and NFKC can
     expand a name past 32 characters. Never stored either: stored names
     stay as typed, and the key is computed at each comparison. For ASCII
-    text it equals the `lower(trim(name))` of the UNIQUE index (migration
-    0011), which stays as the backstop; that index folds ASCII only, so it
-    cannot enforce this key alone.
+    text it is the `strip().lower()` this check compared before. The
+    UNIQUE index on `lower(trim(name))` (migration 0011) stays as the
+    backstop, but it folds ASCII only, so it cannot enforce this key alone.
     """
     folded = unicodedata.normalize("NFKC", name.strip()).casefold()
     return unicodedata.normalize("NFKC", folded).strip()

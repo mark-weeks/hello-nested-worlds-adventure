@@ -415,9 +415,13 @@ fly ssh console -C "python main.py sanction list --all"
 fly ssh console -C "python main.py sanction lift 3 --reason 'appeal accepted'"
 ```
 
-`<name>` is the registered name, ASCII letters in any case and other
-letters exactly as registered (the unique index's comparison), or the
-participant id. The sanction attaches to the participant, not to the key,
+`<name>` is the registered name in any case or Unicode form, compared as
+registration compares names (`persistence.name_key`: trimmed,
+NFKC-normalized and case-folded), or the participant id. A database
+written before that comparison can hold two names with one key (`Élodie`
+and `élodie`); such a name is refused as ambiguous, listing each spelling
+and its participant id where one exists, and nothing is recorded: name the
+participant id instead. The sanction attaches to the participant, not to the key,
 so rotating the key does not escape it. No restart is needed. The player's
 next HTTP request is refused. An open WebSocket closes the same way as a
 revoked key's (see the invite-gate paragraph above): at once on a move or chat
