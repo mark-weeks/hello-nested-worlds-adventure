@@ -206,6 +206,73 @@ def cmd_models(args):
         raise SystemExit(1)
 
 
+def cmd_voice_health(args):
+    """Report how the world's voice has actually answered, for the operator.
+
+    Reads the daily voice-outcome counters every player-facing voice surface
+    writes (`server.observability.voice_outcome`): answered lines and each
+    kind of quiet one. Exits 1 when the window holds a failure an operator
+    must fix (a provider error, a failed moderation screen, or a server with
+    no usable voice), when the model configuration has a hard problem (the
+    check `models` and the server boot run), or when `--probe` is passed and
+    the tiny live probe fails. Limits and the kill
+    switch are reported and do not fail the check. Store errors are not
+    counted (the store is what failed); they reach the ERROR log and Sentry.
+    Run it on the host (`fly ssh console -C "python main.py voice-health"`)
+    from whatever scheduler alerts the operator.
+    """
+    from consciousness import runtime
+    from server import guard, observability
+
+    summary = observability.voice_outcome_summary(days=args.days)
+    print(f"Voice outcomes, last {args.days} UTC day(s), today included")
+    failures = 0
+    if not summary:
+        print("  (no voice requests recorded)")
+    for day in sorted(summary):
+        print(day)
+        for surface in observability.VOICE_SURFACES:
+            counts = summary[day].get(surface, {})
+            if not counts:
+                continue
+            quiet = ", ".join(
+                f"{reason} {counts[reason]}"
+                for reason in observability.VOICE_REASONS
+                if reason != "ok" and counts.get(reason))
+            print(f"  {surface:<12} answered {counts.get('ok', 0):>4}"
+                  + (f"   quiet: {quiet}" if quiet else ""))
+            failures += sum(counts.get(r, 0) for r in observability.VOICE_FAILURES)
+    used = persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, guard._utc_day())
+    cap = guard._cap_for(guard.ANTHROPIC_CAP_ENV, guard._DEFAULT_ANTHROPIC_DAILY)
+    print(f"voice budget today: {used}/{cap} calls")
+    if guard.ai_disabled():
+        print(f"kill switch: {guard.DISABLE_AI_ENV}=1 (the world is quiet on purpose)")
+    ready = runtime.configured()
+    print("voice provider: configured" if ready else "voice provider: NOT configured")
+    problems = []
+    if failures:
+        problems.append(f"{failures} voice failure(s) in the window")
+    if not ready and not guard.ai_disabled():
+        problems.append("no usable voice provider")
+    # Credentials are not enough: the same model-id check `models` and the
+    # server boot run. A task without a usable model id cannot answer.
+    from consciousness.model_check import (
+        check_model_configuration, probe_distinct_models,
+    )
+    report = check_model_configuration(runtime.get_provider())
+    if report.hard and not guard.ai_disabled():
+        print(report.failure_line())
+        problems.append("unusable model configuration")
+    if args.probe:
+        for result in probe_distinct_models(report):
+            print(result.line())
+            if not result.accepted:
+                problems.append("live probe failed")
+    if problems:
+        raise SystemExit("voice-health: " + "; ".join(dict.fromkeys(problems)))
+    print("voice-health: ok")
+
+
 _SCHEMA_OFF_NOTE = "(structured outputs off - intent calls will be refused)"
 
 
@@ -651,6 +718,18 @@ def build_parser() -> argparse.ArgumentParser:
              "exits 1 without calling the provider.",
     )
     p_models.set_defaults(func=cmd_models)
+
+    p_voice = sub.add_parser(
+        "voice-health",
+        help="Report answered and quiet voice lines; exit 1 on voice failures",
+    )
+    p_voice.add_argument("--days", type=int, default=1,
+                         help="UTC days to report, today included (default 1)")
+    p_voice.add_argument(
+        "--probe", action="store_true",
+        help="Also make the tiny live probe from `models --probe` (one call "
+             "per distinct model id; no chronicle row, no voice budget).")
+    p_voice.set_defaults(func=cmd_voice_health)
 
     p_backup = sub.add_parser("backup",
         help="Write an online snapshot of the SQLite store to a target path")

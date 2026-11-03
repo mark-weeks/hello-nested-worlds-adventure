@@ -20,9 +20,6 @@ import causality
 import persistence
 from causality import CausalityBus, EventKind
 from causality.delivery import accept_event, accept_verb
-from causality.wiring import (
-    wire_world_handlers,
-)
 from consciousness import runtime
 from agents import identities
 from agents.agent import Agent
@@ -178,6 +175,39 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
 # (ADR-004 §7) and the Scout and Observer walkers (agents/identities.py).
 # Their chronicle rows must be unimpersonatable, so no player may claim them.
 _RESERVED_PLAYER_NAMES = {n.lower() for n in identities.SERVER_IDENTITIES}
+
+# How long a second watcher waits for the live observer walk. The turn is
+# held only while the walk is computed, never while it streams, so the wait
+# is short and a slow reader cannot keep the turn.
+_OBSERVE_WAIT_SEC = 2.0
+
+# The pause between the Observer's presence moves. The walk itself has no I/O,
+# so without it a deep walk would put dozens of frames into every player's
+# bounded outbox (rooms.OUTBOX_LIMIT) faster than their writer threads drain
+# them, and a full outbox evicts the player. At most one move per visited node
+# (40), so a walk holds its turn for well under a second.
+_OBSERVE_STEP_SEC = 0.01
+
+
+# A moderation hold the voice never got past, as a voice outcome. The classifier
+# failing or giving no usable verdict is a failure (`screen`); moderation's own
+# budget, per-user cap and disable switch are limits under the existing names.
+# A content decline (`block`) is policy, not an outage, and is not recorded.
+_SCREEN_HOLD_REASONS = {
+    "error": "screen", "undecided": "screen",
+    "budget": "budget", "user_cap": "action_cap", "disabled": "disabled",
+}
+
+
+def _record_screen_hold(surface: str, verdict: Any) -> None:
+    reason = _SCREEN_HOLD_REASONS.get(verdict.outcome)
+    if reason:
+        observability.voice_outcome(surface, reason)
+
+
+def _limit_reason(exc: BaseException) -> str:
+    """The voice-outcome reason for a refused-before-the-provider call."""
+    return "action_cap" if isinstance(exc, runtime.ModelActionLimited) else "budget"
 
 
 def _normalize_client_name(raw: Any) -> str | None:
@@ -1029,6 +1059,14 @@ class Handler(BaseHTTPRequestHandler):
                                                     persistence.pending_verb_summaries(seed))})
 
         elif path == "/agent":
+            # A simulation, not an act: the walk runs on an unwired bus and
+            # nothing it does is stored — no chronicle row, ripple, property
+            # delta, agent run or agent memory. A player-reachable GET must not
+            # let one person choose an agent (or another player's name) as the
+            # performer of permanent acts (AGENTS.md: every player owns their
+            # actions); operator walks go through the CLI (`python main.py
+            # agent`, or `play`'s ambient mode, which records traces).
+            # 2026-11-03 evaluation, finding R2.
             try:
                 seed      = guard.world_seed(param("seed"))
                 threshold = int(param("threshold",  "6"))
@@ -1038,36 +1076,26 @@ class Handler(BaseHTTPRequestHandler):
                 max_nodes = max(1, min(500, int(param("max_nodes", "50"))))
             except ValueError as exc:
                 return self._send_error(str(exc))
-            # The walker is always Scout. Its name lands in AGENT_VISIT rows
-            # and keys agent_memory, so a client-chosen ``?name=`` is ignored
-            # (agents/identities.py). ``persona`` only picks an archetype
-            # from the fixed catalog; it never names anyone.
+            # The walker is always Scout (agents/identities.py); a
+            # client-chosen ``?name=`` is ignored. ``persona`` only picks an
+            # archetype from the fixed catalog; it never names anyone.
             name = identities.SCOUT
             persona_arg = param("persona", "")
             persona = persona_by_name(persona_arg) or persona_for_name(name)
             root  = store.world_tree(seed=seed)
             apply_ripple_scores(root, persistence.load_ripple_scores(seed))
             apply_property_overrides(root, persistence.load_node_property_overrides(seed))
-            # Per-request bus with the standard record/ripple/effects wiring
-            # so traversal events persist and change world substance.
-            agent_bus = wire_world_handlers(CausalityBus(), seed)
-            agent = Agent(name=name, danger_threshold=threshold, bus=agent_bus,
-                          persona=persona, world_seed=seed)
-            saved = persistence.load_agent_memory(name, seed)
-            if saved:
-                agent.memory = saved["visited_ids"]
-                agent.scan_cursor = saved.get("scan_cursor")
+            # An unwired per-request bus: events reach no substance, ripple
+            # or record handler, so the walk changes nothing it visits.
+            agent = Agent(name=name, danger_threshold=threshold,
+                          bus=CausalityBus(), persona=persona, world_seed=seed,
+                          pin_puzzles=False)
             agent.traverse(root, max_nodes=max_nodes)
             events = [{"node": e.node_name, "level": e.level,
                        "state": e.state.name, "action": e.action,
                        "persona": e.persona}
                       for e in agent.log]
-            run_id = persistence.save_agent_run(name, seed, agent.fresh_count, events)
-            persistence.save_agent_memory(name, seed, agent.memory,
-                ((saved or {}).get("log_entries", []) + events)[-100:])
-            if agent.scan_cursor:
-                persistence.save_agent_scan_cursor(name, seed, agent.scan_cursor)
-            self._send_json({"run_id": run_id, "agent": name, "seed": seed,
+            self._send_json({"recorded": False, "agent": name, "seed": seed,
                              "persona": persona.name,
                              "nodes_visited": agent.fresh_count,
                              "nodes_inspected": agent.inspected,
@@ -1152,6 +1180,7 @@ class Handler(BaseHTTPRequestHandler):
             if message is None:
                 return
             if guard.ai_disabled():
+                observability.voice_outcome("speak", "disabled")
                 return self._send_json({"response": guard.QUIET_RESPONSE,
                                         "ai": False})
             node_name = str(body.get("node_name", ""))[:128]
@@ -1184,11 +1213,13 @@ class Handler(BaseHTTPRequestHandler):
             verdict = moderation.screen(
                 message, user_key=user_key or None, surface="speak")
             if not verdict.allowed:
+                _record_screen_hold("speak", verdict)
                 return self._send_json(moderation.http_body(verdict))
 
             import consciousness
             voice_ready = runtime.configured()
             if not voice_ready:
+                observability.voice_outcome("speak", "unconfigured")
                 return self._send_json({"response": consciousness.fallback_voice(node), "ai": False})
             try:
                 history = persistence.get_node_history(seed, node.name)
@@ -1220,8 +1251,8 @@ class Handler(BaseHTTPRequestHandler):
                     model_provider=getattr(response, "provider", None),
                     resolved_model=getattr(response, "resolved_model", None),
                 )
-                self._send_json({"response": response, "ai": True})
-            except (runtime.ModelActionLimited, runtime.VoiceBudgetLimited):
+            except (runtime.ModelActionLimited, runtime.VoiceBudgetLimited) as exc:
+                observability.voice_outcome("speak", _limit_reason(exc))
                 return self._send_json({"response": guard.QUIET_RESPONSE,
                                         "ai": False})
             except sqlite3.Error as exc:
@@ -1229,6 +1260,7 @@ class Handler(BaseHTTPRequestHandler):
                 # distinguishes a lock from a bad migration, and it does not
                 # include bound values.
                 _log.warning("speak fallback (%s): %s", node.name, exc)
+                observability.voice_outcome("speak", "db", exc)
                 self._send_json({
                     "response": consciousness.fallback_voice(node),
                     "ai": False,
@@ -1237,10 +1269,17 @@ class Handler(BaseHTTPRequestHandler):
                 # A provider message can carry a credential or the player's
                 # words. The class only, matching the moderation hold.
                 _log.warning("speak fallback (%s): %s", node.name, type(exc).__name__)
+                observability.voice_outcome("speak", "provider", exc)
                 self._send_json({
                     "response": consciousness.fallback_voice(node),
                     "ai": False,
                 })
+            else:
+                # Outside the classifying try: a player who hung up before
+                # the reply arrived is not a provider failure. The reply goes
+                # out before the counter write, so the write never delays it.
+                self._send_json({"response": response, "ai": True})
+                observability.voice_outcome("speak", "ok")
 
         elif path == "/puzzle/attempt":
             self._do_puzzle_attempt(body, user_key=user_key)
@@ -1399,6 +1438,7 @@ class Handler(BaseHTTPRequestHandler):
         if message is None:
             return
         if guard.ai_disabled():
+            observability.voice_outcome("agent_voice", "disabled")
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})
@@ -1440,10 +1480,12 @@ class Handler(BaseHTTPRequestHandler):
         verdict = moderation.screen(
             message, user_key=user_key or None, surface="agent")
         if not verdict.allowed:
+            _record_screen_hold("agent_voice", verdict)
             return self._send_json(moderation.http_body(
                 verdict, agent=agent_name, persona=persona.name, node=node.name))
         voice_ready = runtime.configured()
         if not voice_ready:
+            observability.voice_outcome("agent_voice", "unconfigured")
             return self._agent_voice_quiet(agent_name, persona.name, node.name)
         try:
             import consciousness
@@ -1469,14 +1511,8 @@ class Handler(BaseHTTPRequestHandler):
                 model_provider=getattr(response, "provider", None),
                 resolved_model=getattr(response, "resolved_model", None),
             )
-            self._send_json({
-                "agent":    agent_name,
-                "persona":  persona.name,
-                "node":     node.name,
-                "response": response,
-                "ai":       True,
-            })
-        except (runtime.ModelActionLimited, runtime.VoiceBudgetLimited):
+        except (runtime.ModelActionLimited, runtime.VoiceBudgetLimited) as exc:
+            observability.voice_outcome("agent_voice", _limit_reason(exc))
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})
@@ -1486,12 +1522,24 @@ class Handler(BaseHTTPRequestHandler):
             # migration, and it does not include bound values. Same split
             # as /speak.
             _log.warning("agent voice fallback (%s): %s", agent_name, exc)
+            observability.voice_outcome("agent_voice", "db", exc)
             self._agent_voice_quiet(agent_name, persona.name, node.name)
         except Exception as exc:
             # A provider message can carry a credential or the player's
             # words. The class only, matching the moderation hold.
             _log.warning("agent voice fallback (%s): %s", agent_name, type(exc).__name__)
+            observability.voice_outcome("agent_voice", "provider", exc)
             self._agent_voice_quiet(agent_name, persona.name, node.name)
+        else:
+            # Same split as /speak: send first, then count.
+            self._send_json({
+                "agent":    agent_name,
+                "persona":  persona.name,
+                "node":     node.name,
+                "response": response,
+                "ai":       True,
+            })
+            observability.voice_outcome("agent_voice", "ok")
 
     def _do_register(self, body: dict) -> None:
         """POST /register — invite-gated self-service registration (ADR-004 §7).
@@ -1604,9 +1652,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error(str(exc))
 
         node_name  = qs.get("node_name", [""])[0]
-        # Always Observer. The walk records AGENT_VISIT rows and enters the
-        # room's live presence under this name, so a client-chosen ``?name=``
-        # (another player's, or a cast member's) is ignored.
+        # Always Observer. The walk enters the room's live presence under
+        # this name, so a client-chosen ``?name=`` (another player's, or a
+        # cast member's) is ignored. It stores nothing (2026-11-03
+        # evaluation, R2): no chronicle row, ripple, delta or puzzle pin.
         agent_name = identities.OBSERVER
         persona_arg = qs.get("persona", [""])[0]
         persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
@@ -1622,7 +1671,20 @@ class Handler(BaseHTTPRequestHandler):
         distance_map = build_distance_map(target)
         room         = get_room(seed)
 
-        agent_enter(room, agent_name, persona=persona.name)
+        # Walks take turns on the one Observer presence (Room.observer_lock).
+        # The turn covers only computing the walk; the watcher's stream is
+        # written after it is released, so a slow reader cannot hold the turn
+        # or keep Observe busy for others. A watcher who cannot get a turn in
+        # time is told so and nothing walks.
+        if not room.observer_lock.acquire(timeout=_OBSERVE_WAIT_SEC):
+            try:
+                self._sse_event({"done": True, "nodes_visited": 0, "busy": True})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+
+        stream: list[dict] = []
+        last_stand = [None]
 
         def handler(node: SpatialNode, event: causality.CausalEvent) -> None:
             # The strength shown is the event's REAL propagated strength —
@@ -1640,12 +1702,21 @@ class Handler(BaseHTTPRequestHandler):
                 "agent":    agent_name,
                 "persona":  persona.name,
             }
-            try:
-                self._sse_event(payload)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
-            broadcast(room, {"type": "causal_event", **payload})
+            stream.append(payload)
+            # The walk is streamed to the watcher only. Nothing it fires is
+            # applied, so it must not reach the room as a causal_event: both
+            # clients render those as world events (a feed line, a flash, a
+            # ripple at your feet) that a reload would contradict. Presence
+            # (agent_enter/move/encounter/leave) is live fact and still goes out.
 
+            # Presence follows the walker, not its ripples: move only to the
+            # node where the walker acts (the event's origin), once per stop.
+            # Every ripple used to move it, which with no I/O to pace the walk
+            # flooded each player's outbox and evicted them (review of #141).
+            if event.origin_id != node.id or last_stand[0] == node.name:
+                return
+            last_stand[0] = node.name
+            time.sleep(_OBSERVE_STEP_SEC)
             # Check for agent-to-agent encounters at this node
             others = agent_move(room, agent_name, node.name)
             for other_name in others:
@@ -1661,22 +1732,30 @@ class Handler(BaseHTTPRequestHandler):
                 broadcast(room, encounter)
 
         # Per-request bus keeps observation isolated from the global event
-        # stream — concurrent /observe calls no longer need to serialise.
-        bus = CausalityBus()
-        bus.register_handler(handler)
-        wire_world_handlers(bus, seed)
+        # stream (the presence, not the bus, is why walks take turns).
+        # Only the live handler is registered: no record, ripple or
+        # substance handler, so watching a walk changes nothing it passes.
         try:
+            # Inside the try, so the finally always ends the presence and
+            # releases the turn.
+            agent_enter(room, agent_name, persona=persona.name)
+            bus = CausalityBus()
+            bus.register_handler(handler)
             agent = Agent(name=agent_name, danger_threshold=7, bus=bus,
-                          persona=persona, world_seed=seed)
+                          persona=persona, world_seed=seed, pin_puzzles=False)
             agent.traverse(target, max_nodes=40)
             nodes_visited = len(agent.visited)
-            self._sse_event({"done": True, "nodes_visited": nodes_visited})
-            broadcast(get_room(seed), {"type": "agent_done", "node": target.name,
-                                       "nodes_visited": nodes_visited})
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+            broadcast(room, {"type": "agent_done", "node": target.name,
+                             "nodes_visited": nodes_visited})
         finally:
             agent_leave(room, agent_name)
+            room.observer_lock.release()
+        try:
+            for payload in stream:
+                self._sse_event(payload)
+            self._sse_event({"done": True, "nodes_visited": nodes_visited})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     # ── Puzzle ──
 

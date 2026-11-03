@@ -26,8 +26,11 @@ helpers below — `record_origin_event` for event-effect origins,
 `record_verb_act` for the scale-verb immediate branch — so the attributed
 row, its delta, and the overlay change always commit as one transaction.
 
-Used by the HTTP server (`/agent`, `/observe`, puzzle solves), the world
-heartbeat, and the CLI — one wiring, same rules for every participant.
+Used by the HTTP server's world-changing routes (puzzle solves, acts), the
+world heartbeat, and the CLI — one wiring, same rules for every participant.
+`GET /agent` (a simulation) and `GET /observe` (a live walk) are deliberately
+left unwired, so a request cannot make an agent its performer of permanent
+acts (2026-11-03 evaluation, R2). Do not wire them "for consistency".
 """
 from __future__ import annotations
 
