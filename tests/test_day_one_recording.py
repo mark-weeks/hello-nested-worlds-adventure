@@ -51,9 +51,9 @@ def _ws_connect(port: int, seed: int, name: str, invite_key: str | None = None):
         "Upgrade: websocket\r\nConnection: Upgrade\r\n"
         f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
     ).encode())
-    # One byte at a time: the server's first frame (the welcome) can arrive
-    # in the same read as the 101 headers, and a larger read would swallow
-    # it, so a caller waiting for the welcome timed out after a good upgrade.
+    # One byte at a time, stopping at the blank line: the server can send
+    # its welcome frame in the same segment as the 101, and a larger read
+    # would swallow it before the caller's frame reader runs.
     head = b""
     while not head.endswith(b"\r\n\r\n"):
         chunk = s.recv(1)
@@ -61,6 +61,35 @@ def _ws_connect(port: int, seed: int, name: str, invite_key: str | None = None):
             break
         head += chunk
     return s, head.split(b"\r\n", 1)[0]
+
+
+def test_ws_connect_leaves_a_frame_sent_with_the_upgrade_for_the_reader(monkeypatch):
+    """The 101 head and the first frame can arrive in one segment.
+
+    The fake server's whole reply is buffered before the first read, so a
+    reader that takes more than the head swallows the welcome frame.
+    """
+    client, server_end = socket.socketpair()
+    client.settimeout(5)
+    frame = json.dumps({"type": "welcome"}).encode()
+    frame = bytes([0x81, len(frame)]) + frame
+    server_end.sendall(
+        b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+        b"Connection: Upgrade\r\nSec-WebSocket-Accept: x\r\n\r\n" + frame)
+    monkeypatch.setattr(socket, "create_connection", lambda *a, **k: client)
+    try:
+        s, status = _ws_connect(1, 4613, "Ada")
+        assert status == b"HTTP/1.1 101 Switching Protocols"
+        # Half-close: end of stream after the frame, without resetting the
+        # upgrade request the fake server never reads.
+        server_end.shutdown(socket.SHUT_WR)
+        rest = b""
+        while chunk := s.recv(4096):
+            rest += chunk
+        assert rest == frame
+    finally:
+        client.close()
+        server_end.close()
 
 
 def _ws_send_json(s: socket.socket, msg: dict) -> None:
@@ -114,34 +143,6 @@ class TestPresenceLifecycle:
         _wait_for_rows(seed, target.name, "PLAYER_MOVE")
         counts = persistence.count_mutations_by_node(seed)
         assert counts.get(target.name, 0) >= 1
-        s.close()
-
-    def test_the_helper_leaves_the_welcome_for_the_caller(self, srv, monkeypatch):
-        # The client reads the 101 only after the welcome has arrived too,
-        # so both sit in one receive buffer. _ws_connect used to swallow
-        # the welcome with the headers, and a caller then timed out waiting
-        # for it after a good upgrade (seen in full-suite runs).
-        from tests.test_moderation import _read_ws_json_until
-        real = socket.create_connection
-
-        class LateReader:
-            def __init__(self, sock):
-                self._sock, self._late = sock, True
-
-            def recv(self, n):
-                if self._late:
-                    self._late = False
-                    time.sleep(0.5)
-                return self._sock.recv(n)
-
-            def __getattr__(self, name):
-                return getattr(self._sock, name)
-
-        monkeypatch.setattr(socket, "create_connection",
-                            lambda *a, **k: LateReader(real(*a, **k)))
-        s, status = _ws_connect(srv, 253, "Cal")
-        assert b"101" in status
-        assert _read_ws_json_until(s, "welcome")["type"] == "welcome"
         s.close()
 
 

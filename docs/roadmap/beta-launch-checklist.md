@@ -1,13 +1,15 @@
 # Enfolded Beta Launch Checklist
 
 *Living checklist carried by the [roadmap index](README.md). Statuses below
-are as of 2026-11-01, `main` at `38fbe6e`. Thresholds marked as proposals are
-not decided. Decisions held for the owner are listed in this page and are not
+are as of 2026-11-02, `main` at `23b8830`, updated 2026-11-03 for the merged
+integrity (#137), suspension (#138) and agent-identity (#139) PRs in rows S1,
+E4, G5, C7, G9 and P6, and for the credential sweep in G5; line numbers in
+other rows cite `23b8830`. Thresholds marked as proposals are not decided. Decisions held for the owner are listed in this page and are not
 made by recording it. It ratifies no ADR and authorizes no deployment. The
 [Q4 plan](next-steps-2026-q4.md) governs order; this checklist governs exit
 criteria.*
 
-What must be true before 8 to 12 invited people play Enfolded. Each item has a testable exit criterion and a status grounded in the repo at main `38fbe6e`.
+What must be true before 8 to 12 invited people play Enfolded. Each item has a testable exit criterion and a status grounded in the repo at main `23b8830`.
 
 ## Contents
 
@@ -36,14 +38,14 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 
 ## At a glance
 
-95 items in 16 categories. 54 block beta, and 44 of them are still open.
+95 items in 16 categories. 54 block beta, and 45 of them are still open.
 
 | Status | Count |
 |---|---|
-| Done | 11 |
-| Partial | 35 |
+| Done | 10 |
+| Partial | 38 |
 | Not started | 44 |
-| Unknown | 5 |
+| Unknown | 3 |
 
 ### By category
 
@@ -56,12 +58,12 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | AI players and agent policy | 4 | 0 | 3 | 1 | 0 |
 | Safety and moderation | 5 | 1 | 2 | 2 | 0 |
 | Economy, budgets and cost | 5 | 1 | 1 | 3 | 0 |
-| Performance and reliability | 7 | 1 | 2 | 3 | 1 |
+| Performance and reliability | 7 | 0 | 3 | 3 | 1 |
 | Observability and feedback | 5 | 1 | 3 | 1 | 0 |
 | Model agnosticism | 6 | 1 | 2 | 3 | 0 |
-| Accessibility | 6 | 2 | 2 | 1 | 1 |
-| Legal and policy | 5 | 1 | 1 | 1 | 2 |
-| Deployment and ops | 6 | 0 | 1 | 5 | 0 |
+| Accessibility | 6 | 2 | 3 | 1 | 0 |
+| Legal and policy | 5 | 1 | 1 | 2 | 1 |
+| Deployment and ops | 6 | 0 | 2 | 4 | 0 |
 | Community and beta cohort | 4 | 0 | 1 | 3 | 0 |
 | Community governance and self-policing | 12 | 1 | 1 | 10 | 0 |
 | Distinctiveness: why players return | 7 | 0 | 3 | 4 | 0 |
@@ -76,13 +78,13 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 |---|---|---|---|---|---|
 | C1 | Node properties broad enough to feel like distinct personalities, histories, art and sound | `world_quality.py` gate holds on seed 382, and in a blinded test 10 testers tell two same-scale nodes apart by voice and scene at 80% or better. | Partial | (Ran) `multiverse/generator.py` has 5 to 7 properties per scale plus a composed aspect (about 420k combinations). Ran `world_quality.py`: PASS, 4,208 nodes, siblings 99.67% distinct. Felt personality is untested: no live model run. | **Blocks beta** |
 | C2a | Puzzles are interesting and every solve gives visible feedback | Every solve shows at least one effect within 2 s (passage opens, node settles, solver credited). Whether puzzles are interesting is measured in C2c. | Partial | (Code) `puzzles/gates.py` unseals locked rooms world-wide. `multiverse/effects.py` PUZZLE_SOLVED stabilizes the node and calms its region. `server/rooms.py` PuzzleSession credits the solver and contributors. Interest has not been measured. | **Blocks beta** |
-| C2c | Puzzle depth and fun measured in playtesting | In the pilot and cohort, every puzzle attempt is logged with solved or abandoned, time to solve and hints used, and testers rate each solve 'Was it interesting?' from 1 to 5. Proposed bar: solve rate between 40% and 85% for each family, median rating 3.5 or higher, and no family below 3. Players judge this, not the D2 ecology gate. | Not started | (Inference) Not measured. D2 checks variety and the world-reading share only. The 2026-09-07 evaluation ([docs/evaluation/2026-09-07-concept-and-implementation.md](../evaluation/2026-09-07-concept-and-implementation.md)) says the world-reading label counts reading and transforming properties but not investigative depth. Only 54% of answers are unique. Whether hint use is logged today was not checked. The bar is proposed in this checklist, not decided. | **Blocks beta** |
+| C2c | Puzzle depth and fun measured in playtesting | In the pilot and cohort, every puzzle attempt is logged with solved or abandoned, time to solve and hints used, and testers rate each solve 'Was it interesting?' from 1 to 5. Proposed bar: solve rate between 40% and 85% for each family, median rating 3.5 or higher, and no family below 3. Players judge this, not the D2 ecology gate. | Not started | (Inference) Not measured. D2 checks variety and the world-reading share only. The 2026-09-07 evaluation ([docs/evaluation/2026-09-07-concept-and-implementation.md](../evaluation/2026-09-07-concept-and-implementation.md)) says the world-reading label counts reading and transforming properties but not investigative depth. Only 54% of answers are unique. Hints offered are reconstructable; hint use is not. The server returns a hint only to the player whose wrong attempt neither fails the pool nor runs past the puzzle's hints, and none on a solve or a failure (`server/handlers.py:1966-1970`). Every attempt is a PUZZLE_ATTEMPT row with its correct flag and actor (`server/handlers.py:1923-1929`), so the hints offered can be counted from the rows. No row shows that a tester read or used a hint: observed hint use is captured by the facilitator in the session record ([newcomer-watch kit](../evaluation/2026-11-02-newcomer-watch-kit.md#what-to-capture-and-where)). Opening a puzzle writes no row (`server/handlers.py:1703-1761`), so 'abandoned' is derivable only after at least one attempt. No rating is captured anywhere. The bar is proposed in this checklist, not decided. | **Blocks beta** |
 | C2b | Tangible rewards: points, player token budget, inventory items | A solve grants a reward the player can see and spend later, persisted per participant and covered by tests. | Not started | (Code) No points, inventory or collectible code found. ADR-017 (leaderboards) and ADR-018 (collectibles) are Proposed. | Can follow |
 | C3 | Art and soundscape thematically tied to neighboring nodes | Nodes under the same Region or Planet share a tonal family and palette motif. Listeners group siblings versus strangers at 70% or better. | Partial | (Code) `multiverse/senses.py` derives `family` from the nearest Region or Planet ancestor, and `static/score.js` uses it for the root note. `server/imageprompt.py` has no ancestor or neighbor term, and fal.ai scene art is per node. | Can follow |
 | C4 | Players experience other players' and agents' effects | A returning player's recap shows at least one change made by someone else. Player B's act is visible to player A live and after a reload. Permanent history does not have to label the actor human or agent; that labeling is an open decision, not a requirement. | Partial | (Code) Append-only chronicle, `participants.recap()`, Wayback, ripple propagation in `causality/`, heartbeat agents acting in `server/heartbeat.py`, and delayed v3 attempts. Implemented locally. No human has observed it yet. The chronicle covenant (AGENTS.md) leaves a stored trace unlabeled. | **Blocks beta** |
 | C5 | Actions dynamically adjust alignment scores | Every committed act maps to one or more documented axes. The player sees the change and the reason in the same session. The mapping is pinned by tests. | Not started | (Code) No alignment code: 'alignment' appears only as an orbital property in `interventions_v3.py`. ADR-014 proposes independent disposition meters, explicitly not an alignment axis, and ADR-017 rules out ranking by alignment extremity. | Can follow · Mark decides |
 | C6 | Players communicate, collaborate and compete | Two testers can find each other, chat, and co-solve a puzzle with shared credit. Competition (standings, ADR-017) follows the first cohort; Mark decides. | Partial | (Code) WebSocket `chat` in `server/websocket.py` is moderated, rate-limited, 256 chars, broadcast world-wide and persisted as PLAYER_CHAT. Puzzle co-op is pooled. The retired scripted situation is not beta onboarding, and its opposing choices are not this gate. No direct messages, groups or competitive standings. | **Blocks beta** |
-| C7 | Players can disengage from or block other players | A player can mute or block someone from chat or presence. The block persists per participant, hides that player's chat and presence, and is covered by tests. A report goes to an operator queue. | Not started | (Code) No block, mute or report in `server/` or `frontend/src/components/TextPanel.jsx`. Chat reaches every connected player in the world. | **Blocks beta** |
+| C7 | Players can disengage from or block other players | A player can mute or block someone from chat or presence. The block persists per participant, hides that player's chat and presence, and is covered by tests. A report goes to an operator queue. | Not started | (Code) No block, mute or report in `server/` or `frontend/src/components/TextPanel.jsx`. Chat reaches every connected player in the world, the sender included (`server/websocket.py:236-244`). `GET /players`, which returned every live player's position to any invited requester and which no client called, was removed by #137. The Chronicle shows every move as 'X passed into Y' (`static/clientlogic.js:255`), so a block can hide live presence but not location; hiding Chronicle moves is an owner question. | **Blocks beta** |
 
 **On puzzles:** world-reading means the answer comes from the node itself, from its own properties and its place in the hierarchy, not from a generic anagram, cipher or number pattern (the decode family). The seven world-reading families in `WORLD_READING_FAMILIES` (`puzzles/quality.py`) are sealed_lock, lineage, bond, enfold, keeper_witness, ancestral_compass and causal_augury. The D2 gate proves puzzles are tied to nodes, not that they are deep or fun, so C2c measures that with players.
 
@@ -90,7 +92,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 
 | ID | Item | Exit criterion | Status | Evidence | Gate |
 |---|---|---|---|---|---|
-| O1 | Time to first delight | In 2 to 3 observed newcomer sessions, curiosity appears within 5 min and the first understood consequence within 10 min. Protocol gate: 8 of 10 show curiosity. | Not started | (Docs) Protocol 2 ([2026-09-12-pilot-protocol.md](../evaluation/2026-09-12-pilot-protocol.md)) and `scripts/pilot_report.py` are ready. No newcomer has been observed. | **Blocks beta** |
+| O1 | Time to first delight | In 2 to 3 observed newcomer sessions, curiosity appears within 5 min and the first understood consequence within 10 min. Protocol gate: 8 of 10 show curiosity. | Not started | (Docs) Protocol 2 ([2026-09-12-pilot-protocol.md](../evaluation/2026-09-12-pilot-protocol.md)) and `scripts/pilot_report.py` are ready. No newcomer has been observed. Protocol 2's curiosity window is the first two minutes, not five (script step 1), and it has no 10-minute consequence timing; the 8-of-10 gate belongs to the cohort, not to 2 to 3 newcomer sessions. | **Blocks beta** |
 | O2 | Entry with an unresolved question | A new arrival, exploring and using Act under protocol 2, finds or states a question without a scripted situation and without help. | Partial | (Docs) Protocol 2 ([2026-09-12-pilot-protocol.md](../evaluation/2026-09-12-pilot-protocol.md)) watches unprompted curiosity, then Speak, Puzzle and Act. Opening a situation is not beta onboarding, and `/situation/choose` refuses new choices. Comprehension is unobserved. | **Blocks beta** |
 | O3 | Invite to first place in under 2 minutes | A tester goes from invite link to first place unaided in under 2 min. | Partial | (Code) `static/register.html`, `guide.html`, per-person invite keys (migrations 0004 and 0012). Only rehearsed locally. | **Blocks beta** |
 | O4 | Orientation: no one gets lost | At most 1 in 10 newcomers cannot say where they are or how to go back. | Partial | (Docs) Named passages and an eight-place return trail (#107). Issue #87's blinded scale test has not been run. | **Blocks beta** |
@@ -128,11 +130,11 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 
 | ID | Item | Exit criterion | Status | Evidence | Gate |
 |---|---|---|---|---|---|
-| S1 | Shared text fails closed | When moderation errors or is out of budget, no other player sees the text. | Done | (Code) ADR-004 amendment (2026-10-25), `server/moderation.py`, `tests/test_shared_text_fail_closed.py`. | **Blocks beta** |
+| S1 | Shared text fails closed | When moderation errors or is out of budget, no other player sees the text. | Done | (Code) ADR-004 amendment (2026-10-25), `server/moderation.py`, `tests/test_shared_text_fail_closed.py`. The agent-name path that bypassed it on `23b8830` (`/agent?name=`, `/observe?name=` and the `agent_name` that `/agent/voice` stored, none screened and `agent` not a redactable field) is closed by #139: an agent acts or speaks only under a server-owned name from `agents/identities.py`, `/agent` and `/observe` ignore `?name=`, and `/agent/voice` answers any other name with the quiet line before the screen, any charge or any row (`tests/test_agent_identities.py`). | **Blocks beta** |
 | S2 | Destinations that may receive player text | A written allowlist of the providers that can receive player text, enforced in config. | Not started | (Docs) Held for Mark. It gates any second provider. | **Blocks beta** · Mark decides |
 | S3 | Report and abuse handling | A report reaches an operator within 24 h, and redaction is rehearsed on staging. | Partial | (Code) `main.py redact` (ADR-004 redaction). Break-glass delete is a documented manual procedure, not an application command. No player report flow. | **Blocks beta** |
 | S4 | Minors and age policy | A minimum age is stated in the invite and terms. | Not started | (Docs) No age policy found in ADRs, runbook or README. | **Blocks beta** |
-| S5 | Chat and notes privacy | Testers consent to chat being kept in the permanent chronicle, or chat is kept out of it. | Partial | (Code) Chat is written as PLAYER_CHAT under the never-wipe rule. Notes are private (rehearsal test). Logs hash IPs (`observability.py`). | **Blocks beta** |
+| S5 | Chat and notes privacy | Testers consent to chat being kept in the permanent chronicle, or chat is kept out of it. | Partial | (Code) Chat is written as PLAYER_CHAT under the never-wipe rule. `/chronicle` and `/history` return the full chat text to any invited player (`server/handlers.py:914-946`, `persistence/__init__.py:982-1024`), although the Chronicle shows only 'said something' (`static/clientlogic.js:240`). Node voices quote chat text into model prompts (`consciousness/__init__.py:868-873`). Operator-minted keys skip the consent line on `/register` (`main.py:318-328`, `static/register.html:49-52`). Notes are private (rehearsal test). Logs hash IPs (`observability.py`). | **Blocks beta** |
 
 ## Economy, budgets and cost
 
@@ -150,10 +152,10 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 |---|---|---|---|---|---|
 | P1 | Latency targets | On staging, move and act p95 under 300 ms, and speak p95 under 6 s. | Not started | (Inference) No targets are written. The numbers here are proposals. | **Blocks beta** |
 | P2 | Load | `ws_soak.py` with 12 or more clients on staging, with no drops. | Partial | (Docs) Local 12-client burst and a backlog of 64 (readiness record). Not hosted. | **Blocks beta** |
-| P3 | Hosted backups | `backup_health.py` exits 0 on a real artifact. | Not started | (Docs) The artifact check returns missing. Needs Fly credentials. | **Blocks beta** |
-| P4 | Hosted restore rehearsal | A downloaded artifact is restored into staging, with checksum and timing recorded. | Not started | (Code) Local cold restore passes (`tests/test_beta_rehearsal.py`). | **Blocks beta** |
-| P5 | Freshness alerting | A stale or missing backup triggers a notification. | Partial | (Code) Script and workflow exist. The scheduler and notification destination are not configured. | **Blocks beta** |
-| P6 | Additive migrations | Every migration is additive, and the schema version is pinned. | Done | (Code) `persistence/migrations` 0001 to 0028. | **Blocks beta** |
+| P3 | Hosted backups | `backup_health.py` exits 0 on a real validated private-bucket object. | Not started | (Docs) Since #136, backups are private-bucket objects, not GitHub artifacts (`scripts/backup_health.py`). The check exits 2 until the bucket and key are configured, then reports missing until the first validated object is stored. Needs Fly credentials and decision I. | **Blocks beta** |
+| P4 | Hosted restore rehearsal | A downloaded backup object is restored into staging, with checksum and timing recorded. | Not started | (Code) Local cold restore passes (`tests/test_beta_rehearsal.py`). | **Blocks beta** |
+| P5 | Freshness alerting | A stale or missing private-bucket object triggers a notification. | Partial | (Code) `scripts/backup_health.py` reads the private bucket (#136), and the workflow exists. The scheduler and notification destination are not configured. | **Blocks beta** |
+| P6 | Additive migrations | Every migration is additive, and the schema version is pinned. | Partial | (Code) `persistence/migrations` 0001 to 0029 are additive (0029, the sanction tables, landed with #138). The schema version is not pinned: `_run_migrations` applies missing migrations and never compares the highest applied version with the highest this binary knows (`persistence/__init__.py:225-252`), so an older binary runs silently against a newer database. | **Blocks beta** |
 | P7 | SQLite single-writer limits known | Measured writer ceiling recorded, with headroom 5x over the cohort. | Unknown | (Docs) Litestream replication (roadmap 4.1) is post-launch. | Can follow |
 
 ## Observability and feedback
@@ -161,7 +163,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | ID | Item | Exit criterion | Status | Evidence | Gate |
 |---|---|---|---|---|---|
 | B1 | Error reporting | `SENTRY_DSN` set on production, and a test error arrives. | Partial | (Code) `server/observability.py` is wired. The DSN is unset. | **Blocks beta** |
-| B2 | Privacy-respecting beta metrics | `beta_metrics.py --days 1` is read daily during the cohort. | Partial | (Code) `scripts/beta_metrics.py` reads the chronicle, with no third-party analytics. No cohort has run, so the daily read has not happened. | **Blocks beta** |
+| B2 | Privacy-respecting beta metrics | `beta_metrics.py --days 1` is read daily during the cohort. | Partial | (Code) `scripts/beta_metrics.py` reads the chronicle, with no third-party analytics. No cohort has run, so the daily read has not happened. It omits INTERVENTION_COMMITTED, the row an Act commit writes (`scripts/beta_metrics.py:40-44`, `persistence/interventions.py:110`, `persistence/interventions.py:138`), so Act use is not counted: an Act-only tester appears as a visitor, through the PLAYER_JOIN and PLAYER_LEAVE rows every connection writes (`server/websocket.py:132-139`, `server/websocket.py:276-283`; PLAYER_MOVE is written only on a move), with no recorded action (executed on a scratch database 2026-11-02). It counts raw PUZZLE_FAILED rows, which repeat after a pool is exhausted (`scripts/beta_metrics.py:141`, `server/handlers.py:1995-2005`). | **Blocks beta** |
 | B3 | Uptime ping | A `/guide` ping alerts within 5 min. | Not started | (Docs) Q4 plan step P9. | **Blocks beta** |
 | B4 | In-game feedback channel | Testers can post ideas, and the owner reviews them weekly. | Partial | (Code) Ideas board (`static/ideas.html`, ADR-026). Not hosted. | Can follow |
 | B5 | Model provenance | Every model-written chronicle row records the provider and resolved model the call reported. | Done | (Code) Migration `0028_model_provenance.sql`. A row is written for a model-written chronicle row, not for every generated line. | Can follow |
@@ -171,7 +173,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | ID | Item | Exit criterion | Status | Evidence | Gate |
 |---|---|---|---|---|---|
 | M1 | Provider registry and model per task | Provider selected by config, with startup refusing unusable ids. | Done | (Code) On main at `38fbe6e`: `NESTED_WORLDS_PROVIDER`, `model_for(task)`, `UnusableModelId` (#130 to #132). | **Blocks beta** |
-| M2 | Second text adapter (openai_compatible) | If Mark decides to add a second text adapter, it is merged with offline contract tests, and ADR-035 is Accepted. | Partial | (Docs) PR #133 (ADR-035 Proposed) and #134 (adapter) are in review. | Can follow · Mark decides |
+| M2 | Second text adapter (openai_compatible) | If Mark decides to add a second text adapter, it is merged with offline contract tests, and ADR-035 is Accepted. | Partial | (Docs) #133 (ADR-035, Proposed) and #134 (adapter) merged on 2026-11-02 (`6713fee`, `f4f3396`). Partial until ADR-035 is Accepted. | Can follow · Mark decides |
 | M3 | Eval harness for every adapter | The harness runs any registered provider against the rubric. | Not started | (Code) `evals/harness.py` accepts fixture and anthropic only. | Can follow · Mark decides |
 | M4 | Live quality bar per task | Live probes for success, clarification and refusal pass on the beta provider. | Not started | (Docs) No live credential has been used. Probes are Q4 plan step P4. | **Blocks beta** · Mark decides |
 | M5 | Provider fallback | A provider outage degrades in fiction, with no failover required for beta. | Partial | (Code) One provider per process, no failover. Fallbacks are logged by exception class (#132). | Can follow |
@@ -186,7 +188,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Y3 | Keyboard-only play | The full loop (move, speak, puzzle, act) works by keyboard on every cohort device. | Partial | (Code) Playwright focus and keyboard coverage in `frontend/e2e`. Chromium only. | **Blocks beta** |
 | Y4 | Screen reader | Main loop usable with VoiceOver or NVDA in one recorded session. | Partial | (Code) aria-labels exist in components. No assistive-technology session recorded. | Can follow |
 | Y5 | Cohort device matrix | Each cohort device passes browser, keyboard and fallback checks, or is excluded. | Not started | (Docs) Q4 plan step P5. Only desktop Chromium is exercised. | **Blocks beta** |
-| Y6 | Text alternative for sound and visual meaning | State carried by music or art is also stated in text. | Unknown | (Inference) Senses produce a text description, but no captions were found. | Can follow |
+| Y6 | Text alternative for sound and visual meaning | State carried by music or art is also stated in text. | Partial | (Code) Conditions, properties and passage badges are stated in text (`static/interface.js:59-63`). The score's minor mode (`static/score.js:25`) and its change cue (`static/score.js:191-192`) have no text equivalent. The event and chat feeds and Speak replies are not live regions; only status lines are (`static/index.html:132`, `static/explorer.js:892`, `static/interventions.js:192`; grep of both clients for `aria-live` and `role="status"`). | Can follow |
 
 ## Legal and policy
 
@@ -196,7 +198,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | L2 | Terms of use and content policy | Linked from the invite and register page, and accepted at registration. | Not started | (Code) No terms page in `static/`. | **Blocks beta** |
 | L3 | Player-facing privacy notice | States what is kept forever, what can be redacted, and the retention date. | Partial | (Docs) ADR-004 data policy and protocol consent exist. No player-facing page found. The notice must also name sanction records: suspensions and bans with their private reasons are kept in every backup and are not redactable ([fly-deployment.md §6](../infrastructure/fly-deployment.md#suspending-or-banning-a-player)). | **Blocks beta** |
 | L4 | Third-party provider terms reviewed | A data use note for each provider that receives player text or prompts. | Unknown | (Inference) Tied to S2. Not checked. | **Blocks beta** · Mark decides |
-| L5 | AI-generated content disclosure | The guide and UI say which text and art is generated. | Unknown | (Inference) Not audited. | Can follow |
+| L5 | AI-generated content disclosure | The guide and UI say which text and art is generated. | Not started | (Code) Audited: the guide names a model only for intention reading (`static/guide.html:83`). Nothing in the guide or either client says that place and inhabitant replies or `/app` scene images are model-generated, and neither client reads the `ai` flag. | Can follow |
 
 ## Deployment and ops
 
@@ -205,7 +207,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | F1 | Fly staging twin | `/health` ok, invite gate closed, `/speak` returns ai true. | Not started | (Docs) Needs Mark's Fly account, billing, flyctl and token ([docs/infrastructure/fly-deployment.md](../infrastructure/fly-deployment.md)). | **Blocks beta** · Mark decides |
 | F2 | Release candidate | Version bumped from `0.1.1rc2`, tag cut, release workflow green, wheel smoke passes. | Not started | (Docs) The last tag, `v0.1.1-qa.2`, is far behind main. | **Blocks beta** |
 | F3 | Secrets via a secure channel | Secrets set only with `fly secrets` and never in the repo. | Not started | (Docs) Runbook. Only after Mark confirms. | **Blocks beta** · Mark decides |
-| F4 | Rollback | A previous release is redeployed on staging in under 10 min. | Not started | (Docs) No rollback procedure exists. `scripts/deploy.sh` backs up before deploy. A restore is a disaster operation, not an ordinary release rollback ([docs/infrastructure/fly-deployment.md](../infrastructure/fly-deployment.md)). | **Blocks beta** |
+| F4 | Rollback | A previous release is redeployed on staging in under 10 min. | Partial | (Docs) Rollback across a schema change is documented: restore the matching pre-upgrade backup, abandoning later history, with no supported in-place binary downgrade ([delivery-recovery.md](../infrastructure/delivery-recovery.md), "Upgrade and rollback"). Redeploying a previous release on the same schema has no written procedure, and `scripts/deploy.sh` backs up before deploy but has no rollback mode. A restore is a disaster operation, not an ordinary release rollback ([docs/infrastructure/fly-deployment.md](../infrastructure/fly-deployment.md)). | **Blocks beta** |
 | F5 | Incident response | One-page playbook: kill switches, redaction, who decides. | Partial | (Code) Kill switches exist in `guard.py`. No incident doc found. | Can follow |
 | F6 | Production deploy | Staging torn down, first production backup verified, one key per person minted. | Not started | (Docs) Q4 plan step P9. | **Blocks beta** · Mark decides |
 
@@ -230,7 +232,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | G6 | Rotating random jury | Jurors are drawn at random from the trusted pool for each case, see only the evidence, and vote independently. There is no open vote by all players. | Not started | (Inference) Proposed design. Open voting is easy to brigade. Jury size is Mark's. | Can follow · Mark decides |
 | G7 | Trust standing for jurors and reporters | Standing is computed from account age, fair-play record and past reports that were upheld, and it is pinned by tests. | Not started | (Inference) No standing or reputation data exists. Thresholds are Mark's. | Can follow · Mark decides |
 | G8 | Notice and appeal | The accused is told what was decided and why, and can appeal once to a different reviewer within a set window. | Not started | (Inference) Proposed design. Appeal rules are Mark's. | Can follow · Mark decides |
-| G9 | Anti-brigading limits | Report weight is capped per reporter per day and per target. False or coordinated reports lower the reporter's standing. Tests cover a coordinated burst. | Not started | (Inference) Proposed design. Chat already has a per-user rate limit (`server/guard.py`). | Can follow |
+| G9 | Anti-brigading limits | Report weight is capped per reporter per day and per target. False or coordinated reports lower the reporter's standing. Tests cover a coordinated burst. | Not started | (Inference) Proposed design. Since #137, chat and move rate limits are per credential: keyed sockets share `guard.CredentialBuckets` (chat 0.5/s, burst 5), so 8 sockets on one key (the per-IP socket cap) no longer get 8 times the chat rate; keyless sockets keep per-socket buckets. The only per-person ceiling is 600 moderation actions a day across shared-text surfaces (`server/guard.py:97`). | Can follow |
 | G10 | Consistent rules for humans and AI agents | New accounts and AI agents cannot serve on juries. Human and AI-agent players can be reported and face the same ladder. | Not started | (Docs) Agents are labeled personas (`agents/roster.py`). ADR-032's `participants.kind` column doesn't exist yet. How agents are treated is Mark's. | Can follow · Mark decides |
 | G11 | Hard-rule violations skip the jury | Reports of illegal content, threats or doxxing go straight to central moderation and reach an operator within 24 h, with redaction available. | Partial | (Code) Moderation fails closed (`server/moderation.py`) and `main.py redact` exists. No report routing. | **Blocks beta** |
 | G12 | Action log and owner override | Every report, vote, consequence and appeal is logged append-only, and Mark can overturn any outcome with a recorded reason. | Not started | (Code) The append-only `world_mutations` pattern exists. No governance records. | Can follow |
@@ -262,17 +264,18 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 | World status: retained research or production | Held | R3, K2 (never-wipe starts here) |
 | Community governance: jury size, report thresholds, who can suspend or ban, appeal rules, AI-agent treatment | Held | G3, G4, G6 to G8, G10 |
 | Whether permanent history labels a player human or agent | Held | C4, A1 |
+| Off-host backup destination, vendor and retention (Q4 decision I). Row added from the Q4 plan's decision I (pending); not decided | Held | P3 to P5, the backup-retention line in L3 |
 | Sign-off on migration 0029: sanction reasons kept in every backup, and the erasure path (ADR-034 Decision 5) | Decided 2026-11-03 (owner-directed merge of #138) | G5 |
 
 ## Go/no-go gate
 
-### Blocks beta (status as of Nov 1, 2026)
+### Blocks beta (status as of Nov 3, 2026, after #137, #138 and #139)
 
-- [x] Shared text fails closed (S1)
+- [x] Shared text fails closed (S1); the agent-name path is closed by #139
 - [x] Content variety gates pass on seed 382 (D1, D2)
 - [ ] Player-text destinations, spend ceiling and provider terms decided (Mark; S2, E2, L4)
 - [ ] Block, mute and report shipped (C7, S3, G1, G2)
-- [ ] Owner can suspend or ban; hard-rule reports reach an operator (G5, G11)
+- [ ] Owner can suspend or ban; hard-rule reports reach an operator (G5, G11); G5 is done by #138, G11 is open
 - [ ] Puzzle depth and fun measured in the pilot (C2c)
 - [ ] Terms, privacy notice and age policy published (L2, L3, S4)
 - [ ] Staging twin up; live-model probes pass (F1, M4)
@@ -290,8 +293,10 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 - [ ] Agent presence and live lines labeled; history labels are not required until decided (A1)
 - [ ] Chat privacy consented, or chat kept out of the chronicle (S5)
 - [ ] Call caps enforced, and sized to the cohort (E1)
+- [x] One key cannot exhaust the global budget, and the invite gate closes after the first key (E4); the gate latches closed since #137
 - [ ] Latency targets written and met on staging (P1)
 - [ ] Hosted load soak with 12 or more clients (P2)
+- [ ] Every migration additive, and the schema version pinned (P6); a binary does not yet check for a newer database
 - [ ] Live voice quality meets the rubric (D3)
 - [ ] Beta metrics read daily during the cohort (B2)
 - [ ] Research lead and consent written (K1)
@@ -333,10 +338,13 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 
 ## How this was verified
 
-- Code: read and grepped a clean clone of main at `38fbe6e` (generator, senses, score, gates, effects, rooms, websocket, moderation, guard, participants, migrations).
+- Code: read and grepped a clean clone of main at `38fbe6e` (generator, senses, score, gates, effects, rooms, websocket, moderation, guard, participants, migrations). The rows corrected on 2026-11-02 (below) were re-read at `23b8830`.
 - Ran: `scripts/world_quality.py` and `scripts/puzzle_quality.py` on seed 382, and both passed. Review re-ran `scripts/puzzle_quality.py --seed 382`: decode 33.72%, world-reading 65.61%.
 - Docs: ADR-004, 012 to 018, 023, 024, 025, 026, 029 to 034, AGENTS.md, the 2026-10-03 readiness record, the Q4 next-steps plan and the Fly runbook.
 - Inference: items marked Inference, and the latency and percentage thresholds, are proposed in this checklist, not decided. They are not repo facts.
 - Puzzles: `WORLD_READING_FAMILIES` in `puzzles/quality.py`, the 55% world-reading test gate, and [docs/evaluation/2026-09-07-concept-and-implementation.md](../evaluation/2026-09-07-concept-and-implementation.md).
 - Governance (G1 to G12) is a proposed design from Mark's feedback on Nov 1, 2026, not repo code.
-- Not verified: live model quality, hosted anything, real players, and the in-review PRs #133 and #134.
+- Corrections on 2026-11-02 at `23b8830`, from the [week-plan audit](../evaluation/2026-11-02-week-plan.md): S1, E4 and P6 moved from Done to Partial; F4 from Not started to Partial; L5 from Unknown to Not started; Y6 from Unknown to Partial. Evidence was corrected for C2c, C7, O1, S5, B2, M2, G5, G9 and P3 to P5 (P4's wording follows P3), and the Q4 plan's pending decision I was added to the held table, not decided. The go/no-go list unchecks S1 and names E4 and P6, which are open blockers again. Statuses follow the code at `23b8830`; the pull requests named as pending are not merged. No exit criterion's bar and no held decision changed.
+- Update on 2026-11-03 after #137, #138 and #139 merged: E4 and S1 are Done again with the fixes cited; G5 is Done from #138 with its sign-off recorded in ADR-004 and its revocation bound stated (a hostile listen-only client can stay subscribed for about 72 s, over the 1 min criterion; a server-side re-check is a follow-up). C7 and G9 evidence now cites #137's removal of `GET /players` and its per-credential buckets; P6 counts migration 0029. The go/no-go list checks S1 and E4. The held table records the owner's 2026-11-03 sign-off on migration 0029. P6 stays Partial: no merged PR pins the schema version. The owner's reserved-name decision is recorded in ADR-004's 2026-11-03 amendment and in the [decision packet](decision-packet-2026-11.md) (decision 7).
+- Update after the credential-sweep follow-up: G5's revocation bound is now about 5 s for any open socket, a hostile listen-only client included (one sweep interval plus one database read), which meets the 1 min criterion; the follow-up named above is done. G5 stays Done.
+- Not verified: live model quality, hosted anything, real players.

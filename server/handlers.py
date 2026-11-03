@@ -24,6 +24,7 @@ from causality.wiring import (
     wire_world_handlers,
 )
 from consciousness import runtime
+from agents import identities
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
 from multiverse import store, wrap
@@ -173,12 +174,10 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
     return find_node(deeper, node_name)
 
 
-# The wandering cast's names are world canon: their chronicle rows must be
-# unimpersonatable, so no player may claim them. Imported here, after the
-# module-level constants it sits beside, by design.
-from consciousness import WANDERER_CAST as _WANDERER_CAST  # noqa: E402
-
-_RESERVED_PLAYER_NAMES = {n.lower() for n in _WANDERER_CAST}
+# Every server-owned agent identity is world canon: the wandering cast
+# (ADR-004 §7) and the Scout and Observer walkers (agents/identities.py).
+# Their chronicle rows must be unimpersonatable, so no player may claim them.
+_RESERVED_PLAYER_NAMES = {n.lower() for n in identities.SERVER_IDENTITIES}
 
 
 def _normalize_client_name(raw: Any) -> str | None:
@@ -186,8 +185,8 @@ def _normalize_client_name(raw: Any) -> str | None:
 
     Trimming before the reserved-name check closes the whitespace-bypass a
     cap-then-strip order left open (" Tessera" once evaded the cast block).
-    Reserved (wanderer-cast) names normalize to None — the action still
-    happens, anonymously, rather than in an agent's name.
+    Reserved (server-owned agent) names normalize to None — the action
+    still happens, anonymously, rather than in an agent's name.
     """
     if not raw:
         return None
@@ -1032,7 +1031,6 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/agent":
             try:
                 seed      = guard.world_seed(param("seed"))
-                name      = param("name",           "Scout")
                 threshold = int(param("threshold",  "6"))
                 # Clamped: this drives a per-request FSM walk over the full
                 # tree, and an unbounded client value was the one way to buy
@@ -1040,6 +1038,11 @@ class Handler(BaseHTTPRequestHandler):
                 max_nodes = max(1, min(500, int(param("max_nodes", "50"))))
             except ValueError as exc:
                 return self._send_error(str(exc))
+            # The walker is always Scout. Its name lands in AGENT_VISIT rows
+            # and keys agent_memory, so a client-chosen ``?name=`` is ignored
+            # (agents/identities.py). ``persona`` only picks an archetype
+            # from the fixed catalog; it never names anyone.
+            name = identities.SCOUT
             persona_arg = param("persona", "")
             persona = persona_by_name(persona_arg) or persona_for_name(name)
             root  = store.world_tree(seed=seed)
@@ -1399,14 +1402,30 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})
-        agent_name = str(body.get("agent_name", "Scout"))[:32]
+        # Only a server-owned identity can be voiced (agents/identities.py),
+        # in its canonical spelling: the name lands in AGENT_VOICE data.agent,
+        # which is neither redactable nor screened.
+        requested = body.get("agent_name", identities.SCOUT)
+        agent_name = identities.canonical(requested)
         node_name  = str(body.get("node_name",  ""))[:128]
         try:
             seed = guard.world_seed(body.get("seed"))
         except ValueError as exc:
             return self._send_error(str(exc))
         persona_arg = str(body.get("persona", ""))[:32]
-        persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
+        # The quiet line echoes an unknown name back to the one client that
+        # sent it (a stale trace from an old local DB reads in fiction). It
+        # is never stored, broadcast, or logged.
+        echo = requested.strip()[:32] if isinstance(requested, str) else ""
+        if not echo.isprintable():
+            # Only a printable name is echoed. A control character (NUL), a
+            # format character (zero-width space, a BOM) or a lone surrogate
+            # (an escaped "\ud800" in the body, which has no UTF-8 form to
+            # hash for a persona) is a client's mistake: the quiet line reads
+            # "Someone", never the raw character and never a 500.
+            echo = ""
+        label = agent_name or echo or "Someone"
+        persona = persona_by_name(persona_arg) or persona_for_name(label)
 
         # Same order as /speak: the place is resolved before the screen, so
         # an unknown place is a 404 and costs nothing. The screen still runs
@@ -1414,6 +1433,10 @@ class Handler(BaseHTTPRequestHandler):
         node = _resolve_node(seed, node_name)
         if node is None:
             return self._send_error("no such place in this world", 404)
+        if agent_name is None:
+            # No agent by that name walks this world. Answered like an agent
+            # that cannot speak, before the screen, any budget, or any row.
+            return self._agent_voice_quiet(label, persona.name, node.name)
         verdict = moderation.screen(
             message, user_key=user_key or None, surface="agent")
         if not verdict.allowed:
@@ -1490,8 +1513,8 @@ class Handler(BaseHTTPRequestHandler):
         if len(name) > 32:
             return self._send_error("name too long (32 characters max)", 400)
         if name.lower() in _RESERVED_PLAYER_NAMES:
-            # Same rule as the WS join and the mint CLI: the wandering cast's
-            # names are world canon and unimpersonatable.
+            # Same rule as the WS join and the mint CLI: the server-owned
+            # agent names are world canon and unimpersonatable.
             return self._send_error(
                 f"'{name}' belongs to the world — choose another name", 403)
         # The invite token is not authenticated until redemption below, so
@@ -1581,7 +1604,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error(str(exc))
 
         node_name  = qs.get("node_name", [""])[0]
-        agent_name = (qs.get("name", ["Observer"])[0] or "Observer")[:32]
+        # Always Observer. The walk records AGENT_VISIT rows and enters the
+        # room's live presence under this name, so a client-chosen ``?name=``
+        # (another player's, or a cast member's) is ignored.
+        agent_name = identities.OBSERVER
         persona_arg = qs.get("persona", [""])[0]
         persona = persona_by_name(persona_arg) or persona_for_name(agent_name)
         target     = (find_node(root, node_name) if node_name else None) or root

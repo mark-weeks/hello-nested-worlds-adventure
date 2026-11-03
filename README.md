@@ -59,7 +59,7 @@ still carries the open product milestones: the M7 pilot cohort and M8. The
 separates completed local work from the hosted and human gates that remain.
 The [beta launch checklist](docs/roadmap/beta-launch-checklist.md) governs
 exit criteria for those gates; the Q4 plan governs order. Its statuses are
-as of `main` at `38fbe6e`, and thresholds marked as proposals are not decided.
+as of `main` at `23b8830`, and thresholds marked as proposals are not decided.
 
 ---
 
