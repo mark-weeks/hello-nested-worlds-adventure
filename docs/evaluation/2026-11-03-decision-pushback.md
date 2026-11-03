@@ -57,7 +57,8 @@ minted, a keyless `GET /players` returned 403; after `revoke_invite_key` on that
 key it returned 200, and `/history` returned 200. With `list_invite_keys` patched
 to raise, keyless requests were admitted. Ordinary operator actions reach that
 state: revoke-all during an incident, a future suspend-all built on
-`revoked_at` (checklist G5), a restore from a pre-mint backup. An open gate
+`revoked_at` (checklist G5; #138 later built suspension on separate sanction
+rows the gate never reads), a restore from a pre-mint backup. An open gate
 admits `/speak` (bounded only by the global cap, since per-user caps need a
 credential) and `/ws` with an unscreened `?name=`, and every act becomes a
 permanent row. The owner had already moved shared-text moderation to fail-closed
@@ -101,6 +102,9 @@ provider key or a full disk would therefore produce a week of silence that reads
 as low engagement, corrupting the pilot's central measurement (curiosity and
 return in a model-voiced world) after the fact. The runbook's own line, "Quiet
 degradation hides outages by design", relied on one manual probe on launch day.
+The fix below counts provider and configuration outages; a full disk or failing
+store is deliberately logged rather than counted (the store is what failed), so
+that case still depends on the ERROR line reaching Sentry (checklist B1).
 
 ### R4 — A keyword filter decides what becomes permanent public text
 
@@ -159,7 +163,8 @@ measured gap.
 *Read.* `docs/roadmap/beta-launch-checklist.md` defines what must be true before
 8–12 people play as 95 items, 54 blocking. Its go/no-go list includes the cohort
 itself (K2), cohort outcomes (R1, C2c), cohort operations (B2), and production
-service levels (P1 latency, F4 ten-minute rollback, G5 one-minute suspension). It
+service levels (P1 latency, F4 ten-minute rollback, G5 one-minute suspension,
+which #138 has since marked Done from code). It
 can only be overridden, which defeats a gate. **Held for the owner** (a living
 document whose thresholds are the owner's proposals). Recommendation: split it
 into an entry gate of about ten items, the pilot's measurements, and a post-pilot
