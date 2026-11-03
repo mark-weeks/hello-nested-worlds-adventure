@@ -1424,12 +1424,12 @@ class Handler(BaseHTTPRequestHandler):
         # sent it (a stale trace from an old local DB reads in fiction). It
         # is never stored, broadcast, or logged.
         echo = requested.strip()[:32] if isinstance(requested, str) else ""
-        try:
-            echo.encode("utf-8")
-        except UnicodeEncodeError:
-            # A lone surrogate (an escaped "\ud800" in the body) has no UTF-8
-            # form to hash for a persona or to echo: a client's mistake, so
-            # it reads as "Someone", not a 500.
+        if not echo.isprintable():
+            # Only a printable name is echoed. A control character (NUL), a
+            # format character (zero-width space, a BOM) or a lone surrogate
+            # (an escaped "\ud800" in the body, which has no UTF-8 form to
+            # hash for a persona) is a client's mistake: the quiet line reads
+            # "Someone", never the raw character and never a 500.
             echo = ""
         label = agent_name or echo or "Someone"
         persona = persona_by_name(persona_arg) or persona_for_name(label)

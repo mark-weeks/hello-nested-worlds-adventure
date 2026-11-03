@@ -289,6 +289,8 @@ def test_unknown_agent_is_quiet_before_the_screen_budget_or_any_row(srv, voice):
                                 {"agent": "Recorder", "persona": "scholar"})
     asked = [("Recorder", "Recorder"), ("Ada", "Ada"), (" Bea ", "Bea"),
              ("Tessera the Second", "Tessera the Second"), ("Y" * 80, "Y" * 32),
+             # Printable names outside ASCII still echo, a combining mark included.
+             ("Élodie", "Élodie"), ("影", "影"), ("Zoe\u0308", "Zoe\u0308"),
              ("", "Someone"), ("   ", "Someone"), (None, "Someone"), (7, "Someone"),
              (["Tessera"], "Someone"), ({"name": "Tessera"}, "Someone")]
     for requested, label in asked:
@@ -312,19 +314,28 @@ def test_unknown_agent_is_quiet_before_the_screen_budget_or_any_row(srv, voice):
     assert status == 404 and data["error"] == "no such place in this world"
 
 
-@pytest.mark.parametrize("requested", [
-    "\ud800", " " * 32 + "\ud800", "Ada\udfff",
+@pytest.mark.parametrize("requested,escape", [
+    # Lone surrogates: no UTF-8 form to hash for a persona.
+    ("\ud800", "\\ud800"), (" " * 32 + "\ud800", "\\ud800"), ("Ada\udfff", "\\udfff"),
+    # Control and format characters: strip() keeps them, so they would echo.
+    ("\x00", "\\u0000"), ("\u200b", "\\u200b"), ("Scout\u200b", "\\u200b"),
+    ("\ufeffAda", "\\ufeff"),
 ])
-def test_a_name_with_no_utf8_form_is_quiet_not_a_server_error(srv, voice, requested):
-    """A lone surrogate (an escaped ``\\ud800`` in the JSON body) is a client's
-    mistake. It cannot be hashed to a persona or echoed, so it reads as
-    "Someone" — HTTP 200, ``ai: false``, no screen, no budget, no row."""
+def test_an_unprintable_name_is_quiet_as_someone_not_echoed_or_a_server_error(
+        srv, voice, requested, escape):
+    """A name that is not printable once trimmed and capped is a client's
+    mistake. A lone surrogate (an escaped ``\\ud800`` in the JSON body)
+    cannot be hashed to a persona; NUL, a zero-width space or a BOM would be
+    echoed back raw. Each reads as "Someone" — HTTP 200, ``ai: false``, no
+    screen, no budget, no row. ``"Scout\\u200b"`` is not Scout: the
+    zero-width space survives the trim, so the name is unknown."""
     stub, screens = voice
     seed = 4612
     node = generate_node_hierarchy(seed=seed, max_depth=1)
     body = {"seed": seed, "node_name": node.name, "agent_name": requested,
             "message": "hello, old light"}
-    assert "\\ud" in json.dumps(body)  # the escape json.loads turns back into a surrogate
+    assert escape in json.dumps(body)  # the escape json.loads turns back into the character
+    assert identities.canonical(requested) is None
     status, data = _request(srv, "/agent/voice", body=body)
     assert status == 200, data
     assert data == _quiet("Someone", node.name)
