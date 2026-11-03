@@ -46,7 +46,18 @@ capped at 365 days; a longer exclusion must be a ban. A sanctioned player's
 published profile is hidden from other players as a revoked player's is,
 until the sanction is lifted or expires.
 
-**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction; sanction records 2026-11-03 on the owner's direction.
+**2026-11-03 reserved-names amendment:** Directed by the owner, Mark Weeks,
+on 2026-11-03, who instructed the merge of #139 and delegated its open
+choices. This amends §7's uniqueness rule. Besides the twelve cast names, a
+new player may not take `Scout` or `Observer`, the server-owned walkers
+behind `GET /agent` and `GET /observe`. The reserved set is every name in
+`agents/identities.py`, so a future server-owned identity is reserved when it
+is added there. A player under either name would be indistinguishable from
+the walker in `AGENT_VISIT` and `AGENT_VOICE` rows and in both clients' Speak
+targets. Names already registered are not changed. A name that only contains
+one (`Scoutmaster`) stays a player's.
+
+**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction (invite-gate latch and reserved names); sanction records 2026-11-03 on the owner's direction.
 
 ---
 
@@ -317,9 +328,11 @@ Realized by binding the name to the **per-user invite credential** and removing
 the shared key entirely:
 
 - **Unique at registration.** `python main.py invite mint --name X` rejects a
-  name already taken (case- and whitespace-insensitive) and the twelve cast
-  names; a DB UNIQUE index on `lower(trim(name))` (migration 0011) is the
-  atomic backstop, and `persistence.mint_invite_key` raises `NameUnavailable`.
+  name already taken (case- and whitespace-insensitive), the twelve cast
+  names, and the server-owned walkers `Scout` and `Observer`
+  (`agents/identities.py`; 2026-11-03 amendment); a DB UNIQUE index on
+  `lower(trim(name))` (migration 0011) is the atomic backstop, and
+  `persistence.mint_invite_key` raises `NameUnavailable`.
 - **Server-authoritative at runtime.** A request carrying a per-user invite key
   uses that key's registered name (`guard.registered_name`), ignoring any
   client-supplied `player_name` / `?name=` — so names can't collide or
