@@ -357,9 +357,12 @@ def check_invite_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) ->
 # types, a move or chat its throttle refused). A move or chat that passes its
 # throttle is always re-checked fresh before it writes or broadcasts, so a
 # revoked credential never writes again. This interval bounds the rest: a
-# revoked listen-only session stays subscribed at most this long past its
-# next frame, and a frame flood costs at most one database read per interval
-# instead of one per frame.
+# revoked session is closed at its first complete frame once this long has
+# passed since its last check, and a frame flood costs at most one database
+# read per interval instead of one per frame. Only a complete frame is
+# checked. A socket that sends nothing keeps receiving room broadcasts until
+# the 60 s idle timeout; one that starts a frame must finish it within
+# `protocol._FRAME_DEADLINE_SEC` or be closed.
 WS_REAUTH_INTERVAL_SEC = 2.0
 
 

@@ -72,6 +72,12 @@ def handle_websocket(
 
     ws_key = guard.supplied_key(request.headers, qs)
     registered = guard.registered_name(ws_key)
+    if registered is None and guard.invite_gate_active():
+        # The gate admitted this request, but its credential was revoked (or
+        # the gate closed) before the name was read. Refuse as the gate does,
+        # before any row or broadcast, rather than join under ?name=.
+        request._send_error("forbidden", 403)
+        return
     # Upgraded with a live per-user credential. Such a session lives only as
     # long as that credential does; any other session lives only while the
     # invite gate is open (guard.ws_session_authorized).
@@ -112,6 +118,8 @@ def handle_websocket(
         # that window; protocol pings and {"type":"ping"} both run under the
         # same timer. A silent socket — a gone client — still ends here.
         # TimeoutError is an OSError, so it leaves through the handler below.
+        # Once a frame starts, protocol._FRAME_DEADLINE_SEC bounds the rest
+        # of it; a frame past that is a ProtocolError (close 1002).
         sock.settimeout(60)
         session_id = uuid.uuid4().hex[:8]
         ws_identity = actor_identity(ws_key, name)
@@ -195,12 +203,16 @@ def handle_websocket(
 
         try:
             while True:
-                # The same throttled check also vets every frame inside an
-                # open fragmented message, which ws_recv reads without
-                # returning: interleaved pings would otherwise keep a revoked
-                # session subscribed.
+                # The same throttled check also vets the frame that opens a
+                # fragmented message and every frame inside it, which
+                # ws_recv reads without returning: an opening fragment or
+                # interleaved pings would otherwise keep a revoked session
+                # subscribed.
+                # before_close stops the writer before the peer's close is
+                # echoed, so no queued data frame follows the echo.
                 payload = ws_recv(sock, send_lock=player.send_lock,
-                                  on_frame=still_authorized)
+                                  on_frame=still_authorized,
+                                  before_close=player.stop_writer)
                 if payload is None:
                     break
                 # Throttled re-check on every frame, before anything else.
@@ -325,6 +337,9 @@ def handle_websocket(
                 elif message_type == "ping":
                     player.send({"type": "pong"})
         except ProtocolError:
+            # Writer first, as in _close_unauthorized: no queued data frame
+            # may follow the close frame.
+            player.stop_writer()
             try:
                 send_close(sock, CLOSE_PROTOCOL_ERROR,
                            send_lock=player.send_lock)
