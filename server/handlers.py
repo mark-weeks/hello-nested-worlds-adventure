@@ -1211,6 +1211,8 @@ class Handler(BaseHTTPRequestHandler):
             verdict = moderation.screen(
                 message, user_key=user_key or None, surface="speak")
             if not verdict.allowed:
+                if verdict.outcome == "error":
+                    observability.voice_outcome("speak", "screen")
                 return self._send_json(moderation.http_body(verdict))
 
             import consciousness
@@ -1475,6 +1477,8 @@ class Handler(BaseHTTPRequestHandler):
         verdict = moderation.screen(
             message, user_key=user_key or None, surface="agent")
         if not verdict.allowed:
+            if verdict.outcome == "error":
+                observability.voice_outcome("agent_voice", "screen")
             return self._send_json(moderation.http_body(
                 verdict, agent=agent_name, persona=persona.name, node=node.name))
         voice_ready = runtime.configured()

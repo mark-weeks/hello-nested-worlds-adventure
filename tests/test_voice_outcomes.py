@@ -196,6 +196,37 @@ class TestSpeakOutcomes:
         assert _voice_records(caplog) == []
 
 
+    def test_a_failed_screen_is_a_voice_failure(self, base, monkeypatch, caplog):
+        # Review of #141: a classifier timeout holds shared text before the
+        # voice is asked, so it must count as an outage, not as silence.
+        from consciousness import runtime
+        monkeypatch.delenv(guard.DISABLE_AI_ENV, raising=False)
+        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(moderation, "screen",
+                            lambda text, **_kwargs: moderation.Verdict(False, "error", "error"))
+        caplog.set_level(logging.WARNING, logger="nested_worlds")
+        status, data = _speak(base)
+        assert status == 200 and data.get("held") is True
+        assert _count("speak", "screen") == 1
+        assert (logging.ERROR, "voice_fallback surface=speak reason=screen exception=-") \
+            in _voice_records(caplog)
+        status, data = _post(base, "/agent/voice", {
+            "node_name": store.world_tree(SEED).name, "agent_name": "Tessera",
+            "message": "what arrived?"})
+        assert status == 200 and data.get("held") is True
+        assert _count("agent_voice", "screen") == 1
+
+    def test_a_content_decline_is_policy_not_an_outage(self, base, monkeypatch):
+        from consciousness import runtime
+        monkeypatch.delenv(guard.DISABLE_AI_ENV, raising=False)
+        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(moderation, "screen",
+                            lambda text, **_kwargs: moderation.Verdict(False, "classify", "block"))
+        status, data = _speak(base)
+        assert status == 200 and data.get("declined") is True
+        assert observability.voice_outcome_summary() == {}
+
+
 class TestOtherSurfaces:
     def test_agent_voice_provider_failure_is_counted(
             self, base, voiced, monkeypatch, caplog):
@@ -302,6 +333,20 @@ class TestVoiceHealthCommand:
         observability.voice_outcome("agent_voice", "budget")
         self._run()
         assert capsys.readouterr().out.rstrip().endswith("voice-health: ok")
+
+    def test_an_unusable_model_configuration_fails(self, monkeypatch, capsys):
+        # Review of #141: credentials alone are not health. The same hard
+        # problems the boot refuses make voice-health exit 1.
+        from consciousness import model_check, runtime
+        monkeypatch.setattr(runtime, "configured", lambda: True)
+        report = SimpleNamespace(
+            hard=("node",), failure_line=lambda: "Model configuration: node has no model id")
+        monkeypatch.setattr(model_check, "check_model_configuration", lambda *_a: report)
+        with pytest.raises(SystemExit, match="unusable model configuration"):
+            self._run()
+        assert "node has no model id" in capsys.readouterr().out
+        monkeypatch.setenv(guard.DISABLE_AI_ENV, "1")
+        self._run()
 
     def test_no_usable_provider_fails_unless_switched_off(self, monkeypatch):
         from consciousness import runtime

@@ -795,10 +795,13 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       per-day counters — `fly ssh console -C "sqlite3 /data/.nested-worlds/worlds.db 'SELECT * FROM cost_budget ORDER BY day DESC LIMIT 20'"`.
 - [ ] Watch the voice, not just the server. `fly ssh console -C "python main.py voice-health"`
       prints answered and quiet lines per surface (`speak`, `agent_voice`,
-      `intention`) and reason (`provider`, `unconfigured`, `db`, `budget`,
-      `action_cap`, `disabled`) and the day's budget use. It
-      exits 1 when the window holds a provider failure or the voice is not
-      configured; add `--probe` for the tiny live call `models --probe` makes.
+      `intention`) and reason (`provider`, `unconfigured`, `screen`, `db`,
+      `budget`, `action_cap`, `disabled`) and the day's budget use. `screen`
+      means the moderation classifier failed and shared text was held before
+      the voice was asked. It exits 1 when the window holds a provider or
+      screen failure, the voice is not configured, or the model configuration
+      has a hard problem (the check `models` and the boot run); add `--probe`
+      for the tiny live call `models --probe` makes.
       Every quiet line also logs `voice_fallback surface=... reason=...` on
       `nested_worlds.voice`, at ERROR (a Sentry event) for failures and WARNING
       for limits. Store errors are logged, not counted. Where the scheduled

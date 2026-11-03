@@ -211,8 +211,10 @@ def cmd_voice_health(args):
     Reads the daily voice-outcome counters every player-facing voice surface
     writes (`server.observability.voice_outcome`): answered lines and each
     kind of quiet one. Exits 1 when the window holds a failure an operator
-    must fix (a provider error, or a server with no usable voice), or when
-    `--probe` is passed and the tiny live probe fails. Limits and the kill
+    must fix (a provider error, a failed moderation screen, or a server with
+    no usable voice), when the model configuration has a hard problem (the
+    check `models` and the server boot run), or when `--probe` is passed and
+    the tiny live probe fails. Limits and the kill
     switch are reported and do not fail the check. Store errors are not
     counted (the store is what failed); they reach the ERROR log and Sentry.
     Run it on the host (`fly ssh console -C "python main.py voice-health"`)
@@ -251,11 +253,16 @@ def cmd_voice_health(args):
         problems.append(f"{failures} voice failure(s) in the window")
     if not ready and not guard.ai_disabled():
         problems.append("no usable voice provider")
+    # Credentials are not enough: the same model-id check `models` and the
+    # server boot run. A task without a usable model id cannot answer.
+    from consciousness.model_check import (
+        check_model_configuration, probe_distinct_models,
+    )
+    report = check_model_configuration(runtime.get_provider())
+    if report.hard and not guard.ai_disabled():
+        print(report.failure_line())
+        problems.append("unusable model configuration")
     if args.probe:
-        from consciousness.model_check import (
-            check_model_configuration, probe_distinct_models,
-        )
-        report = check_model_configuration(runtime.get_provider())
         for result in probe_distinct_models(report):
             print(result.line())
             if not result.accepted:
