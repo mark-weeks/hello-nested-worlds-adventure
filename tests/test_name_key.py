@@ -17,6 +17,8 @@ from __future__ import annotations
 import sqlite3
 import string
 import threading
+import time
+import unicodedata
 from urllib.parse import quote
 
 import pytest
@@ -360,3 +362,128 @@ def test_a_seeded_legacy_duplicate_crashes_nothing(open_srv, capsys):
         assert status == 200 and data["participant"]["name"] == name, data
     assert len({participants.identify(k)["id"] for k in (KEY_A, KEY_B, KEY_C)}) == 3
     assert _stored_names() == before
+
+
+# ── Review follow-up ────────────────────────────────────────────────────────
+
+def _d146(text):
+    """Unicode's compatibility caseless match key (D146), as a reference.
+
+    NFKD(toCasefold(NFKD(toCasefold(NFD(X))))), trimmed like the names.
+    """
+    folded = unicodedata.normalize("NFD", text.strip()).casefold()
+    folded = unicodedata.normalize("NFKD", folded).casefold()
+    return unicodedata.normalize("NFKD", folded).strip()
+
+
+def test_case_variants_with_a_mark_after_a_ypogegrammeni_are_one_name(capsys):
+    # NFKC first composed 'ά' + U+0345 into U+1FB4 past the U+0313, and
+    # folding U+1FB4 put the U+0313 on the new iota; 'Ά' has no composite.
+    capital, small = "Ά̓ͅ", "ᾴ̓"
+    assert _d146(capital) == _d146(small)
+    assert persistence.name_key(capital) == persistence.name_key(small)
+    _mint_cli("Th" + capital + "o")
+    with pytest.raises(SystemExit, match="already registered"):
+        _mint_cli("th" + small + "o")
+    assert _stored_names() == ["Th" + capital + "o"]
+
+
+@pytest.mark.parametrize("wrap", [
+    pytest.param(lambda c: "a" + c + "b", id="between-letters"),
+    pytest.param(lambda c: c + "̓ͅ", id="before-ypogegrammeni-psili"),
+    pytest.param(lambda c: c, id="alone"),
+])
+def test_the_key_partitions_names_as_unicode_compatibility_caseless_match(wrap):
+    """Keys are equal exactly when D146 keys are, over the Latin, Greek,
+    letterlike, enclosed, ligature and fullwidth blocks. (A run over every
+    code point is recorded in the CHANGELOG, not repeated here.)"""
+    blocks = [range(0x20, 0x250), range(0x370, 0x400), range(0x1E00, 0x2000),
+              range(0x2100, 0x2190), range(0x2460, 0x2500), range(0xFB00, 0xFB07),
+              range(0xFF01, 0xFF5F)]
+    by_key, by_ref = {}, {}
+    for block in blocks:
+        for cp in block:
+            text = wrap(chr(cp))
+            key, ref = persistence.name_key(text), _d146(text)
+            assert by_key.setdefault(key, ref) == ref, hex(cp)
+            assert by_ref.setdefault(ref, key) == key, hex(cp)
+
+
+def test_two_concurrent_redemptions_of_one_token_mint_exactly_one_key(monkeypatch):
+    # Redemption is BEGIN IMMEDIATE from its token read, so the second
+    # claim reads the token as spent. Without that, both reads passed and
+    # the token's UPDATE did not look again: one link, two keys.
+    persistence.create_registration_token("nwr_once")
+    a_at_insert = _interleave(monkeypatch)
+    outcomes = {}
+
+    def claim(label, key, name):
+        try:
+            persistence.redeem_registration_token("nwr_once", key, name)
+            outcomes[label] = "registered"
+        except persistence.TokenInvalid:
+            outcomes[label] = "invalid"
+        except Exception as exc:  # noqa: BLE001 — reported by the assertion
+            outcomes[label] = repr(exc)
+
+    a = threading.Thread(name="claim-a", target=claim, args=("a", KEY_A, "Ada"))
+    b = threading.Thread(name="claim-b", target=claim, args=("b", KEY_B, "Bea"))
+    a.start()
+    assert a_at_insert.wait(10), "claim A never reached its INSERT"
+    b.start()
+    a.join(15)
+    b.join(15)
+    assert outcomes == {"a": "registered", "b": "invalid"}
+    assert _stored_names() == ["Ada"]
+    tokens = persistence.list_registration_tokens(include_spent=True)
+    assert [t["redeemed_name"] for t in tokens] == ["Ada"]
+
+
+@pytest.mark.parametrize("name", ["\ud800", "Ada\udfff", " \udc80Bea "])
+def test_register_refuses_a_name_with_no_utf8_form_as_a_client_error(open_srv, name):
+    # An escaped lone surrogate in the JSON body has no UTF-8 form; storing
+    # it raised UnicodeEncodeError, a 500 for the client's own mistake.
+    persistence.create_registration_token("nwr_live")
+    status, data = _register(open_srv, "nwr_live", name)
+    assert (status, data) == (400, {"error": "a name must be plain text"})
+    assert persistence.lookup_registration_token("nwr_live") is not None
+    assert persistence.list_invite_keys(include_revoked=True) == []
+
+
+def test_register_refuses_an_invite_with_no_utf8_form_as_an_unknown_one(open_srv):
+    persistence.create_registration_token("nwr_live")
+    status, data = _register(open_srv, "nwr_l\udfffive", "Ada")
+    assert (status, data) == (403, {"error": "this invite is not valid"})
+    assert persistence.lookup_registration_token("nwr_live") is not None
+    assert persistence.list_invite_keys(include_revoked=True) == []
+
+
+def test_a_keyless_body_name_with_no_utf8_form_is_recorded_anonymously(open_srv):
+    seed = 4623
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    for name in ("\ud800", "Ada\udfff"):
+        status, _ = _request(open_srv, "/puzzle/attempt", key="", body={
+            "seed": seed, "depth": 1, "node_name": node.name,
+            "answer": "not it", "player_name": name})
+        assert status == 200, ascii(name)
+    attempts = [row for row in persistence.get_mutations(seed)
+                if row["type"] == "PUZZLE_ATTEMPT"]
+    assert [row["player"] for row in attempts] == [None, None]
+
+
+def test_keyless_ws_join_trims_again_after_the_cap(open_srv):
+    # Trim, cap, trim again, as the body-name path does: a cap that ends on
+    # spaces leaves none in the name the room and the chronicle show.
+    seed = 4624
+    sock, status = _ws_connect(open_srv, seed, quote("Ada" + " " * 29 + "trailing"))
+    try:
+        assert b"101" in status, status
+        deadline = time.monotonic() + 10
+        joins = []
+        while not joins and time.monotonic() < deadline:
+            joins = [row for row in persistence.get_mutations(seed)
+                     if row["type"] == "PLAYER_JOIN"]
+            time.sleep(0.05)
+    finally:
+        sock.close()
+    assert [row["player"] for row in joins] == ["Ada"]

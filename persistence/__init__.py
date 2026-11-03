@@ -2346,10 +2346,17 @@ def name_key(name: str) -> str:
     handlers' reserved set, the keyless WebSocket join) and the CLI.
 
     Trimmed with `str.strip()` (Unicode whitespace, as every caller already
-    trims the name it stores), NFKC-normalized, case-folded, normalized
-    again (case folding can produce text that is not in NFKC) and trimmed
-    again (NFKC turns a spacing accent such as U+00B4 into a space and a
-    combining mark). So 'Élodie', 'élodie' and 'E' + U+0301 'lodie' are one
+    trims the name it stores), then Unicode's compatibility caseless match
+    (D146 in chapter 3 of the standard): decompose (NFD), case-fold,
+    compatibility-decompose (NFKD), case-fold again, here recomposed as
+    NFKC (NFKC forms are equal exactly when NFKD forms are), and trimmed
+    again (compatibility decomposition turns a spacing accent such as
+    U+00B4 into a space and a combining mark). Decomposing before the first
+    fold matters: NFKC composes 'ά' + U+0345 + U+0313 into U+1FB4 + U+0313,
+    and folding U+1FB4 gives 'ά' + 'ι', so the U+0313 lands on the iota,
+    while the capital 'Ά' has no such composite and keeps it on the alpha;
+    with NFKC first, those two case variants had different keys.
+    So 'Élodie', 'élodie' and 'E' + U+0301 'lodie' are one
     name, a fullwidth 'Ｓcout' is 'Scout', and 'Straße' is 'STRASSE'
     (`casefold` maps ß and ẞ to 'ss'). Inner whitespace is kept, except
     that NFKC turns a no-break or other compatibility space into a plain
@@ -2365,7 +2372,8 @@ def name_key(name: str) -> str:
     UNIQUE index on `lower(trim(name))` (migration 0011) stays as the
     backstop, but it folds ASCII only, so it cannot enforce this key alone.
     """
-    folded = unicodedata.normalize("NFKC", name.strip()).casefold()
+    folded = unicodedata.normalize("NFD", name.strip()).casefold()
+    folded = unicodedata.normalize("NFKD", folded).casefold()
     return unicodedata.normalize("NFKC", folded).strip()
 
 

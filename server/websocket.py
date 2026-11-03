@@ -87,8 +87,9 @@ def handle_websocket(
     else:
         # Keyless means the gate has never closed, so no player name is
         # registered yet; only the reserved names, by their name_key, are
-        # refused. The key trims, so a cap that ends on a space is no bypass.
-        name = (qs.get("name", ["Anonymous"])[0] or "").strip()[:32] or "Anonymous"
+        # refused. Trim, cap, trim again, as `_normalize_client_name` does,
+        # so a cap that ends on spaces leaves none in the shown name.
+        name = (qs.get("name", ["Anonymous"])[0] or "").strip()[:32].strip() or "Anonymous"
         if persistence.name_key(name) in reserved_names:
             request._send_error(
                 f"'{name}' belongs to the world — choose another name", 403
