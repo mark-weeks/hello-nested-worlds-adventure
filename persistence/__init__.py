@@ -2431,19 +2431,50 @@ def mint_invite_key(key: str, name: str, note: str | None = None) -> None:
         _mint_invite_key_on(conn, key, name, note)
 
 
+# A sanction (migration 0029) is active while it is a ban, or a suspension
+# whose expiry is still ahead, and no lift row exists for it. Correlated on
+# a `sanctions` row aliased `s`. `persistence.sanctions` reads the same
+# clause, so the CLI listing and the auth path agree on what is active.
+_SANCTION_ACTIVE = f"""(s.kind = 'ban' OR s.expires_at > {_NOW})
+    AND NOT EXISTS (SELECT 1 FROM sanction_lifts l WHERE l.sanction_id = s.id)"""
+
+# A credential is live only while its participant holds no active sanction.
+# Three reads AND this beside `revoked_at IS NULL`: the two authorization
+# reads, `lookup_invite_key` (the invite gate, `registered_name` and the
+# open-socket re-check) and `participants._LIVE_INVITE` (`identify`), and
+# `participants._PROFILE_NAME` (`profile`), so a sanctioned player's
+# published profile reads as unavailable to other players exactly as a
+# revoked player's does, until the sanction is lifted or expires. The other
+# `revoked_at IS NULL` reads do not: operator commands (`rotate`, `revoke`,
+# `invite list`) and the saved-position reads, which run only behind the gate.
+# Correlated on the outer `invite_keys` row, which must not be aliased. A
+# credential with no participant row yet has never been sanctioned
+# (sanctioning creates the row first), so it stays live.
+# `invite_gate_active` never reads this: a sanction cannot reopen the gate.
+_UNSANCTIONED = f"""NOT EXISTS (
+    SELECT 1 FROM participant_credentials sc
+    JOIN sanctions s ON s.participant_id = sc.participant_id
+    WHERE sc.credential_digest = invite_keys.key AND {_SANCTION_ACTIVE})"""
+
+
 @_with_db
 def lookup_invite_key(key: str) -> dict[str, Any] | None:
-    """Return the row for `key` iff it exists AND is not revoked.
+    """Return the row for `key` iff it exists, is not revoked, and its
+    participant holds no active sanction (a ban, or an unexpired suspension,
+    not lifted).
 
-    Returns None for unknown keys and revoked keys alike — the caller
-    treats both as "not authorized" without leaking which condition
-    matched. `key` is the plaintext credential the request presented; the
-    row's stored (and returned) "key" field is its at-rest sha256 digest.
+    Returns None for unknown, revoked and sanctioned keys alike — the
+    caller treats all three as "not authorized" without leaking which
+    condition matched, so a sanctioned player meets the same invite-gate
+    403 as a revoked key and no reason is disclosed. `key` is the plaintext
+    credential the request presented; the row's stored (and returned)
+    "key" field is its at-rest sha256 digest.
     """
     with _connect() as conn:
         row = conn.execute(
-            """SELECT key, name, note, created_at, revoked_at, last_used_at
-               FROM invite_keys WHERE key = ? AND revoked_at IS NULL""",
+            f"""SELECT key, name, note, created_at, revoked_at, last_used_at
+                FROM invite_keys WHERE key = ? AND revoked_at IS NULL
+                AND {_UNSANCTIONED}""",
             (_credential_digest(key),),
         ).fetchone()
         if row is None:

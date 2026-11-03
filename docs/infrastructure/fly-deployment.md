@@ -386,6 +386,150 @@ fly ssh console -C "python main.py invite tokens --all"
 fly ssh console -C "python main.py invite cancel nwr_<token>"
 ```
 
+### Suspending or banning a player
+
+Suspend or ban when a player should lose access but could come back.
+Revoke when access ends for good.
+
+| Action | Command | Ends | Name and key |
+|---|---|---|---|
+| Suspend | `sanction suspend <name> --hours N` or `--days N` (1 hour to 365 days, whole hours or days) | At its expiry, or `sanction lift` | Kept. The same key works again afterwards. |
+| Ban | `sanction ban <name>` | Only by `sanction lift` | Kept. The same key works again once lifted. |
+| Revoke | `invite revoke <key>` | Never. There is no un-revoke. | Burned. Minting refuses the name, and a fresh invite creates a new participant with an empty journal and profile. |
+
+```bash
+# A reason is required for every suspend, ban and lift.
+fly ssh console -C "python main.py sanction suspend Alice --hours 24 --reason 'spam in chat, second warning'"
+fly ssh console -C "python main.py sanction ban Alice --reason 'threats to another player'"
+
+# Or keep the reason off every command line: open a shell on the machine,
+# pass --reason -, type the reason, then press Enter and Ctrl-D.
+fly ssh console
+cd /app && python main.py sanction ban Alice --reason -
+
+# Active sanctions, with their ids and reasons. --all adds lifted and expired ones.
+fly ssh console -C "python main.py sanction list"
+fly ssh console -C "python main.py sanction list --all"
+
+# End one early, by id from the list.
+fly ssh console -C "python main.py sanction lift 3 --reason 'appeal accepted'"
+```
+
+`<name>` is the registered name, ASCII letters in any case and other
+letters exactly as registered (the unique index's comparison), or the
+participant id. The sanction attaches to the participant, not to the key,
+so rotating the key does not escape it. No restart is needed. The player's
+next HTTP request is refused. An open WebSocket closes the same way as a
+revoked key's (see the invite-gate paragraph above): at once on a move or chat
+its rate limit admits, otherwise within about 20 s for a browser client, and
+within about 72 s for a hostile client that sends nothing or trickles a frame.
+When the suspension expires or the sanction is lifted,
+the same key resolves to the same participant again. Journal, profile, home
+and saved position are untouched throughout.
+
+What the player sees: the same `403 {"error": "forbidden"}` as a revoked key
+(Ideas, which authenticates on its own, answers its usual 403 "Open your
+current personal game invite to participate in Ideas."). No reason, kind or
+end time is shown. Telling the player what was decided and why, and any
+appeal, is checklist G8, a held owner decision. Neither client yet tells the
+player their invite stopped working.
+
+What other players see: the player leaves the room as from any other
+departure. While the sanction lasts, their published profile reads as
+unavailable at `/profile` (`400 {"error": "That profile is unavailable."}`),
+exactly as a revoked player's does. It is visible again once the sanction is
+lifted or expires. The owner's 2026-11-03 direction settled this (ADR-004,
+sanction-records amendment).
+
+What is recorded: one `sanctions` row per suspension or ban and one
+`sanction_lifts` row per lift (migration 0029). No application command
+edits or deletes them, so `sanction list --all` is the complete history.
+Nothing is written to the chronicle. The disconnect writes the same
+`PLAYER_LEAVE` row as any other departure, and nothing marks it as a
+sanction. Overlapping sanctions each have to end: lifting a ban leaves an
+active suspension in force. The application's logs carry the sanction id
+and kind only, never the reason, the name or a credential.
+
+A reason is one line with at least one visible character: tabs, newlines,
+other control characters, and a reason made only of spaces or zero-width
+characters are refused. `sanction list` and the other `sanction` output
+print any non-printable character in a name or reason as an escape such as
+`\x1b`, so a stored control sequence never reaches your terminal.
+
+**A reason on the command line is recorded outside the database.**
+`fly ssh console -C "... --reason '...'"` is a command line on your machine,
+so the reason goes into your local shell history, and while the command runs
+it is in the process arguments of `flyctl` on your machine and of `python`
+on the app machine. `--reason -` on `suspend`, `ban` and `lift` reads the
+reason from standard input instead; one trailing newline is dropped. Run it
+from an interactive `fly ssh console` shell, as above, so the reason is
+typed into the program and not into any shell. If you do type a reason on
+the command line, keep it out of your history: in bash, set
+`HISTCONTROL=ignorespace` (or `ignoreboth`) and start the command with a
+space (zsh: `setopt HIST_IGNORE_SPACE`). Otherwise delete the entry
+afterwards (bash: `history -d <number>`) and check that your history file,
+such as `~/.bash_history`, no longer holds it.
+
+**Sanction reasons are private operator data, and they enter every
+backup.** They are never shown to players, but they sit in the live database
+and therefore in every machine-local `/data/backups/*.db` copy, every
+off-host object, and any downloaded `./worlds-backup.db` (§7). Unlike
+chronicle text, `redact` does not reach them. Write reasons you would be
+content to see restored from a backup. Keep them short and factual, with no
+contact details and no other player's private data. The player-facing
+privacy notice (checklist L3) must name this record: that sanction decisions
+and their reasons are kept, privately, for as long as backups are. The
+backup retention period is not decided yet (decision I in the
+[Q4 plan](../roadmap/next-steps-2026-q4.md)).
+
+**Erasing a sanction reason (break-glass).** No application command edits
+or deletes a sanction. If a reason must be erased, for example on an erasure
+request, this manual procedure is the one ADR-004 accepts for beta (the
+2026-11-03 sanction-records amendment, under §1's narrow break-glass). It
+replaces the reason with `[erased]`, as `redact` does for chronicle words,
+and keeps the row, so the decision stays recorded and an active sanction
+stays in force. Deleting the row instead would end the sanction.
+
+1. Stop all application and heartbeat writers while keeping maintenance
+   access, as in step 1 of "Restoring from a backup" (§7).
+2. Find the sanction's id with `sanction list --all`, then run this from an
+   interactive `fly ssh console` shell, with that id in place of `3`. It
+   tombstones the sanction's reason and its lift's reason, if any. `VACUUM`
+   rewrites the file so no free page keeps the old text, and the checkpoint
+   empties the write-ahead log. The checkpoint cannot finish while another
+   connection is still open, and the old text then stays in the database
+   file. The snippet prints `busy` in that case: stop whatever still has the
+   database open and run the snippet again.
+
+   ```bash
+   cd /app && python - <<'EOF'
+   import sqlite3
+   db = sqlite3.connect("/data/.nested-worlds/worlds.db")
+   with db:
+       db.execute("UPDATE sanctions SET reason = '[erased]' WHERE id = ?", (3,))
+       db.execute("UPDATE sanction_lifts SET reason = '[erased]' WHERE sanction_id = ?", (3,))
+   db.execute("VACUUM")
+   busy = db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+   db.close()
+   print("busy: another connection is open; the old text is still on disk" if busy else "erased")
+   EOF
+   ```
+
+3. Start the writers again, and check `sanction list --all` shows `[erased]`.
+4. Remove the older copies that still hold the reason, in the order given for
+   redacted text ([backup-bucket.md](backup-bucket.md), "Retention and
+   deletion"): dispatch `backup.yml`, confirm `backup_health.py` reports a
+   snapshot taken after the erasure, then `scripts/backup_store.py
+   delete-before` with `--after` set to when the reason was written (the
+   sanction's `created_at` when its reason must go; the lift's `lifted_at`
+   only when the lift's reason alone must go), as a UTC stamp such
+   as `20261001T000000Z`, and `--before` set to the last snapshot that can
+   still hold it, dry run first. Delete the
+   machine-local `/data/backups/*.db` copies and any downloaded
+   `./worlds-backup.db` made since then. Fly's volume snapshots also hold it
+   until they expire (5 days, §7). A reason typed on a command line is also
+   in that shell's history (above).
+
 ---
 
 ## 7. Backups
@@ -575,6 +719,10 @@ deletes the last copy once the schedule has been stopped that many days;
 retention + 7 only delays it by 7 days. The rule does not keep the newest
 object. Expiry is not a substitute for deleting a copy you were asked to
 remove.
+
+Redaction removes words from the chronicle. It does not keep their author
+out: suspend or ban them for that (§6, "Suspending or banning a player").
+Sanction reasons are not chronicle rows, and `redact` does not reach them.
 
 ---
 
