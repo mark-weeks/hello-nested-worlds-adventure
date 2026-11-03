@@ -348,9 +348,9 @@ key or registration invite below is issued, so everything before this step is
 publicly reachable — **mint the first key before you share the URL anywhere.**
 The gate then latches: revoking every key does not reopen it. Revoking a key
 also ends that player's open WebSocket, but only a complete frame from the
-socket is checked. A move or chat closes it at once (status 1008); any other
-frame, keepalives included, closes it once 2 s have passed since its last
-check, so a browser client, which pings every 20 s, is closed within about
+socket is checked. A move or chat its rate limit admits closes it at once
+(status 1008); any other frame, keepalives included, closes it once 2 s have
+passed since its last check, so a browser client, which pings every 20 s, is closed within about
 20 s. A frame must finish arriving within 10 s of its first byte or the
 socket is closed (status 1002). A socket that sends nothing is not checked:
 it keeps receiving room broadcasts until the 60 s idle timeout ends it. A
