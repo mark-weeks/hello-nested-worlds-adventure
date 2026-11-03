@@ -569,6 +569,91 @@ class TestHttpGate:
         assert [n["text"] for n in participants.notes(owner, 382)] == ["kept through it"]
 
 
+class TestPublishedProfile:
+    """Another player opening a sanctioned player's published profile gets
+    exactly what a revoked player's profile gives, until the sanction ends.
+
+    Every read goes through the real `/profile?participant=<id>` endpoint as
+    Bea, who holds no sanction. Profiles are written through the store so
+    that publishing does not depend on the moderation screen.
+    """
+
+    UNAVAILABLE = (400, {"error": "That profile is unavailable."})
+
+    @staticmethod
+    def _published(key, bio):
+        owner = participants.identify(key)["id"]
+        participants.save_profile(owner, {"bio": bio, "goals": "map the rim",
+                                          "avatar": "star", "published": True})
+        return owner
+
+    @staticmethod
+    def _seen_by_bea(http, participant):
+        status, body, _ = http(f"/profile?participant={participant}", key=KEY_B)
+        return status, body
+
+    def _revoked_baseline(self, http):
+        persistence.mint_invite_key(KEY_C, "Cy")
+        cy = self._published(KEY_C, "Cy's published page")
+        persistence.revoke_invite_key(KEY_C)
+        revoked = self._seen_by_bea(http, cy)
+        assert revoked == self.UNAVAILABLE
+        return revoked
+
+    @pytest.mark.parametrize("sanction", [
+        lambda: sanctions.suspend("Ada", HOUR, "spam in the commons"),
+        lambda: sanctions.ban("Ada", "spam in the commons"),
+    ], ids=["suspended", "banned"])
+    def test_a_sanctioned_profile_reads_exactly_as_a_revoked_one(self, http, sanction):
+        ada = self._published(KEY_A, "Cartographer of the rim")
+        visible = self._seen_by_bea(http, ada)
+        assert visible[0] == 200 and visible[1]["profile"]["bio"] == "Cartographer of the rim"
+        revoked = self._revoked_baseline(http)
+
+        sanction()
+        hidden = self._seen_by_bea(http, ada)
+        assert hidden == revoked == self.UNAVAILABLE
+        assert "Cartographer" not in json.dumps(hidden[1])
+        assert "spam" not in json.dumps(hidden[1])
+        # The owner view is unreachable for a sanctioned player: the gate
+        # refuses the credential before the profile is read.
+        assert http("/profile", key=KEY_A)[:2] == (403, {"error": "forbidden"})
+
+    def test_an_unsanctioned_profile_is_unaffected(self, http):
+        persistence.mint_invite_key("nw_" + "d" * 32, "Dee")
+        dee = self._published("nw_" + "d" * 32, "Dee keeps the lamps")
+        before = self._seen_by_bea(http, dee)
+        assert before[0] == 200 and before[1]["profile"]["bio"] == "Dee keeps the lamps"
+        own_before = http("/profile", key=KEY_B)[:2]
+        sanctions.ban("Ada", "threats")
+        assert self._seen_by_bea(http, dee) == before
+        # Bea's own (owner) view still answers, home field included.
+        own = http("/profile", key=KEY_B)[:2]
+        assert own == own_before and own[0] == 200 and "home" in own[1]["profile"]
+
+    def test_a_lifted_sanction_shows_the_profile_again(self, http):
+        ada = self._published(KEY_A, "Cartographer of the rim")
+        before = self._seen_by_bea(http, ada)
+        assert before[0] == 200
+        b = sanctions.ban("Ada", "threats")
+        assert self._seen_by_bea(http, ada) == self.UNAVAILABLE
+        sanctions.lift(b["id"], "appeal upheld")
+        assert self._seen_by_bea(http, ada) == before
+
+    def test_an_expired_suspension_shows_the_profile_again(self, http):
+        ada = self._published(KEY_A, "Cartographer of the rim")
+        before = self._seen_by_bea(http, ada)
+        assert before[0] == 200
+        _insert_suspension(ada, "+0 seconds", "+3 seconds")
+        assert self._seen_by_bea(http, ada) == self.UNAVAILABLE
+        # No operator action: the real clock passes the expiry.
+        deadline = time.monotonic() + 8
+        while self._seen_by_bea(http, ada) != before:
+            assert time.monotonic() < deadline, "the profile never came back"
+            time.sleep(0.2)
+        assert not sanctions.is_sanctioned(ada)
+
+
 # ── The open socket ─────────────────────────────────────────────────────────
 
 

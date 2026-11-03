@@ -2439,13 +2439,14 @@ _SANCTION_ACTIVE = f"""(s.kind = 'ban' OR s.expires_at > {_NOW})
     AND NOT EXISTS (SELECT 1 FROM sanction_lifts l WHERE l.sanction_id = s.id)"""
 
 # A credential is live only while its participant holds no active sanction.
-# The two authorization reads AND this beside `revoked_at IS NULL`:
-# `lookup_invite_key` (the invite gate, `registered_name` and the open-socket
-# re-check) and `participants._LIVE_INVITE` (`identify`). The other
+# Three reads AND this beside `revoked_at IS NULL`: the two authorization
+# reads, `lookup_invite_key` (the invite gate, `registered_name` and the
+# open-socket re-check) and `participants._LIVE_INVITE` (`identify`), and
+# `participants._PROFILE_NAME` (`profile`), so a sanctioned player's
+# published profile reads as unavailable to other players exactly as a
+# revoked player's does, until the sanction is lifted or expires. The other
 # `revoked_at IS NULL` reads do not: operator commands (`rotate`, `revoke`,
-# `invite list`), the saved-position reads, which run only behind the gate,
-# and `participants.profile`, so another player can still open a sanctioned
-# player's published profile while a revoked player's reads as unavailable.
+# `invite list`) and the saved-position reads, which run only behind the gate.
 # Correlated on the outer `invite_keys` row, which must not be aliased. A
 # credential with no participant row yet has never been sanctioned
 # (sanctioning creates the row first), so it stays live.

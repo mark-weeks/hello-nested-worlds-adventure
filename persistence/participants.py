@@ -109,14 +109,24 @@ def actor_aliases(identity: str) -> list[str]:
             WHERE participant_id=? ORDER BY created_at, credential_digest""", (owners[0][0],))]
 
 
+# A profile has a name only while one of its participant's credentials is
+# live: not revoked and not sanctioned. A sanctioned player's profile reads
+# as unavailable to everyone, exactly as a revoked player's does, and is
+# visible again once the sanction is lifted or expires. The owner view needs
+# no exception: a sanctioned player cannot reach it, because the invite gate
+# and `identify` refuse their credential first. `_UNSANCTIONED` correlates on
+# the outer `invite_keys`, so that table is not aliased here.
+_PROFILE_NAME = ("SELECT invite_keys.name FROM invite_keys JOIN participant_credentials c "
+                 "ON c.credential_digest=invite_keys.key WHERE c.participant_id=? "
+                 f"AND invite_keys.revoked_at IS NULL AND {db._UNSANCTIONED} LIMIT 1")
+
+
 def profile(participant: str, *, owner=False) -> dict:
     db.init_db()
     with db._connection() as conn:
         row = conn.execute("""SELECT bio, goals, avatar, published, home_seed, home_node
             FROM participant_profiles WHERE participant_id=?""", (participant,)).fetchone()
-        name = conn.execute("""SELECT i.name FROM invite_keys i JOIN participant_credentials c
-            ON c.credential_digest=i.key WHERE c.participant_id=? AND i.revoked_at IS NULL LIMIT 1""",
-            (participant,)).fetchone()
+        name = conn.execute(_PROFILE_NAME, (participant,)).fetchone()
     if not name:
         raise ValueError("That profile is unavailable.")
     result = {"id": participant, "name": name[0], "bio": "", "goals": "",

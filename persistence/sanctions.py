@@ -7,9 +7,12 @@ participant is not live: `persistence.lookup_invite_key` and
 player meets the same invite-gate 403 as a revoked key, an open WebSocket
 closes with 1008 under the same bound as a revoked key's (see the WebSocket re-check in
 server/websocket.py),
-and no reason is disclosed. When the
+and no reason is disclosed. Another player who opens the sanctioned player's
+published profile reads it as unavailable, as a revoked player's
+(`participants.profile`). When the
 suspension expires or the sanction is lifted, the same credential works
-again and resolves to the same participant, journal and profile intact.
+again and resolves to the same participant, journal and profile intact,
+and the published profile is visible again.
 
 Unlike `invite revoke`, nothing here burns the name or the credential.
 
