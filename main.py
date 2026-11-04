@@ -604,8 +604,10 @@ def cmd_sanction(args):
     except ValueError as exc:
         raise SystemExit(str(exc))
     if action in ("suspend", "ban"):
-        print("Their open sessions close within about 20 seconds; new "
-              "requests are refused. The player is not told the reason.")
+        print("Their open sessions stop receiving the world within about 5 "
+              "seconds and close within about 6 (later while a chat waits "
+              "on the model provider); new requests are refused. The "
+              "player is not told the reason.")
 
 
 def cmd_speak(args):

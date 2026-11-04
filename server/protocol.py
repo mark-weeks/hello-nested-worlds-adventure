@@ -150,7 +150,8 @@ def ws_recv(sock, send_lock=None, on_frame=None,
 
     `before_close`, if given, is called when the peer's close frame arrives,
     before the echo is written, so the caller can stop its own writer first:
-    no data frame may follow a close frame (§5.5.1).
+    no data frame may follow a close frame (§5.5.1). If it raises, the
+    exception propagates and no echo is written.
     """
     fragments: list[bytes] = []
     while True:

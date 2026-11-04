@@ -361,11 +361,24 @@ def check_invite_key(headers: Mapping[str, str], qs: Mapping[str, list[str]]) ->
 # revoked credential never writes again. This interval bounds the rest: a
 # revoked session is closed at its first complete frame once this long has
 # passed since its last check, and a frame flood costs at most one database
-# read per interval instead of one per frame. Only a complete frame is
-# checked. A socket that sends nothing keeps receiving room broadcasts until
-# the 60 s idle timeout; one that starts a frame must finish it within
-# `protocol._FRAME_DEADLINE_SEC` or be closed.
+# read per interval instead of one per frame. A socket that sends nothing,
+# or holds a frame open, is not left to its frames: the credential sweep
+# (`WS_SWEEP_INTERVAL_SEC`) re-checks it on the server's own schedule.
 WS_REAUTH_INTERVAL_SEC = 2.0
+
+# The credential sweep (`server.websocket`): one thread per process re-checks
+# every open socket whose last successful check, by a frame or by the sweep,
+# is this many seconds old, whether or not the client sends anything. A
+# socket whose credential was revoked, rotated away or sanctioned, or a
+# keyless socket once the gate has latched, stops receiving data frames at
+# that check and is closed with 1008, so a client that only listens stays
+# subscribed for about this long (plus one database read), not until the
+# 60 s idle timeout. 5 s keeps that well inside beta checklist G5's 1 minute.
+# The cost is at most one read per open socket per interval, never one per
+# broadcast: less than `WS_REAUTH_INTERVAL_SEC` already allows a talking
+# socket, and nothing for a socket whose own frames re-checked it within the
+# interval. Read on every pass, so tests can shorten it.
+WS_SWEEP_INTERVAL_SEC = 5.0
 
 
 def ws_session_authorized(ws_key: str, credentialed: bool) -> bool:
@@ -375,7 +388,8 @@ def ws_session_authorized(ws_key: str, credentialed: bool) -> bool:
     credential. The message loop calls this before a move or chat writes
     anything, and at most once per `WS_REAUTH_INTERVAL_SEC` on every other
     client frame, control frames and ignored frames included, since any
-    frame keeps the session (and its room broadcasts) alive:
+    frame keeps the session (and its room broadcasts) alive. The credential
+    sweep calls it for a socket not checked for `WS_SWEEP_INTERVAL_SEC`:
 
       * `credentialed` (the socket upgraded with a live per-user key): it
         stays authorized only while that key is live. A revoked or rotated

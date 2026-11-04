@@ -347,17 +347,26 @@ player (ADR-004 §7). Gate semantics: the gate is OPEN until the first per-user
 key or registration invite below is issued, so everything before this step is
 publicly reachable — **mint the first key before you share the URL anywhere.**
 The gate then latches: revoking every key does not reopen it. Revoking a key
-also ends that player's open WebSocket, but only a complete frame from the
-socket is checked. A move or chat its rate limit admits closes it at once
-(status 1008); any other frame, keepalives included, closes it once 2 s have
-passed since its last check, so a browser client, which pings every 20 s, is closed within about
-20 s. A frame must finish arriving within 10 s of its first byte or the
-socket is closed (status 1002). A socket that sends nothing is not checked:
-it keeps receiving room broadcasts until the 60 s idle timeout ends it. A
-hostile client can therefore stay subscribed for up to about 72 s after
-revocation (2 s + 60 s + 10 s). Any keyless socket opened before the first
-key or invite closes the same way. `fly ssh console` opens a shell inside the
-running machine.
+also ends that player's open WebSocket. A move or chat its rate limit admits
+closes it at once (status 1008), and any other frame, keepalives included,
+closes it once 2 s have passed since its last check. The server does not
+wait for frames: it re-checks every open socket whose last check is 5 s old,
+whether or not the client sends anything. A socket that only listens, or
+holds a frame open, therefore stops receiving room broadcasts within about
+5 s of revocation: one 5 s sweep interval plus one database read. Its close
+(status 1008) and its departure from the room follow within about 1 s more,
+even if the client has stopped reading: the server waits at most 1 s to
+write a close frame, then shuts the socket down without one. One exception
+remains: a chat being screened by the model provider. Nothing reaches that
+client meanwhile and the chat is refused afterwards, but its close and
+departure wait for the screening: the classify call itself (3 s per attempt,
+which the Anthropic SDK retries up to twice, longer when the provider sends
+retry-after) and the wait for a slot under the provider's concurrency limit,
+which #144 bounds at the classify's 3 s timeout (without it the slot wait has
+no limit). A frame must still finish arriving within
+10 s of its first byte or the socket is closed (status 1002). Any keyless
+socket opened before the first key or invite closes the same way.
+`fly ssh console` opens a shell inside the running machine.
 
 Two ways to invite, both single-use per person:
 
@@ -421,8 +430,10 @@ participant id. The sanction attaches to the participant, not to the key,
 so rotating the key does not escape it. No restart is needed. The player's
 next HTTP request is refused. An open WebSocket closes the same way as a
 revoked key's (see the invite-gate paragraph above): at once on a move or chat
-its rate limit admits, otherwise within about 20 s for a browser client, and
-within about 72 s for a hostile client that sends nothing or trickles a frame.
+its rate limit admits. Otherwise it stops receiving the world within about
+5 s, including a client that sends nothing or trickles a frame, and is closed
+and leaves the room within about 1 s more, except while a chat is being
+screened by the model provider (the exception above).
 When the suspension expires or the sanction is lifted,
 the same key resolves to the same participant again. Journal, profile, home
 and saved position are untouched throughout.
