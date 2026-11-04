@@ -178,6 +178,16 @@ def transaction():
         conn.close()
 
 
+def in_transaction() -> bool:
+    """True while this thread holds an open :func:`transaction`.
+
+    A helper that writes on its own connection (``increment_cost_calls``)
+    would wait on that transaction's write lock. Best-effort counters check
+    this and skip the write instead.
+    """
+    return getattr(_transaction_state, "connection", None) is not None
+
+
 def _begin_write(conn):
     if not conn.in_transaction:
         conn.execute("BEGIN IMMEDIATE")

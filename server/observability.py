@@ -166,6 +166,94 @@ def voice_outcome_summary(days: int = 1) -> dict[str, dict[str, dict[str, int]]]
     return summary
 
 
+# ── Moderation outcomes ─────────────────────────────────────────────────────
+# The voice counters above see a screen only when it holds a voice line. A
+# busy or failed screen on chat, Ideas, a published profile, a registered
+# name or puzzle text used to leave one INFO `moderation_call` line and no
+# count, so `voice-health` could not see it. Every logged `moderation_call`
+# line is now also counted here, at the point it is logged: each
+# `server.moderation._moderation_log` call and the finished verdict that
+# `consciousness.classify_content` logs. That is at most one count per
+# screen. A locally clean line is neither logged nor counted, so a clean
+# chat line costs no write and `allow` counts classifier allows only.
+#
+# Same `cost_budget` rows as the voice counters, under `moderation_outcome:`.
+# Surface and outcome are closed sets so bucket names stay bounded: an
+# unknown surface is counted as `other`, and an unknown outcome is dropped
+# with a WARNING. No player text, credential, name, address or node. A
+# screen on a voice surface that fails also appears there as the voice
+# reason `screen` (or `busy`); `voice-health` reports the two separately.
+
+_moderation = logging.getLogger("nested_worlds.moderation")
+
+MODERATION_OUTCOME_PREFIX = "moderation_outcome"
+# Every surface string passed to `moderation.screen`, `public_excerpt` and
+# `classify_content` today, their defaults (`shared`, `classify`), and the
+# names `name_refusal` logs.
+MODERATION_SURFACES = ("speak", "agent", "chat", "ideas", "profile", "puzzle",
+                       "name", "cli", "shared", "classify", "other")
+# The screen could not judge: the classifier raised (`error`), found no
+# provider slot within its timeout (`busy`), or gave no usable verdict
+# (`undecided`). The same meaning as the voice reason `screen`.
+MODERATION_FAILURES = ("undecided", "error", "busy")
+# Deliberate stops working as designed: the disable switch, moderation's own
+# daily budget, and the per-user caps.
+MODERATION_LIMITS = ("disabled", "budget", "user_cap")
+MODERATION_VERDICTS = ("allow", "block")
+MODERATION_OUTCOMES = MODERATION_VERDICTS + MODERATION_FAILURES + MODERATION_LIMITS
+
+
+def moderation_bucket(surface: str, outcome: str) -> str:
+    return f"{MODERATION_OUTCOME_PREFIX}:{surface}:{outcome}"
+
+
+def moderation_outcome(surface: str, outcome: str) -> None:
+    """Count one logged screen outcome. Never raises; waits at most 50 ms on the store.
+
+    A counter bug must not change what a player sees, so nothing here
+    raises: an unknown outcome is dropped with a WARNING (its value is not
+    logged), and a lost write is logged as unavailable, as for the voice
+    counters. A caller inside this thread's open `persistence.transaction()`
+    holds the write lock this write would wait for, so that count is
+    dropped at once rather than waiting on the caller's own transaction.
+    """
+    if not isinstance(surface, str) or surface not in MODERATION_SURFACES:
+        surface = "other"
+    if not isinstance(outcome, str) or outcome not in MODERATION_OUTCOMES:
+        _moderation.warning("moderation_outcome dropped surface=%s "
+                            "reason=unknown-outcome", surface)
+        return
+    try:
+        import persistence
+        from server import guard
+        if persistence.in_transaction():
+            _moderation.warning("moderation_outcome counter skipped surface=%s "
+                                "outcome=%s reason=open-transaction", surface, outcome)
+            return
+        persistence.increment_cost_calls(moderation_bucket(surface, outcome),
+                                         guard._utc_day(),
+                                         wait_ms=_VOICE_COUNTER_WAIT_MS)
+    except Exception as err:  # the verdict must still reach the player
+        _moderation.warning("moderation_outcome counter unavailable surface=%s "
+                            "outcome=%s exception=%s", surface, outcome,
+                            type(err).__name__)
+
+
+def moderation_outcome_summary(days: int = 1) -> dict[str, dict[str, dict[str, int]]]:
+    """``{day: {surface: {outcome: count}}}`` for the last `days` UTC days, today included."""
+    import datetime
+
+    import persistence
+    from server import guard
+    today = datetime.date.fromisoformat(guard._utc_day())
+    since = (today - datetime.timedelta(days=max(1, int(days)) - 1)).isoformat()
+    summary: dict[str, dict[str, dict[str, int]]] = {}
+    for bucket, day, calls in persistence.cost_rows(MODERATION_OUTCOME_PREFIX + ":", since):
+        _, surface, outcome = bucket.split(":", 2)
+        summary.setdefault(day, {}).setdefault(surface, {})[outcome] = calls
+    return summary
+
+
 def hash_ip(ip: str) -> str:
     """Stable 8-char hash so the access log can bucket abusers without PII."""
     return hashlib.sha1(ip.encode("utf-8")).hexdigest()[:8]

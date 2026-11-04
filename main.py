@@ -229,20 +229,28 @@ def cmd_models(args):
 
 
 def cmd_voice_health(args):
-    """Report how the world's voice has actually answered, for the operator.
+    """Report how the world's voice and its shared-text screens have answered.
 
     Reads the daily voice-outcome counters every player-facing voice surface
     writes (`server.observability.voice_outcome`): answered lines and each
-    kind of quiet one. Exits 1 when the window holds a failure an operator
-    must fix (a provider error, a failed moderation screen, no provider slot
-    within the wait, or a server with no usable voice), when the model
-    configuration has a hard problem (the check `models` and the server boot
-    run), or when `--probe` is passed and
-    the tiny live probe fails. Limits and the kill
-    switch are reported and do not fail the check. Store errors are not
-    counted (the store is what failed); they reach the ERROR log and Sentry.
-    Run it on the host (`fly ssh console -C "python main.py voice-health"`)
-    from whatever scheduler alerts the operator.
+    kind of quiet one. Then the shared-text screen counters
+    (`server.observability.moderation_outcome`): per surface (speech, agent
+    voice, chat, Ideas, a published profile, a registered name, puzzle text,
+    the CLI), every screen that logged a `moderation_call` line, then its
+    outcomes other than allow. A locally clean line is not counted. Exits 1
+    when the window holds a failure an operator must fix (a provider error,
+    a failed moderation screen, no provider slot within the wait, or a
+    server with no usable voice), when any screen failed to judge (`error`,
+    `busy`, `undecided`, on any surface), when the model configuration has a
+    hard problem (the check `models` and the server boot run), or when
+    `--probe` is passed and the tiny live probe fails. A failed screen on a
+    voice surface is counted in both sections, as the voice reason `screen`
+    or `busy` and as the screen outcome; the two counts are reported
+    separately. Limits (budgets, per-user caps, the disable switches) are
+    reported and do not fail the check. Store errors are not counted (the
+    store is what failed); they reach the ERROR log and Sentry. Run it on
+    the host (`fly ssh console -C "python main.py voice-health"`) from
+    whatever scheduler alerts the operator.
     """
     from consciousness import runtime
     from server import guard, observability
@@ -272,9 +280,12 @@ def cmd_voice_health(args):
         print(f"kill switch: {guard.DISABLE_AI_ENV}=1 (the world is quiet on purpose)")
     ready = runtime.configured()
     print("voice provider: configured" if ready else "voice provider: NOT configured")
+    screen_failures = _report_screens(args.days)
     problems = []
     if failures:
         problems.append(f"{failures} voice failure(s) in the window")
+    if screen_failures:
+        problems.append(f"{screen_failures} screen failure(s) in the window")
     if not ready and not guard.ai_disabled():
         problems.append("no usable voice provider")
     # Credentials are not enough: the same model-id check `models` and the
@@ -294,6 +305,39 @@ def cmd_voice_health(args):
     if problems:
         raise SystemExit("voice-health: " + "; ".join(dict.fromkeys(problems)))
     print("voice-health: ok")
+
+
+def _report_screens(days):
+    """Print the shared-text screen section; return the window's screen failures."""
+    from server import guard, moderation, observability
+
+    summary = observability.moderation_outcome_summary(days=days)
+    print(f"Shared-text screens, last {days} UTC day(s), today included "
+          "(a locally clean line is not counted)")
+    if not summary:
+        print("  (no screens recorded)")
+    known = observability.MODERATION_SURFACES
+    failures = 0
+    for day in sorted(summary):
+        print(day)
+        surfaces = [s for s in known if s in summary[day]]
+        surfaces += sorted(s for s in summary[day] if s not in known)
+        for surface in surfaces:
+            counts = summary[day][surface]
+            outcomes = [o for o in observability.MODERATION_OUTCOMES if o in counts]
+            outcomes += sorted(o for o in counts if o not in outcomes)
+            others = ", ".join(f"{o} {counts[o]}" for o in outcomes
+                               if o != "allow" and counts[o])
+            print(f"  {surface:<12} screens {sum(counts.values()):>4}"
+                  + (f"   not allowed: {others}" if others else ""))
+            failures += sum(counts.get(o, 0) for o in observability.MODERATION_FAILURES)
+    used = persistence.get_cost_calls(guard.MODERATION_BUCKET, guard._utc_day())
+    cap = guard._cap_for(guard.MODERATION_CAP_ENV, guard._DEFAULT_MODERATION_DAILY)
+    print(f"moderation budget today: {used}/{cap} classify calls")
+    if moderation.moderation_disabled():
+        print(f"moderation switch: {moderation.DISABLE_MODERATION_ENV}=1 "
+              "(shared text is held on purpose)")
+    return failures
 
 
 _SCHEMA_OFF_NOTE = "(structured outputs off - intent calls will be refused)"
@@ -807,7 +851,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_voice = sub.add_parser(
         "voice-health",
-        help="Report answered and quiet voice lines; exit 1 on voice failures",
+        help="Report voice lines and shared-text screens; exit 1 on failures",
     )
     p_voice.add_argument("--days", type=int, default=1,
                          help="UTC days to report, today included (default 1)")

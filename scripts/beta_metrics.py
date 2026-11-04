@@ -17,6 +17,9 @@ from the world's own memory:
   * whether the world could answer: voice lines answered vs. quiet, by
     surface and reason (the daily voice-outcome counters, never the
     chronicle), so "didn't talk" and "talked to silence" stay separable
+  * whether shared text could be screened: screens by surface and
+    outcome (the daily moderation-outcome counters; a locally clean line
+    is not counted)
 
 Run against the live DB (read-only connection, safe alongside the
 server), or against any backup file:
@@ -48,18 +51,20 @@ _HUMAN_TYPES = (
 
 _CONVERSATION_TYPES = ("PLAYER_SPEAK", "AGENT_VOICE")
 
-# server.observability.VOICE_OUTCOME_PREFIX; read here as SQL so a backup
-# file can be inspected without importing the server.
+# server.observability.VOICE_OUTCOME_PREFIX and MODERATION_OUTCOME_PREFIX;
+# read here as SQL so a backup file can be inspected without importing the
+# server.
 _VOICE_PREFIX = "voice_outcome:"
+_MODERATION_PREFIX = "moderation_outcome:"
 
 
-def _voice_outcomes(conn: sqlite3.Connection, days: int) -> dict:
-    """``{surface: {reason: count}}`` summed over the window's UTC days."""
+def _outcome_counts(conn: sqlite3.Connection, prefix: str, days: int) -> dict:
+    """``{surface: {outcome: count}}`` for one counter prefix, summed over the window's UTC days."""
     rows = conn.execute(
         """SELECT bucket, SUM(calls) FROM cost_budget
            WHERE substr(bucket, 1, ?) = ? AND day >= date('now', ?)
            GROUP BY bucket""",
-        (len(_VOICE_PREFIX), _VOICE_PREFIX, f"-{max(1, int(days)) - 1} days"),
+        (len(prefix), prefix, f"-{max(1, int(days)) - 1} days"),
     ).fetchall()
     out: dict = {}
     for bucket, calls in rows:
@@ -168,7 +173,8 @@ def compute_metrics(db_path: Path, days: int = 7,
             "chronicle_total_rows": total_rows,
             "chronicle_first_event": first_at,
             "model_provenance": model_provenance,
-            "voice_outcomes": _voice_outcomes(conn, days),
+            "voice_outcomes": _outcome_counts(conn, _VOICE_PREFIX, days),
+            "moderation_outcomes": _outcome_counts(conn, _MODERATION_PREFIX, days),
         }
     finally:
         conn.close()
@@ -207,6 +213,14 @@ def render(m: dict) -> str:
             detail = ", ".join(f"{r} {n}" for r, n in sorted(quiet.items()))
             lines.append(
                 f"  {surface:<12} {counts.get('ok', 0):>5} / {sum(quiet.values()):<5}"
+                + (f"  ({detail})" if detail else ""))
+    if m.get("moderation_outcomes"):
+        lines += ["", "shared-text screens (by UTC day; screened / not allowed):"]
+        for surface, counts in sorted(m["moderation_outcomes"].items()):
+            held = {o: n for o, n in counts.items() if o != "allow" and n}
+            detail = ", ".join(f"{o} {n}" for o, n in sorted(held.items()))
+            lines.append(
+                f"  {surface:<12} {sum(counts.values()):>5} / {sum(held.values()):<5}"
                 + (f"  ({detail})" if detail else ""))
     if m.get("model_provenance"):
         lines += ["", "model-written rows in this window:"]
