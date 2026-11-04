@@ -116,8 +116,9 @@ def _resolve_on(conn, target: str) -> dict[str, Any]:
     player and is another player's id is refused as ambiguous.
 
     Registration refuses a second name with the same key, but a database
-    written before that check can hold two ('Élodie' and 'élodie', or a
-    composed and a decomposed 'Élodie' that look identical). Such a name
+    written before that check can hold two ('Élodie' and 'élodie', a
+    composed and a decomposed 'Élodie' that look identical, or 'Ada' and
+    'Ada' followed by a zero-width space, which the key drops). Such a name
     is refused as ambiguous, writing nothing: the operator names the
     participant id instead. Exact spelling never picks one, because two
     spellings can look the same on the operator's screen.
@@ -169,7 +170,8 @@ def _ambiguous_name(conn, target: str, matches) -> str:
         shown.append(f"{ascii(name)} (participant {row[0]})" if row
                      else f"{ascii(name)} (no participant yet)")
     return (f"{target!r} matches {len(matches)} registered players whose "
-            f"names differ only in case or Unicode form: {', '.join(shown)}. "
+            "names differ only in case, Unicode form or invisible characters: "
+            f"{', '.join(shown)}. "
             "Name the participant id instead; nothing changed.")
 
 

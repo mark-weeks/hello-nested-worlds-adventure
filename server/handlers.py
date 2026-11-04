@@ -234,12 +234,16 @@ def _normalize_client_name(raw: Any) -> str | None:
     cap-then-strip order left open (" Tessera" once evaded the cast block).
     Reserved (server-owned agent) names normalize to None — the action
     still happens, anonymously, rather than in an agent's name. So does a
-    name with no UTF-8 form (`_has_utf8_form`), which no row can store.
+    name with no UTF-8 form (`_has_utf8_form`), which no row can store, and
+    one that `/register` would refuse as hidden or invisible text
+    (`persistence.name_is_visible_text`).
     """
     if not raw:
         return None
     name = str(raw).strip()[:32].strip()
     if not name or not _has_utf8_form(name):
+        return None
+    if not persistence.name_is_visible_text(name):
         return None
     if persistence.name_key(name) in _RESERVED_PLAYER_NAMES:
         return None
@@ -1585,6 +1589,10 @@ class Handler(BaseHTTPRequestHandler):
             # A lone surrogate cannot be stored; refuse it before the token
             # is touched, as the malformed body it is.
             return self._send_error("a name must be plain text", 400)
+        if not persistence.name_is_visible_text(name):
+            # A control character, an invisible one, or nothing to see: a
+            # name that shows as something else, or as nothing.
+            return self._send_error(persistence.INVISIBLE_NAME_ERROR, 400)
         if persistence.name_key(name) in _RESERVED_PLAYER_NAMES:
             # Same rule as the WS join and the mint CLI: the server-owned
             # agent names are world canon and unimpersonatable.

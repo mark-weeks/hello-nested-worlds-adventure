@@ -155,6 +155,15 @@ def cmd_play(args):
     # Local multi-world play is the operator terminal. A name is screened
     # only when this session writes the hosted canonical world.
     if writes_shared_chronicle(args.seed):
+        # A registered player's name, in any spelling, would put this
+        # session's rows in the chronicle under their name. Revoked names
+        # stay theirs too, as minting keeps them taken.
+        wanted = persistence.name_key(name)
+        if any(persistence.name_key(row["name"]) == wanted
+               for row in persistence.list_invite_keys(include_revoked=True)):
+            raise SystemExit(
+                f"'{name}' is a registered player's name — choose another "
+                "with --name.")
         refusal = name_refusal(name)
         if refusal:
             raise SystemExit(f"'{name}' — {refusal} Use --name.")
@@ -411,10 +420,17 @@ def cmd_invite(args):
         name = args.name.strip()
         if not name:
             raise SystemExit("A registered name must not be empty.")
+        if len(name) > 32:
+            # The cap /register applies: the name is shown in every client.
+            raise SystemExit("A registered name must be 32 characters or fewer.")
         if not _has_utf8_form(name):
             # A non-UTF-8 argv byte arrives as a lone surrogate; the INSERT
             # would raise UnicodeEncodeError with a traceback.
             raise SystemExit("A registered name must be plain text.")
+        if not persistence.name_is_visible_text(name):
+            # /register refuses the same names (ADR-004 §7).
+            raise SystemExit("A registered name must be visible text, with no "
+                             "control or invisible characters.")
         if canonical(name) is not None:
             raise SystemExit(
                 f"'{name}' is a reserved world name (one of the world's own "
@@ -512,8 +528,39 @@ def cmd_invite(args):
             print(f"Cancelled: {args.token}")
         else:
             print(f"No redeemable registration invite matched: {args.token}")
+    elif action == "duplicates":
+        _invite_duplicates()
     else:  # pragma: no cover — argparse already constrains this
         raise SystemExit(f"unknown invite action: {action}")
+
+
+def _invite_duplicates() -> None:
+    """List registered names that are one name under `persistence.name_key`.
+
+    Read-only. Registration refuses a second name with the same key, so a
+    group can only come from rows written before that check or restored
+    from such a backup. Revoked names are included, because they stay
+    taken. Each name is printed through `_shown` and as `ascii()`, so a
+    composed and a decomposed spelling, or one with an invisible character,
+    read differently; the digest prefix is what `invite revoke` and
+    `invite rotate` accept. Exits 1 when any group exists, 0 otherwise.
+    """
+    groups: dict[str, list[dict]] = {}
+    for row in persistence.list_invite_keys(include_revoked=True):
+        groups.setdefault(persistence.name_key(row["name"]), []).append(row)
+    shared = [rows for rows in groups.values() if len(rows) > 1]
+    if not shared:
+        print("No two registered names share a name key.")
+        return
+    print(f"{len(shared)} group(s) of registered names share a name key "
+          "(revoked names included):")
+    for rows in shared:
+        print()
+        for r in sorted(rows, key=lambda r: (r["created_at"], r["key"])):
+            status = "revoked" if r["revoked_at"] else "active"
+            print(f"  {_shown(r['name']):<20}  {ascii(r['name']):<28}  "
+                  f"{r['key'][:12] + '…':<14}  {r['created_at']:<20}  {status}")
+    raise SystemExit(1)
 
 
 def _positive_int(text: str) -> int:
@@ -797,7 +844,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_invite = sub.add_parser("invite",
         help="Manage per-user beta invite keys and registration invites "
-             "(mint / list / rotate / revoke / create / tokens / cancel)")
+             "(mint / list / rotate / revoke / create / tokens / cancel / "
+             "duplicates)")
     invite_sub = p_invite.add_subparsers(dest="invite_action", required=True)
 
     p_invite_mint = invite_sub.add_parser("mint",
@@ -845,6 +893,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_invite_cancel.add_argument("token", type=str,
                                  help="The registration token to cancel")
     p_invite_cancel.set_defaults(func=cmd_invite)
+
+    p_invite_duplicates = invite_sub.add_parser("duplicates",
+        help="List registered names (revoked included) that are one name "
+             "under persistence.name_key; read-only, exits 1 if any")
+    p_invite_duplicates.set_defaults(func=cmd_invite)
 
     reason_help = ("Why (required; private operator data, never shown to "
                    "the player; - reads it from standard input, keeping it "

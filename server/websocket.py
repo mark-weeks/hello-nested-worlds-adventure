@@ -86,10 +86,16 @@ def handle_websocket(
         name = registered
     else:
         # Keyless means the gate has never closed, so no player name is
-        # registered yet; only the reserved names, by their name_key, are
-        # refused. Trim, cap, trim again, as `_normalize_client_name` does,
-        # so a cap that ends on spaces leaves none in the shown name.
+        # registered yet; only the reserved names, by their name_key, and
+        # names that are not visible text are refused. Trim, cap, trim
+        # again, as `_normalize_client_name` does, so a cap that ends on
+        # spaces leaves none in the shown name.
         name = (qs.get("name", ["Anonymous"])[0] or "").strip()[:32].strip() or "Anonymous"
+        if not persistence.name_is_visible_text(name):
+            # A control or invisible character, or nothing to see: refused
+            # as a reserved name is, and as `/register` refuses it.
+            request._send_error(persistence.INVISIBLE_NAME_ERROR, 403)
+            return
         if persistence.name_key(name) in reserved_names:
             request._send_error(
                 f"'{name}' belongs to the world — choose another name", 403

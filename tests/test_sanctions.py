@@ -298,6 +298,28 @@ class TestSuspensionAndBan:
         assert persistence.lookup_invite_key(KEY_A) is None
         assert persistence.lookup_invite_key(KEY_B)["name"] == "élodie"
 
+    def test_a_legacy_twin_with_an_invisible_character_is_refused_as_ambiguous(self):
+        # The key drops default-ignorable characters (2026-11-04, decided
+        # under the owner's delegation), so a stored 'Ada' + zero-width
+        # space is the same name as 'Ada'. Neither spelling picks one.
+        persistence.mint_invite_key(KEY_A, "Ada")
+        with _db() as conn:
+            conn.execute("INSERT INTO invite_keys (key, name) VALUES (?, ?)",
+                         (persistence._credential_digest(KEY_B), "Ada\u200b"))
+        before = [_table(t) for t in ("sanctions", "participants",
+                                      "participant_credentials", "invite_keys")]
+        for typed in ("Ada", "ada", "Ada\u200b"):
+            with pytest.raises(ValueError) as exc:
+                sanctions.ban(typed, "which one?")
+            message = str(exc.value)
+            assert "matches 2 registered players" in message
+            assert "invisible characters" in message
+            assert "'Ada' (no participant yet)" in message
+            assert "'Ada\\u200b' (no participant yet)" in message
+        after = [_table(t) for t in ("sanctions", "participants",
+                                     "participant_credentials", "invite_keys")]
+        assert after == before
+
     def test_the_shown_name_comes_from_the_live_key_not_a_revoked_one(self):
         # A participant holding a revoked credential beside a live one under
         # another name. Rotation keeps one invite row, so the second

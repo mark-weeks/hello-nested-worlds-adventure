@@ -418,9 +418,12 @@ fly ssh console -C "python main.py sanction lift 3 --reason 'appeal accepted'"
 `<name>` is the registered name in any case or Unicode form, compared as
 registration compares names (`persistence.name_key`: trimmed, then
 Unicode's compatibility caseless match, which is NFD, case fold, NFKD, case
-fold again, recomposed as NFKC, and trimmed again), or the participant id. A database
-written before that comparison can hold two names with one key (`Élodie`
-and `élodie`); such a name is refused as ambiguous, listing each spelling
+fold again, then every invisible default-ignorable character removed (a
+zero-width space, a soft hyphen, a variation selector), recomposed as NFKC,
+and trimmed again), or the participant id. A database written before that
+comparison can hold two names with one key (`Élodie` and `élodie`, or `Ada`
+and `Ada` followed by a zero-width space); `python main.py invite duplicates`
+lists them (§7). Such a name is refused as ambiguous, listing each spelling
 and its participant id where one exists, and nothing is recorded: name the
 participant id instead. The sanction attaches to the participant, not to the key,
 so rotating the key does not escape it. No restart is needed. The player's
@@ -559,6 +562,27 @@ backups. The manual equivalent:
 ```bash
 fly ssh console -C "python main.py backup --to /data/backups/worlds-$(date -u +%Y%m%d).db"
 ```
+
+Also before every deploy, check that no two registered names are one name
+under the comparison registration uses (ADR-004 §7, `persistence.name_key`):
+
+```bash
+fly ssh console -C "python main.py invite duplicates"
+```
+
+It only reads. With every name its own, it prints `No two registered names
+share a name key.` and exits 0. Otherwise it exits 1 and lists each group,
+revoked names included: each spelling through the CLI's escaping and again
+exactly as Python's `ascii()` (so a composed and a decomposed `Élodie`, or a
+name with a zero-width space, read differently), its key's digest prefix,
+when it was created, and whether it is revoked. Registration cannot create a
+group, so one means rows written before the comparison, or a restored backup
+holding them. Both players keep working under their own spellings, and
+nothing renames a stored name, but the sanction CLI refuses the shared name
+(name the participant id) and other players may not tell the two apart. Stop
+and take the list to the owner before deploying. A machine still running a
+build without the command answers `invalid choice: 'duplicates'`; run the
+check right after deploying the first build that has it.
 
 **Off-host copies (every 30 minutes; freshness must be checked).** ADR-005 targets
 at most one hour of lost history. A schedule alone does not establish that bound:

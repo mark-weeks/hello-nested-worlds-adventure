@@ -317,8 +317,7 @@ def test_unknown_agent_is_quiet_before_the_screen_budget_or_any_row(srv, voice):
     # Lone surrogates: no UTF-8 form to hash for a persona.
     ("\ud800", "\\ud800"), (" " * 32 + "\ud800", "\\ud800"), ("Ada\udfff", "\\udfff"),
     # Control and format characters: strip() keeps them, so they would echo.
-    ("\x00", "\\u0000"), ("\u200b", "\\u200b"), ("Scout\u200b", "\\u200b"),
-    ("\ufeffAda", "\\ufeff"),
+    ("\x00", "\\u0000"), ("\u200b", "\\u200b"), ("\ufeffAda", "\\ufeff"),
 ])
 def test_an_unprintable_name_is_quiet_as_someone_not_echoed_or_a_server_error(
         srv, voice, requested, escape):
@@ -326,8 +325,8 @@ def test_an_unprintable_name_is_quiet_as_someone_not_echoed_or_a_server_error(
     mistake. A lone surrogate (an escaped ``\\ud800`` in the JSON body)
     cannot be hashed to a persona; NUL, a zero-width space or a BOM would be
     echoed back raw. Each reads as "Someone" — HTTP 200, ``ai: false``, no
-    screen, no budget, no row. ``"Scout\\u200b"`` is not Scout: the
-    zero-width space survives the trim, so the name is unknown."""
+    screen, no budget, no row. (``"Scout\\u200b"`` is Scout: ``name_key``
+    drops the zero-width space; see the canonical-name test below.)"""
     stub, screens = voice
     seed = 4612
     node = generate_node_hierarchy(seed=seed, max_depth=1)
@@ -351,6 +350,9 @@ def test_an_unprintable_name_is_quiet_as_someone_not_echoed_or_a_server_error(
     ("SCOUT", "Scout"), ("observer", "Observer"),
     # A compatibility spelling is the same identity (persistence.name_key).
     ("\uff33\uff43\uff4f\uff55\uff54", "Scout"),
+    # So is one with an invisible default-ignorable character, which the key
+    # drops (decided under the owner's delegation, 2026-11-04).
+    ("Scout\u200b", "Scout"), ("Obs\u00aderver", "Observer"),
 ])
 def test_a_server_identity_is_voiced_under_its_canonical_name(srv, voice, requested, canonical):
     stub, screens = voice
