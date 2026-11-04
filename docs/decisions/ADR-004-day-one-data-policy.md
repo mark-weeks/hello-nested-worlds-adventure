@@ -263,8 +263,10 @@ outage; a local block still declines without a model call. Registered
 names are refused when moderation is disabled, with a choose-another
 line, except local multi-world `play --name` and `invite mint
 --unscreened`. Ideas use the same screen. `moderation_call` logs
-`outcome` (`allow`, `block`, `undecided`, `error`, `disabled`, `budget`,
-`user_cap`) and does not log player text or a raw address.
+`outcome` (`allow`, `block`, `undecided`, `error`, `busy`, `disabled`,
+`budget`, `user_cap`) and does not log player text or a raw address.
+`busy` (added 2026-11-04) is a classify that found no free provider slot
+within its own timeout; the text holds, as when classification raises.
 
 ### 3. Continuity: never wipe; the covenant is already in force
 

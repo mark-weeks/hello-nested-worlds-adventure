@@ -259,6 +259,7 @@ Environment variables (see `.env.example`):
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional `none`, `minimal`, `low`, `medium`, or `high`. Unset sends nothing. Any other value leaves the adapter unconfigured. | unset |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for one POST when the caller does not pass one. urllib's own timeout is a limit on one socket operation; this adapter does not pass the caller's number through as that. DNS lookup and individual TLS handshake bytes are not covered. Moderation still passes 3 seconds. | `60` |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | Max in-flight calls for `openai_compatible`. Does not share the anthropic cap. | `8` |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_SLOT_WAIT_SECONDS` | Longest wait for a free slot under that cap when the call passes no timeout of its own, the same rule as the anthropic setting (moderation still waits its 3 s). Does not share the anthropic setting. | `10` |
 | `NESTED_WORLDS_FAL_DAILY_CALLS` | Hosted beta: cap fal.ai image calls per UTC day. | `200` |
 | `NESTED_WORLDS_HEARTBEAT` | Set to `0` to disable the ambient world heartbeat (background agent life). | on |
 | `NESTED_WORLDS_HEARTBEAT_INTERVAL` | Seconds between heartbeat ticks. Heartbeat agents are FSM-driven — no API spend. | `180` |

@@ -243,6 +243,7 @@ breadcrumb. A failure log records the exception class only.
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional `none`, `minimal`, `low`, `medium`, or `high`. Unset sends nothing. Any other value leaves the adapter unconfigured and is not forwarded. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for one POST when the caller passes no timeout. Default 60. Each resolved address is tried with the time remaining, so the TCP connects stay inside that budget. A blackholed earlier address can consume the whole budget; later addresses are then not tried. DNS lookup and individual TLS handshake bytes are not covered. Moderation still passes 3 seconds. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | In-flight cap for this adapter. Default 8. It does not share the anthropic cap. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_SLOT_WAIT_SECONDS` | Longest wait for a free slot under that cap when the caller passes no timeout. Default 10. Moderation waits its own 3 seconds. It does not share the anthropic setting. |
 
 `NESTED_WORLDS_MODEL` plus `NESTED_WORLDS_MODERATION_MODEL` is enough.
 Node voice, inhabitant voice, and intention use their own variable when

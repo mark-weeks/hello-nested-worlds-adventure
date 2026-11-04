@@ -89,9 +89,9 @@ def _saturated():
             gate.release()
 
 
-def _free_slots():
+def _free_slots(gate=None):
     """Permits a caller could take now. LIMIT means none leaked."""
-    gate = runtime._semaphore_for("fixture")
+    gate = gate or runtime._semaphore_for("fixture")
     taken = 0
     while gate.acquire(blocking=False):
         taken += 1
@@ -223,6 +223,55 @@ class TestGenerateWaitsABoundedTime:
         monkeypatch.delenv("NESTED_WORLDS_OPENAI_COMPATIBLE_SLOT_WAIT_SECONDS", raising=False)
         assert runtime._slot_wait("anthropic") == 4.0
         assert runtime._slot_wait("openai_compatible") == runtime.DEFAULT_SLOT_WAIT_SECONDS
+
+    def test_a_blank_adapter_name_waits_by_the_slots_it_shares(self, monkeypatch):
+        # Review finding: _semaphore_for keys a blank adapter name to the
+        # default provider's slots, so its wait is that provider's setting,
+        # not NESTED_WORLDS__SLOT_WAIT_SECONDS.
+        monkeypatch.setattr(runtime, "_semaphores", {})
+        monkeypatch.setattr(runtime, "_semaphore_limits", {})
+        monkeypatch.setenv("NESTED_WORLDS_ANTHROPIC_SLOT_WAIT_SECONDS", "4")
+        monkeypatch.setenv("NESTED_WORLDS__SLOT_WAIT_SECONDS", "60")
+        assert runtime._semaphore_for("  ") is runtime._semaphore_for(runtime.DEFAULT_PROVIDER)
+        assert runtime._slot_wait("  ") == 4.0
+        assert runtime._slot_wait("") == 4.0
+
+    def test_a_concurrency_change_mid_call_returns_the_slot_it_took(self, provider, monkeypatch):
+        # A changed limit gives later callers a fresh semaphore. The call in
+        # flight must release the one it acquired: releasing the fresh one
+        # raises "released too many times" over a good reply and leaves the
+        # old semaphore a permit short for the callers still waiting on it.
+        entered, finish = threading.Event(), threading.Event()
+
+        def slow(**kwargs):
+            provider.calls.append(kwargs)
+            entered.set()
+            assert finish.wait(5)
+            return Completion("A reply.", True, finish_reason="complete",
+                              provider="fixture", resolved_model="fixture-model")
+
+        monkeypatch.setattr(provider, "generate", slow)
+        first = runtime._semaphore_for("fixture")
+        box = {}
+
+        def run():
+            try:
+                box["value"] = _generate()
+            except BaseException as exc:  # noqa: BLE001 - reported to the test
+                box["error"] = exc
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        assert entered.wait(5)
+        monkeypatch.setenv("NESTED_WORLDS_FIXTURE_CONCURRENCY", str(LIMIT + 1))
+        second = runtime._semaphore_for("fixture")
+        assert second is not first
+        finish.set()
+        worker.join(5)
+        assert not worker.is_alive()
+        assert box.get("error") is None and box["value"].text == "A reply."
+        assert _free_slots(first) == LIMIT
+        assert _free_slots(second) == LIMIT + 1
 
 
 class TestModerationHoldsWithinItsTimeout:
@@ -381,6 +430,51 @@ class TestVoiceSurfaces:
         finally:
             sender.close()
         assert provider.calls == [] and _rows("PLAYER_CHAT") == []
+        assert _free_slots() == LIMIT
+
+
+class TestWithAPlayerCredential:
+    """The routes a keyed player reaches: fiction, no row, nothing private logged."""
+
+    def test_an_intention_through_the_endpoint_answers_in_fiction(
+            self, http, accounts, provider, caplog):
+        from multiverse.situation import NODES
+        from server import intervention_api
+        name = NODES["instrument"]
+        intention = "let the surface remember the river"
+        assert http("/position", body={"node": name, "seed": SEED, "depth": 9})[0] == 200
+        caplog.set_level(logging.INFO)
+        with _saturated():
+            started = time.monotonic()
+            status, data, _ = http("/interventions/commit", body={
+                "node": name, "intention": intention, "version": 3,
+                "request_id": "busy-00000001"})
+            elapsed = time.monotonic() - started
+        assert status == 200 and data == {
+            "ai": False, "response": intervention_api._UNSETTLED,
+            "steps": [], "accepted": False}
+        assert elapsed < WAIT + 2
+        assert provider.calls == []
+        assert _count("intention", "busy") == 1 and _count("intention", "provider") == 0
+        assert accounts[0] not in caplog.text and intention not in caplog.text
+        assert _free_slots() == LIMIT
+
+    def test_speak_keeps_the_charges_and_logs_neither_key_nor_words(
+            self, http, accounts, provider, caplog):
+        import consciousness
+        root = store.world_tree(SEED)
+        message = "the lantern hums over the river"  # locally clean: no classify
+        caplog.set_level(logging.INFO)
+        with _saturated():
+            status, data, _ = http("/speak", body={"node_name": root.name, "message": message})
+        assert status == 200 and data == {
+            "response": consciousness.fallback_voice(root), "ai": False}
+        assert provider.calls == [] and _rows("PLAYER_SPEAK") == []
+        assert _count("speak", "busy") == 1
+        day = guard._utc_day()
+        for bucket in (guard.ANTHROPIC_BUCKET, guard.MODEL_ACTIONS_BUCKET):
+            assert persistence.get_cost_calls(guard._user_bucket(bucket, accounts[0]), day) == 1
+        assert accounts[0] not in caplog.text and message not in caplog.text
         assert _free_slots() == LIMIT
 
 

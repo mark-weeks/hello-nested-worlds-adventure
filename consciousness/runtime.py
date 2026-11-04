@@ -585,8 +585,11 @@ DEFAULT_SLOT_WAIT_SECONDS = 10.0
 
 
 def _slot_wait_env(provider_name: str) -> str:
-    # Same per-provider pattern as the concurrency setting beside it.
-    return f"NESTED_WORLDS_{provider_name.strip().upper()}_SLOT_WAIT_SECONDS"
+    # Same per-provider pattern as the concurrency setting beside it, and the
+    # same name `_semaphore_for` keys the slots by: a blank adapter name
+    # shares the default provider's slots, so it reads that provider's wait.
+    name = provider_name.strip().upper() or DEFAULT_PROVIDER.upper()
+    return f"NESTED_WORLDS_{name}_SLOT_WAIT_SECONDS"
 
 
 def _slot_wait(provider_name: str, timeout: float | None = None) -> float:
