@@ -359,12 +359,12 @@ even if the client has stopped reading: the server waits at most 1 s to
 write a close frame, then shuts the socket down without one. One exception
 remains: a chat being screened by the model provider. Nothing reaches that
 client meanwhile and the chat is refused afterwards, but its close and
-departure wait for the screening: the classify call itself (3 s per attempt,
-which the Anthropic SDK retries up to twice, longer when the provider sends
-retry-after) and the wait for a slot under the provider's concurrency limit,
-which #144 bounds at the classify's 3 s timeout (without it the slot wait has
-no limit). A frame must still finish arriving within
-10 s of its first byte or the socket is closed (status 1002). Any keyless
+departure wait for the screening: at most 3 s for a slot under the
+provider's concurrency limit (the classify's own timeout), then the classify
+call itself, 3 s per attempt, which the Anthropic SDK retries up to twice. A
+provider that answers 429 with retry-after can stretch that to about 2
+minutes. A frame must still finish arriving within 10 s of its first byte or
+the socket is closed (status 1002). Any keyless
 socket opened before the first key or invite closes the same way.
 `fly ssh console` opens a shell inside the running machine.
 
@@ -858,6 +858,13 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       provider is slow or hung (a voice call has no timeout of its own, so the
       SDK's 10-minute timeout, retried twice, is what frees a hung slot) or
       demand outran the limit: check the provider first, then raise the limit.
+      These counts cover the voice surfaces only. A screen that holds chat,
+      Ideas, a published profile or puzzle text because the classifier failed
+      (`error`) or found no slot (`busy`) writes one INFO
+      `moderation_call outcome=... surface=...` line on the moderation logger
+      and bumps no counter, so saturation that only reaches those surfaces
+      does not fail `voice-health`: search the logs for `outcome=busy` and
+      `outcome=error`.
       It exits 1 when the window holds a provider, screen or
       busy failure, the voice is not configured, or the model configuration
       has a hard problem (the check `models` and the boot run); add `--probe`

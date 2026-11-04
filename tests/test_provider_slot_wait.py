@@ -208,7 +208,7 @@ class TestGenerateWaitsABoundedTime:
         ("soon", None, 10.0), ("nan", None, 10.0), ("inf", None, 10.0),
         ("2.5", None, 2.5), ("0", None, 0.0), ("-4", None, 0.0),
         ("60", 3.0, 3.0), (None, 3.0, 3.0), ("1", 0, 1.0), ("1", -2, 1.0),
-        ("1", float("nan"), 1.0), ("1", "soon", 1.0),
+        ("1", float("nan"), 1.0), ("1", float("inf"), 1.0), ("1", "soon", 1.0),
         ("1e30", None, threading.TIMEOUT_MAX),
     ])
     def test_the_wait_setting(self, monkeypatch, raw, timeout, expected):
@@ -235,6 +235,18 @@ class TestGenerateWaitsABoundedTime:
         assert runtime._semaphore_for("  ") is runtime._semaphore_for(runtime.DEFAULT_PROVIDER)
         assert runtime._slot_wait("  ") == 4.0
         assert runtime._slot_wait("") == 4.0
+
+    def test_a_slot_is_returned_when_the_call_is_interrupted(self, provider):
+        # The release sits in a `finally`, so an interruption that is not an
+        # Exception (KeyboardInterrupt, SystemExit) still returns the slot.
+        class _Interrupted(BaseException):
+            pass
+
+        provider.fail = _Interrupted()
+        with pytest.raises(_Interrupted):
+            _generate()
+        assert len(provider.calls) == 1
+        assert _free_slots() == LIMIT
 
     def test_a_concurrency_change_mid_call_returns_the_slot_it_took(self, provider, monkeypatch):
         # A changed limit gives later callers a fresh semaphore. The call in
@@ -494,3 +506,28 @@ class TestVoiceHealth:
         with pytest.raises(SystemExit, match="1 voice failure"):
             self._run()
         assert "speak        answered    1   quiet: busy 1" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("surface", ["ideas", "profile"])
+def test_a_busy_screen_holds_ideas_and_published_profiles(provider, quick_screen, http, surface):
+    # Every surface maps a non-block verdict to its hold; pin the two HTTP
+    # surfaces that answer 422 with `held` besides the voice paths.
+    provider.reply = "ALLOW"
+    with _saturated():
+        if surface == "ideas":
+            status, body, _ = http("/ideas/submit", body={
+                "title": AMBIGUOUS, "description": "A traveler could not find the crossing.",
+                "request_id": "idea-busy-0001", "public_credit": False})
+            hold = moderation.IDEAS_HOLD
+        else:
+            status, body, _ = http("/profile/save", body={
+                "bio": AMBIGUOUS, "goals": "", "published": True})
+            hold = moderation.PROFILE_HOLD
+    assert status == 422 and body["held"] is True and body["error"] == hold
+    assert provider.calls == []
+    assert _free_slots() == LIMIT
+    if surface == "ideas":
+        assert http("/ideas/list")[1]["ideas"] == []
+    else:
+        assert http("/profile")[1]["profile"]["published"] is False
+
