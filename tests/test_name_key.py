@@ -855,5 +855,53 @@ def test_invite_duplicates_exits_0_when_every_name_is_its_own(capsys):
     _mint_cli("Ada")
     capsys.readouterr()
     main.main(["invite", "duplicates"])
-    assert capsys.readouterr().out == "No two registered names share a name key.\n"
+    assert capsys.readouterr().out == ("No two registered names share a name key, "
+                                       "and none shares one with a reserved world "
+                                       "name.\n")
+
+
+# ── Review follow-up (2026-11-04) ───────────────────────────────────────────
+
+def test_invite_duplicates_lists_a_legacy_name_that_keys_as_a_reserved_name(capsys):
+    # Until the key dropped invisible characters, /register accepted 'Scout'
+    # + U+200B beside the reserved Scout. Such a row is now the reserved
+    # name under the key, alone or with a twin, and is listed with it.
+    _seed_rows((KEY_A, "Scout\u200b", False),
+               (KEY_B, "Obs\u00aderver", True),
+               (KEY_C, "OBSERVER\ufe0f", False),
+               ("nw_" + "d" * 32, "Ada", False))
+    before = persistence.list_invite_keys(include_revoked=True)
+    with pytest.raises(SystemExit) as exc:
+        main.main(["invite", "duplicates"])
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert out.startswith("2 group(s) of registered names share a name key with "
+                          "each other or with a reserved world name")
+    groups = sorted((block.splitlines() for block in out.split("\n\n")[1:]), key=len)
+    scout, observer = groups
+    assert scout[0] == "  Scout                 reserved: one of the world's own agents"
+    assert len(scout) == 2 and ascii("Scout\u200b") in scout[1]
+    assert observer[0].startswith("  Observer ") and "reserved" in observer[0]
+    assert len(observer) == 3
+    assert any(ascii("Obs\u00aderver") in line and line.rstrip().endswith("revoked")
+               for line in observer[1:])
+    assert "'Ada'" not in out
+    assert persistence.list_invite_keys(include_revoked=True) == before
+
+
+# A soft-hyphenated 'Scout' is refused first as the reserved name.
+@pytest.mark.parametrize("name", [p for p in INVISIBLE_NAMES if p.id != "soft-hyphen"])
+def test_play_refuses_a_name_with_hidden_or_no_visible_text_on_the_shared_world(
+        monkeypatch, capsys, name):
+    started = []
+    monkeypatch.setattr("interface.run_session", lambda **kwargs: started.append(kwargs))
+    monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "382")
+    with pytest.raises(SystemExit) as exc:
+        main.cmd_play(_PlayArgs(name, 382))
+    assert str(exc.value) == ("A player name must be visible text, with no control "
+                              "or invisible characters — pass --name <you>.")
+    assert started == []
+    # Local multi-world play, the operator terminal, is unaffected.
+    main.cmd_play(_PlayArgs(name, 7))
+    assert [kwargs["player_name"] for kwargs in started] == [name.strip()]
 

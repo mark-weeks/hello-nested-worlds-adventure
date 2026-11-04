@@ -2460,9 +2460,10 @@ def name_is_visible_text(name: str) -> bool:
     a zero-width space, a soft hyphen, a variation selector, a Hangul
     filler), or no visible character at all (only whitespace, U+2800
     BRAILLE PATTERN BLANK, or nothing). `/register` and `invite mint`
-    refuse such a name; the keyless body-name path records the action
-    anonymously and the keyless WebSocket join is refused, as each treats a
-    reserved name. Names already stored are not checked or changed:
+    refuse such a name, and so does `play --name` when the session writes
+    the shared canonical world; the keyless body-name path records the
+    action anonymously and the keyless WebSocket join is refused, as each
+    treats a reserved name. Names already stored are not checked or changed:
     `name_key` drops their default-ignorables when it compares them.
     """
     visible = False

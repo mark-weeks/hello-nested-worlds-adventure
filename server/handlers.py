@@ -175,7 +175,8 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
 # (ADR-004 §7) and the Scout and Observer walkers (agents/identities.py).
 # Their chronicle rows must be unimpersonatable, so no player may claim them.
 # Held as `persistence.name_key` keys, so a check compares the key of the
-# name it is given: case, trim and Unicode compatibility forms all fold.
+# name it is given: case, trim and Unicode compatibility forms all fold,
+# and invisible default-ignorable characters are dropped.
 _RESERVED_PLAYER_NAMES = frozenset(
     persistence.name_key(n) for n in identities.SERVER_IDENTITIES)
 

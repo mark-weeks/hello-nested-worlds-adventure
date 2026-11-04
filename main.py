@@ -164,6 +164,14 @@ def cmd_play(args):
             raise SystemExit(
                 f"'{name}' is a registered player's name — choose another "
                 "with --name.")
+        if not persistence.name_is_visible_text(name):
+            # /register, the mint CLI and the keyless WebSocket join refuse
+            # the same names: a control or invisible character, or nothing
+            # visible, would put rows under a name that shows as another
+            # name or as no one (ADR-004 §7: no anonymous gameplay).
+            raise SystemExit("A player name must be visible text, with no "
+                             "control or invisible characters — pass "
+                             "--name <you>.")
         refusal = name_refusal(name)
         if refusal:
             raise SystemExit(f"'{name}' — {refusal} Use --name.")
@@ -540,22 +548,35 @@ def _invite_duplicates() -> None:
     Read-only. Registration refuses a second name with the same key, so a
     group can only come from rows written before that check or restored
     from such a backup. Revoked names are included, because they stay
-    taken. Each name is printed through `_shown` and as `ascii()`, so a
-    composed and a decomposed spelling, or one with an invisible character,
-    read differently; the digest prefix is what `invite revoke` and
+    taken. A registered name whose key is a reserved name's (one of the
+    world's own agents, `agents.identities.canonical`) is listed as a group
+    too, under that agent's name: registration refuses it now, but a row
+    written before the key dropped invisible characters can hold one
+    (`Scout` + U+200B registered beside the reserved `Scout` until then).
+    Each name is printed through `_shown` and as `ascii()`, so a composed
+    and a decomposed spelling, or one with an invisible character, read
+    differently; the digest prefix is what `invite revoke` and
     `invite rotate` accept. Exits 1 when any group exists, 0 otherwise.
     """
+    from agents.identities import canonical
     groups: dict[str, list[dict]] = {}
     for row in persistence.list_invite_keys(include_revoked=True):
         groups.setdefault(persistence.name_key(row["name"]), []).append(row)
-    shared = [rows for rows in groups.values() if len(rows) > 1]
+    shared = []
+    for rows in groups.values():
+        reserved = canonical(rows[0]["name"])  # one key, so any row answers
+        if len(rows) > 1 or reserved is not None:
+            shared.append((reserved, rows))
     if not shared:
-        print("No two registered names share a name key.")
+        print("No two registered names share a name key, and none shares "
+              "one with a reserved world name.")
         return
-    print(f"{len(shared)} group(s) of registered names share a name key "
-          "(revoked names included):")
-    for rows in shared:
+    print(f"{len(shared)} group(s) of registered names share a name key with "
+          "each other or with a reserved world name (revoked names included):")
+    for reserved, rows in shared:
         print()
+        if reserved is not None:
+            print(f"  {reserved:<20}  reserved: one of the world's own agents")
         for r in sorted(rows, key=lambda r: (r["created_at"], r["key"])):
             status = "revoked" if r["revoked_at"] else "active"
             print(f"  {_shown(r['name']):<20}  {ascii(r['name']):<28}  "
@@ -896,7 +917,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_invite_duplicates = invite_sub.add_parser("duplicates",
         help="List registered names (revoked included) that are one name "
-             "under persistence.name_key; read-only, exits 1 if any")
+             "under persistence.name_key, with each other or with a reserved "
+             "world name; read-only, exits 1 if any")
     p_invite_duplicates.set_defaults(func=cmd_invite)
 
     reason_help = ("Why (required; private operator data, never shown to "

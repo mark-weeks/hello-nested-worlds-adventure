@@ -571,16 +571,24 @@ fly ssh console -C "python main.py invite duplicates"
 ```
 
 It only reads. With every name its own, it prints `No two registered names
-share a name key.` and exits 0. Otherwise it exits 1 and lists each group,
-revoked names included: each spelling through the CLI's escaping and again
-exactly as Python's `ascii()` (so a composed and a decomposed `Élodie`, or a
-name with a zero-width space, read differently), its key's digest prefix,
-when it was created, and whether it is revoked. Registration cannot create a
-group, so one means rows written before the comparison, or a restored backup
-holding them. Both players keep working under their own spellings, and
-nothing renames a stored name, but the sanction CLI refuses the shared name
-(name the participant id) and other players may not tell the two apart. Stop
-and take the list to the owner before deploying. A machine still running a
+share a name key, and none shares one with a reserved world name.` and exits
+0. Otherwise it exits 1 and lists each group, revoked names included: each
+spelling through the CLI's escaping and again exactly as Python's `ascii()`
+(so a composed and a decomposed `Élodie`, or a name with a zero-width space,
+read differently), its key's digest prefix, when it was created, and whether
+it is revoked. A registered name that is one of the world's own agent names
+under the key (`Scout` followed by a zero-width space, which registration
+accepted until 2026-11-04) is listed as a group headed by that agent's name.
+Registration cannot create a group, so one means rows written before the
+comparison, or a restored backup holding them. Both players keep working
+under their own spellings, and nothing renames a stored name, but the
+sanction CLI refuses the shared name (name the participant id) and other
+players may not tell the two apart. Stop and take the list to the owner
+before deploying. Nothing removes or renames a registered row, and revoked
+names stay listed, so a group the owner has already decided on stays in the
+output and the exit status stays 1: compare the list with the one the owner
+saw, and stop only for a group that is new. `scripts/deploy.sh` does not run
+this check; run it by hand before the script. A machine still running a
 build without the command answers `invalid choice: 'duplicates'`; run the
 check right after deploying the first build that has it.
 

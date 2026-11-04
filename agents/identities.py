@@ -43,8 +43,10 @@ def canonical(raw: Any) -> str | None:
     """The canonical spelling of a server-owned identity, or None.
 
     Compared by ``persistence.name_key``: trimmed, case-folded and
-    NFKC-normalized, so ``" tessera "`` and a fullwidth ``"Ｔｅｓｓｅｒａ"`` are
-    ``"Tessera"``. Anything else, including a non-string, is not an agent
+    NFKC-normalized, with invisible default-ignorable characters removed,
+    so ``" tessera "``, a fullwidth ``"Ｔｅｓｓｅｒａ"`` and ``"Tessera"``
+    followed by a zero-width space are ``"Tessera"``. Anything else,
+    including a non-string, is not an agent
     this world knows. The reserved-name checks call this, or compare the
     same key, so no spelling of a server identity is left for a player.
     """
