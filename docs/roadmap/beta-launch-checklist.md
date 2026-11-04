@@ -268,6 +268,7 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 | Whether permanent history labels a player human or agent | Held | C4, A1 |
 | Off-host backup destination, vendor and retention (Q4 decision I). Row added from the Q4 plan's decision I (pending); not decided | Held | P3 to P5, the backup-retention line in L3 |
 | Sign-off on migration 0029: sanction reasons kept in every backup, and the erasure path (ADR-034 Decision 5) | Decided 2026-11-03 (owner-directed merge of #138) | G5 |
+| #144's provider-slot choices: the wait bound (the call's own timeout, else 10 s), `busy` counted as a voice failure, and no refund of charges taken before the wait | Decided 2026-11-04 under the owner's delegation; confirmed by the owner on 2026-11-04 | G5 |
 
 ## Go/no-go gate
 
