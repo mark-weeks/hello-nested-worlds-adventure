@@ -357,11 +357,13 @@ holds a frame open, therefore stops receiving room broadcasts within about
 (status 1008) and its departure from the room follow within about 1 s more,
 even if the client has stopped reading: the server waits at most 1 s to
 write a close frame, then shuts the socket down without one. One exception
-remains, an open owner decision: a chat being screened by the model
-provider. Nothing reaches that client meanwhile and the chat is refused
-afterwards, but its close and departure wait for the screening: seconds for
-the classify call itself, and without limit while it waits for a slot under
-the provider's concurrency limit. A frame must still finish arriving within
+remains: a chat being screened by the model provider. Nothing reaches that
+client meanwhile and the chat is refused afterwards, but its close and
+departure wait for the screening: the classify call itself (3 s per attempt,
+which the Anthropic SDK retries up to twice, longer when the provider sends
+retry-after) and the wait for a slot under the provider's concurrency limit,
+which #144 bounds at the classify's 3 s timeout (without it the slot wait has
+no limit). A frame must still finish arriving within
 10 s of its first byte or the socket is closed (status 1002). Any keyless
 socket opened before the first key or invite closes the same way.
 `fly ssh console` opens a shell inside the running machine.
