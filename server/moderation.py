@@ -16,9 +16,10 @@ profile, a registered name, and puzzle free text stored in the chronicle):
      daily budget (`guard.moderation_reserve`), never the voice budget.
      The model id is `runtime.model_for("moderation")`.
 
-**Shared text fails closed.** A timeout, a provider error, disabled
-moderation, an exhausted moderation budget, an undecided verdict, or a
-per-user cap holds the text: no chronicle row, no broadcast, no visible
+**Shared text fails closed.** A timeout, a provider error, no free
+provider slot within the classify timeout, disabled moderation, an
+exhausted moderation budget, an undecided verdict, or a per-user cap holds
+the text: no chronicle row, no broadcast, no visible
 idea, no published profile, no registered name. A local or model BLOCK
 declines it. Neither path charges the voice budget. Private notes,
 unpublished profile text, movement, puzzle correctness, and scale actions
@@ -30,7 +31,7 @@ Design note on false positives: only the exact word-boundary tier can block
 on its own. The fuzzier signals never block locally — they only escalate.
 A flaky classifier holds the ambiguous line instead of publishing it.
 `moderation_call` records the outcome (allow, block, undecided, error,
-disabled, budget, user_cap) with no player text and no raw address.
+busy, disabled, budget, user_cap) with no player text and no raw address.
 """
 from __future__ import annotations
 
@@ -118,8 +119,8 @@ def writes_shared_chronicle(seed: int) -> bool:
 @dataclass(frozen=True)
 class Verdict:
     allowed: bool
-    tier: str  # clean | blocklist | classify | undecided | error | disabled | budget | user_cap
-    outcome: str  # allow | block | undecided | error | disabled | budget | user_cap
+    tier: str  # clean | blocklist | classify | undecided | error | busy | disabled | budget | user_cap
+    outcome: str  # allow | block | undecided | error | busy | disabled | budget | user_cap
 
 
 _ALLOW_CLEAN = Verdict(True, "clean", "allow")
@@ -147,9 +148,9 @@ def http_body(verdict: Verdict, **extra) -> dict:
 def _moderation_log(outcome: str, surface: str, elapsed_ms: float | None = None) -> None:
     # No player text. Addresses are not logged here; a caller that needs one
     # hashes it with observability.hash_ip before it ever reaches this line.
-    # Only the outcome=error line carries elapsed milliseconds: a finished
-    # verdict is logged by classify_content, and the other refusals are
-    # decided before a model call.
+    # Only the outcome=error and outcome=busy lines carry elapsed
+    # milliseconds: a finished verdict is logged by classify_content, and
+    # the other refusals are decided before a model call.
     if elapsed_ms is None:
         _log.info("moderation_call outcome=%s surface=%s", outcome, surface)
     else:
@@ -203,7 +204,10 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     # spend the moderation budget and a later generate() does not charge
     # twice. classify_content logs a finished verdict. This function logs
     # the single outcome=error line, with elapsed milliseconds, if that
-    # call or anything around it raises.
+    # call or anything around it raises. No provider slot within the
+    # classify timeout is outcome=busy instead: the screen could not
+    # complete, so the text holds, but the operator can tell capacity from
+    # a broken classifier. The charges above stand, as for an error.
     import time as _time
     try:
         reservation = runtime.reserve_model_action(user_key)
@@ -219,6 +223,9 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
         import consciousness
         outcome = consciousness.classify_content(
             text, surface=surface, user_key=reservation.key, reservation=reservation)
+    except runtime.ProviderBusy:
+        _moderation_log("busy", surface, (_time.monotonic() - started) * 1000.0)
+        return Verdict(False, "busy", "busy")
     except Exception:
         _moderation_log("error", surface, (_time.monotonic() - started) * 1000.0)
         return Verdict(False, "error", "error")

@@ -99,7 +99,15 @@ VOICE_SURFACES = ("speak", "agent_voice", "intention")
 # own budget, per-user cap and disable switch count as `budget`, `action_cap`
 # and `disabled`. Content declines are policy, not outages, and are not
 # recorded.
-VOICE_FAILURES = ("provider", "db", "unconfigured", "screen")
+# `busy`: no slot under the provider's concurrency limit opened within the
+# wait (`runtime.ProviderBusy`), for the voice call or for the moderation
+# classify that would have screened it. It is a failure, not a limit. The
+# limits are deliberate stops; this is a player turned away for capacity,
+# which an operator fixes by raising the limit or the provider's speed.
+# And a voice call passes no timeout, so on the default adapter a hung
+# provider holds its slots for the SDK's 10-minute timeout, retried twice,
+# and `busy` is the only outcome recorded until those calls end.
+VOICE_FAILURES = ("provider", "db", "unconfigured", "screen", "busy")
 VOICE_LIMITS = ("budget", "action_cap", "disabled")
 VOICE_REASONS = ("ok",) + VOICE_LIMITS + VOICE_FAILURES
 

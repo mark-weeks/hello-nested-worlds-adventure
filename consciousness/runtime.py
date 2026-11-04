@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import importlib
 import logging
+import math
 import os
 import re
 import threading
@@ -259,6 +260,17 @@ class ModelActionLimited(Exception):
 
 class VoiceBudgetLimited(Exception):
     """The voice budget refused this call. The provider was not contacted."""
+
+
+class ProviderBusy(Exception):
+    """No in-flight slot for the selected provider opened within the wait.
+
+    ``generate`` raises this after the model-action cap and the voice budget
+    when every slot under ``NESTED_WORLDS_<NAME>_CONCURRENCY`` stayed taken
+    for the whole wait (``_slot_wait``). The provider was not contacted and
+    no slot is held. Charges already taken stand, as they do for every
+    failure after the charge: the cost ledger has no refund.
+    """
 
 
 class UnusableModelId(Exception):
@@ -565,6 +577,44 @@ def _concurrency_limit(provider_name: str = DEFAULT_PROVIDER) -> int:
         return 8
 
 
+# A voice reply of at most a few hundred tokens takes seconds, so ten seconds
+# lets one to two full turnovers of the default eight slots clear a burst.
+# A backlog deeper than that will not clear in a time a player waits for,
+# and each waiter holds a request thread or a WebSocket reader meanwhile.
+DEFAULT_SLOT_WAIT_SECONDS = 10.0
+
+
+def _slot_wait_env(provider_name: str) -> str:
+    # Same per-provider pattern as the concurrency setting beside it.
+    return f"NESTED_WORLDS_{provider_name.strip().upper()}_SLOT_WAIT_SECONDS"
+
+
+def _slot_wait(provider_name: str, timeout: float | None = None) -> float:
+    """Longest wait, in seconds, for an in-flight slot before ``ProviderBusy``.
+
+    The call's own timeout when it is a positive finite number: moderation
+    passes 3 s, so a held screen answers in about that. Otherwise
+    ``NESTED_WORLDS_<NAME>_SLOT_WAIT_SECONDS``: unset, empty, non-numeric or
+    non-finite means 10; zero or negative means 0, which takes a free slot
+    or answers busy at once. Never above ``threading.TIMEOUT_MAX``, the
+    largest wait a lock accepts.
+    """
+    try:
+        own = float(timeout) if timeout is not None else None
+    except (TypeError, ValueError):
+        own = None
+    if own is not None and math.isfinite(own) and own > 0:
+        return min(own, threading.TIMEOUT_MAX)
+    raw = os.environ.get(_slot_wait_env(provider_name), "").strip()
+    try:
+        value = float(raw) if raw else DEFAULT_SLOT_WAIT_SECONDS
+    except ValueError:
+        value = DEFAULT_SLOT_WAIT_SECONDS
+    if not math.isfinite(value):
+        value = DEFAULT_SLOT_WAIT_SECONDS
+    return min(max(0.0, value), threading.TIMEOUT_MAX)
+
+
 _semaphores: dict[str, threading.BoundedSemaphore] = {}
 _semaphore_limits: dict[str, int] = {}
 _semaphore_lock = threading.Lock()
@@ -606,6 +656,13 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
     budget. The bucket name is unchanged. A ``ModelReservation`` from
     ``reserve_model_action`` is not charged again. The schema check still
     runs when a reservation is already held, and it does not charge again.
+
+    The call then waits for one of the selected provider's in-flight slots,
+    at most ``_slot_wait`` seconds: its own ``timeout`` when given, else
+    ``NESTED_WORLDS_<NAME>_SLOT_WAIT_SECONDS`` (default 10). When none
+    opens, this raises ``ProviderBusy`` without calling the provider. The
+    charges above are not refunded. A slot taken is released on every path
+    out of the provider call.
     """
     require_model_id(model)
     provider = get_provider()
@@ -620,10 +677,17 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
         from server import guard
         if not guard.consume_anthropic(user_key=reservation.key):
             raise VoiceBudgetLimited()
-    with _semaphore_for(provider.name):
+    # Release the gate that was acquired, not a fresh lookup: a changed
+    # concurrency setting replaces the semaphore for later callers.
+    gate = _semaphore_for(provider.name)
+    if not gate.acquire(timeout=_slot_wait(provider.name, timeout)):
+        raise ProviderBusy()
+    try:
         result = provider.generate(model=model, system=system, messages=messages,
                                    max_tokens=max_tokens, json_schema=json_schema,
                                    timeout=timeout)
+    finally:
+        gate.release()
     usage = result.usage
     if usage is not None:
         _log.info(
