@@ -253,16 +253,72 @@ class TestSuspensionAndBan:
         assert b["name"] == "Élodie"
         assert persistence.lookup_invite_key(KEY_A) is None
 
-    def test_a_non_ascii_name_never_sanctions_its_case_twin(self):
-        # Both spellings register (the unique index is lower(trim(name)),
-        # which leaves 'É' as is), so they are two different players.
+    def test_a_name_resolves_by_its_key_in_any_case_or_unicode_form(self):
+        # Names match by persistence.name_key, the comparison registration
+        # enforces uniqueness by, so at most one player answers to a key.
         persistence.mint_invite_key(KEY_A, "Élodie")
-        persistence.mint_invite_key(KEY_B, "élodie")
-        b = sanctions.ban("Élodie", "the capitalised one")
+        persistence.mint_invite_key(KEY_B, "Bea")
+        for typed in ("élodie", "E\u0301lodie", " ÉLODIE ", "E\u0301LODIE"):
+            assert sanctions.resolve(typed)["name"] == "Élodie", ascii(typed)
+        b = sanctions.ban("élodie", "typed in lower case")
+        assert b["name"] == "Élodie"
+        assert persistence.lookup_invite_key(KEY_A) is None
+        assert persistence.lookup_invite_key(KEY_B)["name"] == "Bea"
+
+    def test_a_legacy_case_twin_is_refused_as_ambiguous_and_nothing_is_written(self):
+        # Registration now refuses 'élodie' beside 'Élodie'. A database
+        # written before that check can hold both: the ASCII-only unique
+        # index let them in. No spelling picks one of them.
+        persistence.mint_invite_key(KEY_A, "Élodie")
+        with _db() as conn:
+            conn.execute("INSERT INTO invite_keys (key, name) VALUES (?, ?)",
+                         (persistence._credential_digest(KEY_B), "élodie"))
+        signed_in = participants.identify(KEY_A)["id"]
+        before = [_table(t) for t in ("sanctions", "participants",
+                                      "participant_credentials", "invite_keys")]
+        for typed in ("Élodie", "élodie", "E\u0301lodie"):
+            for call in (lambda: sanctions.ban(typed, "which one?"),
+                         lambda: sanctions.resolve(typed)):
+                with pytest.raises(ValueError) as exc:
+                    call()
+                message = str(exc.value)
+                assert "matches 2 registered players" in message
+                assert f"'\\xc9lodie' (participant {signed_in})" in message
+                assert "'\\xe9lodie' (no participant yet)" in message
+                assert message.endswith("Name the participant id instead; nothing changed.")
+        with pytest.raises(SystemExit) as exc:
+            _cli("sanction", "ban", "élodie", "--reason", "which one?")
+        assert "matches 2 registered players" in str(exc.value.code)
+        after = [_table(t) for t in ("sanctions", "participants",
+                                     "participant_credentials", "invite_keys")]
+        assert after == before
+        # The participant id still names exactly one of them.
+        b = sanctions.ban(signed_in, "by id")
         assert b["name"] == "Élodie"
         assert persistence.lookup_invite_key(KEY_A) is None
         assert persistence.lookup_invite_key(KEY_B)["name"] == "élodie"
-        assert participants.identify(KEY_B)["id"] != b["participant"]
+
+    def test_a_legacy_twin_with_an_invisible_character_is_refused_as_ambiguous(self):
+        # The key drops default-ignorable characters (2026-11-04, decided
+        # under the owner's delegation), so a stored 'Ada' + zero-width
+        # space is the same name as 'Ada'. Neither spelling picks one.
+        persistence.mint_invite_key(KEY_A, "Ada")
+        with _db() as conn:
+            conn.execute("INSERT INTO invite_keys (key, name) VALUES (?, ?)",
+                         (persistence._credential_digest(KEY_B), "Ada\u200b"))
+        before = [_table(t) for t in ("sanctions", "participants",
+                                      "participant_credentials", "invite_keys")]
+        for typed in ("Ada", "ada", "Ada\u200b"):
+            with pytest.raises(ValueError) as exc:
+                sanctions.ban(typed, "which one?")
+            message = str(exc.value)
+            assert "matches 2 registered players" in message
+            assert "invisible characters" in message
+            assert "'Ada' (no participant yet)" in message
+            assert "'Ada\\u200b' (no participant yet)" in message
+        after = [_table(t) for t in ("sanctions", "participants",
+                                     "participant_credentials", "invite_keys")]
+        assert after == before
 
     def test_the_shown_name_comes_from_the_live_key_not_a_revoked_one(self):
         # A participant holding a revoked credential beside a live one under
@@ -818,8 +874,10 @@ class TestCli:
         _cli(*argv)
         lines = capsys.readouterr().out.splitlines()
         assert lines[0].startswith(first_line)
-        assert lines[1:] == ["Their open sessions close within about 20 seconds; new "
-                             "requests are refused. The player is not told the reason."]
+        assert lines[1:] == ["Their open sessions stop receiving the world within "
+                             "about 5 seconds and close within about 6 (later while "
+                             "a chat waits on the model provider); new requests are "
+                             "refused. The player is not told the reason."]
         _cli("sanction", "lift", "1", "--reason", "appeal")
         lifted = capsys.readouterr().out  # a lift closes nothing, so no note
         assert lifted.startswith("Lifted sanction 1 (") and lifted.count("\n") == 1

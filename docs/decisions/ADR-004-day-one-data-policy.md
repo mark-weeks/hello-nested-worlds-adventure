@@ -57,7 +57,23 @@ the walker in `AGENT_VISIT` and `AGENT_VOICE` rows and in both clients' Speak
 targets. Names already registered are not changed. A name that only contains
 one (`Scoutmaster`) stays a player's.
 
-**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction (invite-gate latch and reserved names); sanction records 2026-11-03 on the owner's direction.
+**2026-11-04 name-comparison amendment:** Decided on 2026-11-04 under the
+delegation of the open choices on #143 by the owner, Mark Weeks ("Use your
+judgement on the questions"); the wording here is the implementer's, not the
+owner's. This amends §7's uniqueness rule. Two names are the same name when
+their `persistence.name_key` keys are equal: the name trimmed, then Unicode's
+compatibility caseless match (D146) with default-ignorable code points
+removed, as Unicode's NFKC_Casefold removes them. Case, Unicode form,
+compatibility forms (fullwidth, circled, ligature), `ß` and `ss`, and
+invisible characters no longer make a second name, and the reserved names are
+compared the same way. This goes beyond the earlier "case- and
+whitespace-insensitive" wording, and is accepted. `/register` and
+`invite mint` refuse a name holding a control character or an invisible
+character, or with nothing visible, and `invite mint` caps a name at 32
+characters as `/register` does. Confusable letters from other scripts are out
+of scope for beta. Names already registered are not changed.
+
+**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction (invite-gate latch and reserved names); sanction records 2026-11-03 on the owner's direction. §7 name comparison amended 2026-11-04 under the owner's delegation of #143's open choices.
 
 ---
 
@@ -329,12 +345,20 @@ authenticated by a per-user credential that carries a known, unique name.
 Realized by binding the name to the **per-user invite credential** and removing
 the shared key entirely:
 
-- **Unique at registration.** `python main.py invite mint --name X` rejects a
-  name already taken (case- and whitespace-insensitive), the twelve cast
-  names, and the server-owned walkers `Scout` and `Observer`
-  (`agents/identities.py`; 2026-11-03 amendment); a DB UNIQUE index on
-  `lower(trim(name))` (migration 0011) is the atomic backstop, and
-  `persistence.mint_invite_key` raises `NameUnavailable`.
+- **Unique at registration.** `python main.py invite mint --name X` and
+  `/register` reject a name already taken, the twelve cast names, and the
+  server-owned walkers `Scout` and `Observer` (`agents/identities.py`;
+  2026-11-03 amendment). Two names are the same name when their
+  `persistence.name_key` keys are equal (trimmed, then Unicode's
+  compatibility caseless match with default-ignorable code points removed;
+  2026-11-04 amendment). The atomic guard is that comparison, made against
+  every registered name, revoked ones included, under `BEGIN IMMEDIATE`;
+  `persistence.mint_invite_key` raises `NameUnavailable`. The DB UNIQUE index
+  on `lower(trim(name))` (migration 0011) stays as a backstop that folds ASCII
+  only. A name holding a control character or an invisible (default-ignorable)
+  character, or with nothing visible, is refused, and `invite mint` caps a
+  name at 32 characters as `/register` does. Confusable letters from other
+  scripts (Cyrillic `а` for Latin `a`) are out of scope for beta.
 - **Server-authoritative at runtime.** A request carrying a per-user invite key
   uses that key's registered name (`guard.registered_name`), ignoring any
   client-supplied `player_name` / `?name=` — so names can't collide or

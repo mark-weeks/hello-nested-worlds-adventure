@@ -14,7 +14,7 @@ from http.server import HTTPServer
 from socketserver import TCPServer, ThreadingMixIn
 
 import persistence
-from server import guard, observability
+from server import guard, observability, websocket
 from server.handlers import Handler as _Handler
 
 
@@ -210,6 +210,7 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
             heartbeat_stop.set()
         if pump_stop is not None:
             pump_stop.set()
+        websocket.stop_credential_sweep()
         server.server_close()
         try:
             persistence.checkpoint()

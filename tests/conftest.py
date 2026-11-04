@@ -77,6 +77,10 @@ def _isolate_rate_limits(monkeypatch):
     # production throttle. The throttle itself is pinned in
     # tests/test_ws_credential_lifetime.py::TestReauthorizationThrottle.
     monkeypatch.setattr(guard, "WS_REAUTH_INTERVAL_SEC", 0.0)
+    # The credential sweep re-checks quiet sockets on the server's own
+    # schedule. An hour here keeps it out of other suites' lookup counts
+    # and frame-driven closes; tests/test_ws_credential_sweep.py shortens it.
+    monkeypatch.setattr(guard, "WS_SWEEP_INTERVAL_SEC", 3600.0)
     yield
     guard.RATE_LIMITER.reset()
     guard.READ_RATE_LIMITER.reset()

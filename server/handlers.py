@@ -174,7 +174,25 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
 # Every server-owned agent identity is world canon: the wandering cast
 # (ADR-004 §7) and the Scout and Observer walkers (agents/identities.py).
 # Their chronicle rows must be unimpersonatable, so no player may claim them.
-_RESERVED_PLAYER_NAMES = {n.lower() for n in identities.SERVER_IDENTITIES}
+# Held as `persistence.name_key` keys, so a check compares the key of the
+# name it is given: case, trim and Unicode compatibility forms all fold,
+# and invisible default-ignorable characters are dropped.
+_RESERVED_PLAYER_NAMES = frozenset(
+    persistence.name_key(n) for n in identities.SERVER_IDENTITIES)
+
+
+def _has_utf8_form(text: str) -> bool:
+    """False for text no UTF-8 column can store: a lone surrogate.
+
+    JSON lets a body spell one (an escaped "\\ud800"), and binding it to a
+    SQLite parameter raises UnicodeEncodeError, which reached the client as
+    a 500. A name like that is the client's mistake, never a server error.
+    """
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 # How long a second watcher waits for the live observer walk. The turn is
 # held only while the walk is computed, never while it streams, so the wait
@@ -218,14 +236,19 @@ def _normalize_client_name(raw: Any) -> str | None:
     Trimming before the reserved-name check closes the whitespace-bypass a
     cap-then-strip order left open (" Tessera" once evaded the cast block).
     Reserved (server-owned agent) names normalize to None — the action
-    still happens, anonymously, rather than in an agent's name.
+    still happens, anonymously, rather than in an agent's name. So does a
+    name with no UTF-8 form (`_has_utf8_form`), which no row can store, and
+    one that `/register` would refuse as hidden or invisible text
+    (`persistence.name_is_visible_text`).
     """
     if not raw:
         return None
     name = str(raw).strip()[:32].strip()
-    if not name:
+    if not name or not _has_utf8_form(name):
         return None
-    if name.lower() in _RESERVED_PLAYER_NAMES:
+    if not persistence.name_is_visible_text(name):
+        return None
+    if persistence.name_key(name) in _RESERVED_PLAYER_NAMES:
         return None
     return name
 
@@ -1572,11 +1595,22 @@ class Handler(BaseHTTPRequestHandler):
         name = str(body.get("name", "")).strip()
         if not token:
             return self._send_error("an invite is required to register", 403)
+        if not _has_utf8_form(token):
+            # No token has such a form, so it reads as any unknown one does.
+            return self._send_error("this invite is not valid", 403)
         if not name:
             return self._send_error("a name is required", 400)
         if len(name) > 32:
             return self._send_error("name too long (32 characters max)", 400)
-        if name.lower() in _RESERVED_PLAYER_NAMES:
+        if not _has_utf8_form(name):
+            # A lone surrogate cannot be stored; refuse it before the token
+            # is touched, as the malformed body it is.
+            return self._send_error("a name must be plain text", 400)
+        if not persistence.name_is_visible_text(name):
+            # A control character, an invisible one, or nothing to see: a
+            # name that shows as something else, or as nothing.
+            return self._send_error(persistence.INVISIBLE_NAME_ERROR, 400)
+        if persistence.name_key(name) in _RESERVED_PLAYER_NAMES:
             # Same rule as the WS join and the mint CLI: the server-owned
             # agent names are world canon and unimpersonatable.
             return self._send_error(
