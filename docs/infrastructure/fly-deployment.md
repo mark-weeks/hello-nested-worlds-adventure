@@ -424,9 +424,17 @@ fly ssh console -C "python main.py sanction list --all"
 fly ssh console -C "python main.py sanction lift 3 --reason 'appeal accepted'"
 ```
 
-`<name>` is the registered name, ASCII letters in any case and other
-letters exactly as registered (the unique index's comparison), or the
-participant id. The sanction attaches to the participant, not to the key,
+`<name>` is the registered name in any case or Unicode form, compared as
+registration compares names (`persistence.name_key`: trimmed, then
+Unicode's compatibility caseless match, which is NFD, case fold, NFKD, case
+fold again, then every invisible default-ignorable character removed (a
+zero-width space, a soft hyphen, a variation selector), recomposed as NFKC,
+and trimmed again), or the participant id. A database written before that
+comparison can hold two names with one key (`Élodie` and `élodie`, or `Ada`
+and `Ada` followed by a zero-width space); `python main.py invite duplicates`
+lists them (§7). Such a name is refused as ambiguous, listing each spelling
+and its participant id where one exists, and nothing is recorded: name the
+participant id instead. The sanction attaches to the participant, not to the key,
 so rotating the key does not escape it. No restart is needed. The player's
 next HTTP request is refused. An open WebSocket closes the same way as a
 revoked key's (see the invite-gate paragraph above): at once on a move or chat
@@ -565,6 +573,35 @@ backups. The manual equivalent:
 ```bash
 fly ssh console -C "python main.py backup --to /data/backups/worlds-$(date -u +%Y%m%d).db"
 ```
+
+Also before every deploy, check that no two registered names are one name
+under the comparison registration uses (ADR-004 §7, `persistence.name_key`):
+
+```bash
+fly ssh console -C "python main.py invite duplicates"
+```
+
+It only reads. With every name its own, it prints `No two registered names
+share a name key, and none shares one with a reserved world name.` and exits
+0. Otherwise it exits 1 and lists each group, revoked names included: each
+spelling through the CLI's escaping and again exactly as Python's `ascii()`
+(so a composed and a decomposed `Élodie`, or a name with a zero-width space,
+read differently), its key's digest prefix, when it was created, and whether
+it is revoked. A registered name that is one of the world's own agent names
+under the key (`Scout` followed by a zero-width space, which registration
+accepted until 2026-11-04) is listed as a group headed by that agent's name.
+Registration cannot create a group, so one means rows written before the
+comparison, or a restored backup holding them. Both players keep working
+under their own spellings, and nothing renames a stored name, but the
+sanction CLI refuses the shared name (name the participant id) and other
+players may not tell the two apart. Stop and take the list to the owner
+before deploying. Nothing removes or renames a registered row, and revoked
+names stay listed, so a group the owner has already decided on stays in the
+output and the exit status stays 1: compare the list with the one the owner
+saw, and stop only for a group that is new. `scripts/deploy.sh` does not run
+this check; run it by hand before the script. A machine still running a
+build without the command answers `invalid choice: 'duplicates'`; run the
+check right after deploying the first build that has it.
 
 **Off-host copies (every 30 minutes; freshness must be checked).** ADR-005 targets
 at most one hour of lost history. A schedule alone does not establish that bound:

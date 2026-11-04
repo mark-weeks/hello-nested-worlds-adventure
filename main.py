@@ -137,6 +137,11 @@ def cmd_play(args):
         # unknown presence there. No anonymous gameplay (ADR-004 §7): require a
         # name so every recorded actor is known.
         raise SystemExit("A player name is required — pass --name <you>.")
+    from server.handlers import _has_utf8_form
+    if not _has_utf8_form(name):
+        # An argv byte that is not UTF-8 arrives as a lone surrogate, which
+        # no row can store; refuse it before a session writes anything.
+        raise SystemExit("A player name must be plain text — pass --name <you>.")
     from agents.identities import canonical
     if canonical(name) is not None:
         # CLI play writes to the same permanent chronicle as everyone else;
@@ -150,6 +155,23 @@ def cmd_play(args):
     # Local multi-world play is the operator terminal. A name is screened
     # only when this session writes the hosted canonical world.
     if writes_shared_chronicle(args.seed):
+        # A registered player's name, in any spelling, would put this
+        # session's rows in the chronicle under their name. Revoked names
+        # stay theirs too, as minting keeps them taken.
+        wanted = persistence.name_key(name)
+        if any(persistence.name_key(row["name"]) == wanted
+               for row in persistence.list_invite_keys(include_revoked=True)):
+            raise SystemExit(
+                f"'{name}' is a registered player's name — choose another "
+                "with --name.")
+        if not persistence.name_is_visible_text(name):
+            # /register, the mint CLI and the keyless WebSocket join refuse
+            # the same names: a control or invisible character, or nothing
+            # visible, would put rows under a name that shows as another
+            # name or as no one (ADR-004 §7: no anonymous gameplay).
+            raise SystemExit("A player name must be visible text, with no "
+                             "control or invisible characters — pass "
+                             "--name <you>.")
         refusal = name_refusal(name)
         if refusal:
             raise SystemExit(f"'{name}' — {refusal} Use --name.")
@@ -402,9 +424,21 @@ def cmd_invite(args):
     if action == "mint":
         from agents.identities import canonical
         from server.moderation import name_refusal
+        from server.handlers import _has_utf8_form
         name = args.name.strip()
         if not name:
             raise SystemExit("A registered name must not be empty.")
+        if len(name) > 32:
+            # The cap /register applies: the name is shown in every client.
+            raise SystemExit("A registered name must be 32 characters or fewer.")
+        if not _has_utf8_form(name):
+            # A non-UTF-8 argv byte arrives as a lone surrogate; the INSERT
+            # would raise UnicodeEncodeError with a traceback.
+            raise SystemExit("A registered name must be plain text.")
+        if not persistence.name_is_visible_text(name):
+            # /register refuses the same names (ADR-004 §7).
+            raise SystemExit("A registered name must be visible text, with no "
+                             "control or invisible characters.")
         if canonical(name) is not None:
             raise SystemExit(
                 f"'{name}' is a reserved world name (one of the world's own "
@@ -502,8 +536,52 @@ def cmd_invite(args):
             print(f"Cancelled: {args.token}")
         else:
             print(f"No redeemable registration invite matched: {args.token}")
+    elif action == "duplicates":
+        _invite_duplicates()
     else:  # pragma: no cover — argparse already constrains this
         raise SystemExit(f"unknown invite action: {action}")
+
+
+def _invite_duplicates() -> None:
+    """List registered names that are one name under `persistence.name_key`.
+
+    Read-only. Registration refuses a second name with the same key, so a
+    group can only come from rows written before that check or restored
+    from such a backup. Revoked names are included, because they stay
+    taken. A registered name whose key is a reserved name's (one of the
+    world's own agents, `agents.identities.canonical`) is listed as a group
+    too, under that agent's name: registration refuses it now, but a row
+    written before the key dropped invisible characters can hold one
+    (`Scout` + U+200B registered beside the reserved `Scout` until then).
+    Each name is printed through `_shown` and as `ascii()`, so a composed
+    and a decomposed spelling, or one with an invisible character, read
+    differently; the digest prefix is what `invite revoke` and
+    `invite rotate` accept. Exits 1 when any group exists, 0 otherwise.
+    """
+    from agents.identities import canonical
+    groups: dict[str, list[dict]] = {}
+    for row in persistence.list_invite_keys(include_revoked=True):
+        groups.setdefault(persistence.name_key(row["name"]), []).append(row)
+    shared = []
+    for rows in groups.values():
+        reserved = canonical(rows[0]["name"])  # one key, so any row answers
+        if len(rows) > 1 or reserved is not None:
+            shared.append((reserved, rows))
+    if not shared:
+        print("No two registered names share a name key, and none shares "
+              "one with a reserved world name.")
+        return
+    print(f"{len(shared)} group(s) of registered names share a name key with "
+          "each other or with a reserved world name (revoked names included):")
+    for reserved, rows in shared:
+        print()
+        if reserved is not None:
+            print(f"  {reserved:<20}  reserved: one of the world's own agents")
+        for r in sorted(rows, key=lambda r: (r["created_at"], r["key"])):
+            status = "revoked" if r["revoked_at"] else "active"
+            print(f"  {_shown(r['name']):<20}  {ascii(r['name']):<28}  "
+                  f"{r['key'][:12] + '…':<14}  {r['created_at']:<20}  {status}")
+    raise SystemExit(1)
 
 
 def _positive_int(text: str) -> int:
@@ -558,7 +636,12 @@ def cmd_sanction(args):
     """
     import datetime
     from persistence import sanctions
+    from server.handlers import _has_utf8_form
     action = args.sanction_action
+    if action in ("suspend", "ban") and not _has_utf8_form(args.player):
+        # A non-UTF-8 argv byte arrives as a lone surrogate. The lookup would
+        # raise UnicodeEncodeError, a ValueError, and print the codec's text.
+        raise SystemExit("A player name must be plain text.")
     try:
         if action == "suspend":
             try:
@@ -784,7 +867,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_invite = sub.add_parser("invite",
         help="Manage per-user beta invite keys and registration invites "
-             "(mint / list / rotate / revoke / create / tokens / cancel)")
+             "(mint / list / rotate / revoke / create / tokens / cancel / "
+             "duplicates)")
     invite_sub = p_invite.add_subparsers(dest="invite_action", required=True)
 
     p_invite_mint = invite_sub.add_parser("mint",
@@ -832,6 +916,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_invite_cancel.add_argument("token", type=str,
                                  help="The registration token to cancel")
     p_invite_cancel.set_defaults(func=cmd_invite)
+
+    p_invite_duplicates = invite_sub.add_parser("duplicates",
+        help="List registered names (revoked included) that are one name "
+             "under persistence.name_key, with each other or with a reserved "
+             "world name; read-only, exits 1 if any")
+    p_invite_duplicates.set_defaults(func=cmd_invite)
 
     reason_help = ("Why (required; private operator data, never shown to "
                    "the player; - reads it from standard input, keeping it "

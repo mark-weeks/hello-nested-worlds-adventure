@@ -20,6 +20,7 @@ import os
 import sqlite3
 import stat
 import threading
+import unicodedata
 from pathlib import Path
 from typing import Any, Callable
 
@@ -2358,14 +2359,120 @@ class NameUnavailable(ValueError):
     """
 
 
-def _normalize_invite_name(name: str) -> str:
-    """The comparison form used for name-uniqueness: trimmed and lowercased.
+# Unicode's Default_Ignorable_Code_Point property, as published for Unicode
+# 14.0.0, the version the pinned Python 3.11 `unicodedata` implements:
+# https://www.unicode.org/Public/14.0.0/ucd/DerivedCoreProperties.txt
+# (4,174 code points). `unicodedata` has no accessor for this property, so
+# the ranges are copied here. They are characters a renderer shows as
+# nothing: a soft hyphen, the zero-width space and joiners, bidirectional
+# controls, the combining grapheme joiner, variation selectors, Hangul
+# fillers, tag characters, and the reserved code points the property
+# covers. On an interpreter upgrade, compare them with that version's file.
+_DEFAULT_IGNORABLE_RANGES: tuple[tuple[int, int], ...] = (
+    (0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160),
+    (0x17B4, 0x17B5), (0x180B, 0x180F), (0x200B, 0x200F), (0x202A, 0x202E),
+    (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A), (0xE0000, 0xE0FFF),
+)
+DEFAULT_IGNORABLE: frozenset[int] = frozenset(
+    cp for first, last in _DEFAULT_IGNORABLE_RANGES
+    for cp in range(first, last + 1))
+_DROP_DEFAULT_IGNORABLE = dict.fromkeys(DEFAULT_IGNORABLE)
 
-    Kept in lockstep with the DB's `lower(trim(name))` UNIQUE index
-    (migration 0011) so the application check and the database backstop
-    agree on what counts as 'the same name'.
+
+def name_key(name: str) -> str:
+    """The one comparison key for a player or agent name (ADR-004 §7).
+
+    Two names are the same name when their keys are equal. Every path that
+    claims or checks a name compares this key: invite minting and
+    registration (`_mint_invite_key_on`), the sanction target lookup, the
+    reserved server-owned names (`agents.identities.canonical`, the
+    handlers' reserved set, the keyless WebSocket join) and the CLI.
+
+    Trimmed with `str.strip()` (Unicode whitespace, as every caller already
+    trims the name it stores), then Unicode's compatibility caseless match
+    (D146 in chapter 3 of the standard): decompose (NFD), case-fold,
+    compatibility-decompose (NFKD), case-fold again; then every
+    default-ignorable code point (`DEFAULT_IGNORABLE`) is removed, as
+    Unicode's NFKC_Casefold mapping removes them; then the result is
+    recomposed as NFKC (NFKC forms are equal exactly when NFKD forms are)
+    and trimmed again (compatibility decomposition turns a spacing accent
+    such as U+00B4 into a space and a combining mark, and a removed
+    character can leave a space at either end). Removing before
+    recomposition matters: a combining grapheme joiner between 'e' and
+    U+0301 keeps them apart, and once it is gone they compose to 'é'.
+    Decomposing before the first fold matters too: NFKC composes 'ά' +
+    U+0345 + U+0313 into U+1FB4 + U+0313, and folding U+1FB4 gives 'ά' +
+    'ι', so the U+0313 lands on the iota, while the capital 'Ά' has no such
+    composite and keeps it on the alpha; with NFKC first, those two case
+    variants had different keys.
+
+    So 'Élodie', 'élodie' and 'E' + U+0301 'lodie' are one name, a
+    fullwidth 'Ｓcout' is 'Scout', and 'Straße' is 'STRASSE' (`casefold`
+    maps ß and ẞ to 'ss'). 'Scout' followed by a zero-width space, 'Sc' +
+    soft hyphen + 'out', and a Hangul filler before 'Scout' are each
+    'Scout': a name stored or passed with an invisible character compares
+    as its visible form. (`/register` and `invite mint` refuse such a name
+    outright; see `name_is_visible_text`.) Inner whitespace is kept, except
+    that NFKC turns a no-break or other compatibility space into a plain
+    one. Confusable letters from other scripts (Cyrillic 'а' for Latin 'a')
+    are not folded, and a blank-looking character that is not
+    default-ignorable, such as U+2800 BRAILLE PATTERN BLANK, is kept
+    (so 'Scout' + U+2800 is not 'Scout'). Turkish dotted and dotless i
+    follow Unicode's default (not Turkish) case folding: 'I' folds to 'i'
+    and 'İ' to 'i' plus U+0307, while 'ı' stays 'ı', so 'Işık', 'ışık' and
+    'İŞİK' are three different names and 'IŞIK' is the same name as
+    'işik'.
+
+    Never truncated: the 32-character cap belongs to the displayed name and
+    is applied first by the callers that cap (`/register` and `invite mint`
+    refuse a longer name; the body-name and keyless WebSocket paths cut
+    it), and NFKC can expand a name past 32 characters. Never stored
+    either: stored names stay as typed, and the key is computed at each
+    comparison. For ASCII text it is the `strip().lower()` this check
+    compared before. The UNIQUE index on `lower(trim(name))` (migration
+    0011) stays as the backstop, but it folds ASCII only, so it cannot
+    enforce this key alone.
     """
-    return name.strip().lower()
+    folded = unicodedata.normalize("NFD", name.strip()).casefold()
+    folded = unicodedata.normalize("NFKD", folded).casefold()
+    folded = folded.translate(_DROP_DEFAULT_IGNORABLE)
+    return unicodedata.normalize("NFKC", folded).strip()
+
+
+# Characters that leave a name with nothing to see when they are all it
+# has: whitespace (`str.isspace`), the default-ignorables (refused anyway)
+# and U+2800 BRAILLE PATTERN BLANK, a symbol drawn as an empty cell.
+_BLANK = "\u2800"
+
+# The refusal `/register` and the keyless WebSocket join answer for a name
+# `name_is_visible_text` rejects (the mint CLI says the same in a sentence).
+INVISIBLE_NAME_ERROR = (
+    "a name must be visible text, with no control or invisible characters")
+
+
+def name_is_visible_text(name: str) -> bool:
+    """True when a name can be claimed: shown text with nothing hidden.
+
+    False when the name holds a control character (category Cc: a tab, a
+    newline, an escape), a default-ignorable code point (`DEFAULT_IGNORABLE`:
+    a zero-width space, a soft hyphen, a variation selector, a Hangul
+    filler), or no visible character at all (only whitespace, U+2800
+    BRAILLE PATTERN BLANK, or nothing). `/register` and `invite mint`
+    refuse such a name, and so does `play --name` when the session writes
+    the shared canonical world; the keyless body-name path records the
+    action anonymously and the keyless WebSocket join is refused, as each
+    treats a reserved name. Names already stored are not checked or changed:
+    `name_key` drops their default-ignorables when it compares them.
+    """
+    visible = False
+    for char in name:
+        if ord(char) in DEFAULT_IGNORABLE or unicodedata.category(char) == "Cc":
+            return False
+        if not char.isspace() and char != _BLANK:
+            visible = True
+    return visible
 
 
 def _credential_digest(secret: str) -> str:
@@ -2426,13 +2533,20 @@ def _mint_invite_key_on(conn, key: str, name: str,
     must mint inside its OWN transaction (consume the token and mint the key
     as one unit — and roll back together if the name is taken), and a second
     writer connection opened mid-transaction would risk SQLITE_BUSY.
+
+    The check and the INSERT run under one BEGIN IMMEDIATE, so a concurrent
+    claim of the same name waits for this one to commit and then sees it.
+    The UNIQUE index on `lower(trim(name))` folds ASCII only, so it cannot
+    stop 'Élodie' beside 'élodie'; the check compares `name_key` against
+    every registered name, revoked ones included (a revoked name stays
+    taken). That is a full read of `invite_keys`, which holds one row per
+    invited player (a cohort of about twelve), so it is cheap.
     """
-    norm = _normalize_invite_name(name)
-    taken = conn.execute(
-        "SELECT 1 FROM invite_keys WHERE lower(trim(name)) = ?", (norm,)
-    ).fetchone()
-    if taken is not None:
-        raise NameUnavailable(f"the name {name!r} is already registered")
+    _begin_write(conn)
+    wanted = name_key(name)
+    for (existing,) in conn.execute("SELECT name FROM invite_keys"):
+        if name_key(existing) == wanted:
+            raise NameUnavailable(f"the name {name!r} is already registered")
     conn.execute(
         "INSERT INTO invite_keys (key, name, note) VALUES (?, ?, ?)",
         (_credential_digest(key), name, note),
@@ -2443,9 +2557,10 @@ def _mint_invite_key_on(conn, key: str, name: str,
 def mint_invite_key(key: str, name: str, note: str | None = None) -> None:
     """Insert a new invite key. Caller generates the random key string.
 
-    The name must be unique (case- and whitespace-insensitively) across all
-    invite keys — it becomes the player's authoritative display name at
-    runtime (ADR-004 §7). Raises NameUnavailable if the name is already
+    The name must be unique across all invite keys under `name_key` (case-,
+    whitespace- and Unicode-form-insensitively) — it becomes the player's
+    authoritative display name at runtime (ADR-004 §7). The name is stored
+    exactly as given. Raises NameUnavailable if the name is already
     registered, and sqlite3.IntegrityError on a key collision so the caller
     can retry with a new random key (at 32 hex chars, key collisions are
     astronomically unlikely).
@@ -2662,8 +2777,11 @@ def redeem_registration_token(token: str, key: str, name: str) -> None:
     (NameUnavailable) rolls the whole thing back and the token stays
     redeemable for another try, while a successful redeem can never leave the
     token live. Raises TokenInvalid for an unknown/spent/cancelled token.
+    The transaction is BEGIN IMMEDIATE from its first read, so the token
+    check and the name check both see every claim committed before it.
     """
     with _connect() as conn:
+        _begin_write(conn)
         token_digest = _credential_digest(token)
         live = conn.execute(
             """SELECT 1 FROM registration_tokens
