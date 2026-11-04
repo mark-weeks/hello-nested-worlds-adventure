@@ -268,7 +268,7 @@ class TestNonBlockingBroadcast:
         assert not p._writer.is_alive()
 
     def test_no_data_frame_is_written_once_the_session_is_closing(self):
-        # A session closing its socket (websocket._close_unauthorized) calls
+        # A session closing its socket (websocket._Session.close) calls
         # stop_writer() and then writes its close frame under the send lock.
         # stop_writer() can land after the writer dequeues a frame but before
         # it writes it; that frame must then be dropped, not written after
