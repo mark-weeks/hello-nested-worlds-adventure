@@ -2417,8 +2417,9 @@ def name_key(name: str) -> str:
     outright; see `name_is_visible_text`.) Inner whitespace is kept, except
     that NFKC turns a no-break or other compatibility space into a plain
     one. Confusable letters from other scripts (Cyrillic 'а' for Latin 'a')
-    are not folded, and a visible blank that is not default-ignorable, such
-    as U+2800 BRAILLE PATTERN BLANK, is kept. Turkish dotted and dotless i
+    are not folded, and a blank-looking character that is not
+    default-ignorable, such as U+2800 BRAILLE PATTERN BLANK, is kept
+    (so 'Scout' + U+2800 is not 'Scout'). Turkish dotted and dotless i
     follow Unicode's default (not Turkish) case folding: 'I' folds to 'i'
     and 'İ' to 'i' plus U+0307, while 'ı' stays 'ı', so 'Işık', 'ışık' and
     'İŞİK' are three different names and 'IŞIK' is the same name as
