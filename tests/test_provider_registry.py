@@ -396,17 +396,17 @@ def test_generate_waits_on_the_selected_providers_limit(monkeypatch):
             return Completion('ok', True, provider='fixture')
 
     class Gate:
+        # generate() takes a slot with a bounded acquire and releases it.
         def __init__(self):
             self.waiting = threading.Event()
             self.opened = threading.Event()
 
-        def __enter__(self):
+        def acquire(self, timeout=None):
             self.waiting.set()
-            assert self.opened.wait(2)
-            return self
+            return self.opened.wait(2)
 
-        def __exit__(self, *args):
-            return False
+        def release(self):
+            pass
 
     runtime.register_provider('fixture', lambda: Fixture())
     monkeypatch.setenv(runtime.PROVIDER_ENV, 'fixture')

@@ -40,7 +40,7 @@ def _propose(intention, key, name, node, props):
     # cap and the voice budget are charged there, in that order, when
     # propose() asks for a completion.
     from consciousness.interventions import Clarification, Unsupported, propose
-    from consciousness.runtime import ModelActionLimited, VoiceBudgetLimited
+    from consciousness.runtime import ModelActionLimited, ProviderBusy, VoiceBudgetLimited
     try:
         proposal = propose(intention, {'name': name, 'level': node.level, 'properties': props},
                            user_key=key, voice_budget=True)
@@ -48,6 +48,11 @@ def _propose(intention, key, name, node, props):
         observability.voice_outcome(
             'intention', 'action_cap' if isinstance(exc, ModelActionLimited) else 'budget')
         return None, _quiet(guard.QUIET_RESPONSE)
+    except ProviderBusy:
+        # No provider slot within the wait. The explicit actions below need
+        # no model, so point there, as a provider failure does.
+        observability.voice_outcome('intention', 'busy')
+        return None, _quiet(_UNSETTLED)
     except Clarification as exc:
         # The model answered; asking for a clearer shape is a real reply.
         observability.voice_outcome('intention', 'ok')

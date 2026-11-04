@@ -208,11 +208,13 @@ _OBSERVE_STEP_SEC = 0.01
 
 
 # A moderation hold the voice never got past, as a voice outcome. The classifier
-# failing or giving no usable verdict is a failure (`screen`); moderation's own
-# budget, per-user cap and disable switch are limits under the existing names.
-# A content decline (`block`) is policy, not an outage, and is not recorded.
+# failing or giving no usable verdict is a failure (`screen`); no provider slot
+# within the classify timeout is `busy`, the same failure a voice call records;
+# moderation's own budget, per-user cap and disable switch are limits under the
+# existing names. A content decline (`block`) is policy, not an outage, and is
+# not recorded.
 _SCREEN_HOLD_REASONS = {
-    "error": "screen", "undecided": "screen",
+    "error": "screen", "undecided": "screen", "busy": "busy",
     "budget": "budget", "user_cap": "action_cap", "disabled": "disabled",
 }
 
@@ -1278,6 +1280,16 @@ class Handler(BaseHTTPRequestHandler):
                 observability.voice_outcome("speak", _limit_reason(exc))
                 return self._send_json({"response": guard.QUIET_RESPONSE,
                                         "ai": False})
+            except runtime.ProviderBusy:
+                # No provider slot within the wait; the provider was not
+                # called. The node's own silence, as for a provider failure:
+                # the quiet line's "try again tomorrow" is untrue of a wait
+                # measured in seconds.
+                observability.voice_outcome("speak", "busy")
+                self._send_json({
+                    "response": consciousness.fallback_voice(node),
+                    "ai": False,
+                })
             except sqlite3.Error as exc:
                 # The world goes quiet in character. SQLite's own message
                 # distinguishes a lock from a bad migration, and it does not
@@ -1539,6 +1551,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})
+        except runtime.ProviderBusy:
+            # Same split as /speak: the agent's own silence, not "tomorrow".
+            observability.voice_outcome("agent_voice", "busy")
+            self._agent_voice_quiet(agent_name, persona.name, node.name)
         except sqlite3.Error as exc:
             # History, keeper memory, and the chronicle write sit in this
             # try. SQLite's own message distinguishes a lock from a bad

@@ -104,6 +104,17 @@ Another adapter reads `NESTED_WORLDS_<NAME>_CONCURRENCY` with the same
 default. One provider's cap does not consume another's. Unset, empty, and
 non-numeric values use 8. Zero and negative values clamp to 1.
 
+A call that finds every slot taken waits a bounded time, never without
+limit: its own `timeout` when it passes one (the moderation classify passes
+3 s), otherwise `NESTED_WORLDS_<NAME>_SLOT_WAIT_SECONDS` (default 10; empty,
+non-numeric or non-finite uses 10, zero or negative means no wait). When no
+slot opens, `runtime.generate` raises `ProviderBusy` without calling the
+provider. The model-action and voice-budget charges already taken stand, as
+they do for any failure after the charge. Callers answer in fiction: the
+voice surfaces give the authored silence a provider failure gets, shared text
+is held (moderation outcome `busy`), and the voice outcome `busy` is a
+failure in `python main.py voice-health`.
+
 The optional image path has a separate fal.ai integration. Future image or speech
 adapters follow the same selection principle, with their own capability and data
 requirements. This policy does not claim those adapters already exist.
@@ -232,6 +243,7 @@ breadcrumb. A failure log records the exception class only.
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional `none`, `minimal`, `low`, `medium`, or `high`. Unset sends nothing. Any other value leaves the adapter unconfigured and is not forwarded. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for one POST when the caller passes no timeout. Default 60. Each resolved address is tried with the time remaining, so the TCP connects stay inside that budget. A blackholed earlier address can consume the whole budget; later addresses are then not tried. DNS lookup and individual TLS handshake bytes are not covered. Moderation still passes 3 seconds. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | In-flight cap for this adapter. Default 8. It does not share the anthropic cap. |
+| `NESTED_WORLDS_OPENAI_COMPATIBLE_SLOT_WAIT_SECONDS` | Longest wait for a free slot under that cap when the caller passes no timeout. Default 10. Moderation waits its own 3 seconds. It does not share the anthropic setting. |
 
 `NESTED_WORLDS_MODEL` plus `NESTED_WORLDS_MODERATION_MODEL` is enough.
 Node voice, inhabitant voice, and intention use their own variable when
