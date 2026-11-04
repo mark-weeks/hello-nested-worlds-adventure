@@ -795,14 +795,23 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       per-day counters — `fly ssh console -C "sqlite3 /data/.nested-worlds/worlds.db 'SELECT * FROM cost_budget ORDER BY day DESC LIMIT 20'"`.
 - [ ] Watch the voice, not just the server. `fly ssh console -C "python main.py voice-health"`
       prints answered and quiet lines per surface (`speak`, `agent_voice`,
-      `intention`) and reason (`provider`, `unconfigured`, `screen`, `db`,
-      `budget`, `action_cap`, `disabled`) and the day's budget use. `screen`
-      means the moderation classifier failed or gave no usable verdict, so
-      shared text was held before the voice was asked; moderation's own
-      budget, per-user cap and disable switch count as `budget`, `action_cap`
-      and `disabled`, and a content decline is policy and is not recorded. It
-      exits 1 when the window holds a provider or
-      screen failure, the voice is not configured, or the model configuration
+      `intention`) and reason (`provider`, `unconfigured`, `screen`, `busy`,
+      `db`, `budget`, `action_cap`, `disabled`) and the day's budget use.
+      `screen` means the moderation classifier failed or gave no usable
+      verdict, so shared text was held before the voice was asked; moderation's
+      own budget, per-user cap and disable switch count as `budget`,
+      `action_cap` and `disabled`, and a content decline is policy and is not
+      recorded. `busy` means every slot under the provider's concurrency limit
+      (`NESTED_WORLDS_ANTHROPIC_CONCURRENCY`, default 8) stayed taken for the
+      whole wait: the call's own timeout (3 s for the moderation classify that
+      screens a line), else `NESTED_WORLDS_ANTHROPIC_SLOT_WAIT_SECONDS`
+      (default 10 s). The provider was not called and the player got the same
+      authored silence, or hold line, as a provider failure. Either the
+      provider is slow or hung (a voice call has no timeout of its own, so the
+      SDK's 10-minute timeout, retried twice, is what frees a hung slot) or
+      demand outran the limit: check the provider first, then raise the limit.
+      It exits 1 when the window holds a provider, screen or
+      busy failure, the voice is not configured, or the model configuration
       has a hard problem (the check `models` and the boot run); add `--probe`
       for the tiny live call `models --probe` makes.
       Every quiet line also logs `voice_fallback surface=... reason=...` on
@@ -874,7 +883,9 @@ Fly:
 
 - **The configured provider's request-rate headroom shrinks (currently Anthropic)** → raise
   `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
-  `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`; no infra change needed.
+  `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`; no infra change needed. `busy` in
+  `python main.py voice-health` while the provider answers normally is the
+  concurrency signal: calls waited out the slot bound and were not made.
 - **`/image` requests dominate egress** → put Cloudflare in front and
   cache `/image` responses; the URL stays the same.
 - **SQLite write contention shows up in latency p99** → execute ADR-003

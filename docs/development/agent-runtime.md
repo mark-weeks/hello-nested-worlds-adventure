@@ -104,6 +104,17 @@ Another adapter reads `NESTED_WORLDS_<NAME>_CONCURRENCY` with the same
 default. One provider's cap does not consume another's. Unset, empty, and
 non-numeric values use 8. Zero and negative values clamp to 1.
 
+A call that finds every slot taken waits a bounded time, never without
+limit: its own `timeout` when it passes one (the moderation classify passes
+3 s), otherwise `NESTED_WORLDS_<NAME>_SLOT_WAIT_SECONDS` (default 10; empty,
+non-numeric or non-finite uses 10, zero or negative means no wait). When no
+slot opens, `runtime.generate` raises `ProviderBusy` without calling the
+provider. The model-action and voice-budget charges already taken stand, as
+they do for any failure after the charge. Callers answer in fiction: the
+voice surfaces give the authored silence a provider failure gets, shared text
+is held (moderation outcome `busy`), and the voice outcome `busy` is a
+failure in `python main.py voice-health`.
+
 The optional image path has a separate fal.ai integration. Future image or speech
 adapters follow the same selection principle, with their own capability and data
 requirements. This policy does not claim those adapters already exist.

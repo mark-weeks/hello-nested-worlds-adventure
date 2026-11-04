@@ -19,9 +19,8 @@ profile, a registered name, and puzzle free text stored in the chronicle):
 **Shared text fails closed.** A timeout, a provider error, no free
 provider slot within the classify timeout, disabled moderation, an
 exhausted moderation budget, an undecided verdict, or a per-user cap holds
-the text: no chronicle row, no broadcast, no visible
-idea, no published profile, no registered name. A local or model BLOCK
-declines it. Neither path charges the voice budget. Private notes,
+the text: no chronicle row, no broadcast, no visible idea, no published
+profile, no registered name. A local or model BLOCK declines it. Neither path charges the voice budget. Private notes,
 unpublished profile text, movement, puzzle correctness, and scale actions
 are not held because the screen could not judge. The local CLI `speak`
 path stays unscreened only while it is not writing the hosted canonical
