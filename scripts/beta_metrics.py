@@ -68,7 +68,12 @@ def _outcome_counts(conn: sqlite3.Connection, prefix: str, days: int) -> dict:
     ).fetchall()
     out: dict = {}
     for bucket, calls in rows:
-        _, surface, reason = bucket.split(":", 2)
+        # A row that is not <prefix><surface>:<outcome> is skipped, so one
+        # stray bucket cannot take down the whole report.
+        parts = bucket[len(prefix):].split(":")
+        if len(parts) != 2 or not all(parts):
+            continue
+        surface, reason = parts
         out.setdefault(surface, {})[reason] = int(calls)
     return out
 
@@ -215,7 +220,7 @@ def render(m: dict) -> str:
                 f"  {surface:<12} {counts.get('ok', 0):>5} / {sum(quiet.values()):<5}"
                 + (f"  ({detail})" if detail else ""))
     if m.get("moderation_outcomes"):
-        lines += ["", "shared-text screens (by UTC day; screened / not allowed):"]
+        lines += ["", "shared-text screens (by UTC day; screened / not allowed; locally clean lines not counted):"]
         for surface, counts in sorted(m["moderation_outcomes"].items()):
             held = {o: n for o, n in counts.items() if o != "allow" and n}
             detail = ", ".join(f"{o} {n}" for o, n in sorted(held.items()))

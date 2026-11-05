@@ -895,7 +895,13 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       busy failure, a shared-text screen failure on any surface, the voice
       is not configured, or the model configuration
       has a hard problem (the check `models` and the boot run); add `--probe`
-      for the tiny live call `models --probe` makes.
+      for the tiny live call `models --probe` makes. A counted failure lasts
+      for its UTC day, as a voice failure already does: once one is counted,
+      `voice-health` keeps exiting 1 until 00:00 UTC, or until the day leaves
+      the `--days` window. Nothing clears it, and a passing `--probe` does
+      not. A scheduler that alerts on every exit 1 therefore repeats one
+      blip's alert all day; whether to alert on a threshold or rate instead
+      is an open owner decision.
       Every quiet line also logs `voice_fallback surface=... reason=...` on
       `nested_worlds.voice`, at ERROR (a Sentry event) for failures and WARNING
       for limits. Store errors are logged, not counted, and a counter write

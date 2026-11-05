@@ -248,8 +248,14 @@ def moderation_outcome_summary(days: int = 1) -> dict[str, dict[str, dict[str, i
     today = datetime.date.fromisoformat(guard._utc_day())
     since = (today - datetime.timedelta(days=max(1, int(days)) - 1)).isoformat()
     summary: dict[str, dict[str, dict[str, int]]] = {}
-    for bucket, day, calls in persistence.cost_rows(MODERATION_OUTCOME_PREFIX + ":", since):
-        _, surface, outcome = bucket.split(":", 2)
+    prefix = MODERATION_OUTCOME_PREFIX + ":"
+    for bucket, day, calls in persistence.cost_rows(prefix, since):
+        # Skip a row that is not <prefix><surface>:<outcome> rather than
+        # fail voice-health on it.
+        parts = bucket[len(prefix):].split(":")
+        if len(parts) != 2 or not all(parts):
+            continue
+        surface, outcome = parts
         summary.setdefault(day, {}).setdefault(surface, {})[outcome] = calls
     return summary
 

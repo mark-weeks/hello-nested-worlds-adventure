@@ -536,6 +536,33 @@ class TestBetaMetrics:
             "chat": {"allow": 1, "busy": 1}, "ideas": {"block": 1}}
         assert metrics["voice_outcomes"] == {"speak": {"ok": 1}}
         rendered = beta_metrics.render(metrics)
-        assert "shared-text screens (by UTC day; screened / not allowed):" in rendered
+        assert ("shared-text screens (by UTC day; screened / not allowed; "
+                "locally clean lines not counted):") in rendered
         assert "  chat             2 / 1      (busy 1)" in rendered
         assert "  ideas            1 / 1      (block 1)" in rendered
+
+    def test_only_outcome_rows_are_parsed(self):
+        # The moderation budget bucket and the per-user action buckets share
+        # the "moderation" stem. Only "moderation_outcome:<surface>:<outcome>"
+        # rows are screens; a prefix without the full namespace would count
+        # the per-user rows (moderation_actions:u:<digest>) as a surface "u".
+        day = _today()
+        persistence.increment_cost_calls(guard.MODERATION_BUCKET, day)
+        persistence.increment_cost_calls(guard.MODERATION_ACTIONS_BUCKET + ":u:0123456789abcdef", day)
+        observability.moderation_outcome("chat", "busy")
+        metrics = beta_metrics.compute_metrics(persistence._DB_PATH, days=1)
+        assert metrics["moderation_outcomes"] == {"chat": {"busy": 1}}
+        assert _counts() == {"chat": {"busy": 1}}
+
+    def test_a_malformed_outcome_row_is_skipped_not_fatal(self, capsys):
+        day = _today()
+        prefix = observability.MODERATION_OUTCOME_PREFIX + ":"
+        for stray in (prefix + "chat", prefix + "chat:busy:extra", prefix + ":busy"):
+            persistence.increment_cost_calls(stray, day)
+        observability.moderation_outcome("ideas", "error")
+        metrics = beta_metrics.compute_metrics(persistence._DB_PATH, days=1)
+        assert metrics["moderation_outcomes"] == {"ideas": {"error": 1}}
+        assert _counts() == {"ideas": {"error": 1}}
+        beta_metrics.render(metrics)
+        with pytest.raises(SystemExit, match="1 screen failure"):
+            _voice_health()
