@@ -1232,7 +1232,8 @@ def classify_content(text: str, *, surface: str = "classify",
 
     One short uncached call on the configured moderation model. The caller
     holds shared text on 'undecided' and on any exception. A finished verdict
-    is logged here. An exception is not: the caller logs that single
+    is logged and counted here (``observability.moderation_outcome``). An
+    exception is neither: the caller logs and counts that single
     outcome=error line, including elapsed milliseconds and including when
     the failure is outside this function. The log never includes the player
     text or the raw reply. ``reservation`` is the screen's model-action
@@ -1254,4 +1255,11 @@ def classify_content(text: str, *, surface: str = "classify",
     outcome = moderation_outcome(response)
     _log.info("moderation_call outcome=%s surface=%s ms=%.0f",
               outcome, surface, elapsed_ms)
+    # The counter never raises. Guarding the import too means nothing after
+    # the logged verdict can turn it into the caller's outcome=error.
+    try:
+        from server import observability
+        observability.moderation_outcome(surface, outcome)
+    except Exception:  # pragma: no cover - the server package always imports
+        pass
     return outcome
