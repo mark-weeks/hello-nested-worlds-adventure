@@ -190,6 +190,17 @@ class TestTheSetting:
         assert (sent.connect, sent.read, sent.write, sent.pool) == (
             connect, seconds, seconds, seconds)
 
+    @pytest.mark.parametrize("raw", ["1e10", "1e300"])
+    def test_a_value_too_large_for_a_socket_wait_is_capped(self, monkeypatch, raw):
+        # Finite, so not the default, but past what a socket wait can hold.
+        # Capped where the slot wait is (runtime._slot_wait).
+        monkeypatch.setenv(anthropic_provider.TIMEOUT_ENV, raw)
+        calls = []
+        _generate(_capturing_adapter(calls))
+        sent = calls[0]["timeout"]
+        assert (sent.connect, sent.read, sent.write, sent.pool) == (
+            5.0, threading.TIMEOUT_MAX, threading.TIMEOUT_MAX, threading.TIMEOUT_MAX)
+
     def test_the_setting_is_read_on_every_call(self, monkeypatch):
         calls = []
         adapter = _capturing_adapter(calls)
@@ -265,6 +276,16 @@ class TestAgainstALocalStub:
         box = _bounded(lambda: _generate(adapter), limit=10)
         assert box["value"].text == "A reply." and box["value"].complete
         assert stub.attempts == [{"timeout": str(SETTING), "retry": "0"}]
+
+    def test_a_huge_setting_still_reaches_a_working_provider(self, serve, monkeypatch):
+        # Uncapped, 1e10 s overflows the socket wait: the SDK raised
+        # APIConnectionError three times and the stub never saw a request.
+        stub, adapter = serve("ok")
+        monkeypatch.setenv(anthropic_provider.TIMEOUT_ENV, "1e10")
+        box = _bounded(lambda: _generate(adapter), limit=10)
+        assert "error" not in box, repr(box.get("error"))
+        assert box["value"].text == "A reply."
+        assert stub.attempts == [{"timeout": str(threading.TIMEOUT_MAX), "retry": "0"}]
 
 
 def _post(port, path, body):

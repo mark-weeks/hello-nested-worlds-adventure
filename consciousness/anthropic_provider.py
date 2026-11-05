@@ -65,6 +65,9 @@ def _default_timeout_seconds() -> float:
 
     Unset, blank, non-numeric, non-finite, zero or negative means 60, the
     same parsing as ``NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS``.
+    A larger value than ``threading.TIMEOUT_MAX`` is capped there, as the
+    slot wait is: past it a socket wait overflows, and every call failed
+    with a connection error before sending anything.
     """
     raw = os.environ.get(TIMEOUT_ENV)
     if raw is None or not raw.strip():
@@ -75,7 +78,7 @@ def _default_timeout_seconds() -> float:
         return DEFAULT_TIMEOUT_SECONDS
     if not math.isfinite(value) or value <= 0:
         return DEFAULT_TIMEOUT_SECONDS
-    return value
+    return min(value, threading.TIMEOUT_MAX)
 
 
 def _default_request_timeout(client: Any) -> Any:
