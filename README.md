@@ -6,6 +6,12 @@ intention entry. A clear submission commits an attempt; consequences emerge from
 the conditions when it settles. There is no consequence preview or compulsory
 scripted route. Accepted retries recover the original receipt.
 
+The pilot journey uses `/app` for invitations, registration and return links.
+The world map remains available at `/` as an explicit alternate. The owner
+approved this scoped client choice on 2026-11-04
+([ADR-005](docs/decisions/ADR-005-launch-operations.md)); cohort device,
+accessibility and observed-newcomer checks remain open.
+
 `/journal` holds private notes, a home bookmark, return recaps, and a selectively
 published profile. Invited participants can submit, support, and withdraw feedback
 at `/ideas`. Personal invites and credential rotation preserve participant ownership.

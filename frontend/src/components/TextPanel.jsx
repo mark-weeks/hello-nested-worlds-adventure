@@ -38,7 +38,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
       <summary>History & journal</summary>
       <div className="control-row">
         <button onClick={()=>setWaybackOpen(true)}>Replay History</button>
-        <a className="control" href={`/journal?seed=${seed}&node=${encodeURIComponent(node.name)}`} target="_blank" rel="noopener">Journal ↗</a>
+        <a className="control" href={`/journal?seed=${seed}&node=${encodeURIComponent(node.name)}`}>Journal</a>
         <button onClick={()=>setChronicleOpen(true)}>View full chronicle</button>
       </div>
       <div className="feed" aria-label="Recent events">
@@ -61,7 +61,7 @@ export default function TextPanel({ node, players, agents = {}, connected, event
         <button id="btn-sound" onClick={onToggleSound} aria-pressed={!!soundOn}>{soundOn ? 'Pause score' : 'Listen to this world'}</button>
         <label>Volume <input aria-label="Score volume" type="range" min="0" max="1" step=".05" value={scoreVolume} onChange={e=>onScoreVolume(Number(e.target.value))} /></label>
       </div>
-      <div className="control-row"><a className="control" href="/guide">Player's Guide ↗</a><a className="control" href="/ideas" target="_blank" rel="noopener noreferrer">Ideas ↗</a></div>
+      <div className="control-row"><a className="control" href="/guide">Player's Guide ↗</a><a className="control" href="/ideas">Ideas</a></div>
     </details>
     <p className="quiet" role="status">{connected ? "● Connected to the shared world" : "○ Reconnecting to the shared world"}</p>
     {chronicleOpen && <Chronicle seed={seed} onClose={()=>setChronicleOpen(false)} />}

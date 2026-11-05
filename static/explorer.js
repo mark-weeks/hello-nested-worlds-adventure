@@ -3,6 +3,13 @@
 // invite key. Read `?key=` from the URL, stash it, and forward it on every
 // request. No-op when the gate is off (no key present).
 const _betaParams = new URLSearchParams(location.search);
+const _inviteName = window.EnfoldedClient.rememberInvite(_betaParams, localStorage);
+if (_betaParams.get('key')) {
+  const address = new URL(location.href);
+  address.searchParams.delete('key');
+  address.searchParams.delete('name');
+  history.replaceState(null, '', address);
+}
 
 // Honor the OS-level motion preference: causal flashes and animated zooms
 // become instant state changes instead of movement.
@@ -29,7 +36,6 @@ window.addEventListener('unhandledrejection', e => {
     }).catch(() => {});
   } catch (_) {}
 });
-if (_betaParams.get('key')) localStorage.setItem('nw_beta_key', _betaParams.get('key'));
 function betaKey() { return localStorage.getItem('nw_beta_key') || _betaParams.get('key') || ''; }
 function withKey(url) {
   const k = betaKey();
@@ -974,7 +980,7 @@ async function submitAnswer() {
   }
 }
 
-let playerName  = localStorage.getItem('nw_player_name') || _betaParams.get('name') || null;
+let playerName  = localStorage.getItem('nw_player_name') || _inviteName || null;
 let ws          = null;
 let mySessionId = null;
 let players     = {};

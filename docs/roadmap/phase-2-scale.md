@@ -50,7 +50,7 @@ here is operational headroom; nothing on this list is speculative.
 ```bash
 # Mint a key per tester (do once per cohort member)
 python main.py invite mint --name Alice --note "design partner"
-# → emits a URL: <BASE>/?key=<KEY>&name=Alice
+# → emits a URL: <BASE>/app?key=<KEY>&name=Alice
 
 # Check who's still active (last_used_at reflects ~5-min-quantized activity)
 python main.py invite list
@@ -58,6 +58,11 @@ python main.py invite list
 # Revoke if needed
 python main.py invite revoke nw_...
 ```
+
+The `/app` destination follows the owner-approved 2026-11-04 pilot-client
+amendment in [ADR-005](../decisions/ADR-005-launch-operations.md). `/` remains
+the World map alternate; cohort-device and human-onboarding evidence remain
+open.
 
 ### Watch list (no action until triggered)
 

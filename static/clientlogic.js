@@ -5,6 +5,27 @@
 // effect and the small frontend wrappers re-export the same functions. Keeping
 // the rules here removes the hand-mirrored entry, badge, and chronicle logic.
 (function installClientLogic(root) {
+  // A rotated key still belongs to the same named traveler. A different
+  // invitation must not inherit the previous traveler's cached arrival.
+  function rememberInvite(params, storage) {
+    // The server counts Unicode code points. Cutting a UTF-16 surrogate pair
+    // would make an otherwise valid invitation fail WebSocket URL encoding.
+    const normalize = value => Array.from((value || "").trim()).slice(0, 32).join("").trim();
+    const name = normalize(params.get("name"));
+    const key = params.get("key");
+    if (!key || !storage) return name;
+    const previousKey = storage.getItem("nw_beta_key");
+    const previousName = normalize(storage.getItem("nw_player_name"));
+    if (name ? name !== previousName : key !== previousKey) {
+      storage.removeItem("nw_last_node");
+      storage.removeItem("nw_view_depth");
+    }
+    storage.setItem("nw_beta_key", key);
+    if (name) storage.setItem("nw_player_name", name);
+    else if (key !== previousKey) storage.removeItem("nw_player_name");
+    return name;
+  }
+
   function findPath(node, name) {
     if (!node) return null;
     if (node.name === name) return [node];
@@ -425,6 +446,7 @@
     nodeMark,
     observationRow,
     passageBadges,
+    rememberInvite,
     restoreChatInput,
     resumeDepth,
     waybackMomentLine,
