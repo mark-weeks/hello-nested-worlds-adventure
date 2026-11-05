@@ -6,7 +6,7 @@
   <title>Enfolded</title>
   <!-- D3 is vendored and served same-origin (see static/d3.v7.min.js). It used
        to load from d3js.org; a blocked/offline CDN or an SRI mismatch left the
-       invite default page bricked (d3 undefined → explorer.js throws at module
+       map page bricked (d3 undefined → explorer.js throws at module
        top before any wiring runs). Serving it ourselves removes that single
        point of failure and lets the CSP drop the external script host. -->
   <script src="/d3.v7.min.js" defer></script>
@@ -67,7 +67,7 @@
   <details><summary>Sound & help</summary><div class="control-row">
     <button id="btn-sound" aria-pressed="false">Listen to this world</button>
     <label>Volume <input id="score-volume" aria-label="Score volume" type="range" min="0" max="1" step=".05" value=".55"></label>
-    <a class="control" href="/guide">Player's Guide ↗</a><a class="control" href="/ideas" target="_blank" rel="noopener noreferrer">Ideas ↗</a>
+    <a class="control" href="/guide">Player's Guide ↗</a><a class="control" href="/ideas">Ideas</a>
     <button id="btn-advanced" aria-expanded="false">Map depth</button>
     <div class="controls"><label for="depth">View depth</label><input type="number" id="depth" value="6" min="2" max="11"><button id="gen-btn">Apply view</button></div>
   </div></details>
@@ -120,7 +120,7 @@
     </section>
     <details class="secondary"><summary>Conditions here</summary><p id="visual-cue" class="quiet"></p><div id="node-props"></div><canvas id="node-sigil" width="308" height="232" role="img" aria-labelledby="node-name" aria-describedby="node-description"></canvas></details>
     <details class="secondary"><summary>History & journal</summary>
-      <div class="control-row"><button id="btn-wayback">Replay History</button><a class="control" id="journal-link" href="/journal" target="_blank" rel="noopener">Journal ↗</a><button id="btn-chronicle">View full chronicle</button></div>
+      <div class="control-row"><button id="btn-wayback">Replay History</button><a class="control" id="journal-link" href="/journal">Journal</a><button id="btn-chronicle">View full chronicle</button></div>
       <div id="event-feed" aria-label="Recent events"></div>
     </details>
     <details class="secondary"><summary>Travelers & chat</summary><div id="players-panel"><div id="players-list"></div></div>
