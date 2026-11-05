@@ -278,14 +278,17 @@ whichever registered adapter the candidate names (`fixture` offline;
 `anthropic` and `openai_compatible` are the built-ins). A live run is
 opt-in and refuses without an explicit spend ceiling (`--max-usd` and
 `--max-calls`) and that explicit provider. A non-anthropic live run also
-refuses unless `--allow-destination` equals the host of the resolved base
-URL for that run, in spelling and case. The approval is the hostname, so
-it covers every port on that host. There is no default list, no environment
-default, and no wildcard. Passing the flag for `anthropic` accepts only
-`api.anthropic.com`. A null `cache_write_per_million` is refused for
-`anthropic`. For any other provider an explicit null means the pre-call
-reserve does not bound cache writes, and a positive write count halts the
-run. The run records the candidate timeout and, for `openai_compatible`,
+refuses unless `--allow-destination` equals the lowercased hostname of the
+resolved base URL for that run. The approval is the hostname, so it covers
+every port on that host. A different case, a trailing dot, a substring, or
+a suffix does not match. There is no default list, no environment default,
+and no wildcard. Passing the flag for `anthropic` accepts only
+`api.anthropic.com`. `anthropic` must price cache writes at a positive
+rate; explicit zero and explicit null are refused, because that adapter
+writes cache and either rate would let the ceiling undercount. For any
+other provider an explicit null means the pre-call reserve does not bound
+cache writes. The result records `budget.cache_writes_bounded: false`, and
+a positive write count halts the run. The run records the candidate timeout and, for `openai_compatible`,
 the resolved reasoning effort, output-limit parameter, schema flag, and
 store flag. The URL and the credential are not stored. The harness does not set a base URL, a model id, or a default
 provider, and it does not read `NESTED_WORLDS_PROVIDER` to fill one in.

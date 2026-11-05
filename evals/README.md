@@ -135,16 +135,20 @@ of what the API reports, not immutable backend identity.
 The price map must cover every model before a live run, because the dollar
 ceiling is enforced by reserving the worst case before the call. Rates are
 USD per million tokens. Ordinary input, output, and cache read must be
-positive. `cache_write_per_million` must be present on every price. It may
-be a positive rate, or an explicit zero when the provider has no cache-write
-charge. An explicit null is refused for `anthropic`, because that adapter
-does write cache tokens and a null rate would make the reserve not a bound.
-An explicit null is allowed for any other provider, and then the pre-call
-reserve does **not** cover cache writes. It is not a safe zero and it is
-not a dollar ceiling for that class. If the server reports a positive write
-count, the run halts with `pricing_bound_exceeded` and the cost of those
-writes stays unknown. Omitting the key is refused for every provider. A
-null or zero rate still needs the same dated source. The map also needs the
+positive. `cache_write_per_million` must be present on every price. Omitting
+the key is refused for every provider. A missing key is not an explicit null.
+`anthropic` must name a positive rate. That adapter writes cache tokens, so
+an explicit zero or an explicit null would let `--max-usd` undercount, and
+both are refused. An explicit zero is allowed only for a provider with no
+cache-write charge. An explicit null is allowed for any other provider, and
+then the pre-call reserve does **not** cover cache writes. It is not a safe
+zero and it is not a dollar ceiling for that class. The run records
+`budget.cache_writes_bounded: false` on the result and on its provenance.
+If the server reports a positive write count, the run halts with
+`pricing_bound_exceeded` and the cost of those writes stays unknown. If it
+reports no write count, the run can finish with the cost unknown; the flag
+is what says the ceiling did not cover writes. A null or zero rate still
+needs the same dated source. The map also needs the
 documented maximum input tokens as a positive integer. Use upper rates
 covering any long-context surcharge or token price tier. Each call record
 stores `provider`, the requested `model`, `resolved_model`, `usage` as the
@@ -181,8 +185,9 @@ budget and credentials. V1 accepts explicitly synthetic corpora. The anthropic
 adapter still refuses any host other than the reviewed direct API. A
 non-anthropic live run also refuses unless that run passes
 `--allow-destination HOST` and HOST equals the host of the resolved base URL.
-The match is exact: same spelling, same case. A substring, a suffix, or a
-different case does not match. HOST is the hostname only, so the approval
+The match is exact against the lowercased hostname from the resolved base
+URL. The flag must be that lowercased host. A different spelling, a
+different case, a trailing dot, a substring, or a suffix does not match. HOST is the hostname only, so the approval
 covers every port on that host and no other host. The port is not written
 into the run. There is no default allowlist, no environment default, and no
 wildcard. The approved host is written on the run result and its provenance.

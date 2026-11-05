@@ -257,6 +257,9 @@ def test_anthropic_live_still_requires_the_reviewed_destination(
     assert client.options == {"max_retries": 0, "timeout": 10}
     with pytest.raises(ValueError, match="must be api.anthropic.com"):
         open_live_provider(config, "evil.com")
+    for flag in ("API.ANTHROPIC.COM", "api.anthropic.com.evil.com", "xapi.anthropic.com"):
+        with pytest.raises(ValueError, match="must be api.anthropic.com"):
+            open_live_provider(config, flag)
     monkeypatch.setattr(AnthropicProvider, "configured", lambda self: True)
     provider, host = open_live_provider(config, "api.anthropic.com")
     assert host == "api.anthropic.com"
@@ -403,6 +406,7 @@ def _arm_loopback(monkeypatch, server):
     monkeypatch.setenv(BASE_URL_ENV, f"http://127.0.0.1:{port}/v1")
     monkeypatch.setenv(API_KEY_ENV, _KEY)
     monkeypatch.delenv(STRUCTURED_OUTPUTS_ENV, raising=False)
+    monkeypatch.delenv(SEND_STORE_FALSE_ENV, raising=False)
     monkeypatch.setenv("NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS", "5")
     for name in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "XAI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
@@ -470,8 +474,12 @@ def test_openai_compatible_loopback_records_usage_and_priced_cost(
     assert settings["max_output_param"] == "max_completion_tokens"
     assert settings["structured_outputs"] is False
     assert settings["reasoning_effort"] is None
+    assert settings["send_store_false"] is False
     assert settings == result["provenance"]["adapter_settings"]
     assert call["adapter_settings"]["timeout_seconds"] == 10
+    assert call["adapter_settings"]["send_store_false"] is False
+    assert result["budget"]["cache_writes_bounded"] is True
+    assert result["provenance"]["cache_writes_bounded"] is True
     assert _KEY not in json.dumps(settings)
     assert "http://" not in json.dumps(settings)
 
@@ -600,6 +608,7 @@ def test_non_anthropic_live_refuses_without_allow_destination(
 
 @pytest.mark.parametrize("host", [
     "localhost", "*", "http://127.0.0.1", "127.0.0.1:9", "0.0.1", "127.0.0.",
+    "127.0.0.1.",
 ])
 def test_non_anthropic_live_refuses_a_destination_that_does_not_match(
         corpus, candidate, tmp_path, monkeypatch, loopback, host):
@@ -769,7 +778,9 @@ def test_cache_write_key_is_required_and_anthropic_null_is_not_a_bound(candidate
     for write in (0, 0.0):
         config = live_config(candidate, "anthropic")
         config["pricing"]["fixture-v1"]["cache_write_per_million"] = write
-        validate_candidate(config, live=True)
+        with pytest.raises(ValueError, match="finite positive"):
+            validate_candidate(config, live=True)
+    validate_candidate(live_config(candidate, "anthropic"), live=True)
     compatible = live_config(candidate, "openai_compatible")
     compatible["pricing"]["fixture-v1"]["cache_write_per_million"] = None
     validate_candidate(compatible, live=True)
@@ -783,8 +794,9 @@ def test_cache_write_key_is_required_and_anthropic_null_is_not_a_bound(candidate
     with pytest.raises(ValueError, match="cache_write_per_million"):
         validate_candidate(negative, live=True)
 
-    priced = live_config(candidate, "anthropic")
+    priced = live_config(candidate, "openai_compatible")
     priced["pricing"]["fixture-v1"]["cache_write_per_million"] = 0
+    validate_candidate(priced, live=True)
     meter = Meter(priced, 1, 4)
     request = {"model": "fixture-v1", "max_tokens": 16}
     reservation = meter.reserve(request)
@@ -825,6 +837,8 @@ def test_allow_destination_match_is_exact_and_case_sensitive():
         ("127.0.0.1", "127.0.0."),
         ("api.example.com", "example.com"),
         ("api.example.com", "API.EXAMPLE.COM"),
+        ("api.example.com", "api.example.com."),
+        ("api.example.com.", "api.example.com"),
         ("api.example.com", "api.example.com.evil"),
     ):
         with pytest.raises(ValueError, match="allow-destination"):
@@ -866,6 +880,8 @@ def test_openai_compatible_loopback_halts_on_positive_writes_at_a_null_rate(
     assert call["cost_usd"] is None
     # Input rate only: the null write rate was not in the reserve.
     assert call["reserved_usd"] == pytest.approx((1000 + 512) / 1_000_000)
+    assert result["budget"]["cache_writes_bounded"] is False
+    assert result["provenance"]["cache_writes_bounded"] is False
 
 
 def test_explicit_zero_write_rate_prices_openai_shaped_usage(
@@ -889,6 +905,52 @@ def test_explicit_zero_write_rate_prices_openai_shaped_usage(
     assert call["usage"]["output_tokens"] == 10
     assert call["cost_usd"] == pytest.approx((100 + 20) / 1_000_000)
     assert result["status"] == "completed"
+    assert result["budget"]["cache_writes_bounded"] is True
+    assert result["provenance"]["cache_writes_bounded"] is True
+
+
+def test_null_write_rate_with_no_write_count_is_flagged_unbounded(
+        corpus, candidate, tmp_path, monkeypatch, loopback):
+    loopback.usage = {
+        "prompt_tokens": 100,
+        "total_tokens": 110,
+        "prompt_tokens_details": {"cached_tokens": 0},
+    }
+    _arm_loopback(monkeypatch, loopback)
+    config = live_config(candidate, "openai_compatible")
+    config["pricing"]["fixture-v1"]["cache_write_per_million"] = None
+    result = run(
+        _voice(corpus), config, tmp_path / "run",
+        repeats=5, live=True, max_usd=1, max_calls=10, brief=selection_brief(),
+        allow_destination="127.0.0.1",
+    )
+    assert result["status"] == "completed"
+    assert len(loopback.seen) == 5
+    assert result["budget"]["cache_writes_bounded"] is False
+    assert result["provenance"]["cache_writes_bounded"] is False
+    assert result["budget"]["dispatched_calls"] == 5
+    for trial in result["trials"]:
+        call = trial["calls"][0]
+        assert call["usage"]["cache_write_tokens"] is None
+        assert call["cost_usd"] is None
+
+
+def test_moderation_call_records_its_own_timeout(
+        corpus, candidate, tmp_path, monkeypatch, loopback):
+    loopback.reply = "ALLOW"
+    _arm_loopback(monkeypatch, loopback)
+    result = run(
+        one_case(corpus, "moderation-fantasy-menace"),
+        live_config(candidate, "openai_compatible"), tmp_path / "run",
+        live=True, max_usd=1, max_calls=4, brief=selection_brief(),
+        allow_destination="127.0.0.1",
+    )
+    assert len(loopback.seen) == 1
+    assert result["adapter_settings"]["timeout_seconds"] == 10
+    assert result["provenance"]["adapter_settings"]["timeout_seconds"] == 10
+    call = result["trials"][0]["calls"][0]
+    assert call["adapter_settings"]["timeout_seconds"] == 3.0
+    assert result["budget"]["cache_writes_bounded"] is True
 
 
 def test_loopback_records_resolved_adapter_settings(

@@ -195,22 +195,25 @@ def validate_candidate(config, live=False):
         for rate in ("input_per_million", "output_per_million", "cache_read_per_million"):
             positive(price.get(rate), rate)
         # The key must be present. Omitting it used to look like null and
-        # drop cache writes out of the reserve. Explicit zero is a provider
-        # with no cache-write charge. Explicit null is allowed only when
-        # the provider is not anthropic, and then the reserve is not a
-        # bound for writes: a positive write count halts the run.
+        # drop cache writes out of the reserve. Anthropic writes cache, so
+        # the rate has to be positive: zero or null would let --max-usd
+        # undercount. Any other provider may name an explicit zero (no
+        # cache-write charge) or an explicit null. Null is not a bound:
+        # the run records that, and a positive write count halts.
         if "cache_write_per_million" not in price:
             raise ValueError(
-                "cache_write_per_million must be present; explicit null is allowed"
+                "cache_write_per_million must be present; "
+                "a missing key is not an explicit null"
             )
         write = price["cache_write_per_million"]
-        if write is None:
-            if key == "anthropic":
+        if key == "anthropic":
+            if write is None:
                 raise ValueError(
-                    "anthropic cache_write_per_million must be a finite rate; "
-                    "null means the reserve is not a bound"
+                    "anthropic cache_write_per_million must be a finite positive rate; "
+                    "null or zero means the reserve is not a bound"
                 )
-        else:
+            positive(write, "cache_write_per_million")
+        elif write is not None:
             nonnegative(write, "cache_write_per_million")
         if type(price.get("max_input_tokens")) is not int or price["max_input_tokens"] < 1:
             raise ValueError("max_input_tokens must be a positive integer")
@@ -588,6 +591,27 @@ def grade(case, outputs, calls, error):
     return result
 
 
+def cache_writes_bounded(config):
+    """False when a selected model prices cache writes at explicit null.
+
+    Explicit zero is a bound: those tokens are priced at zero. A null rate
+    is not, including when the server reports no write count and the cost
+    stays unknown. A missing key is refused before a live run starts.
+    """
+    if not isinstance(config, dict):
+        return True
+    pricing = config.get("pricing")
+    models = config.get("models")
+    if not isinstance(pricing, dict) or not isinstance(models, dict):
+        return True
+    for model in models.values():
+        price = pricing.get(model)
+        if (isinstance(price, dict) and "cache_write_per_million" in price
+                and price["cache_write_per_million"] is None):
+            return False
+    return True
+
+
 def provenance():
     def git(*args):
         try:
@@ -757,6 +781,8 @@ def run(corpus, config, output, *, split="development", repeats=1, seed=0,
     provenance_record = provenance()
     provenance_record["destination_host"] = destination_host
     provenance_record["adapter_settings"] = settings
+    writes_bounded = cache_writes_bounded(config)
+    provenance_record["cache_writes_bounded"] = writes_bounded
     result = {"schema_version": 2, "evidence": "live" if live else "fixture",
               "started_at": datetime.now(timezone.utc).isoformat(), "candidate": config,
               "corpus_version": corpus["version"], "corpus_sha256": digest(corpus),
@@ -766,7 +792,8 @@ def run(corpus, config, output, *, split="development", repeats=1, seed=0,
               "split": split, "repeats": repeats, "seed": seed,
               "selection_brief": brief,
               "case_ids": [c["id"] for c in cases], "planned_trials": len(schedule),
-              "budget": {"max_usd": max_usd, "max_calls": max_calls},
+              "budget": {"max_usd": max_usd, "max_calls": max_calls,
+                         "cache_writes_bounded": writes_bounded},
               "trials": [], "status": "running"}
     output.mkdir(parents=True, exist_ok=False)
     os.chmod(output, 0o700)
