@@ -115,6 +115,29 @@ voice surfaces give the authored silence a provider failure gets, shared text
 is held (moderation outcome `busy`), and the voice outcome `busy` is a
 failure in `python main.py voice-health`.
 
+A `timeout` passed to `runtime.generate`, or straight to an adapter's
+`generate`, allows one provider attempt under that timeout
+(`TextProvider.generate`): an adapter must not retry or wait out a
+provider's retry-after, and shared code retries nothing. It is not a total
+deadline: `runtime.generate` first waits up to the same timeout for a slot
+and then hands the adapter the full timeout. Only the
+moderation classify (3 s, through `runtime.generate`) and the opt-in
+`--probe` of `models` and `voice-health` (30 s per model id, straight to the
+adapter) pass one. The
+anthropic adapter sends those calls with the SDK's retries off, through a
+`with_options(max_retries=0)` copy of its client built once and sharing its
+connection pool, credentials and base URL; calls without a timeout keep the
+SDK's default retries. `openai_compatible` already made one POST within a
+wall-clock budget. On the anthropic adapter httpx applies the number to
+each phase (connect, send, each read), so it is not a hard wall-clock
+bound: against a local stub at 3 s, one attempt took 3.01 s when the
+provider never answered and 6.01 s when it sent its body a chunk a second.
+A classify that meets a transient 429, 5xx, timeout or dropped connection
+therefore fails at once and the screen holds the text; the player can try
+again. A `--probe`
+reports such an error as a failed probe instead of retrying it; run it
+again.
+
 The optional image path has a separate fal.ai integration. Future image or speech
 adapters follow the same selection principle, with their own capability and data
 requirements. This policy does not claim those adapters already exist.

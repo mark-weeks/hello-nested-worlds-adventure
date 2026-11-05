@@ -92,6 +92,9 @@ class AnthropicProvider:
     def __init__(self) -> None:
         self._client: Any = None
         self._client_lock = threading.Lock()
+        # (base client, its copy with SDK retries off). One tuple, so a
+        # reader never pairs one base with another base's copy.
+        self._deadline_pair: tuple[Any, Any] | None = None
 
     def configured(self) -> bool:
         # SDK construction resolves local credentials without making a request.
@@ -132,6 +135,39 @@ class AnthropicProvider:
                     self._client = Anthropic()
         return self._client
 
+    def _get_deadline_client(self) -> Any:
+        """The client for a call whose caller gave a timeout: no SDK retries.
+
+        ``messages.create`` takes no per-request ``max_retries``.
+        ``with_options(max_retries=0)`` returns a copy that keeps the base
+        client's HTTP connection pool, credentials (key, bearer token, or
+        profile provider with its token cache), base URL and headers, so
+        ``configured()`` still describes the client that sends the call.
+        Built once per base client; a replaced ``_client`` (the eval harness
+        installs its own) gets its own copy.
+        """
+        base = self._get_client()
+        pair = self._deadline_pair
+        if pair is None or pair[0] is not base:
+            with self._client_lock:
+                pair = self._deadline_pair
+                if pair is None or pair[0] is not base:
+                    pair = (base, base.with_options(max_retries=0))
+                    self._deadline_pair = pair
+        return pair[1]
+
+    def _client_for(self, timeout: float | None) -> Any:
+        # A caller's timeout allows one attempt and no retries
+        # (runtime.TextProvider.generate): the SDK's retries, and the
+        # retry-after waits between them, would spend past it. httpx applies
+        # the number to connect, write, pool and each read, not as one
+        # wall-clock deadline. Against a local stub at 3 s, one attempt took
+        # 3.01 s when the provider never answered and 6.01 s when it sent
+        # its body a chunk a second.
+        if timeout is not None:
+            return self._get_deadline_client()
+        return self._get_client()
+
     def generate(self, *, model: str, system: tuple[SystemBlock, ...],
                  messages: list[dict[str, str]], max_tokens: int,
                  json_schema: dict | None = None,
@@ -151,7 +187,7 @@ class AnthropicProvider:
             kwargs["output_config"] = {"format": {"type": "json_schema", "schema": json_schema}}
         if timeout is not None:
             kwargs["timeout"] = timeout
-        response = self._get_client().messages.create(**kwargs)
+        response = self._client_for(timeout).messages.create(**kwargs)
         text = next((block.text for block in response.content if block.type == "text"), None)
         raw = getattr(response, "usage", None)
         usage = None if raw is None else TokenUsage(

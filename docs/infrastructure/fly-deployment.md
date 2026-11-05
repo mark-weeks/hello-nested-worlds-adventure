@@ -360,10 +360,15 @@ write a close frame, then shuts the socket down without one. One exception
 remains: a chat being screened by the model provider. Nothing reaches that
 client meanwhile and the chat is refused afterwards, but its close and
 departure wait for the screening: at most 3 s for a slot under the
-provider's concurrency limit (the classify's own timeout), then the classify
-call itself, 3 s per attempt, which the Anthropic SDK retries up to twice. A
-provider that answers 429 with retry-after can stretch that to about 2
-minutes. A frame must still finish arriving within 10 s of its first byte or
+provider's concurrency limit (the classify's own timeout), then one classify
+attempt with no retries under that same 3 s (the slot wait does not count
+against it).
+An error reply, a 429 with retry-after included, ends the screening at once
+and holds the chat; a provider that never answers ends it after about 3 s
+(3.07 s measured against a local stub). The 3 s applies to each network
+phase (connect, send, each read), not to the whole reply, so a provider that
+trickles its reply can take longer: a stub that sent its body a chunk a
+second took 6.0 s. A frame must still finish arriving within 10 s of its first byte or
 the socket is closed (status 1002). Any keyless
 socket opened before the first key or invite closes the same way.
 `fly ssh console` opens a shell inside the running machine.
