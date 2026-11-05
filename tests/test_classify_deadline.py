@@ -29,7 +29,7 @@ import pytest
 
 import persistence
 from consciousness import runtime
-from consciousness.anthropic_provider import AnthropicProvider
+from consciousness.anthropic_provider import DEFAULT_MODERATION_MODEL, AnthropicProvider
 from consciousness.runtime import SystemBlock
 from multiverse import store
 from server import _Handler, _ThreadedServer, moderation
@@ -164,7 +164,7 @@ def _bounded(fn, limit):
 
 def _call(adapter, **kwargs):
     return adapter.generate(
-        model="claude-haiku-4-5", system=(SystemBlock("classify"),),
+        model=DEFAULT_MODERATION_MODEL, system=(SystemBlock("classify"),),
         messages=[{"role": "user", "content": "words"}], max_tokens=32, **kwargs)
 
 
