@@ -103,25 +103,73 @@ do not prove rare-event safety or small quality differences.
 
 ## Configure and budget a live baseline
 
-`openai_compatible` is a registered text adapter for evaluation. This harness
-still accepts only `anthropic` and `fixture` (`validate_candidate` in
-`evals/harness.py`). Any other provider fails with
-`provider has no evaluated adapter; no implicit fallback`. A harness
-candidate still needs a task-compatible adapter, contract tests, and
-explicit wiring here. Registering the runtime adapter does not add that
-wiring.
+The candidate's `provider` selects the adapter. `fixture` is the offline path
+and is not a live provider. Any other name must already be registered
+(`consciousness.runtime.provider_names`). Built-in names today are `anthropic`
+and `openai_compatible`. An unknown name fails with
+`provider has no evaluated adapter; no implicit fallback`. The harness does
+not read `NESTED_WORLDS_PROVIDER` and does not substitute another adapter.
+Registering an adapter does not approve a destination. ADR-035 stays Proposed.
 
-Copy [candidates/anthropic.template.json](candidates/anthropic.template.json).
-Confirm the effective deployed configuration separately: code defaults do not
-prove availability or what is running. Record exact identifiers, snapshot/alias
-status, capabilities and dated official pricing/data-term sources. A returned
-model name is evidence of what the API reports, not immutable backend identity.
+A live run requires `--live`, an explicit spend ceiling (`--max-usd` and
+`--max-calls`; omitting either refuses the run; there is no default ceiling),
+and a candidate that names the provider and a model id for every task. The
+harness does not supply a default provider, a default model, or an endpoint.
+`anthropic` keeps the reviewed-destination check (`https://api.anthropic.com`
+only) and disables SDK retries on a fresh client. Passing
+`--allow-destination` for `anthropic` does not choose a host. The only
+accepted value is `api.anthropic.com`. Any other value is refused. Omitting
+the flag leaves the reviewed-destination check in place. `openai_compatible` uses
+the operator's `NESTED_WORLDS_OPENAI_COMPATIBLE_*` settings, including the
+base URL (`NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL`). An unconfigured
+adapter is refused before dispatch. Vendor variables such as
+`OPENAI_API_KEY` are not credentials for this adapter.
 
-The price map must cover every model. Rates are USD per million tokens: ordinary
-input, output, cache read and **one-hour cache write**, plus the documented maximum
-input tokens as a positive integer. Use upper rates covering any long-context surcharge or token price
-tier. Accounting follows the adapter's disjoint Anthropic usage fields; future
-providers need their own verified accounting semantics.
+Copy [candidates/anthropic.template.json](candidates/anthropic.template.json)
+and set `provider` to the registered name. Confirm the effective deployed
+configuration separately: code defaults do not prove availability or what is
+running. Record exact identifiers, snapshot/alias status, capabilities and
+dated official pricing/data-term sources. A returned model name is evidence
+of what the API reports, not immutable backend identity.
+
+The price map must cover every model before a live run, because the dollar
+ceiling is enforced by reserving the worst case before the call. Rates are
+USD per million tokens. Ordinary input, output, and cache read must be
+positive. `cache_write_per_million` must be present on every price. Omitting
+the key is refused for every provider. A missing key is not an explicit null.
+`anthropic` must name a positive rate. That adapter writes cache tokens, so
+an explicit zero or an explicit null would let `--max-usd` undercount, and
+both are refused. An explicit zero is allowed only for a provider with no
+cache-write charge. An explicit null is allowed for any other provider, and
+then the pre-call reserve does **not** cover cache writes. It is not a safe
+zero and it is not a dollar ceiling for that class. The run records
+`budget.cache_writes_bounded: false` on the result and on its provenance.
+If the server reports a positive write count, the run halts with
+`pricing_bound_exceeded` and the cost of those writes stays unknown. If it
+reports no write count, the run can finish with the cost unknown; the flag
+is what says the ceiling did not cover writes. A null or zero rate still
+needs the same dated source. The map also needs the
+documented maximum input tokens as a positive integer. Use upper rates
+covering any long-context surcharge or token price tier. Each call record
+stores `provider`, the requested `model`, `resolved_model`, `usage` as the
+adapter reported it (including unknown `null` counts), and `adapter_settings`
+for the knobs that call used. The run provenance stores the same settings
+once: candidate `timeout_seconds`, and for `openai_compatible` the resolved
+reasoning effort, output-limit parameter, schema flag, and store flag. The
+URL and the credential are not stored. Cost is a number only when every
+count is a non-negative integer with a rate, or an unreported count whose
+rate is explicit zero (priced at zero, which cannot raise the total). A
+missing count at a positive rate stays unknown and is not treated as zero.
+The pre-call reserve is kept, unless the counts that are known already cost
+more than that reserve: the harness then counts that lower bound and stops
+further dispatch. A positive count at a null rate stops the run even when
+the known dollar floor is inside the reserve. The harness does not invent a
+price. Fixture runs still record zero cost as authored evidence.
+
+An intention asks for a JSON schema. When the selected adapter's
+`supports_json_schema()` is false, `runtime.generate` raises
+`UnsupportedCapability` before the model-action cap and before the voice
+budget, so this harness does not reserve or send and the charge stays zero.
 
 ~~~sh
 .venv/bin/python scripts/model_eval.py run \
@@ -133,22 +181,39 @@ providers need their own verified accounting semantics.
 ~~~
 
 This example does not authorize $10 of spend. The operator needs an authorized
-budget and credentials. V1 accepts explicitly synthetic corpora and the reviewed
-direct Anthropic destination. Player transcripts, new destinations, images and
-speech are outside this batch.
+budget and credentials. V1 accepts explicitly synthetic corpora. The anthropic
+adapter still refuses any host other than the reviewed direct API. A
+non-anthropic live run also refuses unless that run passes
+`--allow-destination HOST` and HOST equals the host of the resolved base URL.
+The match is exact against the lowercased hostname from the resolved base
+URL. The flag must be that lowercased host. A different spelling, a
+different case, a trailing dot, a substring, or a suffix does not match. HOST is the hostname only, so the approval
+covers every port on that host and no other host. The port is not written
+into the run. There is no default allowlist, no environment default, and no
+wildcard. The approved host is written on the run result and its provenance.
+Destination approval for prompts that can carry player text is Mark Weeks' own decision.
+This flag is the operator's approval for the one run. It does not accept
+ADR-035, and ADR-035 stays Proposed. The harness does not choose an endpoint.
+Player transcripts, images, and speech are outside this batch. A live run
+does not approve a production destination.
 
 Before dispatch, reserve the entire configured input limit at the highest
-input/cache rate plus the requested output maximum. This can stop early even with
-small prompts. Known usage releases unused reserve; missing usage and failures
-retain it. SDK retries are disabled, every dispatch counts against max-calls,
-and a rate/bound violation stops further dispatch. Controls depend on accurate
-current bounds; they are not a provider billing limit. Use provider-side spending
-controls when a hard account ceiling is required. Limits apply per run: allocate
-the experiment's total budget across runs, including unknown reservations.
+priced input or cache rate plus the requested output maximum. This can stop
+early even with small prompts. A complete usage replaces the reserve with the
+price. An incomplete usage keeps the reserve, except when the known counts
+already exceed it: that lower bound is counted and the run stops with
+`pricing_bound_exceeded`. A provider error keeps the reserve. SDK retries are
+disabled, every dispatch counts against max-calls, and a rate or bound
+violation stops further dispatch. Controls depend on accurate current bounds;
+they are not a provider billing limit. Use provider-side spending controls
+when a hard account ceiling is required. Limits apply per run: allocate the
+experiment's total budget across runs, including unknown reservations.
 
-The configured timeout is bounded; moderation retains its production three-second
-request timeout. Serial measurements exclude hosted queueing, concurrency and SDK
-retry behavior. They do not certify production capacity or reliability.
+The candidate's `timeout_seconds` is the timeout for a live request that does
+not pass one, including `openai_compatible`. Moderation still passes its
+production three-second request timeout, and that explicit timeout is kept.
+Serial measurements exclude hosted queueing, concurrency and SDK retry
+behavior. They do not certify production capacity or reliability.
 
 ## Human review and grader calibration
 

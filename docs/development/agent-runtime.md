@@ -299,9 +299,34 @@ model id only after `_model_mark` in `persistence/__init__.py`: surrounding
 whitespace is stripped, and a non-string, a blank, a control character, or
 a value longer than 200 characters is dropped rather than stored or
 truncated. A server may echo an alias such as `latest`; that string is
-kept when it survives that function. The evaluation harness is unchanged.
-Production enablement is a separate decision and is not made by registering
-this adapter.
+kept when it survives that function. The evaluation harness selects
+whichever registered adapter the candidate names (`fixture` offline;
+`anthropic` and `openai_compatible` are the built-ins). A live run is
+opt-in and refuses without an explicit spend ceiling (`--max-usd` and
+`--max-calls`) and that explicit provider. A non-anthropic live run also
+refuses unless `--allow-destination` equals the lowercased hostname of the
+resolved base URL for that run. The approval is the hostname, so it covers
+every port on that host. A different case, a trailing dot, a substring, or
+a suffix does not match. There is no default list, no environment default,
+and no wildcard. Passing the flag for `anthropic` accepts only
+`api.anthropic.com`. `anthropic` must price cache writes at a positive
+rate; explicit zero and explicit null are refused, because that adapter
+writes cache and either rate would let the ceiling undercount. For any
+other provider an explicit null means the pre-call reserve does not bound
+cache writes. The result records `budget.cache_writes_bounded: false`, and
+a positive write count halts the run. The run records the candidate timeout and, for `openai_compatible`,
+the resolved reasoning effort, output-limit parameter, schema flag, and
+store flag. The URL and the credential are not stored. The harness does not set a base URL, a model id, or a default
+provider, and it does not read `NESTED_WORLDS_PROVIDER` to fill one in.
+`anthropic` still refuses any base URL other than the reviewed
+`https://api.anthropic.com` destination. A live call with no explicit
+timeout uses the candidate's `timeout_seconds`. Known usage is priced. An
+unknown count stays unknown, and a lower bound from the known counts stops
+the run when it exceeds the reserve. Production enablement is a separate
+decision and is not made by registering this adapter or by pointing the
+harness at it. ADR-035 stays Proposed. Destination approval for prompts
+that can carry player text remains the owner's decision; the flag records
+the operator's approval for that one run.
 
 ## Voice and caching
 
