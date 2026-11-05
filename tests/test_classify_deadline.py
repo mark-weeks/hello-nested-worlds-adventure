@@ -1,7 +1,7 @@
-"""A caller's timeout is the budget for the whole provider call.
+"""A caller's timeout allows one provider attempt and no retries.
 
 ``TextProvider.generate`` documents it: when the caller passes ``timeout``,
-an adapter must not retry past it. Only the moderation classify (3 s) and
+an adapter must not retry. Only the moderation classify (3 s) and
 the opt-in model probe pass one. Before this, the anthropic adapter handed
 the timeout to the SDK as a per-attempt limit, and the SDK retried a
 timed-out, 408, 409, 429 or 5xx attempt up to twice, honouring

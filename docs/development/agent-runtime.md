@@ -116,9 +116,11 @@ is held (moderation outcome `busy`), and the voice outcome `busy` is a
 failure in `python main.py voice-health`.
 
 A `timeout` passed to `runtime.generate`, or straight to an adapter's
-`generate`, is the budget for the whole provider call, not for one attempt
-(`TextProvider.generate`): an adapter must not retry past it or wait out a
-provider's retry-after inside it, and shared code retries nothing. Only the
+`generate`, allows one provider attempt under that timeout
+(`TextProvider.generate`): an adapter must not retry or wait out a
+provider's retry-after, and shared code retries nothing. It is not a total
+deadline: `runtime.generate` first waits up to the same timeout for a slot
+and then hands the adapter the full timeout. Only the
 moderation classify (3 s, through `runtime.generate`) and the opt-in
 `--probe` of `models` and `voice-health` (30 s per model id, straight to the
 adapter) pass one. The

@@ -357,10 +357,11 @@ class TextProvider(Protocol):
         truncation. Missing usage stays unknown. Cacheable blocks are an
         optional optimization; messages and their ordering must be preserved.
 
-        A ``timeout`` from the caller, in seconds, is the budget for the whole
-        call, not for one attempt: the adapter must not retry past it, and
-        must not wait out a provider's retry-after inside it. A failure
-        raises, and the caller decides what that means (the moderation screen
+        A ``timeout`` from the caller, in seconds, allows one attempt under
+        that timeout: the adapter must not retry, and must not wait out a
+        provider's retry-after. It is not a total deadline: an adapter may
+        apply it per network phase (connect, send, each read), and its module
+        says which. A failure raises, and the caller decides what that means (the moderation screen
         holds the text). Without a ``timeout`` the adapter applies its own
         limits and retry policy. Retrying is the adapter's concern; nothing
         shared retries a call, and nothing retries on another model or
@@ -676,12 +677,12 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
     charges above are not refunded. A slot taken is released on every path
     out of the provider call.
 
-    A ``timeout`` is then handed to the adapter as the budget for the whole
-    provider call, with no retries past it (``TextProvider.generate``). So a
-    call that passes one waits at most that long for a slot, then makes one
-    provider attempt under it. An adapter may enforce it per network phase
-    (connect, send, each read) rather than as one wall-clock deadline; its
-    module says which. Nothing here retries.
+    A ``timeout`` is then handed to the adapter in full, for one provider
+    attempt with no retries (``TextProvider.generate``); the slot wait does
+    not count against it. So a call that passes one waits at most that long
+    for a slot, then makes one attempt under the same timeout. An adapter may
+    enforce it per network phase (connect, send, each read) rather than as
+    one wall-clock deadline; its module says which. Nothing here retries.
     """
     require_model_id(model)
     provider = get_provider()

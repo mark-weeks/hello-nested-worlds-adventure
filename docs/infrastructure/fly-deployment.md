@@ -361,7 +361,8 @@ remains: a chat being screened by the model provider. Nothing reaches that
 client meanwhile and the chat is refused afterwards, but its close and
 departure wait for the screening: at most 3 s for a slot under the
 provider's concurrency limit (the classify's own timeout), then one classify
-attempt with no retries, because that 3 s is the budget for the whole call.
+attempt with no retries under that same 3 s (the slot wait does not count
+against it).
 An error reply, a 429 with retry-after included, ends the screening at once
 and holds the chat; a provider that never answers ends it after about 3 s
 (3.07 s measured against a local stub). The 3 s applies to each network

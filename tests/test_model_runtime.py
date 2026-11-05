@@ -179,7 +179,7 @@ def test_anthropic_normalizes_request_completion_and_usage(stop, complete, reaso
             stop_reason=stop, usage=SimpleNamespace(input_tokens=10, output_tokens=4,
                                                    cache_read_input_tokens=7, cache_creation_input_tokens=2),
             model='resolved-fixture-20261025')
-    # A caller's timeout is the whole call's budget: the request goes
+    # A caller's timeout allows one attempt, no retries: the request goes
     # through the SDK's no-retry copy of the client, built once.
     copies = []
     def with_options(**options):

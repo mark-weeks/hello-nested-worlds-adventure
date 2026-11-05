@@ -372,7 +372,7 @@ class TestClassifyCall:
         # reply that does not emit a bare token.
         assert recorded["max_tokens"] == 32
         # A moderation verdict must never stall a real-time surface. The
-        # timeout bounds the whole call: the SDK does not retry inside it.
+        # timeout allows one attempt: the SDK does not retry after it.
         assert recorded["timeout"] <= 5.0
         assert recorded["client_options"] == {"max_retries": 0}
 

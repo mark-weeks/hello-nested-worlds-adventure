@@ -157,7 +157,7 @@ class AnthropicProvider:
         return pair[1]
 
     def _client_for(self, timeout: float | None) -> Any:
-        # A caller's timeout is the budget for the whole call
+        # A caller's timeout allows one attempt and no retries
         # (runtime.TextProvider.generate): the SDK's retries, and the
         # retry-after waits between them, would spend past it. httpx applies
         # the number to connect, write, pool and each read, not as one
