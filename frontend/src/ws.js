@@ -86,10 +86,13 @@ export default function useWorldSocket(seed, playerName, handlers) {
     });
   }, [seed, playerName]);
 
+  // True when the frame was handed to an open socket.
   const sendMessage = useCallback((msg) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(msg));
+      return true;
     }
+    return false;
   }, []);
 
   return { connected, sendMessage };

@@ -10,6 +10,7 @@ import { describeMutation, scaleActLine, causalNoticeLine } from "./mutations.js
 import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
 import { displayName } from "./names.js";
 import { createNodeRefresher } from "./nodeRefresh.js";
+import { createChatDraft } from "./chatDraft.js";
 import { NodeAmbience } from "../../static/score.js";
 
 // Honor the OS-level motion preference: transient overlays (ripples,
@@ -238,6 +239,12 @@ export default function App() {
   // broadcast, the two refreshes become one read.
   const onComposerChanged = useCallback((name, notice) => refreshCurrentNode(name, notice), [refreshCurrentNode]);
 
+  // The player's most recent chat line, kept until its verdict. A line the
+  // screen holds or declines goes back into an empty chat input; TextPanel
+  // owns the input and registers how to refill it.
+  const [chatDraft] = useState(createChatDraft);
+  const restoreChatRef = useRef(null);
+
   const { connected, sendMessage } = useWorldSocket(seed, playerName, {
     // The welcome roster: everyone already present when we connect. Without
     // this, a joining player sees an empty world until someone acts.
@@ -291,9 +298,14 @@ export default function App() {
         ? p.map(x => x.session_id === msg.session_id ? { ...x, node: msg.node } : x)
         : [...p, { name: msg.name, session_id: msg.session_id, node: msg.node }]),
     onChat:         (msg) => pushEvent({ type: "chat",   name: msg.name, text: msg.text }),
-    // Moderation decline (sender-only): the message reached nobody and was
-    // stored nowhere — surface the world's line so it doesn't silently vanish.
-    onChatDeclined: (msg) => pushEvent({ type: "system", text: `✕ ${msg.text}` }),
+    // Moderation hold or decline (sender-only): the message reached nobody
+    // and was stored nowhere — surface the world's line so it doesn't
+    // silently vanish, and give the player's own words back to the input.
+    onChatDeclined: (msg) => {
+      pushEvent({ type: "system", text: `✕ ${msg.text}` });
+      const line = chatDraft.declined(msg);
+      if (line) restoreChatRef.current?.(line);
+    },
     onCausalEvent:  (msg) => {
       const text = causalNoticeLine(msg);
       if (text) pushEvent({ type: "causal", text, kind: msg.kind, node: msg.node, strength: msg.strength });
@@ -467,9 +479,9 @@ export default function App() {
     return () => { active = false; };
   }, [currentNodeName, horizonChildren, loadWorld, passageRetry, worldDepth]);
 
-  const sendChat = useCallback((text) => {
-    sendMessage({ type: "chat", text });
-  }, [sendMessage]);
+  const sendChat = useCallback(
+    (text) => sendMessage({ type: "chat", text, ref: chatDraft.sent(text) }),
+    [chatDraft, sendMessage]);
 
   // Cross the wrap: the loop's landing is a real node, so the crossing IS
   // a jump to it (jumpTo rebuilds the true ancestry stack, deepening the
@@ -605,6 +617,7 @@ export default function App() {
         depth={worldDepth}
         playerName={playerName}
         onChat={sendChat}
+        restoreChatRef={restoreChatRef}
         onJump={jumpTo}
         onSolved={handleSolved}
         onNodeChanged={onComposerChanged}

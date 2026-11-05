@@ -59,6 +59,7 @@ const LAST_NODE_KEY  = 'nw_last_node';
 const LAST_DEPTH_KEY = 'nw_view_depth';
 const {
   causalFeedLine,
+  createChatDraft,
   createNodeRefresher,
   describeChronicleEntry,
   describeMutation,
@@ -72,9 +73,14 @@ const {
   nodeAddress,
   nodeMark,
   observationRow,
+  restoreChatInput,
   resumeDepth,
   wrapAffordance,
 } = window.EnfoldedClient;
+
+// The player's most recent chat line, kept until its verdict. A line the
+// screen holds or declines goes back into an empty chat input.
+const chatDraft = createChatDraft();
 
 // The wrap passage's landings and authored lines — server-owned, arriving
 // with /world (ADR-008).
@@ -1200,12 +1206,20 @@ function handleWsMsg(msg) {
       pushFeed(`${nameHtml} ${escHtml(msg.text)}`, { cls: 'chat-msg', html: true });
       break;
     }
-    case 'chat_declined':
-      // Moderation decline (sender-only): the message reached nobody and
-      // was stored nowhere — surface the world's line so it doesn't just
-      // silently vanish.
+    case 'chat_declined': {
+      // Moderation hold or decline (sender-only): the message reached
+      // nobody and was stored nowhere — surface the world's line so it
+      // doesn't just silently vanish, and give the player's own words back
+      // to an empty input so they can resend or revise them.
       pushFeed(`✕ ${escHtml(msg.text)}`);
+      const input = document.getElementById('chat-input');
+      const line = chatDraft.declined(msg);
+      if (input) {
+        const next = restoreChatInput(input.value, line);
+        if (next !== input.value) input.value = next;
+      }
       break;
+    }
     case 'causal_event': {
       const line = causalNoticeLine(msg);
       if (line) pushFeed(line);
@@ -1328,7 +1342,7 @@ function sendChat() {
     pushFeed('Not connected to the shared world.');
     return;
   }
-  wsSend({ type: 'chat', text });
+  wsSend({ type: 'chat', text, ref: chatDraft.sent(text) });
   input.value = '';
 }
 

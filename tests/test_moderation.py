@@ -424,6 +424,12 @@ def _recv_exact(sock, n: int) -> bytes:
 
 def _read_ws_json_until(sock, msg_type: str, timeout: float = 3.0) -> dict:
     """Read server frames (unmasked text) until one carries `msg_type`."""
+    return _read_ws_frames_until(sock, msg_type, timeout)[-1]
+
+
+def _read_ws_frames_until(sock, msg_type: str, timeout: float = 3.0) -> list[dict]:
+    """Every JSON text frame up to and including the first `msg_type`."""
+    seen = []
     sock.settimeout(timeout)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -440,8 +446,9 @@ def _read_ws_json_until(sock, msg_type: str, timeout: float = 3.0) -> dict:
             msg = json.loads(payload)
         except ValueError:
             continue
+        seen.append(msg)
         if msg.get("type") == msg_type:
-            return msg
+            return seen
     raise AssertionError(f"no {msg_type!r} frame within {timeout}s")
 
 
@@ -615,6 +622,66 @@ class TestChatScreening:
         finally:
             sender.close()
             other.close()
+
+    def test_held_and_declined_chat_echo_the_ref_to_the_sender_only(
+            self, srv, monkeypatch):
+        # The client puts a held or declined line back in its chat input.
+        # It can tell which line came back only by the ref on its own frame,
+        # so the sender's private chat_declined echoes it, for a block and
+        # a hold alike. Nobody else hears either line or sees the ref, and
+        # the ref is not part of the chronicle row of a published line.
+        def provider_error(text, **_k):
+            raise RuntimeError("transient provider error")
+
+        monkeypatch.setattr("consciousness.classify_content", provider_error)
+        escalated = "meet me at 5551234567"
+        assert moderation._local_tier(escalated) == "escalate"
+        seed = 277
+        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
+        sender, s_status = _ws_connect(srv, seed, "Ada")
+        other, o_status = _ws_connect(srv, seed, "Bee")
+        try:
+            assert b"101" in s_status and b"101" in o_status
+            _read_ws_json_until(sender, "welcome")
+            _read_ws_json_until(other, "welcome")
+            _ws_send_json(sender, {"type": "chat", "text": f"you {_SLUR}", "ref": "c1"})
+            assert _read_ws_json_until(sender, "chat_declined") == {
+                "type": "chat_declined", "text": moderation.DECLINE_LINE, "ref": "c1"}
+            _ws_send_json(sender, {"type": "chat", "text": escalated, "ref": "c2"})
+            assert _read_ws_json_until(sender, "chat_declined") == {
+                "type": "chat_declined", "text": moderation.HOLD_LINE, "ref": "c2"}
+            _ws_send_json(sender, {"type": "chat", "text": "clean words", "ref": "c3"})
+            heard = _read_ws_frames_until(other, "chat")
+            assert [m["type"] for m in heard if m["type"].startswith("chat")] == ["chat"]
+            assert heard[-1]["text"] == "clean words" and "ref" not in heard[-1]
+            chats = _wait_for_rows(seed, root_name, "PLAYER_CHAT")
+            assert [row["data"] for row in chats] == [{"text": "clean words"}]
+        finally:
+            sender.close()
+            other.close()
+
+    def test_only_a_short_string_ref_is_echoed(self, srv, monkeypatch):
+        monkeypatch.setattr(guard, "WS_CHAT_BURST", 20)
+        seed = 278
+        generate_node_hierarchy(seed=seed, max_depth=1)
+        sender, s_status = _ws_connect(srv, seed, "Ada")
+        try:
+            assert b"101" in s_status
+            _read_ws_json_until(sender, "welcome")
+            for ref in (None, 7, True, "", "x" * 65, ["c1"], {"ref": "c1"}):
+                _ws_send_json(sender, {"type": "chat", "text": f"you {_SLUR}", "ref": ref})
+                assert _read_ws_json_until(sender, "chat_declined") == {
+                    "type": "chat_declined", "text": moderation.DECLINE_LINE}
+            _ws_send_json(sender, {"type": "chat", "text": f"you {_SLUR}"})
+            assert "ref" not in _read_ws_json_until(sender, "chat_declined")
+            _ws_send_json(sender, {"type": "chat", "text": f"you {_SLUR}", "ref": "x" * 64})
+            assert _read_ws_json_until(sender, "chat_declined")["ref"] == "x" * 64
+            # The private non-string refusal answers its frame the same way.
+            _ws_send_json(sender, {"type": "chat", "text": None, "ref": "c9"})
+            assert _read_ws_json_until(sender, "chat_declined") == {
+                "type": "chat_declined", "text": "A message is required.", "ref": "c9"}
+        finally:
+            sender.close()
 
     def test_non_object_frames_are_ignored_not_a_500(self, srv, monkeypatch):
         # json.loads returns a list, a string, a number or None just as
