@@ -46,7 +46,7 @@ was updated from source on 2026-11-04 as noted above.
 | Act requires a live personal invite, and derives request IDs with `crypto.subtle.digest` and `crypto.randomUUID`. The journal calls `crypto.randomUUID` when it loads. | `persistence/participants.py:33-48`, `static/intents.js:7`, `static/intents.js:32`, `static/interventions.js:86`, `static/journal.js:6` | Use `http://localhost`, which browsers treat as a secure context. A plain-http LAN address is not one, so Act commits and the journal would fail there. This is web-platform behaviour, not executed for this kit; the pre-session check below confirms it on the actual machine. |
 | `NESTED_WORLDS_DISABLE_AI=1` quiets three paths: `/speak` and `/agent/voice` answer the authored quiet line with HTTP 200 and `"ai": false` before the screen runs, and an Act intention that the local parser cannot read gets the authored "clearer shape" line instead of going to a model. It does not quiet the moderation classifier, which never reads the flag: a chat line, an incorrect puzzle guess the attempt will store, an Ideas submission or profile text saved as published that the local screen cannot clear still goes to the provider whenever one is configured, and a credential in the environment is enough. It does not stop images either. | `server/handlers.py:1158-1160`, `server/handlers.py:1405-1408`, `server/intervention_api.py:141-144`, `server/intervention_api.py:34-35`, `server/moderation.py:160-229`, `server/websocket.py:227-228`, `server/handlers.py:1915-1918`, `server/ideas_api.py:80`, `server/participant_api.py:33-37`, `server/handlers.py:1301-1302`, `server/handlers.py:1332-1336`; executed for `/speak`, and on 2026-11-03 for a held chat line | The no-model option stays in fiction, but only an environment with no configured provider keeps player text on the machine. Session setup unsets the credentials and the image key, and the pre-session check proves it. |
 | Chat lines the local screen clears are shared. A line it cannot clear needs the classifier and is held, in fiction, if the classifier cannot run. | `server/moderation.py:177-199`, `server/moderation.py:208-229` | With no working classifier, expect some ordinary chat lines to be held with the authored hold line. Record a held line as an observation, not a fault. |
-| The heartbeat cast walks and talks unless `NESTED_WORLDS_HEARTBEAT=0`, and their conversation renders like human chat. | `server/heartbeat.py:22`, `server/heartbeat.py:71`, `static/explorer.js:1190-1195` against `static/explorer.js:1227-1236` | Say aloud that the named inhabitants are AI characters, not other people, until live labels ship. |
+| The heartbeat cast walks and talks unless `NESTED_WORLDS_HEARTBEAT=0`, and their conversation renders like human chat. | `server/heartbeat.py:22`, `server/heartbeat.py:71`; scene `frontend/src/App.jsx`, `onAgentTalk`, puts named lines into the chat feed just as `onChat` does | Say aloud that the named inhabitants are AI characters, not other people, until live labels ship. |
 | The browser keeps the key and Act receipts in local storage. | `static/journal.js:4`, `static/intents.js:11-13`, `static/intents.js:29-34` | Use a fresh browser profile or a private window for each participant. |
 
 ## Decide before session one
@@ -144,7 +144,9 @@ world contains no check traces.
      authored line that reads like a reply, also with `"ai": false`.
 4. **Commit one Act** and see its pending or arrived state.
 5. **Open the journal** (History & journal, then Journal) and save a note
-   containing a marker word, such as `checkmarker`.
+   containing a marker word, such as `checkmarker`. Journal and Ideas links
+   navigate in the same tab; use Back to world to return to `/app` with the
+   same identity and saved place before continuing these checks.
 6. Send one chat line, such as `Hello there`. It appears in the feed under
    the check name.
    - *AI disabled*: then send `Check 1234567`. A run of seven or more

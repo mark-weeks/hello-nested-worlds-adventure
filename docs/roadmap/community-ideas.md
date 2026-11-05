@@ -26,8 +26,10 @@ votes, visibility, and community-facing status.
 
 Add an always discoverable, text-labeled **Ideas** link beside the existing
 Player's Guide control in both the map and scene views. On mobile, it must
-remain visible without opening a technical menu. Open a shared `/ideas` page
-in a new tab so the player's position and active game remain intact. Use the
+remain visible without opening a technical menu. Open the shared `/ideas` page
+in the same tab, then resume the saved place through its Enfolded return link.
+This 2026-11-05 pilot correction supersedes the original new-tab placement,
+which could create duplicate live scenes on return. Use the
 existing same-origin credential store; never put an invite key in an outgoing
 GitHub URL, feedback body, analytics event, or copied idea link.
 

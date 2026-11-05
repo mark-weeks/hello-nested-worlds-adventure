@@ -69,7 +69,7 @@ bucket left in place. Mark Weeks approved the source plan the same day. The
 record is not accepted. It registers no adapter, approves no destination for
 player text, and sets no spend ceiling. Citing it authorizes nothing.
 
-## Decision agenda
+## Decision agenda (the owner’s; only bounded D7 pilot default is decided)
 
 The 2026-10-03 assessment put nine decisions to the owner. Five are drafted as
 ADRs. All five are **Proposed** and introduce no runtime behavior, migration or

@@ -1,8 +1,17 @@
 # ADR-005: Launch-Window Operations Policy
 
-**2026-11-04 pilot client revision (owner-approved):** The owner instructed
-"Proceed with the recommended next batch" after the recommendation to make
-`/app` the pilot client and keep first arrival and return in that client.
+**2026-11-04 pilot client revision (owner-approved):** The recommendation in
+the preceding message was: "I’d build one coherent first-visit-and-return
+experience next, using `/app` as the pilot client." Its bounded scope was
+consistent invitations, registration, home bookmarks and recaps; verification
+of arrival, exploration, action, consequence and return; narrow-screen,
+keyboard and missing-artwork checks; and preservation of free exploration
+through Speak | Puzzle | Act. The owner then instructed: "Proceed with the
+recommended next batch."
+
+That instruction authorizes the recommended implementation and scoped
+pilot-client choice. It does not approve deployment, recruitment, map
+retirement, or waive the device and human evidence named in the recommendation.
 Section 3's explorer-default decision is superseded within this scope: minted
 invites, self-service registration and primary return links use `/app`; `/`
 remains the explicitly named world-map alternate. This selects the pilot
@@ -156,8 +165,12 @@ transcripts, and switch only if quality holds.
 - **One pilot client with an alternate map.** The 2026-11-04 decision keeps
   first visit and return consistent, while retaining the map's compatibility
   and overview role. Maintaining both remains a cost; this batch does not
-  approve retirement. The original trade-off of de-emphasizing `/app` is
-  superseded.
+  approve retirement.
+- **De-emphasizing `/app`** hides the product's visual half from first
+  impressions — accepted for the beta; the guide names it rather than
+  burying it.
+  *Historical client trade-off, retained verbatim; superseded 2026-11-04 by
+  the pilot-client decision above.*
 - **A model bump days before launch** carries nonzero voice-drift risk even
   at identical API surface — accepted because it is one env-swappable
   default, and the staging live-voice probe exercises it before any
@@ -174,6 +187,11 @@ transcripts, and switch only if quality holds.
   blocker** → fix and recheck it before using that device; revisit the pilot
   client choice if the blocker cannot be resolved. A map-retirement proposal
   needs its own decision and evidence.
+- **The parity harness reaches the remaining duplicated explorer logic**
+  → re-advertise `/app` as a co-equal surface if the cohort's devices
+  support it.
+  *Historical client revisit trigger, retained verbatim; superseded
+  2026-11-04 by the scoped pilot default and current device checks above.*
 - **A month of real transcripts exists** → run the Sonnet 5 A/B; if voice
   quality holds, take the ~1.7x saving (and note Sonnet's lower cache
   minimum makes the 4096 guard conservative-but-harmless, not wrong).
