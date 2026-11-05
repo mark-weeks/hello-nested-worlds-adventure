@@ -872,10 +872,14 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       provider slot opened within the classify's 3 s; check the provider,
       then raise the concurrency limit, as for the voice. `error`: the
       classify raised (provider error, timeout, or no usable moderation
-      model id); the `ms=` on the `moderation_call outcome=error` lines
-      separates a slow provider from an immediate refusal, and
-      `voice-health --probe` makes one tiny live call per distinct model
-      id, the moderation model's included. `undecided`: the classify
+      model id). A classify is one provider attempt with no retries inside
+      its 3 s, so a single transient 429, 5xx or dropped connection is one
+      `error` and fails the check; the player can send the text again. The
+      `ms=` on the `moderation_call outcome=error` lines separates a slow
+      provider from an immediate refusal, and `voice-health --probe` makes
+      one tiny live call per distinct model id, the moderation model's
+      included (also one attempt, so re-run it after a transient error).
+      `undecided`: the classify
       finished without the one-word ALLOW or BLOCK it asks for (other text,
       a length stop or a refusal); a steady share suggests the configured
       `NESTED_WORLDS_MODERATION_MODEL` does not keep to that reply, so check
