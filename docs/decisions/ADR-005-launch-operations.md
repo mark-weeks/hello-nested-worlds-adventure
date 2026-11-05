@@ -11,6 +11,19 @@ its graphics renderer is unavailable. See ADR-025 and the implementation evaluat
 
 **Status:** Accepted 2026-07-19
 
+**Update (2026-11), backups only:** The off-host copy in decision 1 moved, in
+#136 (`23b8830`), from GitHub Actions artifacts to a private S3-compatible
+bucket. The operator notes are
+[backup-bucket.md](../infrastructure/backup-bucket.md). The artifact approach
+exposed unencrypted player chat on this public repository: the live SQLite
+file, player chat included, was uploaded with `actions/upload-artifact`, and
+GitHub's artifact list is available to anyone with read access. Nothing was
+deployed, so that upload had not published a live database. The workflow
+uploads nothing until `FLY_API_TOKEN` and the `ENFOLDED_BACKUP_S3_*` secrets
+are set. Cloudflare R2 and a 30-day retention appear only as examples; Mark
+has not chosen a vendor or a retention period. This note does not change the
+Accepted status above or the decision text below.
+
 ---
 
 ## Context

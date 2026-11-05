@@ -7,6 +7,19 @@ findings. This batch changes instructions, research reporting, backup verificati
 the server's startup and waiting-connection backlog, and tests. It does not deploy, change credentials/access, recruit participants,
 ratify proposed ADRs, or change the public client default.
 
+**Update (2026-11):** The GitHub-artifact backups described in this
+2026-10-03 record were replaced in #136 (`23b8830`) by a private
+S3-compatible bucket. See
+[backup-bucket.md](../infrastructure/backup-bucket.md). The artifact approach
+exposed unencrypted player chat on this public repository: the live SQLite
+file, player chat included, was what `actions/upload-artifact` stored, and
+GitHub's artifact list is available to anyone with read access. Nothing was
+deployed, so that upload had not published a live database. The job is an
+inactive no-op until `FLY_API_TOKEN` and the `ENFOLDED_BACKUP_S3_*` secrets
+are set. Cloudflare R2 and 30 days are examples in the new notes, pending
+Mark's decision, not a chosen vendor or retention. This note does not change
+the findings below or any ADR status.
+
 ## Assessment of the attached review
 
 The four central findings are valid. The newer baseline adds proposed ADRs and an
