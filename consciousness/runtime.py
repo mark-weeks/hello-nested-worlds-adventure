@@ -356,6 +356,16 @@ class TextProvider(Protocol):
         `complete` is true only for normal completion, never refusal or
         truncation. Missing usage stays unknown. Cacheable blocks are an
         optional optimization; messages and their ordering must be preserved.
+
+        A ``timeout`` from the caller, in seconds, allows one attempt under
+        that timeout: the adapter must not retry, and must not wait out a
+        provider's retry-after. It is not a total deadline: an adapter may
+        apply it per network phase (connect, send, each read), and its module
+        says which. A failure raises, and the caller decides what that means (the moderation screen
+        holds the text). Without a ``timeout`` the adapter applies its own
+        limits and retry policy. Retrying is the adapter's concern; nothing
+        shared retries a call, and nothing retries on another model or
+        provider.
         """
         ...
 
@@ -666,6 +676,13 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
     opens, this raises ``ProviderBusy`` without calling the provider. The
     charges above are not refunded. A slot taken is released on every path
     out of the provider call.
+
+    A ``timeout`` is then handed to the adapter in full, for one provider
+    attempt with no retries (``TextProvider.generate``); the slot wait does
+    not count against it. So a call that passes one waits at most that long
+    for a slot, then makes one attempt under the same timeout. An adapter may
+    enforce it per network phase (connect, send, each read) rather than as
+    one wall-clock deadline; its module says which. Nothing here retries.
     """
     require_model_id(model)
     provider = get_provider()

@@ -355,6 +355,10 @@ class TestClassifyCall:
         class _FakeClient:
             messages = _FakeMessages()
 
+            def with_options(self, **options):
+                recorded["client_options"] = options
+                return self
+
         monkeypatch.setattr(provider, "_client", _FakeClient())
         assert consciousness.classify_content("some text") == "allow"
         # The configured moderation model, not a hard-coded call-site id.
@@ -367,8 +371,10 @@ class TestClassifyCall:
         # length stop is undecided, so a tighter cap would hold every
         # reply that does not emit a bare token.
         assert recorded["max_tokens"] == 32
-        # A moderation verdict must never stall a real-time surface.
+        # A moderation verdict must never stall a real-time surface. The
+        # timeout allows one attempt: the SDK does not retry after it.
         assert recorded["timeout"] <= 5.0
+        assert recorded["client_options"] == {"max_retries": 0}
 
     def test_confused_reply_is_undecided(self, monkeypatch):
         import consciousness
@@ -384,6 +390,9 @@ class TestClassifyCall:
 
         class _FakeClient:
             messages = _FakeMessages()
+
+            def with_options(self, **_options):
+                return self
 
         monkeypatch.setattr(provider, "_client", _FakeClient())
         assert consciousness.classify_content("text") == "undecided"
@@ -821,7 +830,10 @@ def _install_anthropic_screen(monkeypatch, kind):
             raise RuntimeError(f"no client {_SCREEN_SECRET}")
         monkeypatch.setattr(provider, "_get_client", unavailable)
         return
-    monkeypatch.setattr(provider, "_client", SimpleNamespace(messages=_Messages()))
+    # The classify passes a timeout, so the adapter asks for its no-retry copy.
+    fake = SimpleNamespace(messages=_Messages())
+    fake.with_options = lambda **_options: fake
+    monkeypatch.setattr(provider, "_client", fake)
 
 
 def _install_openai_screen(monkeypatch, kind):
