@@ -104,9 +104,11 @@ VOICE_SURFACES = ("speak", "agent_voice", "intention")
 # classify that would have screened it. It is a failure, not a limit. The
 # limits are deliberate stops; this is a player turned away for capacity,
 # which an operator fixes by raising the limit or the provider's speed.
-# And a voice call passes no timeout, so on the default adapter a hung
-# provider holds its slots for the SDK's 10-minute timeout, retried twice,
-# and `busy` is the only outcome recorded until those calls end.
+# And a voice call passes no timeout, so the adapter's own default bounds
+# it: 60 s per attempt on the default adapter, retried twice. A hung
+# provider then holds each slot for about 3 minutes (about 5 when it answers
+# errors with a retry-after), and `busy` is the only outcome recorded until
+# those calls end and count `provider`.
 VOICE_FAILURES = ("provider", "db", "unconfigured", "screen", "busy")
 VOICE_LIMITS = ("budget", "action_cap", "disabled")
 VOICE_REASONS = ("ok",) + VOICE_LIMITS + VOICE_FAILURES
