@@ -115,11 +115,13 @@ voice surfaces give the authored silence a provider failure gets, shared text
 is held (moderation outcome `busy`), and the voice outcome `busy` is a
 failure in `python main.py voice-health`.
 
-A `timeout` passed to `runtime.generate` is the budget for the whole
-provider call, not for one attempt (`TextProvider.generate`): an adapter must
-not retry past it or wait out a provider's retry-after inside it, and shared
-code retries nothing. Only the moderation classify (3 s) and the opt-in
-`--probe` of `models` and `voice-health` (30 s per model id) pass one. The
+A `timeout` passed to `runtime.generate`, or straight to an adapter's
+`generate`, is the budget for the whole provider call, not for one attempt
+(`TextProvider.generate`): an adapter must not retry past it or wait out a
+provider's retry-after inside it, and shared code retries nothing. Only the
+moderation classify (3 s, through `runtime.generate`) and the opt-in
+`--probe` of `models` and `voice-health` (30 s per model id, straight to the
+adapter) pass one. The
 anthropic adapter sends those calls with the SDK's retries off, through a
 `with_options(max_retries=0)` copy of its client built once and sharing its
 connection pool, credentials and base URL; calls without a timeout keep the
@@ -128,8 +130,9 @@ wall-clock budget. On the anthropic adapter httpx applies the number to
 each phase (connect, send, each read), so it is not a hard wall-clock
 bound: against a local stub at 3 s, one attempt took 3.01 s when the
 provider never answered and 6.01 s when it sent its body a chunk a second.
-A classify that meets a transient 429, 5xx or timeout therefore fails at
-once and the screen holds the text; the player can try again. A `--probe`
+A classify that meets a transient 429, 5xx, timeout or dropped connection
+therefore fails at once and the screen holds the text; the player can try
+again. A `--probe`
 reports such an error as a failed probe instead of retrying it; run it
 again.
 
