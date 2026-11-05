@@ -371,24 +371,27 @@ def execute(case, outputs=None):
             except interventions.Unsupported:
                 outputs.append({"status": "unsupported"})
         else:
-            from server import moderation
+            from server import moderation, observability
             # Classifier trial even for clean/local-block inputs; end-to-end
             # screen is also observed using the SAME reply (never a second call).
             # A transport failure is not an allow: shared text holds.
-            try:
-                outcome = consciousness.classify_content(message)
-                error = None
-            except (BudgetExceeded, RoutingMismatch):
-                raise
-            except Exception as exc:
-                outcome, error = "error", type(exc).__name__
-            allowed = outcome == "allow"
-            with patch.object(consciousness, "classify_content", return_value=outcome,
-                              side_effect=RuntimeError("eval transport failure") if error else None), \
-                 patch.object(moderation.guard, "moderation_reserve", return_value="ok"), \
-                 patch.object(moderation.guard, "consume_model_action", return_value=True), \
-                 patch.object(moderation.guard, "consume_moderation_action", return_value=True):
-                screen = moderation.screen(message)
+            # The screen's outcome counter writes the player database, which
+            # this runner never opens, so it does nothing during the trial.
+            with patch.object(observability, "moderation_outcome"):
+                try:
+                    outcome = consciousness.classify_content(message)
+                    error = None
+                except (BudgetExceeded, RoutingMismatch):
+                    raise
+                except Exception as exc:
+                    outcome, error = "error", type(exc).__name__
+                allowed = outcome == "allow"
+                with patch.object(consciousness, "classify_content", return_value=outcome,
+                                  side_effect=RuntimeError("eval transport failure") if error else None), \
+                     patch.object(moderation.guard, "moderation_reserve", return_value="ok"), \
+                     patch.object(moderation.guard, "consume_model_action", return_value=True), \
+                     patch.object(moderation.guard, "consume_moderation_action", return_value=True):
+                    screen = moderation.screen(message)
             outputs.append({"status": "classified", "allowed": allowed, "outcome": outcome,
                             "error": error, "local_tier": moderation._local_tier(message),
                             "screen": asdict(screen)})
