@@ -899,9 +899,20 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       for its UTC day, as a voice failure already does: once one is counted,
       `voice-health` keeps exiting 1 until 00:00 UTC, or until the day leaves
       the `--days` window. Nothing clears it, and a passing `--probe` does
-      not. A scheduler that alerts on every exit 1 therefore repeats one
-      blip's alert all day; whether to alert on a threshold or rate instead
-      is an open owner decision.
+      not. So whatever schedules it (checklist B3) should alert at most once
+      per UTC day, with the full `voice-health` output in the alert, not on
+      every exit 1 (decided 2026-11-05 under the owner's delegation; no
+      threshold, no separate exit code). The cost of that rule: a second
+      failure later the same day does not alert again, so read the printed
+      counts and the ERROR log or Sentry for anything newer. A player can
+      provoke `undecided`: escalated text goes to the classifier as is, and
+      text that knocks it off its one-word reply is undecided. A red result
+      with only `undecided` counts may be model drift or injection; the
+      per-user `moderation:u:` rows in `cost_budget` count each key's
+      classify calls (at most 60 a day each). Revisit if more than
+      3 of the first 14 scheduled days alert on screen failures alone, if
+      `undecided` reaches 1% of classifier screens on a day, or at the first
+      key traced to 5 or more `undecided` in one day.
       Every quiet line also logs `voice_fallback surface=... reason=...` on
       `nested_worlds.voice`, at ERROR (a Sentry event) for failures and WARNING
       for limits. Store errors are logged, not counted, and a counter write
