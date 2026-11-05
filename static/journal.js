@@ -28,7 +28,9 @@
       for (const id of ['bio', 'goals', 'avatar']) $(id).value = profile[id];
       $('published').checked = profile.published; profileLoaded = true;
     }
-    $('home-label').textContent = profile.home ? 'Home bookmark: ' + profile.home.node.replace(/-\d+$/, '') : 'No home bookmark chosen.';
+    $('home-label').replaceChildren();
+    if (profile.home) $('home-label').append('Home bookmark: ', link(profile.home.node));
+    else $('home-label').textContent = 'No home bookmark chosen.';
     $('profile-link').textContent = profile.published ? 'Published as ' + profile.name + '. Your notes remain private.' : 'Your profile is unpublished.';
     if (profile.published) {
       const share = document.createElement('a'); share.textContent = ' View and share your profile';

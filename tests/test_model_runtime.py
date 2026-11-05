@@ -179,13 +179,24 @@ def test_anthropic_normalizes_request_completion_and_usage(stop, complete, reaso
             stop_reason=stop, usage=SimpleNamespace(input_tokens=10, output_tokens=4,
                                                    cache_read_input_tokens=7, cache_creation_input_tokens=2),
             model='resolved-fixture-20261025')
-    adapter._client = SimpleNamespace(messages=SimpleNamespace(create=create))
+    # A caller's timeout allows one attempt, no retries: the request goes
+    # through the SDK's no-retry copy of the client, built once.
+    copies = []
+    def with_options(**options):
+        copies.append(options)
+        return SimpleNamespace(messages=SimpleNamespace(create=create))
+    adapter._client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kw: pytest.fail(
+        'a timed call must not use the retrying client')), with_options=with_options)
     schema = {'type': 'object'}
     result = adapter.generate(model='fixture-model', system=(SystemBlock('bible', True), SystemBlock('state')),
         messages=[{'role': 'user', 'content': 'hello'}], max_tokens=500, json_schema=schema, timeout=3.0)
     assert result == Completion('answer', complete, TokenUsage(10, 4, 7, 2), reason,
                                 resolved_model='resolved-fixture-20261025', provider='anthropic')
-    assert calls == [dict(model='fixture-model', max_tokens=500, timeout=3.0,
+    adapter.generate(model='fixture-model', system=(SystemBlock('bible', True), SystemBlock('state')),
+        messages=[{'role': 'user', 'content': 'hello'}], max_tokens=500, json_schema=schema, timeout=3.0)
+    assert copies == [{'max_retries': 0}]
+    assert calls[0] == calls[1]
+    assert calls[:1] == [dict(model='fixture-model', max_tokens=500, timeout=3.0,
         system=[{'type': 'text', 'text': 'bible', 'cache_control': {'type': 'ephemeral', 'ttl': '1h'}},
                 {'type': 'text', 'text': 'state'}],
         messages=[{'role': 'user', 'content': 'hello'}],
@@ -198,7 +209,9 @@ def test_anthropic_keeps_missing_text_and_usage_unknown():
     def create(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(content=[], stop_reason='refusal')
-    adapter._client = SimpleNamespace(messages=SimpleNamespace(create=create))
+    # No caller timeout: the base client and its SDK retry policy, unchanged.
+    adapter._client = SimpleNamespace(messages=SimpleNamespace(create=create), with_options=lambda **kw:
+                                      pytest.fail('an untimed call must keep the base client'))
     result = adapter.generate(model='other-model', system=(SystemBlock('classify'),), messages=[], max_tokens=8)
     assert result == Completion(None, False, None, 'refusal', provider='anthropic')
     assert calls == [dict(model='other-model', system='classify', messages=[], max_tokens=8)]

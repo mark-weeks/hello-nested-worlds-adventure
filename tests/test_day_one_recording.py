@@ -310,7 +310,14 @@ class TestSelfServiceRegistration:
             srv, {"invite": "nwr_live", "name": "Priya"})
         assert status == 200
         key = data["key"]
-        assert key.startswith("nw_") and data["url"].startswith("/?key=")
+        from urllib.parse import parse_qs, urlsplit
+        import main
+
+        assert key.startswith("nw_")
+        assert data["url"] == main.invite_share_url(key, "Priya", base="")
+        parts = urlsplit(data["url"])
+        assert parts.path == "/app"
+        assert parse_qs(parts.query) == {"key": [key], "name": ["Priya"]}
 
         root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
         s, ws_status = _ws_connect(srv, seed, "Zorg", invite_key=key)

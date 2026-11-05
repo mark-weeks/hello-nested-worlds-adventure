@@ -25,12 +25,14 @@
   td:first-child { color: #3a8eff; white-space: nowrap; }
   .verb { color: #4af0c8; }
   a { color: #3a8eff; }
-  .back { display: inline-block; margin-bottom: 24px; font-size: 11px; text-decoration: none; color: #4a6080; }
+  nav { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-bottom: 24px; }
+  nav a { display: inline-flex; align-items: center; min-height: 44px; }
+  :focus-visible { outline: 3px solid #e5c27b; outline-offset: 3px; }
   @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 </style>
 </head>
 <body>
-<a class="back" href="/">← back to the world</a>
+<nav aria-label="World navigation"><a href="/app">← Back to world</a><a href="/">World map</a><a href="/journal">Your journal</a></nav>
 <h1>How to Play</h1>
 <div class="sub">Enfolded: a living multiverse of eleven nested scales</div>
 
@@ -39,10 +41,10 @@ keeps moving after you leave. Everything you do — every word, every act,
 every solved puzzle — becomes part of the world's permanent chronicle,
 and every player and agent who comes after you builds on it.</p>
 
-<p>Your invite link opens the <b>map view</b> — the whole world as a
-living tree. Once you're oriented, there is a second way in: <a
-href="/app">the scene view</a> renders each place as a scene you stand
-inside, with the same world, the same key, and the same company.</p>
+<p>Your invite link opens <a href="/app">the scene view</a>, where passages
+beside the scene let you explore each place. Speak, Puzzle and Act share one
+interaction panel. The <a href="/">World map</a> is an alternate view of the
+same world, with the same key and company.</p>
 
 <h2>The world</h2>
 <p>Reality is nested eleven deep: <b>Multiverse → Universe → Galaxy →
@@ -165,6 +167,10 @@ written around you right now. Open <b>Replay History</b> (<b>Wayback</b> on the 
 substance, causal pressure, and accumulated wear reached the present. It is
 an interpretation, not a recording: the state is historical, while the art
 and sound are the world's current senses. Looking leaves no new trace.</p>
+<p>Keep questions and observations in <a href="/journal">Your journal</a>.
+Notes and your home bookmark are private. Follow a saved place, your home,
+or a recorded change from the journal to return to it in the scene view.
+Publishing a profile shares only the bio, goals and avatar you choose.</p>
 
 <h2 id="feedback">Help shape Enfolded</h2>
 <p>Playing together, sharing discoveries, and helping newcomers all shape this

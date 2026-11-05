@@ -185,7 +185,7 @@ class TestCrossDeviceResume:
 
 
 class TestExplorerShellResilience:
-    """REGRESSION (P1-1/P1-2/P1-3): the invite default landing page (`/`, the D3
+    """REGRESSION (P1-1/P1-2/P1-3): the alternate world map (`/`, the D3
     explorer) must (a) load D3 same-origin, not from the d3js.org CDN, (b) carry
     a mobile viewport meta so it isn't an unusable desktop crush on a phone, and
     (c) show first-run onboarding to INVITED users — who arrive with ?name= and
@@ -218,13 +218,13 @@ class TestExplorerShellResilience:
         # split, so an invited (?name=) user still sees it exactly once.
         assert "nw_seen_intro" in js
         assert "btn-begin" in js
-    def test_invite_url_lands_on_root_not_bare_app(self):
+    def test_invite_url_lands_on_pilot_client(self):
+        from urllib.parse import parse_qs, urlsplit
+
         url = main.invite_share_url("nw_deadbeef", "Alice")
-        # Must land on `/` (feature-complete, no-WebGL-dependency), carrying the
-        # credential and name so the tester is one click from playing.
-        assert url.startswith("<BASE>/?key=nw_deadbeef")
-        assert "name=Alice" in url
-        assert "/app?" not in url
+        parts = urlsplit(url.removeprefix("<BASE>"))
+        assert parts.path == "/app"
+        assert parse_qs(parts.query) == {"key": ["nw_deadbeef"], "name": ["Alice"]}
 
     def test_invite_url_encodes_name(self):
         url = main.invite_share_url("nw_x", "Ada Lovelace")

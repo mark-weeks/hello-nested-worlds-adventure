@@ -72,8 +72,10 @@ owner to rule on it.
   Five new drafts (ADR-029 to ADR-033) are Proposed and introduce nothing.
   Migration numbers are assigned at merge time; the first batch to merge takes the next free number, and drafts must not reserve numbers ([roadmap README numbering rule](README.md#migration-numbering-rule)).
 - Operating posture: default voice model `claude-opus-4-8` (retained implementation default; selection policy now ADR-034), budgets
-  as daily call caps (`server/guard.py`), explorer the invite default with `/app`
-  the alternate, `server/handlers.py` at 1,624 lines (1,612 when this plan
+  as daily call caps (`server/guard.py`). The 2026-11-04 owner-approved
+  [ADR-005 revision](../decisions/ADR-005-launch-operations.md) selects `/app`
+  for pilot invites and return links, with `/` the World map alternate; cohort
+  device and human evidence remain open. `server/handlers.py` was at 1,624 lines (1,612 when this plan
   was written; `wc -l` on 2026-10-25), migrations `0001`–`0027`.
 - Pilot protocol 2 is runnable and `scripts/pilot_report.py` enforces it. The
   protocol names **October 24** for cohort completion if **October 31** stays the
@@ -126,7 +128,7 @@ none is a decision.
 | D | Voice model default for the pilot | Before P9 | Run P4's live probes on the current default and credible alternatives across providers, model families and versions under ADR-034. The current adapter supports Anthropic; other providers need a validated adapter before deployment. Compare task quality, capability, latency, reliability and total cost; verify model IDs, availability and terms against official documentation and record the selection evidence. Changing the default after the pilot starts changes what the pilot measured. |
 | E | Mark the four Proposed implemented contracts (ADR-019 to ADR-022, and the bounded ADR-013/014 parts realised under ADR-024/025) **Accepted as implemented**, or leave them Proposed with a reason. Separately and optionally: normalize the status wording of the implementation records ADR-024, ADR-025, ADR-027 and ADR-028, which are neither Proposed nor Accepted today | Before P9 | **Accept the four as implemented** in one documentation PR. Production history will rely on their delivery, fence and narration semantics; a Proposed status on live semantics invites relitigation from a cold start. The wording normalization is housekeeping; do it in the same PR only if the owner wants one status vocabulary. |
 | F | D1–D5 (ADR-029 to ADR-033) ratification | At P11 or after | Ratify D1, D3, D5 at the read-out so November drafting can start; D2 with D1; **D4 only after pilot evidence**, as the assessment itself recommends. |
-| G | D7 (one client), D8 (dollar budgets), D9 (process re-tune) | After P11 | D8 and D9 are cheap and reversible; schedule both in November. D7 waits for the cohort's device evidence and needs an ADR-005 revision. |
+| G | D7 (one client), D8 (dollar budgets), D9 (process re-tune) | After P11; bounded D7 default decided 2026-11-04 | D8 and D9 are cheap and reversible; schedule both in November. The owner approved `/app` as the pilot default in ADR-005 on 2026-11-04; cohort device evidence remains required and map retirement is undecided. |
 | H | Issue dispositions: revise #89's acceptance criteria (its per-response property-delta requirement conflicts with ADR-028's accepted/pending/partial/moot outcomes); keep #88 deferred; carry #87's unverified criteria into the pilot's orientation observations | Oct 15 (so #89 is not implemented against stale criteria) | Agent drafts the revised criteria as a comment; owner edits the issue. |
 | I | Off-host backup destination, vendor and retention (ADR-034 §5 scoped decision) | Before `ENFOLDED_BACKUP_REQUIRED=true` | Pending. Cloudflare R2 and 30 days are the examples in the workflow and the runbook. Neither is a decision. |
 
@@ -167,8 +169,10 @@ Split by *when*, because a refactor in launch week is risk without reward.
   seconds and lets the off-host cadence relax. ADR-005's revisit note still
   describes the hourly artifact cadence; the private bucket and its retention
   are pending and are not that note.
-- **D7 one client**: device gate evidence → ADR-005 revision → invite default to
-  `/app` → explorer retirement plan. Each arrow is its own PR.
+- **D7 one client**: the owner approved the bounded `/app` invite-and-return
+  default on 2026-11-04, recorded in ADR-005. Complete cohort device and human
+  checks before the pilot. An explorer retirement plan needs a separate
+  decision; the map remains available.
 - **3.3 cohort rhythm**: a recurring gathering and the weekly `beta_metrics.py`
   read, once there is a cohort to read.
 - **4.8** the cost-engineering case study, when the owner wants it.
@@ -203,7 +207,7 @@ ADR-030 batches 2–3, ADR-031 batches 2–3, ADR-032 batches 2–3 and ADR-033 
 | Oct 19–25 | P10 cohort window, deploy freeze | Nothing ships; triage only |
 | Oct 26–Nov 1 | Interviews, P11 read-out, decision meeting | Evaluation document, M8 brief |
 | Nov | Second wave if warranted; Litestream | Routing extraction, D8, D9, ADR-029 batch 1, numbering |
-| Dec | Device gate evidence, D7 ADR-005 revision | ADR-033 batch 1, ADR-030 batch 1, ADR-029 batch 2 |
+| Dec | Cohort device evidence; any separate D7 map-retirement decision | ADR-033 batch 1, ADR-030 batch 1, ADR-029 batch 2 |
 | Jan | Read the chronicle's first quarter | ADR-031 batch 1; ADR-032 batch 1 only if D4 is taken |
 
 ## What this plan displaces, and what it costs
