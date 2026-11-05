@@ -24,7 +24,7 @@ document.getElementById('form').addEventListener('submit', function (e) {
   }).then(function (res) {
     return res.json().then(function (data) {
       if (res.ok && data.url) {
-        // The explorer reads ?key= from its own URL and stashes it;
+        // The scene client reads ?key= from its own URL and stashes it;
         // from here on this player is a named, keyed account.
         location.href = data.url;
       } else {

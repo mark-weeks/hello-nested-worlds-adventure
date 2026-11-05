@@ -12,6 +12,13 @@ retention and deletion date: [protocol 2](2026-09-12-pilot-protocol.md), "Scope
 and venue"), and on the S2 question below if live voice is on. This kit
 recruits nobody, records no decision, and promises no persistence.
 
+**2026-11-04 client update:** The owner selected `/app` for the pilot's first
+visit and return ([ADR-005](../decisions/ADR-005-launch-operations.md)). The
+operative invite and facilitator instructions below follow that default;
+the 2026-11-02/03 executions remain dated evidence, not a rehearsal of this
+updated client journey. The world map remains available at `/`. The venue,
+device, consent and live-provider prerequisites above are unchanged.
+
 ## What this watch is
 
 The first 2 to 3 newcomer sessions of [protocol 2](2026-09-12-pilot-protocol.md),
@@ -26,14 +33,15 @@ exists for that session only and is deleted on the stated date.
 Each fact was read at `23b8830`. "Executed" means it was also run against a
 scratch database outside the repository on 2026-11-02. Updated 2026-11-03:
 the invite-gate fact and the display-name rule (step 4 below) changed when
-#137 and #139 merged, and they cite the merged code.
+#137 and #139 merged, and they cite the merged code. The invite destination
+was updated from source on 2026-11-04 as noted above.
 
 | Fact | Evidence | What it means for the session |
 |---|---|---|
 | `python main.py serve` binds 127.0.0.1, port 8080, by default. | `main.py:532-533` | The participant uses the facilitator's machine at `http://localhost:8080`. Do not pass `--host 0.0.0.0` unless the owner authorizes the network exposure (plain HTTP, the key in the URL, and a model credential if live voice is on). |
 | The world database is `$HOME/.nested-worlds/worlds.db`, with no override. | `persistence/__init__.py:28` | A fresh scratch `HOME` per session is **mandatory**. Without one, the session's rows land in the facilitator's own database. The server and every CLI command for that session must use the same `HOME`. |
 | With `NESTED_WORLDS_CANONICAL_SEED` unset, the server hosts seed 382. | `server/guard.py:133-135`, `multiverse/generator.py:30`; executed | Leave the variable unset. |
-| `invite mint --name X` prints the key once and a share line of the form `<BASE>/?key=nw_…&name=X`, which lands on the explorer and never visits `/register`. | `main.py:318-328`, `main.py:354-366`; executed | Replace `<BASE>` with `http://localhost:8080`. The participant never sees `/register`'s consent line (`static/register.html:49-52`), which in any case promises permanence. Consent is verbal or written. |
+| `invite mint --name X` prints the key once and a share line of the form `<BASE>/app?key=nw_…&name=X`, which lands on the scene client and never visits `/register`. | `main.py::invite_share_url`, `main.py::cmd_invite`; read after the 2026-11-04 client amendment. The 2026-11-02 execution landed on `/`, now superseded. | Replace `<BASE>` with `http://localhost:8080`. The participant never sees `/register`'s consent line (`static/register.html:49-52`), which in any case promises permanence. Consent is verbal or written. |
 | Minting the first key closes the invite gate for good. Revoking a key no longer reopens it (#137), and an open socket whose key is revoked is closed. | `server/guard.py:296-317` (`invite_gate_active`, `persistence.credentials_ever_issued`); on `23b8830` revoking the only key reopened the gate (executed 2026-11-02) | End a session by stopping the server. Revoking the key is not needed: the scratch `HOME` is deleted. |
 | Act requires a live personal invite, and derives request IDs with `crypto.subtle.digest` and `crypto.randomUUID`. The journal calls `crypto.randomUUID` when it loads. | `persistence/participants.py:33-48`, `static/intents.js:7`, `static/intents.js:32`, `static/interventions.js:86`, `static/journal.js:6` | Use `http://localhost`, which browsers treat as a secure context. A plain-http LAN address is not one, so Act commits and the journal would fail there. This is web-platform behaviour, not executed for this kit; the pre-session check below confirms it on the actual machine. |
 | `NESTED_WORLDS_DISABLE_AI=1` quiets three paths: `/speak` and `/agent/voice` answer the authored quiet line with HTTP 200 and `"ai": false` before the screen runs, and an Act intention that the local parser cannot read gets the authored "clearer shape" line instead of going to a model. It does not quiet the moderation classifier, which never reads the flag: a chat line, an incorrect puzzle guess the attempt will store, an Ideas submission or profile text saved as published that the local screen cannot clear still goes to the provider whenever one is configured, and a credential in the environment is enough. It does not stop images either. | `server/handlers.py:1158-1160`, `server/handlers.py:1405-1408`, `server/intervention_api.py:141-144`, `server/intervention_api.py:34-35`, `server/moderation.py:160-229`, `server/websocket.py:227-228`, `server/handlers.py:1915-1918`, `server/ideas_api.py:80`, `server/participant_api.py:33-37`, `server/handlers.py:1301-1302`, `server/handlers.py:1332-1336`; executed for `/speak`, and on 2026-11-03 for a held chat line | The no-model option stays in fiction, but only an environment with no configured provider keeps player text on the machine. Session setup unsets the credentials and the image key, and the pre-session check proves it. |
@@ -46,8 +54,9 @@ the invite-gate fact and the display-name rule (step 4 below) changed when
 1. **Venue.** The owner's ruling (packet decision 2).
 2. **Research basics.** Recorded in the restricted research record
    (`docs/evaluation/2026-09-12-pilot-protocol.md:27-31`): facilitator,
-   dates, the machine and browser used, client (the explorer is the invite
-   default), consent wording, and the deletion date.
+   dates, the machine and browser used, client (`/app` is the pilot invite
+   default; record any explicit use of the map alternate), consent wording,
+   and the deletion date.
 3. **Voice mode.**
    - *AI disabled* (recommended unless the owner rules otherwise): set
      `NESTED_WORLDS_DISABLE_AI=1` and remove every provider credential from
@@ -103,11 +112,12 @@ world contains no check traces.
 1. In a new terminal, follow "Session setup" below with a throwaway `HOME`, a
    check name, and the voice mode the sessions will use. Its server and key
    checks must pass.
-2. Open the share URL in a private window. The explorer loads, the place panel
-   shows a place, and the connection is live.
+2. Open the share URL in a private window. `/app` loads, the place panel
+   shows a place, and the connection is live. Complete this check on the
+   actual session device; the client choice does not establish device support.
 3. Speak to the place, then confirm the voice mode from the server's answer,
-   not from the words: the explorer shows only the words
-   (`static/explorer.js:768`). In the same terminal:
+   not from the words: the scene displays the reply without the `ai` flag
+   (`frontend/src/components/Interact.jsx`). In the same terminal:
 
    ```bash
    curl -s -X POST http://localhost:8080/speak -H "X-Beta-Key: $KEY" \
@@ -146,7 +156,7 @@ world contains no check traces.
      held: only the sender sees `✕ The worlds hold those words for now.
      They are not shared. Say it another way, or try again later.`
      (`server/moderation.py:62-65`, `server/websocket.py:227-233`,
-     `static/explorer.js:1195-1199`). If the line appears as an ordinary
+     `frontend/src/App.jsx`, `onChatDeclined`). If the line appears as an ordinary
      chat line, or is declined with "The worlds decline to carry those
      words", a classifier answered, so the text reached a provider: stop,
      unset the credential, and restart from step 1. A held line alone does
@@ -239,7 +249,8 @@ exited with status 1 and the mint succeeded; with another Enfolded server
 holding its own key on the port, both requests returned 403; with the
 intended server, 403 then 200, and `kill "$SERVER_PID"` stopped it.
 
-Write the share URL with `<BASE>` replaced by `http://localhost:8080`. Record
+Write the share URL as `http://localhost:8080/app?key=nw_…&name=<check name>`
+(the printed URL with `<BASE>` replaced by `http://localhost:8080`). Record
 the scratch path, the display name and the P-code in the restricted record,
 not in the repository.
 
@@ -297,7 +308,7 @@ commit.
   interesting?" after each solve, with the puzzle's kind (checklist C2c);
   observed hint use, meaning whether the participant read a hint the puzzle
   showed them (`Hint: …` under the puzzle after a wrong attempt,
-  `static/explorer.js:949`) and whether their next guess used it. The
+  `frontend/src/components/Interact.jsx`) and whether their next guess used it. The
   chronicle shows only which hints were offered, never whether one was used
   (checklist C2c). The
   end-of-session answer to "where are you, and how would you go back?"

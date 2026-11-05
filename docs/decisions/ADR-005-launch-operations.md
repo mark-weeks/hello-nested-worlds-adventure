@@ -1,5 +1,16 @@
 # ADR-005: Launch-Window Operations Policy
 
+**2026-11-04 pilot client revision (owner-approved):** The owner instructed
+"Proceed with the recommended next batch" after the recommendation to make
+`/app` the pilot client and keep first arrival and return in that client.
+Section 3's explorer-default decision is superseded within this scope: minted
+invites, self-service registration and primary return links use `/app`; `/`
+remains the explicitly named world-map alternate. This selects the pilot
+experience, not a deployment or a finding that the device gates passed.
+Physical-device, accessibility, fallback and observed-newcomer checks remain
+required before including those devices in the cohort. Map retirement is a
+separate, undecided change.
+
 **2026-09-12 client development revision:** The scene client `/app` is now the
 primary surface for the discovery/return slice. The explorer `/` retains the
 world map and compatibility role; shared rules and request-intent handling live
@@ -65,7 +76,23 @@ ADR-004's "the current DB is pre-launch; there is no throwaway pre-launch
 data worth protecting" makes this fully covenant-compatible — the
 throwaway phase simply never touches the production volume.
 
-### 3. Beta client posture: explorer default, `/app` the named alternate
+### 3. Pilot client posture: `/app` default, world map the named alternate
+
+**Decided 2026-11-04, by the owner's instruction above:** use one client for
+the invitation, registration, journal/home/recap links and return journey.
+`/app` is that client. Keep `/` available as **World map**, rather than
+silently moving returning players into a different interface. The guide and
+auxiliary pages follow the same default. Existing free exploration and
+Speak | Puzzle | Act stay intact; no scripted onboarding route is introduced.
+
+The scene renders with a 2D canvas and has navigable text when rendering is
+unavailable. The old WebGL distinction therefore does not decide the pilot
+default. Desktop Chromium coverage is still insufficient evidence for the
+cohort's physical devices or assistive technology. This amendment changes
+the development/pilot default while retaining the launch checks and the
+staging-before-production decision in section 2.
+
+#### Original 2026-07-19 client decision (superseded within the scope above)
 
 Two feature-complete clients are a real maintenance tax under a
 launch-window deploy freeze, and the executed parity harness (entry,
@@ -126,9 +153,11 @@ transcripts, and switch only if quality holds.
 - **A staging twin costs a few hours and a few dollars**, and its config
   can drift from production — mitigated by using the same `fly.toml` and
   `deploy.sh` with only `FLY_APP` overridden.
-- **De-emphasizing `/app`** hides the product's visual half from first
-  impressions — accepted for the beta; the guide names it rather than
-  burying it.
+- **One pilot client with an alternate map.** The 2026-11-04 decision keeps
+  first visit and return consistent, while retaining the map's compatibility
+  and overview role. Maintaining both remains a cost; this batch does not
+  approve retirement. The original trade-off of de-emphasizing `/app` is
+  superseded.
 - **A model bump days before launch** carries nonzero voice-drift risk even
   at identical API surface — accepted because it is one env-swappable
   default, and the staging live-voice probe exercises it before any
@@ -141,9 +170,10 @@ transcripts, and switch only if quality holds.
   the second net).
 - **The staging rehearsal surfaces a launch-blocking defect** → fix, then
   re-run the rehearsal; the production first-deploy waits.
-- **The parity harness reaches the remaining duplicated explorer logic**
-  → re-advertise `/app` as a co-equal surface if the cohort's devices
-  support it.
+- **The cohort device checks or newcomer observations expose a client
+  blocker** → fix and recheck it before using that device; revisit the pilot
+  client choice if the blocker cannot be resolved. A map-retirement proposal
+  needs its own decision and evidence.
 - **A month of real transcripts exists** → run the Sonnet 5 A/B; if voice
   quality holds, take the ~1.7x saving (and note Sonnet's lower cache
   minimum makes the 4096 guard conservative-but-harmless, not wrong).
@@ -161,6 +191,8 @@ transcripts, and switch only if quality holds.
   and also rehearses the deploy path itself.
 - **Advertising both clients equally at launch** — doubles the surface
   where a cohort-facing bug bites during the window when nothing ships.
+- **Retiring the world map in the pilot-client batch** — a consistent
+  default does not establish that the alternate's uses can be removed.
 - **Finishing the parity harness pre-launch** — days of delay to prevent a
   drift class that executed parity already covers at the highest-traffic
   surfaces.

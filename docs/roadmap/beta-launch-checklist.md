@@ -4,7 +4,8 @@
 are as of 2026-11-02, `main` at `23b8830`, updated 2026-11-03 for the merged
 integrity (#137), suspension (#138) and agent-identity (#139) PRs in rows S1,
 E4, G5, C7, G9 and P6, for the credential sweep in G5, and on 2026-11-04 for
-the delegated decisions in G5; line numbers in other rows cite `23b8830`.
+the delegated decisions in G5 and the owner-approved pilot-client choice in
+O3; line numbers in other rows cite `23b8830`.
 Thresholds marked as proposals are not decided.
 Decisions held for the owner are listed in this page and are not made by
 recording it. It ratifies no ADR and authorizes no deployment. The [Q4
@@ -96,7 +97,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 |---|---|---|---|---|---|
 | O1 | Time to first delight | In 2 to 3 observed newcomer sessions, curiosity appears within 5 min and the first understood consequence within 10 min. Protocol gate: 8 of 10 show curiosity. | Not started | (Docs) Protocol 2 ([2026-09-12-pilot-protocol.md](../evaluation/2026-09-12-pilot-protocol.md)) and `scripts/pilot_report.py` are ready. No newcomer has been observed. Protocol 2's curiosity window is the first two minutes, not five (script step 1), and it has no 10-minute consequence timing; the 8-of-10 gate belongs to the cohort, not to 2 to 3 newcomer sessions. | **Blocks beta** |
 | O2 | Entry with an unresolved question | A new arrival, exploring and using Act under protocol 2, finds or states a question without a scripted situation and without help. | Partial | (Docs) Protocol 2 ([2026-09-12-pilot-protocol.md](../evaluation/2026-09-12-pilot-protocol.md)) watches unprompted curiosity, then Speak, Puzzle and Act. Opening a situation is not beta onboarding, and `/situation/choose` refuses new choices. Comprehension is unobserved. | **Blocks beta** |
-| O3 | Invite to first place in under 2 minutes | A tester goes from invite link to first place unaided in under 2 min. | Partial | (Code) `static/register.html`, `guide.html`, per-person invite keys (migrations 0004 and 0012). Only rehearsed locally. | **Blocks beta** |
+| O3 | Invite to first place in under 2 minutes | A tester goes from invite link to first place unaided in under 2 min. | Partial | (Code) Minted and registration invites target `/app`; journal/home/recap, guide and Ideas return links use the same client. ADR-005 records the owner's 2026-11-04 choice; `/` remains the map alternate. Only local implementation/rehearsal: no newcomer timing or cohort-device acceptance is recorded. | **Blocks beta** |
 | O4 | Orientation: no one gets lost | At most 1 in 10 newcomers cannot say where they are or how to go back. | Partial | (Docs) Named passages and an eight-place return trail (#107). Issue #87's blinded scale test has not been run. | **Blocks beta** |
 
 ## Retention and return

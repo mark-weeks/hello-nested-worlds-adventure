@@ -15,6 +15,16 @@ const params = new URLSearchParams(
 const urlKey = params.get("key");
 if (urlKey && typeof localStorage !== "undefined") {
   localStorage.setItem(KEY_STORE, urlKey);
+  // Auxiliary pages return without the invitation's query string. Remember
+  // its name along with the credential so that return never asks for a new one.
+  const name = params.get("name");
+  if (name) localStorage.setItem("nw_player_name", name);
+  if (typeof history !== "undefined" && typeof location !== "undefined") {
+    const address = new URL(location.href);
+    address.searchParams.delete("key");
+    address.searchParams.delete("name");
+    history.replaceState(null, "", address);
+  }
 }
 
 export function betaKey() {
