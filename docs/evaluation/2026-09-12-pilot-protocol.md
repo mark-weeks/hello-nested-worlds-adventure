@@ -5,6 +5,14 @@ old observations remain protocol 1 and must not be relabeled. No human research
 has been conducted by this readiness batch. Hosted installation and recruitment
 remain separate authorized steps.
 
+**2026-11-04 client amendment:** The owner approved the recommended `/app`
+pilot-client batch, with the preceding recommendation and instruction recorded
+in [ADR-005](../decisions/ADR-005-launch-operations.md). `/app` now serves first
+arrival and return; `/` is the explicit World map alternate. This supersedes
+protocol 2's explorer-default instruction without changing its measurements,
+observation windows or research, device, human-onboarding and deployment gates.
+It does not establish that any cohort device or newcomer check has passed.
+
 ## Scope and venue
 
 First watch 2–3 newcomers on disposable staging. Tell them that its history is
@@ -15,8 +23,10 @@ Then invite 8–12 people to one continuing seed-382 world for seven days per pe
 Declare whether this is a retained research world or the permanent production
 world before the first session. Never promise persistence and subsequently wipe it.
 Production begins only after the [operational gates](../infrastructure/fly-deployment.md#8-launch-window)
-pass. Use the explorer as the invite default under ADR-005; record use of the scene
-alternate. Record browser/device and prior familiarity. Local Chromium evidence
+pass. Use `/app` as the pilot invite default under ADR-005's 2026-11-04
+amendment; record any use of the World map alternate at `/`. The original
+2026-10-03 protocol used the explorer default, now superseded. Record
+browser/device and prior familiarity. Local Chromium evidence
 does not establish mobile Safari or assistive-technology support.
 
 Test navigation, Speak, Puzzle, Act, journal/recap, and Ideas. Do not install the

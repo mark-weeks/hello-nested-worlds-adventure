@@ -12,6 +12,16 @@ scripted gallery pane and insufficiently differentiated sound. The corrective
 contract in ADR-028 supersedes the proposal/UI/delegation portions below. Version
 1 remains only as a retained interpreter for already accepted promises and receipts.
 
+## Pilot-client amendment — 2026-11-04
+
+The owner approved the recommended `/app` first-visit-and-return batch; the
+authorization context and bounded decision are recorded in
+[ADR-005](ADR-005-launch-operations.md). This supersedes only the
+explorer-default invite bullet below. `/app` is the pilot default and `/`
+remains the World map alternate. Existing access rules and accepted historical
+work are preserved; device, accessibility, fallback, human-onboarding and
+deployment gates are not waived.
+
 ## Context
 
 PR #93 and ADR-017 already endorse meaningful preserving and opposing purposes.

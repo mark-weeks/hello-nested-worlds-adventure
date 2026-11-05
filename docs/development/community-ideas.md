@@ -3,7 +3,11 @@
 The [Ideas design](../roadmap/community-ideas.md) and
 [ADR-026](../decisions/ADR-026-community-ideas-operations.md) were implemented and
 merged on 2026-09-19 (#102 `a3db4d7`, #103 `4e8df96`); not deployed.
-Both clients open `/ideas` in a new tab and keep the active game.
+**2026-11-05 pilot navigation correction:** both clients open `/ideas` in
+the same tab. Returning through the board's Enfolded link resumes the saved
+place in `/app` without creating another live scene. This supersedes the
+initial new-tab placement; ordinary browser commands can still open a link
+in another tab.
 The board uses the same browser credential store, but sends credentials only in
 `X-Beta-Key` headers. Reload Ideas after rotating a credential. Drafts are scoped
 to the authenticated participant in session storage, with an in-memory fallback.

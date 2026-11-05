@@ -1,5 +1,15 @@
 # Discovery, Identity, and Return: Delivery Plan
 
+**2026-11-04 pilot client revision:** The owner approved the next batch as
+recommended: one consistent first-visit-and-return experience in `/app`.
+Minted invites, registration and primary links from the journal, home,
+recaps, guide and Ideas use the scene client; `/` remains the World map
+alternate. [ADR-005](../decisions/ADR-005-launch-operations.md) records the
+scoped decision. This supersedes the explorer-default statements in the
+dated checkpoints below, not the cohort device/accessibility/fallback checks,
+human observations or deployment gates. None of those checks is established
+by choosing a client.
+
 **2026-10-03 readiness revision:** The active M7 study follows the revised
 [pilot protocol](../evaluation/2026-09-12-pilot-protocol.md), protocol version 2:
 curiosity, understanding an attempted action, understanding an observed consequence,
@@ -9,7 +19,8 @@ compatibility trial exercises an additive application update and accepted v3 wor
 it does not require installing another scripted situation. The
 [readiness record](../evaluation/2026-10-03-beta-readiness.md) separates completed
 local work from hosted and human gates. October 31 is a conditional target.
-Invites retain the explorer default; switching it still needs ADR-005's evidence.
+At this checkpoint invites retained the explorer default; the 2026-11-04
+revision above supersedes that default.
 **2026-10-03 status:** M4 merged in #97. The bounded M0/M5/M6 implementation
 ([ADR-024](../decisions/ADR-024-participants-and-active-content.md),
 [ADR-025](../decisions/ADR-025-first-situation.md)) merged in #100 with review
@@ -36,8 +47,8 @@ review. [ADR-024](../decisions/ADR-024-participants-and-active-content.md) and
 situation and the core M6 journal/profile ownership path. M7 remains unrun;
 [pilot protocol](../evaluation/2026-09-12-pilot-protocol.md) separates curiosity,
 choice comprehension, unprompted return and useful-return evidence from world
-history. The scene is the primary development surface; default invites remain
-on the explorer pending the public-switch gate. This is local implementation,
+history. The scene was the primary development surface; default invites still
+used the explorer at this checkpoint, superseded on 2026-11-04. This is local implementation,
 not deployment or a claim of human acceptance. Historical milestones below
 retain their dated context.
 

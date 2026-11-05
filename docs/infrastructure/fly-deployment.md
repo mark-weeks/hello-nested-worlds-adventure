@@ -386,10 +386,14 @@ fly ssh console -C "python main.py invite create --note 'for the art channel'"
 ```
 
 Mint output includes a ready-to-share URL of the form
-`https://enfolded-beta.fly.dev/?key=nw_<hex>&name=Alice`; create output
+`https://enfolded-beta.fly.dev/app?key=nw_<hex>&name=Alice`; create output
 includes `https://<host>/register?invite=nwr_<hex>`. Send one per person —
 registration tokens are single-use, so a leaked link mints at most one
 account (and an unredeemed leak is revocable, below).
+Registration also enters `/app`, the owner-approved pilot default recorded
+in ADR-005's 2026-11-04 revision. Journal and return links use that client;
+the World map remains available at `/`. This choice does not complete the
+cohort device checks or authorize deployment.
 
 To audit:
 

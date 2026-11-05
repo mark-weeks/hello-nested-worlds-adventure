@@ -71,32 +71,30 @@ async function keyboardTo(page, target) {
 
 for (const mobile of [false,true]) {
   for (const route of ['/','/app']) {
-    test(`Ideas entry preserves ${route === '/' ? 'map' : 'scene'} game on ${mobile ? 'mobile' : 'desktop'}`, async ({page,context}) => {
+    test(`Ideas returns from ${route === '/' ? 'map' : 'scene'} in the same tab on ${mobile ? 'mobile' : 'desktop'}`, async ({page,context}) => {
       const server = await start();
       try {
         await page.setViewportSize(mobile ? {width:390,height:844} : {width:1440,height:1000});
         await enter(page,server,route);
         await disclose(page,"Sound & help");
-        const link = page.getByRole('link',{name:'Ideas ↗',exact:true});
+        const link = page.getByRole('link',{name:'Ideas',exact:true});
         await expect(link).toBeVisible();
         await expect(page.getByRole('link',{name:"Player's Guide ↗",exact:true})).toBeVisible();
         await expect(link).toHaveAttribute('href','/ideas');
-        await expect(link).toHaveAttribute('target','_blank');
         await expect.poll(() => page.evaluate(() => localStorage.getItem('nw_last_node'))).not.toBeNull();
-        const priorUrl = page.url();
         const priorNode = await page.evaluate(() => localStorage.getItem('nw_last_node'));
         await capture(page,`${route === '/' ? 'map' : 'scene'}-${mobile ? 'mobile' : 'desktop'}`);
         await keyboardTo(page,link);
-        const popupPromise = context.waitForEvent('page');
         await page.keyboard.press('Enter');
-        const board = await popupPromise;
-        await expect(board.locator('#board')).toBeVisible();
-        await expect(board.locator('#attribution')).toContainText('Ada');
-        expect(board.url()).toBe(server.url+'/ideas');
-        expect(page.url()).toBe(priorUrl);
+        await expect(page.locator('#board')).toBeVisible();
+        await expect(page.locator('#attribution')).toContainText('Ada');
+        expect(page.url()).toBe(server.url+'/ideas');
+        expect(context.pages()).toHaveLength(1);
+        await page.getByRole('link',{name:'Enfolded — back to world',exact:true}).click();
+        await expect(page.locator('#node-name')).toHaveAttribute('title',priorNode);
+        expect(new URL(page.url()).pathname).toBe('/app');
+        expect(context.pages()).toHaveLength(1);
         expect(await page.evaluate(() => localStorage.getItem('nw_last_node'))).toBe(priorNode);
-        expect(await board.evaluate(() => window.opener)).toBeNull();
-        await board.close();
       } finally { await server.close(); }
     });
   }

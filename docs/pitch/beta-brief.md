@@ -31,12 +31,13 @@ is exactly the top of that same stored depth-11 world.
 [enfolded.world](https://enfolded.world)
 
 **How to enter.** You'll get a one-click invite URL of the form
-`https://enfolded.world/?key=nw_…&name=<you>` — minted per person with
+`https://enfolded.world/app?key=nw_…&name=<you>` — minted per person with
 `python main.py invite mint --name <you>` and revocable individually
-(`main.py::invite_share_url`, `main.py::cmd_invite`). The link lands you on `/`
-(the D3 map explorer — no WebGL dependency, works first-click on any device);
-`/app` is the richer React + PixiJS scene view and, since the ADR-005 revision of
-2026-09-12, the primary development surface. On first arrival you are **dropped in
+(`main.py::invite_share_url`, `main.py::cmd_invite`). This entry instruction was
+updated on 2026-11-04 for the owner-approved `/app` pilot default
+([ADR-005](../decisions/ADR-005-launch-operations.md)); the historical tour below
+was not re-run. The scene uses a 2D canvas; `/` remains the named World map
+alternate. Cohort device and onboarding evidence remain open. On first arrival you are **dropped in
 at a node in the middle of the world, chosen deterministically from your name**
 — same name, same arrival point, every time (`frontend/src/entry.js`,
 mirrored in `static/explorer.js`). Return later and you resume exactly where you
