@@ -103,25 +103,51 @@ do not prove rare-event safety or small quality differences.
 
 ## Configure and budget a live baseline
 
-`openai_compatible` is a registered text adapter for evaluation. This harness
-still accepts only `anthropic` and `fixture` (`validate_candidate` in
-`evals/harness.py`). Any other provider fails with
-`provider has no evaluated adapter; no implicit fallback`. A harness
-candidate still needs a task-compatible adapter, contract tests, and
-explicit wiring here. Registering the runtime adapter does not add that
-wiring.
+The candidate's `provider` selects the adapter. `fixture` is the offline path
+and is not a live provider. Any other name must already be registered
+(`consciousness.runtime.provider_names`). Built-in names today are `anthropic`
+and `openai_compatible`. An unknown name fails with
+`provider has no evaluated adapter; no implicit fallback`. The harness does
+not read `NESTED_WORLDS_PROVIDER` and does not substitute another adapter.
+Registering an adapter does not approve a destination. ADR-035 stays Proposed.
 
-Copy [candidates/anthropic.template.json](candidates/anthropic.template.json).
-Confirm the effective deployed configuration separately: code defaults do not
-prove availability or what is running. Record exact identifiers, snapshot/alias
-status, capabilities and dated official pricing/data-term sources. A returned
-model name is evidence of what the API reports, not immutable backend identity.
+A live run requires `--live`, an explicit spend ceiling (`--max-usd` and
+`--max-calls`; omitting either refuses the run; there is no default ceiling),
+and a candidate that names the provider and a model id for every task. The
+harness does not supply a default provider, a default model, or an endpoint.
+`anthropic` keeps the reviewed-destination check (`https://api.anthropic.com`
+only) and disables SDK retries on a fresh client. `openai_compatible` uses
+the operator's `NESTED_WORLDS_OPENAI_COMPATIBLE_*` settings, including the
+base URL (`NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL`) and, for the tasks that
+do not set their own ids, `NESTED_WORLDS_MODEL` plus
+`NESTED_WORLDS_MODERATION_MODEL`. An unconfigured adapter is refused before
+dispatch. Vendor variables such as `OPENAI_API_KEY` are not credentials for
+this adapter.
 
-The price map must cover every model. Rates are USD per million tokens: ordinary
-input, output, cache read and **one-hour cache write**, plus the documented maximum
-input tokens as a positive integer. Use upper rates covering any long-context surcharge or token price
-tier. Accounting follows the adapter's disjoint Anthropic usage fields; future
-providers need their own verified accounting semantics.
+Copy [candidates/anthropic.template.json](candidates/anthropic.template.json)
+and set `provider` to the registered name. Confirm the effective deployed
+configuration separately: code defaults do not prove availability or what is
+running. Record exact identifiers, snapshot/alias status, capabilities and
+dated official pricing/data-term sources. A returned model name is evidence
+of what the API reports, not immutable backend identity.
+
+The price map must cover every model before a live run, because the dollar
+ceiling is enforced by reserving the worst case before the call. Rates are
+USD per million tokens: ordinary input, output, cache read and **one-hour
+cache write**, plus the documented maximum input tokens as a positive
+integer. Use upper rates covering any long-context surcharge or token price
+tier. Each call record stores `provider`, the requested `model`,
+`resolved_model`, and `usage` as the adapter reported it, including unknown
+(`null`) counts. Cost is a number only when that map covers the model and
+every reported count is a non-negative integer. A missing count stays
+unknown and is not treated as zero, so the pre-call reserve is kept. The
+harness does not invent a price. Fixture runs still record zero cost as
+authored evidence.
+
+An intention asks for a JSON schema. When the selected adapter's
+`supports_json_schema()` is false, `runtime.generate` refuses before the
+model-action cap and before the voice budget, and this harness does not
+reserve or send. That is the same zero-charge path as a schema-off intention.
 
 ~~~sh
 .venv/bin/python scripts/model_eval.py run \
@@ -133,9 +159,11 @@ providers need their own verified accounting semantics.
 ~~~
 
 This example does not authorize $10 of spend. The operator needs an authorized
-budget and credentials. V1 accepts explicitly synthetic corpora and the reviewed
-direct Anthropic destination. Player transcripts, new destinations, images and
-speech are outside this batch.
+budget and credentials. V1 accepts explicitly synthetic corpora. The anthropic
+adapter still refuses any host other than the reviewed direct API. Any other
+registered adapter sends only to the endpoint that adapter was configured with;
+this harness does not choose one. Player transcripts, images, and speech are
+outside this batch. A live run does not approve a production destination.
 
 Before dispatch, reserve the entire configured input limit at the highest
 input/cache rate plus the requested output maximum. This can stop early even with

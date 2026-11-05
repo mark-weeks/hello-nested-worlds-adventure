@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TASKS = ("node_voice", "inhabitant_voice", "intention", "moderation")
 SOURCE_FILES = ("consciousness/__init__.py", "consciousness/interventions.py",
                 "consciousness/runtime.py", "consciousness/anthropic_provider.py",
+                "consciousness/openai_compat_provider.py",
                 "multiverse/interventions_v2.py", "multiverse/interventions_v3.py",
                 "multiverse/senses.py", "multiverse/history.py", "server/moderation.py",
                 "content_screen.py", "evals/harness.py", "evals/reporting.py",
@@ -157,14 +158,25 @@ def validate_brief(brief, tasks):
                 raise ValueError("name the maximum tolerable voice-quality drop")
 
 
+def provider_key(config):
+    """Candidate provider name, stripped and lowercased. Never a default."""
+    raw = config.get("provider")
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip().lower()
+
+
 def validate_candidate(config, live=False):
-    if config.get("provider") not in ("fixture", "anthropic"):
+    key = provider_key(config)
+    # fixture is harness-only. Every other name must already be registered.
+    # An unknown name is a refusal: nothing here substitutes another adapter.
+    if key != "fixture" and key not in runtime.provider_names():
         raise ValueError("provider has no evaluated adapter; no implicit fallback")
     if not config.get("id") or set(config.get("models", {})) != set(TASKS):
         raise ValueError("name a candidate and an explicit model for every task")
     if not all(isinstance(x, str) and x.strip() for x in config["models"].values()):
         raise ValueError("empty model identifier")
-    if live != (config["provider"] != "fixture"):
+    if live != (key != "fixture"):
         raise ValueError("live provider requires --live; fixtures cannot be live evidence")
     if not live:
         return
@@ -175,9 +187,9 @@ def validate_candidate(config, live=False):
         raise ValueError("v1 disables SDK retries so every billable attempt is visible")
     for model in set(config["models"].values()):
         price = config.get("pricing", {}).get(model, {})
-        for key in ("input_per_million", "output_per_million", "cache_read_per_million",
-                    "cache_write_per_million"):
-            positive(price.get(key), key)
+        for rate in ("input_per_million", "output_per_million", "cache_read_per_million",
+                     "cache_write_per_million"):
+            positive(price.get(rate), rate)
         if type(price.get("max_input_tokens")) is not int or price["max_input_tokens"] < 1:
             raise ValueError("max_input_tokens must be a positive integer")
         if not price.get("source") or not price.get("verified_on"):
@@ -296,20 +308,43 @@ class RecordingProvider:
     def cache_reference_tokens(self, model):
         return self.provider.cache_reference_tokens(model)
 
+    def supports_json_schema(self):
+        # runtime.generate checks this on the object get_provider returns,
+        # which is this wrapper. Forward it so a schema-off adapter is
+        # refused before any budget charge. An adapter that omits the
+        # method still accepts a schema.
+        method = getattr(self.provider, "supports_json_schema", None)
+        if not callable(method):
+            return True
+        return method()
+
     def generate(self, **kwargs):
         if self.expected_model is not None and kwargs["model"] != self.expected_model:
             raise RoutingMismatch("production request differs from selected candidate model")
         request = {**kwargs, "system": [asdict(x) for x in kwargs["system"]]}
         stored = self.prompts.compact(request) if self.prompts else request
+        # Eval ceiling before the adapter call. Fixture runs have no meter;
+        # their zero cost is authored evidence, not a price.
         reservation = self.meter.reserve(kwargs) if self.meter else 0
         record = {"request": stored, "request_sha256": digest(request), "response": None,
-                  "error": None, "cost_usd": None, "reserved_usd": reservation}
+                  "error": None, "cost_usd": None, "reserved_usd": reservation,
+                  "provider": self.name, "model": kwargs.get("model"),
+                  "resolved_model": None, "usage": None}
         self.records.append(record)
         start = time.perf_counter()
         try:
             result = self.provider.generate(**kwargs)
             record["response"] = asdict(result)
-            record["cost_usd"] = self.meter.settle(reservation, kwargs, result) if self.meter else 0.0
+            record["resolved_model"] = result.resolved_model
+            # Counts as the adapter reported them, including unknown (None).
+            # Do not coerce a missing count to zero.
+            record["usage"] = asdict(result.usage) if result.usage is not None else None
+            if self.meter:
+                # None when any count is unknown: the reserve stays, and no
+                # price is invented for the missing field.
+                record["cost_usd"] = self.meter.settle(reservation, kwargs, result)
+            else:
+                record["cost_usd"] = 0.0
             return result
         except Exception as exc:
             record["error"] = type(exc).__name__  # no raw SDK bodies/credentials
@@ -464,6 +499,46 @@ def provenance():
             "python": sys.version, "anthropic_sdk": importlib.metadata.version("anthropic")}
 
 
+def require_live_ceiling(max_usd, max_calls):
+    """Refuse a live run that did not name both spend limits.
+
+    ``None`` is the CLI default when ``--max-usd`` or ``--max-calls`` is
+    omitted. There is no default ceiling. A present but non-positive limit
+    is still rejected by ``Meter``.
+    """
+    if max_usd is None or max_calls is None:
+        raise ValueError(
+            "live run requires an explicit spend ceiling (--max-usd and --max-calls); "
+            "no default ceiling"
+        )
+
+
+def open_live_provider(config):
+    """Build the candidate's adapter from the registry. No default.
+
+    ``anthropic`` keeps a fresh instance and the reviewed-destination
+    check so client options are not written onto the process singleton.
+    Every other registered adapter is the registry's own instance. This
+    function does not set a base URL, a model id, or a credential.
+    """
+    key = provider_key(config)
+    if key not in runtime.provider_names():
+        raise ValueError("provider has no evaluated adapter; no implicit fallback")
+    if key == "anthropic":
+        from consciousness.anthropic_provider import AnthropicProvider
+        provider = AnthropicProvider()
+        client = provider._get_client()
+        # No alternate destination inherited from an operator's shell.
+        if str(client.base_url).rstrip("/") != "https://api.anthropic.com":
+            raise ValueError("only the reviewed direct Anthropic destination is supported")
+        provider._client = client.with_options(max_retries=0, timeout=config["timeout_seconds"])
+    else:
+        provider = runtime.build_provider(key)
+    if not provider.configured():
+        raise ValueError("provider is unconfigured")
+    return provider
+
+
 def run(corpus, config, output, *, split="development", repeats=1, seed=0,
         tasks=TASKS, live=False, max_usd=None, max_calls=None, provider=None, brief=None):
     validate_candidate(config, live)
@@ -474,18 +549,14 @@ def run(corpus, config, output, *, split="development", repeats=1, seed=0,
     if not cases:
         raise ValueError("no cases selected")
     if live:
+        # Before the brief and before any adapter is built, so a missing
+        # ceiling cannot construct a client.
+        require_live_ceiling(max_usd, max_calls)
         validate_brief(brief, {c["task"] for c in cases})
     meter = Meter(config, max_usd, max_calls) if live else None
     if live and provider is None:
-        from consciousness.anthropic_provider import AnthropicProvider
-        provider = AnthropicProvider()
-        client = provider._get_client()
-        # No alternate destination inherited from an operator's shell.
-        if str(client.base_url).rstrip("/") != "https://api.anthropic.com":
-            raise ValueError("only the reviewed direct Anthropic destination is supported")
-        provider._client = client.with_options(max_retries=0, timeout=config["timeout_seconds"])
-        if not provider.configured():
-            raise ValueError("provider is unconfigured")
+        # The candidate names the adapter. NESTED_WORLDS_PROVIDER is not read.
+        provider = open_live_provider(config)
     output = Path(output)
     schedule = [(c, repeat) for repeat in range(repeats) for c in cases]
     random.Random(seed).shuffle(schedule)

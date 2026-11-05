@@ -273,9 +273,16 @@ model id only after `_model_mark` in `persistence/__init__.py`: surrounding
 whitespace is stripped, and a non-string, a blank, a control character, or
 a value longer than 200 characters is dropped rather than stored or
 truncated. A server may echo an alias such as `latest`; that string is
-kept when it survives that function. The evaluation harness is unchanged.
+kept when it survives that function. The evaluation harness selects
+whichever registered adapter the candidate names (`fixture` offline;
+`anthropic` and `openai_compatible` are the built-ins). A live run is
+opt-in and refuses without an explicit spend ceiling (`--max-usd` and
+`--max-calls`) and that explicit provider. The harness does not set a base
+URL, a model id, or a default provider, and it does not read
+`NESTED_WORLDS_PROVIDER` to fill one in. `anthropic` still refuses any base
+URL other than the reviewed `https://api.anthropic.com` destination.
 Production enablement is a separate decision and is not made by registering
-this adapter.
+this adapter or by pointing the harness at it. ADR-035 stays Proposed.
 
 ## Voice and caching
 
