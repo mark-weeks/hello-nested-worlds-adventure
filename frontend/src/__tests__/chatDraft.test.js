@@ -6,7 +6,7 @@
 // refill the input. Browser coverage of both clients is in
 // e2e/chat-restore.spec.js.
 import { beforeEach, describe, expect, it } from "vitest";
-import { createChatDraft, restoreChatInput } from "../chatDraft.js";
+import { createChatDraft, createChatRestore, restoreChatInput } from "../chatDraft.js";
 import { dispatchMessage } from "../dispatch.js";
 
 // The authored lines from server/moderation.py: a hold and a decline.
@@ -131,5 +131,67 @@ describe("chat refs", () => {
       expect(ref.length).toBeGreaterThan(0);
       expect(ref.length).toBeLessThanOrEqual(64);
     }
+  });
+});
+
+// /app's TextPanel unmounts while the loading shell shows (a jump toward a
+// traveler below the fetched horizon); the socket does not. A line that
+// comes back then waits for the input that mounts next.
+describe("a line that comes back while the /app input is unmounted", () => {
+  function mountedInput(restore, initial = "") {
+    const input = { value: initial };
+    input.detach = restore.attach(line => { input.value = restoreChatInput(input.value, line); });
+    return input;
+  }
+
+  it("fills the input at once while it is mounted", () => {
+    const restore = createChatRestore();
+    const input = mountedInput(restore);
+    restore.deliver("meet me at the third gate");
+    expect(input.value).toBe("meet me at the third gate");
+  });
+
+  it("waits for the next input when it arrives during the loading shell", () => {
+    const draft = createChatDraft();
+    const restore = createChatRestore();
+    const before = mountedInput(restore);
+    const ref = draft.sent("meet me at the third gate");
+    before.detach();                       // the loading shell replaces the panel
+
+    restore.deliver(draft.declined({ type: "chat_declined", text: HOLD_LINE, ref }));
+    expect(before.value).toBe("");          // the unmounted input is not written
+
+    const after = mountedInput(restore);    // the panel mounts again
+    expect(after.value).toBe("meet me at the third gate");
+    // Given back once: a later mount does not receive it again.
+    after.detach();
+    expect(mountedInput(restore).value).toBe("");
+  });
+
+  it("fills once across StrictMode's attach, detach, attach of one input", () => {
+    // StrictMode re-runs the effect on the same component and state.
+    const restore = createChatRestore();
+    restore.deliver("meet me at the third gate");
+    const input = { value: "" };
+    let fills = 0;
+    const fill = line => { fills += 1; input.value = restoreChatInput(input.value, line); };
+    restore.attach(fill)();
+    restore.attach(fill);
+    expect(fills).toBe(1);
+    expect(input.value).toBe("meet me at the third gate");
+    // Still attached: the next line arrives at once and keeps what is there.
+    restore.deliver("second line");
+    expect(fills).toBe(2);
+    expect(input.value).toBe("meet me at the third gate");
+  });
+
+  it("ignores a verdict that returns no line, and a stale detach", () => {
+    const restore = createChatRestore();
+    const old = mountedInput(restore);
+    const current = mountedInput(restore);
+    old.detach();                          // must not unhook the newer input
+    restore.deliver(null);
+    restore.deliver("meet me at the third gate");
+    expect(current.value).toBe("meet me at the third gate");
   });
 });

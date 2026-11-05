@@ -10,7 +10,7 @@ import { describeMutation, scaleActLine, causalNoticeLine } from "./mutations.js
 import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
 import { displayName } from "./names.js";
 import { createNodeRefresher } from "./nodeRefresh.js";
-import { createChatDraft } from "./chatDraft.js";
+import { createChatDraft, createChatRestore } from "./chatDraft.js";
 import { NodeAmbience } from "../../static/score.js";
 
 // Honor the OS-level motion preference: transient overlays (ripples,
@@ -241,9 +241,10 @@ export default function App() {
 
   // The player's most recent chat line, kept until its verdict. A line the
   // screen holds or declines goes back into an empty chat input; TextPanel
-  // owns the input and registers how to refill it.
+  // owns the input and attaches how to refill it. A line that comes back
+  // while TextPanel is unmounted (the loading shell) waits for it.
   const [chatDraft] = useState(createChatDraft);
-  const restoreChatRef = useRef(null);
+  const [chatRestore] = useState(createChatRestore);
 
   const { connected, sendMessage } = useWorldSocket(seed, playerName, {
     // The welcome roster: everyone already present when we connect. Without
@@ -303,8 +304,7 @@ export default function App() {
     // silently vanish, and give the player's own words back to the input.
     onChatDeclined: (msg) => {
       pushEvent({ type: "system", text: `✕ ${msg.text}` });
-      const line = chatDraft.declined(msg);
-      if (line) restoreChatRef.current?.(line);
+      chatRestore.deliver(chatDraft.declined(msg));
     },
     onCausalEvent:  (msg) => {
       const text = causalNoticeLine(msg);
@@ -617,7 +617,7 @@ export default function App() {
         depth={worldDepth}
         playerName={playerName}
         onChat={sendChat}
-        restoreChatRef={restoreChatRef}
+        chatRestore={chatRestore}
         onJump={jumpTo}
         onSolved={handleSolved}
         onNodeChanged={onComposerChanged}

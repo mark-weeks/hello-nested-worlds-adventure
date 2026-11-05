@@ -5,16 +5,13 @@ import Wayback from "./Wayback.jsx";
 import { causalFeedLine, displayName, nodeAddress } from "../names.js";
 import { restoreChatInput } from "../chatDraft.js";
 
-export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, restoreChatRef, onJump, onSolved, onNodeChanged, onEnsurePosition, soundOn, onToggleSound, onWaybackListen, scoreVolume, onScoreVolume }) {
+export default function TextPanel({ node, players, agents = {}, connected, events, seed, depth, playerName, onChat, chatRestore, onJump, onSolved, onNodeChanged, onEnsurePosition, soundOn, onToggleSound, onWaybackListen, scoreVolume, onScoreVolume }) {
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
   const [waybackOpen, setWaybackOpen] = useState(false);
   // A held or declined line comes back only into an empty input.
-  useEffect(() => {
-    if (!restoreChatRef) return undefined;
-    restoreChatRef.current = (line) => setChatInput(current => restoreChatInput(current, line));
-    return () => { restoreChatRef.current = null; };
-  }, [restoreChatRef]);
+  useEffect(() => chatRestore?.attach(
+    (line) => setChatInput(current => restoreChatInput(current, line))), [chatRestore]);
   const handleChat = () => {
     const text = chatInput.trim();
     if (!text || !connected) return;

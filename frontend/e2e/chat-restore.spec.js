@@ -21,10 +21,11 @@ const serve = () => serveBrowser({ env: {
 // Relay the socket through the test. `holdDeclines` keeps each
 // chat_declined until the test releases it, so the player can type first.
 async function relay(page, { holdDeclines = false } = {}) {
-  const state = { held: [], welcomed: null };
+  const state = { held: [], welcomed: null, toPage: null };
   let welcome;
   state.welcomed = new Promise(resolve => { welcome = resolve; });
   await page.routeWebSocket(/\/ws\?/, socket => {
+    state.toPage = message => socket.send(JSON.stringify(message));
     const server = socket.connectToServer();
     server.onMessage(message => {
       const type = JSON.parse(message).type;
@@ -123,3 +124,66 @@ for (const route of ["/", "/app"]) {
     }
   });
 }
+
+// /app replaces its panel with the loading shell while a jump deepens the
+// view toward a traveler below the fetched horizon. The socket stays open,
+// so a verdict can arrive then; the line still comes back to the input.
+test("/app gives a line back when its hold arrives during a deep traveler jump", async ({ page, request }) => {
+  const server = await serve();
+  let releaseWorld = () => {};
+  try {
+    const world = await (await request.get(server.url + "/world?depth=8")).json();
+    let deep = world.world;
+    while (deep.name.split("-").pop().length < 8) deep = deep.children[0];
+
+    // Record each frame the page's socket delivers, so the test knows the
+    // client handled the verdict before the world read is let through.
+    await page.addInitScript(() => {
+      const Native = window.WebSocket;
+      window.__chatFrames = [];
+      window.WebSocket = class extends Native {
+        constructor(...args) {
+          super(...args);
+          this.addEventListener("message", event => {
+            try { window.__chatFrames.push(JSON.parse(event.data).type); } catch { /* not JSON */ }
+          });
+        }
+      };
+    });
+    const socket = await relay(page, { holdDeclines: true });
+    const input = await enter(page, server.url, "/app", socket);
+
+    await input.fill(HELD_LINE);
+    await input.press("Enter");
+    await expect.poll(() => socket.held.length).toBe(1);
+    await expect(input).toHaveValue("");
+
+    const gate = new Promise(resolve => { releaseWorld = resolve; });
+    let asked;
+    const worldAsked = new Promise(resolve => { asked = resolve; });
+    await page.route(url => url.pathname === "/world", async route => {
+      asked();
+      await gate;
+      await route.continue();
+    });
+    socket.toPage({ type: "player_move", name: "Farwalker", session_id: "far-1", node: deep.name });
+    await page.getByRole("button", { name: /Farwalker/ }).click();
+    await worldAsked;
+    await expect(page.getByText("Opening the shared world…")).toBeVisible();
+
+    socket.held.shift()();
+    await page.waitForFunction(() => window.__chatFrames.includes("chat_declined"));
+    releaseWorld();
+
+    await expect(page.locator("#node-address")).toContainText(deep.name.split("-").pop());
+    await disclose(page, "History & journal");
+    await disclose(page, "Travelers & chat");
+    await expect(feed(page, "/app")).toContainText(`✕ ${HOLD}`);
+    await expect(page.getByRole("textbox", { name: "Message to travelers" })).toHaveValue(HELD_LINE);
+  } finally {
+    releaseWorld();
+    await page.unrouteAll({ behavior: "wait" }).catch(() => {});
+    await page.goto("about:blank").catch(() => {});
+    await server.close();
+  }
+});
