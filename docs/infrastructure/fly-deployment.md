@@ -858,7 +858,7 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       provider is slow or hung (a voice call passes no timeout of its own, so
       the adapter's per-attempt `NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS`,
       default 60 s, retried twice by the SDK, ends a hung call within about
-      3 minutes, about 5 when the provider answers errors with a retry-after
+      3 minutes, at most 5 if the provider answers errors with a retry-after
       of up to 60 s; that call then counts as `provider`) or
       demand outran the limit: check the provider first, then raise the limit.
       These counts cover the voice surfaces only. A screen that holds chat,

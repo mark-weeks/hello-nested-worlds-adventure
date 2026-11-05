@@ -106,7 +106,7 @@ VOICE_SURFACES = ("speak", "agent_voice", "intention")
 # which an operator fixes by raising the limit or the provider's speed.
 # And a voice call passes no timeout, so the adapter's own default bounds
 # it: 60 s per attempt on the default adapter, retried twice. A hung
-# provider then holds each slot for about 3 minutes (about 5 when it answers
+# provider then holds each slot for about 3 minutes (at most 5 if it answers
 # errors with a retry-after), and `busy` is the only outcome recorded until
 # those calls end and count `provider`.
 VOICE_FAILURES = ("provider", "db", "unconfigured", "screen", "busy")
