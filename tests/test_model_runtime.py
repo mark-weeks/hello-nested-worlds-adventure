@@ -203,7 +203,9 @@ def test_anthropic_normalizes_request_completion_and_usage(stop, complete, reaso
         output_config={'format': {'type': 'json_schema', 'schema': schema}})]
 
 
-def test_anthropic_keeps_missing_text_and_usage_unknown():
+def test_anthropic_keeps_missing_text_and_usage_unknown(monkeypatch):
+    import httpx
+    monkeypatch.delenv('NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS', raising=False)
     adapter = AnthropicProvider()
     calls = []
     def create(**kwargs):
@@ -214,7 +216,9 @@ def test_anthropic_keeps_missing_text_and_usage_unknown():
                                       pytest.fail('an untimed call must keep the base client'))
     result = adapter.generate(model='other-model', system=(SystemBlock('classify'),), messages=[], max_tokens=8)
     assert result == Completion(None, False, None, 'refusal', provider='anthropic')
-    assert calls == [dict(model='other-model', system='classify', messages=[], max_tokens=8)]
+    # No caller timeout: the adapter's per-attempt default, not the SDK's 600 s.
+    assert calls == [dict(model='other-model', system='classify', messages=[], max_tokens=8,
+                          timeout=httpx.Timeout(60.0, connect=5.0))]
     assert adapter.cache_reference_tokens('other-model') is None
 
 

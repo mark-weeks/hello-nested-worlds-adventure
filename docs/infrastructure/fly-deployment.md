@@ -864,8 +864,11 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       screens a line), else `NESTED_WORLDS_ANTHROPIC_SLOT_WAIT_SECONDS`
       (default 10 s). The provider was not called and the player got the same
       authored silence, or hold line, as a provider failure. Either the
-      provider is slow or hung (a voice call has no timeout of its own, so the
-      SDK's 10-minute timeout, retried twice, is what frees a hung slot) or
+      provider is slow or hung (a voice call passes no timeout of its own, so
+      the adapter's per-attempt `NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS`,
+      default 60 s, retried twice by the SDK, ends a hung call within about
+      3 minutes, at most 5 if the provider answers errors with a retry-after
+      of up to 60 s; that call then counts as `provider`) or
       demand outran the limit: check the provider first, then raise the limit.
       These counts cover the voice surfaces only. A screen that holds chat,
       Ideas, a published profile or puzzle text because the classifier failed
