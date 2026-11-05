@@ -134,6 +134,11 @@ def positive(value, name):
         raise ValueError(f"{name} must be a finite positive number")
 
 
+def nonnegative(value, name):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be zero or a finite positive number, or null")
+
+
 def validate_brief(brief, tasks):
     if not brief or not all(brief.get(k) for k in ("purpose", "owner", "frozen_on")):
         raise ValueError("live comparison requires a frozen selection brief")
@@ -187,9 +192,14 @@ def validate_candidate(config, live=False):
         raise ValueError("v1 disables SDK retries so every billable attempt is visible")
     for model in set(config["models"].values()):
         price = config.get("pricing", {}).get(model, {})
-        for rate in ("input_per_million", "output_per_million", "cache_read_per_million",
-                     "cache_write_per_million"):
+        for rate in ("input_per_million", "output_per_million", "cache_read_per_million"):
             positive(price.get(rate), rate)
+        # Explicit zero is a provider with no cache-write charge. Null means
+        # the rate is not priced. A missing or null rate is not billed as
+        # zero when the server reports writes. The dated source still applies.
+        write = price.get("cache_write_per_million", None)
+        if write is not None:
+            nonnegative(write, "cache_write_per_million")
         if type(price.get("max_input_tokens")) is not int or price["max_input_tokens"] < 1:
             raise ValueError("max_input_tokens must be a positive integer")
         if not price.get("source") or not price.get("verified_on"):
@@ -210,12 +220,48 @@ class RoutingMismatch(RuntimeError):
     """The production entry point did not request the selected candidate model."""
 
 
+# TokenUsage fields and the price-map rates that bill them. A null rate is
+# not a zero rate: the count stays unpriced.
+_USAGE_RATES = (
+    ("input_tokens", "input_per_million"),
+    ("output_tokens", "output_per_million"),
+    ("cache_read_tokens", "cache_read_per_million"),
+    ("cache_write_tokens", "cache_write_per_million"),
+)
+
+
+def _finite_rate(value):
+    """Zero or a positive finite rate. Anything else, including null, is unpriced."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    return value
+
+
+def _reserve_rate(price):
+    """Highest priced input or cache rate. A null cache-write rate is omitted."""
+    rates = [_finite_rate(price.get("input_per_million")),
+             _finite_rate(price.get("cache_read_per_million")),
+             _finite_rate(price.get("cache_write_per_million"))]
+    known = [rate for rate in rates if rate is not None]
+    if not known:
+        raise ValueError("pricing has no finite input rate")
+    return max(known)
+
+
 class Meter:
-    """Reserve worst-case cost BEFORE dispatch; keep reserves on unknown usage.
+    """Reserve worst-case cost BEFORE dispatch.
 
     Bounds and all-inclusive rates must be verified by the run operator. Each
-    request reserves the entire model input limit at the highest input/cache rate
-    plus the requested output limit. This is conservative, not a billing API.
+    request reserves the entire model input limit at the highest priced
+    input or cache rate plus the requested output limit. This is conservative,
+    not a billing API. A complete usage replaces that reserve with the price.
+    When any count is unknown, the known counts still produce a lower bound.
+    That floor is compared with the reserve before the cost is left unknown.
+    If the floor exceeds the reserve, it is counted and dispatch stops.
+    Otherwise the reserve stays, which is already at least the floor. A
+    missing price is not invented, and a null rate is not billed as zero.
     """
     def __init__(self, config, max_usd, max_calls):
         positive(max_usd, "max_usd")
@@ -227,8 +273,7 @@ class Meter:
 
     def reserve(self, request):
         p = self.config["pricing"][request["model"]]
-        maximum = (p["max_input_tokens"] * max(p["input_per_million"],
-                   p["cache_read_per_million"], p["cache_write_per_million"])
+        maximum = (p["max_input_tokens"] * _reserve_rate(p)
                    + request["max_tokens"] * p["output_per_million"]) / 1_000_000
         if self.halted:
             raise BudgetExceeded("pricing_bound_exceeded")
@@ -242,20 +287,39 @@ class Meter:
 
     def settle(self, reservation, request, completion):
         usage = completion.usage
-        if usage is None:
+        values = asdict(usage) if usage is not None else {}
+        prices = self.config.get("pricing")
+        price = prices.get(request["model"]) if isinstance(prices, dict) else None
+        # A model with no price entry cannot be billed. Keep the reserve and
+        # do not substitute another model's rates or a zero.
+        if not isinstance(price, dict):
             return None
-        values = asdict(usage)
-        if any(type(v) is not int or v < 0 for v in values.values()):
-            return None
-        p = self.config["pricing"][request["model"]]
-        cost = (usage.input_tokens * p["input_per_million"]
-                + usage.output_tokens * p["output_per_million"]
-                + usage.cache_read_tokens * p["cache_read_per_million"]
-                + usage.cache_write_tokens * p["cache_write_per_million"]) / 1_000_000
-        if cost > reservation + 1e-12:
-            self.halted = True  # invalid price/input bound: stop, preserve evidence
-        self.accounted += cost - reservation
-        return cost
+        product = 0.0
+        known = 0
+        priced = 0
+        for field, rate_name in _USAGE_RATES:
+            count = values.get(field)
+            if type(count) is not int or count < 0:
+                continue
+            known += 1
+            rate = _finite_rate(price.get(rate_name))
+            if rate is None:
+                # Zero tokens cost nothing at an unpriced rate. A positive
+                # count cannot be priced, so the usage stays incomplete.
+                if count == 0:
+                    priced += 1
+                continue
+            product += count * rate
+            priced += 1
+        floor = product / 1_000_000
+        complete = (usage is not None and known == len(_USAGE_RATES)
+                    and priced == len(_USAGE_RATES))
+        # The overrun check runs before an incomplete usage returns None.
+        if floor > reservation + 1e-12:
+            self.halted = True  # known tokens already exceed the bound
+        if complete or floor > reservation + 1e-12:
+            self.accounted += floor - reservation
+        return floor if complete else None
 
 
 class PromptStore:
@@ -321,6 +385,10 @@ class RecordingProvider:
     def generate(self, **kwargs):
         if self.expected_model is not None and kwargs["model"] != self.expected_model:
             raise RoutingMismatch("production request differs from selected candidate model")
+        # A live call with no explicit timeout uses the candidate bound.
+        # Moderation passes its own three-second timeout and keeps it.
+        if self.meter is not None and kwargs.get("timeout") is None:
+            kwargs = {**kwargs, "timeout": self.meter.config["timeout_seconds"]}
         request = {**kwargs, "system": [asdict(x) for x in kwargs["system"]]}
         stored = self.prompts.compact(request) if self.prompts else request
         # Eval ceiling before the adapter call. Fixture runs have no meter;
@@ -340,8 +408,8 @@ class RecordingProvider:
             # Do not coerce a missing count to zero.
             record["usage"] = asdict(result.usage) if result.usage is not None else None
             if self.meter:
-                # None when any count is unknown: the reserve stays, and no
-                # price is invented for the missing field.
+                # None when the usage is incomplete. The reserve stays unless
+                # the known counts already exceed it. No price is invented.
                 record["cost_usd"] = self.meter.settle(reservation, kwargs, result)
             else:
                 record["cost_usd"] = 0.0
@@ -513,13 +581,55 @@ def require_live_ceiling(max_usd, max_calls):
         )
 
 
-def open_live_provider(config):
+_DESTINATION_REFUSAL = (
+    "non-anthropic live run requires --allow-destination HOST "
+    "exactly matching the resolved base URL host; no default destination"
+)
+
+
+def resolved_destination_host(provider):
+    """Host the adapter will send to. Not the URL, the userinfo, or the key.
+
+    ``openai_compatible`` uses the host of the base URL that adapter already
+    parsed. Any other non-anthropic adapter must expose ``destination_host``
+    as that same host string. A wildcard or a URL is not a host.
+    """
+    if getattr(provider, "name", None) == "openai_compatible":
+        from urllib.parse import urlsplit
+        from consciousness.openai_compat_provider import _settings
+        base = _settings().base
+        host = None if base is None else urlsplit(base.url).hostname
+    else:
+        host = getattr(provider, "destination_host", None)
+    if (not isinstance(host, str) or not host or "*" in host or "/" in host
+            or any(ch.isspace() for ch in host)):
+        raise ValueError("live run has no resolved destination host")
+    return host
+
+
+def approve_destination(host, allow_destination):
+    """One exact host for this run. No allowlist, no environment default, no wildcard."""
+    if not isinstance(allow_destination, str):
+        raise ValueError(_DESTINATION_REFUSAL)
+    approved = allow_destination.strip()
+    if not approved or approved != host or "*" in approved or "/" in approved:
+        raise ValueError(_DESTINATION_REFUSAL)
+    return host
+
+
+def open_live_provider(config, allow_destination=None):
     """Build the candidate's adapter from the registry. No default.
 
     ``anthropic`` keeps a fresh instance and the reviewed-destination
     check so client options are not written onto the process singleton.
-    Every other registered adapter is the registry's own instance. This
-    function does not set a base URL, a model id, or a credential.
+    Every other registered adapter is the registry's own instance, and a
+    live run refuses unless ``allow_destination`` is the host of that
+    adapter's resolved base URL. This function does not set a base URL,
+    a model id, or a credential, and it does not read an allowlist from
+    the environment.
+
+    Returns ``(provider, destination_host)``. The host is the approved
+    destination, never the URL.
     """
     key = provider_key(config)
     if key not in runtime.provider_names():
@@ -532,15 +642,21 @@ def open_live_provider(config):
         if str(client.base_url).rstrip("/") != "https://api.anthropic.com":
             raise ValueError("only the reviewed direct Anthropic destination is supported")
         provider._client = client.with_options(max_retries=0, timeout=config["timeout_seconds"])
+        host = "api.anthropic.com"
     else:
         provider = runtime.build_provider(key)
+        host = None
     if not provider.configured():
         raise ValueError("provider is unconfigured")
-    return provider
+    if key != "anthropic":
+        host = resolved_destination_host(provider)
+        approve_destination(host, allow_destination)
+    return provider, host
 
 
 def run(corpus, config, output, *, split="development", repeats=1, seed=0,
-        tasks=TASKS, live=False, max_usd=None, max_calls=None, provider=None, brief=None):
+        tasks=TASKS, live=False, max_usd=None, max_calls=None, provider=None, brief=None,
+        allow_destination=None):
     validate_candidate(config, live)
     validate_corpus_version(corpus)
     if type(repeats) is not int or repeats < 1 or split not in ("development", "holdout"):
@@ -554,18 +670,22 @@ def run(corpus, config, output, *, split="development", repeats=1, seed=0,
         require_live_ceiling(max_usd, max_calls)
         validate_brief(brief, {c["task"] for c in cases})
     meter = Meter(config, max_usd, max_calls) if live else None
+    destination_host = None
     if live and provider is None:
         # The candidate names the adapter. NESTED_WORLDS_PROVIDER is not read.
-        provider = open_live_provider(config)
+        provider, destination_host = open_live_provider(config, allow_destination)
     output = Path(output)
     schedule = [(c, repeat) for repeat in range(repeats) for c in cases]
     random.Random(seed).shuffle(schedule)
     rubric = read_json(ROOT / "evals/rubric.json")
+    provenance_record = provenance()
+    provenance_record["destination_host"] = destination_host
     result = {"schema_version": 2, "evidence": "live" if live else "fixture",
               "started_at": datetime.now(timezone.utc).isoformat(), "candidate": config,
               "corpus_version": corpus["version"], "corpus_sha256": digest(corpus),
               "rubric_sha256": digest(rubric), "rubric": rubric,
-              "provenance": provenance(), "split": split, "repeats": repeats, "seed": seed,
+              "provenance": provenance_record, "destination_host": destination_host,
+              "split": split, "repeats": repeats, "seed": seed,
               "selection_brief": brief,
               "case_ids": [c["id"] for c in cases], "planned_trials": len(schedule),
               "budget": {"max_usd": max_usd, "max_calls": max_calls},
