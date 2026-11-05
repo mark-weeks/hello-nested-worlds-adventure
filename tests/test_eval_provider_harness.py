@@ -2,6 +2,7 @@
 from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -11,11 +12,15 @@ import time
 import pytest
 
 from consciousness import runtime
-from consciousness.openai_compat_provider import API_KEY_ENV, BASE_URL_ENV, STRUCTURED_OUTPUTS_ENV
+from consciousness.openai_compat_provider import (
+    API_KEY_ENV, BASE_URL_ENV, MAX_OUTPUT_PARAM_ENV, REASONING_EFFORT_ENV,
+    SEND_STORE_FALSE_ENV, STRUCTURED_OUTPUTS_ENV,
+)
 from consciousness.runtime import Completion, SystemBlock, TokenUsage
 from evals.harness import (
-    ROOT, Meter, RecordingProvider, load_corpus, open_live_provider, provider_key,
-    read_json, run, validate_candidate, write_json,
+    ROOT, Meter, RecordingProvider, adapter_settings, approve_destination,
+    load_corpus, open_live_provider, provider_key, read_json, run,
+    validate_candidate, write_json,
 )
 from server import guard
 
@@ -250,10 +255,17 @@ def test_anthropic_live_still_requires_the_reviewed_destination(
     with pytest.raises(ValueError, match="unconfigured"):
         open_live_provider(config)
     assert client.options == {"max_retries": 0, "timeout": 10}
+    with pytest.raises(ValueError, match="must be api.anthropic.com"):
+        open_live_provider(config, "evil.com")
     monkeypatch.setattr(AnthropicProvider, "configured", lambda self: True)
-    provider, host = open_live_provider(config)
+    provider, host = open_live_provider(config, "api.anthropic.com")
     assert host == "api.anthropic.com"
     assert provider.name == "anthropic"
+    recorded = adapter_settings(provider, config)
+    assert recorded["timeout_seconds"] == 10
+    assert recorded["max_output_param"] == "max_tokens"
+    assert recorded["structured_outputs"] is True
+    assert "api.anthropic.com/" not in json.dumps(recorded)
 
 
 def test_openai_compatible_live_refuses_without_an_operator_url(
@@ -452,6 +464,16 @@ def test_openai_compatible_loopback_records_usage_and_priced_cost(
     assert call["cost_usd"] == pytest.approx(86.5 / 1_000_000)
     assert call["response"]["provider"] == "openai_compatible"
     assert "voice" not in loopback.charged
+    # The ephemeral port is covered by the host approval and is not recorded.
+    settings = result["adapter_settings"]
+    assert settings["timeout_seconds"] == 10
+    assert settings["max_output_param"] == "max_completion_tokens"
+    assert settings["structured_outputs"] is False
+    assert settings["reasoning_effort"] is None
+    assert settings == result["provenance"]["adapter_settings"]
+    assert call["adapter_settings"]["timeout_seconds"] == 10
+    assert _KEY not in json.dumps(settings)
+    assert "http://" not in json.dumps(settings)
 
 
 def test_openai_compatible_loopback_keeps_unknown_usage_unpriced(
@@ -576,7 +598,9 @@ def test_non_anthropic_live_refuses_without_allow_destination(
     assert not (tmp_path / "run").exists()
 
 
-@pytest.mark.parametrize("host", ["localhost", "*", "http://127.0.0.1", "127.0.0.1:9"])
+@pytest.mark.parametrize("host", [
+    "localhost", "*", "http://127.0.0.1", "127.0.0.1:9", "0.0.1", "127.0.0.",
+])
 def test_non_anthropic_live_refuses_a_destination_that_does_not_match(
         corpus, candidate, tmp_path, monkeypatch, loopback, host):
     _arm_loopback(monkeypatch, loopback)
@@ -732,12 +756,24 @@ def test_price_map_miss_does_not_invent_a_cost(candidate):
     assert meter.halted is False
 
 
-def test_cache_write_rate_may_be_zero_or_null_with_a_source(candidate):
-    for write in (0, 0.0, None):
+def test_cache_write_key_is_required_and_anthropic_null_is_not_a_bound(candidate):
+    for name in ("anthropic", "openai_compatible"):
+        missing = live_config(candidate, name)
+        del missing["pricing"]["fixture-v1"]["cache_write_per_million"]
+        with pytest.raises(ValueError, match="must be present"):
+            validate_candidate(missing, live=True)
+    anthropic = live_config(candidate, "anthropic")
+    anthropic["pricing"]["fixture-v1"]["cache_write_per_million"] = None
+    with pytest.raises(ValueError, match="not a bound"):
+        validate_candidate(anthropic, live=True)
+    for write in (0, 0.0):
         config = live_config(candidate, "anthropic")
         config["pricing"]["fixture-v1"]["cache_write_per_million"] = write
         validate_candidate(config, live=True)
-    missing_source = live_config(candidate, "anthropic")
+    compatible = live_config(candidate, "openai_compatible")
+    compatible["pricing"]["fixture-v1"]["cache_write_per_million"] = None
+    validate_candidate(compatible, live=True)
+    missing_source = live_config(candidate, "openai_compatible")
     missing_source["pricing"]["fixture-v1"]["cache_write_per_million"] = None
     missing_source["pricing"]["fixture-v1"]["source"] = ""
     with pytest.raises(ValueError, match="dated official"):
@@ -749,17 +785,177 @@ def test_cache_write_rate_may_be_zero_or_null_with_a_source(candidate):
 
     priced = live_config(candidate, "anthropic")
     priced["pricing"]["fixture-v1"]["cache_write_per_million"] = 0
-    meter = Meter(priced, 1, 2)
+    meter = Meter(priced, 1, 4)
     request = {"model": "fixture-v1", "max_tokens": 16}
     reservation = meter.reserve(request)
     completion = Completion("x", True, TokenUsage(10, 3, 0, 10), "stop", "m", "anthropic")
     assert meter.settle(reservation, request, completion) == pytest.approx((10 + 6) / 1_000_000)
 
-    unpriced = live_config(candidate, "anthropic")
-    unpriced["pricing"]["fixture-v1"]["cache_write_per_million"] = None
-    meter = Meter(unpriced, 1, 2)
+    # An unreported write count at an explicit zero is priced at zero.
+    meter = Meter(priced, 1, 4)
     reservation = meter.reserve(request)
-    kept = meter.accounted
-    assert meter.settle(reservation, request, completion) is None
-    assert meter.accounted == pytest.approx(kept)
+    unreported = Completion("x", True, TokenUsage(10, 3, 0, None), "stop", "m", "anthropic")
+    assert meter.settle(reservation, request, unreported) == pytest.approx((10 + 6) / 1_000_000)
     assert meter.halted is False
+
+    # Zero writes at a null rate are priced. Positive writes halt.
+    unpriced = live_config(candidate, "openai_compatible")
+    unpriced["pricing"]["fixture-v1"]["cache_write_per_million"] = None
+    meter = Meter(unpriced, 1, 4)
+    reservation = meter.reserve(request)
+    zero_writes = Completion("x", True, TokenUsage(10, 3, 0, 0), "stop", "m", "openai_compatible")
+    assert meter.settle(reservation, request, zero_writes) == pytest.approx((10 + 6) / 1_000_000)
+    assert meter.halted is False
+    meter = Meter(unpriced, 1, 4)
+    reservation = meter.reserve(request)
+    # 1000 input tokens at the $1 rate; the null write rate is left out. Plus 16 * $2.
+    assert reservation == pytest.approx((1000 + 32) / 1_000_000)
+    held = meter.accounted
+    writes = Completion("x", True, TokenUsage(10, 3, 0, 1000), "stop", "m", "openai_compatible")
+    assert meter.settle(reservation, request, writes) is None
+    assert meter.halted is True
+    assert meter.accounted == pytest.approx(held)
+
+
+def test_allow_destination_match_is_exact_and_case_sensitive():
+    approve_destination("127.0.0.1", "127.0.0.1")
+    approve_destination("api.example.com", "api.example.com")
+    for host, flag in (
+        ("127.0.0.1", "0.0.1"),
+        ("127.0.0.1", "127.0.0."),
+        ("api.example.com", "example.com"),
+        ("api.example.com", "API.EXAMPLE.COM"),
+        ("api.example.com", "api.example.com.evil"),
+    ):
+        with pytest.raises(ValueError, match="allow-destination"):
+            approve_destination(host, flag)
+
+
+def test_settle_does_not_halt_when_the_floor_equals_the_reserve(candidate):
+    config = live_config(candidate, "anthropic")
+    meter = Meter(config, max_usd=1, max_calls=2)
+    request = {"model": "fixture-v1", "max_tokens": 256}
+    reservation = meter.reserve(request)
+    # 1000 cache writes at $1.25 and 256 output tokens at $2 equal the reserve.
+    completion = Completion("x", True, TokenUsage(0, 256, 0, 1000), "stop", "m", "anthropic")
+    cost = meter.settle(reservation, request, completion)
+    assert cost == reservation
+    assert meter.halted is False
+    assert meter.accounted == pytest.approx(cost)
+
+
+def test_openai_compatible_loopback_halts_on_positive_writes_at_a_null_rate(
+        corpus, candidate, tmp_path, monkeypatch, loopback):
+    loopback.usage = {
+        "prompt_tokens": 1000,
+        "total_tokens": 1010,
+        "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 1000},
+    }
+    _arm_loopback(monkeypatch, loopback)
+    config = live_config(candidate, "openai_compatible")
+    config["pricing"]["fixture-v1"]["cache_write_per_million"] = None
+    result = run(
+        _voice(corpus), config, tmp_path / "run",
+        repeats=3, live=True, max_usd=1, max_calls=10, brief=selection_brief(),
+        allow_destination="127.0.0.1",
+    )
+    assert result["status"] == "pricing_bound_exceeded"
+    assert len(loopback.seen) == 1
+    call = result["trials"][0]["calls"][0]
+    assert call["usage"]["cache_write_tokens"] == 1000
+    assert call["cost_usd"] is None
+    # Input rate only: the null write rate was not in the reserve.
+    assert call["reserved_usd"] == pytest.approx((1000 + 512) / 1_000_000)
+
+
+def test_explicit_zero_write_rate_prices_openai_shaped_usage(
+        corpus, candidate, tmp_path, monkeypatch, loopback):
+    loopback.usage = {
+        "prompt_tokens": 100,
+        "total_tokens": 110,
+        "prompt_tokens_details": {"cached_tokens": 0},
+    }
+    _arm_loopback(monkeypatch, loopback)
+    config = live_config(candidate, "openai_compatible")
+    config["pricing"]["fixture-v1"]["cache_write_per_million"] = 0
+    result = run(
+        _voice(corpus), config, tmp_path / "run",
+        live=True, max_usd=1, max_calls=4, brief=selection_brief(),
+        allow_destination="127.0.0.1",
+    )
+    call = result["trials"][0]["calls"][0]
+    assert call["usage"]["cache_write_tokens"] is None
+    assert call["usage"]["input_tokens"] == 100
+    assert call["usage"]["output_tokens"] == 10
+    assert call["cost_usd"] == pytest.approx((100 + 20) / 1_000_000)
+    assert result["status"] == "completed"
+
+
+def test_loopback_records_resolved_adapter_settings(
+        corpus, candidate, tmp_path, monkeypatch, loopback):
+    _arm_loopback(monkeypatch, loopback)
+    monkeypatch.setenv(REASONING_EFFORT_ENV, "low")
+    monkeypatch.setenv(MAX_OUTPUT_PARAM_ENV, "max_tokens")
+    monkeypatch.setenv(STRUCTURED_OUTPUTS_ENV, "1")
+    monkeypatch.setenv(SEND_STORE_FALSE_ENV, "1")
+    result = run(
+        _voice(corpus), live_config(candidate, "openai_compatible"), tmp_path / "run",
+        live=True, max_usd=1, max_calls=4, brief=selection_brief(),
+        allow_destination="127.0.0.1",
+    )
+    expected = {
+        "timeout_seconds": 10,
+        "reasoning_effort": "low",
+        "max_output_param": "max_tokens",
+        "structured_outputs": True,
+        "send_store_false": True,
+    }
+    assert result["adapter_settings"] == expected
+    assert result["provenance"]["adapter_settings"] == expected
+    call = result["trials"][0]["calls"][0]
+    assert call["adapter_settings"] == expected
+    blob = json.dumps(result)
+    assert _KEY not in blob
+    assert "http://127.0.0.1" not in blob
+    sent = json.loads(loopback.seen[0]["body"])
+    assert sent["max_tokens"] == 256
+    assert sent["reasoning_effort"] == "low"
+
+
+def test_cli_forwards_allow_destination(corpus, candidate, tmp_path, loopback):
+    corpus_path = tmp_path / "corpus.json"
+    write_json(corpus_path, _voice(corpus))
+    config_path = tmp_path / "candidate.json"
+    write_json(config_path, live_config(candidate, "openai_compatible"))
+    brief_path = tmp_path / "brief.json"
+    write_json(brief_path, selection_brief())
+    port = loopback.server_address[1]
+    env = os.environ.copy()
+    env[BASE_URL_ENV] = f"http://127.0.0.1:{port}/v1"
+    env[API_KEY_ENV] = _KEY
+    env.pop(STRUCTURED_OUTPUTS_ENV, None)
+    output = tmp_path / "cli-run"
+    base = [
+        sys.executable, str(ROOT / "scripts/model_eval.py"), "run", "--live",
+        "--corpus", str(corpus_path), "--candidate", str(config_path),
+        "--brief", str(brief_path), "--max-usd", "1", "--max-calls", "4",
+        "--repeats", "1", "--task", "node_voice",
+    ]
+    missing = subprocess.run(
+        [*base, "--output", str(tmp_path / "no-flag")],
+        cwd=tmp_path, env=env, capture_output=True, text=True,
+    )
+    assert missing.returncode == 2, missing.stderr
+    assert "allow-destination" in missing.stderr
+    assert not (tmp_path / "no-flag").exists()
+    assert loopback.seen == []
+    completed = subprocess.run(
+        [*base, "--allow-destination", "127.0.0.1", "--output", str(output)],
+        cwd=tmp_path, env=env, capture_output=True, text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = read_json(output / "run.json")
+    assert result["destination_host"] == "127.0.0.1"
+    assert result["status"] == "completed"
+    assert len(loopback.seen) == 1
+    assert f"127.0.0.1:{port}" not in json.dumps(result)

@@ -116,7 +116,10 @@ A live run requires `--live`, an explicit spend ceiling (`--max-usd` and
 and a candidate that names the provider and a model id for every task. The
 harness does not supply a default provider, a default model, or an endpoint.
 `anthropic` keeps the reviewed-destination check (`https://api.anthropic.com`
-only) and disables SDK retries on a fresh client. `openai_compatible` uses
+only) and disables SDK retries on a fresh client. Passing
+`--allow-destination` for `anthropic` does not choose a host. The only
+accepted value is `api.anthropic.com`. Any other value is refused. Omitting
+the flag leaves the reviewed-destination check in place. `openai_compatible` uses
 the operator's `NESTED_WORLDS_OPENAI_COMPATIBLE_*` settings, including the
 base URL (`NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL`). An unconfigured
 adapter is refused before dispatch. Vendor variables such as
@@ -132,20 +135,32 @@ of what the API reports, not immutable backend identity.
 The price map must cover every model before a live run, because the dollar
 ceiling is enforced by reserving the worst case before the call. Rates are
 USD per million tokens. Ordinary input, output, and cache read must be
-positive. Cache write may be a positive rate, an explicit zero when the
-provider has no cache-write charge, or null when that charge is not priced.
-A null cache-write rate still needs the same dated source. It is not billed
-as zero if the server reports writes. The map also needs the documented
-maximum input tokens as a positive integer. Use upper rates covering any
-long-context surcharge or token price tier. Each call record stores
-`provider`, the requested `model`, `resolved_model`, and `usage` as the
-adapter reported it, including unknown (`null`) counts. Cost is a number
-only when that map covers the model and every reported count is a
-non-negative integer that has a rate. A missing count stays unknown and is
-not treated as zero. The pre-call reserve is kept, unless the counts that
-are known already cost more than that reserve: the harness then counts that
-lower bound and stops further dispatch. The harness does not invent a price.
-Fixture runs still record zero cost as authored evidence.
+positive. `cache_write_per_million` must be present on every price. It may
+be a positive rate, or an explicit zero when the provider has no cache-write
+charge. An explicit null is refused for `anthropic`, because that adapter
+does write cache tokens and a null rate would make the reserve not a bound.
+An explicit null is allowed for any other provider, and then the pre-call
+reserve does **not** cover cache writes. It is not a safe zero and it is
+not a dollar ceiling for that class. If the server reports a positive write
+count, the run halts with `pricing_bound_exceeded` and the cost of those
+writes stays unknown. Omitting the key is refused for every provider. A
+null or zero rate still needs the same dated source. The map also needs the
+documented maximum input tokens as a positive integer. Use upper rates
+covering any long-context surcharge or token price tier. Each call record
+stores `provider`, the requested `model`, `resolved_model`, `usage` as the
+adapter reported it (including unknown `null` counts), and `adapter_settings`
+for the knobs that call used. The run provenance stores the same settings
+once: candidate `timeout_seconds`, and for `openai_compatible` the resolved
+reasoning effort, output-limit parameter, schema flag, and store flag. The
+URL and the credential are not stored. Cost is a number only when every
+count is a non-negative integer with a rate, or an unreported count whose
+rate is explicit zero (priced at zero, which cannot raise the total). A
+missing count at a positive rate stays unknown and is not treated as zero.
+The pre-call reserve is kept, unless the counts that are known already cost
+more than that reserve: the harness then counts that lower bound and stops
+further dispatch. A positive count at a null rate stops the run even when
+the known dollar floor is inside the reserve. The harness does not invent a
+price. Fixture runs still record zero cost as authored evidence.
 
 An intention asks for a JSON schema. When the selected adapter's
 `supports_json_schema()` is false, `runtime.generate` raises
@@ -166,9 +181,12 @@ budget and credentials. V1 accepts explicitly synthetic corpora. The anthropic
 adapter still refuses any host other than the reviewed direct API. A
 non-anthropic live run also refuses unless that run passes
 `--allow-destination HOST` and HOST equals the host of the resolved base URL.
-There is no default allowlist, no environment default, and no wildcard. The
-approved host is written on the run result and its provenance. Destination
-approval for prompts that can carry player text is Mark Weeks' own decision.
+The match is exact: same spelling, same case. A substring, a suffix, or a
+different case does not match. HOST is the hostname only, so the approval
+covers every port on that host and no other host. The port is not written
+into the run. There is no default allowlist, no environment default, and no
+wildcard. The approved host is written on the run result and its provenance.
+Destination approval for prompts that can carry player text is Mark Weeks' own decision.
 This flag is the operator's approval for the one run. It does not accept
 ADR-035, and ADR-035 stays Proposed. The harness does not choose an endpoint.
 Player transcripts, images, and speech are outside this batch. A live run

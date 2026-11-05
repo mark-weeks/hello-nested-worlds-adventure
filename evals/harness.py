@@ -194,11 +194,23 @@ def validate_candidate(config, live=False):
         price = config.get("pricing", {}).get(model, {})
         for rate in ("input_per_million", "output_per_million", "cache_read_per_million"):
             positive(price.get(rate), rate)
-        # Explicit zero is a provider with no cache-write charge. Null means
-        # the rate is not priced. A missing or null rate is not billed as
-        # zero when the server reports writes. The dated source still applies.
-        write = price.get("cache_write_per_million", None)
-        if write is not None:
+        # The key must be present. Omitting it used to look like null and
+        # drop cache writes out of the reserve. Explicit zero is a provider
+        # with no cache-write charge. Explicit null is allowed only when
+        # the provider is not anthropic, and then the reserve is not a
+        # bound for writes: a positive write count halts the run.
+        if "cache_write_per_million" not in price:
+            raise ValueError(
+                "cache_write_per_million must be present; explicit null is allowed"
+            )
+        write = price["cache_write_per_million"]
+        if write is None:
+            if key == "anthropic":
+                raise ValueError(
+                    "anthropic cache_write_per_million must be a finite rate; "
+                    "null means the reserve is not a bound"
+                )
+        else:
             nonnegative(write, "cache_write_per_million")
         if type(price.get("max_input_tokens")) is not int or price["max_input_tokens"] < 1:
             raise ValueError("max_input_tokens must be a positive integer")
@@ -240,7 +252,11 @@ def _finite_rate(value):
 
 
 def _reserve_rate(price):
-    """Highest priced input or cache rate. A null cache-write rate is omitted."""
+    """Highest priced input or cache rate.
+
+    A null cache-write rate is omitted. The reserve is then not a bound
+    for writes: ``settle`` halts if a positive write count comes back.
+    """
     rates = [_finite_rate(price.get("input_per_million")),
              _finite_rate(price.get("cache_read_per_million")),
              _finite_rate(price.get("cache_write_per_million"))]
@@ -297,17 +313,27 @@ class Meter:
         product = 0.0
         known = 0
         priced = 0
+        unpriced_positive = False
         for field, rate_name in _USAGE_RATES:
             count = values.get(field)
+            rate = _finite_rate(price.get(rate_name))
+            # An explicit zero prices an unreported count at zero. The
+            # total cannot rise, so OpenAI-shaped usage with no write
+            # field can still settle.
+            if rate == 0 and count is None:
+                known += 1
+                priced += 1
+                continue
             if type(count) is not int or count < 0:
                 continue
             known += 1
-            rate = _finite_rate(price.get(rate_name))
             if rate is None:
-                # Zero tokens cost nothing at an unpriced rate. A positive
-                # count cannot be priced, so the usage stays incomplete.
+                # Zero tokens add nothing at an unpriced rate. A positive
+                # count means the reserve did not cover that class.
                 if count == 0:
                     priced += 1
+                else:
+                    unpriced_positive = True
                 continue
             product += count * rate
             priced += 1
@@ -315,8 +341,9 @@ class Meter:
         complete = (usage is not None and known == len(_USAGE_RATES)
                     and priced == len(_USAGE_RATES))
         # The overrun check runs before an incomplete usage returns None.
-        if floor > reservation + 1e-12:
-            self.halted = True  # known tokens already exceed the bound
+        # Equality does not halt: the reserve already covers that floor.
+        if unpriced_positive or floor > reservation + 1e-12:
+            self.halted = True
         if complete or floor > reservation + 1e-12:
             self.accounted += floor - reservation
         return floor if complete else None
@@ -361,10 +388,12 @@ def expand_request(request, blocks):
 
 
 class RecordingProvider:
-    def __init__(self, provider, records, meter=None, *, expected_model=None, prompts=None):
+    def __init__(self, provider, records, meter=None, *, expected_model=None, prompts=None,
+                 adapter_settings=None):
         self.provider, self.records, self.meter = provider, records, meter
         self.name = provider.name
         self.expected_model, self.prompts = expected_model, prompts
+        self.adapter_settings = {} if adapter_settings is None else dict(adapter_settings)
 
     def configured(self):
         return self.provider.configured()
@@ -394,10 +423,15 @@ class RecordingProvider:
         # Eval ceiling before the adapter call. Fixture runs have no meter;
         # their zero cost is authored evidence, not a price.
         reservation = self.meter.reserve(kwargs) if self.meter else 0
+        applied = dict(self.adapter_settings)
+        timeout = kwargs.get("timeout")
+        if isinstance(timeout, (int, float)) and not isinstance(timeout, bool):
+            applied["timeout_seconds"] = timeout
         record = {"request": stored, "request_sha256": digest(request), "response": None,
                   "error": None, "cost_usd": None, "reserved_usd": reservation,
                   "provider": self.name, "model": kwargs.get("model"),
-                  "resolved_model": None, "usage": None}
+                  "resolved_model": None, "usage": None,
+                  "adapter_settings": applied}
         self.records.append(record)
         start = time.perf_counter()
         try:
@@ -608,13 +642,45 @@ def resolved_destination_host(provider):
 
 
 def approve_destination(host, allow_destination):
-    """One exact host for this run. No allowlist, no environment default, no wildcard."""
+    """One exact host for this run. No allowlist, no environment default, no wildcard.
+
+    The match is the hostname only. It covers every port on that host and
+    no other host. A substring, a suffix, or a different case does not match.
+    """
     if not isinstance(allow_destination, str):
         raise ValueError(_DESTINATION_REFUSAL)
     approved = allow_destination.strip()
     if not approved or approved != host or "*" in approved or "/" in approved:
         raise ValueError(_DESTINATION_REFUSAL)
     return host
+
+
+def adapter_settings(provider, config):
+    """Knobs the run actually used. No URL, credential, or userinfo.
+
+    ``timeout_seconds`` is the candidate bound. A call that passes its own
+    timeout, including moderation's three seconds, records that value on
+    the call instead. ``openai_compatible`` also records the resolved
+    reasoning effort, output-limit parameter, schema flag, and store flag.
+    """
+    timeout = None if not isinstance(config, dict) else config.get("timeout_seconds")
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        timeout = None
+    recorded = {"timeout_seconds": timeout}
+    name = getattr(provider, "name", None)
+    if name == "openai_compatible":
+        from consciousness.openai_compat_provider import _settings
+        resolved = _settings()
+        recorded["reasoning_effort"] = resolved.reasoning_effort
+        recorded["max_output_param"] = resolved.max_tokens_param
+        recorded["structured_outputs"] = resolved.structured_outputs
+        recorded["send_store_false"] = resolved.send_store_false
+    elif name == "anthropic":
+        recorded["reasoning_effort"] = None
+        recorded["max_output_param"] = "max_tokens"
+        recorded["structured_outputs"] = True
+        recorded["send_store_false"] = None
+    return recorded
 
 
 def open_live_provider(config, allow_destination=None):
@@ -641,6 +707,15 @@ def open_live_provider(config, allow_destination=None):
         # No alternate destination inherited from an operator's shell.
         if str(client.base_url).rstrip("/") != "https://api.anthropic.com":
             raise ValueError("only the reviewed direct Anthropic destination is supported")
+        # The flag does not select a host. Passing one that is not the
+        # reviewed host is a refusal, not a silent ignore.
+        if allow_destination is not None:
+            approved = allow_destination.strip() if isinstance(allow_destination, str) else ""
+            if approved != "api.anthropic.com":
+                raise ValueError(
+                    "anthropic --allow-destination must be api.anthropic.com; "
+                    "the flag does not select another host"
+                )
         provider._client = client.with_options(max_retries=0, timeout=config["timeout_seconds"])
         host = "api.anthropic.com"
     else:
@@ -674,17 +749,20 @@ def run(corpus, config, output, *, split="development", repeats=1, seed=0,
     if live and provider is None:
         # The candidate names the adapter. NESTED_WORLDS_PROVIDER is not read.
         provider, destination_host = open_live_provider(config, allow_destination)
+    settings = adapter_settings(provider, config)
     output = Path(output)
     schedule = [(c, repeat) for repeat in range(repeats) for c in cases]
     random.Random(seed).shuffle(schedule)
     rubric = read_json(ROOT / "evals/rubric.json")
     provenance_record = provenance()
     provenance_record["destination_host"] = destination_host
+    provenance_record["adapter_settings"] = settings
     result = {"schema_version": 2, "evidence": "live" if live else "fixture",
               "started_at": datetime.now(timezone.utc).isoformat(), "candidate": config,
               "corpus_version": corpus["version"], "corpus_sha256": digest(corpus),
               "rubric_sha256": digest(rubric), "rubric": rubric,
               "provenance": provenance_record, "destination_host": destination_host,
+              "adapter_settings": settings,
               "split": split, "repeats": repeats, "seed": seed,
               "selection_brief": brief,
               "case_ids": [c["id"] for c in cases], "planned_trials": len(schedule),
@@ -702,7 +780,10 @@ def run(corpus, config, output, *, split="development", repeats=1, seed=0,
             calls, outputs, error, stop_reason = [], [], None, None
             selected = provider if live else FixtureProvider(case["fixture"])
             model = config["models"][case["task"]]
-            recording = RecordingProvider(selected, calls, meter, expected_model=model, prompts=prompts)
+            recording = RecordingProvider(
+                selected, calls, meter, expected_model=model, prompts=prompts,
+                adapter_settings=settings,
+            )
             started = time.perf_counter()
             try:
                 with task_routing(recording, model):
