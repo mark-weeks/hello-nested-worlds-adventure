@@ -1,6 +1,7 @@
 """Anthropic-specific transport and wire format; no world or player rules."""
 from __future__ import annotations
 
+import math
 import os
 import re
 import threading
@@ -45,6 +46,63 @@ _KNOWN_MODEL_IDS = frozenset(_CACHE_REFERENCES)
 _DATED_SNAPSHOT = re.compile(r"-\d{8}$")
 _BASE_URL_ENV = "ANTHROPIC_BASE_URL"
 _MAX_MODEL_ID_LENGTH = 256
+
+# Per-attempt timeout for a call whose caller passes none (node voice,
+# inhabitant voice, intention). Without it the pinned SDK computes 600 s
+# read, 5 s connect for a non-streaming call (anthropic 0.120.2,
+# resources/messages/messages.py:1030 and _base_client.py:769), and retries
+# twice. The SDK's retries stay on: each of up to three attempts gets this.
+# 60 is a judgement, not a measurement: no live latency for these tasks is
+# on record (docs/development/agent-runtime.md gives the reasoning).
+TIMEOUT_ENV = "NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS"
+DEFAULT_TIMEOUT_SECONDS = 60.0
+# The pinned SDK's own connect timeout (anthropic/_constants.py:9).
+_CONNECT_TIMEOUT_SECONDS = 5.0
+
+
+def _default_timeout_seconds() -> float:
+    """``NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS``, read on every call.
+
+    Unset, blank, non-numeric, non-finite, zero or negative means 60, the
+    same parsing as ``NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS``.
+    A larger value than ``threading.TIMEOUT_MAX`` is capped there, as the
+    slot wait is: past it a socket wait overflows, and every call failed
+    with a connection error before sending anything.
+    """
+    raw = os.environ.get(TIMEOUT_ENV)
+    if raw is None or not raw.strip():
+        return DEFAULT_TIMEOUT_SECONDS
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        return DEFAULT_TIMEOUT_SECONDS
+    if not math.isfinite(value) or value <= 0:
+        return DEFAULT_TIMEOUT_SECONDS
+    return min(value, threading.TIMEOUT_MAX)
+
+
+def _default_request_timeout(client: Any) -> Any:
+    """The timeout to send when the caller passed none, or None to send none.
+
+    The SDK hands it to httpx on every attempt: read, write and pool are the
+    setting, and connect stays the SDK's 5 s (less when the setting is
+    smaller). Read is the longest wait for the next bytes, not a deadline
+    for the whole response.
+
+    A client whose own timeout is not the SDK default keeps it, the rule the
+    SDK itself uses before computing its 600 s (messages.py:1030): the
+    evaluation harness sets the candidate's ``timeout_seconds`` that way
+    (``evals/harness.py``), and a per-request value would override it.
+    Sending a timeout also skips that computation's refusal of a large
+    non-streaming ``max_tokens`` (above about 21,000, lower for a few older
+    models); these tasks ask 500 at most.
+    """
+    import httpx
+    from anthropic import DEFAULT_TIMEOUT
+    if getattr(client, "timeout", DEFAULT_TIMEOUT) != DEFAULT_TIMEOUT:
+        return None
+    seconds = _default_timeout_seconds()
+    return httpx.Timeout(seconds, connect=min(_CONNECT_TIMEOUT_SECONDS, seconds))
 
 
 def _unusable_model_id(model: object) -> bool:
@@ -92,6 +150,9 @@ class AnthropicProvider:
     def __init__(self) -> None:
         self._client: Any = None
         self._client_lock = threading.Lock()
+        # (base client, its copy with SDK retries off). One tuple, so a
+        # reader never pairs one base with another base's copy.
+        self._deadline_pair: tuple[Any, Any] | None = None
 
     def configured(self) -> bool:
         # SDK construction resolves local credentials without making a request.
@@ -132,6 +193,39 @@ class AnthropicProvider:
                     self._client = Anthropic()
         return self._client
 
+    def _get_deadline_client(self) -> Any:
+        """The client for a call whose caller gave a timeout: no SDK retries.
+
+        ``messages.create`` takes no per-request ``max_retries``.
+        ``with_options(max_retries=0)`` returns a copy that keeps the base
+        client's HTTP connection pool, credentials (key, bearer token, or
+        profile provider with its token cache), base URL and headers, so
+        ``configured()`` still describes the client that sends the call.
+        Built once per base client; a replaced ``_client`` (the eval harness
+        installs its own) gets its own copy.
+        """
+        base = self._get_client()
+        pair = self._deadline_pair
+        if pair is None or pair[0] is not base:
+            with self._client_lock:
+                pair = self._deadline_pair
+                if pair is None or pair[0] is not base:
+                    pair = (base, base.with_options(max_retries=0))
+                    self._deadline_pair = pair
+        return pair[1]
+
+    def _client_for(self, timeout: float | None) -> Any:
+        # A caller's timeout allows one attempt and no retries
+        # (runtime.TextProvider.generate): the SDK's retries, and the
+        # retry-after waits between them, would spend past it. httpx applies
+        # the number to connect, write, pool and each read, not as one
+        # wall-clock deadline. Against a local stub at 3 s, one attempt took
+        # 3.01 s when the provider never answered and 6.01 s when it sent
+        # its body a chunk a second.
+        if timeout is not None:
+            return self._get_deadline_client()
+        return self._get_client()
+
     def generate(self, *, model: str, system: tuple[SystemBlock, ...],
                  messages: list[dict[str, str]], max_tokens: int,
                  json_schema: dict | None = None,
@@ -147,11 +241,17 @@ class AnthropicProvider:
                 wire_system.append(item)
         kwargs: dict = dict(model=model, system=wire_system, messages=messages,
                             max_tokens=max_tokens)
+        if timeout is None:
+            # Voice, inhabitant and intention: this adapter's per-attempt
+            # default; the SDK's own retries are left as they are.
+            default_timeout = _default_request_timeout(self._get_client())
+            if default_timeout is not None:
+                kwargs["timeout"] = default_timeout
         if json_schema is not None:
             kwargs["output_config"] = {"format": {"type": "json_schema", "schema": json_schema}}
         if timeout is not None:
             kwargs["timeout"] = timeout
-        response = self._get_client().messages.create(**kwargs)
+        response = self._client_for(timeout).messages.create(**kwargs)
         text = next((block.text for block in response.content if block.type == "text"), None)
         raw = getattr(response, "usage", None)
         usage = None if raw is None else TokenUsage(

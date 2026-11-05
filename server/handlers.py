@@ -1643,7 +1643,7 @@ class Handler(BaseHTTPRequestHandler):
             "name": name,
             # Same shape as the operator-minted share URL (main.invite_share_url),
             # relative so it works on whatever host served this page.
-            "url":  f"/?key={key}&name={quote(name)}",
+            "url":  f"/app?key={key}&name={quote(name)}",
         })
 
     def _do_save_position(self, body: dict, user_key: str = "") -> None:

@@ -69,11 +69,14 @@ bucket left in place. Mark Weeks approved the source plan the same day. The
 record is not accepted. It registers no adapter, approves no destination for
 player text, and sets no spend ceiling. Citing it authorizes nothing.
 
-## Decision agenda (the owner's; nothing here is ratified)
+## Decision agenda (the owner’s; only bounded D7 pilot default is decided)
 
 The 2026-10-03 assessment put nine decisions to the owner. Five are drafted as
 ADRs. All five are **Proposed** and introduce no runtime behavior, migration or
 write path; citing them authorizes nothing.
+The owner approved the bounded D7 pilot-client change on 2026-11-04, recorded
+in [ADR-005](../decisions/ADR-005-launch-operations.md). That decision does
+not ratify the five drafts or approve map retirement.
 
 | Decision | Draft | Recommendation in the assessment |
 |---|---|---|
@@ -83,7 +86,7 @@ write path; citing them authorizes nothing.
 | D4 Budgeted inhabitant cognition and an open agent roster | [ADR-032](../decisions/ADR-032-inhabitant-cognition.md) | Yes, after pilot evidence |
 | D5 A scale registry and lateral kinds; no twelfth depth | [ADR-033](../decisions/ADR-033-scale-registry.md) | Yes to the registry; keep ADR-008 |
 | D6 What must precede first production history | none | Only the identity/alias and provenance schema |
-| D7 One client | none | `/app` primary, explorer retired after the device gates; needs an ADR-005 update |
+| D7 One client | [ADR-005](../decisions/ADR-005-launch-operations.md) | Pilot `/app` default approved 2026-11-04 for consistent first arrival and return. Device and human gates remain; map retirement is undecided |
 | D8 Budget posture | none | Dollars per day, not calls per day |
 | D9 Process re-tune | none | Keep five covenants; demote the rest to guidance |
 
@@ -142,8 +145,10 @@ kept so the archived text can be cross-read.
   measurements; depends on M7.
 - **4.1** Litestream-style continuous replication, the first post-launch
   infrastructure batch (ADR-005; the phase-2 plan).
-- **4.2** The `/app` device, accessibility and onboarding gate that precedes any
-  change to the invite default (ADR-005, 2026-09-12 revision; decision D7).
+- **4.2** The `/app` device, accessibility and onboarding checks before using
+  the cohort's devices. The owner selected `/app` as the pilot default on
+  2026-11-04 (ADR-005); that choice does not supply the missing device or human
+  evidence. `/` remains the world-map alternate (decision D7).
 - **4.3** The world-speaks-first experiment, now subsumed by the ADR-032 draft.
 - **4.4** A task-specific comparison of suitable providers, models and versions
   under [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). The

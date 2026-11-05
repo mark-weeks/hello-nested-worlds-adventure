@@ -6,6 +6,8 @@
 // it. The key is stashed in localStorage so it survives client-side
 // navigation (and page reloads without the query string).
 
+import "../../static/clientlogic.js";
+
 const KEY_STORE = "nw_beta_key";
 
 const params = new URLSearchParams(
@@ -13,8 +15,17 @@ const params = new URLSearchParams(
 );
 
 const urlKey = params.get("key");
+const invitedName = globalThis.EnfoldedClient.rememberInvite(
+  params, typeof localStorage !== "undefined" ? localStorage : null,
+);
 if (urlKey && typeof localStorage !== "undefined") {
-  localStorage.setItem(KEY_STORE, urlKey);
+  // The shared entry rule has saved the key and name for full-page returns.
+  if (typeof history !== "undefined" && typeof location !== "undefined") {
+    const address = new URL(location.href);
+    address.searchParams.delete("key");
+    address.searchParams.delete("name");
+    history.replaceState(null, "", address);
+  }
 }
 
 export function betaKey() {
@@ -36,5 +47,5 @@ export function withKey(url) {
 
 // Player name suggested by the invite URL (`&name=`), if any.
 export function urlName() {
-  return params.get("name") || "";
+  return invitedName;
 }

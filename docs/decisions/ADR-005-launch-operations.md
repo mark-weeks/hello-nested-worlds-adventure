@@ -1,5 +1,25 @@
 # ADR-005: Launch-Window Operations Policy
 
+**2026-11-04 pilot client revision (owner-approved):** The recommendation in
+the preceding message was: "I’d build one coherent first-visit-and-return
+experience next, using `/app` as the pilot client." Its bounded scope was
+consistent invitations, registration, home bookmarks and recaps; verification
+of arrival, exploration, action, consequence and return; narrow-screen,
+keyboard and missing-artwork checks; and preservation of free exploration
+through Speak | Puzzle | Act. The owner then instructed: "Proceed with the
+recommended next batch."
+
+That instruction authorizes the recommended implementation and scoped
+pilot-client choice. It does not approve deployment, recruitment, map
+retirement, or waive the device and human evidence named in the recommendation.
+Section 3's explorer-default decision is superseded within this scope: minted
+invites, self-service registration and primary return links use `/app`; `/`
+remains the explicitly named world-map alternate. This selects the pilot
+experience, not a deployment or a finding that the device gates passed.
+Physical-device, accessibility, fallback and observed-newcomer checks remain
+required before including those devices in the cohort. Map retirement is a
+separate, undecided change.
+
 **2026-09-12 client development revision:** The scene client `/app` is now the
 primary surface for the discovery/return slice. The explorer `/` retains the
 world map and compatibility role; shared rules and request-intent handling live
@@ -10,6 +30,22 @@ device. The scene now has a responsive layout and navigable text fallback when
 its graphics renderer is unavailable. See ADR-025 and the implementation evaluation.
 
 **Status:** Accepted 2026-07-19
+
+**Update (2026-11), backups only:** The off-host copy in decision 1 moved, in
+#136 (`23b8830`), from GitHub Actions artifacts to a private S3-compatible
+bucket. The operator notes are
+[backup-bucket.md](../infrastructure/backup-bucket.md). The artifact approach
+would have exposed unencrypted player chat on this public repository: the
+old workflow uploaded a downloaded SQLite snapshot, player chat included,
+with `actions/upload-artifact` when that download succeeded, and GitHub's
+artifact list is available to anyone with read access. Nothing was deployed,
+so no live database was ever uploaded. The workflow uploads nothing until
+`FLY_API_TOKEN` and the `ENFOLDED_BACKUP_S3_*` secrets are set. Cloudflare
+R2 is only an example of a vendor. 30 days is the job's placeholder default
+when `ENFOLDED_BACKUP_RETENTION_DAYS` is unset
+(`.github/workflows/backup.yml`, `scripts/backup_gate.sh`). Neither is a
+chosen vendor or a chosen retention period. This note does not change the
+Accepted status above or the decision text below.
 
 ---
 
@@ -65,7 +101,23 @@ ADR-004's "the current DB is pre-launch; there is no throwaway pre-launch
 data worth protecting" makes this fully covenant-compatible — the
 throwaway phase simply never touches the production volume.
 
-### 3. Beta client posture: explorer default, `/app` the named alternate
+### 3. Pilot client posture: `/app` default, world map the named alternate
+
+**Decided 2026-11-04, by the owner's instruction above:** use one client for
+the invitation, registration, journal/home/recap links and return journey.
+`/app` is that client. Keep `/` available as **World map**, rather than
+silently moving returning players into a different interface. The guide and
+auxiliary pages follow the same default. Existing free exploration and
+Speak | Puzzle | Act stay intact; no scripted onboarding route is introduced.
+
+The scene renders with a 2D canvas and has navigable text when rendering is
+unavailable. The old WebGL distinction therefore does not decide the pilot
+default. Desktop Chromium coverage is still insufficient evidence for the
+cohort's physical devices or assistive technology. This amendment changes
+the development/pilot default while retaining the launch checks and the
+staging-before-production decision in section 2.
+
+#### Original 2026-07-19 client decision (superseded within the scope above)
 
 Two feature-complete clients are a real maintenance tax under a
 launch-window deploy freeze, and the executed parity harness (entry,
@@ -126,9 +178,15 @@ transcripts, and switch only if quality holds.
 - **A staging twin costs a few hours and a few dollars**, and its config
   can drift from production — mitigated by using the same `fly.toml` and
   `deploy.sh` with only `FLY_APP` overridden.
+- **One pilot client with an alternate map.** The 2026-11-04 decision keeps
+  first visit and return consistent, while retaining the map's compatibility
+  and overview role. Maintaining both remains a cost; this batch does not
+  approve retirement.
 - **De-emphasizing `/app`** hides the product's visual half from first
   impressions — accepted for the beta; the guide names it rather than
   burying it.
+  *Historical client trade-off, retained verbatim; superseded 2026-11-04 by
+  the pilot-client decision above.*
 - **A model bump days before launch** carries nonzero voice-drift risk even
   at identical API surface — accepted because it is one env-swappable
   default, and the staging live-voice probe exercises it before any
@@ -141,9 +199,15 @@ transcripts, and switch only if quality holds.
   the second net).
 - **The staging rehearsal surfaces a launch-blocking defect** → fix, then
   re-run the rehearsal; the production first-deploy waits.
+- **The cohort device checks or newcomer observations expose a client
+  blocker** → fix and recheck it before using that device; revisit the pilot
+  client choice if the blocker cannot be resolved. A map-retirement proposal
+  needs its own decision and evidence.
 - **The parity harness reaches the remaining duplicated explorer logic**
   → re-advertise `/app` as a co-equal surface if the cohort's devices
   support it.
+  *Historical client revisit trigger, retained verbatim; superseded
+  2026-11-04 by the scoped pilot default and current device checks above.*
 - **A month of real transcripts exists** → run the Sonnet 5 A/B; if voice
   quality holds, take the ~1.7x saving (and note Sonnet's lower cache
   minimum makes the 4096 guard conservative-but-harmless, not wrong).
@@ -161,6 +225,8 @@ transcripts, and switch only if quality holds.
   and also rehearses the deploy path itself.
 - **Advertising both clients equally at launch** — doubles the surface
   where a cohort-facing bug bites during the window when nothing ships.
+- **Retiring the world map in the pilot-client batch** — a consistent
+  default does not establish that the alternate's uses can be removed.
 - **Finishing the parity harness pre-launch** — days of delay to prevent a
   drift class that executed parity already covers at the highest-traffic
   surfaces.

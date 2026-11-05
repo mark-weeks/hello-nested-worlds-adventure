@@ -360,10 +360,15 @@ write a close frame, then shuts the socket down without one. One exception
 remains: a chat being screened by the model provider. Nothing reaches that
 client meanwhile and the chat is refused afterwards, but its close and
 departure wait for the screening: at most 3 s for a slot under the
-provider's concurrency limit (the classify's own timeout), then the classify
-call itself, 3 s per attempt, which the Anthropic SDK retries up to twice. A
-provider that answers 429 with retry-after can stretch that to about 2
-minutes. A frame must still finish arriving within 10 s of its first byte or
+provider's concurrency limit (the classify's own timeout), then one classify
+attempt with no retries under that same 3 s (the slot wait does not count
+against it).
+An error reply, a 429 with retry-after included, ends the screening at once
+and holds the chat; a provider that never answers ends it after about 3 s
+(3.07 s measured against a local stub). The 3 s applies to each network
+phase (connect, send, each read), not to the whole reply, so a provider that
+trickles its reply can take longer: a stub that sent its body a chunk a
+second took 6.0 s. A frame must still finish arriving within 10 s of its first byte or
 the socket is closed (status 1002). Any keyless
 socket opened before the first key or invite closes the same way.
 `fly ssh console` opens a shell inside the running machine.
@@ -381,10 +386,14 @@ fly ssh console -C "python main.py invite create --note 'for the art channel'"
 ```
 
 Mint output includes a ready-to-share URL of the form
-`https://enfolded-beta.fly.dev/?key=nw_<hex>&name=Alice`; create output
+`https://enfolded-beta.fly.dev/app?key=nw_<hex>&name=Alice`; create output
 includes `https://<host>/register?invite=nwr_<hex>`. Send one per person —
 registration tokens are single-use, so a leaked link mints at most one
 account (and an unredeemed leak is revocable, below).
+Registration also enters `/app`, the owner-approved pilot default recorded
+in ADR-005's 2026-11-04 revision. Journal and return links use that client;
+the World map remains available at `/`. This choice does not complete the
+cohort device checks or authorize deployment.
 
 To audit:
 
@@ -858,8 +867,11 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       screens a line), else `NESTED_WORLDS_ANTHROPIC_SLOT_WAIT_SECONDS`
       (default 10 s). The provider was not called and the player got the same
       authored silence, or hold line, as a provider failure. Either the
-      provider is slow or hung (a voice call has no timeout of its own, so the
-      SDK's 10-minute timeout, retried twice, is what frees a hung slot) or
+      provider is slow or hung (a voice call passes no timeout of its own, so
+      the adapter's per-attempt `NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS`,
+      default 60 s, retried twice by the SDK, ends a hung call within about
+      3 minutes, at most 5 if the provider answers errors with a retry-after
+      of up to 60 s; that call then counts as `provider`) or
       demand outran the limit: check the provider first, then raise the limit.
       These counts cover the voice surfaces. The "Shared-text screens"
       section that follows covers every screened surface (`speak`, `agent`,

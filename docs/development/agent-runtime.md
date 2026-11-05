@@ -115,6 +115,31 @@ voice surfaces give the authored silence a provider failure gets, shared text
 is held (moderation outcome `busy`), and the voice outcome `busy` is a
 failure in `python main.py voice-health`.
 
+A `timeout` passed to `runtime.generate`, or straight to an adapter's
+`generate`, allows one provider attempt under that timeout
+(`TextProvider.generate`): an adapter must not retry or wait out a
+provider's retry-after, and shared code retries nothing. It is not a total
+deadline: `runtime.generate` first waits up to the same timeout for a slot
+and then hands the adapter the full timeout. Only the
+moderation classify (3 s, through `runtime.generate`) and the opt-in
+`--probe` of `models` and `voice-health` (30 s per model id, straight to the
+adapter) pass one. The
+anthropic adapter sends those calls with the SDK's retries off, through a
+`with_options(max_retries=0)` copy of its client built once and sharing its
+connection pool, credentials and base URL; calls without a timeout keep the
+SDK's default retries, each attempt under the adapter's own
+`NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS` (default 60 s; table below).
+`openai_compatible` already made one POST within a
+wall-clock budget. On the anthropic adapter httpx applies the number to
+each phase (connect, send, each read), so it is not a hard wall-clock
+bound: against a local stub at 3 s, one attempt took 3.01 s when the
+provider never answered and 6.01 s when it sent its body a chunk a second.
+A classify that meets a transient 429, 5xx, timeout or dropped connection
+therefore fails at once and the screen holds the text; the player can try
+again. A `--probe`
+reports such an error as a failed probe instead of retrying it; run it
+again.
+
 The optional image path has a separate fal.ai integration. Future image or speech
 adapters follow the same selection principle, with their own capability and data
 requirements. This policy does not claim those adapters already exist.
@@ -242,6 +267,7 @@ breadcrumb. A failure log records the exception class only.
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false`. Unset sends nothing. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional `none`, `minimal`, `low`, `medium`, or `high`. Unset sends nothing. Any other value leaves the adapter unconfigured and is not forwarded. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for one POST when the caller passes no timeout. Default 60. Each resolved address is tried with the time remaining, so the TCP connects stay inside that budget. A blackholed earlier address can consume the whole budget; later addresses are then not tried. DNS lookup and individual TLS handshake bytes are not covered. Moderation still passes 3 seconds. |
+| `NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS` | The anthropic adapter's counterpart, owned by that adapter: the timeout it sends when the caller passes none (node voice, inhabitant voice, intention). Default 60, parsed the same way, read on every call, and capped at `threading.TIMEOUT_MAX`, past which a socket wait overflows and every call fails before it is sent. There is no lower limit, as for the row above: a value below a few seconds times out real replies, which then answer with the authored silence. Unlike the row above it is **per attempt**, and the SDK still retries twice (its default), so a provider that accepts the request and never answers ends the call after 3 × 60 s plus at most 1.5 s of backoff, about 3 minutes, or at most about 5 if it answers errors with a retry-after of up to 60 s; the row above is one POST with no retries. Read, write and pool use the value; connect stays the SDK's 5 s (less when the value is smaller). Read is the longest wait for the next bytes, so a reply that keeps arriving can take longer. A caller's own timeout is sent unchanged, as one attempt with the SDK's retries off (see the timeout contract above), and a client built with its own timeout (the evaluation harness) keeps it. Before this setting the SDK's 600 s applied, about 30 minutes with retries. **Why 60 is a judgement:** no live latency for these tasks is on record (the 2026-10-05 model evaluation says hosted latency needs live or staging evidence; no live run exists). The largest output budget is the intention's 500 tokens, the sibling adapter uses 60, and a timeout shorter than a slow but working reply turns it into a timed-out attempt that is retried and possibly billed more than once, which is worse than a longer hang window. Revisit with measured p95/p99 per task. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | In-flight cap for this adapter. Default 8. It does not share the anthropic cap. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SLOT_WAIT_SECONDS` | Longest wait for a free slot under that cap when the caller passes no timeout. Default 10. Moderation waits its own 3 seconds. It does not share the anthropic setting. |
 

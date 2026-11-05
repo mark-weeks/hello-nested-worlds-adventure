@@ -454,14 +454,12 @@ def cmd_redact(args):
 def invite_share_url(key: str, name: str, base: str = "<BASE>") -> str:
     """Build the invite URL to hand a tester.
 
-    Lands on `/` (the D3 explorer): it wires the full core loop — speak to
-    nodes, solve puzzles, observe agents — and reads ?key= and ?name= from the
-    URL. `/app` (React+Pixi) is now also feature-complete (speak + puzzle
-    panels), but `/` is the no-WebGL-dependency default so the invite works on
-    any device on the first click.
+    The pilot uses `/app` for both first arrival and return from the journal.
+    It remembers the key and name before removing them from the address.
+    The world map remains available at `/` as an explicit alternate.
     """
     from urllib.parse import quote
-    return f"{base}/?key={key}&name={quote(name)}"
+    return f"{base}/app?key={key}&name={quote(name)}"
 
 
 def cmd_invite(args):

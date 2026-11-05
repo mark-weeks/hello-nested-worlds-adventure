@@ -6,6 +6,14 @@ The owner endorsed the recommendations following PR #92 and requested a formal
 plan. The example situation, presentation choice, and pacing remain hypotheses
 to test. This records direction, not a completed feature or a new write path.
 
+**2026-11-04 client update:** The owner approved the recommended `/app`
+pilot-client batch, recorded with its authorization context in
+[ADR-005](ADR-005-launch-operations.md). That scoped amendment supersedes
+the explorer-default invite requirement in this record's presentation section
+below. First arrival and return use `/app`; `/` stays the World map alternate.
+Device, accessibility, fallback and human-onboarding evidence remain required.
+This does not ratify the rest of this Proposed record or authorize deployment.
+
 ## Context
 
 The [concept-versus-code assessment](../evaluation/2026-09-07-concept-and-implementation.md)
