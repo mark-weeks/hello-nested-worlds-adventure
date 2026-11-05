@@ -10,10 +10,12 @@ then made three attempts over about 120 s under a 429 with
 ``retry-after: 60``, and over 10.4 s against a provider that never
 answered. A WebSocket reader, or a request thread, waited all that time.
 
-Every test here drives the real pinned SDK against a stub HTTP server on
-127.0.0.1 (``ANTHROPIC_BASE_URL``) with a fake key: no network, no model
-call. Blocking calls run on a daemon thread with a join limit, so the old
-retrying behaviour fails a test instead of hanging the suite.
+Every anthropic test here drives the real pinned SDK against a stub HTTP
+server on 127.0.0.1 (``ANTHROPIC_BASE_URL``) with a fake key, and the
+``openai_compatible`` tests use that adapter's own loopback stub: no
+network, no model call. Blocking calls run on a daemon thread with a join
+limit, so the old retrying behaviour fails a test instead of hanging the
+suite.
 """
 from __future__ import annotations
 
@@ -70,6 +72,10 @@ class _AnthropicStub(BaseHTTPRequestHandler):
             if mode == "hang":
                 # Accept and read the request, then never answer.
                 self.server.release.wait(10)
+                self.close_connection = True
+                return
+            if mode == "drop":
+                # Read the request, then close the connection unanswered.
                 self.close_connection = True
                 return
             if mode == "ok":
@@ -197,6 +203,26 @@ class TestACallerTimeoutBoundsTheWholeCall:
         assert len(stub.seen) == 1
         assert 0.4 <= box["elapsed"] < 1.5
 
+    def test_a_dropped_connection_is_one_attempt(self, stub, adapter):
+        # The SDK retries a connection error too: before this change, three
+        # attempts in 1.18 s against a stub that dropped the connection.
+        import anthropic
+        stub.mode = "drop"
+        box = _bounded(lambda: _call(adapter, timeout=2.0), 10)
+        assert type(box.get("error")) is anthropic.APIConnectionError
+        assert len(stub.seen) == 1
+        assert box["elapsed"] < 0.3
+
+    def test_a_zero_budget_is_still_a_budget(self, stub, adapter):
+        # 0.0 is falsy but given. On loopback httpx fails the connect at
+        # once; the retrying client would back off twice (at least 1.1 s).
+        import anthropic
+        stub.mode = "529"
+        box = _bounded(lambda: _call(adapter, timeout=0.0), 10)
+        assert isinstance(box.get("error"), anthropic.APIError)
+        assert len(stub.seen) <= 1
+        assert box["elapsed"] < 0.3
+
     def test_a_good_reply_is_unchanged(self, stub, adapter):
         box = _bounded(lambda: _call(adapter, timeout=3.0), 10)
         result = box["value"]
@@ -260,6 +286,41 @@ class TestTheNoRetryClient:
             assert deadline.base_url == base.base_url
         finally:
             built._client.close()
+
+    def test_racing_first_calls_build_one_copy(self, stub, monkeypatch):
+        # Eight first calls released together, with the copy slow to build,
+        # so each one finds no copy yet: the lock and its re-check must
+        # leave one builder and hand the rest that copy.
+        built = AnthropicProvider()
+        base = built._get_client()
+        real = base.with_options
+        builds = []
+
+        def slow_with_options(**options):
+            builds.append(options)
+            time.sleep(0.05)
+            return real(**options)
+
+        monkeypatch.setattr(base, "with_options", slow_with_options)
+        start = threading.Barrier(8)
+        seen = []
+
+        def first_call():
+            start.wait(5)
+            seen.append(built._get_deadline_client())
+
+        workers = [threading.Thread(target=first_call, daemon=True) for _ in range(8)]
+        try:
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(5)
+            assert not any(worker.is_alive() for worker in workers)
+            assert builds == [{"max_retries": 0}]
+            assert len(seen) == 8 and all(client is seen[0] for client in seen)
+            assert seen[0].max_retries == 0
+        finally:
+            base.close()
 
     def test_it_follows_a_replaced_base_client(self, stub):
         # The eval harness replaces ``_client`` with its own no-retry copy.
