@@ -156,6 +156,20 @@ class TestEachScreenOutcomeCountsOnce:
         assert moderation.public_excerpt(AMBIGUOUS, user_key=KEY) is None
         assert _counts() == {"puzzle": {"block": 1}}
 
+    def test_a_direct_classify_counts_the_verdict_it_logs(self, provider):
+        # classify_content counts its finished verdict itself, whoever calls
+        # it, under its default surface `classify`; it is not screen() that
+        # counts it. A raising call counts nothing here: its caller logs and
+        # counts that outcome=error line.
+        import consciousness
+        provider.reply = "BLOCK"
+        assert consciousness.classify_content(AMBIGUOUS) == "block"
+        assert _counts() == {"classify": {"block": 1}}
+        provider.fail = RuntimeError("upstream")
+        with pytest.raises(RuntimeError):
+            consciousness.classify_content(AMBIGUOUS)
+        assert _counts() == {"classify": {"block": 1}}
+
 
 # ── The real endpoints, with a player key ───────────────────────────────────
 
@@ -491,6 +505,16 @@ class TestVoiceHealth:
             _voice_health("--days", "2")
         assert observability.moderation_outcome_summary(days=2) == {
             yesterday: {"chat": {"busy": 1}}}
+
+    def test_the_budget_line_reads_moderations_own_bucket_and_cap(
+            self, provider, monkeypatch, capsys):
+        monkeypatch.setenv(guard.MODERATION_CAP_ENV, "7")
+        provider.reply = "ALLOW"
+        assert moderation.screen(AMBIGUOUS, surface="chat").allowed  # one classify
+        _voice_health()
+        out = capsys.readouterr().out
+        assert "moderation budget today: 1/7 classify calls\n" in out
+        assert "voice budget today: 0/" in out
 
     def test_the_moderation_switch_is_reported_not_failed(self, monkeypatch, capsys):
         monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
