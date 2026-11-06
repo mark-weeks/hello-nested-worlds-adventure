@@ -1,16 +1,31 @@
 # Newcomer watch: facilitator kit (draft)
 
-**Date:** 2026-11-02, against `main` at `23b8830`. **Status:** a draft that is
-**contingent on the owner's venue ruling**
-([decision packet, decision 2](../roadmap/decision-packet-2026-11.md#2-newcomer-watch-venue)).
-If the ruling is to wait for the Fly staging twin, this kit does not apply as
-written; follow [runbook section 3a](../infrastructure/fly-deployment.md#3a-staging-rehearsal--before-the-permanent-world-begins)
-instead. The watch also waits on the
+**Date:** 2026-11-02, against `main` at `23b8830`. **Status:** a draft. The
+venue it assumes was **decided on 2026-11-06**: the owner ruled
+([decision packet, decision 2](../roadmap/decision-packet-2026-11.md#2-newcomer-watch-venue),
+option a) that this onboarding watch may run on a local, declared-disposable
+world on the facilitator's machine. The Fly staging twin
+([runbook section 3a](../infrastructure/fly-deployment.md#3a-staging-rehearsal--before-the-permanent-world-begins))
+stays mandatory for P4 and before production. The watch still waits on the
 research basics that protocol 2 requires before anyone is approached
 (facilitator, observation dates, devices, client, consent wording, and the
 retention and deletion date: [protocol 2](2026-09-12-pilot-protocol.md), "Scope
 and venue"), and on the S2 question below if live voice is on. This kit
-recruits nobody, records no decision, and promises no persistence.
+recruits nobody and promises no persistence.
+
+**2026-11-06 update:** The venue ruling above is recorded here and in protocol
+2. The voice mode was **not** decided: both modes below stay, and the
+AI-disabled mode (pre-written lines) stays the default because it needs no
+further ruling. The owner also decided on 2026-11-06 that agents will not be
+labeled and will answer truthfully when sincerely asked whether they are AI;
+that work is not built yet, so the consent wording in the facilitator script
+below describes today's build. File and line citations were refreshed to
+`main` at `18e5bbd` by matching the cited text; the dated executions below
+are unchanged evidence. Confounds the
+[2026-11-06 evaluation](2026-11-06-next-build.md) found (the "Try again
+tomorrow" Speak line with AI disabled, a reopened failed puzzle that releases
+its answer, and a returning tester whose stored key is gone) are not yet
+written up as facilitator notes in this kit.
 
 **2026-11-04 client update:** The owner selected `/app` for the pilot's first
 visit and return ([ADR-005](../decisions/ADR-005-launch-operations.md)). The
@@ -34,36 +49,42 @@ Each fact was read at `23b8830`. "Executed" means it was also run against a
 scratch database outside the repository on 2026-11-02. Updated 2026-11-03:
 the invite-gate fact and the display-name rule (step 4 below) changed when
 #137 and #139 merged, and they cite the merged code. The invite destination
-was updated from source on 2026-11-04 as noted above.
+was updated from source on 2026-11-04 as noted above. On 2026-11-06 every
+file and line citation was refreshed to `18e5bbd`; where the cited code had
+changed, the fact was re-read there and still holds.
 
 | Fact | Evidence | What it means for the session |
 |---|---|---|
-| `python main.py serve` binds 127.0.0.1, port 8080, by default. | `main.py:532-533` | The participant uses the facilitator's machine at `http://localhost:8080`. Do not pass `--host 0.0.0.0` unless the owner authorizes the network exposure (plain HTTP, the key in the URL, and a model credential if live voice is on). |
-| The world database is `$HOME/.nested-worlds/worlds.db`, with no override. | `persistence/__init__.py:28` | A fresh scratch `HOME` per session is **mandatory**. Without one, the session's rows land in the facilitator's own database. The server and every CLI command for that session must use the same `HOME`. |
-| With `NESTED_WORLDS_CANONICAL_SEED` unset, the server hosts seed 382. | `server/guard.py:133-135`, `multiverse/generator.py:30`; executed | Leave the variable unset. |
+| `python main.py serve` binds 127.0.0.1, port 8080, by default. | `main.py:831-832` | The participant uses the facilitator's machine at `http://localhost:8080`. Do not pass `--host 0.0.0.0` unless the owner authorizes the network exposure (plain HTTP, the key in the URL, and a model credential if live voice is on). |
+| The world database is `$HOME/.nested-worlds/worlds.db`, with no override. | `persistence/__init__.py:29` | A fresh scratch `HOME` per session is **mandatory**. Without one, the session's rows land in the facilitator's own database. The server and every CLI command for that session must use the same `HOME`. |
+| With `NESTED_WORLDS_CANONICAL_SEED` unset, the server hosts seed 382. | `server/guard.py:141-143`, `multiverse/generator.py:30`; executed | Leave the variable unset. |
 | `invite mint --name X` prints the key once and a share line of the form `<BASE>/app?key=nw_…&name=X`, which lands on the scene client and never visits `/register`. | `main.py::invite_share_url`, `main.py::cmd_invite`; read after the 2026-11-04 client amendment. The 2026-11-02 execution landed on `/`, now superseded. | Replace `<BASE>` with `http://localhost:8080`. The participant never sees `/register`'s consent line (`static/register.html:49-52`), which in any case promises permanence. Consent is verbal or written. |
-| Minting the first key closes the invite gate for good. Revoking a key no longer reopens it (#137), and an open socket whose key is revoked is closed. | `server/guard.py:296-317` (`invite_gate_active`, `persistence.credentials_ever_issued`); on `23b8830` revoking the only key reopened the gate (executed 2026-11-02) | End a session by stopping the server. Revoking the key is not needed: the scratch `HOME` is deleted. |
-| Act requires a live personal invite, and derives request IDs with `crypto.subtle.digest` and `crypto.randomUUID`. The journal calls `crypto.randomUUID` when it loads. | `persistence/participants.py:33-48`, `static/intents.js:7`, `static/intents.js:32`, `static/interventions.js:86`, `static/journal.js:6` | Use `http://localhost`, which browsers treat as a secure context. A plain-http LAN address is not one, so Act commits and the journal would fail there. This is web-platform behaviour, not executed for this kit; the pre-session check below confirms it on the actual machine. |
-| `NESTED_WORLDS_DISABLE_AI=1` quiets three paths: `/speak` and `/agent/voice` answer the authored quiet line with HTTP 200 and `"ai": false` before the screen runs, and an Act intention that the local parser cannot read gets the authored "clearer shape" line instead of going to a model. It does not quiet the moderation classifier, which never reads the flag: a chat line, an incorrect puzzle guess the attempt will store, an Ideas submission or profile text saved as published that the local screen cannot clear still goes to the provider whenever one is configured, and a credential in the environment is enough. It does not stop images either. | `server/handlers.py:1158-1160`, `server/handlers.py:1405-1408`, `server/intervention_api.py:141-144`, `server/intervention_api.py:34-35`, `server/moderation.py:160-229`, `server/websocket.py:227-228`, `server/handlers.py:1915-1918`, `server/ideas_api.py:80`, `server/participant_api.py:33-37`, `server/handlers.py:1301-1302`, `server/handlers.py:1332-1336`; executed for `/speak`, and on 2026-11-03 for a held chat line | The no-model option stays in fiction, but only an environment with no configured provider keeps player text on the machine. Session setup unsets the credentials and the image key, and the pre-session check proves it. |
-| Chat lines the local screen clears are shared. A line it cannot clear needs the classifier and is held, in fiction, if the classifier cannot run. | `server/moderation.py:177-199`, `server/moderation.py:208-229` | With no working classifier, expect some ordinary chat lines to be held with the authored hold line. Record a held line as an observation, not a fault. |
-| The heartbeat cast walks and talks unless `NESTED_WORLDS_HEARTBEAT=0`, and their conversation renders like human chat. | `server/heartbeat.py:22`, `server/heartbeat.py:71`; scene `frontend/src/App.jsx`, `onAgentTalk`, puts named lines into the chat feed just as `onChat` does | Say aloud that the named inhabitants are AI characters, not other people, until live labels ship. |
+| Minting the first key closes the invite gate for good. Revoking a key no longer reopens it (#137), and an open socket whose key is revoked is closed. | `server/guard.py:298-319` (`invite_gate_active`, `persistence.credentials_ever_issued`); on `23b8830` revoking the only key reopened the gate (executed 2026-11-02) | End a session by stopping the server. Revoking the key is not needed: the scratch `HOME` is deleted. |
+| Act requires a live personal invite, and derives request IDs with `crypto.subtle.digest` and `crypto.randomUUID`. The journal calls `crypto.randomUUID` when it loads. | `persistence/participants.py:39-54`, `static/intents.js:7`, `static/intents.js:32`, `static/interventions.js:86`, `static/journal.js:6` | Use `http://localhost`, which browsers treat as a secure context. A plain-http LAN address is not one, so Act commits and the journal would fail there. This is web-platform behaviour, not executed for this kit; the pre-session check below confirms it on the actual machine. |
+| `NESTED_WORLDS_DISABLE_AI=1` quiets three paths: `/speak` and `/agent/voice` answer the authored quiet line with HTTP 200 and `"ai": false` before the screen runs, and an Act intention that the local parser cannot read gets the authored "clearer shape" line instead of going to a model. It does not quiet the moderation classifier, which never reads the flag: a chat line, an incorrect puzzle guess the attempt will store, an Ideas submission or profile text saved as published that the local screen cannot clear still goes to the provider whenever one is configured, and a credential in the environment is enough. It does not stop images either. | `server/handlers.py:1207-1210`, `server/handlers.py:1475-1479`, `server/intervention_api.py:157-160`, `server/intervention_api.py:34-37`, `server/moderation.py:166-241`, `server/websocket.py:621-622`, `server/handlers.py:2063-2066`, `server/ideas_api.py:80`, `server/participant_api.py:33-37`, `server/handlers.py:1371-1372`, `server/handlers.py:1402-1406`; executed for `/speak`, and on 2026-11-03 for a held chat line | The no-model option stays in fiction, but only an environment with no configured provider keeps player text on the machine. Session setup unsets the credentials and the image key, and the pre-session check proves it. |
+| Chat lines the local screen clears are shared. A line it cannot clear needs the classifier and is held, in fiction, if the classifier cannot run. | `server/moderation.py:183-205`, `server/moderation.py:217-241` | With no working classifier, expect some ordinary chat lines to be held with the authored hold line. Record a held line as an observation, not a fault. |
+| The heartbeat cast walks and talks unless `NESTED_WORLDS_HEARTBEAT=0`, and their conversation renders like human chat. The Travelers panel still marks the cast with `✦` and a persona. | `server/heartbeat.py:22`, `server/heartbeat.py:71`; scene `frontend/src/App.jsx:360-366`, `onAgentTalk`, puts named lines into the chat feed just as `onChat` does; `frontend/src/components/TextPanel.jsx:48` | Tell the participant that every other traveler in this session is an AI character (script below). Live labels will not ship: on 2026-11-06 the owner decided agents are not labeled, so the panel marks go when the structural-parity work lands. |
 | The browser keeps the key and Act receipts in local storage. | `static/journal.js:4`, `static/intents.js:11-13`, `static/intents.js:29-34` | Use a fresh browser profile or a private window for each participant. |
 
 ## Decide before session one
 
-1. **Venue.** The owner's ruling (packet decision 2).
+1. **Venue.** Decided 2026-11-06 (packet decision 2, option a): a local,
+   declared-disposable world on the facilitator's machine, as this kit
+   describes.
 2. **Research basics.** Recorded in the restricted research record
-   (`docs/evaluation/2026-09-12-pilot-protocol.md:27-31`): facilitator,
+   (`docs/evaluation/2026-09-12-pilot-protocol.md:39-43`): facilitator,
    dates, the machine and browser used, client (`/app` is the pilot invite
    default; record any explicit use of the map alternate), consent wording,
    and the deletion date.
-3. **Voice mode.**
-   - *AI disabled* (recommended unless the owner rules otherwise): set
+3. **Voice mode.** Not decided on 2026-11-06; choose one per watch and record
+   it in the research basics.
+   - *AI disabled* (pre-written lines; the default, because it needs no
+     further ruling): set
      `NESTED_WORLDS_DISABLE_AI=1` and remove every provider credential from
      the session's environment, as "Session setup" does. Places and
      inhabitants answer the authored quiet line. Speak can then be observed
      as an action, not as a conversation. The flag does not stop the
-     classifier, which never reads it (`server/moderation.py:160-229`):
+     classifier, which never reads it (`server/moderation.py:166-241`):
      chat lines, stored wrong guesses, Ideas and published profile text
      still reach it (setup facts above). Removing the credentials is what
      keeps text from the provider in this mode, and the pre-session check
@@ -75,11 +96,11 @@ was updated from source on 2026-11-04 as noted above.
      describe in Act is sent to the provider to be read
      (`consciousness/interventions.py:57-81`). Any shared text the local
      screen cannot clear goes to the provider's classifier
-     (`server/moderation.py:184-224`), from every screened surface: chat
-     lines (`server/websocket.py:227-228`), words to places and inhabitants
-     (`server/handlers.py:1188-1189`, `server/handlers.py:1424-1425`), an
+     (`server/moderation.py:190-236`), from every screened surface: chat
+     lines (`server/websocket.py:621-622`), words to places and inhabitants
+     (`server/handlers.py:1238-1239`, `server/handlers.py:1515-1516`), an
      incorrect puzzle guess the attempt will store
-     (`server/handlers.py:1915-1918`), Ideas submissions
+     (`server/handlers.py:2063-2066`), Ideas submissions
      (`server/ideas_api.py:80`), and profile text saved as published
      (`server/participant_api.py:33-37`). Disclose all of these in consent.
      The provider keeps its own copies under its own terms, which deleting
@@ -89,18 +110,18 @@ was updated from source on 2026-11-04 as noted above.
      session, and state them in consent. Set low caps on every text-model
      budget the session can spend: voice and intention with
      `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
-     `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` (`server/guard.py:43`,
-     `server/guard.py:50`), and classifier calls with
+     `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` (`server/guard.py:51`,
+     `server/guard.py:58`), and classifier calls with
      `NESTED_WORLDS_MODERATION_DAILY_CALLS` and
      `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER`, whose defaults are
-     2,000 and 60 a day (`server/guard.py:80-86`).
+     2,000 and 60 a day (`server/guard.py:88-94`).
 4. **Display names.** The facilitator assigns each participant a neutral world
    name: not their real name, not their P-code, not one of the twelve cast
    names (`consciousness/__init__.py:309-313`), and not Observer or Scout,
    the server-owned agent walkers (`agents/identities.py`), which minting
    refuses since #139 (packet decision 7). The map from display name to
    P-code is kept only in the restricted record, outside the repository and
-   outside the world database (`docs/evaluation/2026-09-12-pilot-protocol.md:57-60`).
+   outside the world database (`docs/evaluation/2026-09-12-pilot-protocol.md:69-72`).
 5. **Consent.** Verbal or written, as the research basics specify, because a
    minted key skips `/register`.
 
@@ -126,16 +147,16 @@ world contains no check traces.
    ```
 
    - *AI disabled*: `"ai": false` with "The worlds are quiet today. Try again
-     tomorrow." (`server/handlers.py:1158-1160`, `server/guard.py:786`).
+     tomorrow." (`server/handlers.py:1207-1210`, `server/guard.py:958`).
      That answer comes from the flag alone, so also run
      `.venv/bin/python main.py models` in the same terminal: it must print
-     `provider not configured` (`main.py:239-247`). If it does not, a
+     `provider not configured` (`main.py:375-383`). If it does not, a
      credential is still in the environment and the classifier can still
      receive text (voice-mode item 3): unset it and restart from step 1.
-   - *Live voice*: `"ai": true` (`server/handlers.py:1227`). Here
+   - *Live voice*: `"ai": true` (`server/handlers.py:1316`). Here
      `"ai": false` means `NESTED_WORLDS_DISABLE_AI=1` is still set, the
      provider is not configured or failed, or a cap is spent
-     (`server/handlers.py:1193-1195`, `server/handlers.py:1228-1246`). Fix it
+     (`server/handlers.py:1244-1248`, `server/handlers.py:1279-1311`). Fix it
      before any session; a live-voice session does not run on the quiet line.
      Executed on 2026-11-02, and again on 2026-11-03 with the setup block
      below as it now stands: in AI-disabled mode the answer was the quiet
@@ -157,7 +178,7 @@ world contains no check traces.
      provider configured the classifier cannot run, and the line must be
      held: only the sender sees `✕ The worlds hold those words for now.
      They are not shared. Say it another way, or try again later.`
-     (`server/moderation.py:62-65`, `server/websocket.py:227-233`,
+     (`server/moderation.py:66-69`, `server/websocket.py:621-626`,
      `frontend/src/App.jsx`, `onChatDeclined`). If the line appears as an ordinary
      chat line, or is declined with "The worlds decline to carry those
      words", a classifier answered, so the text reached a provider: stop,
@@ -221,17 +242,17 @@ pinned SDK read. The pinned Anthropic SDK (`requirements.lock:7`) builds its
 client from `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, a named profile or
 config directory (`ANTHROPIC_PROFILE`, `ANTHROPIC_CONFIG_DIR`) or a
 workload-identity token, and the adapter counts each as configured
-(`consciousness/anthropic_provider.py:96-104`,
-`consciousness/anthropic_provider.py:131-132`). The fresh `HOME` already
+(`consciousness/anthropic_provider.py:157-165`,
+`consciousness/anthropic_provider.py:192-193`). The fresh `HOME` already
 hides the SDK's default profile directory, `~/.config/anthropic`. Unsetting
 `NESTED_WORLDS_PROVIDER` keeps the default adapter selected
-(`consciousness/runtime.py:38`, `consciousness/runtime.py:427-428`), so the
+(`consciousness/runtime.py:39`, `consciousness/runtime.py:471-472`), so the
 evaluation adapter, which needs no key for a loopback base URL, is not used
 (`consciousness/openai_compat_provider.py:294-295`); its key,
 `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY`, goes too
 (`consciousness/openai_compat_provider.py:56`). `FAL_KEY` is the image key
-(`server/handlers.py:1332`), and `NESTED_WORLDS_DISABLE_IMAGES=1` makes
-`/image` answer before it is read (`server/handlers.py:1301-1302`). Only
+(`server/handlers.py:1402`), and `NESTED_WORLDS_DISABLE_IMAGES=1` makes
+`/image` answer before it is read (`server/handlers.py:1371-1372`). Only
 `/app` requests images; the explorer does not. A source this list misses
 still shows in the pre-session check.
 
@@ -239,13 +260,13 @@ Open the share URL only when all three checks pass: `server running` is
 printed, the keyless request returns `403`, and the keyed request returns
 `200`. Together they show that the server on port 8080 is the process just
 launched against this scratch world: only this world holds the new key, and
-minting it closed this world's invite gate (`server/guard.py:290-303`). A
+minting it closed this world's invite gate (`server/guard.py:298-319`). A
 `000` means the server is still starting; wait and repeat the checks. If port
 8080 is taken, `main.py serve` exits with an `Address already in use` error in
 `$HOME/serve.log` (`[Errno 98]` on Linux), but `invite mint` still succeeds
 against the scratch database, and the share URL would reach whichever server
 owns the port. Do not open it: stop the other server, or start this one with
-`--port <free port>` (`main.py:533`) and use that port wherever this kit says
+`--port <free port>` (`main.py:832`) and use that port wherever this kit says
 8080. Executed on 2026-11-02 in scratch `HOME`s: with the port held, `serve`
 exited with status 1 and the mint succeeded; with another Enfolded server
 holding its own key on the port, both requests returned 403; with the
@@ -259,15 +280,29 @@ not in the repository.
 ## Facilitator script (protocol 2, steps 1 to 3)
 
 Open with protocol 2's explanation
-(`docs/evaluation/2026-09-12-pilot-protocol.md:35-37`), then say:
+(`docs/evaluation/2026-09-12-pilot-protocol.md:47-49`), then say:
 
 - "This world is temporary. This world, and everything the research team keeps
   from this session, will be deleted on <date>." Protocol 2 requires this
-  (`docs/evaluation/2026-09-12-pilot-protocol.md:10-11`).
+  (`docs/evaluation/2026-09-12-pilot-protocol.md:18-19`).
   If the participant opens the guide, its permanence lines (the opening,
-  `static/guide.html:37-40`, and the "Nothing is lost" section,
-  `static/guide.html:159-167`) do not apply to this session.
-- "The named inhabitants you may meet are AI characters, not other people."
+  `static/guide.html:39-42`, and the "Nothing is lost" section,
+  `static/guide.html:161-169`) do not apply to this session.
+- "Some travelers in Enfolded are AI characters, and you won't always be able
+  to tell which. In this session no other people are in the world: every other
+  traveler you meet here is an AI character."
+
+  This follows the world-level notice the owner accepted on 2026-11-06
+  (guardrail b in the [2026-11-06 evaluation](2026-11-06-next-build.md)), with
+  one part held back. That notice also says an AI traveler will answer
+  truthfully if asked. Do not promise that on today's build: the honesty rule
+  does not exist yet, the agent prompt still tells agents never to reveal
+  that they are an AI (`consciousness/__init__.py:421`), and with AI disabled
+  an addressed agent answers with the world's quiet line
+  (`server/handlers.py:1475-1479`). If a participant
+  asks whether someone is a person, answer for the session yourself. Today's
+  build also still marks the cast in the Travelers panel while their
+  conversation reads like human chat (setup facts above).
 - Live voice only: "Places and inhabitants answer through an AI model. What you
   type to them and an intention you describe in Act are sent to that model's
   provider. Chat lines can be sent to it too, because a place quotes chat said
@@ -279,7 +314,7 @@ Open with protocol 2's explanation
 - "Participation and observation are voluntary."
 
 Then follow script steps 1 to 3
-(`docs/evaluation/2026-09-12-pilot-protocol.md:39-48`):
+(`docs/evaluation/2026-09-12-pilot-protocol.md:51-60`):
 
 1. Observe the first two minutes without supplying an objective. If help is
    needed afterwards, use the protocol's prompt and record that you used it.
@@ -322,10 +357,10 @@ The observation file for `scripts/pilot_report.py` holds protocol 2 fields
 only, one row per participant: `curiosity`, `acted`, `understood_action` and
 `understood_consequence`, with `return_window_complete` false and the return
 fields null
-(`docs/evaluation/2026-09-12-pilot-protocol.md:70-75`). Keep it outside the
+(`docs/evaluation/2026-09-12-pilot-protocol.md:82-87`). Keep it outside the
 repository and run
 `python scripts/pilot_report.py /absolute/path/to/observations.json`
-(`docs/evaluation/2026-09-12-pilot-protocol.md:97-103`). Never put invite keys,
+(`docs/evaluation/2026-09-12-pilot-protocol.md:109-115`). Never put invite keys,
 private journal text or identifying details in it.
 
 ## After each session
@@ -333,13 +368,13 @@ private journal text or identifying details in it.
 1. While the server is still running, in the same terminal, snapshot the
    session database inside the scratch `HOME`, not yet in the restricted
    store: `.venv/bin/python main.py backup --to "$HOME/session-raw.db"`
-   (`main.py:551-555`). The snapshot is a self-contained copy of the whole
-   database (`persistence/__init__.py:2728-2749`), so it includes every
+   (`main.py:862-866`). The snapshot is a self-contained copy of the whole
+   database (`persistence/__init__.py:2928-2949`), so it includes every
    journal note in plain text (`persistence/migrations/0021_participants.sql:26-34`).
 2. Remove private text from that copy before it leaves the scratch `HOME`.
    Protocol 2 keeps private journal text out of the report input and says
    journal access is not research consent
-   (`docs/evaluation/2026-09-12-pilot-protocol.md:57-59`). The step deletes
+   (`docs/evaluation/2026-09-12-pilot-protocol.md:69-71`). The step deletes
    every journal note and blanks profile text that was never published
    (`persistence/migrations/0021_participants.sql:16-25`), then rewrites the
    file with `VACUUM`, because an SQLite build without secure delete leaves

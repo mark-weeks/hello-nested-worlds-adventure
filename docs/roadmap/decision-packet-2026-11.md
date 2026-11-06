@@ -3,7 +3,14 @@
 *Prepared 2026-11-02 against `main` at `23b8830` for the owner, Mark Weeks.
 Every recommendation on this page is **proposed by agent; not decided**,
 except decision 7, which the owner settled on 2026-11-03 and which ADR-004
-records; this page only notes that outcome. The page records no decision, ratifies no ADR, publishes nothing, and authorizes no
+records, and decisions 2 and 3, on which the owner ruled in a working session
+on 2026-11-06: decision 2 is decided as recommended, and decision 3's options
+are superseded by an owner direction whose details wait on a Proposed ADR.
+Decision 1 (S5) stays open; the owner asked on 2026-11-06 whether chat must be
+kept because it shapes the world's state, history and progress. The
+[2026-11-06 evaluation](../evaluation/2026-11-06-next-build.md) records these
+rulings and the evidence behind them; the sections below keep the 2026-11-02
+analysis as prepared. Beyond those notes the page ratifies no ADR, publishes nothing, and authorizes no
 implementation, deployment, recruitment, tag or merge. The evidence behind it
 is in the [2026-11-02 week-plan audit](../evaluation/2026-11-02-week-plan.md).
 The [beta launch checklist](beta-launch-checklist.md) governs exit criteria;
@@ -12,21 +19,21 @@ the [Q4 plan](next-steps-2026-q4.md) governs order until it is re-planned
 
 ## Summary
 
-All recommendations in this table are proposed by agent; not decided, except decision 7 (decided 2026-11-03).
+All recommendations in this table are proposed by agent; not decided, except decision 7 (decided 2026-11-03), decision 2 (decided 2026-11-06) and decision 3 (options superseded by owner direction on 2026-11-06).
 
 | # | Decision | Needed by | Blocks | Recommendation |
 |---|---|---|---|---|
 | 1 | [S5: is chat kept in the never-wipe chronicle?](#1-s5-chat-permanence) | Hard: the first production chat line. Practical: before the report queue is built (next week) | The S5 go/no-go line; report evidence (S3, G2); the privacy notice's chat sentence (L3); consent wording | (c) an operator-only chat log with a short retention window, kept out of the chronicle and out of prompts |
-| 2 | [Newcomer-watch venue](#2-newcomer-watch-venue) | Before the first newcomer session is scheduled; this week for a watch before Thanksgiving | O1 to O4 observations; C2c ratings; Q4 steps P6 and P7 | A local, declared-disposable world for the onboarding watch only; the Fly twin stays mandatory for P4 and production |
-| 3 | [Puzzle failure semantics](#3-puzzle-failure-semantics) | Before release-candidate scope freeze | The fix; honest C2a and C2c counts | Refuse attempts after a failure, and re-arm failed puzzles through decay with the condition "current epoch resolved (solved or failed)". A write-path door; no re-pin |
+| 2 | [Newcomer-watch venue](#2-newcomer-watch-venue) | Decided 2026-11-06 | O1 to O4 observations; C2c ratings; Q4 steps P6 and P7 | **Decided 2026-11-06: (a), as recommended.** A local, declared-disposable world for the onboarding watch only; the Fly twin stays mandatory for P4 and production. The watch's voice mode was not decided |
+| 3 | [Puzzle failure semantics](#3-puzzle-failure-semantics) | Direction set 2026-11-06; the details need a Proposed ADR before the release-candidate scope freeze | The fix; honest C2a and C2c counts | **Superseded 2026-11-06 by owner direction:** puzzles have personalities, attempts and lock periods are dynamic, and agents help humans solve but never solve on their own. Details wait on a Proposed ADR. *As prepared:* refuse attempts after a failure, and re-arm failed puzzles through decay with the condition "current epoch resolved (solved or failed)"; the 2026-11-06 evaluation found that this re-arm could not renew a Room once decay had disturbed it |
 | 4 | [World status (Q4 B)](#4-world-status-q4-decision-b) | Before any copy goes to recruits, and before the first invited outside player | R3, K2, "World status declared"; the permanence copy on `/register` and in the guide; L3 | Production for the cohort world if P4's restore and freshness checks pass; any staging or local watch declared disposable |
 | 5 | [Minimum tester age (S4)](#5-minimum-tester-age-s4) | Before recruitment (Q4 P5) and before any terms or invite text | S4; the terms text (L2); the invite template | 18 or older |
 | 6 | [Re-plan date (Q4 A, lapsed Oct 10)](#6-re-plan-date-q4-decision-a) | Now | Every dated step | Do not adopt the mechanical November 29 date. Plan an early-to-mid January cohort and set the exact date after the watch, once Fly timing is known |
 | 7 | [Reserve Observer and Scout](#7-reserve-observer-and-scout) | Decided 2026-11-03 | Nothing now | Reserved, as recommended; recorded in ADR-004's 2026-11-03 reserved-names amendment |
 | 8 | [D6 timing (Q4 C, lapsed Oct 10)](#8-d6-timing-q4-decision-c) | Before the first production deploy; a migration-first answer needs about two more weeks before it | ADR-029 batch 1 ordering; how urgent the consumer inventory is | The Q4 recommendation stands: before the first structural operation, not before the pilot |
 | 9 | [#89 criteria (Q4 H, lapsed Oct 15)](#9-89-criteria-q4-decision-h) | Before anyone implements #89 | #89 only | The agent drafts revised criteria; the owner posts them or edits the issue |
-| 10 | [Player-text destinations (S2, with L4)](#10-player-text-destinations-s2) | Before any outside participant's text reaches a model: the first watch session with live voice, and P9 | S2, L4; the destinations named in the privacy notice; live voice in the watch; any second provider | One text provider for voice, intention and moderation, chosen by decision D's probes. Record that image prompts carry no player text |
-| 11 | [Dollar spend ceiling (E2)](#11-dollar-spend-ceiling-e2) | Before cohort budget sizing (E1) at P9 | E2, E1, M4 | Keep E2 blocking and move only D8's dollar posture ahead of the cohort, resolving the conflict with Q4 decision G. The owner sets the amount and period |
+| 10 | [Player-text destinations (S2, with L4)](#10-player-text-destinations-s2) | Before any outside participant's text reaches a model: the first watch session with live voice, and P9 | S2, L4; the destinations named in the privacy notice; live voice in the watch; any second provider; since 2026-11-06, the owner's direction that agents answer players in chat, which sends chat text to a model provider | One text provider for voice, intention and moderation, chosen by decision D's probes. Record that image prompts carry no player text |
+| 11 | [Dollar spend ceiling (E2)](#11-dollar-spend-ceiling-e2) | Before cohort budget sizing (E1) at P9 | E2, E1, M4; since 2026-11-06, agents answering players in chat (each answer is a model call) | Keep E2 blocking and move only D8's dollar posture ahead of the cohort, resolving the conflict with Q4 decision G. The owner sets the amount and period |
 | 12 | [Off-host backup destination and retention (Q4 I)](#12-off-host-backup-destination-and-retention-q4-decision-i) | Before `ENFOLDED_BACKUP_REQUIRED=true` (Q4 P1) | P3 to P5; the backup-retention sentence in L3; the retention tail in decision 1 | Choose a destination and a retention period deliberately; the 30 days in the runbook is an example, not a decision |
 
 ## 1. S5 chat permanence
@@ -72,7 +79,21 @@ report.
 
 ## 2. Newcomer-watch venue
 
-*Proposed by agent; not decided.*
+**Decided 2026-11-06: option (a).** In a working session the owner, Mark
+Weeks, answered "yes, we can test locally on a temporary world." The 2 to 3
+person onboarding watch may run on a local, declared-disposable world on the
+facilitator's machine, with the
+[facilitator kit](../evaluation/2026-11-02-newcomer-watch-kit.md). The Fly
+staging twin stays mandatory for P4 and before production. As the
+recommendation proposed, the ruling is recorded as one line in
+[protocol 2](../evaluation/2026-09-12-pilot-protocol.md) ("Scope and
+venue"); ADR-004 and ADR-005 are not amended. The watch's voice mode (pre-written lines or
+a live model, decision 10's scoped slice) was **not** decided, so the kit
+keeps both, with pre-written lines as the default that needs no further
+ruling. The research basics are still required. The analysis below is as
+prepared on 2026-11-02.
+
+*As prepared: proposed by agent; not decided.*
 
 **Question.** May the 2 to 3 newcomer onboarding watch (protocol 2, script
 steps 1 to 3) run on a local, declared-disposable world on the facilitator's
@@ -106,7 +127,43 @@ wanted, decision 10's scoped slice.
 
 ## 3. Puzzle failure semantics
 
-*Proposed by agent; not decided.*
+**Superseded 2026-11-06 by owner direction.** In a working session the owner
+set aside options (a) to (d) below. Puzzles "can have personalities of
+sorts": after too many failed attempts a puzzle may get annoyed and tell the
+player to go away and leave it alone, and a close answer may excite it into
+encouraging the player to try again. Attempts and lock periods are
+"dynamic in this way rather than fixed and static." The owner also directed
+that AI agents do not solve puzzles independently; they cooperate with human
+players to help solve them. Not decided, and left for a Proposed ADR before
+anything is built:
+
+- whether annoyance applies to one player or to everyone at the puzzle;
+- whether an agent may submit an answer or only suggest one;
+- how much a near-miss may reveal, given answer secrecy
+  (`tests/test_puzzles.py`) and per-node difficulty (AGENTS.md);
+- how a puzzle renews once it has been failed or has sent a player away.
+
+The 2026-11-06 evaluation also found that the recommended (b) could not renew
+a Room once decay had disturbed it. `_maybe_rearm` runs only when a decay
+event changes the node (`causality/wiring.py:90-95`) and only while solves
+outnumber re-arms (`causality/wiring.py:62-69`). Rooms carry neither
+`danger_level` nor `condition` (`multiverse/generator.py:342-354`), so
+`DANGER_ALERT` changes a Room once, to `{'disturbed': True}`, and after that
+returns nothing (`multiverse/effects.py:75-83`,
+`multiverse/effects.py:94-95`). Executed on 2026-11-06 at
+`18e5bbd` on a scratch database for seed 382: 296 Rooms, 140 of them locked,
+none with `danger_level` or `condition`; `compute_event_effects` returned
+`{'disturbed': True}` for a fresh Room and `None` for `{'disturbed': True}`.
+Whatever the ADR chooses, renewal needs a clock that does not depend on a
+material change. Audit F10 still holds at `18e5bbd` (re-executed by the
+2026-11-06 evidence pass, lines re-read for this record): `failed` is
+recomputed on every wrong guess (`server/handlers.py:2114`) and the answer is
+released with every failure (`server/handlers.py:2169`).
+
+The analysis below is as prepared on 2026-11-02; its line numbers cite
+`23b8830`.
+
+*As prepared: proposed by agent; not decided.*
 
 **Today.** After a shared attempt pool fails and the answer is released, the
 server still accepts attempts. Each extra wrong guess writes another
@@ -349,3 +406,14 @@ deliberately and stated in the privacy notice.
 The checklist's other held decisions (the budget-bucket rename, ADR statuses,
 new adapters and live evaluations, the Fly account, community governance, and
 whether permanent history labels an actor) are not reopened here.
+
+*Update 2026-11-06.* The last of those is no longer held. The owner decided
+that agents are not labeled as agents, in permanent history or in live
+presence, and accepted guardrails: agents never claim to be human and answer
+truthfully when sincerely asked, a world-level notice says some travelers are
+AI, agents never solicit, and mute and report treat agents exactly as humans.
+The owner also chose to make agents structurally like human players. That
+direction needs a Proposed ADR first, and it depends on decision 10 and
+decision 11 above. The [beta launch checklist](beta-launch-checklist.md) (A1,
+held decisions, open question 10) and the
+[2026-11-06 evaluation](../evaluation/2026-11-06-next-build.md) record it.
