@@ -523,7 +523,7 @@ class TestPerUserCostCap:
         alice = [guard.consume_anthropic(user_key="nw_alice") for _ in range(5)]
         assert alice == [True, True, False, False, False]
         # Only Alice's 2 allowed calls should have touched the global counter.
-        assert persistence.get_cost_calls(guard.VOICE_BUCKET, guard._utc_day()) == 2
+        assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, guard._utc_day()) == 2
         # A fresh account is unaffected by Alice's rejected attempts.
         assert [guard.consume_anthropic(user_key="nw_bob") for _ in range(2)] == [True, True]
 
@@ -532,7 +532,7 @@ class TestPerUserCostCap:
         monkeypatch.setenv(guard.FAL_CAP_ENV, "5")
         monkeypatch.setenv(guard.FAL_PER_USER_CAP_ENV, "2")
         assert [guard.consume_fal(user_key="nw_alice") for _ in range(5)] == [True, True, False, False, False]
-        assert persistence.get_cost_calls(guard.IMAGE_BUCKET, guard._utc_day()) == 2
+        assert persistence.get_cost_calls(guard.FAL_BUCKET, guard._utc_day()) == 2
         assert [guard.consume_fal(user_key="nw_bob") for _ in range(2)] == [True, True]
 
 

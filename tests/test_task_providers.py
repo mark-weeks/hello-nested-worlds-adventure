@@ -305,9 +305,91 @@ def test_voice_allowance_is_shared_across_providers(monkeypatch):
     _call(runtime.INHABITANT_TASK, "two-model", voice_budget=True)
     with pytest.raises(VoiceBudgetLimited):
         _call(runtime.INTENT_TASK, "one-model", voice_budget=True)
-    assert persistence_calls(guard.VOICE_BUCKET, day) == 3
-    assert persistence_calls(guard.ANTHROPIC_BUCKET, day) == 0
+    assert persistence_calls(guard.ANTHROPIC_BUCKET, day) == 3
+    assert persistence_calls(guard.VOICE_BUCKET, day) == 0
     assert persistence_calls(guard.MODERATION_BUCKET, day) == 0
+
+
+def test_a_cold_task_choice_publishes_its_name_with_its_source(monkeypatch):
+    _isolate(monkeypatch)
+    adapter = _register("raceprov", _Adapter("raceprov"))
+    monkeypatch.setenv(runtime.NODE_PROVIDER_ENV, "raceprov")
+    task = runtime.NODE_TASK
+
+    # The old order published the source, then the name. A reader in that
+    # gap raises KeyError. The locked helpers do not leave the gap.
+    errors = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def unsafe_reader():
+        started.set()
+        assert release.wait(2)
+        try:
+            runtime._task_provider_names[task]
+        except KeyError as exc:
+            errors.append(exc)
+
+    reader = threading.Thread(target=unsafe_reader)
+    reader.start()
+    assert started.wait(2)
+    runtime._task_provider_sources[task] = runtime.SOURCE_PROVIDER_TASK
+    release.set()
+    reader.join(2)
+    assert reader.is_alive() is False
+    assert len(errors) == 1 and isinstance(errors[0], KeyError)
+    runtime.reset_provider_selection()
+
+    barrier = threading.Barrier(2)
+    seen = []
+    failures = []
+
+    def publish():
+        barrier.wait(2)
+        runtime._publish_task_choice(task, runtime.SOURCE_PROVIDER_TASK, "raceprov")
+
+    def observe():
+        barrier.wait(2)
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            choice = runtime._read_task_choice(task)
+            if choice is None:
+                continue
+            if choice != (runtime.SOURCE_PROVIDER_TASK, "raceprov"):
+                failures.append(choice)
+            seen.append(choice)
+            return
+        failures.append("timeout")
+
+    pair = [threading.Thread(target=publish), threading.Thread(target=observe)]
+    for thread in pair:
+        thread.start()
+    for thread in pair:
+        thread.join(3)
+    assert failures == []
+    assert seen == [(runtime.SOURCE_PROVIDER_TASK, "raceprov")]
+
+    runtime.reset_provider_selection()
+    results = []
+    call_errors = []
+    start = threading.Barrier(2)
+
+    def call():
+        start.wait(2)
+        try:
+            results.append(runtime.provider_for(task))
+        except Exception as exc:  # noqa: BLE001 — the thread must report every failure
+            call_errors.append(exc)
+
+    callers = [threading.Thread(target=call), threading.Thread(target=call)]
+    for thread in callers:
+        thread.start()
+    for thread in callers:
+        thread.join(3)
+    assert call_errors == []
+    assert results == [adapter, adapter]
+    assert runtime._task_provider_names[task] == "raceprov"
+    assert runtime._task_provider_sources[task] == runtime.SOURCE_PROVIDER_TASK
 
 
 def persistence_calls(bucket, day):

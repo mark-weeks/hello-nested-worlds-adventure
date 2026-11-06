@@ -257,9 +257,9 @@ def voice(monkeypatch):
 def _counters(key):
     day = guard._utc_day()
     return {
-        "voice": persistence.get_cost_calls(guard.VOICE_BUCKET, day),
+        "voice": persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day),
         "user_voice": persistence.get_cost_calls(
-            guard._user_bucket(guard.VOICE_BUCKET, key), day),
+            guard._user_bucket(guard.ANTHROPIC_BUCKET, key), day),
         "moderation": persistence.get_cost_calls(
             guard._user_bucket(guard.MODERATION_ACTIONS_BUCKET, key), day),
         "model": persistence.get_cost_calls(

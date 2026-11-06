@@ -272,7 +272,7 @@ def test_voice_credentials_gate_budget_and_history(http, accounts, monkeypatch, 
                 else f"Scout does not answer. Only the traces of a {result['persona']} remain here, already cooling.")
         expected = int(bool(auth_env))
         assert len(calls) == expected
-        for bucket in (guard.VOICE_BUCKET, guard._user_bucket(guard.VOICE_BUCKET, accounts[0])):
+        for bucket in (guard.ANTHROPIC_BUCKET, guard._user_bucket(guard.ANTHROPIC_BUCKET, accounts[0])):
             assert persistence.get_cost_calls(bucket, guard._utc_day()) == expected
         rows = [row for row in persistence.get_node_history(382, node.name) if row['type'] == event_type]
         assert len(rows) == expected

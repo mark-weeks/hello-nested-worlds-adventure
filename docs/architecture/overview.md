@@ -92,7 +92,7 @@ Model-backed persona system. The default provider is Anthropic; this is an imple
 - Agents attempt puzzles under the engine's rules (difficulty-weighted, reproducible, can fail) and never claim human progress; memory is keyed by node name; M4 attention (ADR-022) separates known places from relevant revisits and bounds work per heartbeat tick
 
 ### `persistence/` — World State
-SQLite-backed store, WAL mode, 30 migrations (`persistence/migrations/`, applied atomically per file). 0030 moves cost-budget keys; the chronicle tables stay append-only.
+SQLite-backed store, WAL mode, 29 additive migrations (`persistence/migrations/`, applied atomically per file).
 - **`__init__.py`** — world identity (`world_nodes`, `world_meta` with write-once `pin_world_meta`), the append-only chronicle (`record_mutation`, `get_node_history`, `get_mutations`), chronicled deltas (`record_substance_change` / `record_substance_transition`) and the state-at-T fold (ADR-009/011), agent runs and memory, puzzle results, invite keys and registration tokens, cost budgets, image cache, online backup/restore, content-level redaction and double-gated pruning
 - **`participants.py`** — participant identity separate from credentials (ADR-024): journal notes, published profile, home bookmark, credential rotation
 - **`sanctions.py`** — owner suspensions and bans with a required private reason, and their lifts (migration 0029, insert-only, CLI only via `python main.py sanction`); while one is active, every credential of that participant is not live (`_UNSANCTIONED` in `lookup_invite_key` and `participants.identify`), and other players read their published profile as unavailable (`participants.profile`). No chronicle writes, and the invite gate never reads it

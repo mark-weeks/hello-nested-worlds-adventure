@@ -7,11 +7,11 @@ and no write path. The open decisions below stay with the owner. Citing this
 record authorizes nothing: no destination for player text, no spend, no
 budget rename, and no production enablement.
 
-**Note, 2026-11-06.** Checklist E3, recorded the same day, introduced
-neutral `voice` and `image` budget names while `NESTED_WORLDS_ANTHROPIC_*`
-stays accepted. This record's status is unchanged: Proposed. Budget audits
-should read [the runtime guidance](../development/agent-runtime.md), not
-the bucket names in §8 below.
+**Note, 2026-11-06.** Checklist E3 introduced neutral public cap names,
+`NESTED_WORLDS_VOICE_*` and `NESTED_WORLDS_IMAGE_*`, while
+`NESTED_WORLDS_ANTHROPIC_*` stays accepted. Stored charges stay on
+`anthropic` and `fal_ai`. This record's status is unchanged: Proposed.
+Budget audits should read [the runtime guidance](../development/agent-runtime.md).
 
 ---
 
@@ -389,9 +389,10 @@ Completions, are a separate decision. The classifier prompt is unchanged.
 ### 8. Budget bucket unchanged
 
 **Note, 2026-11-06.** The paragraphs below are the proposal as written.
-Checklist E3 has since introduced neutral `voice` and `image` names.
-`NESTED_WORLDS_ANTHROPIC_*` is still accepted, and this status stays
-Proposed. See [the runtime guidance](../development/agent-runtime.md).
+Public cap names are now `NESTED_WORLDS_VOICE_*` and `NESTED_WORLDS_IMAGE_*`.
+Stored charges stay on `"anthropic"` and `"fal_ai"`. `NESTED_WORLDS_ANTHROPIC_*`
+is still accepted, and this status stays Proposed. See
+[the runtime guidance](../development/agent-runtime.md).
 
 `runtime.generate` keeps calling `guard.consume_anthropic` for node voice,
 inhabitant voice, and intention, whichever provider is selected. The bucket

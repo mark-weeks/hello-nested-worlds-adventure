@@ -111,12 +111,7 @@ existing inputs, IDs, due times, born rows, hinge, and history. For M2 start onl
 M2-compatible workers. M1 workers refuse v2 operations and can still accept new
 v1 patches; pre-M1 workers ignore `status` and can consume completed rows again.
 Neither mixed-version configuration is supported. There is no supported
-in-place binary downgrade. Migration 0030 moves `cost_budget` keys from
-`anthropic` and `fal_ai`, including `:u:` per-user keys, onto `voice` and
-`image` and advances `schema_version` to 30. A schema-29 binary reads the
-old keys, so an in-place downgrade across 0030 is not a same-schema
-rollback: stop writers and restore the pre-0030 backup. Two schema-30
-binaries share `voice` and `image`.
+in-place binary downgrade.
 
 Rehearse the [launch runbook §7 restore](fly-deployment.md#7-backups) with pending
 work on disposable staging. Check queue counts/input IDs, a representative

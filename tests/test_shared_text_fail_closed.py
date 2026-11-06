@@ -1078,7 +1078,7 @@ def test_openai_compatible_holds_shared_routes_unless_moderation_stops(
         assert len(calls) == 4
     else:
         assert len(calls) == (3 if mode == "timeout" else 2)
-    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == (2 if mode == "allow" else 0)
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == (2 if mode == "allow" else 0)
     assert _COMPAT_SECRET not in caplog.text
     assert _COMPAT_HOST not in caplog.text
     assert _COMPAT_LINE not in caplog.text

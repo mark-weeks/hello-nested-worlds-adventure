@@ -133,8 +133,8 @@ def test_disagreement_uses_the_lower_cap_and_warns(monkeypatch, capsys):
     results = [guard.consume_anthropic() for _ in range(6)]
     assert results == [True, True, True, True, False, False]
     # Both refusals still increment, then the combined count is over the cap.
-    assert persistence.get_cost_calls(guard.VOICE_BUCKET, _day()) == 6
-    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, _day()) == 0
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, _day()) == 6
+    assert persistence.get_cost_calls(guard.VOICE_BUCKET, _day()) == 0
 
     main(["models"])
     out = capsys.readouterr().out
@@ -173,11 +173,11 @@ def test_image_legacy_name_still_sets_the_cap(monkeypatch):
     monkeypatch.setenv(guard.FAL_CAP_ENV, "1")
     monkeypatch.delenv(guard.IMAGE_CAP_ENV, raising=False)
     assert [guard.consume_fal() for _ in range(2)] == [True, False]
-    assert persistence.get_cost_calls(guard.IMAGE_BUCKET, _day()) == 2
-    assert persistence.get_cost_calls(guard.FAL_BUCKET, _day()) == 0
+    assert persistence.get_cost_calls(guard.FAL_BUCKET, _day()) == 2
+    assert persistence.get_cost_calls(guard.IMAGE_BUCKET, _day()) == 0
 
 
-def test_legacy_rows_still_count_and_are_not_copied(monkeypatch):
+def test_charges_stay_on_the_canonical_key_and_are_not_copied(monkeypatch):
     monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "2")
     monkeypatch.delenv(guard.VOICE_CAP_ENV, raising=False)
     day = _day()
@@ -185,8 +185,8 @@ def test_legacy_rows_still_count_and_are_not_copied(monkeypatch):
     assert guard.effective_calls(guard.VOICE_BUCKET, day) == 1
     assert guard.consume_anthropic() is True
     assert guard.consume_anthropic() is False
-    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 1
-    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 2
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 3
+    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 0
     assert guard.effective_calls(guard.VOICE_BUCKET, day) == 3
 
 
@@ -198,14 +198,14 @@ def test_legacy_per_user_rows_still_count_before_the_global_charge(monkeypatch):
     persistence.increment_cost_calls(user, day)
     persistence.increment_cost_calls(user, day)
     assert guard.consume_anthropic(user_key="nw_alice") is False
-    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 0
-    assert persistence.get_cost_calls(user, day) == 2
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 0
+    assert persistence.get_cost_calls(user, day) == 3
     voice_user = guard._user_bucket(guard.VOICE_BUCKET, "nw_alice")
-    # The refused attempt incremented the new per-user key, then added the
-    # legacy count. It did not touch the shared counter.
-    assert persistence.get_cost_calls(voice_user, day) == 1
+    # The refused attempt incremented the canonical per-user key. It did
+    # not open a voice key and it did not touch the shared counter.
+    assert persistence.get_cost_calls(voice_user, day) == 0
     assert guard.consume_anthropic(user_key="nw_bob") is True
-    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 1
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 1
 
 
 def test_legacy_image_rows_still_count(monkeypatch):
@@ -214,8 +214,8 @@ def test_legacy_image_rows_still_count(monkeypatch):
     persistence.increment_cost_calls(guard.FAL_BUCKET, day)
     persistence.increment_cost_calls(guard.FAL_BUCKET, day)
     assert guard.consume_fal() is False
-    assert persistence.get_cost_calls(guard.FAL_BUCKET, day) == 2
-    assert persistence.get_cost_calls(guard.IMAGE_BUCKET, day) == 1
+    assert persistence.get_cost_calls(guard.FAL_BUCKET, day) == 3
+    assert persistence.get_cost_calls(guard.IMAGE_BUCKET, day) == 0
     assert guard.effective_calls(guard.IMAGE_BUCKET, day) == 3
 
 
@@ -233,7 +233,8 @@ def test_moderation_budget_stays_separate(monkeypatch):
     from server import moderation
     # A moderation reserve writes its own bucket, never the voice key.
     assert hasattr(moderation, "moderation_disabled")
-    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 1
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 1
+    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 0
 
 
 def test_serve_warns_on_a_disagreeing_cap_and_still_listens(monkeypatch, caplog):
@@ -360,62 +361,146 @@ def test_voice_health_prints_a_cap_disagreement_and_stays_ok(monkeypatch, capsys
     assert out.rstrip().endswith("voice-health: ok")
 
 
-def test_migration_preserves_spent_voice_and_image_allowances(monkeypatch):
-    import datetime
+def _schema29_consume(bucket, env, default, user_key=None, user_env=None, user_default=None):
+    """Spend one call the way ``server/guard.py`` did at ``18e5bbd``.
+
+    That binary increments ``anthropic`` or ``fal_ai`` only, including the
+    ``:u:<hash>`` per-user key, and it reads only the legacy cap variables.
+    Invalid text falls through to the default. It does not read a ``voice``
+    or ``image`` row.
+    """
+    if user_key:
+        user_cap = guard._cap_for(user_env, user_default)
+        user_bucket = guard._user_bucket(bucket, user_key)
+        if user_cap <= 0:
+            return False
+        spent = persistence.increment_cost_calls(user_bucket, _day())
+        if spent > user_cap:
+            return False
+    cap = guard._cap_for(env, default)
+    if cap <= 0:
+        return False
+    spent = persistence.increment_cost_calls(bucket, _day())
+    return spent <= cap
+
+
+def _rows():
     import sqlite3
+    conn = sqlite3.connect(persistence._DB_PATH)
+    try:
+        return dict(conn.execute(
+            "SELECT bucket, calls FROM cost_budget WHERE day = ?", (_day(),)
+        ).fetchall())
+    finally:
+        conn.close()
 
-    migrations = persistence._list_migrations()
-    version = next(v for v, path in migrations if path.name.startswith("0030_"))
-    previous = [item for item in migrations if item[0] < version]
-    monkeypatch.setattr(persistence, "_list_migrations", lambda: previous)
-    persistence.init_db()
+
+def test_schema29_and_this_binary_share_one_spent_allowance(monkeypatch):
+    """Upgrade and rollback on one database do not replenish or double-count.
+
+    Both writers use the schema-29 keys. Spend recorded before the switch
+    is still spent after it, and spend recorded after the switch is still
+    spent when the schema-29 writer runs again.
+    """
+    monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "3")
+    monkeypatch.setenv(guard.ANTHROPIC_PER_USER_CAP_ENV, "2")
+    monkeypatch.setenv(guard.FAL_CAP_ENV, "2")
+    monkeypatch.setenv(guard.FAL_PER_USER_CAP_ENV, "1")
+    monkeypatch.delenv(guard.VOICE_CAP_ENV, raising=False)
+    monkeypatch.delenv(guard.VOICE_PER_USER_CAP_ENV, raising=False)
+    monkeypatch.delenv(guard.IMAGE_CAP_ENV, raising=False)
+    monkeypatch.delenv(guard.IMAGE_PER_USER_CAP_ENV, raising=False)
+    assert persistence.schema_versions()[-1] == 29
     day = _day()
-    earlier = (datetime.date.fromisoformat(day) - datetime.timedelta(days=1)).isoformat()
-    user = "nw_alice"
-    legacy_voice_user = guard._user_bucket(guard.ANTHROPIC_BUCKET, user)
-    legacy_image_user = guard._user_bucket(guard.FAL_BUCKET, user)
-    voice_user = guard._user_bucket(guard.VOICE_BUCKET, user)
-    image_user = guard._user_bucket(guard.IMAGE_BUCKET, user)
-    persistence.increment_cost_calls(guard.VOICE_BUCKET, day)
-    persistence.increment_cost_calls(guard.ANTHROPIC_BUCKET, day)
-    persistence.increment_cost_calls(guard.ANTHROPIC_BUCKET, day)
-    persistence.increment_cost_calls(guard.FAL_BUCKET, earlier)
-    persistence.increment_cost_calls(guard.IMAGE_BUCKET, earlier)
-    persistence.increment_cost_calls(legacy_voice_user, day)
-    persistence.increment_cost_calls(legacy_voice_user, day)
-    persistence.increment_cost_calls(legacy_image_user, day)
-    persistence.increment_cost_calls(guard.MODERATION_BUCKET, day)
-    persistence.increment_cost_calls("voice_outcome:speak:ok", day)
-    conn = sqlite3.connect(persistence._DB_PATH)
-    chronicle = conn.execute("SELECT COUNT(*) FROM world_mutations").fetchone()[0]
-    conn.close()
+    alice_voice = guard._user_bucket(guard.ANTHROPIC_BUCKET, "nw_alice")
+    bob_voice = guard._user_bucket(guard.ANTHROPIC_BUCKET, "nw_bob")
+    alice_image = guard._user_bucket(guard.FAL_BUCKET, "nw_alice")
 
-    monkeypatch.setattr(persistence, "_list_migrations", lambda: migrations)
-    persistence._initialized.discard(persistence._DB_PATH)
-    persistence.init_db()
-    assert persistence.schema_versions()[-1] == version
-    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 0
-    assert persistence.get_cost_calls(guard.FAL_BUCKET, earlier) == 0
-    assert persistence.get_cost_calls(legacy_voice_user, day) == 0
-    assert persistence.get_cost_calls(legacy_image_user, day) == 0
-    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 3
-    assert persistence.get_cost_calls(guard.IMAGE_BUCKET, earlier) == 2
-    assert persistence.get_cost_calls(voice_user, day) == 2
-    assert persistence.get_cost_calls(image_user, day) == 1
-    assert persistence.get_cost_calls(guard.MODERATION_BUCKET, day) == 1
-    assert persistence.get_cost_calls("voice_outcome:speak:ok", day) == 1
-    conn = sqlite3.connect(persistence._DB_PATH)
-    assert conn.execute("SELECT COUNT(*) FROM world_mutations").fetchone()[0] == chronicle
-    conn.close()
+    assert _schema29_consume(
+        guard.ANTHROPIC_BUCKET, guard.ANTHROPIC_CAP_ENV, 500,
+        "nw_alice", guard.ANTHROPIC_PER_USER_CAP_ENV, 150,
+    ) is True
+    assert _schema29_consume(
+        guard.ANTHROPIC_BUCKET, guard.ANTHROPIC_CAP_ENV, 500,
+        "nw_alice", guard.ANTHROPIC_PER_USER_CAP_ENV, 150,
+    ) is True
+    assert _schema29_consume(
+        guard.FAL_BUCKET, guard.FAL_CAP_ENV, 200,
+        "nw_alice", guard.FAL_PER_USER_CAP_ENV, 60,
+    ) is True
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 2
+    assert persistence.get_cost_calls(alice_voice, day) == 2
+    assert persistence.get_cost_calls(guard.FAL_BUCKET, day) == 1
+    assert persistence.get_cost_calls(alice_image, day) == 1
 
+    # This binary sees the schema-29 spend. Alice is already at her cap.
+    assert guard.consume_anthropic(user_key="nw_alice") is False
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 2
+    assert persistence.get_cost_calls(alice_voice, day) == 3
+    assert guard.consume_fal(user_key="nw_alice") is False
+    assert persistence.get_cost_calls(guard.FAL_BUCKET, day) == 1
+    assert persistence.get_cost_calls(alice_image, day) == 2
+    assert guard.consume_anthropic(user_key="nw_bob") is True
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 3
+    assert persistence.get_cost_calls(bob_voice, day) == 1
+    assert guard.consume_anthropic(user_key="nw_bob") is False
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 4
+    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 0
+    assert persistence.get_cost_calls(guard.IMAGE_BUCKET, day) == 0
+
+    # Rolled back. Bob's per-user row is already at its cap, so the
+    # schema-29 writer refuses before the global counter. A fresh user
+    # still has per-user room and is refused on the global spend this
+    # binary already recorded. Neither call finds a new allowance.
+    assert persistence.get_cost_calls(bob_voice, day) == 2
+    assert _schema29_consume(
+        guard.ANTHROPIC_BUCKET, guard.ANTHROPIC_CAP_ENV, 500,
+        "nw_bob", guard.ANTHROPIC_PER_USER_CAP_ENV, 150,
+    ) is False
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 4
+    assert persistence.get_cost_calls(bob_voice, day) == 3
+    assert _schema29_consume(
+        guard.ANTHROPIC_BUCKET, guard.ANTHROPIC_CAP_ENV, 500,
+        "nw_dave", guard.ANTHROPIC_PER_USER_CAP_ENV, 150,
+    ) is False
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 5
+    assert _schema29_consume(
+        guard.FAL_BUCKET, guard.FAL_CAP_ENV, 200,
+        "nw_bob", guard.FAL_PER_USER_CAP_ENV, 60,
+    ) is True
+    assert persistence.get_cost_calls(guard.FAL_BUCKET, day) == 2
+    assert guard.consume_fal(user_key="nw_carol") is False
+    assert persistence.get_cost_calls(guard.FAL_BUCKET, day) == 3
+
+
+def test_a_transient_neutral_row_counts_here_and_is_not_rewritten(monkeypatch):
     monkeypatch.setenv(guard.VOICE_CAP_ENV, "3")
     monkeypatch.setenv(guard.VOICE_PER_USER_CAP_ENV, "2")
     monkeypatch.delenv(guard.ANTHROPIC_CAP_ENV, raising=False)
     monkeypatch.delenv(guard.ANTHROPIC_PER_USER_CAP_ENV, raising=False)
-    assert guard.consume_anthropic(user_key=user) is False
-    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 3
-    assert persistence.get_cost_calls(voice_user, day) == 3
-    persistence._initialized.discard(persistence._DB_PATH)
-    persistence.init_db()
-    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 3
-    assert persistence.get_cost_calls(voice_user, day) == 3
+    day = _day()
+    persistence.increment_cost_calls(guard.ANTHROPIC_BUCKET, day)
+    persistence.increment_cost_calls(guard.VOICE_BUCKET, day)
+    persistence.increment_cost_calls(guard.VOICE_BUCKET, day)
+    transient_user = guard._user_bucket(guard.VOICE_BUCKET, "nw_alice")
+    canonical_user = guard._user_bucket(guard.ANTHROPIC_BUCKET, "nw_alice")
+    persistence.increment_cost_calls(transient_user, day)
+    persistence.increment_cost_calls(transient_user, day)
+    persistence.increment_cost_calls(guard.MODERATION_BUCKET, day)
+    persistence.increment_cost_calls("voice_outcome:speak:ok", day)
+    before = _rows()
+
+    assert guard.effective_calls(guard.VOICE_BUCKET, day) == 3
+    assert guard.consume_anthropic(user_key="nw_alice") is False
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 1
+    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 2
+    assert persistence.get_cost_calls(canonical_user, day) == 1
+    assert persistence.get_cost_calls(transient_user, day) == 2
+    assert persistence.get_cost_calls(guard.MODERATION_BUCKET, day) == 1
+    assert persistence.get_cost_calls("voice_outcome:speak:ok", day) == 1
+    # The refused call increments only Alice's canonical per-user key.
+    # The global anthropic row and the transient voice row are unchanged:
+    # nothing was copied or deleted.
+    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == before[guard.ANTHROPIC_BUCKET]
+    assert guard.VOICE_BUCKET in before
+    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == before[guard.VOICE_BUCKET]

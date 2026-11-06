@@ -85,18 +85,15 @@ _DEFAULT_FAL_PER_USER       = 60
 _DEFAULT_RATE_PER_MIN    = 20
 DEFAULT_CANONICAL_SEED   = DEFAULT_WORLD_SEED
 
-# New calls write the neutral keys. Migration 0030 moves rows already
-# stored under the legacy keys onto these names, summing a day that has
-# both, so the spent allowance is preserved. A leftover legacy row is
-# still added at check time and is not written again by a request.
+# Public names are voice and image. The stored keys stay the schema-29
+# names, so a binary from this tree and a schema-29 binary increment the
+# same rows. `voice` and `image` are not written. If a row was left there
+# by the declined key-rename build, it still counts and is not copied or
+# deleted.
 VOICE_BUCKET      = "voice"
 IMAGE_BUCKET      = "image"
 ANTHROPIC_BUCKET  = "anthropic"
 FAL_BUCKET        = "fal_ai"
-_LEGACY_BUCKET = {
-    VOICE_BUCKET: ANTHROPIC_BUCKET,
-    IMAGE_BUCKET: FAL_BUCKET,
-}
 # Moderation classify calls get their OWN budget line (ADR-004 §2): they must
 # never drain the voice budget. The moderation bucket stays "moderation".
 # When a moderation budget or per-user cap is spent, shared text is held —
@@ -971,29 +968,39 @@ def budget_configuration_warning_line() -> str | None:
     return "Budget warning: " + "; ".join(warnings)
 
 
-def _legacy_bucket(bucket: str) -> str | None:
-    """The pre-rename key that still counts toward ``bucket``, if any."""
-    for neutral, legacy in _LEGACY_BUCKET.items():
-        if bucket == neutral:
-            return legacy
-        prefix = neutral + ":u:"
-        if bucket.startswith(prefix):
-            return legacy + bucket[len(neutral):]
+def _allowance_partner(bucket: str) -> str | None:
+    """The other key that counts toward the same allowance, if ``bucket`` is one.
+
+    ``anthropic`` pairs with ``voice``, and ``fal_ai`` with ``image``,
+    including the ``:u:<hash>`` per-user suffix. The match is the whole
+    name, not a prefix, so ``voice_outcome`` is not a voice charge.
+    """
+    pairs = (
+        (ANTHROPIC_BUCKET, VOICE_BUCKET),
+        (FAL_BUCKET, IMAGE_BUCKET),
+    )
+    for left, right in pairs:
+        for source, other in ((left, right), (right, left)):
+            if bucket == source:
+                return other
+            prefix = source + ":u:"
+            if bucket.startswith(prefix):
+                return other + bucket[len(source):]
     return None
 
 
 def effective_calls(bucket: str, day: str | None = None) -> int:
-    """Calls already spent for ``bucket`` today, including a leftover legacy key.
+    """Calls already spent for one allowance today.
 
-    Migration 0030 moves existing legacy rows onto ``bucket``. A leftover
-    is still added here. New increments land on ``bucket`` only, so the
-    same calls are not written a second time.
+    The stored key and its partner are added. A charge is written to only
+    one of them, so the sum does not count the same call twice. Neither
+    row is copied or deleted.
     """
     day = day or _utc_day()
     total = persistence.get_cost_calls(bucket, day)
-    legacy = _legacy_bucket(bucket)
-    if legacy:
-        total += persistence.get_cost_calls(legacy, day)
+    partner = _allowance_partner(bucket)
+    if partner:
+        total += persistence.get_cost_calls(partner, day)
     return total
 
 
@@ -1018,9 +1025,9 @@ def _consume_capped(bucket: str, cap: int) -> bool:
         return False
     day = _utc_day()
     new_count = persistence.increment_cost_calls(bucket, day)
-    legacy = _legacy_bucket(bucket)
-    if legacy:
-        new_count += persistence.get_cost_calls(legacy, day)
+    partner = _allowance_partner(bucket)
+    if partner:
+        new_count += persistence.get_cost_calls(partner, day)
     return new_count <= cap
 
 
@@ -1068,13 +1075,14 @@ def consume_anthropic(user_key: str | None = None) -> bool:
 
     The allowance is one bucket for every text provider. Node voice,
     inhabitant voice, and intention share it. Switching or mixing providers
-    does not open a second allowance. The persisted key is ``voice``.
-    Calls already stored under ``anthropic`` for this UTC day still count.
-    ``NESTED_WORLDS_VOICE_DAILY_CALLS`` is the neutral cap. The legacy
-    ``NESTED_WORLDS_ANTHROPIC_DAILY_CALLS`` is still accepted. When both
-    name different integers, the lower one is enforced and startup logs a
-    warning instead of exiting. A non-integer or a negative cap refuses
-    the call and fails startup.
+    does not open a second allowance. The persisted key is ``anthropic``,
+    including ``anthropic:u:<hash>`` for a credential. A ``voice`` row left
+    by the declined key-rename build still counts and is not copied or
+    deleted. ``NESTED_WORLDS_VOICE_DAILY_CALLS`` is the neutral cap. The
+    legacy ``NESTED_WORLDS_ANTHROPIC_DAILY_CALLS`` is still accepted. When
+    both name different integers, the lower one is enforced and startup
+    logs a warning instead of exiting. A non-integer or a negative cap
+    refuses the call and fails startup.
 
     Order matters: the per-user sub-cap is checked FIRST, and the shared
     global counter is only incremented once that gate passes. If we charged
@@ -1093,7 +1101,7 @@ def consume_anthropic(user_key: str | None = None) -> bool:
         neutral_global=VOICE_CAP_ENV,
         legacy_global=ANTHROPIC_CAP_ENV,
         default_global=_DEFAULT_ANTHROPIC_DAILY,
-        bucket=VOICE_BUCKET,
+        bucket=ANTHROPIC_BUCKET,
     )
 
 
@@ -1144,10 +1152,12 @@ def moderation_reserve(user_key: str | None = None) -> str:
 def consume_fal(user_key: str | None = None) -> bool:
     """Reserve one image call against the per-user then global caps.
 
-    The persisted key is ``image``. Calls already stored under ``fal_ai``
-    for this UTC day still count. ``NESTED_WORLDS_IMAGE_DAILY_CALLS`` is
-    the neutral cap. ``NESTED_WORLDS_FAL_DAILY_CALLS`` is still accepted.
-    When both name different integers, the lower one is enforced.
+    The persisted key is ``fal_ai``, including ``fal_ai:u:<hash>`` for a
+    credential. An ``image`` row left by the declined key-rename build
+    still counts and is not copied or deleted.
+    ``NESTED_WORLDS_IMAGE_DAILY_CALLS`` is the neutral cap.
+    ``NESTED_WORLDS_FAL_DAILY_CALLS`` is still accepted. When both name
+    different integers, the lower one is enforced.
 
     Same ordering rationale as `consume_anthropic`: the per-user gate is
     evaluated before the shared global counter is touched, so a single
@@ -1161,7 +1171,7 @@ def consume_fal(user_key: str | None = None) -> bool:
         neutral_global=IMAGE_CAP_ENV,
         legacy_global=FAL_CAP_ENV,
         default_global=_DEFAULT_FAL_DAILY,
-        bucket=IMAGE_BUCKET,
+        bucket=FAL_BUCKET,
     )
 
 

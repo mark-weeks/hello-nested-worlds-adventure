@@ -710,30 +710,63 @@ def get_provider() -> TextProvider:
     return provider
 
 
+def _read_task_choice(task: str) -> tuple[str, str | None] | None:
+    """The cached task choice, or None. Source and name are read together."""
+    with _selection_lock:
+        source = _task_provider_sources.get(task)
+        if source is None:
+            return None
+        if source == SOURCE_PROVIDER_TASK:
+            return source, _task_provider_names[task]
+        return source, None
+
+
+def _publish_task_choice(task: str, source: str, name: str | None) -> tuple[str, str | None]:
+    """Store one task choice. A name is written before its task source.
+
+    The lock is held for both writes and for a read of an existing choice,
+    so another thread cannot observe a task source with no name. The first
+    publisher wins. This does not build or call an adapter.
+    """
+    with _selection_lock:
+        current = _task_provider_sources.get(task)
+        if current is None:
+            if source == SOURCE_PROVIDER_TASK:
+                _task_provider_names[task] = name
+            _task_provider_sources[task] = source
+            return source, name
+        if current == SOURCE_PROVIDER_TASK:
+            return current, _task_provider_names[task]
+        return current, None
+
+
 def provider_for(task: str) -> TextProvider:
     """The adapter for one text task, chosen once.
 
     A task variable that names a registered adapter is cached under that
     name and does not use ``get_provider``. Any other successful resolution
     returns ``get_provider``, so a replaced process provider still supplies
-    the default ids and the call.     A blank, unsafe, or unknown name raises
+    the default ids and the call. A blank, unsafe, or unknown name raises
     ``SystemExit`` with one line and is not cached. A later change to a
     variable that already resolved does not reselect and does not raise
     from a request. ``override_provider`` is consulted before that cache
     and before the environment, and a task that follows the process
     default does not store a name of its own: ``get_provider`` is the
     seam, and a stored name would go stale when that seam is replaced.
-    This does not import a provider SDK and does not call the adapter.
+    The cached source and name are published and read under one lock.
+    Building the adapter happens outside that publication. This does not
+    import a provider SDK and does not call the adapter.
     """
     if task not in _TASK_PROVIDER_ENV:
         raise ValueError(f"unknown model task {task!r}")
     routed = _active_override()
     if routed is not None:
         return routed
-    source = _task_provider_sources.get(task)
-    if source is not None:
+    cached = _read_task_choice(task)
+    if cached is not None:
+        source, name = cached
         if source == SOURCE_PROVIDER_TASK:
-            return _load_named(_task_provider_names[task], selector_env=_TASK_PROVIDER_ENV[task])
+            return _load_named(name, selector_env=_TASK_PROVIDER_ENV[task])
         return get_provider()
     resolution = resolve_provider(task)
     line = provider_failure_line(resolution)
@@ -741,11 +774,14 @@ def provider_for(task: str) -> TextProvider:
         raise SystemExit(line)
     if resolution.source != SOURCE_PROVIDER_TASK:
         provider = get_provider()
-        _task_provider_sources[task] = resolution.source
+        source, name = _publish_task_choice(task, resolution.source, None)
+        if source == SOURCE_PROVIDER_TASK:
+            return _load_named(name, selector_env=_TASK_PROVIDER_ENV[task])
         return provider
     provider = _load_named(resolution.name, selector_env=resolution.env_var)
-    _task_provider_sources[task] = SOURCE_PROVIDER_TASK
-    _task_provider_names[task] = resolution.name
+    _source, name = _publish_task_choice(task, SOURCE_PROVIDER_TASK, resolution.name)
+    if name != resolution.name:
+        return _load_named(name, selector_env=resolution.env_var)
     return provider
 
 

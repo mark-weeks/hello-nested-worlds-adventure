@@ -828,8 +828,8 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       `NESTED_WORLDS_VOICE_DAILY_CALLS` (and `NESTED_WORLDS_IMAGE_DAILY_CALLS`;
       the legacy `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
       `NESTED_WORLDS_FAL_DAILY_CALLS` names are still accepted, and a day
-      already spent under `anthropic` or `fal_ai` is moved onto `voice` and
-      `image` by migration 0030, so it still counts). On an existing machine,
+      already spent under `anthropic` or `fal_ai` stays on those keys, so
+      it still counts). On an existing machine,
       unset each legacy secret in the same `fly secrets` change as the new
       cap, or a leftover lower value clamps the raise.
       Set them with headroom above the estimate — the `_PER_USER` caps already bound any
