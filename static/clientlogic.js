@@ -386,9 +386,47 @@
       : "the node changed, though no visible property survived the fold";
   }
 
+  // ── Chat drafts ────────────────────────────────────────────────────────
+  // A chat line the moderation screen holds or declines reached nobody and
+  // was stored nowhere. The server answers it with a sender-only
+  // `chat_declined` that echoes the frame's `ref`. Both answers ask the
+  // player to say it another way, so a held line and a declined line are
+  // handled alike: the player's own words go back into the input to resend
+  // or revise. Only the most recent line comes back, and only into an empty
+  // input; anything typed since is kept. An answer without a matching ref
+  // (an older line, an older server) restores nothing.
+
+  function createChatDraft() {
+    let serial = 0;
+    let latest = null;
+    return {
+      // Record a line about to be sent; returns the ref for its frame.
+      sent(text) {
+        serial += 1;
+        latest = { ref: `c${serial}`, text: String(text) };
+        return latest.ref;
+      },
+      // The line a `chat_declined` gives back, or null. Each line is given
+      // back at most once.
+      declined(message) {
+        if (!latest || !message || message.ref !== latest.ref) return null;
+        const { text } = latest;
+        latest = null;
+        return text;
+      },
+    };
+  }
+
+  // The input's next value. A returned line fills an empty input and
+  // never replaces text the player has typed since sending.
+  function restoreChatInput(current, line) {
+    return line && current === "" ? line : current;
+  }
+
   root.EnfoldedClient = Object.freeze({
     BADGE_RULES,
     causalFeedLine,
+    createChatDraft,
     createNodeRefresher,
     createSocketKeepalive,
     describeChronicleEntry,
@@ -409,6 +447,7 @@
     observationRow,
     passageBadges,
     rememberInvite,
+    restoreChatInput,
     resumeDepth,
     waybackMomentLine,
     waybackNode,

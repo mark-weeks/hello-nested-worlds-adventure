@@ -44,6 +44,21 @@ _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 # same grace before it ends a write the reader is stuck in.
 _CLOSE_GRACE_SEC = 1.0
 
+# A chat frame may carry a client-chosen ``ref``. A ``chat_declined`` reply
+# echoes it to the sender, and only to the sender, so the client can tell
+# which of its own lines the screen held or declined and put that line back
+# in the input. The ref is never broadcast or stored. It must be a short
+# string; any other value is not echoed.
+_CHAT_REF_MAX = 64
+
+
+def _chat_declined(text: str, message: dict) -> dict:
+    reply = {"type": "chat_declined", "text": text}
+    ref = message.get("ref")
+    if isinstance(ref, str) and 0 < len(ref) <= _CHAT_REF_MAX:
+        reply["ref"] = ref
+    return reply
+
 
 class _Session:
     """One upgraded socket, shared by its reader loop and the credential sweep.
@@ -598,20 +613,16 @@ def handle_websocket(
                     # the same private refusal; nobody else does.
                     raw_text = message.get("text", "")
                     if not isinstance(raw_text, str):
-                        player.send({
-                            "type": "chat_declined",
-                            "text": "A message is required.",
-                        })
+                        player.send(_chat_declined(
+                            "A message is required.", message))
                         continue
                     text = raw_text.strip()[:256]
                     if text:
                         verdict = moderation.screen(
                             text, user_key=ws_key or None, surface="chat")
                         if not verdict.allowed:
-                            player.send({
-                                "type": "chat_declined",
-                                "text": moderation.player_line(verdict),
-                            })
+                            player.send(_chat_declined(
+                                moderation.player_line(verdict), message))
                             continue
                         # Fresh again: screening can wait on a remote
                         # classifier, and a credential revoked meanwhile
