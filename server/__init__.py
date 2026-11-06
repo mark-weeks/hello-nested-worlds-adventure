@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import signal
+import sys
 import threading
 from http.server import HTTPServer
 from socketserver import TCPServer, ThreadingMixIn
@@ -142,6 +143,14 @@ def model_banner() -> list[str]:
 
 
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:
+    # Refuse a newer chronicle before the port opens, before Sentry, and
+    # before the heartbeat. Migrations are forward-only; an older binary
+    # must not listen on a database it does not understand.
+    try:
+        persistence.init_db()
+    except persistence.SchemaTooNewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     observability.setup()

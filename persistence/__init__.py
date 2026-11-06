@@ -233,6 +233,78 @@ def _sql_statements(sql: str) -> list[str]:
     return out
 
 
+class SchemaTooNewError(RuntimeError):
+    """The on-disk chronicle is newer than the migrations this process ships.
+
+    Migrations are forward-only. Starting would mean an older binary
+    reading a schema it does not know. Callers must not migrate, bind a
+    port, or rewrite the database.
+    """
+
+
+def known_schema_version() -> int:
+    """Highest migration version shipped with this process.
+
+    This is the schema pin. A chronicle whose applied version is higher
+    is refused. Adding a migration file advances the pin for new births
+    of the schema; it does not rewrite a database that already passed it.
+    """
+    versions = [version for version, _path in _list_migrations()]
+    if not versions:
+        raise RuntimeError("this binary ships no schema migrations")
+    return max(versions)
+
+
+def schema_too_new_message(applied: int, known: int) -> str:
+    """Operator-facing refusal. No traceback, no player-facing fiction."""
+    return (
+        f"chronicle schema_version {applied} is newer than this binary's "
+        f"schema {known}. Migrations are forward-only, so this process will "
+        f"not start and will not change the database. Deploy a release that "
+        f"knows schema {applied} or newer, or stop the machine and restore a "
+        f"backup taken before the upgrade "
+        f"(docs/infrastructure/fly-deployment.md, restoring from a backup). "
+        f"That restore abandons history written after the backup. "
+        f"There is no in-place downgrade."
+    )
+
+
+def read_applied_schema_version(path: Path | None = None) -> int | None:
+    """Highest applied `schema_version`, or None if the chronicle is absent.
+
+    Read-only. Does not create the database and does not run migrations.
+    """
+    db = path or _DB_PATH
+    if not db.exists():
+        return None
+    uri = f"{db.resolve().as_uri()}?mode=ro"
+    try:
+        conn = sqlite3.connect(uri, uri=True)
+    except sqlite3.Error:
+        raise
+    try:
+        conn.execute("PRAGMA query_only=ON")
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'"
+        ).fetchone()
+        if not exists:
+            return None
+        row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+    finally:
+        conn.close()
+    if row is None or row[0] is None:
+        return None
+    return int(row[0])
+
+
+def _refuse_newer_schema(applied: set[int]) -> None:
+    """Raise when the chronicle is newer than this binary. Apply nothing."""
+    known = known_schema_version()
+    newer = [version for version in applied if version > known]
+    if newer:
+        raise SchemaTooNewError(schema_too_new_message(max(newer), known))
+
+
 def _run_migrations(conn: sqlite3.Connection) -> list[int]:
     """Apply any migrations not yet recorded in `schema_version`.
 
@@ -241,9 +313,13 @@ def _run_migrations(conn: sqlite3.Connection) -> list[int]:
     one transaction, so an interruption leaves the DB exactly at the last
     fully-applied version — never a half-applied file whose committed
     ALTERs make the retry fail with "duplicate column name".
+
+    A chronicle whose highest applied version is newer than the migrations
+    this process ships raises SchemaTooNewError before any migration runs.
     """
     conn.executescript(_SCHEMA_VERSION_DDL)
     applied = {r[0] for r in conn.execute("SELECT version FROM schema_version")}
+    _refuse_newer_schema(applied)
     just_applied: list[int] = []
     for version, path in _list_migrations():
         if version in applied:
@@ -271,6 +347,10 @@ def init_db() -> None:
     # that already has it ("duplicate column name", caught by the WS soak
     # test). Double-checked so the post-init hot path stays lock-free in
     # _with_db.
+    #
+    # A newer chronicle raises SchemaTooNewError inside the lock, before
+    # `_initialized` is recorded and before any migration is applied, so a
+    # later retry still refuses and the database is left as it was.
     with _init_lock:
         if _DB_PATH in _initialized:
             return
