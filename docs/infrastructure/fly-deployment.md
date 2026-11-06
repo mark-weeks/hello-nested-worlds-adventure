@@ -850,6 +850,9 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       `curl -s -X POST https://<app>/speak -H 'X-Beta-Key: <key>' -H 'Content-Type: application/json' -d '{"message":"hello"}' | grep -o '"ai": true'`
 - [ ] Watch spend as the cohort arrives: the `cost_budget` table carries
       per-day counters — `fly ssh console -C "sqlite3 /data/.nested-worlds/worlds.db 'SELECT * FROM cost_budget ORDER BY day DESC LIMIT 20'"`.
+      Buckets that start `voice_outcome:` or `moderation_outcome:` are
+      outcome counts, not spend; `python main.py voice-health` prints the
+      day's voice and moderation budget use without them.
 - [ ] Watch the voice, not just the server. `fly ssh console -C "python main.py voice-health"`
       prints answered and quiet lines per surface (`speak`, `agent_voice`,
       `intention`) and reason (`provider`, `unconfigured`, `screen`, `busy`,
@@ -864,20 +867,64 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
       screens a line), else `NESTED_WORLDS_ANTHROPIC_SLOT_WAIT_SECONDS`
       (default 10 s). The provider was not called and the player got the same
       authored silence, or hold line, as a provider failure. Either the
-      provider is slow or hung (a voice call has no timeout of its own, so the
-      SDK's 10-minute timeout, retried twice, is what frees a hung slot) or
+      provider is slow or hung (a voice call passes no timeout of its own, so
+      the adapter's per-attempt `NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS`,
+      default 60 s, retried twice by the SDK, ends a hung call within about
+      3 minutes, at most 5 if the provider answers errors with a retry-after
+      of up to 60 s; that call then counts as `provider`) or
       demand outran the limit: check the provider first, then raise the limit.
-      These counts cover the voice surfaces only. A screen that holds chat,
-      Ideas, a published profile or puzzle text because the classifier failed
-      (`error`) or found no slot (`busy`) writes one INFO
-      `moderation_call outcome=... surface=...` line on the moderation logger
-      and bumps no counter, so saturation that only reaches those surfaces
-      does not fail `voice-health`: search the logs for `outcome=busy` and
-      `outcome=error`.
-      It exits 1 when the window holds a provider, screen or
-      busy failure, the voice is not configured, or the model configuration
+      These counts cover the voice surfaces. The "Shared-text screens"
+      section that follows covers every screened surface (`speak`, `agent`,
+      `chat`, `ideas`, `profile`, `puzzle`, `name`, `cli`): per day and
+      surface, the screens that logged a `moderation_call` line, then each
+      outcome other than `allow`, then the day's moderation budget use. A
+      locally clean line is not logged or counted, so `allow` counts
+      classifier allows only. Three outcomes are screen failures and make it
+      exit 1, because the text was held without being judged. `busy`: no
+      provider slot opened within the classify's 3 s; check the provider,
+      then raise the concurrency limit, as for the voice. `error`: the
+      classify raised (provider error, timeout, or no usable moderation
+      model id). A classify is one provider attempt with no retries inside
+      its 3 s, so a single transient 429, 5xx or dropped connection is one
+      `error` and fails the check; the player can send the text again. The
+      `ms=` on the `moderation_call outcome=error` lines separates a slow
+      provider from an immediate refusal, and `voice-health --probe` makes
+      one tiny live call per distinct model id, the moderation model's
+      included (also one attempt, so re-run it after a transient error).
+      `undecided`: the classify
+      finished without the one-word ALLOW or BLOCK it asks for (other text,
+      a length stop or a refusal); a steady share suggests the configured
+      `NESTED_WORLDS_MODERATION_MODEL` does not keep to that reply, so check
+      it with the [evaluation harness](../../evals/README.md) before keeping
+      it. `block` is a content decline, and `budget`,
+      `user_cap` and `disabled` are limits: reported, never a failure. A
+      failed screen on `/speak` or `/agent/voice` is counted in both
+      sections, as the voice reason `screen` or `busy` and as the screen
+      outcome; the two counts are reported separately. A screen counter
+      that cannot get the store within 50 ms is dropped and logged on
+      `nested_worlds.moderation`, so these counts are a lower bound too.
+      It exits 1 when the window holds a voice provider, screen or
+      busy failure, a shared-text screen failure on any surface, the voice
+      is not configured, or the model configuration
       has a hard problem (the check `models` and the boot run); add `--probe`
-      for the tiny live call `models --probe` makes.
+      for the tiny live call `models --probe` makes. A counted failure lasts
+      for its UTC day, as a voice failure already does: once one is counted,
+      `voice-health` keeps exiting 1 until 00:00 UTC, or until the day leaves
+      the `--days` window. Nothing clears it, and a passing `--probe` does
+      not. So whatever schedules it (checklist B3) should alert at most once
+      per UTC day, with the full `voice-health` output in the alert, not on
+      every exit 1 (decided 2026-11-05 under the owner's delegation; no
+      threshold, no separate exit code). The cost of that rule: a second
+      failure later the same day does not alert again, so read the printed
+      counts and the ERROR log or Sentry for anything newer. A player can
+      provoke `undecided`: escalated text goes to the classifier as is, and
+      text that knocks it off its one-word reply is undecided. A red result
+      with only `undecided` counts may be model drift or injection; the
+      per-user `moderation:u:` rows in `cost_budget` count each key's
+      classify calls (at most 60 a day each). Revisit if more than
+      3 of the first 14 scheduled days alert on screen failures alone, if
+      `undecided` reaches 1% of classifier screens on a day, or at the first
+      key traced to 5 or more `undecided` in one day.
       Every quiet line also logs `voice_fallback surface=... reason=...` on
       `nested_worlds.voice`, at ERROR (a Sentry event) for failures and WARNING
       for limits. Store errors are logged, not counted, and a counter write
@@ -948,8 +995,9 @@ Fly:
 - **The configured provider's request-rate headroom shrinks (currently Anthropic)** → raise
   `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
   `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`; no infra change needed. `busy` in
-  `python main.py voice-health` while the provider answers normally is the
-  concurrency signal: calls waited out the slot bound and were not made.
+  `python main.py voice-health`, in the voice section or the shared-text
+  screens, while the provider answers normally is the concurrency signal:
+  calls waited out the slot bound and were not made.
 - **`/image` requests dominate egress** → put Cloudflare in front and
   cache `/image` responses; the URL stays the same.
 - **SQLite write contention shows up in latency p99** → execute ADR-003

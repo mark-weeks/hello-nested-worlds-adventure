@@ -127,7 +127,9 @@ adapter) pass one. The
 anthropic adapter sends those calls with the SDK's retries off, through a
 `with_options(max_retries=0)` copy of its client built once and sharing its
 connection pool, credentials and base URL; calls without a timeout keep the
-SDK's default retries. `openai_compatible` already made one POST within a
+SDK's default retries, each attempt under the adapter's own
+`NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS` (default 60 s; table below).
+`openai_compatible` already made one POST within a
 wall-clock budget. On the anthropic adapter httpx applies the number to
 each phase (connect, send, each read), so it is not a hard wall-clock
 bound: against a local stub at 3 s, one attempt took 3.01 s when the
@@ -265,6 +267,7 @@ breadcrumb. A failure log records the exception class only.
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE` | `1` sends `"store": false`. Unset sends nothing. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` | Optional `none`, `minimal`, `low`, `medium`, or `high`. Unset sends nothing. Any other value leaves the adapter unconfigured and is not forwarded. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS` | Wall-clock budget for one POST when the caller passes no timeout. Default 60. Each resolved address is tried with the time remaining, so the TCP connects stay inside that budget. A blackholed earlier address can consume the whole budget; later addresses are then not tried. DNS lookup and individual TLS handshake bytes are not covered. Moderation still passes 3 seconds. |
+| `NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS` | The anthropic adapter's counterpart, owned by that adapter: the timeout it sends when the caller passes none (node voice, inhabitant voice, intention). Default 60, parsed the same way, read on every call, and capped at `threading.TIMEOUT_MAX`, past which a socket wait overflows and every call fails before it is sent. There is no lower limit, as for the row above: a value below a few seconds times out real replies, which then answer with the authored silence. Unlike the row above it is **per attempt**, and the SDK still retries twice (its default), so a provider that accepts the request and never answers ends the call after 3 × 60 s plus at most 1.5 s of backoff, about 3 minutes, or at most about 5 if it answers errors with a retry-after of up to 60 s; the row above is one POST with no retries. Read, write and pool use the value; connect stays the SDK's 5 s (less when the value is smaller). Read is the longest wait for the next bytes, so a reply that keeps arriving can take longer. A caller's own timeout is sent unchanged, as one attempt with the SDK's retries off (see the timeout contract above), and a client built with its own timeout (the evaluation harness) keeps it. Before this setting the SDK's 600 s applied, about 30 minutes with retries. **Why 60 is a judgement:** no live latency for these tasks is on record (the 2026-10-05 model evaluation says hosted latency needs live or staging evidence; no live run exists). The largest output budget is the intention's 500 tokens, the sibling adapter uses 60, and a timeout shorter than a slow but working reply turns it into a timed-out attempt that is retried and possibly billed more than once, which is worse than a longer hang window. Revisit with measured p95/p99 per task. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_CONCURRENCY` | In-flight cap for this adapter. Default 8. It does not share the anthropic cap. |
 | `NESTED_WORLDS_OPENAI_COMPATIBLE_SLOT_WAIT_SECONDS` | Longest wait for a free slot under that cap when the caller passes no timeout. Default 10. Moderation waits its own 3 seconds. It does not share the anthropic setting. |
 
@@ -296,9 +299,34 @@ model id only after `_model_mark` in `persistence/__init__.py`: surrounding
 whitespace is stripped, and a non-string, a blank, a control character, or
 a value longer than 200 characters is dropped rather than stored or
 truncated. A server may echo an alias such as `latest`; that string is
-kept when it survives that function. The evaluation harness is unchanged.
-Production enablement is a separate decision and is not made by registering
-this adapter.
+kept when it survives that function. The evaluation harness selects
+whichever registered adapter the candidate names (`fixture` offline;
+`anthropic` and `openai_compatible` are the built-ins). A live run is
+opt-in and refuses without an explicit spend ceiling (`--max-usd` and
+`--max-calls`) and that explicit provider. A non-anthropic live run also
+refuses unless `--allow-destination` equals the lowercased hostname of the
+resolved base URL for that run. The approval is the hostname, so it covers
+every port on that host. A different case, a trailing dot, a substring, or
+a suffix does not match. There is no default list, no environment default,
+and no wildcard. Passing the flag for `anthropic` accepts only
+`api.anthropic.com`. `anthropic` must price cache writes at a positive
+rate; explicit zero and explicit null are refused, because that adapter
+writes cache and either rate would let the ceiling undercount. For any
+other provider an explicit null means the pre-call reserve does not bound
+cache writes. The result records `budget.cache_writes_bounded: false`, and
+a positive write count halts the run. The run records the candidate timeout and, for `openai_compatible`,
+the resolved reasoning effort, output-limit parameter, schema flag, and
+store flag. The URL and the credential are not stored. The harness does not set a base URL, a model id, or a default
+provider, and it does not read `NESTED_WORLDS_PROVIDER` to fill one in.
+`anthropic` still refuses any base URL other than the reviewed
+`https://api.anthropic.com` destination. A live call with no explicit
+timeout uses the candidate's `timeout_seconds`. Known usage is priced. An
+unknown count stays unknown, and a lower bound from the known counts stops
+the run when it exceeds the reserve. Production enablement is a separate
+decision and is not made by registering this adapter or by pointing the
+harness at it. ADR-035 stays Proposed. Destination approval for prompts
+that can carry player text remains the owner's decision; the flag records
+the operator's approval for that one run.
 
 ## Voice and caching
 

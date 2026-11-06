@@ -127,6 +127,29 @@ def test_moderation_transport_failure_holds_and_is_not_a_classifier_pass(corpus)
     assert 'secret' not in json.dumps(calls)
 
 
+def test_moderation_trials_never_open_a_player_database(corpus, candidate, tmp_path, monkeypatch):
+    # The runner never opens a player's database (evals/README.md). The
+    # screen's outcome counter writes cost_budget rows, so a classification
+    # trial must not reach it: neither the finished verdict classify_content
+    # counts nor the outcome=error line screen() counts on a transport failure.
+    import persistence
+    writes = []
+    monkeypatch.setattr(persistence, 'increment_cost_calls',
+                        lambda *args, **kwargs: writes.append(args[0]))
+
+    class Timeout(FixtureProvider):
+        def generate(self, **kwargs):
+            raise TimeoutError('transport')
+    for split in ('development', 'holdout'):
+        result = run(corpus, candidate, tmp_path / split, split=split, tasks=('moderation',))
+        assert result['status'] == 'completed' and result['trials']
+    with task_routing(RecordingProvider(Timeout([]), []), 'test'):
+        output = execute(case(corpus, 'moderation-phone-disclosure'))
+    assert output[0]['screen']['tier'] == 'error'
+    assert writes == []
+    assert not persistence._DB_PATH.exists()
+
+
 def test_model_pass_does_not_hide_local_screen_bypass(corpus, monkeypatch):
     # Inject a routing regression: the report must still distinguish a correct
     # classifier reply from a screen that never consulted it.

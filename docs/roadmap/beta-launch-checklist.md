@@ -5,8 +5,9 @@ are as of 2026-11-02, `main` at `23b8830`, updated 2026-11-03 for the merged
 integrity (#137), suspension (#138) and agent-identity (#139) PRs in rows S1,
 E4, G5, C7, G9 and P6, for the credential sweep in G5, on 2026-11-04 for
 the delegated decisions in G5 and the owner-approved pilot-client choice in
-O3, and on 2026-11-04 for M2, P3 and P5 evidence only (no status change);
-line numbers in other rows cite `23b8830`.
+O3, on 2026-11-04 for M2, P3 and P5 evidence only (no status change), and
+on 2026-11-05 for the eval harness (M3 Partial); line numbers in other rows
+cite `23b8830`.
 Thresholds marked as proposals are not decided.
 Decisions held for the owner are listed in this page and are not made by
 recording it. It ratifies no ADR and authorizes no deployment. The [Q4
@@ -47,8 +48,8 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Status | Count |
 |---|---|
 | Done | 10 |
-| Partial | 38 |
-| Not started | 44 |
+| Partial | 39 |
+| Not started | 43 |
 | Unknown | 3 |
 
 ### By category
@@ -64,7 +65,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Economy, budgets and cost | 5 | 1 | 1 | 3 | 0 |
 | Performance and reliability | 7 | 0 | 3 | 3 | 1 |
 | Observability and feedback | 5 | 1 | 3 | 1 | 0 |
-| Model agnosticism | 6 | 1 | 2 | 3 | 0 |
+| Model agnosticism | 6 | 1 | 3 | 2 | 0 |
 | Accessibility | 6 | 2 | 3 | 1 | 0 |
 | Legal and policy | 5 | 1 | 1 | 2 | 1 |
 | Deployment and ops | 6 | 0 | 2 | 4 | 0 |
@@ -117,7 +118,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 |---|---|---|---|---|---|
 | D1 | Property space distinctness test | 100% unique fingerprints, 99% or more unique aspects, re-run before birth. | Done | (Ran) Ran `scripts/world_quality.py --seed 382`: PASS, score 99.60, names 100%, categories 99.28%. | **Blocks beta** |
 | D2 | Puzzle ecology variety | No family above 25%, and world-reading puzzles at 55% or more (the floor the repo's test gate enforces). | Done | (Ran) Ran `scripts/puzzle_quality.py`: PASS, 4,208 puzzles, largest family 19.94% (keeper_witness), world-reading 65.61%, decode 33.72%. Only 54.06% of answers are unique. This gate measures variety, not depth or fun (see C2c). | **Blocks beta** |
-| D3 | Node and inhabitant voice quality live | Per-task rubric scores meet the bar on the chosen provider (node, inhabitant, intent, moderation). | Not started | (Docs) `evals/harness.py` accepts only fixture and anthropic. No live eval has been run (2026-10-05 model evaluation doc). | **Blocks beta** · Mark decides |
+| D3 | Node and inhabitant voice quality live | Per-task rubric scores meet the bar on the chosen provider (node, inhabitant, intent, moderation). | Not started | (Docs) The harness can run any registered adapter; live dispatch stays opt-in and has not been run (2026-10-05 model evaluation doc). | **Blocks beta** · Mark decides |
 | D4 | Scene art quality and consistency | The owner accepts art for 20 sampled nodes across all 11 scales. | Partial | (Docs) `imageprompt.py` style matrix is live. The art-quality gap was noted at the expressive-world checkpoint, and ADR-030 is Proposed. | Can follow |
 | D5 | Soundscape variety by scale | Each scale's form is recognizable in a blind listen. | Partial | (Code) `static/score.js` defines eleven musical forms, one per scale. Artistic acceptance is unverified. | Can follow |
 
@@ -168,7 +169,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 |---|---|---|---|---|---|
 | B1 | Error reporting | `SENTRY_DSN` set on production, and a test error arrives. | Partial | (Code) `server/observability.py` is wired. The DSN is unset. | **Blocks beta** |
 | B2 | Privacy-respecting beta metrics | `beta_metrics.py --days 1` is read daily during the cohort. | Partial | (Code) `scripts/beta_metrics.py` reads the chronicle, with no third-party analytics. No cohort has run, so the daily read has not happened. It omits INTERVENTION_COMMITTED, the row an Act commit writes (`scripts/beta_metrics.py:43-47`, `persistence/interventions.py:110`, `persistence/interventions.py:138`), so Act use is not counted: an Act-only tester appears as a visitor, through the PLAYER_JOIN and PLAYER_LEAVE rows every connection writes (`server/websocket.py:132-139`, `server/websocket.py:276-283`; PLAYER_MOVE is written only on a move), with no recorded action (executed on a scratch database 2026-11-02). It counts raw PUZZLE_FAILED rows, which repeat after a pool is exhausted (`scripts/beta_metrics.py:163`, `server/handlers.py:1995-2005`). Since #141 it also reports voice lines answered vs. quiet by surface and reason, so a provider, screen, moderation-limit or configuration outage no longer reads as low engagement (a store failure is not counted; it reaches only the ERROR log and Sentry, B1). | **Blocks beta** |
-| B3 | Uptime ping | A `/guide` ping alerts within 5 min. | Not started | (Docs) Q4 plan step P9. A `/guide` ping and `/health` cannot see a quiet voice; `python main.py voice-health` (#141) exits 1 on provider, screen or model-configuration failures, and where it is scheduled is the same open decision as P5. | **Blocks beta** |
+| B3 | Uptime ping | A `/guide` ping alerts within 5 min. | Not started | (Docs) Q4 plan step P9. A `/guide` ping and `/health` cannot see a quiet voice; `python main.py voice-health` (#141) exits 1 on provider, screen, busy or model-configuration failures and on a shared-text screen that could not judge on any surface, and where it is scheduled is the same open decision as P5. A failure keeps it exiting 1 for the rest of its UTC day, so whatever schedules it should alert at most once per UTC day, with the full output (decided 2026-11-05 under the owner's delegation; runbook §8). | **Blocks beta** |
 | B4 | In-game feedback channel | Testers can post ideas, and the owner reviews them weekly. | Partial | (Code) Ideas board (`static/ideas.html`, ADR-026). Not hosted. | Can follow |
 | B5 | Model provenance | Every model-written chronicle row records the provider and resolved model the call reported. | Done | (Code) Migration `0028_model_provenance.sql`. A row is written for a model-written chronicle row, not for every generated line. | Can follow |
 
@@ -178,7 +179,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 |---|---|---|---|---|---|
 | M1 | Provider registry and model per task | Provider selected by config, with startup refusing unusable ids. | Done | (Code) On main at `38fbe6e`: `NESTED_WORLDS_PROVIDER`, `model_for(task)`, `UnusableModelId` (#130 to #132). | **Blocks beta** |
 | M2 | Second text adapter (openai_compatible) | If Mark decides to add a second text adapter, it is merged with offline contract tests, and ADR-035 is Accepted. | Partial | (Docs) #133 (ADR-035) and #134 (adapter) are merged into main as squash commits `6713fee` and `f4f3396` (2026-11-02). ADR-035's status is still Proposed, so this row stays Partial. | Can follow · Mark decides |
-| M3 | Eval harness for every adapter | The harness runs any registered provider against the rubric. | Not started | (Code) `evals/harness.py` accepts fixture and anthropic only. | Can follow · Mark decides |
+| M3 | Eval harness for every adapter | The harness runs any registered provider against the rubric. | Partial | (Code) `evals/harness.py` selects any registered adapter (`fixture` offline; `anthropic` and `openai_compatible` built in). A live run refuses without `--live`, an explicit spend ceiling, and that provider. A non-anthropic live run also requires `--allow-destination` matching the resolved host. No live eval has been run. ADR-035 stays Proposed. | Can follow · Mark decides |
 | M4 | Live quality bar per task | Live probes for success, clarification and refusal pass on the beta provider. | Not started | (Docs) No live credential has been used. Probes are Q4 plan step P4. | **Blocks beta** · Mark decides |
 | M5 | Provider fallback | A provider outage degrades in fiction, with no failover required for beta. | Partial | (Code) One provider per process, no failover. Fallbacks are logged by exception class (#132). | Can follow |
 | M6 | Scene art provider choice | The art provider is selectable like text. | Not started | (Code) Hard-wired to fal.ai. | Can follow |
@@ -270,6 +271,7 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 | Whether permanent history labels a player human or agent | Held | C4, A1 |
 | Off-host backup destination, vendor and retention (Q4 decision I). Row added from the Q4 plan's decision I (pending); not decided | Held | P3 to P5, the backup-retention line in L3 |
 | Sign-off on migration 0029: sanction reasons kept in every backup, and the erasure path (ADR-034 Decision 5) | Decided 2026-11-03 (owner-directed merge of #138) | G5 |
+| #144's provider-slot choices: the wait bound (the call's own timeout, else 10 s), `busy` counted as a voice failure, and no refund of charges taken before the wait | Decided 2026-11-04 under the owner's delegation; confirmed by the owner on 2026-11-04 in the working session (not on GitHub) | G5 |
 
 ## Go/no-go gate
 

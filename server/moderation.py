@@ -31,7 +31,10 @@ Design note on false positives: only the exact word-boundary tier can block
 on its own. The fuzzier signals never block locally — they only escalate.
 A flaky classifier holds the ambiguous line instead of publishing it.
 `moderation_call` records the outcome (allow, block, undecided, error,
-busy, disabled, budget, user_cap) with no player text and no raw address.
+busy, disabled, budget, user_cap) with no player text and no raw address,
+and each logged line bumps one daily counter per surface and outcome
+(`observability.moderation_outcome`), which `python main.py voice-health`
+reads.
 """
 from __future__ import annotations
 
@@ -43,7 +46,7 @@ from content_screen import (
     _words, _squeeze, _SEVERE_WORDS, _EVASION_SEQUENCES, _env_terms,
     local_tier as _local_tier,
 )
-from server import guard
+from server import guard, observability
 
 _log = logging.getLogger("nested_worlds.moderation")
 
@@ -150,12 +153,14 @@ def _moderation_log(outcome: str, surface: str, elapsed_ms: float | None = None)
     # hashes it with observability.hash_ip before it ever reaches this line.
     # Only the outcome=error and outcome=busy lines carry elapsed
     # milliseconds: a finished verdict is logged by classify_content, and
-    # the other refusals are decided before a model call.
+    # the other refusals are decided before a model call. Each line is
+    # counted once, here; classify_content counts the verdict it logs.
     if elapsed_ms is None:
         _log.info("moderation_call outcome=%s surface=%s", outcome, surface)
     else:
         _log.info("moderation_call outcome=%s surface=%s ms=%.0f",
                   outcome, surface, elapsed_ms)
+    observability.moderation_outcome(surface, outcome)
 
 
 def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -> Verdict:

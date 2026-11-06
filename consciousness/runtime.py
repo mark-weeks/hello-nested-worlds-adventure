@@ -416,6 +416,28 @@ def provider_names() -> tuple[str, ...]:
     return tuple(sorted(names))
 
 
+def build_provider(name: str) -> TextProvider:
+    """Instantiate one registered adapter by the name the caller passed.
+
+    This does not read ``NESTED_WORLDS_PROVIDER``, does not apply
+    ``DEFAULT_PROVIDER``, and does not cache the instance as the process
+    selection. ``get_provider`` remains the seam for a running server.
+    The evaluation harness uses this so a candidate names its adapter and
+    no other adapter is substituted. A blank, unsafe, or unknown name
+    raises ``ValueError``. An unsafe value is not included in the message.
+    """
+    if not isinstance(name, str) or _PROVIDER_NAME.fullmatch(name.strip().lower()) is None:
+        raise ValueError("provider has no evaluated adapter; no implicit fallback")
+    text = name.strip().lower()
+    with _registry_lock:
+        factory = _BUILTINS.get(text)
+        if factory is None:
+            factory = _REGISTERED.get(text)
+    if factory is None:
+        raise ValueError("provider has no evaluated adapter; no implicit fallback")
+    return factory()
+
+
 def _valid_suffix() -> str:
     return "valid: " + ", ".join(provider_names())
 

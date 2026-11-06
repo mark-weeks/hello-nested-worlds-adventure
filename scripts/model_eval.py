@@ -27,6 +27,8 @@ def main():
     execute.add_argument("--live", action="store_true")
     execute.add_argument("--max-usd", type=float)
     execute.add_argument("--max-calls", type=int)
+    execute.add_argument("--allow-destination", default=None,
+                         help="Exact host for a non-anthropic live run. No wildcard and no default.")
     execute.add_argument("--brief", type=Path)
     review = commands.add_parser("review")
     review.add_argument("run", type=Path)
@@ -60,6 +62,7 @@ def main():
                          split=args.split, repeats=args.repeats, seed=args.seed,
                          tasks=args.task or TASKS, live=args.live,
                          max_usd=args.max_usd, max_calls=args.max_calls,
+                         allow_destination=args.allow_destination,
                          brief=read_json(args.brief) if args.brief else None)
             text, data = report(result)
             (args.output / "report.md").write_text(text, encoding="utf-8")
