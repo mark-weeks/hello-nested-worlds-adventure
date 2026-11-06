@@ -25,8 +25,9 @@ _DIGEST = (
 
 _STUB = r"""#!/bin/bash
 # Models flyctl, not a shell.
-# ssh console -C and console -C split the command on whitespace and exec
-# it. A bare VAR=value is the program name and fails. fly machine run
+# ssh console -C and console -C shell-split (shlex.split), then exec
+# directly; quotes are syntax. A bare VAR=value is the program name and
+# fails. fly machine run
 # prints launch metadata only; it does not return guest stdout.
 set -u
 log="${FLY_STUB_LOG:?}"
