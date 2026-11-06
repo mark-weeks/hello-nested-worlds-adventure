@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import "../../../static/intents.js";
 import { withKey } from "../auth.js";
+import { SPEAK_UNREACHED_LINE } from "../arrival.js";
 import Interventions from "./Interventions.jsx";
 
 // Node interaction panel: the two core-loop mechanics the /app client was
@@ -97,7 +98,7 @@ function Speak({ node, seed, playerName }) {
       setResponse(data.error || data.response || "(no response)");
       setState(data.error ? "error" : "ok");
     } catch (e) {
-      setResponse("Your words did not reach this place. Try speaking again.");
+      setResponse(SPEAK_UNREACHED_LINE);
       setState("error");
     }
   }, [message, node, seed, playerName, state, target]);

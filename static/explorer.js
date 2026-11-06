@@ -79,8 +79,11 @@ const {
   nodeAddress,
   nodeMark,
   observationRow,
+  openWorld,
   restoreChatInput,
   resumeDepth,
+  SPEAK_UNREACHED_LINE,
+  WORLD_UNREACHED_LINE,
   wrapAffordance,
 } = window.EnfoldedClient;
 
@@ -176,9 +179,15 @@ async function loadWorld() {
     const { depth } = worldParams;
     // The server chooses the world. Its returned seed is carried only as the
     // identity needed by subsequent requests and deterministic senses.
-    const res  = await fetch(withKey(`/world?depth=${depth}`));
-    const data = await res.json();
-    if (!res.ok || data.error) throw Object.assign(new Error(data.error || 'The world could not be reached. Try opening the view again.'),{status:res.status});
+    const opened = await openWorld(url => fetch(url), withKey(`/world?depth=${depth}`), !!betaKey());
+    if (opened.unopened) {
+      setStatus(opened.unopened.line);
+      // Before any place is in hand the map is empty; say it where a place
+      // would be described, not only in the status bar.
+      if (!selected) document.getElementById('node-description').textContent = opened.unopened.line;
+      return;
+    }
+    const data = opened.data;
     worldParams.seed = data.seed;
     wrapInfo = data.wrap || null;
     investigationEntry = data.entry_node || null;
@@ -187,8 +196,9 @@ async function loadWorld() {
     renderTree(data.world, { preservePresence: sameWorld });
     if (playerName && !sameWorld) wsConnect(data.seed);
     if (!sameWorld) loadHistoryFeed(data.seed);
-  } catch (e) {
-    setStatus(e.status ? e.message : 'The world could not be reached. Try opening the view again.');
+  } catch (_) {
+    // The world arrived but could not be drawn.
+    setStatus(WORLD_UNREACHED_LINE);
   } finally {
     document.getElementById('gen-btn').disabled = false;
   }
@@ -781,9 +791,9 @@ async function speak() {
     box.className   = data.error ? 'response-box error' : 'response-box';
     setStatus('Ready');
   } catch (e) {
-    box.textContent = 'Network error: ' + e.message;
+    box.textContent = SPEAK_UNREACHED_LINE;
     box.className   = 'response-box error';
-    setStatus('Error');
+    setStatus(SPEAK_UNREACHED_LINE);
   }
 }
 
