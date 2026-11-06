@@ -37,8 +37,10 @@ headless-Chrome secure-context probe, `npm audit` on scratch lockfile copies,
 Everything else was **read**. **Not run** by anyone: anything hosted, any live
 model call, and the Node 20 build, Vitest and Playwright (the readers had
 Node 22 only); Fly's documentation did not resolve. For this record the
-renewal and `/chronicle` findings were re-executed on a scratch database at
-`18e5bbd`; other "executed" findings were run by the readers and re-read here.
+renewal and `/chronicle` findings were re-executed on scratch databases at
+`18e5bbd`, and again after review, through the cascade path and the cast's own
+payload (findings 2 and 6); other "executed" findings were run by the readers
+and re-read here.
 
 ## Confirmed findings
 
@@ -59,19 +61,37 @@ renewal and `/chronicle` findings were re-executed on a scratch database at
    with `NESTED_WORLDS_HEARTBEAT=0` until cohort day (`server/heartbeat.py:22`)
    was named by the critic but not weighed. *Read; the consequence is
    inferred.*
-2. **The packet's recommended 3(b) could not renew a Room once decay had
-   disturbed it.** `_maybe_rearm` runs only when a decay event changes the node
-   (`causality/wiring.py:90-95`) and only while solves outnumber re-arms
-   (`causality/wiring.py:62-69`). Rooms carry neither `danger_level` nor
-   `condition` (`multiverse/generator.py:342-354`), so `DANGER_ALERT` changes a
-   Room once, to `{'disturbed': True}`, and then returns nothing
-   (`multiverse/effects.py:75-83`, `multiverse/effects.py:94-95`). *Executed
-   for this record* on seed 382: 296 Rooms, 140 locked, none with
-   `danger_level` or `condition`; `compute_event_effects({}, DANGER_ALERT,
-   1.0)` gave `{'disturbed': True}` and `({'disturbed': True}, ...)` gave
-   `None`. Under (b) as written, one exhausted pool could have sealed a locked
-   Room for everyone outside it for good. The seal would still never imprison
-   anyone already inside (`puzzles/gates.py:82`).
+2. **The packet's recommended 3(b) could renew a failed Room only a few
+   times in its life.** `_maybe_rearm` runs only when a decay event changes
+   the node (`causality/wiring.py:90-95`) and only while solves outnumber
+   re-arms (`causality/wiring.py:62-69`). Rooms carry neither `danger_level`
+   nor `condition` (`multiverse/generator.py:342-354`), so decay changes a
+   Room in three ways only. `DANGER_ALERT` sets `disturbed`, once
+   (`multiverse/effects.py:75-80`). A `STRUCTURAL_CHANGE` that a destabilizer
+   starts on a child Object (`server/heartbeat.py:170-178`; every Object
+   carries `condition`) is staged up to the Room as the same event kind
+   (`causality/staging.py:76-80`, fired at `causality/staging.py:160`) and
+   sets `fractured`, once (`multiverse/effects.py:85-92`); only Objects can
+   be mended (`multiverse/verbs.py:276`). `DANGER_ALERT` also clears
+   `stabilized` (`multiverse/effects.py:81-83`), which only a solve sets
+   (`multiverse/effects.py:69-71`). A failure sets nothing. So under (b) as
+   written, a failed Room renews by decay only while one of its two one-time
+   flags is unset, or while it still carries `stabilized` from an earlier
+   solve. Once it is disturbed and fractured and not stabilized, a failed
+   puzzle there is never renewed, and its seal stays shut to everyone
+   outside. The seal would still
+   never imprison anyone already inside (`puzzles/gates.py:82`). *Executed
+   for this record* on a scratch seed-382 database at `18e5bbd`: 296 Rooms,
+   140 locked, none with `danger_level` or `condition`, and 449 of 449
+   Objects with `condition`. On one locked puzzle Room, a bare
+   `PUZZLE_SOLVED` row stood in for a resolved epoch, because it changes no
+   property, as a failure would not. A second `DANGER_ALERT` then re-armed
+   nothing. A `STRUCTURAL_CHANGE` on a child Object, with its staged hops
+   drained, set `fractured` and wrote the first `PUZZLE_REARM`. After a second
+   bare row, neither event changed the Room or re-armed it. Only a solve
+   through the substance handler, which set `stabilized`, let the next
+   `DANGER_ALERT` re-arm once more. The first version of this finding tested
+   `DANGER_ALERT` alone and missed the cascade path; review found it.
 3. **F10 still holds.** After a shared pool fails, every further wrong guess
    is accepted, `failed` is recomputed (`server/handlers.py:2114`), and the
    answer is released again (`server/handlers.py:2169`); the released answer
@@ -101,11 +121,24 @@ renewal and `/chronicle` findings were re-executed on a scratch database at
    `/chronicle` serves the page unfiltered (`server/handlers.py:977-993`).
    A cast member's own acts store its name as `actor_identity`
    (`server/heartbeat.py:198-200`); a keyed human's is a credential hash.
-   *Executed for this record:* an ambient `PUZZLE_SOLVED` read back through
-   `get_chronicle` had data `{'agent': 'Tessera', 'persona': 'destabilizer',
-   ...}`. The line builder both clients share falls back to `data.agent` for
-   the actor's name (`static/clientlogic.js:249`), so removing the key needs a
-   client change, not a quick HTTP strip.
+   *Executed for this record:* the payload was built by the cast's own
+   `Agent(name="Tessera", world_seed=382)._payload(puzzle=..., difficulty=1)`,
+   as `server/heartbeat.py:486-487` builds it, sent as an ambient
+   `PUZZLE_SOLVED` through `_ambient_event`, and read back with
+   `get_chronicle`: data `{'agent': 'Tessera', 'persona': 'tender', 'puzzle':
+   ..., 'difficulty': 1}` (Tessera is a tender, `agents/roster.py:47`). The
+   first version of this record quoted a hand-written payload instead; review
+   caught it. The stored `agent` key must stay. The agent-solve covenant
+   depends on it: rows carrying it are left out of co-op solves
+   (`persistence/__init__.py:609`) and seal signals
+   (`persistence/__init__.py:1240`). The cast's Speak targets and
+   `agent_memory` are keyed by it, and it is not redactable
+   (`agents/identities.py:3-6`). The chronicle is append-only. So any
+   de-labelling applies to what `/chronicle` serves (the `persona` keys, and
+   how `agent` and `actor` are presented), never to the write path. The line
+   builder both clients share falls back to `data.agent` for the actor's name
+   (`static/clientlogic.js:249`), so that projection also needs a client
+   change, not a quick HTTP strip.
 7. **A returning tester whose stored key is gone sees a loading screen
    forever.** `/app` removes `key=` from the address bar on first load
    (`frontend/src/auth.js:21-28`) and afterwards reads it only from local
@@ -183,12 +216,13 @@ the evaluation raised. Quoted words are the owner's.
    temporary world." The Fly twin stays mandatory for P4 and production. The
    watch's voice mode was not decided.
 5. **Puzzle failure (packet decision 3): options superseded by direction.**
-   Puzzles "can have personalities of sorts": too many failed attempts annoy a
-   puzzle, which tells the player to go away and leave it alone; a close
-   answer excites it, and it encourages the player to try again.
-   Attempts and lock periods are "dynamic in this way rather than fixed and
-   static." AI agents "do not solve puzzles independently. However, they can
-   cooperate with human players to help solve puzzles."
+   Puzzles "can have personalities of sorts": after too many failed attempts
+   a puzzle "may get annoyed" and tell the player to go away and leave it
+   alone; if an answer is close, the puzzle may "get excited by the progress"
+   and encourage the player to try again. Puzzle attempts and lock periods
+   "can be dynamic in this way rather than fixed and static." The owner also
+   wrote: "I suggest that AI agents do not solve puzzles independently.
+   However, they can cooperate with human players to help solve puzzles."
 6. **S5 chat permanence stays open.** The owner asked: "chat history impacts
    the evolution of the world - it's current state, historical states, and
    progress. To that end, don't we need to preserve chat history?" No decision
@@ -206,8 +240,9 @@ the evaluation raised. Quoted words are the owner's.
   agents are muted and reported like anyone else. Mute and report are still
   unbuilt, still need a migration door, and report's chat evidence still
   waits on S5.
-- **Not buildable yet:** the puzzle-failure candidate. Its (b) mechanism is
-  refuted (finding 2), and the owner's direction needs a Proposed ADR.
+- **Not buildable yet:** the puzzle-failure candidate. Its (b) mechanism
+  cannot keep renewing a failed Room (finding 2), and the owner's direction
+  needs a Proposed ADR.
 - **Decided:** the venue part of the watch-kit candidate. The kit now records
   the ruling, uses consent wording that follows guardrail (b) for today's
   build, and cites `18e5bbd`.

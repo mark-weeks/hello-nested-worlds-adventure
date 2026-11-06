@@ -20,7 +20,9 @@ further ruling. The owner also decided on 2026-11-06 that agents will not be
 labeled and will answer truthfully when sincerely asked whether they are AI;
 that work is not built yet, so the consent wording in the facilitator script
 below describes today's build. File and line citations were refreshed to
-`main` at `18e5bbd` by matching the cited text; the dated executions below
+`main` at `18e5bbd` by matching the cited text, except that citations of
+protocol 2 follow its text with the 2026-11-06 venue line, so those after
+that line sit 2 lines lower than at `18e5bbd`; the dated executions below
 are unchanged evidence. Confounds the
 [2026-11-06 evaluation](2026-11-06-next-build.md) found (the "Try again
 tomorrow" Speak line with AI disabled, a reopened failed puzzle that releases
@@ -50,8 +52,9 @@ scratch database outside the repository on 2026-11-02. Updated 2026-11-03:
 the invite-gate fact and the display-name rule (step 4 below) changed when
 #137 and #139 merged, and they cite the merged code. The invite destination
 was updated from source on 2026-11-04 as noted above. On 2026-11-06 every
-file and line citation was refreshed to `18e5bbd`; where the cited code had
-changed, the fact was re-read there and still holds.
+file and line citation was refreshed to `18e5bbd` (protocol 2's to its text
+with the 2026-11-06 venue line); where the cited code had changed, the fact
+was re-read there and still holds.
 
 | Fact | Evidence | What it means for the session |
 |---|---|---|

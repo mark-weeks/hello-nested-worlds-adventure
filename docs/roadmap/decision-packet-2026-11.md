@@ -25,7 +25,7 @@ All recommendations in this table are proposed by agent; not decided, except dec
 |---|---|---|---|---|
 | 1 | [S5: is chat kept in the never-wipe chronicle?](#1-s5-chat-permanence) | Hard: the first production chat line. Practical: before the report queue is built (next week) | The S5 go/no-go line; report evidence (S3, G2); the privacy notice's chat sentence (L3); consent wording | (c) an operator-only chat log with a short retention window, kept out of the chronicle and out of prompts |
 | 2 | [Newcomer-watch venue](#2-newcomer-watch-venue) | Decided 2026-11-06 | O1 to O4 observations; C2c ratings; Q4 steps P6 and P7 | **Decided 2026-11-06: (a), as recommended.** A local, declared-disposable world for the onboarding watch only; the Fly twin stays mandatory for P4 and production. The watch's voice mode was not decided |
-| 3 | [Puzzle failure semantics](#3-puzzle-failure-semantics) | Direction set 2026-11-06; the details need a Proposed ADR before the release-candidate scope freeze | The fix; honest C2a and C2c counts | **Superseded 2026-11-06 by owner direction:** puzzles have personalities, attempts and lock periods are dynamic, and agents help humans solve but never solve on their own. Details wait on a Proposed ADR. *As prepared:* refuse attempts after a failure, and re-arm failed puzzles through decay with the condition "current epoch resolved (solved or failed)"; the 2026-11-06 evaluation found that this re-arm could not renew a Room once decay had disturbed it |
+| 3 | [Puzzle failure semantics](#3-puzzle-failure-semantics) | Direction set 2026-11-06; the details need a Proposed ADR before the release-candidate scope freeze | The fix; honest C2a and C2c counts | **Superseded 2026-11-06 by owner direction:** puzzles can have personalities, attempts and lock periods can be dynamic, and the owner suggested that agents help humans solve rather than solve on their own. Details wait on a Proposed ADR. *As prepared:* refuse attempts after a failure, and re-arm failed puzzles through decay with the condition "current epoch resolved (solved or failed)"; the 2026-11-06 evaluation found that this re-arm stops renewing a failed Room once decay has disturbed and fractured it, unless an earlier solve left it stabilized |
 | 4 | [World status (Q4 B)](#4-world-status-q4-decision-b) | Before any copy goes to recruits, and before the first invited outside player | R3, K2, "World status declared"; the permanence copy on `/register` and in the guide; L3 | Production for the cohort world if P4's restore and freshness checks pass; any staging or local watch declared disposable |
 | 5 | [Minimum tester age (S4)](#5-minimum-tester-age-s4) | Before recruitment (Q4 P5) and before any terms or invite text | S4; the terms text (L2); the invite template | 18 or older |
 | 6 | [Re-plan date (Q4 A, lapsed Oct 10)](#6-re-plan-date-q4-decision-a) | Now | Every dated step | Do not adopt the mechanical November 29 date. Plan an early-to-mid January cohort and set the exact date after the watch, once Fly timing is known |
@@ -131,11 +131,11 @@ wanted, decision 10's scoped slice.
 set aside options (a) to (d) below. Puzzles "can have personalities of
 sorts": after too many failed attempts a puzzle may get annoyed and tell the
 player to go away and leave it alone, and a close answer may excite it into
-encouraging the player to try again. Attempts and lock periods are
-"dynamic in this way rather than fixed and static." The owner also directed
-that AI agents do not solve puzzles independently; they cooperate with human
-players to help solve them. Not decided, and left for a Proposed ADR before
-anything is built:
+encouraging the player to try again. Puzzle attempts and lock periods "can
+be dynamic in this way rather than fixed and static." The owner also wrote:
+"I suggest that AI agents do not solve puzzles independently. However, they
+can cooperate with human players to help solve puzzles." Not decided, and
+left for a Proposed ADR before anything is built:
 
 - whether annoyance applies to one player or to everyone at the puzzle;
 - whether an agent may submit an answer or only suggest one;
@@ -143,20 +143,27 @@ anything is built:
   (`tests/test_puzzles.py`) and per-node difficulty (AGENTS.md);
 - how a puzzle renews once it has been failed or has sent a player away.
 
-The 2026-11-06 evaluation also found that the recommended (b) could not renew
-a Room once decay had disturbed it. `_maybe_rearm` runs only when a decay
-event changes the node (`causality/wiring.py:90-95`) and only while solves
-outnumber re-arms (`causality/wiring.py:62-69`). Rooms carry neither
-`danger_level` nor `condition` (`multiverse/generator.py:342-354`), so
-`DANGER_ALERT` changes a Room once, to `{'disturbed': True}`, and after that
-returns nothing (`multiverse/effects.py:75-83`,
-`multiverse/effects.py:94-95`). Executed on 2026-11-06 at
-`18e5bbd` on a scratch database for seed 382: 296 Rooms, 140 of them locked,
-none with `danger_level` or `condition`; `compute_event_effects` returned
-`{'disturbed': True}` for a fresh Room and `None` for `{'disturbed': True}`.
-Whatever the ADR chooses, renewal needs a clock that does not depend on a
-material change. Audit F10 still holds at `18e5bbd` (re-executed by the
-2026-11-06 evidence pass, lines re-read for this record): `failed` is
+The 2026-11-06 evaluation also found that the recommended (b) could renew a
+failed Room only a few times in its life. `_maybe_rearm` runs only when a
+decay event changes the node (`causality/wiring.py:90-95`) and only while
+solves outnumber re-arms (`causality/wiring.py:62-69`). Rooms carry neither
+`danger_level` nor `condition` (`multiverse/generator.py:342-354`), so decay
+changes a Room in three ways only: `DANGER_ALERT` sets `disturbed` once
+(`multiverse/effects.py:75-80`); a `STRUCTURAL_CHANGE` cascading up from a
+child Object sets `fractured` once (`server/heartbeat.py:170-178`,
+`causality/staging.py:76-80`, `multiverse/effects.py:85-92`), and nothing
+mends a Room; and `DANGER_ALERT` clears `stabilized`, which only a solve sets
+(`multiverse/effects.py:69-71`, `multiverse/effects.py:81-83`). A failure
+sets nothing, so once a Room is disturbed and fractured and not stabilized,
+decay never renews a failed puzzle there. Executed on 2026-11-06 at `18e5bbd` on a scratch
+database for seed 382: 296 Rooms, 140 of them locked, none with
+`danger_level` or `condition`; on a locked puzzle Room, `DANGER_ALERT` set
+`disturbed`, a cascaded `STRUCTURAL_CHANGE` from a child Object set
+`fractured` and re-armed once, and after that neither event changed or
+re-armed the Room until a solve set `stabilized` again. Whatever the ADR
+chooses, renewal needs a clock that does not depend on a material change.
+Audit F10 still holds at `18e5bbd` (re-executed by the 2026-11-06 evidence
+pass, lines re-read for this record): `failed` is
 recomputed on every wrong guess (`server/handlers.py:2114`) and the answer is
 released with every failure (`server/handlers.py:2169`).
 
