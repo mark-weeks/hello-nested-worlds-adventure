@@ -1,6 +1,7 @@
 import argparse
 import logging
 import secrets
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -389,8 +390,12 @@ def cmd_schema_version(_args):
     Read-only: the database is not created and no migration runs. Exit 1
     when the chronicle is newer than this binary.
     """
-    known = persistence.known_schema_version()
-    applied = persistence.read_applied_schema_version()
+    try:
+        known = persistence.known_schema_version()
+        applied = persistence.read_applied_schema_version()
+    except sqlite3.Error as exc:
+        print(f"error: chronicle is unreadable: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     print(f"known {known}")
     if applied is None:
         print("applied none")
@@ -1058,6 +1063,9 @@ def main(argv=None):
         args.func(args)
     except persistence.SchemaTooNewError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    except sqlite3.Error as exc:
+        print(f"error: chronicle is unreadable: {exc}", file=sys.stderr)
         raise SystemExit(1)
 
 

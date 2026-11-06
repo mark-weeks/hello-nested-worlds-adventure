@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from merge_patch import json_merge_patch
+from persistence.schema_probe import applied_version, known_version, migration_files
 
 _DB_PATH = Path.home() / ".nested-worlds" / "worlds.db"
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
@@ -196,19 +197,10 @@ def _begin_write(conn):
 def _list_migrations() -> list[tuple[int, Path]]:
     """Return [(version, path)] for every well-named migration, sorted.
 
-    Filenames must start with a zero-padded integer followed by an
-    underscore (e.g. `0001_initial.sql`); anything else is skipped so a
-    stray README in the directory doesn't get executed.
+    The filename rule lives in ``persistence.schema_probe.migration_files``
+    so the deploy probe and this runner cannot drift apart.
     """
-    out: list[tuple[int, Path]] = []
-    for path in sorted(_MIGRATIONS_DIR.glob("*.sql")):
-        head, _, _ = path.name.partition("_")
-        try:
-            version = int(head)
-        except ValueError:
-            continue
-        out.append((version, path))
-    return out
+    return migration_files(_MIGRATIONS_DIR)
 
 
 def _sql_statements(sql: str) -> list[str]:
@@ -249,10 +241,10 @@ def known_schema_version() -> int:
     is refused. Adding a migration file advances the pin for new births
     of the schema; it does not rewrite a database that already passed it.
     """
-    versions = [version for version, _path in _list_migrations()]
-    if not versions:
+    version = known_version(_MIGRATIONS_DIR)
+    if version is None:
         raise RuntimeError("this binary ships no schema migrations")
-    return max(versions)
+    return version
 
 
 def schema_too_new_message(applied: int, known: int) -> str:
@@ -274,27 +266,7 @@ def read_applied_schema_version(path: Path | None = None) -> int | None:
 
     Read-only. Does not create the database and does not run migrations.
     """
-    db = path or _DB_PATH
-    if not db.exists():
-        return None
-    uri = f"{db.resolve().as_uri()}?mode=ro"
-    try:
-        conn = sqlite3.connect(uri, uri=True)
-    except sqlite3.Error:
-        raise
-    try:
-        conn.execute("PRAGMA query_only=ON")
-        exists = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'"
-        ).fetchone()
-        if not exists:
-            return None
-        row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
-    finally:
-        conn.close()
-    if row is None or row[0] is None:
-        return None
-    return int(row[0])
+    return applied_version(path or _DB_PATH)
 
 
 def _refuse_newer_schema(applied: set[int]) -> None:

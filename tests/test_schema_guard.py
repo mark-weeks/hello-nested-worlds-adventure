@@ -5,25 +5,18 @@ disaster restore, never an older process opened against the newer file.
 """
 from __future__ import annotations
 
-import importlib.util
 import sqlite3
-from pathlib import Path
 
 import pytest
 
 import persistence
+import persistence.schema_probe as schema_probe
 import server
 from main import main
 
-_ROOT = Path(__file__).resolve().parents[1]
-
 
 def _probe():
-    spec = importlib.util.spec_from_file_location(
-        "schema_probe", _ROOT / "scripts" / "schema_probe.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return schema_probe
 
 
 @pytest.fixture(autouse=True)
@@ -199,6 +192,84 @@ def test_cli_refuses_a_newer_chronicle_without_a_traceback(capsys):
     assert "No invite keys" not in captured.out
     assert f"schema_version {future}" in captured.err
     assert "Traceback" not in captured.err
+
+
+def test_schema_version_unreadable_chronicle_is_one_line(capsys):
+    persistence._DB_PATH.write_bytes(b"this is not a sqlite database")
+    with pytest.raises(SystemExit) as exc:
+        main(["schema-version"])
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error: chronicle is unreadable:")
+    assert "Traceback" not in captured.err
+    assert "Traceback" not in captured.out
+
+
+def _older_chronicle(tmp_path, monkeypatch):
+    mig = tmp_path / "migrations"
+    mig.mkdir()
+    (mig / "0001_a.sql").write_text(
+        "CREATE TABLE IF NOT EXISTS kept (id INTEGER);")
+    (mig / "0002_b.sql").write_text(
+        "CREATE TABLE IF NOT EXISTS added (id INTEGER);")
+    monkeypatch.setattr(persistence, "_MIGRATIONS_DIR", mig)
+    db = tmp_path / "older" / "worlds.db"
+    monkeypatch.setattr(persistence, "_DB_PATH", db)
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db)
+    conn.executescript(persistence._SCHEMA_VERSION_DDL)
+    conn.execute("INSERT INTO schema_version (version) VALUES (1)")
+    conn.execute("CREATE TABLE kept (id INTEGER);")
+    conn.commit()
+    conn.close()
+    persistence._initialized.discard(db)
+    return db
+
+
+def test_invalid_config_does_not_create_or_migrate(tmp_path, monkeypatch):
+    """A bad seed or model id exits before init_db applies anything."""
+    def bound(*_args, **_kwargs):
+        raise AssertionError("server bound a port")
+
+    monkeypatch.setattr(server, "_ThreadedServer", bound)
+
+    fresh = tmp_path / "fresh" / "worlds.db"
+    monkeypatch.setattr(persistence, "_DB_PATH", fresh)
+    monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "not-a-seed")
+    with pytest.raises(ValueError, match="invalid NESTED_WORLDS_CANONICAL_SEED"):
+        server.run()
+    assert not fresh.exists()
+
+    monkeypatch.delenv("NESTED_WORLDS_CANONICAL_SEED", raising=False)
+    monkeypatch.setenv("NESTED_WORLDS_MODEL", "")
+    with pytest.raises(SystemExit):
+        server.run()
+    assert not fresh.exists()
+
+    db = _older_chronicle(tmp_path, monkeypatch)
+    monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "not-a-seed")
+    monkeypatch.delenv("NESTED_WORLDS_MODEL", raising=False)
+    with pytest.raises(ValueError, match="invalid NESTED_WORLDS_CANONICAL_SEED"):
+        server.run()
+    assert _versions() == [1]
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute(
+            "SELECT name FROM sqlite_master WHERE name='added'").fetchone() is None
+    finally:
+        conn.close()
+
+    monkeypatch.delenv("NESTED_WORLDS_CANONICAL_SEED", raising=False)
+    monkeypatch.setenv("NESTED_WORLDS_MODEL", "")
+    with pytest.raises(SystemExit):
+        server.run()
+    assert _versions() == [1]
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute(
+            "SELECT name FROM sqlite_master WHERE name='added'").fetchone() is None
+    finally:
+        conn.close()
 
 
 def test_server_refuses_a_newer_chronicle_before_bind(monkeypatch, capsys):

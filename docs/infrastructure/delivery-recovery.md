@@ -138,13 +138,19 @@ Pruning older machine-local backups happens only after the check passes.
 Stop and use the disaster restore below when the script says the image
 schema is older than the chronicle, or when the data itself has to be
 abandoned. An older binary refuses a newer chronicle at startup, before it
-listens: `persistence.init_db` raises `SchemaTooNewError` and the process
-exits 1 without applying migrations. Putting that image on the machine
-first can crash-loop and take SSH with it. Restore from a binary that can
-still open the file, then deploy the image that matches the restored
-schema. If SSH is already failing, deploy the last image that matched the
-live schema (`fly deploy -a <app> --image <that-ref>`) so a shell exists
-again before any restore.
+listens and before it migrates: the read-only schema check and the seed
+and model checks run first, and `persistence.init_db` raises
+`SchemaTooNewError` if the chronicle is still newer. The process exits 1
+without applying migrations. A config typo in a release that also ships a
+new migration therefore leaves the chronicle on the previous schema.
+Putting an older image on the machine first can crash-loop and take SSH
+with it. Restore from a binary that can still open the file, then deploy
+the image that matches the restored schema. If SSH is already failing,
+deploy the last image that matched the live schema
+(`fly deploy -a <app> --image <that-ref>`) so a shell exists again before
+any restore. The image probe is `fly console --image`, whose stdout is the
+SSH command. `fly machine run` does not return that stdout. The ref has to
+be this app's `registry.fly.io` image.
 
 The live staging timing drill (previous release back in under 10 minutes)
 has not been run. It waits on a Fly app. The commands above are the

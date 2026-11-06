@@ -23,6 +23,10 @@ _DIGEST = (
 )
 
 _STUB = r"""#!/bin/bash
+# Models flyctl, not a shell.
+# ssh console -C and console -C split the command on whitespace and exec
+# it. A bare VAR=value is the program name and fails. fly machine run
+# prints launch metadata only; it does not return guest stdout.
 set -u
 log="${FLY_STUB_LOG:?}"
 {
@@ -32,6 +36,33 @@ log="${FLY_STUB_LOG:?}"
   done
   printf '\n'
 } >> "$log"
+
+c_arg() {
+  local prev="" arg
+  for arg in "$@"; do
+    if [[ "$prev" == "-C" || "$prev" == "--command" ]]; then
+      printf '%s' "$arg"
+      return 0
+    fi
+    prev="$arg"
+  done
+  return 1
+}
+
+# Direct exec. Not sh -c. Whitespace split, quotes stay in the token.
+direct_exec() {
+  exec python3 -c 'import os, sys
+words = sys.argv[1].split()
+if not words:
+    sys.stderr.write("exec: empty command\n")
+    raise SystemExit(127)
+try:
+    os.execvp(words[0], words)
+except OSError as exc:
+    sys.stderr.write("exec: %s: %s\n" % (words[0], exc.strerror))
+    raise SystemExit(127)
+' "$1"
+}
 
 text="$*"
 if [[ "${1:-}" == "ssh" ]]; then
@@ -49,19 +80,12 @@ if [[ "${1:-}" == "ssh" ]]; then
     fi
     exit 0
   fi
-  if [[ "$text" == *"ENFOLDED_SCHEMA_PROBE=applied"* ]]; then
-    if [[ "${FLY_STUB_EXEC_PROBE:-}" == 1 ]]; then
-      prev=""
-      c_arg=""
-      for arg in "$@"; do
-        if [[ "$prev" == "-C" ]]; then
-          c_arg="$arg"
-        fi
-        prev="$arg"
-      done
-      sh -c "$c_arg"
-      exit $?
-    fi
+  cmd="$(c_arg "$@")" || cmd=""
+  if [[ "${FLY_STUB_EXEC_PROBE:-}" == 1 ]]; then
+    echo "fly: ssh session" >&2
+    direct_exec "$cmd"
+  fi
+  if [[ "$cmd" == env\ ENFOLDED_SCHEMA_PROBE=applied\ * ]]; then
     if [[ -n "${FLY_STUB_APPLIED_RAW:-}" ]]; then
       printf '%s\n' "$FLY_STUB_APPLIED_RAW"
       exit "${FLY_STUB_APPLIED_STATUS:-0}"
@@ -69,27 +93,34 @@ if [[ "${1:-}" == "ssh" ]]; then
     printf 'noise from fly\nENFOLDED_SCHEMA_APPLIED=%s\n' "${FLY_STUB_APPLIED:-29}"
     exit 0
   fi
+  if [[ "$cmd" == *ENFOLDED_SCHEMA_PROBE=applied* ]]; then
+    echo "exec: ${cmd%% *}: not found" >&2
+    exit 127
+  fi
   echo "unexpected ssh: $*" >&2
   exit 1
 fi
-if [[ "${1:-}" == "machine" ]]; then
+if [[ "${1:-}" == "console" ]]; then
+  # Stderr only. Captured stdout is the SSH command, not /bin/sleep.
+  echo "fly: ephemeral console init=/bin/sleep inf auto-destroy no-volume" >&2
+  cmd="$(c_arg "$@")" || cmd=""
+  if [[ "$cmd" != env\ ENFOLDED_SCHEMA_PROBE=known\ * ]]; then
+    echo "exec: ${cmd%% *}: not found" >&2
+    exit 127
+  fi
   if [[ "${FLY_STUB_EXEC_PROBE:-}" == 1 ]]; then
-    prev=""
-    c_arg=""
-    for arg in "$@"; do
-      if [[ "$prev" == "-c" ]]; then
-        c_arg="$arg"
-      fi
-      prev="$arg"
-    done
-    ENFOLDED_SCHEMA_PROBE=known python3 -c "$c_arg"
-    exit $?
+    direct_exec "$cmd"
   fi
   if [[ -n "${FLY_STUB_KNOWN_RAW:-}" ]]; then
     printf '%s\n' "$FLY_STUB_KNOWN_RAW"
     exit "${FLY_STUB_KNOWN_STATUS:-0}"
   fi
-  printf 'boot noise\nENFOLDED_SCHEMA_KNOWN=%s\n' "${FLY_STUB_KNOWN:-29}"
+  printf 'ENFOLDED_SCHEMA_KNOWN=%s\n' "${FLY_STUB_KNOWN:-29}"
+  exit 0
+fi
+if [[ "${1:-}" == "machine" ]]; then
+  echo "Machine 148e0000000000 started"
+  echo "Waiting for machine to reach a good state"
   exit 0
 fi
 if [[ "${1:-}" == "deploy" ]]; then
@@ -105,7 +136,7 @@ exit 1
 
 def _probe():
     spec = importlib.util.spec_from_file_location(
-        "schema_probe", _ROOT / "scripts" / "schema_probe.py")
+        "schema_probe", _ROOT / "persistence" / "schema_probe.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -182,12 +213,18 @@ def test_help_with_another_flag_is_refused(tmp_path):
     ["--rollback", ""],
     ["--rollback", "--help"],
     ["--rollback", "--image"],
-    ["--rollback", "registry.fly.io/app:tag;rm"],
-    ["--rollback", "registry.fly.io/app:tag && true"],
-    ["--rollback", "registry.fly.io/app:has space"],
-    ["--rollback", "registry.fly.io/../app:tag"],
+    ["--rollback", "registry.fly.io/enfolded-beta:tag;rm"],
+    ["--rollback", "registry.fly.io/enfolded-beta:tag && true"],
+    ["--rollback", "registry.fly.io/enfolded-beta:has space"],
+    ["--rollback", "registry.fly.io/../enfolded-beta:tag"],
     ["--rollback", "nginx:latest"],
-    ["--rollback", "registry.fly.io/app@sha256:abcd"],
+    ["--rollback", "docker.io/enfolded-beta:tag"],
+    ["--rollback", "ghcr.io/enfolded-beta:tag"],
+    ["--rollback", "registry.fly.io/enfolded-staging:deployment-01HABC"],
+    ["--rollback", "registry.fly.io/enfolded-beta"],
+    ["--rollback", "registry.fly.io/enfolded-beta:"],
+    ["--rollback", "registry.fly.io/enfolded-beta/extra:tag"],
+    ["--rollback", "registry.fly.io/enfolded-beta@sha256:abcd"],
     ["--rollback", _IMAGE, "extra"],
     ["--first-deploy", "--rollback", _IMAGE],
     ["--rollback", _IMAGE, "--first-deploy"],
@@ -219,8 +256,10 @@ def test_normal_deploy_backs_up_checks_schema_prunes_and_deploys(tmp_path):
             kinds.append("backup")
             assert "/data/backups/worlds-" in text
             assert " -a " not in text or call[call.index("-a") + 1] == "enfolded-beta"
-        elif call[0] == "ssh" and "ENFOLDED_SCHEMA_PROBE=applied" in text:
+        elif call[0] == "ssh" and "env ENFOLDED_SCHEMA_PROBE=applied " in text:
             kinds.append("applied")
+            remote = call[call.index("-C") + 1]
+            assert remote.startswith("env ENFOLDED_SCHEMA_PROBE=applied python3 -c ")
         elif call[0] == "ssh" and "xargs -r rm" in text:
             kinds.append("prune")
         elif call[0] == "deploy":
@@ -263,31 +302,32 @@ def test_backup_failure_refuses_normal_deploy_and_rollback(tmp_path):
         assert proc.returncode == 1
         assert "unbacked chronicle" in proc.stderr
         assert _deploy_calls(calls) == []
-        assert not _has(calls, "machine")
+        assert not _has(calls, "console")
         assert len(calls) == 1
         assert "main.py backup" in " ".join(calls[0])
 
 
 def test_rollback_same_schema_deploys_the_pinned_image(tmp_path):
-    proc, calls = _run(tmp_path, ["--rollback", _IMAGE], env={"FLY_APP": "enfolded-staging"})
+    image = "registry.fly.io/enfolded-staging:deployment-01HABC"
+    proc, calls = _run(tmp_path, ["--rollback", image], env={"FLY_APP": "enfolded-staging"})
     assert proc.returncode == 0, proc.stderr
-    machine = next(c for c in calls if c[0] == "machine")
-    assert machine[:3] == ["machine", "run", _IMAGE]
-    assert "--rm" in machine
-    assert "--restart" in machine and machine[machine.index("--restart") + 1] == "no"
-    assert "--volume" not in machine
-    assert "--port" not in machine
-    assert "--entrypoint" in machine
-    assert machine[machine.index("--entrypoint") + 1] == "python3"
-    assert "-e" in machine
-    assert "ENFOLDED_SCHEMA_PROBE=known" in machine
-    assert "--image" not in machine
+    console = next(c for c in calls if c[0] == "console")
+    assert console[console.index("-a") + 1] == "enfolded-staging"
+    assert console[console.index("--image") + 1] == image
+    assert "--skip-dns-registration" in console
+    assert "--volume" not in console
+    assert "--port" not in console
+    assert "--entrypoint" not in console
+    remote = console[console.index("-C") + 1]
+    assert remote.startswith("env ENFOLDED_SCHEMA_PROBE=known python3 -c ")
+    assert not any(c and c[0] == "machine" for c in calls)
     assert _deploy_calls(calls) == [
-        ["deploy", "-a", "enfolded-staging", "--image", _IMAGE]]
+        ["deploy", "-a", "enfolded-staging", "--image", image]]
     assert "curl https://enfolded-staging.fly.dev/health" in proc.stdout
-    joined = " ".join(" ".join(c) for c in calls)
-    assert joined.index("main.py backup") < joined.index("machine run")
-    assert joined.index("machine run") < joined.index("deploy")
+    backup_at = next(i for i, c in enumerate(calls) if "main.py backup" in " ".join(c))
+    console_at = next(i for i, c in enumerate(calls) if c[0] == "console")
+    deploy_at = next(i for i, c in enumerate(calls) if c[0] == "deploy")
+    assert backup_at < console_at < deploy_at
 
 
 def test_rollback_refuses_an_older_image(tmp_path):
@@ -317,7 +357,7 @@ def test_schema_probe_failure_refuses_before_deploy(tmp_path):
         stub={"FLY_STUB_APPLIED_RAW": "no sentinel here"})
     assert proc.returncode == 1
     assert "did not report one schema version" in proc.stderr
-    assert not _has(calls, "machine")
+    assert not _has(calls, "console")
     assert _deploy_calls(calls) == []
 
 
@@ -402,3 +442,52 @@ def test_empty_fly_app_is_refused(tmp_path):
     assert proc.returncode == 2
     assert "FLY_APP is empty" in proc.stderr
     assert calls == []
+
+
+def test_empty_fly_bin_is_refused(tmp_path):
+    proc, calls = _run(tmp_path, [], env={"FLY_BIN": ""})
+    assert proc.returncode == 2
+    assert "FLY_BIN is empty" in proc.stderr
+    assert calls == []
+
+
+def _stub_env(tmp_path):
+    log = tmp_path / "direct.log"
+    fly = tmp_path / "fly"
+    fly.write_text(_STUB)
+    fly.chmod(0o755)
+    env = os.environ.copy()
+    env["FLY_STUB_LOG"] = str(log)
+    env["FLY_STUB_EXEC_PROBE"] = "1"
+    return fly, env
+
+
+def test_ssh_direct_exec_rejects_a_bare_assignment(tmp_path):
+    fly, env = _stub_env(tmp_path)
+    bare = subprocess.run(
+        [str(fly), "ssh", "console", "-a", "enfolded-beta", "-C",
+         "ENFOLDED_SCHEMA_PROBE=applied python3 -c print(1)"],
+        env=env, text=True, capture_output=True, check=False)
+    assert bare.returncode == 127
+    assert "ENFOLDED_SCHEMA_PROBE=applied" in bare.stderr
+    assert "No such file" in bare.stderr
+    assert bare.stdout.strip() != "1"
+
+    ok = subprocess.run(
+        [str(fly), "ssh", "console", "-a", "enfolded-beta", "-C",
+         "env ENFOLDED_SCHEMA_PROBE=applied python3 -c print(1)"],
+        env=env, text=True, capture_output=True, check=False)
+    assert ok.returncode == 0, ok.stderr
+    assert ok.stdout.strip() == "1"
+
+
+def test_machine_run_returns_metadata_not_guest_stdout(tmp_path):
+    fly, env = _stub_env(tmp_path)
+    env["FLY_STUB_KNOWN"] = "29"
+    proc = subprocess.run(
+        [str(fly), "machine", "run", _IMAGE, "--rm", "--entrypoint", "python3"],
+        env=env, text=True, capture_output=True, check=False)
+    assert proc.returncode == 0
+    assert "ENFOLDED_SCHEMA_KNOWN" not in proc.stdout
+    assert "ENFOLDED_SCHEMA_KNOWN" not in proc.stderr
+    assert "started" in proc.stdout

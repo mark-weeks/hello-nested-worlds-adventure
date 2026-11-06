@@ -16,21 +16,27 @@
 #   FLY_APP=my-app scripts/deploy.sh      # target a differently named app
 #   FLY_BIN=/path/to/fly scripts/deploy.sh
 #
-# Fly flags (docs.fly.io flyctl, read 2026-11-06):
+# Fly flags (flyctl source and docs, read 2026-11-06):
 #   fly deploy -a APP --image IMAGE     -i/--image is "The Docker image to deploy"
 #   fly releases -a APP --image         shows each release's image reference
-#   fly machine run IMAGE --rm          one-off; --rm sets restart to never
-# The schema probe passes no --volume and no --port, so it does not mount
+#   fly ssh console -C CMD              CMD is exec'd, not passed to a shell
+#   fly console -a APP --image IMAGE -C CMD
+#       ephemeral machine, init /bin/sleep inf (ToConsoleMachineConfig),
+#       auto-destroy, restart no. -C stdout is the SSH session, not the
+#       init process. fly machine run does not stream guest stdout.
+# The image probe passes no --volume and no --port, so it does not mount
 # the chronicle and does not join the public proxy.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# An explicit empty FLY_APP is a mistake, not a request for the default.
+# An explicit empty FLY_APP or FLY_BIN is a mistake, not a request for the default.
 APP="${FLY_APP-enfolded-beta}"
-FLY_BIN="${FLY_BIN:-fly}"
+FLY_BIN="${FLY_BIN-fly}"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 KEEP=5
-PROBE_FILE="$repo_root/scripts/schema_probe.py"
+# Stdlib module inside the wheel. Encoded and exec'd remotely so an older
+# image does not need this module installed.
+PROBE_FILE="$repo_root/persistence/schema_probe.py"
 
 usage() {
     cat <<'EOF'
@@ -55,7 +61,9 @@ restore the matching pre-upgrade backup (docs/infrastructure/fly-deployment.md).
 That restore abandons history written after the backup. There is no
 in-place binary downgrade.
 
-Find the image ref with: fly releases -a "$FLY_APP" --image
+The image ref must be registry.fly.io/<FLY_APP>:<tag>
+or registry.fly.io/<FLY_APP>@sha256:<64 hex>.
+Find it with: fly releases -a "$FLY_APP" --image
 EOF
 }
 
@@ -66,6 +74,7 @@ die() {
 
 validate_image() {
     local ref="$1"
+    local prefix tag
     if [[ -z "$ref" ]]; then
         die "--rollback image ref is empty"
     fi
@@ -75,22 +84,25 @@ validate_image() {
     if [[ "$ref" == *[[:space:]]* ]]; then
         die "image ref must not contain whitespace"
     fi
-    # Registry path only. Reject shell metacharacters and flag injection.
-    # A Fly release image looks like registry.fly.io/<app>:<tag>
-    # or registry.fly.io/<app>@sha256:<64 hex>.
-    if [[ ! "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$ ]]; then
-        die "image ref contains characters that are not allowed"
+    # Only this app's Fly registry. A wrong-app or external image would
+    # run where this app's secrets are available, then be deployed.
+    # Hyphens in the app name are literal in the regex below.
+    if [[ ! "$APP" =~ ^[a-z][a-z0-9-]{0,62}$ ]]; then
+        die "FLY_APP is not a Fly app name: ${APP}"
     fi
-    if [[ "$ref" == *".."* ]]; then
-        die "image ref must not contain .."
-    fi
-    if [[ "$ref" != */* ]]; then
-        die "image ref must be a registry path (registry/name[:tag])"
-    fi
-    if [[ "$ref" == *@* ]]; then
-        if [[ ! "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[a-fA-F0-9]{64}$ ]]; then
-            die "digest image ref must end in @sha256:<64 hex digits>"
+    prefix="registry.fly.io/${APP}"
+    if [[ "$ref" == "${prefix}@"* ]]; then
+        if [[ ! "$ref" =~ ^registry\.fly\.io/${APP}@sha256:[a-fA-F0-9]{64}$ ]]; then
+            die "digest image ref must be registry.fly.io/${APP}@sha256:<64 hex digits>"
         fi
+        return
+    fi
+    if [[ "$ref" != "${prefix}:"* ]]; then
+        die "image ref must be registry.fly.io/${APP}:<tag> or registry.fly.io/${APP}@sha256:<64 hex>"
+    fi
+    tag="${ref#"${prefix}:"}"
+    if [[ ! "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+        die "image tag contains characters that are not allowed"
     fi
 }
 
@@ -112,6 +124,18 @@ probe_b64() {
     choose_python
     "$PY" -c 'import base64, pathlib, sys; print(base64.b64encode(pathlib.Path(sys.argv[1]).read_bytes()).decode("ascii"))' \
         "$PROBE_FILE"
+}
+
+# fly ssh console -C and fly console -C exec the command. They do not
+# pass it to a shell, so a bare VAR=value prefix is not an assignment.
+# The python source has no spaces, so a whitespace split keeps it as one
+# -c argument. `env` is the executable that sets the variable.
+probe_exec() {
+    local mode="$1"
+    local b64
+    b64="$(probe_b64)"
+    printf "env ENFOLDED_SCHEMA_PROBE=%s python3 -c exec(__import__('base64').b64decode('%s'))" \
+        "$mode" "$b64"
 }
 
 # One distinct integer from a fly command's mixed output. Repeated copies
@@ -148,12 +172,11 @@ fly_capture() {
 }
 
 read_applied_schema() {
-    local b64 out applied
-    b64="$(probe_b64)"
+    local out applied
     # python3 is the image interpreter (python:3.11-slim). The backup
     # command stays `python main.py`, which that image also provides.
     if ! out="$(fly_capture "$FLY_BIN" ssh console -a "$APP" -C \
-        "ENFOLDED_SCHEMA_PROBE=applied python3 -c \"exec(__import__('base64').b64decode('${b64}'))\"")"; then
+        "$(probe_exec applied)")"; then
         echo "!! Could not read the live chronicle schema; refusing to continue." >&2
         printf '%s\n' "$out" >&2
         return 1
@@ -168,21 +191,21 @@ read_applied_schema() {
 
 read_image_schema() {
     local image="$1"
-    local b64 out known py_exec
-    b64="$(probe_b64)"
-    py_exec="exec(__import__('base64').b64decode('${b64}'))"
-    # --entrypoint python3 so the image CMD (enfolded serve) cannot run.
-    # No --volume and no --port: the probe does not mount /data and does
-    # not join the app's HTTP service. --rm destroys the machine on exit.
-    if ! out="$(fly_capture "$FLY_BIN" machine run "$image" \
-        --app "$APP" \
-        --rm \
-        --restart no \
+    local out known
+    # fly console, not fly machine run. machine run prints launch metadata
+    # and does not stream the guest process's stdout (flyctl
+    # internal/command/machine/run.go). console SSHes in and copies the
+    # -C command's stdout (ssh.Session.Run). Its ephemeral machine init is
+    # /bin/sleep inf, restart no, auto-destroy; cleanup waits up to 15s
+    # for the machine to be destroyed (internal/machine/ephemeral.go).
+    # No --volume and no --port: the chronicle stays unmounted and the
+    # machine does not join the public proxy. --skip-dns-registration
+    # matches flyctl's console default (true) so the probe is not registered.
+    if ! out="$(fly_capture "$FLY_BIN" console \
+        -a "$APP" \
+        --image "$image" \
         --skip-dns-registration \
-        --entrypoint python3 \
-        -e ENFOLDED_SCHEMA_PROBE=known \
-        -- \
-        -c "$py_exec")"; then
+        -C "$(probe_exec known)")"; then
         echo "!! Could not read the image schema; refusing to roll back." >&2
         printf '%s\n' "$out" >&2
         return 1

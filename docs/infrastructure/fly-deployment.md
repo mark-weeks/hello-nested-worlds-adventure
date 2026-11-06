@@ -724,10 +724,18 @@ What the script does, in order:
 
 1. `python main.py backup --to /data/backups/worlds-<UTC stamp>.db` on the
    machine. If that fails, it stops. Nothing is deployed.
-2. Reads `MAX(schema_version)` from the live chronicle, read-only, and the
-   highest migration file inside the image (`fly machine run` with `--rm`,
-   `--restart no`, `--entrypoint python3`, and no `--volume` or `--port`,
-   so the probe does not mount the chronicle and does not join the proxy).
+2. Reads `MAX(schema_version)` from the live chronicle over
+   `fly ssh console -C`. That flag execs the command; it does not run a
+   shell, so the probe is `env ENFOLDED_SCHEMA_PROBE=applied python3 ...`.
+   It reads the highest migration file inside the image with
+   `fly console -a <app> --image <ref> --skip-dns-registration -C ...`.
+   `fly console` starts an ephemeral machine whose init is `/bin/sleep inf`
+   (flyctl `ToConsoleMachineConfig`: restart `no`, auto-destroy, DNS
+   registration skipped), SSHes in, and copies that command's stdout.
+   `fly machine run` is not used: it prints launch metadata and does not
+   stream guest stdout. No `--volume` and no `--port`, so the probe does
+   not mount the chronicle and does not join the proxy. After the command,
+   flyctl stops the machine and waits up to 15 seconds for it to be destroyed.
 3. Deploys only when those two numbers are equal:
    `fly deploy -a enfolded-beta --image <ref>` (`--image` / `-i` is flyctl's
    "Docker image to deploy"). A newer or older image is refused. The backup
@@ -735,8 +743,10 @@ What the script does, in order:
    only after the check passes, and a failed prune does not block the deploy.
 4. Prints the `/health` and `fly logs` checks.
 
-`--first-deploy` cannot be combined with `--rollback`. An empty image ref,
-a ref that looks like a flag, or a ref with whitespace or shell
+`--first-deploy` cannot be combined with `--rollback`. The image ref must
+be `registry.fly.io/<this app>:<tag>` or
+`registry.fly.io/<this app>@sha256:<64 hex>`. Any other registry, app, or
+a ref that looks like a flag or contains whitespace or shell
 metacharacters is rejected before `fly` is called.
 
 `FLY_APP` selects the app (default `enfolded-beta`). `FLY_BIN` selects the
@@ -748,11 +758,14 @@ an incompatible image. A newer checkout may migrate forward. That is a
 deploy, not a rollback. `--rollback` of a newer image is refused because
 the image would migrate on boot.
 
-The process itself repeats the guard. `persistence.init_db` compares the
-chronicle with `known_schema_version()` (the highest migration shipped in
-that binary) and, when the chronicle is newer, exits 1 before the port
-opens and before any migration runs. The log line starts
-`chronicle schema_version`.
+The process itself repeats the guard before it migrates. Startup reads
+`schema_version` read-only and exits 1 when the chronicle is newer than
+`known_schema_version()` (the highest migration shipped in that binary).
+It then checks `NESTED_WORLDS_CANONICAL_SEED` and the model configuration.
+`persistence.init_db` runs only after those checks, still before the port
+opens. A release that ships the next migration and a bad seed or model id
+exits with the chronicle unmigrated, so `--rollback` to the previous
+release can still boot. The log line starts `chronicle schema_version`.
 
 **When to stop.** If the script says the image schema is older than the
 chronicle, do not look for a flag that skips the check. Go to

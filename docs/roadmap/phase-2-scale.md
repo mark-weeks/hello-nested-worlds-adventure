@@ -232,7 +232,9 @@ database is a continuous chronicle. Operationally that means:
   epoch.
 * **An older binary does not boot a newer chronicle.** Startup compares
   `schema_version` with the migrations that binary ships and exits before
-  listening when the chronicle is newer. Same-schema rollback is
+  migrating and before listening when the chronicle is newer. A bad seed
+  or model id also exits before `init_db`, so that release does not move
+  the schema. Same-schema rollback is
   `scripts/deploy.sh --rollback <image>`. Crossing a schema change is the
   disaster restore, which abandons history since that backup. There is no
   in-place downgrade.

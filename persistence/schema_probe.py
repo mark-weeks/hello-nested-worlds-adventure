@@ -1,12 +1,14 @@
-"""Read-only schema probes for scripts/deploy.sh.
+"""Read-only schema probes shared by startup and ``scripts/deploy.sh``.
 
-Stdlib only. `deploy.sh` base64-encodes this file and execs it on the
-running machine (applied version) and inside the candidate image (known
-version). Importing it does not open a database. Executing it prints one
+Stdlib only. The deploy script base64-encodes this file and execs it on
+the running machine (applied version) and, over SSH, inside a candidate
+image (known version). That encoded source does not import the rest of
+the package, so an image built before this module existed can still be
+probed. Importing it does not open a database. Executing it prints one
 sentinel line and nothing else on stdout.
 
-The filename rule matches `persistence._list_migrations`: a migration is
-`NNNN_name.sql`, and anything else in the directory is ignored.
+This is the one filename rule. A migration is ``NNNN_name.sql``. Anything
+else in the directory is ignored.
 """
 from __future__ import annotations
 
@@ -22,22 +24,28 @@ APPLIED_SENTINEL = "ENFOLDED_SCHEMA_APPLIED"
 KNOWN_SENTINEL = "ENFOLDED_SCHEMA_KNOWN"
 
 
-def migration_versions(root: Path) -> list[int]:
-    """Versions of well-named migration files under `root`, sorted."""
+def migration_files(root: Path) -> list[tuple[int, Path]]:
+    """Well-named migration files under ``root``, sorted by filename."""
     if not root.is_dir():
         return []
-    versions: list[int] = []
+    found: list[tuple[int, Path]] = []
     for path in sorted(root.glob("*.sql")):
         head, _, _ = path.name.partition("_")
         try:
-            versions.append(int(head))
+            version = int(head)
         except ValueError:
             continue
-    return versions
+        found.append((version, path))
+    return found
+
+
+def migration_versions(root: Path) -> list[int]:
+    """Versions of well-named migration files under ``root``, sorted."""
+    return [version for version, _path in migration_files(root)]
 
 
 def known_version(root: Path) -> int | None:
-    """Highest migration file in `root`, or None when the image ships none."""
+    """Highest migration file in ``root``, or None when the image ships none."""
     versions = migration_versions(root)
     if not versions:
         return None
