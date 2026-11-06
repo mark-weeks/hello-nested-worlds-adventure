@@ -187,3 +187,51 @@ test("/app gives a line back when its hold arrives during a deep traveler jump",
     await server.close();
   }
 });
+
+// A send in the moment the socket is closing (readyState 2, before onclose
+// has marked the client disconnected) reaches nobody. Neither client may
+// clear the line then. This drives the page's own socket, with no relay,
+// because the relay replaces it and cannot show the closing state.
+for (const route of ["/", "/app"]) {
+  test(`${route} keeps a line sent while the socket is closing`, async ({ page }) => {
+    const server = await serve();
+    try {
+      await page.addInitScript(() => {
+        const Native = window.WebSocket;
+        window.__sockets = [];
+        window.WebSocket = class extends Native {
+          constructor(...args) {
+            super(...args);
+            window.__sockets.push(this);
+          }
+        };
+      });
+      await page.addInitScript(() => {
+        if (location.protocol !== "http:") return;
+        localStorage.setItem("nw_seen_intro", "1");
+        localStorage.setItem("nw_player_name", "Chatter");
+        sessionStorage.setItem("nw_sound_invited", "1");
+      });
+      await page.goto(server.url + route);
+      await page.waitForFunction(() => window.__sockets.some(socket => socket.readyState === 1));
+      await disclose(page, "Travelers & chat");
+      const input = page.getByRole("textbox", { name: "Message to travelers" });
+      await input.fill("a line sent as the socket closes");
+
+      // Close and press Enter in one task, so the client still believes it
+      // is connected when it tries to send.
+      const readyState = await page.evaluate(() => {
+        const socket = window.__sockets.findLast(s => s.readyState === 1);
+        socket.close();
+        document.querySelector('input[aria-label="Message to travelers"]')
+          .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        return socket.readyState;
+      });
+      expect(readyState).toBe(2);
+      await expect(input).toHaveValue("a line sent as the socket closes");
+    } finally {
+      await page.goto("about:blank").catch(() => {});
+      await server.close();
+    }
+  });
+}
