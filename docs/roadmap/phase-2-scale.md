@@ -232,7 +232,8 @@ database is a continuous chronicle. Operationally that means:
   epoch.
 * **An older binary does not boot a newer chronicle.** Startup compares
   `schema_version` with the migrations that binary ships and exits before
-  migrating and before listening when the chronicle is newer. A bad seed
+  migrating and before listening when the chronicle is newer. `init_db`
+  does that check read-only before it opens the file writable. A bad seed
   or model id also exits before `init_db`, so that release does not move
   the schema. Same-schema rollback is
   `scripts/deploy.sh --rollback <image>`. Crossing a schema change is the

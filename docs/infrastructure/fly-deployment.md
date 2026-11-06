@@ -725,8 +725,10 @@ What the script does, in order:
 1. `python main.py backup --to /data/backups/worlds-<UTC stamp>.db` on the
    machine. If that fails, it stops. Nothing is deployed.
 2. Reads `MAX(schema_version)` from the live chronicle over
-   `fly ssh console -C`. That flag execs the command; it does not run a
-   shell, so the probe is `env ENFOLDED_SCHEMA_PROBE=applied python3 ...`.
+   `fly ssh console -C`. Hallpass shell-splits that command and execs the
+   words; it does not run a shell. The probe starts with `env` and quotes
+   the whole `python3 -c` argument, so the Python source stays one
+   argument.
    It reads the highest migration file inside the image with
    `fly console -a <app> --image <ref> --skip-dns-registration -C ...`.
    `fly console` starts an ephemeral machine whose init is `/bin/sleep inf`
@@ -763,7 +765,10 @@ The process itself repeats the guard before it migrates. Startup reads
 `known_schema_version()` (the highest migration shipped in that binary).
 It then checks `NESTED_WORLDS_CANONICAL_SEED` and the model configuration.
 `persistence.init_db` runs only after those checks, still before the port
-opens. A release that ships the next migration and a bad seed or model id
+opens. It repeats the refusal from a read-only open before it opens the
+file writable, so a newer chronicle keeps its bytes and journal mode.
+The migration guard inside `init_db` still refuses if the file changes
+after that read. A release that ships the next migration and a bad seed or model id
 exits with the chronicle unmigrated, so `--rollback` to the previous
 release can still boot. The log line starts `chronicle schema_version`.
 

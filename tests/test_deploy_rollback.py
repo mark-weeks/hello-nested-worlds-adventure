@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shlex
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -49,10 +50,14 @@ c_arg() {
   return 1
 }
 
-# Direct exec. Not sh -c. Whitespace split, quotes stay in the token.
+# Direct exec. Not sh -c. Hallpass shell-splits, so quotes are syntax.
 direct_exec() {
-  exec python3 -c 'import os, sys
-words = sys.argv[1].split()
+  exec python3 -c 'import os, shlex, sys
+try:
+    words = shlex.split(sys.argv[1])
+except ValueError as exc:
+    sys.stderr.write("exec: parse: %s\n" % exc)
+    raise SystemExit(127)
 if not words:
     sys.stderr.write("exec: empty command\n")
     raise SystemExit(127)
@@ -259,7 +264,7 @@ def test_normal_deploy_backs_up_checks_schema_prunes_and_deploys(tmp_path):
         elif call[0] == "ssh" and "env ENFOLDED_SCHEMA_PROBE=applied " in text:
             kinds.append("applied")
             remote = call[call.index("-C") + 1]
-            assert remote.startswith("env ENFOLDED_SCHEMA_PROBE=applied python3 -c ")
+            _assert_probe_command(remote, "applied")
         elif call[0] == "ssh" and "xargs -r rm" in text:
             kinds.append("prune")
         elif call[0] == "deploy":
@@ -319,7 +324,7 @@ def test_rollback_same_schema_deploys_the_pinned_image(tmp_path):
     assert "--port" not in console
     assert "--entrypoint" not in console
     remote = console[console.index("-C") + 1]
-    assert remote.startswith("env ENFOLDED_SCHEMA_PROBE=known python3 -c ")
+    _assert_probe_command(remote, "known")
     assert not any(c and c[0] == "machine" for c in calls)
     assert _deploy_calls(calls) == [
         ["deploy", "-a", "enfolded-staging", "--image", image]]
@@ -419,6 +424,12 @@ def test_rollback_probe_reads_a_real_database_and_image(tmp_path):
         })
     assert proc.returncode == 0, proc.stderr
     assert "live schema 4; image schema 4" in proc.stdout
+    applied = next(
+        c for c in calls
+        if c[0] == "ssh" and any(arg.startswith("env ENFOLDED_SCHEMA_PROBE=applied ") for arg in c))
+    known = next(c for c in calls if c[0] == "console")
+    _assert_probe_command(applied[applied.index("-C") + 1], "applied")
+    _assert_probe_command(known[known.index("-C") + 1], "known")
     assert _deploy_calls(calls) == [["deploy", "-a", "enfolded-beta", "--image", _IMAGE]]
 
     conn = sqlite3.connect(db)
@@ -462,6 +473,20 @@ def _stub_env(tmp_path):
     return fly, env
 
 
+def _assert_probe_command(remote: str, mode: str) -> None:
+    """The -C string must be one python -c argument after a shell split."""
+    assert remote.startswith(
+        f'env ENFOLDED_SCHEMA_PROBE={mode} python3 -c "exec(')
+    words = shlex.split(remote)
+    assert words[:4] == [
+        "env", f"ENFOLDED_SCHEMA_PROBE={mode}", "python3", "-c"]
+    assert len(words) == 5
+    source = words[4]
+    assert "__import__('base64')" in source
+    assert "b64decode('" in source
+    compile(source, "<probe>", "exec")
+
+
 def test_ssh_direct_exec_rejects_a_bare_assignment(tmp_path):
     fly, env = _stub_env(tmp_path)
     bare = subprocess.run(
@@ -479,6 +504,24 @@ def test_ssh_direct_exec_rejects_a_bare_assignment(tmp_path):
         env=env, text=True, capture_output=True, check=False)
     assert ok.returncode == 0, ok.stderr
     assert ok.stdout.strip() == "1"
+
+
+def test_unquoted_python_argument_is_a_syntax_error(tmp_path):
+    """The pre-fix probe loses its quotes under Hallpass's shell split."""
+    fly, env = _stub_env(tmp_path)
+    old = (
+        "env ENFOLDED_SCHEMA_PROBE=applied python3 -c "
+        "exec(__import__('base64').b64decode('abc+def/ghi='))"
+    )
+    proc = subprocess.run(
+        [str(fly), "ssh", "console", "-a", "enfolded-beta", "-C", old],
+        env=env, text=True, capture_output=True, check=False)
+    assert proc.returncode != 0
+    assert "SyntaxError" in proc.stderr
+    words = shlex.split(old)
+    assert words[4] == "exec(__import__(base64).b64decode(abc+def/ghi=))"
+    with pytest.raises(SyntaxError):
+        compile(words[4], "<probe>", "exec")
 
 
 def test_machine_run_returns_metadata_not_guest_stdout(tmp_path):

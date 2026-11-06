@@ -19,7 +19,7 @@
 # Fly flags (flyctl source and docs, read 2026-11-06):
 #   fly deploy -a APP --image IMAGE     -i/--image is "The Docker image to deploy"
 #   fly releases -a APP --image         shows each release's image reference
-#   fly ssh console -C CMD              CMD is exec'd, not passed to a shell
+#   fly ssh console -C CMD              Hallpass shell-splits CMD, then execs it
 #   fly console -a APP --image IMAGE -C CMD
 #       ephemeral machine, init /bin/sleep inf (ToConsoleMachineConfig),
 #       auto-destroy, restart no. -C stdout is the SSH session, not the
@@ -126,15 +126,16 @@ probe_b64() {
         "$PROBE_FILE"
 }
 
-# fly ssh console -C and fly console -C exec the command. They do not
-# pass it to a shell, so a bare VAR=value prefix is not an assignment.
-# The python source has no spaces, so a whitespace split keeps it as one
-# -c argument. `env` is the executable that sets the variable.
+# Hallpass shell-splits -C, then execs the words. It does not run a shell,
+# so a bare VAR=value prefix is the program name and `env` does the
+# assignment. The whole python -c argument is quoted. Unquoted single
+# quotes are consumed by that split, and Python is left with
+# __import__(base64) and a bare base64 token (SyntaxError).
 probe_exec() {
     local mode="$1"
     local b64
     b64="$(probe_b64)"
-    printf "env ENFOLDED_SCHEMA_PROBE=%s python3 -c exec(__import__('base64').b64decode('%s'))" \
+    printf "env ENFOLDED_SCHEMA_PROBE=%s python3 -c \"exec(__import__('base64').b64decode('%s'))\"" \
         "$mode" "$b64"
 }
 

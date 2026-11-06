@@ -277,6 +277,23 @@ def _refuse_newer_schema(applied: set[int]) -> None:
         raise SchemaTooNewError(schema_too_new_message(max(newer), known))
 
 
+def _refuse_newer_schema_before_open(path: Path) -> None:
+    """Read-only refusal before any writable open.
+
+    ``_connect`` sets ``journal_mode=WAL``. Doing that on a newer
+    DELETE-journal chronicle changes the file even though the migration
+    guard then raises. This check runs inside the init lock and does not
+    create the database. The guard inside ``_run_migrations`` still runs
+    after the writable open.
+    """
+    applied = read_applied_schema_version(path)
+    if applied is None:
+        return
+    known = known_schema_version()
+    if applied > known:
+        raise SchemaTooNewError(schema_too_new_message(applied, known))
+
+
 def _run_migrations(conn: sqlite3.Connection) -> list[int]:
     """Apply any migrations not yet recorded in `schema_version`.
 
@@ -321,12 +338,16 @@ def init_db() -> None:
     # _with_db.
     #
     # A newer chronicle raises SchemaTooNewError inside the lock, before
-    # `_initialized` is recorded and before any migration is applied, so a
-    # later retry still refuses and the database is left as it was.
+    # the writable open, before `_initialized` is recorded, and before any
+    # migration is applied. A later retry still refuses. The file's bytes
+    # and journal mode stay as they were. The guard inside
+    # `_run_migrations` still refuses if the file changes after that
+    # read-only check.
     with _init_lock:
         if _DB_PATH in _initialized:
             return
         _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _refuse_newer_schema_before_open(_DB_PATH)
         with _connect() as conn:
             _run_migrations(conn)
             _hash_legacy_credentials(conn)

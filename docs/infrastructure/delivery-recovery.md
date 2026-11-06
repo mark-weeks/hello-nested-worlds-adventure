@@ -140,8 +140,9 @@ schema is older than the chronicle, or when the data itself has to be
 abandoned. An older binary refuses a newer chronicle at startup, before it
 listens and before it migrates: the read-only schema check and the seed
 and model checks run first, and `persistence.init_db` raises
-`SchemaTooNewError` if the chronicle is still newer. The process exits 1
-without applying migrations. A config typo in a release that also ships a
+`SchemaTooNewError` from a read-only open if the chronicle is still
+newer, before it opens the file writable. The process exits 1
+without applying migrations and without changing the journal mode. A config typo in a release that also ships a
 new migration therefore leaves the chronicle on the previous schema.
 Putting an older image on the machine first can crash-loop and take SSH
 with it. Restore from a binary that can still open the file, then deploy

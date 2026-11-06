@@ -5,7 +5,9 @@ disaster restore, never an older process opened against the newer file.
 """
 from __future__ import annotations
 
+import hashlib
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -91,6 +93,76 @@ def test_newer_schema_applies_nothing_and_is_not_marked_ready(tmp_path, monkeypa
     assert db not in persistence._initialized
     with pytest.raises(persistence.SchemaTooNewError):
         persistence.init_db()
+
+
+def test_newer_delete_journal_is_unchanged_on_refusal(tmp_path, monkeypatch):
+    """Refusal must not open the file writable or switch it to WAL."""
+    mig = tmp_path / "migrations"
+    mig.mkdir()
+    (mig / "0001_a.sql").write_text("CREATE TABLE kept (id INTEGER);")
+    monkeypatch.setattr(persistence, "_MIGRATIONS_DIR", mig)
+    db = persistence._DB_PATH
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db)
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.executescript(persistence._SCHEMA_VERSION_DDL)
+    conn.execute("INSERT INTO schema_version (version) VALUES (999)")
+    conn.commit()
+    conn.close()
+    before = db.read_bytes()
+    digest = hashlib.sha256(before).hexdigest()
+
+    with pytest.raises(persistence.SchemaTooNewError) as exc:
+        persistence.init_db()
+    assert "schema_version 999" in str(exc.value)
+    assert db.read_bytes() == before
+    assert hashlib.sha256(db.read_bytes()).hexdigest() == digest
+    assert not Path(str(db) + "-wal").exists()
+    assert not Path(str(db) + "-shm").exists()
+    assert db not in persistence._initialized
+
+    with pytest.raises(persistence.SchemaTooNewError):
+        persistence.init_db()
+    assert db.read_bytes() == before
+
+    conn = sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        assert conn.execute(
+            "SELECT version FROM schema_version").fetchall() == [(999,)]
+        assert conn.execute(
+            "SELECT name FROM sqlite_master WHERE name='kept'").fetchone() is None
+    finally:
+        conn.close()
+
+
+def test_migration_guard_still_refuses_when_the_preflight_misses(
+        tmp_path, monkeypatch):
+    mig = tmp_path / "migrations"
+    mig.mkdir()
+    (mig / "0001_a.sql").write_text("CREATE TABLE kept (id INTEGER);")
+    monkeypatch.setattr(persistence, "_MIGRATIONS_DIR", mig)
+    db = persistence._DB_PATH
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db)
+    conn.executescript(persistence._SCHEMA_VERSION_DDL)
+    conn.execute("INSERT INTO schema_version (version) VALUES (999)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(
+        persistence, "read_applied_schema_version", lambda path=None: None)
+
+    with pytest.raises(persistence.SchemaTooNewError):
+        persistence.init_db()
+    assert db not in persistence._initialized
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute(
+            "SELECT version FROM schema_version").fetchall() == [(999,)]
+        assert conn.execute(
+            "SELECT name FROM sqlite_master WHERE name='kept'").fetchone() is None
+    finally:
+        conn.close()
 
 
 def test_older_database_still_receives_later_migrations(tmp_path, monkeypatch):
