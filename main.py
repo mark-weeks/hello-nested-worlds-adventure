@@ -190,34 +190,39 @@ def cmd_serve(args):
 def cmd_models(args):
     """Print the resolved provider and model for each text task.
 
-    The provider is the registry's (``NESTED_WORLDS_PROVIDER``, default
-    ``anthropic``). ``--probe`` makes one tiny live call per distinct model
-    id. It is off unless this flag is passed. Server startup, tests, and CI
-    do not pass it. An unconfigured provider prints
-    ``provider not configured`` and, with ``--probe``,
-    ``skipped: provider not configured`` and exits 1. That path does not
-    call the provider and does not echo the base URL or the key. A missing
-    SDK for the selected provider exits with one line naming the optional
-    extra, and does not probe. A task that would use the default, on an
-    adapter that does not supply one, is a hard problem: the report is
-    printed and the process exits. That line names the task variable or
-    ``NESTED_WORLDS_MODEL`` for node voice, inhabitant voice, and intention.
-    Moderation names only its own variable. When the selected adapter's
-    ``supports_json_schema`` is false, the intent row says structured
-    outputs are off and intent calls will be refused. That note is not a
-    hard problem.
+    Each task names its provider (``NESTED_WORLDS_<TASK>_PROVIDER``, else
+    ``NESTED_WORLDS_PROVIDER``, else ``anthropic``) and its model. ``--probe``
+    makes one tiny live call per distinct provider and model id. It is off
+    unless this flag is passed. Server startup, tests, and CI do not pass
+    it. An unconfigured provider prints ``provider not configured`` and,
+    with ``--probe``, ``skipped: provider not configured`` and exits 1.
+    That path does not call the provider and does not echo the base URL or
+    the key. A missing SDK for a task's provider exits with one line naming
+    the optional extra, and does not probe. A blank or unknown provider
+    name exits with one line before the report. A task that would use the
+    default, on an adapter that does not supply one, is a hard problem:
+    the report is printed and the process exits. That line names the task
+    variable or ``NESTED_WORLDS_MODEL`` for node voice, inhabitant voice,
+    and intention. Moderation names only its own variable. When the intent
+    task's adapter's ``supports_json_schema`` is false, the intent row says
+    structured outputs are off and intent calls will be refused. That note
+    is not a hard problem. Disagreeing or invalid voice and image caps
+    exit as well, and the lower valid cap is what a request would enforce.
     """
-    from consciousness import runtime
     from consciousness.model_check import (
         check_model_configuration, format_report, probe_distinct_models,
     )
+    from server import guard
 
-    provider = runtime.get_provider()
-    report = check_model_configuration(provider)
-    print(_with_schema_note(format_report(report), provider))
-    _print_unconfigured_hint(provider)
+    report = check_model_configuration()
+    print(_with_schema_note(format_report(report)))
+    _print_unconfigured_hint(report)
     if report.hard:
         raise SystemExit(report.failure_line())
+    budget_line = guard.budget_configuration_line()
+    if budget_line:
+        print(budget_line)
+        raise SystemExit(budget_line)
     if not args.probe:
         return
     failed = False
@@ -273,12 +278,14 @@ def cmd_voice_health(args):
             print(f"  {surface:<12} answered {counts.get('ok', 0):>4}"
                   + (f"   quiet: {quiet}" if quiet else ""))
             failures += sum(counts.get(r, 0) for r in observability.VOICE_FAILURES)
-    used = persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, guard._utc_day())
-    cap = guard._cap_for(guard.ANTHROPIC_CAP_ENV, guard._DEFAULT_ANTHROPIC_DAILY)
+    used = guard.effective_calls(guard.VOICE_BUCKET)
+    cap, _cap_problems = guard.resolve_budget_cap(
+        guard.VOICE_CAP_ENV, guard.ANTHROPIC_CAP_ENV, guard._DEFAULT_ANTHROPIC_DAILY)
     print(f"voice budget today: {used}/{cap} calls")
     if guard.ai_disabled():
         print(f"kill switch: {guard.DISABLE_AI_ENV}=1 (the world is quiet on purpose)")
-    ready = runtime.configured()
+    voice_tasks = (runtime.NODE_TASK, runtime.INHABITANT_TASK, runtime.INTENT_TASK)
+    ready = all(runtime.configured(task) for task in voice_tasks)
     print("voice provider: configured" if ready else "voice provider: NOT configured")
     screen_failures = _report_screens(args.days)
     problems = []
@@ -293,10 +300,14 @@ def cmd_voice_health(args):
     from consciousness.model_check import (
         check_model_configuration, probe_distinct_models,
     )
-    report = check_model_configuration(runtime.get_provider())
+    report = check_model_configuration()
     if report.hard and not guard.ai_disabled():
         print(report.failure_line())
         problems.append("unusable model configuration")
+    budget_line = guard.budget_configuration_line()
+    if budget_line and not guard.ai_disabled():
+        print(budget_line)
+        problems.append("budget configuration")
     if args.probe:
         for result in probe_distinct_models(report):
             print(result.line())
@@ -343,12 +354,16 @@ def _report_screens(days):
 _SCHEMA_OFF_NOTE = "(structured outputs off - intent calls will be refused)"
 
 
-def _with_schema_note(text: str, provider) -> str:
-    """Mark the intent row when this adapter will refuse a schema.
+def _with_schema_note(text: str, provider=None) -> str:
+    """Mark the intent row when that task's adapter will refuse a schema.
 
     An adapter that omits ``supports_json_schema`` still accepts a schema.
-    The note is not a startup failure.
+    The note is not a startup failure. Omit ``provider`` to use the intent
+    task's adapter.
     """
+    if provider is None:
+        from consciousness import runtime
+        provider = runtime.provider_for(runtime.INTENT_TASK)
     supports = getattr(provider, "supports_json_schema", None)
     if not callable(supports):
         return text
@@ -366,21 +381,40 @@ def _with_schema_note(text: str, provider) -> str:
     return "\n".join(lines)
 
 
-def _print_unconfigured_hint(provider) -> None:
-    """One neutral line when the selected adapter is not usable.
+def _print_unconfigured_hint(report) -> None:
+    """One neutral line when a task's adapter is not usable.
 
     The base URL and the key are not printed. A provider with no
-    ``configured`` method is left alone.
+    ``configured`` method is left alone. One shared provider keeps the
+    historical line. Mixed providers name the tasks that are not usable.
     """
-    configured = getattr(provider, "configured", None)
-    if not callable(configured):
+    from consciousness import runtime
+
+    groups: dict[str, list[str]] = {}
+    ready_by_name: dict[str, bool] = {}
+    for status in report.tasks:
+        provider = runtime.provider_for(status.task)
+        name = getattr(provider, "name", "") or "provider"
+        groups.setdefault(name, []).append(status.task)
+        if name in ready_by_name:
+            continue
+        configured = getattr(provider, "configured", None)
+        if not callable(configured):
+            ready_by_name[name] = True
+            continue
+        try:
+            ready_by_name[name] = bool(configured())
+        except Exception:
+            ready_by_name[name] = False
+    unconfigured = [name for name, ready in ready_by_name.items() if not ready]
+    if not unconfigured:
         return
-    try:
-        ready = bool(configured())
-    except Exception:
-        ready = False
-    if not ready:
+    if len(ready_by_name) == 1:
         print("provider not configured")
+        return
+    for name in unconfigured:
+        tasks = ", ".join(groups[name])
+        print(f"provider not configured ({tasks})")
 
 
 def cmd_backup(args):

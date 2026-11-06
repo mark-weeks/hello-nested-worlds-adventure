@@ -783,7 +783,7 @@ class TestVoiceBudget:
         monkeypatch.setattr(compat_provider, "_transport", transport)
         node = store.world_tree(382)
         day = guard._utc_day()
-        user_voice = guard._user_bucket(guard.ANTHROPIC_BUCKET, accounts[0])
+        user_voice = guard._user_bucket(guard.VOICE_BUCKET, accounts[0])
         user_actions = guard._user_bucket(guard.MODEL_ACTIONS_BUCKET, accounts[0])
         with caplog.at_level(logging.INFO):
             status, body, _headers = http("/speak", body={
@@ -791,7 +791,7 @@ class TestVoiceBudget:
             assert status == 200 and body["ai"] is False
             assert body["response"] == consciousness.fallback_voice(node)
             assert calls == []
-            assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 0
+            assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 0
             assert persistence.get_cost_calls(user_voice, day) == 0
             assert persistence.get_cost_calls(user_actions, day) == 0
 
@@ -804,7 +804,7 @@ class TestVoiceBudget:
             assert len(calls) == 1
             assert calls[0]["max_completion_tokens"] == 256
             assert calls[0]["model"] == "compat-node"
-            assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 1
+            assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 1
             assert persistence.get_cost_calls(user_voice, day) == 1
             assert persistence.get_cost_calls(user_actions, day) == 1
             rows = [row for row in persistence.get_node_history(382, node.name)

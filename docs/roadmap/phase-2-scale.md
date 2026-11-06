@@ -23,8 +23,8 @@ here is operational headroom; nothing on this list is speculative.
 
 | Resource | Budget | Expected use | Utilization |
 |---|---|---|---|
-| Anthropic daily calls | 500 (`NESTED_WORLDS_ANTHROPIC_DAILY_CALLS`) | ~100/day (20 × 5) | 20% |
-| fal.ai daily calls | 200 (`NESTED_WORLDS_FAL_DAILY_CALLS`) | ~100/day | 50% |
+| Voice daily calls | 500 (`NESTED_WORLDS_VOICE_DAILY_CALLS`; legacy `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` still accepted) | ~100/day (20 × 5) | 20% |
+| Image daily calls | 200 (`NESTED_WORLDS_IMAGE_DAILY_CALLS`; legacy `NESTED_WORLDS_FAL_DAILY_CALLS` still accepted) | ~100/day | 50% |
 | Per-IP rate limit | 20/min (`NESTED_WORLDS_RATE_LIMIT_PER_MIN`) | well under | n/a |
 | Anthropic concurrent calls | 8 (`NESTED_WORLDS_ANTHROPIC_CONCURRENCY`) | bursts to 5–8 | ~peak |
 
@@ -72,8 +72,8 @@ already emitted — read them from Sentry (uncaught exceptions) and the
 
 | Metric | Source | Phase 2b trigger |
 |---|---|---|
-| Anthropic daily-call utilization | `cost_budget` table, bucket `anthropic` | > 60% of cap for 3 consecutive days |
-| fal.ai daily-call utilization | `cost_budget` table, bucket `fal_ai` | > 60% of cap, OR monthly bill > $50 |
+| Voice daily-call utilization | `cost_budget` rows `voice` plus legacy `anthropic` for the same UTC day | > 60% of cap for 3 consecutive days |
+| Image daily-call utilization | `cost_budget` rows `image` plus legacy `fal_ai` for the same UTC day | > 60% of cap, OR monthly bill > $50 |
 | SQLite write errors | server logs (`database is locked`) | any occurrence at p95 latency |
 | Concurrent /speak in flight | semaphore wait time (add timing log if needed) | observed wait > 500ms p95 |
 | Active testers | `invite_keys.last_used_at` | crosses 50 active in 7-day window |
@@ -107,11 +107,16 @@ Pull each item forward when its trigger fires, not on a calendar.
 
 **Raise daily caps; uniform per-user budgets already shipped.**
 
-* Bump `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS=5000` and
-  `NESTED_WORLDS_FAL_DAILY_CALLS=2000` as a first response.
+* Bump `NESTED_WORLDS_VOICE_DAILY_CALLS=5000` and
+  `NESTED_WORLDS_IMAGE_DAILY_CALLS=2000` as a first response. The legacy
+  `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and `NESTED_WORLDS_FAL_DAILY_CALLS`
+  names are still accepted. Do not set a neutral name and its legacy name
+  to different integers: the lower one is enforced.
 * *Shipped (2026-07):* per-credential daily sub-caps —
-  `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` (default 150) and
-  `NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER` (default 60), enforced in
+  `NESTED_WORLDS_VOICE_DAILY_CALLS_PER_USER` (default 150; legacy
+  `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` still accepted) and
+  `NESTED_WORLDS_IMAGE_DAILY_CALLS_PER_USER` (default 60; legacy
+  `NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER` still accepted), enforced in
   `server/guard.py` — so no single account can drain the shared budget.
 * What remains deferred: per-key *custom* budget overrides — if individual
   testers need bigger or smaller allowances than the uniform default, add a

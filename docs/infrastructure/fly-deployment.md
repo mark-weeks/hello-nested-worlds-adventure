@@ -825,7 +825,10 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
 - [ ] Size the day-one budgets deliberately: launch day is the highest-
       traffic day the app will ever see. Estimate
       `cohort size x expected exchanges x cost per exchange` and set
-      `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` (and `_FAL_DAILY_CALLS`)
+      `NESTED_WORLDS_VOICE_DAILY_CALLS` (and `NESTED_WORLDS_IMAGE_DAILY_CALLS`;
+      the legacy `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
+      `NESTED_WORLDS_FAL_DAILY_CALLS` names are still accepted, and a day
+      already spent under `anthropic` or `fal_ai` still counts)
       with headroom above it — the `_PER_USER` caps already bound any
       single account; the global cap is the one that can mute the whole
       cohort at the worst moment.
@@ -966,7 +969,7 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
 | Restart the machine | `fly machine restart <id>` |
 | Inspect the volume | `fly volumes list` |
 | Restore from a backup | `python main.py restore --from <file>` then restart (§7) |
-| Adjust a runtime cap | `fly secrets set NESTED_WORLDS_ANTHROPIC_DAILY_CALLS=1000` |
+| Adjust a runtime cap | `fly secrets set NESTED_WORLDS_VOICE_DAILY_CALLS=1000` (legacy `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` is still accepted; do not set both to different integers) |
 | Bound slow HTTP reads, response writes, or handler threads | `fly secrets set NESTED_WORLDS_HTTP_READ_TIMEOUT=30 NESTED_WORLDS_HTTP_WRITE_TIMEOUT=30 NESTED_WORLDS_MAX_HANDLER_THREADS=160` |
 | Kill switch AI without redeploy | `fly secrets set NESTED_WORLDS_DISABLE_AI=1` |
 | Slow/speed causal ripple travel | `fly secrets set NESTED_WORLDS_HOP_DELAY=30` |
@@ -993,8 +996,8 @@ triggers for moving past this single-VM setup. The relevant ones for
 Fly:
 
 - **The configured provider's request-rate headroom shrinks (currently Anthropic)** → raise
-  `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
-  `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`; no infra change needed. `busy` in
+  `NESTED_WORLDS_VOICE_DAILY_CALLS` (legacy `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS`
+  is still accepted) and `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`; no infra change needed. `busy` in
   `python main.py voice-health`, in the voice section or the shared-text
   screens, while the provider answers normally is the concurrency signal:
   calls waited out the slot bound and were not made.

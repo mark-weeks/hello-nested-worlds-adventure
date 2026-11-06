@@ -12,8 +12,9 @@ Six pieces wired into `server/handlers.py`:
                             credential was ever issued.
   2. `RateLimiter`        — per-IP fixed-window limiter for the AI / image /
                             puzzle-attempt endpoints.
-  3. `consume_anthropic`  — daily call cap on Anthropic, persisted in SQLite.
-  4. `consume_fal`        — daily call cap on fal.ai, persisted in SQLite.
+  3. `consume_anthropic`  — daily voice-call cap, shared by every text provider,
+                            persisted in SQLite under the neutral ``voice`` key.
+  4. `consume_fal`        — daily image-call cap, persisted under ``image``.
   5. `ai_disabled`        — env kill switch for `/speak` and `/agent/voice`.
   6. `images_disabled`    — env kill switch for `/image`.
 
@@ -48,6 +49,11 @@ _log = logging.getLogger("nested_worlds.guard")
 
 BETA_KEY_HEADER      = "X-Beta-Key"
 BETA_KEY_QUERY       = "key"
+# Neutral names are preferred. The legacy vendor names are still accepted.
+# When both are set to different integers, the lower one is enforced so a
+# rename cannot raise an allowance that is already in effect.
+VOICE_CAP_ENV        = "NESTED_WORLDS_VOICE_DAILY_CALLS"
+IMAGE_CAP_ENV        = "NESTED_WORLDS_IMAGE_DAILY_CALLS"
 ANTHROPIC_CAP_ENV    = "NESTED_WORLDS_ANTHROPIC_DAILY_CALLS"
 FAL_CAP_ENV          = "NESTED_WORLDS_FAL_DAILY_CALLS"
 # Per-user (per-credential) daily sub-caps. The global caps above bound total
@@ -55,6 +61,8 @@ FAL_CAP_ENV          = "NESTED_WORLDS_FAL_DAILY_CALLS"
 # one heavy or careless account can't drain the shared budget and degrade the
 # whole cohort to the quiet-fallback string. Enforced only when a credential is
 # supplied (i.e. the invite gate is active); local dev with no key is unaffected.
+VOICE_PER_USER_CAP_ENV     = "NESTED_WORLDS_VOICE_DAILY_CALLS_PER_USER"
+IMAGE_PER_USER_CAP_ENV     = "NESTED_WORLDS_IMAGE_DAILY_CALLS_PER_USER"
 ANTHROPIC_PER_USER_CAP_ENV = "NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER"
 FAL_PER_USER_CAP_ENV       = "NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER"
 RATE_LIMIT_ENV       = "NESTED_WORLDS_RATE_LIMIT_PER_MIN"
@@ -77,13 +85,22 @@ _DEFAULT_FAL_PER_USER       = 60
 _DEFAULT_RATE_PER_MIN    = 20
 DEFAULT_CANONICAL_SEED   = DEFAULT_WORLD_SEED
 
+# New calls write the neutral keys. Rows already stored under the legacy
+# keys keep counting toward the same UTC-day allowance, so a rename does
+# not replenish a budget that has already been spent. The pairs are summed
+# at check time. Legacy rows are not deleted or rewritten.
+VOICE_BUCKET      = "voice"
+IMAGE_BUCKET      = "image"
 ANTHROPIC_BUCKET  = "anthropic"
 FAL_BUCKET        = "fal_ai"
+_LEGACY_BUCKET = {
+    VOICE_BUCKET: ANTHROPIC_BUCKET,
+    IMAGE_BUCKET: FAL_BUCKET,
+}
 # Moderation classify calls get their OWN budget line (ADR-004 §2): they must
-# never drain the voice budget. The persisted voice bucket stays "anthropic";
-# these names are separate counters. When a moderation budget or per-user cap
-# is spent, shared text is held — it is not published. Redaction stays the
-# backstop for text that did land.
+# never drain the voice budget. The moderation bucket stays "moderation".
+# When a moderation budget or per-user cap is spent, shared text is held —
+# it is not published. Redaction stays the backstop for text that did land.
 MODERATION_BUCKET = "moderation"
 MODERATION_CAP_ENV = "NESTED_WORLDS_MODERATION_DAILY_CALLS"
 _DEFAULT_MODERATION_DAILY = 2000
@@ -104,8 +121,8 @@ MODERATION_ACTIONS_BUCKET = "moderation_actions"
 MODERATION_ACTIONS_PER_USER_ENV = "NESTED_WORLDS_MODERATION_ACTIONS_PER_USER"
 _DEFAULT_MODERATION_ACTIONS_PER_USER = 600
 # Model-calling actions (voice, inhabitant voice, intention, and a moderation
-# classify). Separate from the anthropic bucket and its NESTED_WORLDS_ANTHROPIC_*
-# settings, which are unchanged. 200 sits above the existing 150 voice
+# classify). Separate from the voice allowance and its NESTED_WORLDS_VOICE_*
+# / legacy NESTED_WORLDS_ANTHROPIC_* settings. 200 sits above the existing 150 voice
 # sub-cap so ordinary voice still binds there, with room for a few classifies
 # and intentions. Starting value to measure. No credential stays uncapped
 # here; the global voice cap still applies.
@@ -827,6 +844,110 @@ def _cap_for(env_var: str, default: int) -> int:
     return max(0, v)
 
 
+def _read_cap(env_var: str) -> tuple[str, int | None]:
+    """``(kind, value)`` for one cap variable.
+
+    ``absent`` and ``blank`` carry no number. ``blank`` is a present value
+    that is empty or whitespace, and it does not override another setting.
+    ``invalid`` is present and not an integer. ``value`` is an integer;
+    negative numbers clamp to 0, which refuses every call. The raw text is
+    not returned: a pasted credential must not land in an operator line.
+    """
+    if env_var not in os.environ:
+        return "absent", None
+    raw = os.environ[env_var].strip()
+    if not raw:
+        return "blank", None
+    try:
+        return "value", max(0, int(raw))
+    except ValueError:
+        return "invalid", None
+
+
+def resolve_budget_cap(neutral_env: str, legacy_env: str, default: int) -> tuple[int, tuple[str, ...]]:
+    """The cap to enforce, and any configuration problems.
+
+    Neither name set, or both blank, uses ``default``. One valid integer
+    wins. Both valid and equal use that integer. Both valid and different
+    use the lower integer, so setting the neutral name cannot raise an
+    allowance the legacy name still holds, and the disagreement is reported.
+    Any invalid integer refuses the allowance (cap 0) instead of falling
+    through to the default or to the other name, which could be higher.
+    ``0`` is a valid cap and refuses every call.
+    """
+    opinions: list[tuple[str, int]] = []
+    problems: list[str] = []
+    for env_var in (neutral_env, legacy_env):
+        kind, value = _read_cap(env_var)
+        if kind == "invalid":
+            problems.append(f"{env_var} is not an integer")
+        elif kind == "value" and value is not None:
+            opinions.append((env_var, value))
+    if problems:
+        return 0, tuple(problems)
+    if not opinions:
+        return default, ()
+    if len(opinions) == 1:
+        return opinions[0][1], ()
+    if opinions[0][1] == opinions[1][1]:
+        return opinions[0][1], ()
+    low = min(opinions[0][1], opinions[1][1])
+    return low, (
+        f"{opinions[0][0]}={opinions[0][1]} and {opinions[1][0]}={opinions[1][1]} "
+        f"disagree; the lower cap {low} is enforced",
+    )
+
+
+_BUDGET_PAIRS = (
+    (VOICE_CAP_ENV, ANTHROPIC_CAP_ENV, _DEFAULT_ANTHROPIC_DAILY),
+    (VOICE_PER_USER_CAP_ENV, ANTHROPIC_PER_USER_CAP_ENV, _DEFAULT_ANTHROPIC_PER_USER),
+    (IMAGE_CAP_ENV, FAL_CAP_ENV, _DEFAULT_FAL_DAILY),
+    (IMAGE_PER_USER_CAP_ENV, FAL_PER_USER_CAP_ENV, _DEFAULT_FAL_PER_USER),
+)
+
+
+def budget_configuration_problems() -> tuple[str, ...]:
+    """Problems in the voice and image cap settings. Empty when they resolve."""
+    found: list[str] = []
+    for neutral, legacy, default in _BUDGET_PAIRS:
+        found.extend(resolve_budget_cap(neutral, legacy, default)[1])
+    return tuple(found)
+
+
+def budget_configuration_line() -> str | None:
+    """One line for ``models`` and ``serve``, or None when the caps resolve."""
+    problems = budget_configuration_problems()
+    if not problems:
+        return None
+    return "Budget configuration: " + "; ".join(problems)
+
+
+def _legacy_bucket(bucket: str) -> str | None:
+    """The pre-rename key that still counts toward ``bucket``, if any."""
+    for neutral, legacy in _LEGACY_BUCKET.items():
+        if bucket == neutral:
+            return legacy
+        prefix = neutral + ":u:"
+        if bucket.startswith(prefix):
+            return legacy + bucket[len(neutral):]
+    return None
+
+
+def effective_calls(bucket: str, day: str | None = None) -> int:
+    """Calls already spent for ``bucket`` today, including its legacy key.
+
+    The legacy row is not copied and is not deleted. New increments land on
+    ``bucket`` only, and the check adds the legacy count, so a database
+    mid-UTC-day keeps the calls it had already recorded.
+    """
+    day = day or _utc_day()
+    total = persistence.get_cost_calls(bucket, day)
+    legacy = _legacy_bucket(bucket)
+    if legacy:
+        total += persistence.get_cost_calls(legacy, day)
+    return total
+
+
 def _consume(bucket: str, env_var: str, default: int) -> bool:
     """Increment today's counter for `bucket`; return True iff still under cap.
 
@@ -835,11 +956,22 @@ def _consume(bucket: str, env_var: str, default: int) -> bool:
     of concurrent requests can briefly observe the same pre-increment state
     and both tip the counter just past the cap; that's fine for a beta cap
     whose purpose is bounding worst-case spend, not exact accounting.
+    ``env_var`` and ``default`` are the single-variable form used by
+    moderation. Voice and image pass an already resolved cap through
+    ``_consume_capped``.
     """
     cap = _cap_for(env_var, default)
+    return _consume_capped(bucket, cap)
+
+
+def _consume_capped(bucket: str, cap: int) -> bool:
     if cap <= 0:
         return False
-    new_count = persistence.increment_cost_calls(bucket, _utc_day())
+    day = _utc_day()
+    new_count = persistence.increment_cost_calls(bucket, day)
+    legacy = _legacy_bucket(bucket)
+    if legacy:
+        new_count += persistence.get_cost_calls(legacy, day)
     return new_count <= cap
 
 
@@ -865,15 +997,33 @@ def _consume_per_user(base_bucket: str, env_var: str, default: int,
     if not user_key:
         return True
     cap = _cap_for(env_var, default)
-    if cap <= 0:
-        return False
-    new_count = persistence.increment_cost_calls(_user_bucket(base_bucket, user_key), _utc_day())
-    return new_count <= cap
+    return _consume_capped(_user_bucket(base_bucket, user_key), cap)
+
+
+def _consume_voice_allowance(user_key: str | None, *,
+                             neutral_user: str, legacy_user: str, default_user: int,
+                             neutral_global: str, legacy_global: str, default_global: int,
+                             bucket: str) -> bool:
+    """Per-user gate first, then the shared counter. Both read neutral-or-legacy caps."""
+    if user_key:
+        per_user, _problems = resolve_budget_cap(neutral_user, legacy_user, default_user)
+        if not _consume_capped(_user_bucket(bucket, user_key), per_user):
+            return False
+    global_cap, _problems = resolve_budget_cap(neutral_global, legacy_global, default_global)
+    return _consume_capped(bucket, global_cap)
 
 
 def consume_anthropic(user_key: str | None = None) -> bool:
-    """Reserve one Anthropic call against the global cap and, if a credential
+    """Reserve one voice call against the global cap and, if a credential
     is supplied, the caller's per-user cap. Both must be under budget.
+
+    The allowance is one bucket for every text provider. Node voice,
+    inhabitant voice, and intention share it. Switching or mixing providers
+    does not open a second allowance. The persisted key is ``voice``.
+    Calls already stored under ``anthropic`` for this UTC day still count.
+    ``NESTED_WORLDS_VOICE_DAILY_CALLS`` is the neutral cap. The legacy
+    ``NESTED_WORLDS_ANTHROPIC_DAILY_CALLS`` is still accepted. When both
+    name different integers, the lower one is enforced.
 
     Order matters: the per-user sub-cap is checked FIRST, and the shared
     global counter is only incremented once that gate passes. If we charged
@@ -884,10 +1034,21 @@ def consume_anthropic(user_key: str | None = None) -> bool:
     A credential-less caller (local dev / legacy) passes the per-user gate
     trivially and is bounded by the global cap alone, unchanged.
     """
-    if not _consume_per_user(ANTHROPIC_BUCKET, ANTHROPIC_PER_USER_CAP_ENV,
-                             _DEFAULT_ANTHROPIC_PER_USER, user_key):
-        return False
-    return _consume(ANTHROPIC_BUCKET, ANTHROPIC_CAP_ENV, _DEFAULT_ANTHROPIC_DAILY)
+    return _consume_voice_allowance(
+        user_key,
+        neutral_user=VOICE_PER_USER_CAP_ENV,
+        legacy_user=ANTHROPIC_PER_USER_CAP_ENV,
+        default_user=_DEFAULT_ANTHROPIC_PER_USER,
+        neutral_global=VOICE_CAP_ENV,
+        legacy_global=ANTHROPIC_CAP_ENV,
+        default_global=_DEFAULT_ANTHROPIC_DAILY,
+        bucket=VOICE_BUCKET,
+    )
+
+
+# The neutral name. ``consume_anthropic`` stays the function ``generate``
+# calls so an existing patch of that name still intercepts the charge.
+consume_voice = consume_anthropic
 
 
 def consume_moderation_action(user_key: str | None = None) -> bool:
@@ -906,9 +1067,8 @@ def consume_model_action(user_key: str | None = None) -> bool:
 
     Callers go through ``consciousness.runtime.reserve_model_action``, which
     normalizes an empty credential and is what ``generate`` charges. Does not
-    touch the ``anthropic`` bucket or ``NESTED_WORLDS_ANTHROPIC_*``. Open when
-    no credential is supplied. A False result must not publish shared text
-    and must not call the model.
+    touch the voice allowance. Open when no credential is supplied. A False
+    result must not publish shared text and must not call the model.
     """
     return _consume_per_user(
         MODEL_ACTIONS_BUCKET, MODEL_ACTIONS_PER_USER_ENV,
@@ -931,16 +1091,30 @@ def moderation_reserve(user_key: str | None = None) -> str:
 
 
 def consume_fal(user_key: str | None = None) -> bool:
-    """Reserve one fal.ai call against the per-user then global caps.
+    """Reserve one image call against the per-user then global caps.
+
+    The persisted key is ``image``. Calls already stored under ``fal_ai``
+    for this UTC day still count. ``NESTED_WORLDS_IMAGE_DAILY_CALLS`` is
+    the neutral cap. ``NESTED_WORLDS_FAL_DAILY_CALLS`` is still accepted.
+    When both name different integers, the lower one is enforced.
 
     Same ordering rationale as `consume_anthropic`: the per-user gate is
     evaluated before the shared global counter is touched, so a single
     account's over-quota attempts can't exhaust the cohort's image budget.
     """
-    if not _consume_per_user(FAL_BUCKET, FAL_PER_USER_CAP_ENV,
-                             _DEFAULT_FAL_PER_USER, user_key):
-        return False
-    return _consume(FAL_BUCKET, FAL_CAP_ENV, _DEFAULT_FAL_DAILY)
+    return _consume_voice_allowance(
+        user_key,
+        neutral_user=IMAGE_PER_USER_CAP_ENV,
+        legacy_user=FAL_PER_USER_CAP_ENV,
+        default_user=_DEFAULT_FAL_PER_USER,
+        neutral_global=IMAGE_CAP_ENV,
+        legacy_global=FAL_CAP_ENV,
+        default_global=_DEFAULT_FAL_DAILY,
+        bucket=IMAGE_BUCKET,
+    )
+
+
+consume_image = consume_fal
 
 
 # ── Kill switches ───────────────────────────────────────────────────────────

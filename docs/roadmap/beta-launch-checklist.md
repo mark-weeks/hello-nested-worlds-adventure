@@ -6,8 +6,9 @@ integrity (#137), suspension (#138) and agent-identity (#139) PRs in rows S1,
 E4, G5, C7, G9 and P6, for the credential sweep in G5, on 2026-11-04 for
 the delegated decisions in G5 and the owner-approved pilot-client choice in
 O3, on 2026-11-04 for M2, P3 and P5 evidence only (no status change), and
-on 2026-11-05 for the eval harness (M3 Partial); line numbers in other rows
-cite `23b8830`.
+on 2026-11-05 for the eval harness (M3 Partial), and on 2026-11-06 for
+per-task text providers and the neutral voice and image budget names
+(E3 Done, M1 and M5 evidence); line numbers in other rows cite `23b8830`.
 Thresholds marked as proposals are not decided.
 Decisions held for the owner are listed in this page and are not made by
 recording it. It ratifies no ADR and authorizes no deployment. The [Q4
@@ -47,9 +48,9 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 
 | Status | Count |
 |---|---|
-| Done | 10 |
+| Done | 11 |
 | Partial | 39 |
-| Not started | 43 |
+| Not started | 42 |
 | Unknown | 3 |
 
 ### By category
@@ -62,7 +63,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Content depth and variety | 5 | 2 | 2 | 1 | 0 |
 | AI players and agent policy | 4 | 0 | 3 | 1 | 0 |
 | Safety and moderation | 5 | 1 | 2 | 2 | 0 |
-| Economy, budgets and cost | 5 | 1 | 1 | 3 | 0 |
+| Economy, budgets and cost | 5 | 2 | 1 | 2 | 0 |
 | Performance and reliability | 7 | 0 | 3 | 3 | 1 |
 | Observability and feedback | 5 | 1 | 3 | 1 | 0 |
 | Model agnosticism | 6 | 1 | 3 | 2 | 0 |
@@ -147,7 +148,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 |---|---|---|---|---|---|
 | E1 | Daily call caps, global and per user | Caps are sized to cohort × exchanges × cost and enforced. | Partial | (Code) `server/guard.py` enforces text 500 per day and 150 per user, fal 200 and 60, moderation 2,000 and 60, per-user `moderation_actions` 600 and `model_actions` 200, and a rate limit of 20 per minute. Sizing those caps to the cohort is not done (Q4 plan step P9; it waits on E2). | **Blocks beta** |
 | E2 | Dollar spend ceiling | A hard dollar ceiling, with the amount and the period set by Mark, that degrades in fiction when reached. | Not started | (Docs) D8 recommends dollars per day and is not decided. The ceiling is held for Mark. | **Blocks beta** · Mark decides |
-| E3 | Budget-bucket rename | If Mark decides to rename the buckets, the new names are neutral and the old `NESTED_WORLDS_ANTHROPIC_*` names are still accepted. | Not started | (Code) The `anthropic` bucket is unchanged in `guard.py`. Held. | Can follow · Mark decides |
+| E3 | Budget-bucket rename | If Mark decides to rename the buckets, the new names are neutral and the old `NESTED_WORLDS_ANTHROPIC_*` names are still accepted. | Done | (Code) Neutral caps `NESTED_WORLDS_VOICE_DAILY_CALLS`, `NESTED_WORLDS_VOICE_DAILY_CALLS_PER_USER`, `NESTED_WORLDS_IMAGE_DAILY_CALLS` and `NESTED_WORLDS_IMAGE_DAILY_CALLS_PER_USER` (`server/guard.py`). New calls write `voice` and `image`. Legacy `NESTED_WORLDS_ANTHROPIC_*` and `NESTED_WORLDS_FAL_*` names are still accepted, and rows already stored under `anthropic` and `fal_ai` still count toward the same UTC-day allowance, so a rename does not replenish it. Disagreeing integers enforce the lower cap and fail startup. ADR-035 stays Proposed. | Can follow |
 | E4 | Abuse resistance | One key cannot exhaust the global budget, and the invite gate closes after the first key. | Done | (Code) Per-user caps, the invite gate (`guard.py`), `NESTED_WORLDS_DISABLE_AI` and `DISABLE_IMAGES` kill switches. The gate failed open on `23b8830`: revoking the last live key reopened it, a failed gate read opened it, and registration invites alone never closed it. #137 fixes this: the gate latches closed once any key or registration invite is issued, and a failed read keeps it closed (`tests/test_guard.py`, `tests/test_ws_credential_lifetime.py`). | **Blocks beta** |
 | E5 | Player token budget as a game resource | Rewards cannot raise anyone's real spend above the ceiling. | Not started | (Inference) No player-facing budget exists. It couples game rewards to real cost. | Can follow |
 
@@ -177,11 +178,11 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 
 | ID | Item | Exit criterion | Status | Evidence | Gate |
 |---|---|---|---|---|---|
-| M1 | Provider registry and model per task | Provider selected by config, with startup refusing unusable ids. | Done | (Code) On main at `38fbe6e`: `NESTED_WORLDS_PROVIDER`, `model_for(task)`, `UnusableModelId` (#130 to #132). | **Blocks beta** |
+| M1 | Provider registry and model per task | Provider selected by config, with startup refusing unusable ids. | Done | (Code) On main at `38fbe6e`: `NESTED_WORLDS_PROVIDER`, `model_for(task)`, `UnusableModelId` (#130 to #132). Each task may set `NESTED_WORLDS_<TASK>_PROVIDER`; unset uses the process provider, then `anthropic`. Default model ids come only from that task's adapter. | **Blocks beta** |
 | M2 | Second text adapter (openai_compatible) | If Mark decides to add a second text adapter, it is merged with offline contract tests, and ADR-035 is Accepted. | Partial | (Docs) #133 (ADR-035) and #134 (adapter) are merged into main as squash commits `6713fee` and `f4f3396` (2026-11-02). ADR-035's status is still Proposed, so this row stays Partial. | Can follow · Mark decides |
 | M3 | Eval harness for every adapter | The harness runs any registered provider against the rubric. | Partial | (Code) `evals/harness.py` selects any registered adapter (`fixture` offline; `anthropic` and `openai_compatible` built in). A live run refuses without `--live`, an explicit spend ceiling, and that provider. A non-anthropic live run also requires `--allow-destination` matching the resolved host. No live eval has been run. ADR-035 stays Proposed. | Can follow · Mark decides |
 | M4 | Live quality bar per task | Live probes for success, clarification and refusal pass on the beta provider. | Not started | (Docs) No live credential has been used. Probes are Q4 plan step P4. | **Blocks beta** · Mark decides |
-| M5 | Provider fallback | A provider outage degrades in fiction, with no failover required for beta. | Partial | (Code) One provider per process, no failover. Fallbacks are logged by exception class (#132). | Can follow |
+| M5 | Provider fallback | A provider outage degrades in fiction, with no failover required for beta. | Partial | (Code) Each task routes to its own provider. In-flight slots are per provider, so a slow, rate-limited, or failing provider does not block a task on another provider. A failure is not retried on another provider and degrades in fiction. There is no automatic failover (#132). | Can follow |
 | M6 | Scene art provider choice | The art provider is selectable like text. | Not started | (Code) Hard-wired to fal.ai. | Can follow |
 
 ## Accessibility
@@ -262,7 +263,7 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 |---|---|---|
 | Destinations that may receive player text | Held | S2, L4, any second provider in use |
 | Spend ceiling (dollars, global and per player) | Held | E2, M4, the cohort budget sizing |
-| Budget-bucket rename | Held | E3 |
+| Budget-bucket rename | Decided (owner-authorized Track 3, 2026-11-06). Neutral `voice` and `image` names, legacy `NESTED_WORLDS_ANTHROPIC_*` and `NESTED_WORLDS_FAL_*` still accepted, and already-spent rows still count. ADR-035 stays Proposed. | E3 |
 | ADR statuses: 012 to 022, 029 to 033 and 035 Proposed; decisions A to H | Held | C5, R5, U5 to U7, M2, A3 |
 | New provider adapters and live evals (Google/Gemini on the candidate list) | Held | M2 to M4, D3 |
 | Fly account, billing, flyctl and token | Held | F1, F3, F6, P2 to P5 |

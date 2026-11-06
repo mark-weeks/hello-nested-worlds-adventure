@@ -1,17 +1,25 @@
 """Small text-provider boundary; world prompts and validators stay with their tasks.
 
-``NESTED_WORLDS_PROVIDER`` selects a registered adapter. Unset means
-``anthropic``. Built-in adapters are ``anthropic`` and
+``NESTED_WORLDS_PROVIDER`` selects the process default adapter. Unset
+means ``anthropic``. Each text task may override that choice with
+``NESTED_WORLDS_NODE_PROVIDER``, ``NESTED_WORLDS_INHABITANT_PROVIDER``,
+``NESTED_WORLDS_INTENT_PROVIDER``, or ``NESTED_WORLDS_MODERATION_PROVIDER``.
+An unset task variable uses the process default. A blank, unknown, or
+otherwise unusable name fails startup and does not fall through to
+another adapter. Built-in adapters are ``anthropic`` and
 ``openai_compatible``. The second speaks OpenAI-compatible Chat
 Completions to an operator-supplied base URL. It is registered for
 evaluation. No destination is approved for production, and no provider
 other than the current default has been evaluated or approved (ADR-034;
-ADR-035 is Proposed and does not enable a destination). An unknown name
-fails startup. The first successful selection is cached for the process.
-Per-task settings choose a model id on that provider. When no setting
-names an id, the selected adapter's own ``default_model`` supplies it.
+ADR-035 is Proposed and does not enable a destination). The first
+successful selection of each provider is cached for the process.
+Per-task settings choose a model id on that task's provider. When no
+setting names an id, that provider's own ``default_model`` supplies it.
 An adapter that omits that method does not inherit another adapter's ids.
-An id never selects or replaces the provider, and a failed call is never
+``NESTED_WORLDS_MODEL`` is a shared model id for node voice, inhabitant
+voice, and intention, including when those tasks use different providers.
+It is not a provider selector and moderation never inherits it. An id
+never selects or replaces the provider, and a failed call is never
 retried on another id or another provider. Adding a provider still
 requires an adapter, a registry entry, and contract evaluation (ADR-034).
 This module does not import a provider SDK.
@@ -34,9 +42,14 @@ INHABITANT_MODEL_ENV = "NESTED_WORLDS_INHABITANT_MODEL"
 INTENT_MODEL_ENV = "NESTED_WORLDS_INTENT_MODEL"
 MODERATION_MODEL_ENV = "NESTED_WORLDS_MODERATION_MODEL"
 
-# One adapter for every text task. Unset keeps the current adapter.
+# Process default. Unset keeps the current adapter. A task variable overrides
+# it for that task only. A blank or unknown task value does not fall through.
 PROVIDER_ENV = "NESTED_WORLDS_PROVIDER"
 DEFAULT_PROVIDER = "anthropic"
+NODE_PROVIDER_ENV = "NESTED_WORLDS_NODE_PROVIDER"
+INHABITANT_PROVIDER_ENV = "NESTED_WORLDS_INHABITANT_PROVIDER"
+INTENT_PROVIDER_ENV = "NESTED_WORLDS_INTENT_PROVIDER"
+MODERATION_PROVIDER_ENV = "NESTED_WORLDS_MODERATION_PROVIDER"
 _PROVIDER_NAME = re.compile(r"[a-z][a-z0-9_]{0,32}")
 
 NODE_TASK = "node"
@@ -51,6 +64,13 @@ _TASK_ENV = {
     MODERATION_TASK: MODERATION_MODEL_ENV,
 }
 
+_TASK_PROVIDER_ENV = {
+    NODE_TASK: NODE_PROVIDER_ENV,
+    INHABITANT_TASK: INHABITANT_PROVIDER_ENV,
+    INTENT_TASK: INTENT_PROVIDER_ENV,
+    MODERATION_TASK: MODERATION_PROVIDER_ENV,
+}
+
 
 def _nonblank(value: str | None) -> str | None:
     if value is None:
@@ -62,9 +82,13 @@ def _nonblank(value: str | None) -> str | None:
 SOURCE_TASK_ENV = "task env"
 SOURCE_SHARED = SHARED_MODEL_ENV
 SOURCE_DEFAULT = "default"
+SOURCE_PROVIDER_TASK = "task env"
+SOURCE_PROVIDER_PROCESS = PROVIDER_ENV
+SOURCE_PROVIDER_DEFAULT = "default"
 
 # Stable task order for operator reports. Dict order matches this tuple.
 TASKS = (NODE_TASK, INHABITANT_TASK, INTENT_TASK, MODERATION_TASK)
+TASK_PROVIDER_ENVS = tuple(_TASK_PROVIDER_ENV[task] for task in TASKS)
 
 
 @dataclass(frozen=True)
@@ -109,24 +133,25 @@ def _supplied_default(provider: TextProvider, task: str) -> str | None:
     return _nonblank(value)
 
 
-def _provider_for_defaults(provider: TextProvider | None) -> TextProvider:
-    """Adapter that owns the default id. This is not a model call.
+def _provider_for_defaults(provider: TextProvider | None, task: str) -> TextProvider:
+    """Adapter that owns this task's default id. This is not a model call.
 
-    Omitted, it is ``get_provider()``, the same seam ``generate`` sends the
-    call through, so a default id always comes from the adapter that will
-    receive it. Replacing ``get_provider`` replaces both together. Looking
-    up the adapter does not contact it; the voice budget gates
-    ``provider.generate``, not this lookup. A later environment change does
-    not switch the cached adapter.
+    Omitted, it is ``provider_for(task)``, the same adapter ``generate``
+    sends that task's call through, so a default id always comes from the
+    adapter that will receive it. A task with no provider override shares
+    ``get_provider()``. Replacing ``get_provider`` replaces both for those
+    tasks. Looking up the adapter does not contact it; the voice budget
+    gates ``provider.generate``, not this lookup. A later environment
+    change does not switch a cached adapter.
     """
     if provider is not None:
         return provider
-    return get_provider()
+    return provider_for(task)
 
 
 def _default_resolution(task: str, env_name: str, blanks: list[tuple[str, str]],
                         provider: TextProvider | None) -> ModelResolution:
-    chosen = _supplied_default(_provider_for_defaults(provider), task)
+    chosen = _supplied_default(_provider_for_defaults(provider, task), task)
     if chosen is None:
         return ModelResolution(
             task, "", SOURCE_DEFAULT, env_name, None, tuple(blanks),
@@ -142,8 +167,11 @@ def resolve_model(task: str, provider: TextProvider | None = None) -> ModelResol
     """Same rules as ``model_for``, plus the setting that supplied the id.
 
     ``provider`` is the adapter whose ``default_model`` applies. Omit it to
-    use the selected adapter. A task setting, then the shared model for
-    every task except moderation, still wins over that default.
+    use that task's provider. A task setting, then the shared model for
+    every task except moderation, still wins over that default. The shared
+    model is an id, so it applies even when the task's provider is not the
+    process default. It never supplies moderation's id, and it never
+    supplies another adapter's ``default_model``.
     """
     try:
         env_name = _TASK_ENV[task]
@@ -174,13 +202,14 @@ def model_for(task: str) -> str:
     """Model id for one text task. An id never selects a provider.
 
     Node voice, inhabitant voice, and intention use their own settings, then
-    the shared model, then the selected adapter's default. Moderation uses
-    its own setting, then that adapter's moderation default, and does not
-    inherit the shared model. An adapter with no default leaves the id
-    empty. Empty and whitespace-only settings are unset here and fall back.
-    The startup check reports those blanks, and a default the adapter did
-    not supply, and refuses to serve. This function does not retry or
-    substitute another id when a call fails.
+    the shared model, then that task's provider's default. Moderation uses
+    its own setting, then that task's provider's moderation default, and
+    does not inherit the shared model. An adapter with no default leaves
+    the id empty and does not inherit another adapter's ids, including when
+    other tasks still use those ids. Empty and whitespace-only settings are
+    unset here and fall back. The startup check reports those blanks, and a
+    default the task's provider did not supply, and refuses to serve. This
+    function does not retry or substitute another id when a call fails.
     """
     return resolve_model(task).model
 
@@ -399,9 +428,13 @@ _BUILTINS: dict[str, Callable[[], TextProvider]] = {
 }
 _REGISTERED: dict[str, Callable[[], TextProvider]] = {}
 _registry_lock = threading.Lock()
-# First successful selection. A failed selection is not stored. Tests clear
-# this with reset_provider_selection so a later case can select again.
-_selected_provider: TextProvider | None = None
+# First successful selection of each provider name, plus the process default
+# name and each task's resolved name. A failed selection is not stored.
+# Tests clear these with reset_provider_selection.
+_providers: dict[str, TextProvider] = {}
+_process_name: str | None = None
+_task_provider_names: dict[str, str] = {}
+_task_provider_sources: dict[str, str] = {}
 # Re-entrant so a factory that calls back into selection can be refused
 # instead of deadlocking on a non-reentrant lock. The build itself stays
 # inside the lock, so concurrent first calls do not each construct one.
@@ -462,70 +495,153 @@ def register_provider(name: str, factory: Callable[[], TextProvider]) -> None:
         _REGISTERED[text] = factory
 
 
+@dataclass(frozen=True)
+class ProviderResolution:
+    """One task's provider name and where it came from. No credentials.
+
+    ``source`` is ``task env``, ``NESTED_WORLDS_PROVIDER``, or ``default``.
+    ``failure`` is ``empty``, ``unsafe``, or ``unknown`` when the name that
+    applies cannot be used. A failed name does not fall through to another
+    adapter. ``name`` is safe to echo only when ``failure`` is ``unknown``
+    (a short token that is not registered) or there is no failure.
+    """
+
+    task: str
+    name: str
+    source: str
+    env_var: str
+    failure: str | None = None
+    failure_env: str | None = None
+
+
+def _classify_provider_value(raw: str) -> tuple[str, str | None]:
+    """``(token, failure)``. ``failure`` is empty, unsafe, unknown, or None.
+
+    An unsafe value is not returned. An unknown value is a short token and
+    is safe to put in an operator line.
+    """
+    text = raw.strip().lower()
+    if not text:
+        return "", "empty"
+    if _PROVIDER_NAME.fullmatch(text) is None:
+        return "", "unsafe"
+    if text not in provider_names():
+        return text, "unknown"
+    return text, None
+
+
+def _provider_failure_line(env_name: str, name: str, failure: str) -> str:
+    suffix = _valid_suffix()
+    if failure == "empty":
+        return f"{env_name} is empty ({suffix})"
+    if failure == "unknown":
+        return (
+            f"{env_name}={name!r} is not a known text provider ({suffix})"
+        )
+    # Unsafe, or any other refusal: do not echo the value.
+    return f"{env_name} is not a known text provider ({suffix})"
+
+
+def resolve_provider(task: str) -> ProviderResolution:
+    """Which adapter serves one task. Does not build it or call it.
+
+    A set task variable wins, including when it names the same adapter as
+    the process default. Unset falls back to ``NESTED_WORLDS_PROVIDER``,
+    then ``anthropic``. A blank, unsafe, or unknown value is a failure on
+    the variable that supplied it and does not fall through. This reads
+    the environment every time; ``provider_for`` caches a successful result.
+    """
+    try:
+        env_name = _TASK_PROVIDER_ENV[task]
+    except KeyError:
+        raise ValueError(f"unknown model task {task!r}") from None
+    if env_name in os.environ:
+        name, failure = _classify_provider_value(os.environ[env_name])
+        return ProviderResolution(
+            task, name, SOURCE_PROVIDER_TASK, env_name, failure, env_name,
+        )
+    if PROVIDER_ENV in os.environ:
+        name, failure = _classify_provider_value(os.environ[PROVIDER_ENV])
+        return ProviderResolution(
+            task, name, SOURCE_PROVIDER_PROCESS, PROVIDER_ENV, failure, PROVIDER_ENV,
+        )
+    return ProviderResolution(
+        task, DEFAULT_PROVIDER, SOURCE_PROVIDER_DEFAULT, env_name,
+    )
+
+
+def provider_failure_line(resolution: ProviderResolution) -> str | None:
+    """One line for a bad provider name, or None when the name is usable."""
+    if not resolution.failure:
+        return None
+    return _provider_failure_line(
+        resolution.failure_env or resolution.env_var,
+        resolution.name,
+        resolution.failure,
+    )
+
+
 def selected_provider_name() -> str:
     """Registry key for this process. Unset means ``anthropic``.
 
-    The value is stripped and lowercased. Empty or whitespace-only is a
-    misconfiguration. This does not import a provider SDK.
+    The value is stripped and lowercased. Empty, whitespace-only, unsafe,
+    or unknown is a misconfiguration. This does not import a provider SDK.
     """
     if PROVIDER_ENV not in os.environ:
         return DEFAULT_PROVIDER
-    text = os.environ[PROVIDER_ENV].strip().lower()
-    if not text:
-        raise SystemExit(f"{PROVIDER_ENV} is empty ({_valid_suffix()})")
-    if _PROVIDER_NAME.fullmatch(text) is None:
-        # Do not echo an unsafe value. It might be a pasted credential.
-        raise SystemExit(
-            f"{PROVIDER_ENV} is not a known text provider ({_valid_suffix()})"
-        )
-    return text
+    name, failure = _classify_provider_value(os.environ[PROVIDER_ENV])
+    if failure:
+        raise SystemExit(_provider_failure_line(PROVIDER_ENV, name, failure))
+    return name
 
 
 def reset_provider_selection() -> None:
-    """Forget the adapter chosen for this process.
+    """Forget every adapter chosen for this process.
 
-    ``get_provider`` validates ``NESTED_WORLDS_PROVIDER`` once and keeps
+    ``get_provider`` and ``provider_for`` validate a name once and keep
     that adapter. Tests call this so a later case can select again. A
     failed selection is not cached, so a corrected value can be read on
     the next call without this reset.
     """
-    global _selected_provider
+    global _process_name
     with _selection_lock:
-        _selected_provider = None
+        _providers.clear()
+        _process_name = None
+        _task_provider_names.clear()
+        _task_provider_sources.clear()
 
 
-def _load_selected_provider() -> TextProvider:
-    """Validate and cache ``NESTED_WORLDS_PROVIDER``. Does not import an SDK.
+def _load_named(name: str, *, selector_env: str = PROVIDER_ENV) -> TextProvider:
+    """Build and cache one registered adapter. Does not import an SDK.
 
-    Callers go through ``get_provider``, never here directly, so default ids
-    and calls share one seam. The factory runs under the selection lock, so
-    two first calls build one adapter. A factory that calls back into
-    selection raises ``RuntimeError`` instead of waiting on the lock it
-    already holds. A failed selection is not cached.
+    The factory runs under the selection lock, so two first calls for the
+    same name build one adapter. A factory that calls back into selection
+    raises ``RuntimeError`` instead of waiting on the lock it already
+    holds. A failed selection is not cached. ``selector_env`` is named only
+    when the name is not registered.
     """
-    global _selected_provider, _selection_owner
+    global _selection_owner
     with _selection_lock:
-        if _selected_provider is not None:
-            return _selected_provider
+        cached = _providers.get(name)
+        if cached is not None:
+            return cached
         owner = threading.get_ident()
         if _selection_owner == owner:
             raise RuntimeError("text provider factory re-entered selection")
         _selection_owner = owner
         try:
-            name = selected_provider_name()
             with _registry_lock:
                 factory = _BUILTINS.get(name)
                 if factory is None:
                     factory = _REGISTERED.get(name)
             if factory is None:
-                raise SystemExit(
-                    f"{PROVIDER_ENV}={name!r} is not a known text provider "
-                    f"({_valid_suffix()})"
-                )
+                raise SystemExit(_provider_failure_line(selector_env, name, "unknown"))
             provider = factory()
-            if _selected_provider is None:
-                _selected_provider = provider
-            return _selected_provider
+            existing = _providers.get(name)
+            if existing is None:
+                _providers[name] = provider
+                existing = provider
+            return existing
         finally:
             _selection_owner = None
 
@@ -539,25 +655,70 @@ def get_provider() -> TextProvider:
     request thread. An unknown name on the first call still raises
     ``SystemExit`` with one line naming that variable and the valid names.
     The same line is what ``python main.py serve`` exits with, before it
-    opens a port. ``reset_provider_selection`` clears the cache. This does
-    not import a provider SDK. ``model_for`` asks this adapter for default
-    ids and ``generate`` sends the call to it, so both always name the same
-    adapter. The lookup is not a model call: ``generate`` reaches
-    ``provider.generate`` only after the voice budget.
+    opens a port, when a task has not named a different provider.
+    A failed selection is not cached. ``reset_provider_selection`` clears
+    a successful one. This does not import a provider SDK. A task with no
+    provider override asks this adapter for default ids, and ``generate``
+    sends that task's call to it. The lookup is not a model call:
+    ``generate`` reaches ``provider.generate`` only after the voice budget.
     """
-    return _load_selected_provider()
+    global _process_name
+    with _selection_lock:
+        cached = _process_name
+    if cached is not None:
+        return _load_named(cached)
+    name = selected_provider_name()
+    provider = _load_named(name)
+    with _selection_lock:
+        if _process_name is None:
+            _process_name = name
+    return provider
 
 
-def installation_error(provider: TextProvider) -> str | None:
+def provider_for(task: str) -> TextProvider:
+    """The adapter for one text task, chosen once.
+
+    A task variable that names a registered adapter is cached under that
+    name and does not use ``get_provider``. Any other successful resolution
+    returns ``get_provider``, so a replaced process provider still supplies
+    the default ids and the call. A blank, unsafe, or unknown name raises
+    ``SystemExit`` with one line and is not cached. A later change to a
+    variable that already resolved does not reselect and does not raise
+    from a request. This does not import a provider SDK and does not call
+    the adapter.
+    """
+    if task not in _TASK_PROVIDER_ENV:
+        raise ValueError(f"unknown model task {task!r}")
+    source = _task_provider_sources.get(task)
+    if source is not None:
+        if source == SOURCE_PROVIDER_TASK:
+            return _load_named(_task_provider_names[task], selector_env=_TASK_PROVIDER_ENV[task])
+        return get_provider()
+    resolution = resolve_provider(task)
+    line = provider_failure_line(resolution)
+    if line:
+        raise SystemExit(line)
+    if resolution.source != SOURCE_PROVIDER_TASK:
+        provider = get_provider()
+        _task_provider_sources[task] = resolution.source
+        _task_provider_names[task] = provider.name
+        return provider
+    provider = _load_named(resolution.name, selector_env=resolution.env_var)
+    _task_provider_sources[task] = SOURCE_PROVIDER_TASK
+    _task_provider_names[task] = resolution.name
+    return provider
+
+
+def installation_error(provider: TextProvider, selector_env: str | None = None) -> str | None:
     """One-line failure when the selected adapter's own SDK is not installed.
 
     Adapters that do not set ``sdk_module`` need no SDK. Only a
     ``ModuleNotFoundError`` whose ``name`` is that module, or the root
     package when the module name is dotted, becomes the one-line failure.
     A missing dependency of the SDK, or any other ``ImportError``,
-    propagates with its own message. The line names
-    ``NESTED_WORLDS_PROVIDER`` and the optional extra. It does not include
-    a credential or make a model call.
+    propagates with its own message. The line names the variable that
+    selected the adapter (``NESTED_WORLDS_PROVIDER`` when omitted) and the
+    optional extra. It does not include a credential or make a model call.
     """
     module_name = getattr(provider, "sdk_module", None)
     if not isinstance(module_name, str) or not module_name.strip():
@@ -579,15 +740,22 @@ def installation_error(provider: TextProvider) -> str | None:
             shown = DEFAULT_PROVIDER
         else:
             shown = raw_name.strip()
+        env_name = selector_env.strip() if isinstance(selector_env, str) and selector_env.strip() else PROVIDER_ENV
         return (
-            f"{PROVIDER_ENV}={shown} requires the optional extra "
+            f"{env_name}={shown} requires the optional extra "
             f"enfolded[{extra}] (package '{module_name}' is not installed)"
         )
     return None
 
 
-def configured() -> bool:
-    return get_provider().configured()
+def configured(task: str | None = None) -> bool:
+    """Whether the process provider, or one task's provider, can be called.
+
+    Callers that patch this with a zero-argument function still match the
+    historical no-task check. A task argument asks that task's adapter.
+    """
+    provider = provider_for(task) if task else get_provider()
+    return provider.configured()
 
 
 def _concurrency_env(provider_name: str) -> str:
@@ -676,28 +844,32 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
              timeout: float | None = None,
              user_key: str | None = None,
              reservation: ModelReservation | None = None,
-             voice_budget: bool = False) -> Completion:
+             voice_budget: bool = False,
+             task: str | None = None) -> Completion:
     """One text completion. An unsupported schema charges nothing.
 
-    A missing or blank model id raises ``UnusableModelId`` before any cap
-    and before the provider is called. When a schema is requested and the
-    selected adapter's ``supports_json_schema`` is false, this raises
+    ``task`` selects that task's provider. Omit it to use the process
+    provider. A missing or blank model id raises ``UnusableModelId`` before
+    any cap and before the provider is called. When a schema is requested
+    and that adapter's ``supports_json_schema`` is false, this raises
     ``UnsupportedCapability`` before the model-action cap and before the
     voice budget, and the provider is not called. An adapter that omits
     that method still accepts a schema. The model-action cap then runs,
-    and ``voice_budget`` reserves one voice call in the existing
-    ``anthropic`` bucket, whichever provider is selected, after that cap
-    and before the provider, so a refused cap does not spend the voice
-    budget. The bucket name is unchanged. A ``ModelReservation`` from
+    and ``voice_budget`` reserves one voice call in the shared voice
+    allowance, whichever provider serves the task, after that cap and
+    before the provider, so a refused cap does not spend the voice budget.
+    Every text provider shares that one allowance. A failure is not
+    retried on another provider. A ``ModelReservation`` from
     ``reserve_model_action`` is not charged again. The schema check still
     runs when a reservation is already held, and it does not charge again.
 
-    The call then waits for one of the selected provider's in-flight slots,
-    at most ``_slot_wait`` seconds: its own ``timeout`` when given, else
-    ``NESTED_WORLDS_<NAME>_SLOT_WAIT_SECONDS`` (default 10). When none
-    opens, this raises ``ProviderBusy`` without calling the provider. The
-    charges above are not refunded. A slot taken is released on every path
-    out of the provider call.
+    The call then waits for one of that provider's in-flight slots, at
+    most ``_slot_wait`` seconds: its own ``timeout`` when given, else
+    ``NESTED_WORLDS_<NAME>_SLOT_WAIT_SECONDS`` (default 10). Slots are
+    per provider, so a provider that is slow or full does not hold a slot
+    of another provider. When none opens, this raises ``ProviderBusy``
+    without calling the provider. The charges above are not refunded. A
+    slot taken is released on every path out of the provider call.
 
     A ``timeout`` is then handed to the adapter in full, for one provider
     attempt with no retries (``TextProvider.generate``); the slot wait does
@@ -707,7 +879,7 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
     one wall-clock deadline; its module says which. Nothing here retries.
     """
     require_model_id(model)
-    provider = get_provider()
+    provider = provider_for(task) if task else get_provider()
     if json_schema is not None:
         supports = getattr(provider, "supports_json_schema", None)
         if callable(supports) and not supports():

@@ -133,8 +133,10 @@ def test_registered_provider_is_selected_and_records_reported_usage(
     assert call["reserved_usd"] > call["cost_usd"]
     assert result["trials"][0]["grade"]["task_correct"] is True
     # The lookup does not become the process selection, and the env default
-    # was not the adapter that ran.
-    assert runtime._selected_provider is None
+    # was not the adapter that ran. A task with no provider override still
+    # asks get_provider, which this test replaces, so the process name stays
+    # unset.
+    assert runtime._process_name is None
     assert provider_key(result["candidate"]) == "eval_probe"
 
 

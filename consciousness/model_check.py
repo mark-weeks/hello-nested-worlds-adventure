@@ -55,6 +55,8 @@ class TaskModelStatus:
     source: str
     env_var: str
     problems: tuple[ModelProblem, ...]
+    # Where the provider name came from: task env, NESTED_WORLDS_PROVIDER, or default.
+    provider_source: str = ""
 
     @property
     def display_model(self) -> str:
@@ -293,15 +295,54 @@ def _problems_for(choice: runtime.ModelResolution, provider_name: str,
     return problems
 
 
-def check_model_configuration(provider=None) -> ModelReport:
-    """Resolve every task through the selected adapter.
+def _note_blank_shared(tasks: list[TaskModelStatus], secrets: tuple[str, ...]) -> None:
+    """A blank shared setting is a mistake even when every voice task overrides it."""
+    shared_kind = _configured_blank(runtime.SHARED_MODEL_ENV)
+    if shared_kind is None:
+        return
+    shared_text = _redact(
+        f"{runtime.SHARED_MODEL_ENV} is empty" if shared_kind == "empty"
+        else f"{runtime.SHARED_MODEL_ENV} is whitespace",
+        secrets,
+    )
+    for index, status in enumerate(tasks):
+        if status.task == runtime.MODERATION_TASK:
+            continue
+        if any(problem.text == shared_text for problem in status.problems):
+            continue
+        extra = ModelProblem(
+            "hard", shared_kind, runtime.SHARED_MODEL_ENV, shared_text, status.task,
+        )
+        tasks[index] = replace(status, problems=status.problems + (extra,))
 
-    Does not generate text or read a credential. The provider is the
-    registry's unless the caller passes an adapter. When that adapter
-    names an SDK that is not installed, this raises ``SystemExit`` with
-    one line naming the optional extra.
-    """
-    provider = runtime.get_provider() if provider is None else provider
+
+def _status_for(choice: runtime.ModelResolution, provider_name: str,
+                provider_source: str, validator, secrets: tuple[str, ...],
+                crossed_shared: bool) -> TaskModelStatus:
+    problems = _problems_for(choice, provider_name, validator, secrets)
+    if crossed_shared and choice.source == runtime.SOURCE_SHARED:
+        problems.append(ModelProblem(
+            "soft", "shared", runtime.SHARED_MODEL_ENV,
+            _redact(
+                f"{runtime.SHARED_MODEL_ENV} is a model id shared onto "
+                f"provider {provider_name} for task {choice.task}",
+                secrets,
+            ),
+            choice.task,
+        ))
+    return TaskModelStatus(
+        task=choice.task,
+        provider=provider_name,
+        model=choice.model,
+        source=choice.source,
+        env_var=choice.env_var,
+        problems=tuple(problems),
+        provider_source=provider_source,
+    )
+
+
+def _check_one_provider(provider) -> ModelReport:
+    """Every task through one adapter. Callers pass it; startup does not."""
     missing = runtime.installation_error(provider)
     if missing:
         raise SystemExit(missing)
@@ -311,33 +352,77 @@ def check_model_configuration(provider=None) -> ModelReport:
     tasks = []
     for task in runtime.TASKS:
         choice = runtime.resolve_model(task, provider)
-        tasks.append(TaskModelStatus(
-            task=choice.task,
-            provider=provider_name,
-            model=choice.model,
-            source=choice.source,
-            env_var=choice.env_var,
-            problems=tuple(_problems_for(choice, provider_name, validator, secrets)),
+        tasks.append(_status_for(
+            choice, provider_name, "", validator, secrets, crossed_shared=False,
         ))
-    # A blank shared setting is a mistake even when every voice task overrides
-    # it. model_for ignores it; startup does not.
-    shared_kind = _configured_blank(runtime.SHARED_MODEL_ENV)
-    if shared_kind is not None:
-        shared_text = _redact(
-            f"{runtime.SHARED_MODEL_ENV} is empty" if shared_kind == "empty"
-            else f"{runtime.SHARED_MODEL_ENV} is whitespace",
-            secrets,
-        )
-        for index, status in enumerate(tasks):
-            if status.task == runtime.MODERATION_TASK:
-                continue
-            if any(problem.text == shared_text for problem in status.problems):
-                continue
-            extra = ModelProblem(
-                "hard", shared_kind, runtime.SHARED_MODEL_ENV, shared_text, status.task,
-            )
-            tasks[index] = replace(status, problems=status.problems + (extra,))
+    _note_blank_shared(tasks, secrets)
     return ModelReport(provider=provider_name, tasks=tuple(tasks))
+
+
+def _selector_env(resolution: runtime.ProviderResolution) -> str:
+    if resolution.source == runtime.SOURCE_PROVIDER_TASK:
+        return resolution.env_var
+    return runtime.PROVIDER_ENV
+
+
+def check_model_configuration(provider=None) -> ModelReport:
+    """Resolve every task through its own adapter.
+
+    Does not generate text or read a credential. Pass an adapter to judge
+    every task against that one adapter (tests).     Otherwise each task uses
+    its own provider: the task variable, then ``NESTED_WORLDS_PROVIDER``,
+    then the process default. A blank, unknown, or unsafe name raises
+    ``SystemExit`` with one line before the report. When an adapter names
+    an SDK that is not installed, this raises ``SystemExit`` with one line
+    naming the variable that selected it and the optional extra. A shared
+    model id used on a provider other than the process default is a soft
+    problem: the id is explicit, and it is not that provider's default.
+    """
+    if provider is not None:
+        return _check_one_provider(provider)
+    secrets = _secret_values()
+    resolutions = []
+    for task in runtime.TASKS:
+        resolution = runtime.resolve_provider(task)
+        line = runtime.provider_failure_line(resolution)
+        if line:
+            raise SystemExit(line)
+        resolutions.append(resolution)
+    loaded = []
+    seen_sdk: set[str] = set()
+    for resolution in resolutions:
+        prov = runtime.provider_for(resolution.task)
+        loaded.append(prov)
+        if prov.name in seen_sdk:
+            continue
+        seen_sdk.add(prov.name)
+        missing = runtime.installation_error(prov, _selector_env(resolution))
+        if missing:
+            raise SystemExit(missing)
+    try:
+        process_provider = runtime.get_provider()
+    except SystemExit:
+        # Every task named its own adapter and the process value is unusable.
+        # The task lines still report. A shared model id cannot be assumed
+        # to belong to those adapters.
+        process_provider = None
+    tasks = []
+    for resolution, prov in zip(resolutions, loaded):
+        provider_name = _public_provider(getattr(prov, "name", ""), secrets)
+        choice = runtime.resolve_model(resolution.task, prov)
+        same = (
+            process_provider is not None
+            and (prov is process_provider or provider_name == _public_provider(
+                getattr(process_provider, "name", ""), secrets))
+        )
+        tasks.append(_status_for(
+            choice, provider_name, resolution.source, _validator_of(prov), secrets,
+            crossed_shared=not same,
+        ))
+    _note_blank_shared(tasks, secrets)
+    names = {task.provider for task in tasks}
+    header = next(iter(names)) if len(names) == 1 else "per task"
+    return ModelReport(provider=header, tasks=tuple(tasks))
 
 
 def enforce_model_configuration(provider=None) -> ModelReport:
@@ -359,8 +444,9 @@ def format_report(report: ModelReport) -> str:
     secrets = _secret_values()
     lines = [f"text provider: {report.provider}"]
     for task in report.tasks:
+        via = f" provider_source={task.provider_source}" if task.provider_source else ""
         lines.append(
-            f"{task.task:<12} provider={task.provider} "
+            f"{task.task:<12} provider={task.provider}{via} "
             f"model={task.display_model} source={task.source} env={task.env_var}"
         )
         for problem in task.problems:
@@ -377,24 +463,17 @@ def _one_line(prefix: str, groups: list[tuple[str, list[str]]]) -> str:
     return " ".join(f"{prefix}{'; '.join(parts)}".split())
 
 
-def probe_distinct_models(report: ModelReport, provider=None) -> tuple[ProbeResult, ...]:
-    """One tiny call per distinct resolved id. Opt-in. Never used at startup.
-
-    Calls the adapter directly. It does not charge the model-action cap or
-    the persisted voice-call budget, and it does not write a chronicle row.
-    An id that embeds a credential is not sent.
-    """
-    provider = runtime.get_provider() if provider is None else provider
+def _provider_ready(provider) -> bool:
     configured = getattr(provider, "configured", None)
-    if callable(configured):
-        try:
-            ready = bool(configured())
-        except Exception:
-            ready = False
-        if not ready:
-            # Do not call generate. An unconfigured client raises TypeError.
-            return (ProbeResult("", False, _PROBE_SKIPPED),)
-    secrets = _secret_values()
+    if not callable(configured):
+        return True
+    try:
+        return bool(configured())
+    except Exception:
+        return False
+
+
+def _probe_models(report: ModelReport, provider, secrets: tuple[str, ...]) -> list[ProbeResult]:
     results: list[ProbeResult] = []
     seen: set[str] = set()
     for task in report.tasks:
@@ -418,4 +497,54 @@ def probe_distinct_models(report: ModelReport, provider=None) -> tuple[ProbeResu
             results.append(ProbeResult(model, False, type(exc).__name__))
         else:
             results.append(ProbeResult(model, True, "accepted"))
+    return results
+
+
+def probe_distinct_models(report: ModelReport, provider=None) -> tuple[ProbeResult, ...]:
+    """One tiny call per distinct resolved id. Opt-in. Never used at startup.
+
+    Calls the adapter directly. It does not charge the model-action cap or
+    the persisted voice allowance, and it does not write a chronicle row.
+    An id that embeds a credential is not sent. Pass an adapter to probe
+    that one adapter. Otherwise each task is probed on its own provider,
+    and one unconfigured provider does not skip a configured provider's id.
+    An unconfigured provider adds ``skipped: provider not configured`` and
+    is not called.
+    """
+    secrets = _secret_values()
+    if provider is not None:
+        if not _provider_ready(provider):
+            return (ProbeResult("", False, _PROBE_SKIPPED),)
+        return tuple(_probe_models(report, provider, secrets))
+    results: list[ProbeResult] = []
+    seen: set[tuple[str, str]] = set()
+    saw_unconfigured = False
+    for task in report.tasks:
+        prov = runtime.provider_for(task.task)
+        if not _provider_ready(prov):
+            saw_unconfigured = True
+            continue
+        key = (getattr(prov, "name", ""), task.model)
+        if key in seen:
+            continue
+        seen.add(key)
+        if not task.model or _embeds_secret(task.model, secrets) or _structural(task.model) is not None:
+            results.append(ProbeResult(task.model, False, "skipped"))
+            continue
+        try:
+            prov.generate(
+                model=task.model,
+                system=(SystemBlock(text=_PROBE_SYSTEM),),
+                messages=[{"role": "user", "content": _PROBE_USER}],
+                max_tokens=PROBE_MAX_TOKENS,
+                timeout=PROBE_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            results.append(ProbeResult(task.model, False, type(exc).__name__))
+        else:
+            results.append(ProbeResult(task.model, True, "accepted"))
+    if saw_unconfigured:
+        results.append(ProbeResult("", False, _PROBE_SKIPPED))
+    if not results:
+        return (ProbeResult("", False, _PROBE_SKIPPED),)
     return tuple(results)

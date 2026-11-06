@@ -149,12 +149,18 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     # heartbeat. A typo here must fail the deploy, not leave a healthy-looking
     # process whose first player request returns 500.
     hosted_seed = guard.canonical_seed()
-    # Refuse an unknown provider, a missing provider SDK, or an empty or
-    # unserved model id before the port opens. A typo must fail the boot,
-    # not the first shared-text moderation call. Soft problems log one
-    # warning. This does not make a live call.
+    # Refuse a blank, unknown, or unusable provider or model on any of the
+    # four text tasks, a missing SDK for a task's provider, or a voice or
+    # image cap that is not an integer or that disagrees with its legacy
+    # name, before the port opens. A typo must fail the boot, not the first
+    # shared-text moderation call. Soft problems log one warning. This does
+    # not make a live call. A provider that is not configured still boots:
+    # the world answers in fiction until a key is present.
     from consciousness.model_check import enforce_model_configuration
     enforce_model_configuration()
+    budget_line = guard.budget_configuration_line()
+    if budget_line:
+        raise SystemExit(budget_line)
     # Operator signal only — deliberately emitted here at server startup so
     # a CLI player speaking to a node never sees billing internals.
     try:

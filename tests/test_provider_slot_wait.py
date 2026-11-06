@@ -196,9 +196,9 @@ class TestGenerateWaitsABoundedTime:
         with _saturated():
             box = _bounded(lambda: _generate(user_key=key, voice_budget=True), 5)
         assert isinstance(box.get("error"), runtime.ProviderBusy)
-        assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == 1
+        assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 1
         assert persistence.get_cost_calls(
-            guard._user_bucket(guard.ANTHROPIC_BUCKET, key), day) == 1
+            guard._user_bucket(guard.VOICE_BUCKET, key), day) == 1
         assert persistence.get_cost_calls(
             guard._user_bucket(guard.MODEL_ACTIONS_BUCKET, key), day) == 1
         assert provider.calls == []
@@ -484,7 +484,7 @@ class TestWithAPlayerCredential:
         assert provider.calls == [] and _rows("PLAYER_SPEAK") == []
         assert _count("speak", "busy") == 1
         day = guard._utc_day()
-        for bucket in (guard.ANTHROPIC_BUCKET, guard.MODEL_ACTIONS_BUCKET):
+        for bucket in (guard.VOICE_BUCKET, guard.MODEL_ACTIONS_BUCKET):
             assert persistence.get_cost_calls(guard._user_bucket(bucket, accounts[0]), day) == 1
         assert accounts[0] not in caplog.text and message not in caplog.text
         assert _free_slots() == LIMIT
@@ -497,7 +497,7 @@ class TestVoiceHealth:
         args.func(args)
 
     def test_busy_is_a_failure_the_operator_sees(self, monkeypatch, capsys, caplog):
-        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
         caplog.set_level(logging.WARNING, logger="nested_worlds")
         observability.voice_outcome("speak", "ok")
         observability.voice_outcome("speak", "busy")

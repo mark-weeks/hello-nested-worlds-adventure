@@ -285,7 +285,7 @@ def test_classify_cap_does_not_spend_a_second_call(monkeypatch):
 
 def _voice_ready(monkeypatch, reply="the place answers"):
     import consciousness
-    monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
+    monkeypatch.setattr(consciousness.runtime, "configured", lambda *args, **kwargs: True)
     monkeypatch.setattr(consciousness, "speak", lambda *a, **k: reply)
     monkeypatch.setattr(consciousness, "voice_agent", lambda *a, **k: reply)
 
@@ -745,7 +745,7 @@ def test_unknown_place_is_404_before_the_screen(srv, monkeypatch):
 
     monkeypatch.setattr(moderation, "screen", recording_screen)
     monkeypatch.setattr(consciousness.runtime, "get_provider", lambda: Provider())
-    monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
+    monkeypatch.setattr(consciousness.runtime, "configured", lambda *args, **kwargs: True)
     # A credential is what makes the per-user caps apply. Zero means the
     # screen, if it ran, would hold the line before the classifier.
     monkeypatch.setenv(guard.MODERATION_ACTIONS_PER_USER_ENV, "0")
@@ -880,7 +880,7 @@ def test_speech_keeps_the_players_characters_from_screen_to_chronicle(srv, monke
 
     monkeypatch.setattr(moderation, "screen", recording_screen)
     monkeypatch.setattr(consciousness.runtime, "get_provider", lambda: Provider())
-    monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
+    monkeypatch.setattr(consciousness.runtime, "configured", lambda *args, **kwargs: True)
     monkeypatch.setenv(guard.RATE_LIMIT_ENV, "200")
     seed = 996
     node = generate_node_hierarchy(seed=seed, max_depth=1)
@@ -1078,7 +1078,7 @@ def test_openai_compatible_holds_shared_routes_unless_moderation_stops(
         assert len(calls) == 4
     else:
         assert len(calls) == (3 if mode == "timeout" else 2)
-    assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == (2 if mode == "allow" else 0)
+    assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == (2 if mode == "allow" else 0)
     assert _COMPAT_SECRET not in caplog.text
     assert _COMPAT_HOST not in caplog.text
     assert _COMPAT_LINE not in caplog.text
