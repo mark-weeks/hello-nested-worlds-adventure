@@ -85,10 +85,10 @@ _DEFAULT_FAL_PER_USER       = 60
 _DEFAULT_RATE_PER_MIN    = 20
 DEFAULT_CANONICAL_SEED   = DEFAULT_WORLD_SEED
 
-# New calls write the neutral keys. Rows already stored under the legacy
-# keys keep counting toward the same UTC-day allowance, so a rename does
-# not replenish a budget that has already been spent. The pairs are summed
-# at check time. Legacy rows are not deleted or rewritten.
+# New calls write the neutral keys. Migration 0030 moves rows already
+# stored under the legacy keys onto these names, summing a day that has
+# both, so the spent allowance is preserved. A leftover legacy row is
+# still added at check time and is not written again by a request.
 VOICE_BUCKET      = "voice"
 IMAGE_BUCKET      = "image"
 ANTHROPIC_BUCKET  = "anthropic"
@@ -849,9 +849,9 @@ def _read_cap(env_var: str) -> tuple[str, int | None]:
 
     ``absent`` and ``blank`` carry no number. ``blank`` is a present value
     that is empty or whitespace, and it does not override another setting.
-    ``invalid`` is present and not an integer. ``value`` is an integer;
-    negative numbers clamp to 0, which refuses every call. The raw text is
-    not returned: a pasted credential must not land in an operator line.
+    ``invalid`` is present and not an integer. ``negative`` is an integer
+    below zero. ``value`` is a non-negative integer. The raw text is not
+    returned: a pasted credential must not land in an operator line.
     """
     if env_var not in os.environ:
         return "absent", None
@@ -859,21 +859,43 @@ def _read_cap(env_var: str) -> tuple[str, int | None]:
     if not raw:
         return "blank", None
     try:
-        return "value", max(0, int(raw))
+        value = int(raw)
     except ValueError:
         return "invalid", None
+    if value < 0:
+        return "negative", None
+    return "value", value
 
 
-def resolve_budget_cap(neutral_env: str, legacy_env: str, default: int) -> tuple[int, tuple[str, ...]]:
-    """The cap to enforce, and any configuration problems.
+class _BudgetCap(tuple):
+    """``(cap, hard problems)`` plus disagreement warnings.
+
+    Unpacking stays ``cap, problems``. ``problems`` are startup errors.
+    ``warnings`` are two valid integers that differ: the lower cap is
+    enforced and the server keeps running.
+    """
+
+    warnings: tuple[str, ...]
+
+    def __new__(cls, cap: int, hard: tuple[str, ...],
+                warnings: tuple[str, ...] = ()):
+        self = tuple.__new__(cls, (cap, hard))
+        self.warnings = warnings
+        return self
+
+
+def resolve_budget_cap(neutral_env: str, legacy_env: str, default: int) -> _BudgetCap:
+    """The cap to enforce, hard problems, and disagreement warnings.
 
     Neither name set, or both blank, uses ``default``. One valid integer
     wins. Both valid and equal use that integer. Both valid and different
     use the lower integer, so setting the neutral name cannot raise an
-    allowance the legacy name still holds, and the disagreement is reported.
-    Any invalid integer refuses the allowance (cap 0) instead of falling
-    through to the default or to the other name, which could be higher.
-    ``0`` is a valid cap and refuses every call.
+    allowance the legacy name still holds. That disagreement is a warning,
+    not a startup failure: a live server must not crash-loop because a
+    legacy secret is still set. A non-integer or a negative value refuses
+    the allowance (cap 0) instead of falling through to the default or to
+    the other name, which could be higher. ``0`` is a valid cap and
+    refuses every call. The raw text of a bad value is not included.
     """
     opinions: list[tuple[str, int]] = []
     problems: list[str] = []
@@ -881,21 +903,24 @@ def resolve_budget_cap(neutral_env: str, legacy_env: str, default: int) -> tuple
         kind, value = _read_cap(env_var)
         if kind == "invalid":
             problems.append(f"{env_var} is not an integer")
+        elif kind == "negative":
+            problems.append(f"{env_var} is negative")
         elif kind == "value" and value is not None:
             opinions.append((env_var, value))
     if problems:
-        return 0, tuple(problems)
+        return _BudgetCap(0, tuple(problems))
     if not opinions:
-        return default, ()
+        return _BudgetCap(default, ())
     if len(opinions) == 1:
-        return opinions[0][1], ()
+        return _BudgetCap(opinions[0][1], ())
     if opinions[0][1] == opinions[1][1]:
-        return opinions[0][1], ()
+        return _BudgetCap(opinions[0][1], ())
     low = min(opinions[0][1], opinions[1][1])
-    return low, (
+    warning = (
         f"{opinions[0][0]}={opinions[0][1]} and {opinions[1][0]}={opinions[1][1]} "
-        f"disagree; the lower cap {low} is enforced",
+        f"disagree; the lower cap {low} is enforced"
     )
+    return _BudgetCap(low, (), (warning,))
 
 
 _BUDGET_PAIRS = (
@@ -907,19 +932,43 @@ _BUDGET_PAIRS = (
 
 
 def budget_configuration_problems() -> tuple[str, ...]:
-    """Problems in the voice and image cap settings. Empty when they resolve."""
+    """Hard problems in the voice and image caps. Empty when they resolve.
+
+    A disagreement between two valid integers is not included. That is a
+    warning from ``budget_configuration_warnings``.
+    """
     found: list[str] = []
     for neutral, legacy, default in _BUDGET_PAIRS:
         found.extend(resolve_budget_cap(neutral, legacy, default)[1])
     return tuple(found)
 
 
+def budget_configuration_warnings() -> tuple[str, ...]:
+    """Valid caps that disagree. The lower integer is what a request uses."""
+    found: list[str] = []
+    for neutral, legacy, default in _BUDGET_PAIRS:
+        found.extend(resolve_budget_cap(neutral, legacy, default).warnings)
+    return tuple(found)
+
+
 def budget_configuration_line() -> str | None:
-    """One line for ``models`` and ``serve``, or None when the caps resolve."""
+    """One startup-error line, or None when every cap is a valid integer.
+
+    A disagreement is not an error. ``budget_configuration_warning_line``
+    carries that, and the lower cap is what a request enforces.
+    """
     problems = budget_configuration_problems()
     if not problems:
         return None
     return "Budget configuration: " + "; ".join(problems)
+
+
+def budget_configuration_warning_line() -> str | None:
+    """One warning when two valid caps disagree, or None."""
+    warnings = budget_configuration_warnings()
+    if not warnings:
+        return None
+    return "Budget warning: " + "; ".join(warnings)
 
 
 def _legacy_bucket(bucket: str) -> str | None:
@@ -934,11 +983,11 @@ def _legacy_bucket(bucket: str) -> str | None:
 
 
 def effective_calls(bucket: str, day: str | None = None) -> int:
-    """Calls already spent for ``bucket`` today, including its legacy key.
+    """Calls already spent for ``bucket`` today, including a leftover legacy key.
 
-    The legacy row is not copied and is not deleted. New increments land on
-    ``bucket`` only, and the check adds the legacy count, so a database
-    mid-UTC-day keeps the calls it had already recorded.
+    Migration 0030 moves existing legacy rows onto ``bucket``. A leftover
+    is still added here. New increments land on ``bucket`` only, so the
+    same calls are not written a second time.
     """
     day = day or _utc_day()
     total = persistence.get_cost_calls(bucket, day)
@@ -1000,7 +1049,7 @@ def _consume_per_user(base_bucket: str, env_var: str, default: int,
     return _consume_capped(_user_bucket(base_bucket, user_key), cap)
 
 
-def _consume_voice_allowance(user_key: str | None, *,
+def _consume_allowance(user_key: str | None, *,
                              neutral_user: str, legacy_user: str, default_user: int,
                              neutral_global: str, legacy_global: str, default_global: int,
                              bucket: str) -> bool:
@@ -1023,7 +1072,9 @@ def consume_anthropic(user_key: str | None = None) -> bool:
     Calls already stored under ``anthropic`` for this UTC day still count.
     ``NESTED_WORLDS_VOICE_DAILY_CALLS`` is the neutral cap. The legacy
     ``NESTED_WORLDS_ANTHROPIC_DAILY_CALLS`` is still accepted. When both
-    name different integers, the lower one is enforced.
+    name different integers, the lower one is enforced and startup logs a
+    warning instead of exiting. A non-integer or a negative cap refuses
+    the call and fails startup.
 
     Order matters: the per-user sub-cap is checked FIRST, and the shared
     global counter is only incremented once that gate passes. If we charged
@@ -1034,7 +1085,7 @@ def consume_anthropic(user_key: str | None = None) -> bool:
     A credential-less caller (local dev / legacy) passes the per-user gate
     trivially and is bounded by the global cap alone, unchanged.
     """
-    return _consume_voice_allowance(
+    return _consume_allowance(
         user_key,
         neutral_user=VOICE_PER_USER_CAP_ENV,
         legacy_user=ANTHROPIC_PER_USER_CAP_ENV,
@@ -1102,7 +1153,7 @@ def consume_fal(user_key: str | None = None) -> bool:
     evaluated before the shared global counter is touched, so a single
     account's over-quota attempts can't exhaust the cohort's image budget.
     """
-    return _consume_voice_allowance(
+    return _consume_allowance(
         user_key,
         neutral_user=IMAGE_PER_USER_CAP_ENV,
         legacy_user=FAL_PER_USER_CAP_ENV,

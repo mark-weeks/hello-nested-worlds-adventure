@@ -420,10 +420,14 @@ class TestVoiceHealthCommand:
 
     def test_no_usable_provider_fails_unless_switched_off(self, monkeypatch):
         from consciousness import runtime
+        from server import moderation
         monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: False)
         with pytest.raises(SystemExit, match="no usable voice provider"):
             self._run()
         monkeypatch.setenv(guard.DISABLE_AI_ENV, "1")
+        with pytest.raises(SystemExit, match="no usable moderation provider"):
+            self._run()
+        monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
         self._run()
 
 

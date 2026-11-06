@@ -106,10 +106,15 @@ provider. Switching providers, mixing providers across tasks, or adopting
 the neutral budget names must not replenish or multiply a daily or per-user
 allowance. New voice calls persist under the `voice` bucket, and new image
 calls under `image`. Rows already stored under `anthropic` and `fal_ai`,
-including the `:u:<hash>` per-user keys, still count toward the same UTC-day
-allowance. They are not copied and not deleted. Node voice, inhabitant
-voice, and intention share that one voice allowance, whichever providers
-serve them. Moderation keeps its separate `moderation` bucket.
+including the `:u:<hash>` per-user keys, are moved by migration
+`0030_cost_budget_names` onto `voice` and `image`. A day that has both
+keys is summed, then the legacy row is deleted, so the allowance is not
+doubled and is not replenished. A leftover legacy row still counts.
+`schema_version` becomes 30. An in-place downgrade to a binary that reads
+only `anthropic` and `fal_ai` is not a same-schema rollback; restore the
+pre-0030 backup (`docs/infrastructure/delivery-recovery.md`). Node voice,
+inhabitant voice, and intention share that one voice allowance, whichever
+providers serve them. Moderation keeps its separate `moderation` bucket.
 `NESTED_WORLDS_VOICE_DAILY_CALLS` and
 `NESTED_WORLDS_VOICE_DAILY_CALLS_PER_USER` are the neutral voice caps.
 `NESTED_WORLDS_IMAGE_DAILY_CALLS` and
@@ -117,10 +122,14 @@ serve them. Moderation keeps its separate `moderation` bucket.
 legacy `NESTED_WORLDS_ANTHROPIC_*` and `NESTED_WORLDS_FAL_*` names are still
 accepted. A blank or whitespace value is unset. One integer, with the other
 name absent or blank, uses that integer. Both equal uses that integer.
-Both different uses the lower integer, so the allowance cannot rise, and
-`python main.py models` and `python main.py serve` exit naming both. A
-non-integer refuses the allowance (cap 0, no increment) and exits the same
-way, without echoing the value. `0` is a valid cap and refuses every call.
+Both different uses the lower integer, so the allowance cannot rise.
+`python main.py models`, `python main.py serve`, and `python main.py
+voice-health` print that disagreement and keep going; `serve` logs it and
+still opens the port. Unset the legacy secret when raising a cap, or the
+lower leftover value is what requests enforce. A non-integer or a negative
+value refuses the allowance (cap 0, no increment) and exits `models`,
+`serve`, and `voice-health`, without echoing the value. `0` is a valid cap
+and refuses every call.
 Daily call caps are not dollar caps, and identical call counts do not imply
 identical spend. Per-provider slot limits stay
 `NESTED_WORLDS_<NAME>_CONCURRENCY` and
@@ -409,11 +418,15 @@ provider's default. A provider that is not configured (no credential) is
 not a boot failure. The command prints `provider not configured`, and
 names the tasks when the providers differ. `python main.py voice-health`
 treats the voice as ready only when the node, inhabitant, and intent
-providers are configured, and it counts legacy `anthropic` rows in the
-voice allowance it prints. A voice or image cap that is not an integer, or
-a neutral name that disagrees with its legacy name, exits `models`,
-`serve`, and `voice-health`. The lower valid integer is what a request
-enforces. The line does not echo a non-integer value.
+providers are configured, and it reports moderation on its own line. An
+unconfigured moderation provider fails the check unless moderation is
+switched off. It counts spent `voice` calls, including calls migration
+0030 moved from `anthropic`. A voice or image cap that is not an integer,
+or is negative, exits `models`, `serve`, and `voice-health`, including
+when `NESTED_WORLDS_DISABLE_AI=1`, because that switch does not disable
+`/image` and `serve` refuses the same configuration. Two valid integers
+that disagree print a warning and do not exit. The lower integer is what
+a request enforces. The line does not echo a non-integer or negative value.
 
 A hard problem is one line naming the environment variable: an empty or
 whitespace-only setting, unusable text (whitespace inside the id, a control

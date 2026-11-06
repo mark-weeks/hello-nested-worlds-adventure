@@ -26,6 +26,7 @@ This module does not import a provider SDK.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import importlib
 import logging
@@ -435,6 +436,10 @@ _providers: dict[str, TextProvider] = {}
 _process_name: str | None = None
 _task_provider_names: dict[str, str] = {}
 _task_provider_sources: dict[str, str] = {}
+# While set, get_provider and provider_for return this adapter and do not
+# read a task variable or a cached task selection. The eval harness owns it.
+# It is not a process selection and is not cleared by reset_provider_selection.
+_provider_override: TextProvider | None = None
 # Re-entrant so a factory that calls back into selection can be refused
 # instead of deadlocking on a non-reentrant lock. The build itself stays
 # inside the lock, so concurrent first calls do not each construct one.
@@ -646,6 +651,31 @@ def _load_named(name: str, *, selector_env: str = PROVIDER_ENV) -> TextProvider:
             _selection_owner = None
 
 
+@contextmanager
+def override_provider(provider: TextProvider):
+    """Return ``provider`` from every provider lookup until the context ends.
+
+    ``get_provider`` and ``provider_for`` both take this path, including a
+    task whose selection is already cached and a task whose environment
+    variable names another adapter. The cache and those variables are left
+    as they were. Exiting restores the previous override, including none.
+    """
+    global _provider_override
+    with _selection_lock:
+        previous = _provider_override
+        _provider_override = provider
+    try:
+        yield
+    finally:
+        with _selection_lock:
+            _provider_override = previous
+
+
+def _active_override() -> TextProvider | None:
+    with _selection_lock:
+        return _provider_override
+
+
 def get_provider() -> TextProvider:
     """The adapter named by ``NESTED_WORLDS_PROVIDER``, chosen once.
 
@@ -656,6 +686,8 @@ def get_provider() -> TextProvider:
     ``SystemExit`` with one line naming that variable and the valid names.
     The same line is what ``python main.py serve`` exits with, before it
     opens a port, when a task has not named a different provider.
+    ``override_provider`` returns that adapter instead, without caching it
+    as the process selection.
     A failed selection is not cached. ``reset_provider_selection`` clears
     a successful one. This does not import a provider SDK. A task with no
     provider override asks this adapter for default ids, and ``generate``
@@ -663,6 +695,9 @@ def get_provider() -> TextProvider:
     ``generate`` reaches ``provider.generate`` only after the voice budget.
     """
     global _process_name
+    routed = _active_override()
+    if routed is not None:
+        return routed
     with _selection_lock:
         cached = _process_name
     if cached is not None:
@@ -681,14 +716,20 @@ def provider_for(task: str) -> TextProvider:
     A task variable that names a registered adapter is cached under that
     name and does not use ``get_provider``. Any other successful resolution
     returns ``get_provider``, so a replaced process provider still supplies
-    the default ids and the call. A blank, unsafe, or unknown name raises
+    the default ids and the call.     A blank, unsafe, or unknown name raises
     ``SystemExit`` with one line and is not cached. A later change to a
     variable that already resolved does not reselect and does not raise
-    from a request. This does not import a provider SDK and does not call
-    the adapter.
+    from a request. ``override_provider`` is consulted before that cache
+    and before the environment, and a task that follows the process
+    default does not store a name of its own: ``get_provider`` is the
+    seam, and a stored name would go stale when that seam is replaced.
+    This does not import a provider SDK and does not call the adapter.
     """
     if task not in _TASK_PROVIDER_ENV:
         raise ValueError(f"unknown model task {task!r}")
+    routed = _active_override()
+    if routed is not None:
+        return routed
     source = _task_provider_sources.get(task)
     if source is not None:
         if source == SOURCE_PROVIDER_TASK:
@@ -701,7 +742,6 @@ def provider_for(task: str) -> TextProvider:
     if resolution.source != SOURCE_PROVIDER_TASK:
         provider = get_provider()
         _task_provider_sources[task] = resolution.source
-        _task_provider_names[task] = provider.name
         return provider
     provider = _load_named(resolution.name, selector_env=resolution.env_var)
     _task_provider_sources[task] = SOURCE_PROVIDER_TASK

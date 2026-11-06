@@ -108,10 +108,10 @@ Pull each item forward when its trigger fires, not on a calendar.
 **Raise daily caps; uniform per-user budgets already shipped.**
 
 * Bump `NESTED_WORLDS_VOICE_DAILY_CALLS=5000` and
-  `NESTED_WORLDS_IMAGE_DAILY_CALLS=2000` as a first response. The legacy
+  `NESTED_WORLDS_IMAGE_DAILY_CALLS=2000` as a first response, and unset
   `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and `NESTED_WORLDS_FAL_DAILY_CALLS`
-  names are still accepted. Do not set a neutral name and its legacy name
-  to different integers: the lower one is enforced.
+  in the same change. Those legacy names are still accepted. A leftover
+  lower value is a warning and is the cap that requests enforce.
 * *Shipped (2026-07):* per-credential daily sub-caps —
   `NESTED_WORLDS_VOICE_DAILY_CALLS_PER_USER` (default 150; legacy
   `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` still accepted) and

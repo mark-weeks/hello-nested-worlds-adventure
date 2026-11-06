@@ -517,32 +517,28 @@ def probe_distinct_models(report: ModelReport, provider=None) -> tuple[ProbeResu
             return (ProbeResult("", False, _PROBE_SKIPPED),)
         return tuple(_probe_models(report, provider, secrets))
     results: list[ProbeResult] = []
-    seen: set[tuple[str, str]] = set()
+    # One probe pass per adapter. Skip, secret, and structural rules stay
+    # in _probe_models, which also deduplicates model ids inside the group.
+    groups: dict[int, tuple[object, list]] = {}
+    order: list[int] = []
     saw_unconfigured = False
     for task in report.tasks:
         prov = runtime.provider_for(task.task)
         if not _provider_ready(prov):
             saw_unconfigured = True
             continue
-        key = (getattr(prov, "name", ""), task.model)
-        if key in seen:
-            continue
-        seen.add(key)
-        if not task.model or _embeds_secret(task.model, secrets) or _structural(task.model) is not None:
-            results.append(ProbeResult(task.model, False, "skipped"))
-            continue
-        try:
-            prov.generate(
-                model=task.model,
-                system=(SystemBlock(text=_PROBE_SYSTEM),),
-                messages=[{"role": "user", "content": _PROBE_USER}],
-                max_tokens=PROBE_MAX_TOKENS,
-                timeout=PROBE_TIMEOUT_SECONDS,
-            )
-        except Exception as exc:
-            results.append(ProbeResult(task.model, False, type(exc).__name__))
-        else:
-            results.append(ProbeResult(task.model, True, "accepted"))
+        key = id(prov)
+        if key not in groups:
+            groups[key] = (prov, [])
+            order.append(key)
+        groups[key][1].append(task)
+    for key in order:
+        prov, tasks = groups[key]
+        subset = ModelReport(
+            provider=getattr(prov, "name", "") or report.provider,
+            tasks=tuple(tasks),
+        )
+        results.extend(_probe_models(subset, prov, secrets))
     if saw_unconfigured:
         results.append(ProbeResult("", False, _PROBE_SKIPPED))
     if not results:

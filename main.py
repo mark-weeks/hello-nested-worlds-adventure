@@ -206,8 +206,9 @@ def cmd_models(args):
     and intention. Moderation names only its own variable. When the intent
     task's adapter's ``supports_json_schema`` is false, the intent row says
     structured outputs are off and intent calls will be refused. That note
-    is not a hard problem. Disagreeing or invalid voice and image caps
-    exit as well, and the lower valid cap is what a request would enforce.
+    is not a hard problem. A non-integer or negative voice or image cap
+    exits as well. Two valid caps that disagree print a warning and do
+    not exit; the lower integer is what a request enforces.
     """
     from consciousness.model_check import (
         check_model_configuration, format_report, probe_distinct_models,
@@ -219,6 +220,9 @@ def cmd_models(args):
     _print_unconfigured_hint(report)
     if report.hard:
         raise SystemExit(report.failure_line())
+    budget_warning = guard.budget_configuration_warning_line()
+    if budget_warning:
+        print(budget_warning)
     budget_line = guard.budget_configuration_line()
     if budget_line:
         print(budget_line)
@@ -244,11 +248,16 @@ def cmd_voice_health(args):
     the CLI), every screen that logged a `moderation_call` line, then its
     outcomes other than allow. A locally clean line is not counted. Exits 1
     when the window holds a failure an operator must fix (a provider error,
-    a failed moderation screen, no provider slot within the wait, or a
-    server with no usable voice), when any screen failed to judge (`error`,
-    `busy`, `undecided`, on any surface), when the model configuration has a
-    hard problem (the check `models` and the server boot run), or when
-    `--probe` is passed and the tiny live probe fails. A failed screen on a
+    a failed moderation screen, no provider slot within the wait, a
+    server with no usable voice, or no usable moderation provider), when
+    any screen failed to judge (`error`, `busy`, `undecided`, on any
+    surface), when the model configuration has a hard problem (the check
+    `models` and the server boot run), when a voice or image cap is not an
+    integer or is negative (the same configurations `serve` refuses,
+    including while the AI kill switch is on, because that switch does not
+    disable `/image`), or when `--probe` is passed and the tiny live probe
+    fails. Two valid caps that disagree are printed and do not fail the
+    check; the lower integer is what a request enforces. A failed screen on a
     voice surface is counted in both sections, as the voice reason `screen`
     or `busy` and as the screen outcome; the two counts are reported
     separately. Limits (budgets, per-user caps, the disable switches) are
@@ -284,9 +293,13 @@ def cmd_voice_health(args):
     print(f"voice budget today: {used}/{cap} calls")
     if guard.ai_disabled():
         print(f"kill switch: {guard.DISABLE_AI_ENV}=1 (the world is quiet on purpose)")
+    from server import moderation
     voice_tasks = (runtime.NODE_TASK, runtime.INHABITANT_TASK, runtime.INTENT_TASK)
     ready = all(runtime.configured(task) for task in voice_tasks)
     print("voice provider: configured" if ready else "voice provider: NOT configured")
+    moderation_ready = runtime.configured(runtime.MODERATION_TASK)
+    print("moderation provider: configured" if moderation_ready
+          else "moderation provider: NOT configured")
     screen_failures = _report_screens(args.days)
     problems = []
     if failures:
@@ -295,6 +308,8 @@ def cmd_voice_health(args):
         problems.append(f"{screen_failures} screen failure(s) in the window")
     if not ready and not guard.ai_disabled():
         problems.append("no usable voice provider")
+    if not moderation_ready and not moderation.moderation_disabled():
+        problems.append("no usable moderation provider")
     # Credentials are not enough: the same model-id check `models` and the
     # server boot run. A task without a usable model id cannot answer.
     from consciousness.model_check import (
@@ -304,8 +319,11 @@ def cmd_voice_health(args):
     if report.hard and not guard.ai_disabled():
         print(report.failure_line())
         problems.append("unusable model configuration")
+    budget_warning = guard.budget_configuration_warning_line()
+    if budget_warning:
+        print(budget_warning)
     budget_line = guard.budget_configuration_line()
-    if budget_line and not guard.ai_disabled():
+    if budget_line:
         print(budget_line)
         problems.append("budget configuration")
     if args.probe:
