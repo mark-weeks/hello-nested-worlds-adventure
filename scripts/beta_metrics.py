@@ -13,11 +13,15 @@ from the world's own memory:
     participant: a rotated key's identities fold into one visitor through
     participant_credentials (migration 0021), read-only
   * how many of them did something beyond connecting: an action is any
-    human row except the PLAYER_JOIN and PLAYER_LEAVE every socket writes,
-    so an Act commit (INTERVENTION_COMMITTED) counts
+    human row that is not presence, so an Act commit
+    (INTERVENTION_COMMITTED) counts. Presence is the PLAYER_JOIN and
+    PLAYER_LEAVE every socket writes, and a PLAYER_MOVE that goes nowhere
+    (see _ANNOUNCED_MOVES)
   * how much they actually did: conversations with places and agents,
     Act commits, puzzle attempts and solves, failed puzzles (each failed
-    pool once, however many wrong guesses followed it), scale verbs, chat
+    pool once, in the window that holds its first failure row and only
+    when that row's actor counts, however many wrong guesses followed it),
+    scale verbs, chat
   * where they went (top nodes by human activity)
   * whether the world itself is alive (total chronicle size, first event)
   * whether the world could answer: voice lines answered vs. quiet, by
@@ -27,8 +31,9 @@ from the world's own memory:
     outcome (the daily moderation-outcome counters; a locally clean line
     is not counted)
   * optionally, a per-participant timeline: seconds from first join to
-    first move, first Act commit, first puzzle attempt and first solve,
-    under ordinal pseudonyms (P1, P2, ...) only
+    first move (not a connect-time announcement), first Act commit, first
+    puzzle attempt and first solve, under ordinal pseudonyms (P1, P2, ...)
+    only
 
 Run against the live DB (read-only connection, safe alongside the
 server), or against any backup file:
@@ -44,8 +49,9 @@ server), or against any backup file:
 The ambient cast never counts (agent solves are not human progress).
 --exclude-identity NAME drops a registered player by name, through every
 credential their participant has held (the facilitator, a disclosed second
-traveler). It cannot reach the daily voice and moderation counters, which
-carry no identity.
+traveler), from the visitor counts and from the model-written rows. It
+cannot reach the daily voice and moderation counters, which carry no
+identity.
 """
 from __future__ import annotations
 
@@ -70,9 +76,34 @@ _HUMAN_TYPES = (
 )
 
 # Rows every WebSocket connection writes on its own (server/websocket.py):
-# presence, not an action. Everything else in _HUMAN_TYPES is something
-# the player chose to do.
+# presence, not an action. So is an announced move (_ANNOUNCED_MOVES).
+# Everything else in _HUMAN_TYPES is something the player chose to do.
 _PRESENCE_TYPES = frozenset({"PLAYER_JOIN", "PLAYER_LEAVE"})
+
+# PLAYER_MOVE rows that go nowhere. Both shipped clients send a move for
+# the node they show on every WebSocket (re)connect, with no player input
+# (static/explorer.js in ws.onopen; frontend/src/App.jsx once connected),
+# and the explorer sends one again when it reloads the view at another
+# depth or the node it is on is selected again. server/websocket.py writes
+# a PLAYER_MOVE for every move frame, including one to the node the
+# socket already stands on. A move is announced when the same identity's
+# previous JOIN-or-MOVE row in that world is a PLAYER_JOIN (the connect
+# announcement, whichever node it names: a first visit can join at the
+# root before the client's saved position lands) or names the same node.
+# Over all time, so a join before the window still marks its announcement.
+# A client that never announces (a raw socket) loses its first real move
+# to this rule; the shipped clients always announce.
+_ANNOUNCED_MOVES = """announced_moves AS (
+    SELECT id FROM (
+        SELECT id, mutation_type, node_name,
+               LAG(mutation_type) OVER w AS previous_type,
+               LAG(node_name) OVER w AS previous_node
+        FROM world_mutations
+        WHERE mutation_type IN ('PLAYER_JOIN', 'PLAYER_MOVE')
+          AND actor_identity IS NOT NULL
+        WINDOW w AS (PARTITION BY actor_identity, world_seed ORDER BY id))
+    WHERE mutation_type = 'PLAYER_MOVE'
+      AND (previous_type = 'PLAYER_JOIN' OR previous_node = node_name))"""
 
 _CONVERSATION_TYPES = ("PLAYER_SPEAK", "AGENT_VOICE")
 
@@ -335,29 +366,40 @@ def compute_metrics(db_path: Path, days: int | None = None,
         def q(sql: str, extra: tuple = ()):
             return conn.execute(sql, (*args, *extra)).fetchall()
 
-        # Per identity, day and type; folded into participants below so a
-        # rotated key's days and actions add up under one visitor.
-        per_day = q(f"""SELECT actor_identity, date(recorded_at),
-                               mutation_type, COUNT(*)
+        # Per identity, day, type and announced flag; folded into
+        # participants below so a rotated key's days and actions add up
+        # under one visitor.
+        per_day = q(f"""WITH {_ANNOUNCED_MOVES}
+                        SELECT actor_identity, date(recorded_at),
+                               mutation_type,
+                               id IN (SELECT id FROM announced_moves),
+                               COUNT(*)
                         FROM world_mutations WHERE {human_where}
-                        GROUP BY actor_identity, date(recorded_at),
-                                 mutation_type""")
+                        GROUP BY 1, 2, 3, 4""")
         top_nodes = q(f"""SELECT node_name, COUNT(*) AS n
                           FROM world_mutations WHERE {human_where}
                           GROUP BY node_name ORDER BY n DESC LIMIT 10""")
         # A pool is one question at one node: the node's renewal epoch
         # (its PUZZLE_REARM count before the row) names it. Every wrong
-        # guess after a pool fails writes another PUZZLE_FAILED, so the
-        # rows overstate failures; the pools do not.
-        failed_pools = q(f"""SELECT COUNT(*) FROM (
-                SELECT DISTINCT f.world_seed, f.node_name,
-                       (SELECT COUNT(*) FROM world_mutations r
-                        WHERE r.world_seed = f.world_seed
-                          AND r.node_name = f.node_name
-                          AND r.mutation_type = 'PUZZLE_REARM'
-                          AND r.id < f.id) AS epoch
-                FROM world_mutations AS f
-                WHERE {human_where} AND mutation_type = 'PUZZLE_FAILED')""")[0][0]
+        # guess after a pool fails writes another PUZZLE_FAILED until the
+        # pool is renewed, so the rows overstate failures. A pool is
+        # counted by its first failure row over all time, the attempt that
+        # exhausted it: once, in the window that holds that row, and only
+        # when that row's actor counts. A late guess today at a pool that
+        # failed last week, or at one an excluded facilitator exhausted,
+        # is not a failure in today's read.
+        failed_pools = q(f"""SELECT COUNT(*) FROM world_mutations
+                WHERE {human_where} AND id IN (
+                    SELECT MIN(id) FROM (
+                        SELECT f.id, f.world_seed, f.node_name,
+                               (SELECT COUNT(*) FROM world_mutations r
+                                WHERE r.world_seed = f.world_seed
+                                  AND r.node_name = f.node_name
+                                  AND r.mutation_type = 'PUZZLE_REARM'
+                                  AND r.id < f.id) AS epoch
+                        FROM world_mutations AS f
+                        WHERE f.mutation_type = 'PUZZLE_FAILED')
+                    GROUP BY world_seed, node_name, epoch)""")[0][0]
 
         total_rows = conn.execute(
             "SELECT COUNT(*) FROM world_mutations").fetchone()[0]
@@ -365,6 +407,8 @@ def compute_metrics(db_path: Path, days: int | None = None,
             "SELECT MIN(recorded_at) FROM world_mutations").fetchone()[0]
         # Older backups have no side table. Absence is an empty count, not
         # a guessed provider, and this read must not migrate the file.
+        # The cast and unattributed rows stay: this section has always
+        # counted every caller. An excluded player's rows do not.
         model_provenance: list[dict] = []
         if _has_table(conn, "mutation_model_provenance"):
             m_clause, scope_args = window.rows("m.recorded_at")
@@ -372,6 +416,10 @@ def compute_metrics(db_path: Path, days: int | None = None,
             if seed is not None:
                 scope = " AND m.world_seed = ?"
                 scope_args.append(seed)
+            if excluded:
+                scope += (" AND (m.actor_identity IS NULL OR m.actor_identity"
+                          f" NOT IN ({','.join('?' for _ in excluded)}))")
+                scope_args.extend(excluded)
             model_provenance = [
                 {"provider": provider, "resolved_model": model, "rows": count}
                 for provider, model, count in conn.execute(
@@ -388,7 +436,7 @@ def compute_metrics(db_path: Path, days: int | None = None,
         by_type: dict[str, int] = {}
         visitors: dict[str, dict] = {}
         identities: set[str] = set()
-        for identity, day, kind, count in per_day:
+        for identity, day, kind, announced, count in per_day:
             identities.add(identity)
             by_type[kind] = by_type.get(kind, 0) + count
             owner = owners.get(identity)
@@ -397,7 +445,7 @@ def compute_metrics(db_path: Path, days: int | None = None,
                                           "days": set()})
             v["events"] += count
             v["days"].add(day)
-            if kind not in _PRESENCE_TYPES:
+            if kind not in _PRESENCE_TYPES and not announced:
                 v["actions"] += count
 
         n_visitors = len(visitors)
@@ -441,10 +489,12 @@ def compute_metrics(db_path: Path, days: int | None = None,
         }
         if timeline:
             metrics["timeline"] = _timeline(
-                q(f"""SELECT actor_identity, mutation_type,
+                q(f"""WITH {_ANNOUNCED_MOVES}
+                      SELECT actor_identity, mutation_type,
+                             id IN (SELECT id FROM announced_moves),
                              MIN(recorded_at), MIN(id)
                       FROM world_mutations WHERE {human_where}
-                      GROUP BY actor_identity, mutation_type"""),
+                      GROUP BY 1, 2, 3"""),
                 owners)
         return metrics
     finally:
@@ -460,14 +510,17 @@ def _timeline(firsts: list, owners: dict[str, str]) -> list[dict]:
     this read and is not stable across windows. A participant whose first
     row in the window is not a PLAYER_JOIN (an HTTP-only client, or a
     socket opened before the window began) is measured from that first row
-    instead, and says so, so no offset is negative.
+    instead, and says so, so no offset is negative. An announced move
+    (_ANNOUNCED_MOVES) can start the clock but is never the first move.
     """
     people: dict[str, dict] = {}
-    for identity, kind, at, row_id in firsts:
+    for identity, kind, announced, at, row_id in firsts:
         owner = owners.get(identity)
         key = f"participant:{owner}" if owner else f"actor:{identity}"
         p = people.setdefault(key, {"first": (at, row_id), "kinds": {}})
         p["first"] = min(p["first"], (at, row_id))
+        if announced:
+            continue
         if kind not in p["kinds"] or at < p["kinds"][kind]:
             p["kinds"][kind] = at
     out = []
@@ -533,9 +586,9 @@ def render(m: dict) -> str:
         f"chat lines:          {m['chat_lines']}",
     ]
     if m["puzzle_failed_rows"] != m["puzzle_failures"]:
-        lines.append(f"  (failed counts each puzzle once; "
-                     f"{m['puzzle_failed_rows']} failure rows include wrong "
-                     "guesses after a puzzle had failed)")
+        lines.append(f"  (failed counts each puzzle once, where it first "
+                     f"failed; {m['puzzle_failed_rows']} failure rows include "
+                     "wrong guesses after a puzzle had failed)")
     if m["top_nodes"]:
         lines += ["", "most-visited ground:"]
         lines += [f"  {t['events']:>5}  {t['node']}" for t in m["top_nodes"]]

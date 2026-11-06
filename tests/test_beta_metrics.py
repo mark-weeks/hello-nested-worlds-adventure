@@ -15,11 +15,15 @@ Publication is proven by the frames another socket receives and by HTTP
 responses, never by reading a PLAYER_CHAT row back.
 
 The second half reads the worlds those paths leave with
-``scripts/beta_metrics.py`` (checklist B2): an Act-only tester acted, a
-failed puzzle counts once however many wrong guesses follow, a rotated key
+``scripts/beta_metrics.py`` (checklist B2): an Act-only tester acted, the
+move every client sends on connect is not an action, a failed puzzle counts
+once where it first failed however many wrong guesses follow, a rotated key
 is one visitor, ``--exclude-identity`` drops the facilitator under every
 key, ``--since``/``--until`` read an archive without changing it, and
 ``--timeline`` names nobody.
+
+Sockets that stand for a browser announce their node right after the
+welcome, as both shipped clients do on every (re)connect.
 """
 from __future__ import annotations
 
@@ -156,6 +160,25 @@ class _World:
         self.sockets.append(client)
         return client
 
+    def arrive(self, key: str) -> tuple[_Socket, dict]:
+        """Connect as a browser does: on open, both shipped clients send a
+        move for the node they show (static/explorer.js ws.onopen,
+        frontend/src/App.jsx once connected), with no player input."""
+        client = self.connect(key)
+        welcome = client.wait_for(lambda f: f["type"] == "welcome")
+        self.announce(client, key, _own_node(welcome))
+        return client, welcome
+
+    def announce(self, client: _Socket, key: str, node: str) -> None:
+        """Send a connect-time move and wait for its row, so its join is
+        recorded before the next arrival and arrival order is fixed."""
+        before = _recorded(_identity(key), "PLAYER_MOVE")
+        client.send({"type": "move", "node": node})
+        deadline = time.monotonic() + 5
+        while _recorded(_identity(key), "PLAYER_MOVE") == before:
+            assert time.monotonic() < deadline, "the move was not recorded"
+            time.sleep(0.02)
+
     def open_puzzle(self, key: str, node: str) -> dict:
         status, opened = self.request(
             "/puzzle?node_name=" + urllib.parse.quote(node), key)
@@ -180,6 +203,12 @@ class _World:
         return receipt
 
 
+def _own_node(welcome: dict) -> str:
+    """The node the server placed this socket on, from its welcome roster."""
+    return next(p["node"] for p in welcome["players"]
+                if p["session_id"] == welcome["session_id"])
+
+
 def _answer(node_name: str) -> str:
     """The server's current answer, read server-side as the handler reads
     it. Tests only: no client path returns it before a failure."""
@@ -198,6 +227,14 @@ def _departures() -> int:
             """SELECT COUNT(*) FROM world_mutations
                WHERE mutation_type = 'PLAYER_LEAVE'
                  AND recorded_at >= datetime('now', '-1 hour')""").fetchone()[0]
+
+
+def _recorded(identity: str, kind: str) -> int:
+    with sqlite3.connect(f"file:{persistence._DB_PATH}?mode=ro", uri=True) as conn:
+        return conn.execute(
+            """SELECT COUNT(*) FROM world_mutations
+               WHERE actor_identity = ? AND mutation_type = ?""",
+            (identity, kind)).fetchone()[0]
 
 
 def _settle(world: _World) -> None:
@@ -264,10 +301,8 @@ def _meet_and_cosolve(world: _World) -> dict:
     behaviour assertions and the metrics read alike.
     """
     ada_key, bea_key = world.mint("Quorra"), world.mint("Zephyrine")
-    ada = world.connect(ada_key)
-    ada_welcome = ada.wait_for(lambda f: f["type"] == "welcome")
-    bea = world.connect(bea_key)
-    bea_welcome = bea.wait_for(lambda f: f["type"] == "welcome")
+    ada, ada_welcome = world.arrive(ada_key)
+    bea, bea_welcome = world.arrive(bea_key)
     bea_arrives = ada.wait_for(lambda f: f["type"] == "player_join")
 
     ada.send({"type": "chat", "text": CHAT})
@@ -284,7 +319,8 @@ def _meet_and_cosolve(world: _World) -> dict:
     opened = world.open_puzzle(ada_key, COSOLVE_NODE)
     first = world.attempt(ada_key, COSOLVE_NODE, opened["name"], GUESS)
     bea.send({"type": "move", "node": COSOLVE_NODE})
-    bea_moves = ada.wait_for(lambda f: f["type"] == "player_move")
+    bea_moves = ada.wait_for(
+        lambda f: f["type"] == "player_move" and f["node"] == COSOLVE_NODE)
     answer = _answer(COSOLVE_NODE)
     solved = world.attempt(bea_key, COSOLVE_NODE, opened["name"], answer)
     solve_seen = ada.wait_for(
@@ -392,22 +428,53 @@ class TestBetaMetrics:
 
     def test_an_act_only_tester_is_one_visitor_who_acted(self, world):
         tester_key, lurker_key = world.mint("Oonagh"), world.mint("Thessaly")
-        tester, lurker = world.connect(tester_key), world.connect(lurker_key)
-        tester.wait_for(lambda f: f["type"] == "welcome")
-        lurker.wait_for(lambda f: f["type"] == "welcome")
+        world.arrive(tester_key)
+        lurker, _ = world.arrive(lurker_key)
         receipt = world.act(tester_key, NODES["instrument"], "act-only-1")
         lurker.wait_for(lambda f: f["type"] == "intervention_changed"
                         and f["id"] == receipt["id"])
         _settle(world)
 
         m = _metrics(days=1)
-        # Both connected; only the tester did anything, and it was Act.
+        # Both connected and announced; only the tester did anything, and
+        # it was Act.
         assert m["visitors"] == 2
+        assert m["events_by_type"]["PLAYER_MOVE"] == 2
         assert m["acting_visitors"] == 1
         assert m["act_commits"] == 1
         assert m["events_by_type"]["INTERVENTION_COMMITTED"] == 1
         assert m["actions_per_visitor"] == 0.5
         assert "act commits:         1" in beta_metrics.render(m)
+
+    def test_a_move_that_goes_nowhere_is_not_an_action(self, world):
+        # Opens the page and does nothing: the connect announcement, then
+        # the same node again (the explorer reloading its view).
+        lurker, welcome = world.arrive(world.mint("Thessaly"))
+        lurker.send({"type": "move", "node": _own_node(welcome)})
+        # A first visit whose socket opened before its saved position
+        # landed: it joins at the root and announces the node it shows.
+        early_key = world.mint("Isaura")
+        early = world.connect(early_key)
+        assert _own_node(early.wait_for(
+            lambda f: f["type"] == "welcome")) == store.root_name(SEED)
+        world.announce(early, early_key, COSOLVE_NODE)
+        # Announces, walks one step, then reselects where it stands.
+        walker, _ = world.arrive(world.mint("Quorra"))
+        walker.send({"type": "move", "node": COSOLVE_NODE})
+        walker.send({"type": "move", "node": COSOLVE_NODE})
+        _settle(world)
+
+        m = _metrics(days=1, timeline=True)
+        assert m["visitors"] == 3
+        assert m["events_by_type"]["PLAYER_MOVE"] == 6
+        assert m["acting_visitors"] == 1
+        assert m["actions_per_visitor"] == round(1 / 3, 1)
+        # Numbered by arrival: only the walker has a first move.
+        assert [(row["participant"], row["measured_from"]) for row in m["timeline"]] == [
+            ("P1", "join"), ("P2", "join"), ("P3", "join")]
+        assert [row["first_move"] is None for row in m["timeline"]] == [
+            True, True, False]
+        assert m["timeline"][2]["first_move"] >= 0
 
     def test_a_failed_pool_counts_once_however_many_wrong_guesses_follow(self, world):
         ada_key, bea_key = world.mint("Quorra"), world.mint("Zephyrine")
@@ -438,6 +505,37 @@ class TestBetaMetrics:
         assert last["result"] == "FAILED"
         m = _metrics(days=1)
         assert (m["puzzle_failures"], m["puzzle_failed_rows"]) == (2, 4)
+
+    def test_a_failed_pool_counts_where_and_by_whom_it_first_failed(self, world):
+        facilitator, tester = world.mint("Oonagh"), world.mint("Quorra")
+        opened = world.open_puzzle(facilitator, FAILING_NODE)
+        for i in range(opened["max_attempts"]):
+            last = world.attempt(facilitator, FAILING_NODE, opened["name"], f"demo-{i}")
+        assert last["result"] == "FAILED"
+        assert world.attempt(tester, FAILING_NODE, opened["name"],
+                             "late-one")["result"] == "FAILED"
+
+        # The facilitator exhausted the pool; the tester only guessed late.
+        assert _metrics(days=1)["puzzle_failures"] == 1
+        m = _metrics(days=1, exclude=["Oonagh"])
+        assert (m["puzzle_failures"], m["puzzle_failed_rows"]) == (0, 1)
+
+        # Three days on, the pool still answers FAILED to a late guess.
+        with persistence._connect() as conn:
+            conn.execute(
+                """UPDATE world_mutations
+                   SET recorded_at = datetime('now', '-3 days')
+                   WHERE node_name = ?
+                     AND mutation_type IN ('PUZZLE_ATTEMPT', 'PUZZLE_FAILED')""",
+                (FAILING_NODE,))
+        assert world.attempt(tester, FAILING_NODE, opened["name"],
+                             "late-two")["result"] == "FAILED"
+        today = _metrics(days=1)
+        assert (today["puzzle_failures"], today["puzzle_failed_rows"]) == (0, 1)
+        week = _metrics(days=7)
+        assert (week["puzzle_failures"], week["puzzle_failed_rows"]) == (1, 3)
+        week = _metrics(days=7, exclude=["Oonagh"])
+        assert (week["puzzle_failures"], week["puzzle_failed_rows"]) == (0, 2)
 
     def test_a_rotated_key_is_one_visitor(self, world):
         old = world.mint("Quorra")
@@ -499,6 +597,13 @@ class TestBetaMetrics:
             client.send({"type": "chat", "text": "hello"})
             client.wait_for(lambda f: f["type"] == "chat")
         world.act(facilitator, NODES["instrument"], "facilitator-demo")
+        # A model-written row under the facilitator's key (as a parsed Act
+        # or a voice line stores one), and one under the tester's.
+        for key, name in ((facilitator, "Oonagh"), (tester, "Quorra")):
+            persistence.record_mutation(
+                SEED, NODES["instrument"], "AGENT_VOICE", name, {},
+                actor_identity=_identity(key),
+                model_provider="fixture", resolved_model=f"model-{name}")
         _settle(world)
         rotated = "nw_" + secrets.token_hex(16)
         participants.rotate(facilitator, rotated)
@@ -510,12 +615,19 @@ class TestBetaMetrics:
 
         everyone = _metrics(days=1)
         assert everyone["visitors"] == 3 and everyone["visitor_identities"] == 4
+        assert sorted(row["resolved_model"] for row in everyone["model_provenance"]) == [
+            "model-Oonagh", "model-Quorra"]
         m = _metrics(days=1, exclude=["Oonagh", "Thessaly"])
         assert m["excluded_identities"] == 3  # two keys, plus one
         assert m["visitors"] == m["visitor_identities"] == 1
         assert m["chat_lines"] == 1 and m["act_commits"] == 0
+        assert m["model_provenance"] == [
+            {"provider": "fixture", "resolved_model": "model-Quorra", "rows": 1}]
         # Names compare as registration compares them.
-        assert _metrics(days=1, exclude=["  oonagh ", "THESSALY"]) == m
+        # The window's start is read from the clock on each call, so it is
+        # left out: two reads a second apart would differ there alone.
+        assert ({**_metrics(days=1, exclude=["  oonagh ", "THESSALY"]), "window": None}
+                == {**m, "window": None})
 
         out = json.loads(_cli(capsys, "--days", "1", "--json",
                               "--exclude-identity", "Oonagh",
@@ -543,8 +655,9 @@ class TestBetaMetrics:
                    VALUES (?, ?, ?, 'Isaura', '{}', ?, ?)""",
                 [(SEED, store.root_name(SEED), kind, _identity(watched), at)
                  for kind, at in rows])
-        persistence.increment_cost_calls(
-            observability.voice_bucket("speak", "ok"), "2026-01-05")
+        for day in ("2026-01-05", "2026-01-06"):
+            persistence.increment_cost_calls(
+                observability.voice_bucket("speak", "ok"), day)
         # Today's traveler, through the real socket.
         today = world.connect(world.mint("Quorra"))
         today.wait_for(lambda f: f["type"] == "welcome")
@@ -564,8 +677,13 @@ class TestBetaMetrics:
                                  "until": "2026-01-06 00:00:00"}
         assert day["window_days"] is None
         assert (day["visitors"], day["acting_visitors"], day["act_commits"]) == (1, 1, 1)
+        # The next day's counter stays out: --until 2026-01-05 ends there.
         assert day["voice_outcomes"] == {"speak": {"ok": 1}}
-        assert read("--since", "2026-01-06", "--until", "2026-01-06")["visitors"] == 0
+        assert read("--since", "2026-01-04", "--until",
+                    "2026-01-05")["voice_outcomes"] == {"speak": {"ok": 1}}
+        next_day = read("--since", "2026-01-06", "--until", "2026-01-06")
+        assert next_day["visitors"] == 0
+        assert next_day["voice_outcomes"] == {"speak": {"ok": 1}}
         # Date-times bound to the second; --until is exclusive there.
         assert read("--since", "2026-01-05T10:00:00",
                     "--until", "2026-01-05T10:04:00")["act_commits"] == 0
