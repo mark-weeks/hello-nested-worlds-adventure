@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import "../../../static/intents.js";
+import "../../../static/clientlogic.js";
 import { withKey } from "../auth.js";
-import { SPEAK_UNREACHED_LINE } from "../arrival.js";
 import Interventions from "./Interventions.jsx";
+
+// The line both clients show when speech does not reach the server.
+const { SPEAK_UNREACHED_LINE } = globalThis.EnfoldedClient;
 
 // Node interaction panel: the two core-loop mechanics the /app client was
 // missing — talk to a node (/speak) and solve its puzzle

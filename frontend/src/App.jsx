@@ -11,7 +11,7 @@ import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
 import { displayName } from "./names.js";
 import { createNodeRefresher } from "./nodeRefresh.js";
 import { createChatDraft, createChatRestore } from "./chatDraft.js";
-import { arrivalScreen, openWorld } from "./arrival.js";
+import { arrivalScreen, openWorld, WORLD_UNREACHED_LINE } from "./arrival.js";
 import { NodeAmbience } from "../../static/score.js";
 
 // Honor the OS-level motion preference: transient overlays (ripples,
@@ -149,6 +149,8 @@ export default function App() {
       setEvents([]);
     }
     const startedAt = refreshSerial.current;
+    // Whether this read put a place in hand before anything after it failed.
+    let placed = false;
     try {
       const opened = await openWorld(
         url => fetch(url), withKey(`/world?depth=${requestedDepth}`), !!betaKey(),
@@ -176,6 +178,7 @@ export default function App() {
         return node;
       });
       setNodeStack(path);
+      placed = true;
       // A deep link selects this arrival once; later reloads resume actual travel.
       if (new URLSearchParams(location.search).has("node")) {
         const url = new URL(location.href);
@@ -194,8 +197,13 @@ export default function App() {
         }
       }
     } catch (_) {
-      // A failure after the world opened (the history backfill, the entry
-      // path). The scene, if a place is in hand, stays.
+      // A failure after the world opened. A world that answered but could not
+      // be drawn (no tree, no entry path) leaves no place in hand, so it gets
+      // the retry line instead of the loading shell with nothing in flight.
+      // After a place is in hand (the history backfill), the scene stays.
+      if (!background && !placed) {
+        setUnopened({ kind: "retry", line: WORLD_UNREACHED_LINE });
+      }
       return false;
     } finally {
       if (!background) setLoading(false);
@@ -393,6 +401,9 @@ export default function App() {
   // load — so the position follows the player across devices, falling back to
   // this browser's cache when there's no server row.
   const arrive = useCallback(async (cancelled = () => false) => {
+    // The loading shell shows at once, so a retry answers its click before
+    // the position hydrate and cannot be pressed again while it runs.
+    setLoading(true);
     const position = await hydratePositionFromServer();
     if (cancelled()) return;
     const targetNode = new URLSearchParams(location.search).get("node") || position?.node || localStorage.getItem(LAST_NODE_KEY);
@@ -592,6 +603,7 @@ export default function App() {
 
   const screen = arrivalScreen({
     loading, hasNode: !!currentNode, unopened, introSeen, named: !!playerName,
+    hasKey: !!betaKey(),
   });
 
   if (screen === "gate") {

@@ -157,6 +157,12 @@ new ResizeObserver(() => {
 
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
+// The line of a world that has not opened while nothing is drawn (the invite
+// line, a refused invitation or a retry). No place can be chosen until the
+// world opens, so a control that needs one leaves this line in place.
+let worldClosedLine = null;
+function needPlace() { setStatus(worldClosedLine || 'Select a node first.'); }
+
 function setMode(mode) {
   ['speak', 'puzzle', 'act'].forEach(m => {
     document.getElementById('panel-' + m).classList.toggle('active', m === mode);
@@ -182,12 +188,14 @@ async function loadWorld() {
     const opened = await openWorld(url => fetch(url), withKey(`/world?depth=${depth}`), !!betaKey());
     if (opened.unopened) {
       setStatus(opened.unopened.line);
+      if (worldParams.seed === null) worldClosedLine = opened.unopened.line;
       // Before any place is in hand the map is empty; say it where a place
       // would be described, not only in the status bar.
       if (!selected) document.getElementById('node-description').textContent = opened.unopened.line;
       return;
     }
     const data = opened.data;
+    worldClosedLine = null;
     worldParams.seed = data.seed;
     wrapInfo = data.wrap || null;
     investigationEntry = data.entry_node || null;
@@ -768,7 +776,7 @@ async function loadPresences(nodeName) {
 }
 
 async function speak() {
-  if (!selected) { setStatus('Select a node first.'); return; }
+  if (!selected) { needPlace(); return; }
   const message = document.getElementById('message').value.trim();
   if (!message) return;
   const box = document.getElementById('speak-response');
@@ -798,7 +806,7 @@ async function speak() {
 }
 
 function observe() {
-  if (!selected) { setStatus('Select a node first.'); return; }
+  if (!selected) { needPlace(); return; }
   if (observeES) { observeES.close(); observeES = null; }
 
   document.getElementById('observe-rows').innerHTML = '';
@@ -852,7 +860,7 @@ function appendObserveRow({ node, level, kind, strength }) {
 
 let puzzleRequest = 0;
 async function fetchPuzzle() {
-  if (!selected) { setStatus('Select a node first.'); return; }
+  if (!selected) { needPlace(); return; }
   const { seed, depth } = worldParams;
   const nodeName=selected.name, request=++puzzleRequest;
   const current=()=>request===puzzleRequest && selected?.name===nodeName;

@@ -444,16 +444,19 @@
 
   // `kind` is "invite" or "refused" while the gate holds this browser out
   // (asking again changes nothing until an invite link is opened), and
-  // "retry" for everything else. A 4xx other than the gate keeps the
-  // server's own line: the pace line is authored, and a refused depth names
-  // the range the player chose outside of.
+  // "retry" for everything else. Two answers keep the server's own line: the
+  // pace line (429) is authored, and a refused depth (400) names the range
+  // the player chose outside of on the map. Any other status, such as a 404
+  // or 401 from a proxy in front of the server, says nothing a player
+  // should read, so it gets the retry line.
+  const WORLD_LINE_STATUSES = [400, 429];
   function worldUnopened(status, hasKey, serverLine) {
     if (status === 403) {
       return hasKey
         ? { kind: "refused", line: WORLD_REFUSED_LINE }
         : { kind: "invite", line: WORLD_INVITE_LINE };
     }
-    if (status >= 400 && status < 500 && typeof serverLine === "string" && serverLine) {
+    if (WORLD_LINE_STATUSES.includes(status) && typeof serverLine === "string" && serverLine) {
       return { kind: "retry", line: serverLine };
     }
     return { kind: "retry", line: WORLD_UNREACHED_LINE };

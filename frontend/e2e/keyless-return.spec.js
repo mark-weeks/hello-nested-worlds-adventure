@@ -27,6 +27,20 @@ function watchErrors(page) {
   return errors;
 }
 
+// Hold every /world read until `release()`; `reads()` counts them.
+async function holdWorld(page) {
+  let reads = 0;
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  const worldRead = url => url.pathname === "/world";
+  await page.route(worldRead, async route => {
+    reads += 1;
+    await held;
+    await route.continue();
+  });
+  return { reads: () => reads, release: () => release(), stop: () => page.unroute(worldRead) };
+}
+
 // A returning browser that kept its onboarding but not its key.
 async function returning(page, key = null) {
   await page.addInitScript(({ key, name }) => {
@@ -44,18 +58,37 @@ test("/app on a new device says how to return, then opens from the invite link",
   const server = await serve();
   const errors = watchErrors(page);
   try {
-    // Nothing stored at all: no key, no name, no introduction seen.
-    const refusal = page.waitForResponse(reply =>
-      new URL(reply.url()).pathname === "/world" && reply.status() === 403);
+    // Nothing stored at all: no key, no name, no introduction seen. Record
+    // whether onboarding is ever drawn, however briefly.
+    await page.addInitScript(() => {
+      window.__onboardingDrawn = false;
+      new MutationObserver(() => {
+        const begin = [...document.querySelectorAll("button")].some(b => b.textContent === "Begin");
+        if (begin || document.querySelector('input[placeholder="Your name"]')) {
+          window.__onboardingDrawn = true;
+        }
+      }).observe(document, { childList: true, subtree: true });
+    });
+    // The gate's answer is slow: the player has time to click.
+    const world = await holdWorld(page);
     await page.goto(server.url + "/app");
-    await refusal;
+    await expect.poll(world.reads).toBe(1);
+    await expect(page.getByText(LOADING)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Begin", exact: true })).toHaveCount(0);
+    await expect(page.getByPlaceholder("Your name", { exact: true })).toHaveCount(0);
+    world.release();
     await expect(page.getByRole("alert")).toHaveText(INVITE);
     await expect(page.getByText(LOADING)).toHaveCount(0);
-    // The gate comes before onboarding: no name to choose, nothing to begin.
+    // The gate comes before onboarding: no name to choose, nothing to begin,
+    // and the introduction is still unseen for the invite link.
     await expect(page.getByPlaceholder("Your name", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Begin", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Open the view again" })).toHaveCount(0);
     await expect(page.locator("body")).not.toContainText(/forbidden/i);
+    expect(await page.evaluate(() => window.__onboardingDrawn)).toBe(false);
+    expect(await page.evaluate(() => localStorage.getItem("nw_seen_intro"))).toBeNull();
+    expect(await page.evaluate(() => localStorage.getItem("nw_player_name"))).toBeNull();
+    await world.stop();
 
     // Doing what the line says opens the world on this device.
     await page.goto(server.url + inviteLink("/app"));
@@ -65,6 +98,55 @@ test("/app on a new device says how to return, then opens from the invite link",
     expect(await page.evaluate(() => localStorage.getItem("nw_beta_key"))).toBe(KEY);
     expect(errors).toEqual([]);
   } finally {
+    await server.close();
+  }
+});
+
+test("/app answers a world it cannot draw with a retry that answers its click at once", async ({ page }) => {
+  const server = await serve();
+  const errors = watchErrors(page);
+  let release = () => {};
+  try {
+    await returning(page, KEY);
+    // The server answers, but with no world in the body.
+    const worldRead = url => url.pathname === "/world";
+    await page.route(worldRead, route => route.fulfill({
+      status: 200, contentType: "application/json", body: "{}",
+    }));
+    await page.goto(server.url + "/app");
+    await expect(page.getByRole("alert")).toHaveText(UNREACHED);
+    await expect(page.getByText(LOADING)).toHaveCount(0);
+    await page.unroute(worldRead);
+
+    // A slow position hydrate: the retry must answer before it returns, and
+    // a second click must not start a second arrival.
+    let positionReads = 0;
+    let worldReads = 0;
+    page.on("request", request => {
+      if (new URL(request.url()).pathname === "/world") worldReads += 1;
+    });
+    const held = new Promise(resolve => { release = resolve; });
+    const positionRead = url => url.pathname === "/position";
+    await page.route(positionRead, async route => {
+      // The hydrate reads; the scene's own arrival writes (POST) afterwards.
+      if (route.request().method() === "GET") {
+        positionReads += 1;
+        await held;
+      }
+      await route.continue();
+    });
+    await page.getByRole("button", { name: "Open the view again" }).dblclick();
+    await expect(page.getByText(LOADING)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open the view again" })).toHaveCount(0);
+    release();
+    await expect(page.locator("#node-name")).toBeVisible();
+    await page.unroute(positionRead);
+    expect(positionReads).toBe(1);
+    expect(worldReads).toBe(1);
+    expect(errors).toEqual([]);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "wait" }).catch(() => {});
     await server.close();
   }
 });
@@ -120,6 +202,9 @@ test("the map says how to return without a key, opens from the invite link, and 
     await expect(page.locator("#status")).toHaveText(INVITE);
     await expect(page.locator("#node-description")).toHaveText(INVITE);
     await expect(page.locator("body")).not.toContainText(/forbidden/i);
+    // No place can be chosen on an empty map, so asking to speak keeps the line.
+    await page.locator("#btn-do-speak").click();
+    await expect(page.locator("#status")).toHaveText(INVITE);
 
     await page.goto(server.url + inviteLink("/"));
     await expect(page.locator("#status")).toContainText("shared world");
