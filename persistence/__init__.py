@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from merge_patch import json_merge_patch
+from persistence.schema_probe import applied_version, known_version, migration_files
 
 _DB_PATH = Path.home() / ".nested-worlds" / "worlds.db"
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
@@ -196,19 +197,10 @@ def _begin_write(conn):
 def _list_migrations() -> list[tuple[int, Path]]:
     """Return [(version, path)] for every well-named migration, sorted.
 
-    Filenames must start with a zero-padded integer followed by an
-    underscore (e.g. `0001_initial.sql`); anything else is skipped so a
-    stray README in the directory doesn't get executed.
+    The filename rule lives in ``persistence.schema_probe.migration_files``
+    so the deploy probe and this runner cannot drift apart.
     """
-    out: list[tuple[int, Path]] = []
-    for path in sorted(_MIGRATIONS_DIR.glob("*.sql")):
-        head, _, _ = path.name.partition("_")
-        try:
-            version = int(head)
-        except ValueError:
-            continue
-        out.append((version, path))
-    return out
+    return migration_files(_MIGRATIONS_DIR)
 
 
 def _sql_statements(sql: str) -> list[str]:
@@ -233,6 +225,75 @@ def _sql_statements(sql: str) -> list[str]:
     return out
 
 
+class SchemaTooNewError(RuntimeError):
+    """The on-disk chronicle is newer than the migrations this process ships.
+
+    Migrations are forward-only. Starting would mean an older binary
+    reading a schema it does not know. Callers must not migrate, bind a
+    port, or rewrite the database.
+    """
+
+
+def known_schema_version() -> int:
+    """Highest migration version shipped with this process.
+
+    This is the schema pin. A chronicle whose applied version is higher
+    is refused. Adding a migration file advances the pin for new births
+    of the schema; it does not rewrite a database that already passed it.
+    """
+    version = known_version(_MIGRATIONS_DIR)
+    if version is None:
+        raise RuntimeError("this binary ships no schema migrations")
+    return version
+
+
+def schema_too_new_message(applied: int, known: int) -> str:
+    """Operator-facing refusal. No traceback, no player-facing fiction."""
+    return (
+        f"chronicle schema_version {applied} is newer than this binary's "
+        f"schema {known}. Migrations are forward-only, so this process will "
+        f"not start and will not change the database. Deploy a release that "
+        f"knows schema {applied} or newer, or stop the machine and restore a "
+        f"backup taken before the upgrade "
+        f"(docs/infrastructure/fly-deployment.md, restoring from a backup). "
+        f"That restore abandons history written after the backup. "
+        f"There is no in-place downgrade."
+    )
+
+
+def read_applied_schema_version(path: Path | None = None) -> int | None:
+    """Highest applied `schema_version`, or None if the chronicle is absent.
+
+    Read-only. Does not create the database and does not run migrations.
+    """
+    return applied_version(path or _DB_PATH)
+
+
+def _refuse_newer_schema(applied: set[int]) -> None:
+    """Raise when the chronicle is newer than this binary. Apply nothing."""
+    known = known_schema_version()
+    newer = [version for version in applied if version > known]
+    if newer:
+        raise SchemaTooNewError(schema_too_new_message(max(newer), known))
+
+
+def _refuse_newer_schema_before_open(path: Path) -> None:
+    """Read-only refusal before any writable open.
+
+    ``_connect`` sets ``journal_mode=WAL``. Doing that on a newer
+    DELETE-journal chronicle changes the file even though the migration
+    guard then raises. This check runs inside the init lock and does not
+    create the database. The guard inside ``_run_migrations`` still runs
+    after the writable open.
+    """
+    applied = read_applied_schema_version(path)
+    if applied is None:
+        return
+    known = known_schema_version()
+    if applied > known:
+        raise SchemaTooNewError(schema_too_new_message(applied, known))
+
+
 def _run_migrations(conn: sqlite3.Connection) -> list[int]:
     """Apply any migrations not yet recorded in `schema_version`.
 
@@ -241,9 +302,13 @@ def _run_migrations(conn: sqlite3.Connection) -> list[int]:
     one transaction, so an interruption leaves the DB exactly at the last
     fully-applied version — never a half-applied file whose committed
     ALTERs make the retry fail with "duplicate column name".
+
+    A chronicle whose highest applied version is newer than the migrations
+    this process ships raises SchemaTooNewError before any migration runs.
     """
     conn.executescript(_SCHEMA_VERSION_DDL)
     applied = {r[0] for r in conn.execute("SELECT version FROM schema_version")}
+    _refuse_newer_schema(applied)
     just_applied: list[int] = []
     for version, path in _list_migrations():
         if version in applied:
@@ -271,10 +336,18 @@ def init_db() -> None:
     # that already has it ("duplicate column name", caught by the WS soak
     # test). Double-checked so the post-init hot path stays lock-free in
     # _with_db.
+    #
+    # A newer chronicle raises SchemaTooNewError inside the lock, before
+    # the writable open, before `_initialized` is recorded, and before any
+    # migration is applied. A later retry still refuses. The file's bytes
+    # and journal mode stay as they were. The guard inside
+    # `_run_migrations` still refuses if the file changes after that
+    # read-only check.
     with _init_lock:
         if _DB_PATH in _initialized:
             return
         _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _refuse_newer_schema_before_open(_DB_PATH)
         with _connect() as conn:
             _run_migrations(conn)
             _hash_legacy_credentials(conn)
