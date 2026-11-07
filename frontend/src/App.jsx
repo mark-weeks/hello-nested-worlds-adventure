@@ -82,6 +82,14 @@ export default function App() {
   const [wrapInfo, setWrapInfo]   = useState(null);
   const [nodeStack, setNodeStack] = useState([]);
   const [players, setPlayers]     = useState([]);
+  const [blocks, setBlocks] = useState([]);
+  const [participantId, setParticipantId] = useState(null);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [blockStatus, setBlockStatus] = useState('');
+  const blockIds = useRef(new Set());
+  const blockRevision = useRef(0);
+  const mySessionId = useRef(null);
+  const liveViewerId = useRef(null);
   const [agents, setAgents]       = useState({});  // name → { node, persona }
   const [events, setEvents]       = useState([]);
   // The fetched world tree, retained so jump-to-traveler can rebuild a real
@@ -112,6 +120,33 @@ export default function App() {
   const pushEvent = useCallback((evt) => {
     setEvents(ev => [evt, ...ev].slice(0, MAX_EVENTS));
   }, []);
+
+  function applyBlocks(list) {
+    blockRevision.current += 1;
+    blockIds.current = new Set(list.map(b => b.id));
+    setBlocks(list);
+    setPlayers(roster => roster.filter(p => !blockIds.current.has(p.participant_id)));
+    setAgents(roster => Object.fromEntries(Object.entries(roster).filter(([, a]) => !blockIds.current.has(a.participant_id))));
+    setEvents(feed => globalThis.EnfoldedClient.withoutBlockedLiveEvents(feed, list));
+    setTransients(effects => globalThis.EnfoldedClient.withoutBlockedLiveEvents(effects, list));
+  }
+
+  async function changeBlock(participant, blocked) {
+    if (blockBusy) return;
+    setBlockBusy(true);
+    setBlockStatus('Saving your choice…');
+    const revision = blockRevision.current;
+    try {
+      const list = await globalThis.EnfoldedClient.savePersonalBlock(withKey('/blocks'), participant, blocked);
+      // A newer private socket update (possibly from another tab) wins.
+      if (revision === blockRevision.current) applyBlocks(list);
+      setBlockStatus(blockIds.current.has(participant) ? 'Blocked. Their live chat and presence are hidden.' : 'Unblocked.');
+    } catch (error) {
+      setBlockStatus(error.message || 'Your block could not be saved. Try again.');
+    } finally {
+      setBlockBusy(false);
+    }
+  }
 
   // Transients are short-lived visual overlays in SceneView (ripples,
   // encounter glyphs, solve sparkles). Only the ones whose node matches
@@ -272,20 +307,34 @@ export default function App() {
     // The welcome roster: everyone already present when we connect. Without
     // this, a joining player sees an empty world until someone acts.
     onWelcome: (msg) => {
+      const previousViewer = liveViewerId.current;
+      const viewer = msg.participant_id || null;
+      setEvents(feed => globalThis.EnfoldedClient.liveEventsAfterWelcome(feed, previousViewer, viewer));
+      setTransients(effects => globalThis.EnfoldedClient.liveEventsAfterWelcome(effects, previousViewer, viewer));
+      liveViewerId.current = viewer;
+      mySessionId.current = msg.session_id;
+      setParticipantId(viewer);
+      applyBlocks(msg.blocks || []);
       const others = (msg.players || [])
-        .filter(p => p.session_id !== msg.session_id)
-        .map(p => ({ name: p.name, session_id: p.session_id, node: p.node || "" }));
+        .filter(p => p.session_id !== msg.session_id && !blockIds.current.has(p.participant_id));
       setPlayers(others);
       const cast = {};
-      for (const a of (msg.agents || [])) cast[a.name] = { node: a.node || "", persona: a.persona };
+      for (const a of (msg.agents || [])) {
+        if (!blockIds.current.has(a.participant_id)) cast[a.name] = { ...a, node: a.node || "" };
+      }
       setAgents(cast);
       if (others.length) {
         pushEvent({ type: "system",
                     text: `${others.length} explorer${others.length > 1 ? "s" : ""} already here` });
       }
     },
-    onAgentEnter: (msg) => setAgents(a => ({ ...a, [msg.name]: { node: "", persona: msg.persona } })),
-    onAgentMove:  (msg) => setAgents(a => ({ ...a, [msg.name]: { ...(a[msg.name] || {}), node: msg.node } })),
+    onBlocksChanged: (msg) => {
+      applyBlocks(msg.blocks || []);
+      setPlayers((msg.players || []).filter(p => p.session_id !== mySessionId.current && !blockIds.current.has(p.participant_id)));
+      setAgents(Object.fromEntries((msg.agents || []).filter(a => !blockIds.current.has(a.participant_id)).map(a => [a.name, a])));
+    },
+    onAgentEnter: (msg) => !blockIds.current.has(msg.participant_id) && setAgents(a => ({ ...a, [msg.name]: { ...msg, node: "" } })),
+    onAgentMove:  (msg) => !blockIds.current.has(msg.participant_id) && setAgents(a => ({ ...a, [msg.name]: { ...(a[msg.name] || {}), ...msg } })),
     onAgentLeave: (msg) => setAgents(a => {
       const next = { ...a };
       delete next[msg.name];
@@ -304,26 +353,27 @@ export default function App() {
       }
     },
     onPlayerJoin: (msg) => {
-      setPlayers(p => [...p, { name: msg.name, session_id: msg.session_id, node: "" }]);
-      pushEvent({ type: "system", text: `${msg.name} joined` });
+      if (blockIds.current.has(msg.participant_id)) return;
+      setPlayers(p => [...p.filter(x => x.session_id !== msg.session_id), { ...msg, node: msg.node || "" }]);
+      pushEvent({ type: "system", liveParticipant: msg.participant_id, text: `${msg.name} joined` });
     },
     onPlayerLeave: (msg) => {
       setPlayers(p => {
         const leaving = p.find(x => x.session_id === msg.session_id);
-        pushEvent({ type: "system", text: `${leaving?.name ?? "Someone"} left` });
+        if (leaving) pushEvent({ type: "system", liveParticipant: leaving.participant_id, text: `${leaving.name} left` });
         return p.filter(x => x.session_id !== msg.session_id);
       });
     },
     // Upsert on move: a mover we don't know yet (raced past the roster)
     // must appear, not be silently dropped.
-    onPlayerMove: (msg) => setPlayers(p =>
+    onPlayerMove: (msg) => !blockIds.current.has(msg.participant_id) && setPlayers(p =>
       p.some(x => x.session_id === msg.session_id)
         ? p.map(x => x.session_id === msg.session_id ? { ...x, node: msg.node } : x)
-        : [...p, { name: msg.name, session_id: msg.session_id, node: msg.node }]),
-    onChat:         (msg) => pushEvent({ type: "chat",   name: msg.name, text: msg.text }),
-    // Moderation hold or decline (sender-only): the message reached nobody
-    // and was stored nowhere — surface the world's line so it doesn't
-    // silently vanish, and give the player's own words back to the input.
+        : [...p, msg]),
+    onChat: (msg) => {
+      if (!blockIds.current.has(msg.participant_id)) pushEvent({ type: "chat", name: msg.name, text: msg.text, liveParticipant: msg.participant_id });
+    },
+    // Moderation hold or decline restores only the sender's own draft.
     onChatDeclined: (msg) => {
       pushEvent({ type: "system", text: `✕ ${msg.text}` });
       chatRestore.deliver(chatDraft.declined(msg));
@@ -362,7 +412,9 @@ export default function App() {
         pushTransient({ kind: "solve", duration: 2500 });
       }
     },
-    onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${displayName(msg.node)}` }),
+    onAgentDone: (msg) => {
+      if (!blockIds.current.has(msg.participant_id)) pushEvent({ type: "system", liveParticipant: msg.participant_id, text: `Agent visited ${msg.nodes_visited} nodes from ${displayName(msg.node)}` });
+    },
     onIntervention: (msg) => {
       pushEvent({type: 'system', text: msg.flavor || 'A new arrangement arrives.'});
       // Like scale acts: only the place this client stands on is re-read.
@@ -383,15 +435,20 @@ export default function App() {
       // Two wanderers in conversation — surface the lines like chat, the
       // closing stage direction as ambience.
       for (const l of msg.lines || []) {
-        if (l.speaker) pushEvent({ type: "chat", name: l.speaker, text: l.line });
-        else pushEvent({ type: "system", text: l.line });
+        if (l.speaker) {
+          if (!blockIds.current.has(l.participant_id)) pushEvent({ type: "chat", name: l.speaker, text: l.line, liveParticipant: l.participant_id });
+        } else if (!(msg.participant_ids || []).some(id => blockIds.current.has(id))) {
+          pushEvent({ type: "system", text: l.line, liveParticipants: msg.participant_ids });
+        }
       }
     },
     onAgentEncounter: (msg) => {
-      pushEvent({ type: "system", text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${displayName(msg.node)}` });
+      if ((msg.participant_ids || []).some(id => blockIds.current.has(id))) return;
+      pushEvent({ type: "system", liveParticipants: msg.participant_ids, text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${displayName(msg.node)}` });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "encounter",
                         agent1: msg.agent1, agent2: msg.agent2,
+                        liveParticipants: msg.participant_ids,
                         duration: 1800 });
       }
     },
@@ -651,6 +708,7 @@ export default function App() {
       <TextPanel
         node={currentNode}
         players={players}
+        blocks={blocks} participantId={participantId} onBlock={changeBlock} blockBusy={blockBusy} blockStatus={blockStatus}
         agents={agents}
         connected={connected}
         events={events}

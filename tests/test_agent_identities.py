@@ -173,6 +173,8 @@ def test_agent_persona_picks_an_archetype_and_cannot_name_anyone(srv):
 # ── GET /observe ────────────────────────────────────────────────────────────
 
 def test_observe_walks_as_observer_never_as_a_registered_player(srv):
+    from persistence import participants
+    from server.block_targets import handle
     seed = 4603
     ws, status = _ws_connect(srv, seed, "ignored", invite_key=ADA_KEY)
     assert b"101" in status
@@ -191,10 +193,13 @@ def test_observe_walks_as_observer_never_as_a_registered_player(srv):
     # Observer, and no presence frame carried Ada's name.
     presence = [frame for frame in frames
                 if frame["type"] in {"agent_enter", "agent_move", "agent_leave"}]
+    target = handle(participants.identify(ADA_KEY)['id'], 'agent:Observer')
     assert presence[0] == {"type": "agent_enter", "name": "Observer",
-                           "persona": for_name("Observer").name}
+                           "persona": for_name("Observer").name,
+                           "participant_id": target}
     assert {frame["name"] for frame in presence} == {"Observer"}
-    assert presence[-1] == {"type": "agent_leave", "name": "Observer"}
+    assert presence[-1] == {"type": "agent_leave", "name": "Observer",
+                            "participant_id": target}
     # Since #141 the walk is live-only: its unapplied events are streamed to
     # the watcher, never broadcast as causal_events, and nothing is stored.
     assert not [frame for frame in frames if frame["type"] == "causal_event"]
