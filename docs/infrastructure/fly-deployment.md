@@ -308,7 +308,7 @@ FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy
 #    "Share the URL: <BASE>/app?key=..." becomes
 #    https://enfolded-staging.fly.dev/app?key=... . Keep the URLs; do not
 #    send them yet (step 8).
-fly ssh console -a enfolded-staging -C "python main.py invite mint --name <Name> --note 'disposable staging watch'"
+fly ssh console -a enfolded-staging -C "python main.py invite mint --name '<Name>' --note 'disposable staging watch'"
 
 # 6. Now the provider key: one made for staging alone, not production's key.
 #    Ideally it sits in a workspace of its own with a low spend limit, if the
