@@ -17,11 +17,13 @@ responses, never by reading a PLAYER_CHAT row back.
 The second half reads the worlds those paths leave with
 ``scripts/beta_metrics.py`` (checklist B2): an Act-only tester acted, the
 move every client sends on connect is not an action (from two tabs on one
-key either), a failed puzzle counts once where it first failed however many
-wrong guesses follow (and a wanderer's failed roll does not hide it), a
-rotated key is one visitor, ``--exclude-identity`` drops the facilitator
-under every key, ``--since``/``--until`` read an archive without changing
-it, and ``--timeline`` names nobody.
+key either), a socket that closed before announcing or a join a restart
+lost does not turn a later step into presence, a failed puzzle counts once
+where it first failed however many wrong guesses follow (and a wanderer's
+failed roll does not hide it), a rotated key is one visitor,
+``--exclude-identity`` drops the facilitator under every key,
+``--since``/``--until`` read an archive without changing it, and
+``--timeline`` names nobody.
 
 Sockets that stand for a browser announce their node right after the
 welcome, as both shipped clients do on every (re)connect.
@@ -504,6 +506,82 @@ class TestBetaMetrics:
         m = _metrics(days=1, timeline=True)
         assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
         assert m["timeline"][0]["first_move"] >= 0
+
+    def test_a_socket_that_closed_before_announcing_owes_nothing_later(self, world):
+        key = world.mint("Thessaly")
+        identity = _identity(key)
+
+        def closed(client: _Socket, leaves: int) -> None:
+            client.close()
+            deadline = time.monotonic() + 5
+            while _recorded(identity, "PLAYER_LEAVE") < leaves:
+                assert time.monotonic() < deadline, "a departure was not recorded"
+                time.sleep(0.02)
+
+        # One tab closes before its announcement lands; the server turns
+        # another's announcement away. Neither writes a PLAYER_MOVE.
+        early = world.connect(key)
+        early.wait_for(lambda f: f["type"] == "welcome")
+        closed(early, 1)
+        refused = world.connect(key)
+        refused.wait_for(lambda f: f["type"] == "welcome")
+        refused.send({"type": "move", "node": "Nowhere At All-0"})
+        assert refused.wait_for(lambda f: f["type"] == "move_denied")[
+            "reason"] == "no such place"
+        closed(refused, 2)
+        assert _recorded(identity, "PLAYER_MOVE") == 0
+
+        # Seconds later, one tab at a time: the announcement, then one
+        # real step. Every socket before it has closed, so none owes.
+        visit, _ = world.arrive(key)
+        world.announce(visit, key, COSOLVE_NODE)
+        _settle(world)
+        m = _metrics(days=1, timeline=True)
+        assert (m["visitors"], m["events_by_type"]["PLAYER_MOVE"]) == (1, 2)
+        assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
+        assert m["timeline"][0]["first_move"] >= 0
+
+    def test_a_second_tab_that_closes_before_announcing_owes_nothing(self, world):
+        # Two tabs on one key join; the second closes before announcing
+        # while the first stays open. No row says which socket left.
+        key = world.mint("Thessaly")
+        first, second = world.connect(key), world.connect(key)
+        welcome = first.wait_for(lambda f: f["type"] == "welcome")
+        second.wait_for(lambda f: f["type"] == "welcome")
+        deadline = time.monotonic() + 5
+        while _recorded(_identity(key), "PLAYER_JOIN") < 2:
+            assert time.monotonic() < deadline, "a join was not recorded"
+            time.sleep(0.02)
+        second.close()
+        while _recorded(_identity(key), "PLAYER_LEAVE") < 1:
+            assert time.monotonic() < deadline, "a departure was not recorded"
+            time.sleep(0.02)
+        # One socket is open, so one announcement is owed: the first tab's.
+        world.announce(first, key, _own_node(welcome))
+        world.announce(first, key, COSOLVE_NODE)
+        _settle(world)
+        m = _metrics(days=1)
+        assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
+
+    def test_a_join_lost_to_a_restart_owes_nothing_later(self, world):
+        key = world.mint("Thessaly")
+        # An hour ago a socket joined and the server restarted before its
+        # announcement landed; a restart writes no PLAYER_LEAVE.
+        with persistence._connect() as conn:
+            conn.execute(
+                """INSERT INTO world_mutations
+                   (world_seed, node_name, mutation_type, player_name, data,
+                    actor_identity, recorded_at)
+                   VALUES (?, ?, 'PLAYER_JOIN', 'Thessaly', '{}', ?,
+                           datetime('now', '-1 hour'))""",
+                (SEED, store.root_name(SEED), _identity(key)))
+        visit, _ = world.arrive(key)
+        world.announce(visit, key, COSOLVE_NODE)
+        _settle(world)
+        m = _metrics(days=1, timeline=True)
+        assert m["events_by_type"]["PLAYER_MOVE"] == 2
+        assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
+        assert m["timeline"][0]["first_move"] is not None
 
     def test_a_failed_pool_counts_once_however_many_wrong_guesses_follow(self, world):
         ada_key, bea_key = world.mint("Quorra"), world.mint("Zephyrine")

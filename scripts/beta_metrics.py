@@ -16,7 +16,7 @@ from the world's own memory:
     human row that is not presence, so an Act commit
     (INTERVENTION_COMMITTED) counts. Presence is the PLAYER_JOIN and
     PLAYER_LEAVE every socket writes, and a PLAYER_MOVE that goes nowhere
-    (see _ANNOUNCED_MOVES)
+    (see _announced_moves)
   * how much they actually did: conversations with places and agents,
     Act commits, puzzle attempts and solves, failed puzzles (each failed
     pool once, in the window that holds its first failure row that is not
@@ -76,51 +76,95 @@ _HUMAN_TYPES = (
 )
 
 # Rows every WebSocket connection writes on its own (server/websocket.py):
-# presence, not an action. So is an announced move (_ANNOUNCED_MOVES).
+# presence, not an action. So is an announced move (_announced_moves).
 # Everything else in _HUMAN_TYPES is something the player chose to do.
 _PRESENCE_TYPES = frozenset({"PLAYER_JOIN", "PLAYER_LEAVE"})
 
-# PLAYER_MOVE rows that go nowhere. Both shipped clients send a move for
-# the node they show on every WebSocket (re)connect, with no player input
-# (static/explorer.js in ws.onopen; frontend/src/App.jsx once connected),
-# and the explorer sends one again when it reloads the view at another
-# depth or the node it is on is selected again. server/websocket.py writes
-# a PLAYER_MOVE for every move frame, including one to the node the
-# socket already stands on. The rows name no socket (data is {}), and two
-# tabs on one credential share one actor_identity, so their rows can
-# interleave: JOIN, JOIN, MOVE, MOVE. So each PLAYER_JOIN of an identity
-# in a world owes one announcement, and a move is announced when one is
-# still owed as it arrives (the connect announcement, whichever node it
-# names: a first visit can join at the root before the client's saved
-# position lands), or when it names the same node as that identity's
-# previous JOIN-or-MOVE row. Every move pays a debt if one is owed. In
-# SQL: with balance the running count of joins minus moves, a move pays
-# when its balance is no lower than the lowest balance before it, zero
-# included. Over all time, so a join before the window still marks its
-# announcement. Residual limits, without a stored socket id: a client
-# that never announces (a raw socket) loses its first real move to this
-# rule, and a socket that closes before announcing leaves its debt for the
-# identity's next unannounced move (a PLAYER_LEAVE does not say which
-# socket left, and a restart writes none); with two tabs open, a reselect
-# compares against the other tab's last row. The shipped clients always
-# announce.
-_ANNOUNCED_MOVES = """announced_moves AS (
-    SELECT id FROM (
-        SELECT id, mutation_type, same_node, balance,
-               MIN(balance) OVER (w ROWS BETWEEN UNBOUNDED PRECEDING
-                                       AND 1 PRECEDING) AS lowest_before
-        FROM (
-            SELECT id, actor_identity, world_seed, mutation_type,
-                   LAG(node_name) OVER w = node_name AS same_node,
-                   SUM(CASE mutation_type WHEN 'PLAYER_JOIN' THEN 1
-                                          ELSE -1 END) OVER w AS balance
-            FROM world_mutations
-            WHERE mutation_type IN ('PLAYER_JOIN', 'PLAYER_MOVE')
-              AND actor_identity IS NOT NULL
-            WINDOW w AS (PARTITION BY actor_identity, world_seed ORDER BY id))
-        WINDOW w AS (PARTITION BY actor_identity, world_seed ORDER BY id))
-    WHERE mutation_type = 'PLAYER_MOVE'
-      AND (same_node OR balance >= MIN(0, COALESCE(lowest_before, 0))))"""
+# How long after its PLAYER_JOIN a socket's connect announcement can still
+# land. Both clients send it as the socket's first frame, as soon as it
+# opens, and server/websocket.py closes a socket that sends nothing for
+# 60 s, writing its PLAYER_LEAVE: a join not announced by then never is.
+_ANNOUNCE_WITHIN_SEC = 60
+
+
+def _announced_moves(conn: sqlite3.Connection, *, seed: int | None = None,
+                     skip: tuple[str, ...] = ()) -> set[int]:
+    """Ids of the PLAYER_MOVE rows that go nowhere: presence, not a step.
+
+    Both shipped clients send a move for the node they show on every
+    WebSocket (re)connect, with no player input (static/explorer.js in
+    ws.onopen; frontend/src/App.jsx once connected), and the explorer sends
+    one again when it reloads the view at another depth or the node it is
+    on is selected again. server/websocket.py writes a PLAYER_MOVE for every
+    move frame, including one to the node the socket already stands on.
+
+    The rows name no socket (data is {}), and two tabs on one credential
+    share one actor_identity, so their rows can interleave: JOIN, JOIN,
+    MOVE, MOVE. So, per identity and world in row order, each PLAYER_JOIN
+    owes one announcement. A move is announced when one is still owed as
+    it arrives (the connect announcement, whichever node it names: a first
+    visit can join at the root before the client's saved position lands),
+    or when it names the same node as the identity's previous JOIN-or-MOVE
+    row. Every move pays the oldest announcement still owed. An owed
+    announcement lapses ``_ANNOUNCE_WITHIN_SEC`` after its join, so a socket
+    lost to a restart (which writes no PLAYER_LEAVE) owes nothing later.
+    The open sockets are the joins minus the leaves, never below zero, and
+    no more announcements are owed than sockets are open: a PLAYER_LEAVE
+    drops the oldest debt beyond that, and the last one to close clears
+    them all. So a socket that closed before its announcement was recorded
+    (closed early, or its announcement was turned away: a seal, no such
+    place, the shared move bucket) leaves nothing for the identity's next
+    visit.
+
+    Read over all time, so a join before the window still marks its
+    announcement; the window filters the rows afterwards. Residual limits,
+    without a stored socket id: a client that never announces (a raw
+    socket) loses its first real move. While another socket of the same
+    identity stays open, one that closes unannounced leaves a debt that a
+    step taken within ``_ANNOUNCE_WITHIN_SEC`` of its join pays, because a
+    PLAYER_LEAVE does not say which socket left. With two tabs open, a step
+    one tab takes before the other's announcement is recorded reads as that
+    announcement and the announcement as the step (the counts stay right;
+    the timeline's first move can shift by the gap), and a reselect
+    compares against the other tab's last row.
+    """
+    where = ("mutation_type IN ('PLAYER_JOIN', 'PLAYER_MOVE', 'PLAYER_LEAVE')"
+             " AND actor_identity IS NOT NULL")
+    args: list = []
+    if skip:
+        where += f" AND actor_identity NOT IN ({','.join('?' for _ in skip)})"
+        args.extend(skip)
+    if seed is not None:
+        where += " AND world_seed = ?"
+        args.append(seed)
+    announced: set[int] = set()
+    # (identity, world) -> [open sockets, owed join times, last node]
+    sockets: dict[tuple, list] = {}
+    for row_id, identity, world, kind, node, at in conn.execute(
+            f"""SELECT id, actor_identity, world_seed, mutation_type, node_name,
+                       CAST(strftime('%s', recorded_at) AS INTEGER)
+                FROM world_mutations WHERE {where} ORDER BY id""", args):
+        state = sockets.setdefault((identity, world), [0, [], None])
+        if kind == "PLAYER_JOIN":
+            state[0] += 1
+            state[1].append(at)
+            state[2] = node
+        elif kind == "PLAYER_LEAVE":
+            state[0] = max(0, state[0] - 1)
+            del state[1][:max(0, len(state[1]) - state[0])]
+        else:
+            # An unreadable time cannot lapse.
+            owed = [joined for joined in state[1]
+                    if at is None or joined is None
+                    or at - joined <= _ANNOUNCE_WITHIN_SEC]
+            if owed:
+                announced.add(row_id)
+                owed.pop(0)
+            elif node == state[2]:
+                announced.add(row_id)
+            state[1] = owed
+            state[2] = node
+    return announced
 
 _CONVERSATION_TYPES = ("PLAYER_SPEAK", "AGENT_VOICE")
 
@@ -383,14 +427,17 @@ def compute_metrics(db_path: Path, days: int | None = None,
         def q(sql: str, extra: tuple = ()):
             return conn.execute(sql, (*args, *extra)).fetchall()
 
+        # Classified in Python over the fetched rows, then looked up from
+        # SQL; registering a function writes nothing.
+        announced = _announced_moves(conn, seed=seed, skip=skip)
+        conn.create_function("announced_move", 1, announced.__contains__,
+                             deterministic=True)
+
         # Per identity, day, type and announced flag; folded into
         # participants below so a rotated key's days and actions add up
         # under one visitor.
-        per_day = q(f"""WITH {_ANNOUNCED_MOVES}
-                        SELECT actor_identity, date(recorded_at),
-                               mutation_type,
-                               id IN (SELECT id FROM announced_moves),
-                               COUNT(*)
+        per_day = q(f"""SELECT actor_identity, date(recorded_at),
+                               mutation_type, announced_move(id), COUNT(*)
                         FROM world_mutations WHERE {human_where}
                         GROUP BY 1, 2, 3, 4""")
         top_nodes = q(f"""SELECT node_name, COUNT(*) AS n
@@ -510,10 +557,8 @@ def compute_metrics(db_path: Path, days: int | None = None,
         }
         if timeline:
             metrics["timeline"] = _timeline(
-                q(f"""WITH {_ANNOUNCED_MOVES}
-                      SELECT actor_identity, mutation_type,
-                             id IN (SELECT id FROM announced_moves),
-                             MIN(recorded_at), MIN(id)
+                q(f"""SELECT actor_identity, mutation_type,
+                             announced_move(id), MIN(recorded_at), MIN(id)
                       FROM world_mutations WHERE {human_where}
                       GROUP BY 1, 2, 3"""),
                 owners)
@@ -532,7 +577,7 @@ def _timeline(firsts: list, owners: dict[str, str]) -> list[dict]:
     row in the window is not a PLAYER_JOIN (an HTTP-only client, or a
     socket opened before the window began) is measured from that first row
     instead, and says so, so no offset is negative. An announced move
-    (_ANNOUNCED_MOVES) can start the clock but is never the first move.
+    (_announced_moves) can start the clock but is never the first move.
     """
     people: dict[str, dict] = {}
     for identity, kind, announced, at, row_id in firsts:
