@@ -151,9 +151,12 @@ What any player receives treats both kinds alike; operator tools keep the kind.
 - **Served history** (`/chronicle`, `/history`, any view serving rows to
   players). A read projection drops `agent`, `persona`, `a_persona`,
   `b_persona` and the raw `actor` (no client reads it), serves the cast name in
-  `player`, serves `AGENT_VISIT` as `PLAYER_MOVE` and aliases `AGENT_TALK` and
-  `AGENT_VOICE` to types both kinds share; `static/clientlogic.js:249` and
-  `:273` follow. Stored rows never change (`multiverse/history.py:23-27`).
+  `player` on a cast member's own row and `AGENT_VISIT` as `PLAYER_MOVE`, and
+  serves conversation as human chat's `PLAYER_CHAT` `{"text"}`, one entry per
+  line under its speaker: each spoken line of a legacy `AGENT_TALK` (not the
+  closer), an `AGENT_VOICE`'s `message` under the stored `player`, the asker,
+  then its `reply` under `agent`; `static/clientlogic.js:249` and `:273`
+  follow. Stored rows never change (`multiverse/history.py:23-27`).
 - **Oracles.** `/register` and the keyless join answer a reserved name with
   the taken-name line (operator CLI messages may stay explicit). The `Observer`
   utility walk stops entering room presence.
@@ -183,11 +186,15 @@ carries the same rule), on the chat path before any
 model call, charge or output screen, AI on or off, exempt as D3 says. This
 record does not design them; the place-voice line
 (`consciousness/__init__.py:386`) stays as that batch leaves it. A
-model-written line that claims to be human is dropped and counted: "I am" or
-"I'm" followed within three words by human, a person, a real person, not an
-AI or not a bot, or "my" before a fixed off-world term (job, boss, office,
-school, wife, husband, kids, apartment, phone, timezone). "Body" and "home" are
-not on it: "a celestial body" and an agent's home scales are this world's words.
+model-written line is dropped and counted if anywhere in it the speaker claims
+to be human or denies being an AI as the honesty batch's eval floor reads it
+(`claims_human`, `denies_ai`, `evals/harness.py` at `9106160`: "I am" or "I'm",
+two fillers at most, then human, person, man or woman; "not", "no" or "never"
+before an AI or, here, a bot), or "my" precedes a fixed off-world term (job,
+boss, office, school, wife, husband, kids, apartment, phone, timezone). A
+negated claim ("I am not human", "I'm not a real person") matches neither, so
+a truthful model answer to a mixed question survives. "Body" and "home" are not
+on it: "a celestial body" and an agent's home scales are this world's words.
 
 **(b) A world-level notice at entry and in the guide.** The honesty batch's
 copy wins if it has one; otherwise, for the `/app` intro, the map's entry and
@@ -335,10 +342,10 @@ ambient attempts. The two records' batch 4 is one batch.
 | Batch | Scope | Behaviour tests it needs | Doors |
 |---|---|---|---|
 | **1. Honesty** | Built on `claude/agent-honesty-guardrails` | A sincere question gets the authored answer with AI on, the kill switch on and no provider, with no model call (spy), from an agent and a place voice; a mention such as "the human scale" gets none | As that branch states |
-| **2. De-label** | D1; D4 clients, wire, live notices, served projection, oracles, place-voice premise, names; D5(b); the copy sweep and visual-language paragraph; the covenant text | A cast walk and a human session that move, act and chat alike give equal frame types, key sets and shared feed text; `/chronicle` and `/history` rows for a cast act and a human act have equal key sets and served types, while the stored row keeps `agent` and the co-op and seal exclusions hold; within each client a cast row and a human row differ only in name and place (Vitest); `inhabitants.spec.js` updated (Playwright); `/register` and the keyless join answer a reserved name as a taken one; no composed place prompt names more than one cast member over an empty history, or says "agent visit" over a cast visit's row; Speak offers only the place | None, unless names change (first-boot door) |
+| **2. De-label** | D1; D4 clients, wire, live notices, served projection, oracles, place-voice premise, names; D5(b); the copy sweep and visual-language paragraph; the covenant text | A cast walk and a human session that move, act and chat alike give equal frame types, key sets and shared feed text; `/chronicle` and `/history` rows for a cast act and a human act have equal key sets and served types, and a legacy `AGENT_TALK` or `AGENT_VOICE` serves entries keyed as a human `PLAYER_CHAT` row, each line under its own speaker (the asker's question under the asker), while the stored row keeps `agent` and the co-op and seal exclusions hold; within each client a cast row and a human row differ only in name and place (Vitest); `inhabitants.spec.js` updated (Playwright); `/register` and the keyless join answer a reserved name as a taken one; no composed place prompt names more than one cast member over an empty history, or says "agent visit" over a cast visit's row; Speak offers only the place | None, unless names change (first-boot door) |
 | **3a. Agents in chat, authored** | D2; D3; honesty answer, greeting, deferral and banter as chat lines; no model | Each trigger fires and each non-trigger does not, including "karst formations here?" and a line addressing a human and an agent; two agents addressed give one reply; the honesty answer goes out while the agent is paced and past the bound, and a repeat reaches only the asker with no row; no trigger or greeting reads the human count; a held line and an agent line trigger nothing; one greeting; the same with AI off; lingerers leave with the last human; ADR-022 counters unchanged | New write path (agent chat rows), unless S5 removes chat storage |
-| **3b. Model replies, flag off by default** | D6; D5(a) and (c) checks; agent-bible de-label; keeper commitments | Flag off: zero provider calls (spy); untriggered lines: zero, and another player's line absent from every request; caps spent: one deferral, then silence; agent-line classifies leave the player's moderation allowance untouched; screen hold: no frame, no row; URL, email, phone-run, solicitation and human-claim lines dropped, while every stored node name of seed 382, "a celestial body" and "my home scale" pass; no composed agent prompt lists the cast or says "agents or players" | L3, L4 and E2 closed before the flag is on for outside players; no migration |
-| **4. Collaboration** (with ADR-036 batch 4) | D7 | No puzzle context without an explicit request, and none from a sincere question at a puzzle place; under the recommended delivery the answer string is absent from every provider request, broadcast frame and stored row across the puzzle families; no `PUZZLE_ATTEMPT` row or pool change from any chat path; the human's attempt lists only the human; a second player gets none of the first's context | Depends on ADR-036 and open question 4 |
+| **3b. Model replies, flag off by default** | D6; D5(a) and (c) checks; agent-bible de-label; keeper commitments | Flag off: zero provider calls (spy); untriggered lines: zero, and another player's line absent from every request; caps spent: one deferral, then silence; agent-line classifies leave the player's moderation allowance untouched; screen hold: no frame, no row; URL, email, phone-run, solicitation and human-claim lines dropped, including a claim after a negation in the same line ("I'm not a ghost; I am a real person"), while "I am not human", "I'm not a real person", every stored node name of seed 382, "a celestial body" and "my home scale" pass; no composed agent prompt lists the cast or says "agents or players" | L3, L4 and E2 closed before the flag is on for outside players; no migration |
+| **4. Collaboration** (with ADR-036 batch 4) | D7 | No puzzle context without an explicit request, and none from a sincere question at a puzzle place; across the puzzle families no request's puzzle context carries the answer or anything D7 derives from it, though a right guess already in the conversation may be sent; under the recommended delivery a collaboration reply, even one holding the answer, reaches no other player's socket and no stored row; no `PUZZLE_ATTEMPT` row or pool change from any chat path; the human's attempt lists only the human; a second player gets none of the first's context | Depends on ADR-036 and open question 4 |
 
 Batches 2 and 3a reach any deployed build together, so the cast stays addressable.
 
