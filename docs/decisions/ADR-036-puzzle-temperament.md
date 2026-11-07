@@ -242,10 +242,9 @@ solve sets `stabilized` (`multiverse/effects.py:69-71`) and the next
   player, agent and epoch. This record requires that it hold the same with AI
   on or off, that puzzle context reach a model only after it fires, and that
   no other player's words open one, chat quoted in the agent prompt's node
-  history included (`consciousness/__init__.py:829-877`). ADR-037 D7 still
-  adds a model judgement "(ADR-036 D5)" from this record's first draft; that
-  judgement is withdrawn, so the pattern alone should open a collaboration
-  with AI on as with it off. The agent may then discuss the puzzle and
+  history included (`consciousness/__init__.py:829-877`). The pattern alone
+  opens a collaboration, with AI on as with it off; no model judges whether
+  help was asked for. The agent may then discuss the puzzle and
   offer a guess as its own. It never submits: no server path gives an
   agent identity an attempt, and server identities are reserved names
   (`server/handlers.py:174-181`). With AI off it defers, willing and asking
@@ -257,12 +256,13 @@ solve sets `stabilized` (`multiverse/effects.py:69-71`) and the next
   be asked to reveal them (`puzzles/engine.py:45-50`); an agent holding the
   answer would hand it to anyone and invite prompt injection, while from the
   same clues it is a peer whose guesses can be wrong. The AI-on path sends a
-  player's words to a provider, so it waits on E2 and on S2, open on `main`;
-  #156's branch records a 2026-11-07 S2 policy with destinations (L3) and
-  terms checks (L4) open, to reconcile when #156 lands.
+  player's words to a provider, so it waits on E2 and on S2's open parts: the
+  owner set S2's policy on 2026-11-07 ("Information can only be shared with model providers to facilitate game play. Enfolded data must not be used to train frontier models.", recorded by #156), and naming
+  the destinations (L3) and checking their terms (L4) stay open.
 - **Credit stays human.** Contributors are the humans who guessed; the solve
   row names who submitted. A helping agent is in neither: its help lives in
-  the conversation (subject to S5) and its memory, and nothing labels a solve
+  the conversation (subject to S5) and the agent's short conversation buffer
+  (ADR-037 D8), never `agent_memory`, and nothing labels a solve
   AI-assisted, without labelling who is human. The covenant then reads:
   agents never solve, and a human's solve is theirs even with an agent's
   help. The stored `agent` key and its exclusions stay.
