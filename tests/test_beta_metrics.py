@@ -789,7 +789,8 @@ class TestAmbientMetricsSafeguards:
     def test_ambient_failure_cannot_claim_the_first_human_failed_pool(self):
         puzzle = {"puzzle": "The Sealed Room"}
         for actor in ("Tessera", "Scout", "Observer", None):
-            _fixture_event("PUZZLE_FAILED", actor=actor, data=puzzle, ago="2 days")
+            _fixture_event("PUZZLE_FAILED", actor=actor, ago="2 days",
+                           data={**puzzle, "agent": actor or "historical-agent"})
         _fixture_event("PUZZLE_FAILED", actor="historical-agent", ago="2 days",
                        data={**puzzle, "agent": "historical-agent"})
         _fixture_event("PUZZLE_FAILED", data=puzzle)
@@ -806,6 +807,40 @@ class TestAmbientMetricsSafeguards:
         excluded = _metrics(days=1, exclude=["tester"])
         assert excluded["puzzle_failures"] == 0
         assert excluded["puzzle_failed_rows"] == excluded["puzzle_solves"] == 1
+
+    def test_unattributed_legacy_failure_cannot_transfer_its_pool_to_a_late_retry(self):
+        puzzle = {"puzzle": "The Sealed Room"}
+        _fixture_event("PUZZLE_FAILED", actor=None, data=puzzle, ago="3 days")
+        _fixture_event("PUZZLE_FAILED", actor="facilitator", data=puzzle)
+        _fixture_event("PUZZLE_FAILED", data=puzzle)
+
+        for days in (1, 7):
+            for exclude in ([], ["facilitator"], ["tester"]):
+                metrics = _metrics(days=days, exclude=exclude)
+                assert metrics["puzzle_failures"] == 0
+                assert metrics["puzzle_failed_rows"] == 2 - bool(exclude)
+
+        # A renewal releases that old pool's anchor for a new human failure.
+        _fixture_event("PUZZLE_REARM", actor=None)
+        _fixture_event("PUZZLE_FAILED", data=puzzle)
+        assert _metrics(days=1)["puzzle_failures"] == 1
+        assert _metrics(days=7)["puzzle_failures"] == 1
+
+    @pytest.mark.parametrize("agent", [
+        None, False, 0, 0.0, "", [], {},
+        True, 1, -1, 0.5, "0", "false", "[]", "{}", "Tessera", [0], {"id": 0},
+    ])
+    def test_agent_tag_truthiness_agrees_for_activity_and_failure_attribution(self, agent):
+        payload = {"agent": agent}
+        for kind in ("INTERVENTION_COMMITTED", "SCALE_ACT", "PUZZLE_ATTEMPT",
+                     "PUZZLE_SOLVED", "PUZZLE_FAILED"):
+            _fixture_event(kind, data=payload)
+
+        metrics = _metrics(days=1)
+        count = int(not bool(agent))
+        for field in ("act_commits", "scale_acts", "puzzle_attempts", "puzzle_solves",
+                      "puzzle_failures", "puzzle_failed_rows", "visitors"):
+            assert metrics[field] == count
 
     def test_first_human_failure_keeps_its_window_until_the_pool_renews(self):
         puzzle = {"puzzle": "The Sealed Room"}

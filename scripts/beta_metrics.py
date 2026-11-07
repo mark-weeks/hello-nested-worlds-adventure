@@ -2,8 +2,8 @@
 """Beta health metrics, read straight from the chronicle.
 
 The pre-mortem's cheapest prevention: make "did the beta work?" a number
-instead of a feeling. The chronicle already records every event with a
-durable actor_identity, so this script needs no instrumentation, no
+instead of a feeling. The chronicle already records durable actor_identity
+attribution, so this script needs no instrumentation, no
 third-party analytics, and no network — it answers the launch questions
 from the world's own memory:
 
@@ -20,8 +20,8 @@ from the world's own memory:
     (see _ANNOUNCED_MOVES)
   * how much they actually did: conversations with places and agents,
     Act commits, puzzle attempts and solves, failed puzzles (each failed
-    pool once, in the window that holds its first human failure row and only
-    when that row's actor counts, however many wrong guesses followed it),
+    pool once, in the window that holds its first non-agent failure row and
+    only when that row's actor counts, however many wrong guesses followed it),
     scale verbs, chat
   * where they went (top nodes by human activity)
   * whether the world itself is alive (total chronicle size, first event)
@@ -78,10 +78,15 @@ _HUMAN_TYPES = (
 
 # AGENT_VOICE carries the addressed agent while its actor is the player.
 # On action/puzzle rows, data.agent instead marks the acting ambient agent.
-_PLAYER_ACTION = """(mutation_type NOT IN (
+# Match Python's bool(data.get("agent")), including false, zero and empty
+# containers. Keep one predicate for activity and failed-pool attribution.
+_NO_AGENT_TAG = """(COALESCE(json_extract({data}, '$.agent'), '') IN ('', 0)
+    OR (json_type({data}, '$.agent') IN ('array', 'object')
+        AND NOT EXISTS (SELECT 1 FROM json_each({data}, '$.agent'))))"""
+_PLAYER_ACTION = f"""(mutation_type NOT IN (
     'SCALE_ACT', 'INTERVENTION_COMMITTED', 'PUZZLE_ATTEMPT',
     'PUZZLE_SOLVED', 'PUZZLE_FAILED')
-    OR NULLIF(json_extract(data, '$.agent'), '') IS NULL)"""
+    OR {_NO_AGENT_TAG.format(data='data')})"""
 
 # Rows every WebSocket connection writes on its own (server/websocket.py):
 # presence, not an action. So is an announced move (_ANNOUNCED_MOVES).
@@ -392,14 +397,16 @@ def compute_metrics(db_path: Path, days: int | None = None,
         # (its PUZZLE_REARM count before the row) names it. Every wrong
         # guess after a pool fails writes another PUZZLE_FAILED until the
         # pool is renewed, so the rows overstate failures. A pool is
-        # counted by its first human failure row over all time, the attempt
+        # counted by its first non-agent failure row over all time, the attempt
         # that exhausted it: once, in the window that holds that row, and only
         # when that row's actor counts. A late guess today at a pool that
         # failed last week, or at one an excluded facilitator exhausted,
         # is not a failure in today's read. An ambient failure cannot exhaust
         # a human pool, so discard agent identities and payloads before finding
         # that first row. Facilitator exclusions still apply afterwards: they
-        # must not transfer an exhausted pool to a tester's late retry.
+        # must not transfer an exhausted pool to a tester's late retry. Legacy
+        # untagged, unattributed failures also anchor their pool: absence of
+        # attribution does not establish that an agent exhausted it.
         cast_ph = ",".join("?" for _ in cast)
         failed_pools = q(f"""SELECT COUNT(*) FROM world_mutations
                 WHERE {human_where} AND id IN (
@@ -412,9 +419,9 @@ def compute_metrics(db_path: Path, days: int | None = None,
                                   AND r.id < f.id) AS epoch
                         FROM world_mutations AS f
                         WHERE f.mutation_type = 'PUZZLE_FAILED'
-                          AND f.actor_identity IS NOT NULL
-                          AND f.actor_identity NOT IN ({cast_ph})
-                          AND NULLIF(json_extract(f.data, '$.agent'), '') IS NULL)
+                          AND (f.actor_identity IS NULL
+                               OR f.actor_identity NOT IN ({cast_ph}))
+                          AND {_NO_AGENT_TAG.format(data='f.data')})
                     GROUP BY world_seed, node_name, epoch)""", cast)[0][0]
 
         total_rows = conn.execute(
