@@ -16,11 +16,12 @@ responses, never by reading a PLAYER_CHAT row back.
 
 The second half reads the worlds those paths leave with
 ``scripts/beta_metrics.py`` (checklist B2): an Act-only tester acted, the
-move every client sends on connect is not an action, a failed puzzle counts
-once where it first failed however many wrong guesses follow, a rotated key
-is one visitor, ``--exclude-identity`` drops the facilitator under every
-key, ``--since``/``--until`` read an archive without changing it, and
-``--timeline`` names nobody.
+move every client sends on connect is not an action (from two tabs on one
+key either), a failed puzzle counts once where it first failed however many
+wrong guesses follow (and a wanderer's failed roll does not hide it), a
+rotated key is one visitor, ``--exclude-identity`` drops the facilitator
+under every key, ``--since``/``--until`` read an archive without changing
+it, and ``--timeline`` names nobody.
 
 Sockets that stand for a browser announce their node right after the
 welcome, as both shipped clients do on every (re)connect.
@@ -45,11 +46,12 @@ from pathlib import Path
 import pytest
 
 import persistence
+from causality import EventKind
 from multiverse import store
 from multiverse.situation import NODES
 from persistence import participants
 from puzzles.engine import PuzzleEngine
-from server import observability
+from server import heartbeat, observability
 from tests.test_server_protocol import _client_frame
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -476,6 +478,33 @@ class TestBetaMetrics:
             True, True, False]
         assert m["timeline"][2]["first_move"] >= 0
 
+    def test_two_tabs_on_one_key_announce_without_acting(self, world):
+        # One credential, two tabs that show different places. Both sockets
+        # join before either announces, so the chronicle interleaves them:
+        # JOIN, JOIN, MOVE(root), MOVE(elsewhere). No row names its socket.
+        key = world.mint("Thessaly")
+        first, second = world.connect(key), world.connect(key)
+        for client in (first, second):
+            client.wait_for(lambda f: f["type"] == "welcome")
+        deadline = time.monotonic() + 5
+        while _recorded(_identity(key), "PLAYER_JOIN") < 2:
+            assert time.monotonic() < deadline, "a join was not recorded"
+            time.sleep(0.02)
+        world.announce(first, key, store.root_name(SEED))
+        world.announce(second, key, COSOLVE_NODE)
+
+        m = _metrics(days=1, timeline=True)
+        assert (m["visitors"], m["events_by_type"]["PLAYER_MOVE"]) == (1, 2)
+        assert m["acting_visitors"] == 0
+        assert m["timeline"][0]["first_move"] is None
+
+        # A step either tab takes after both announced is the player's.
+        world.announce(first, key, FAILING_NODE)
+        _settle(world)
+        m = _metrics(days=1, timeline=True)
+        assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
+        assert m["timeline"][0]["first_move"] >= 0
+
     def test_a_failed_pool_counts_once_however_many_wrong_guesses_follow(self, world):
         ada_key, bea_key = world.mint("Quorra"), world.mint("Zephyrine")
         opened = world.open_puzzle(ada_key, FAILING_NODE)
@@ -536,6 +565,36 @@ class TestBetaMetrics:
         assert (week["puzzle_failures"], week["puzzle_failed_rows"]) == (1, 3)
         week = _metrics(days=7, exclude=["Oonagh"])
         assert (week["puzzle_failures"], week["puzzle_failed_rows"]) == (0, 2)
+
+    def test_a_wanderers_failed_roll_does_not_hide_the_pool_failing(self, world):
+        facilitator, tester = world.mint("Oonagh"), world.mint("Quorra")
+        opened = world.open_puzzle(tester, FAILING_NODE)
+        # A wanderer's roll fails here first, through the heartbeat's own
+        # ambient write. It is not an attempt from the human pool.
+        heartbeat._ambient_event(
+            SEED, store.resolve_node_by_name(SEED, FAILING_NODE),
+            EventKind.PUZZLE_FAILED,
+            {"agent": beta_metrics._cast_names()[0], "puzzle": opened["name"],
+             "difficulty": 1})
+        for i in range(opened["max_attempts"]):
+            last = world.attempt(facilitator, FAILING_NODE, opened["name"], f"demo-{i}")
+        assert last["result"] == "FAILED"
+        assert world.attempt(tester, FAILING_NODE, opened["name"],
+                             "late-one")["result"] == "FAILED"
+        with sqlite3.connect(f"file:{persistence._DB_PATH}?mode=ro", uri=True) as conn:
+            first = conn.execute(
+                """SELECT actor_identity, json_extract(data, '$.agent')
+                   FROM world_mutations
+                   WHERE node_name = ? AND mutation_type = 'PUZZLE_FAILED'
+                   ORDER BY id LIMIT 1""", (FAILING_NODE,)).fetchone()
+        assert first == (None, beta_metrics._cast_names()[0])
+
+        # The facilitator's attempt exhausted the pool, behind the roll.
+        m = _metrics(days=1)
+        assert (m["puzzle_failures"], m["puzzle_failed_rows"]) == (1, 2)
+        # Still theirs when they are excluded: the tester only guessed late.
+        m = _metrics(days=1, exclude=["Oonagh"])
+        assert (m["puzzle_failures"], m["puzzle_failed_rows"]) == (0, 1)
 
     def test_a_rotated_key_is_one_visitor(self, world):
         old = world.mint("Quorra")

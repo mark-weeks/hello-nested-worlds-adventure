@@ -19,9 +19,9 @@ from the world's own memory:
     (see _ANNOUNCED_MOVES)
   * how much they actually did: conversations with places and agents,
     Act commits, puzzle attempts and solves, failed puzzles (each failed
-    pool once, in the window that holds its first failure row and only
-    when that row's actor counts, however many wrong guesses followed it),
-    scale verbs, chat
+    pool once, in the window that holds its first failure row that is not
+    a wanderer's roll and only when that row's actor counts, however many
+    wrong guesses followed it), scale verbs, chat
   * where they went (top nodes by human activity)
   * whether the world itself is alive (total chronicle size, first event)
   * whether the world could answer: voice lines answered vs. quiet, by
@@ -86,24 +86,41 @@ _PRESENCE_TYPES = frozenset({"PLAYER_JOIN", "PLAYER_LEAVE"})
 # and the explorer sends one again when it reloads the view at another
 # depth or the node it is on is selected again. server/websocket.py writes
 # a PLAYER_MOVE for every move frame, including one to the node the
-# socket already stands on. A move is announced when the same identity's
-# previous JOIN-or-MOVE row in that world is a PLAYER_JOIN (the connect
-# announcement, whichever node it names: a first visit can join at the
-# root before the client's saved position lands) or names the same node.
-# Over all time, so a join before the window still marks its announcement.
-# A client that never announces (a raw socket) loses its first real move
-# to this rule; the shipped clients always announce.
+# socket already stands on. The rows name no socket (data is {}), and two
+# tabs on one credential share one actor_identity, so their rows can
+# interleave: JOIN, JOIN, MOVE, MOVE. So each PLAYER_JOIN of an identity
+# in a world owes one announcement, and a move is announced when one is
+# still owed as it arrives (the connect announcement, whichever node it
+# names: a first visit can join at the root before the client's saved
+# position lands), or when it names the same node as that identity's
+# previous JOIN-or-MOVE row. Every move pays a debt if one is owed. In
+# SQL: with balance the running count of joins minus moves, a move pays
+# when its balance is no lower than the lowest balance before it, zero
+# included. Over all time, so a join before the window still marks its
+# announcement. Residual limits, without a stored socket id: a client
+# that never announces (a raw socket) loses its first real move to this
+# rule, and a socket that closes before announcing leaves its debt for the
+# identity's next unannounced move (a PLAYER_LEAVE does not say which
+# socket left, and a restart writes none); with two tabs open, a reselect
+# compares against the other tab's last row. The shipped clients always
+# announce.
 _ANNOUNCED_MOVES = """announced_moves AS (
     SELECT id FROM (
-        SELECT id, mutation_type, node_name,
-               LAG(mutation_type) OVER w AS previous_type,
-               LAG(node_name) OVER w AS previous_node
-        FROM world_mutations
-        WHERE mutation_type IN ('PLAYER_JOIN', 'PLAYER_MOVE')
-          AND actor_identity IS NOT NULL
+        SELECT id, mutation_type, same_node, balance,
+               MIN(balance) OVER (w ROWS BETWEEN UNBOUNDED PRECEDING
+                                       AND 1 PRECEDING) AS lowest_before
+        FROM (
+            SELECT id, actor_identity, world_seed, mutation_type,
+                   LAG(node_name) OVER w = node_name AS same_node,
+                   SUM(CASE mutation_type WHEN 'PLAYER_JOIN' THEN 1
+                                          ELSE -1 END) OVER w AS balance
+            FROM world_mutations
+            WHERE mutation_type IN ('PLAYER_JOIN', 'PLAYER_MOVE')
+              AND actor_identity IS NOT NULL
+            WINDOW w AS (PARTITION BY actor_identity, world_seed ORDER BY id))
         WINDOW w AS (PARTITION BY actor_identity, world_seed ORDER BY id))
     WHERE mutation_type = 'PLAYER_MOVE'
-      AND (previous_type = 'PLAYER_JOIN' OR previous_node = node_name))"""
+      AND (same_node OR balance >= MIN(0, COALESCE(lowest_before, 0))))"""
 
 _CONVERSATION_TYPES = ("PLAYER_SPEAK", "AGENT_VOICE")
 
@@ -387,7 +404,10 @@ def compute_metrics(db_path: Path, days: int | None = None,
         # exhausted it: once, in the window that holds that row, and only
         # when that row's actor counts. A late guess today at a pool that
         # failed last week, or at one an excluded facilitator exhausted,
-        # is not a failure in today's read.
+        # is not a failure in today's read. A wanderer's failed roll
+        # (payload carries "agent": server/heartbeat.py, and the hops its
+        # cascade writes) is drawn apart from the human pool, so it is
+        # never the row that exhausted it.
         failed_pools = q(f"""SELECT COUNT(*) FROM world_mutations
                 WHERE {human_where} AND id IN (
                     SELECT MIN(id) FROM (
@@ -398,7 +418,8 @@ def compute_metrics(db_path: Path, days: int | None = None,
                                   AND r.mutation_type = 'PUZZLE_REARM'
                                   AND r.id < f.id) AS epoch
                         FROM world_mutations AS f
-                        WHERE f.mutation_type = 'PUZZLE_FAILED')
+                        WHERE f.mutation_type = 'PUZZLE_FAILED'
+                          AND json_extract(f.data, '$.agent') IS NULL)
                     GROUP BY world_seed, node_name, epoch)""")[0][0]
 
         total_rows = conn.execute(
