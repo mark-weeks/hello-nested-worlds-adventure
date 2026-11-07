@@ -740,6 +740,21 @@ def _publish_task_choice(task: str, source: str, name: str | None) -> tuple[str,
         return current, None
 
 
+def _adapter_for_choice(task: str, source: str, name: str | None) -> TextProvider:
+    """The adapter for one published choice.
+
+    A task-environment choice loads the published name. A process or
+    default choice calls ``get_provider`` and does not use a name the
+    losing publisher resolved. A task choice with no name is a broken
+    cache. It is not passed to ``_load_named``.
+    """
+    if source != SOURCE_PROVIDER_TASK:
+        return get_provider()
+    if not isinstance(name, str) or not name.strip():
+        raise RuntimeError(f"task provider selection for {task} has no name")
+    return _load_named(name, selector_env=_TASK_PROVIDER_ENV[task])
+
+
 def provider_for(task: str) -> TextProvider:
     """The adapter for one text task, chosen once.
 
@@ -754,8 +769,11 @@ def provider_for(task: str) -> TextProvider:
     default does not store a name of its own: ``get_provider`` is the
     seam, and a stored name would go stale when that seam is replaced.
     The cached source and name are published and read under one lock.
-    Building the adapter happens outside that publication. This does not
-    import a provider SDK and does not call the adapter.
+    Building the adapter happens outside that publication. When two threads
+    resolve one cold task, the first publication wins. The loser returns
+    that winner: a process or default winner is ``get_provider``, and a
+    task winner is the published name. This does not import a provider SDK
+    and does not call the adapter.
     """
     if task not in _TASK_PROVIDER_ENV:
         raise ValueError(f"unknown model task {task!r}")
@@ -764,25 +782,18 @@ def provider_for(task: str) -> TextProvider:
         return routed
     cached = _read_task_choice(task)
     if cached is not None:
-        source, name = cached
-        if source == SOURCE_PROVIDER_TASK:
-            return _load_named(name, selector_env=_TASK_PROVIDER_ENV[task])
-        return get_provider()
+        return _adapter_for_choice(task, *cached)
     resolution = resolve_provider(task)
     line = provider_failure_line(resolution)
     if line:
         raise SystemExit(line)
     if resolution.source != SOURCE_PROVIDER_TASK:
-        provider = get_provider()
+        get_provider()
         source, name = _publish_task_choice(task, resolution.source, None)
-        if source == SOURCE_PROVIDER_TASK:
-            return _load_named(name, selector_env=_TASK_PROVIDER_ENV[task])
-        return provider
-    provider = _load_named(resolution.name, selector_env=resolution.env_var)
-    _source, name = _publish_task_choice(task, SOURCE_PROVIDER_TASK, resolution.name)
-    if name != resolution.name:
-        return _load_named(name, selector_env=resolution.env_var)
-    return provider
+        return _adapter_for_choice(task, source, name)
+    _load_named(resolution.name, selector_env=resolution.env_var)
+    source, name = _publish_task_choice(task, SOURCE_PROVIDER_TASK, resolution.name)
+    return _adapter_for_choice(task, source, name)
 
 
 def installation_error(provider: TextProvider, selector_env: str | None = None) -> str | None:

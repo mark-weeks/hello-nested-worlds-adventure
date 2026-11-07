@@ -6,6 +6,10 @@ under the old bucket keys, and two providers do not open two allowances.
 """
 from __future__ import annotations
 
+import hashlib
+import inspect
+import os
+
 import pytest
 
 import persistence
@@ -361,27 +365,75 @@ def test_voice_health_prints_a_cap_disagreement_and_stays_ok(monkeypatch, capsys
     assert out.rstrip().endswith("voice-health: ok")
 
 
+# Frozen from ``server/guard.py`` at ``18e5bbd``. These names, defaults, and
+# the 16-hex hash are literals so a change to the current helpers cannot
+# move both sides of the comparison together.
+_SCHEMA29_VOICE = "anthropic"
+_SCHEMA29_IMAGE = "fal_ai"
+_SCHEMA29_VOICE_CAP = "NESTED_WORLDS_ANTHROPIC_DAILY_CALLS"
+_SCHEMA29_VOICE_USER_CAP = "NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER"
+_SCHEMA29_IMAGE_CAP = "NESTED_WORLDS_FAL_DAILY_CALLS"
+_SCHEMA29_IMAGE_USER_CAP = "NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER"
+_SCHEMA29_VOICE_DEFAULT = 500
+_SCHEMA29_VOICE_USER_DEFAULT = 150
+_SCHEMA29_IMAGE_DEFAULT = 200
+_SCHEMA29_IMAGE_USER_DEFAULT = 60
+
+
+def _schema29_cap(env_var, default):
+    """``_cap_for`` at ``18e5bbd``. Invalid text uses the default. Negatives become 0."""
+    raw = os.environ.get(env_var, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(0, value)
+
+
+def _schema29_user_bucket(base_bucket, user_key):
+    """``_user_bucket`` at ``18e5bbd``. The digest is 16 hex characters."""
+    digest = hashlib.sha256(user_key.encode("utf-8")).hexdigest()[:16]
+    return f"{base_bucket}:u:{digest}"
+
+
 def _schema29_consume(bucket, env, default, user_key=None, user_env=None, user_default=None):
     """Spend one call the way ``server/guard.py`` did at ``18e5bbd``.
 
-    That binary increments ``anthropic`` or ``fal_ai`` only, including the
-    ``:u:<hash>`` per-user key, and it reads only the legacy cap variables.
-    Invalid text falls through to the default. It does not read a ``voice``
-    or ``image`` row.
+    The per-user key is incremented first. A cap of 0 returns before any
+    increment. Only the legacy cap variables are read. A neutral cap and a
+    ``voice`` or ``image`` row are ignored. The hash and the cap parser
+    above are not the current helpers.
     """
     if user_key:
-        user_cap = guard._cap_for(user_env, user_default)
-        user_bucket = guard._user_bucket(bucket, user_key)
+        user_cap = _schema29_cap(user_env, user_default)
         if user_cap <= 0:
             return False
-        spent = persistence.increment_cost_calls(user_bucket, _day())
+        spent = persistence.increment_cost_calls(
+            _schema29_user_bucket(bucket, user_key), _day(),
+        )
         if spent > user_cap:
             return False
-    cap = guard._cap_for(env, default)
+    cap = _schema29_cap(env, default)
     if cap <= 0:
         return False
     spent = persistence.increment_cost_calls(bucket, _day())
     return spent <= cap
+
+
+def _schema29_voice(user_key=None):
+    return _schema29_consume(
+        _SCHEMA29_VOICE, _SCHEMA29_VOICE_CAP, _SCHEMA29_VOICE_DEFAULT,
+        user_key, _SCHEMA29_VOICE_USER_CAP, _SCHEMA29_VOICE_USER_DEFAULT,
+    )
+
+
+def _schema29_image(user_key=None):
+    return _schema29_consume(
+        _SCHEMA29_IMAGE, _SCHEMA29_IMAGE_CAP, _SCHEMA29_IMAGE_DEFAULT,
+        user_key, _SCHEMA29_IMAGE_USER_CAP, _SCHEMA29_IMAGE_USER_DEFAULT,
+    )
 
 
 def _rows():
@@ -412,9 +464,11 @@ def test_schema29_and_this_binary_share_one_spent_allowance(monkeypatch):
     monkeypatch.delenv(guard.IMAGE_PER_USER_CAP_ENV, raising=False)
     assert persistence.schema_versions()[-1] == 29
     day = _day()
-    alice_voice = guard._user_bucket(guard.ANTHROPIC_BUCKET, "nw_alice")
-    bob_voice = guard._user_bucket(guard.ANTHROPIC_BUCKET, "nw_bob")
-    alice_image = guard._user_bucket(guard.FAL_BUCKET, "nw_alice")
+    alice_voice = _schema29_user_bucket(_SCHEMA29_VOICE, "nw_alice")
+    bob_voice = _schema29_user_bucket(_SCHEMA29_VOICE, "nw_bob")
+    alice_image = _schema29_user_bucket(_SCHEMA29_IMAGE, "nw_alice")
+    assert alice_voice.endswith(hashlib.sha256(b"nw_alice").hexdigest()[:16])
+    assert ":u:" in alice_voice and len(alice_voice.rsplit(":u:", 1)[1]) == 16
 
     assert _schema29_consume(
         guard.ANTHROPIC_BUCKET, guard.ANTHROPIC_CAP_ENV, 500,
@@ -504,3 +558,124 @@ def test_a_transient_neutral_row_counts_here_and_is_not_rewritten(monkeypatch):
     assert persistence.get_cost_calls(guard.ANTHROPIC_BUCKET, day) == before[guard.ANTHROPIC_BUCKET]
     assert guard.VOICE_BUCKET in before
     assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == before[guard.VOICE_BUCKET]
+
+
+def test_schema29_writer_does_not_use_the_current_helpers(monkeypatch):
+    source = "\n".join((
+        inspect.getsource(_schema29_cap),
+        inspect.getsource(_schema29_user_bucket),
+        inspect.getsource(_schema29_consume),
+    ))
+    assert "guard._cap_for" not in source
+    assert "guard._user_bucket" not in source
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("current helper")
+
+    monkeypatch.setattr(guard, "_cap_for", boom)
+    monkeypatch.setattr(guard, "_user_bucket", boom)
+    monkeypatch.setenv(_SCHEMA29_VOICE_CAP, "1")
+    monkeypatch.delenv(guard.VOICE_CAP_ENV, raising=False)
+    assert _schema29_voice() is True
+    assert persistence.get_cost_calls(_SCHEMA29_VOICE, _day()) == 1
+
+
+def _clear_caps(monkeypatch):
+    for name in (
+        guard.VOICE_CAP_ENV, guard.VOICE_PER_USER_CAP_ENV,
+        guard.IMAGE_CAP_ENV, guard.IMAGE_PER_USER_CAP_ENV,
+        _SCHEMA29_VOICE_CAP, _SCHEMA29_VOICE_USER_CAP,
+        _SCHEMA29_IMAGE_CAP, _SCHEMA29_IMAGE_USER_CAP,
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_schema29_rollback_must_translate_every_effective_cap(monkeypatch):
+    """An older binary ignores the neutral names and can admit more calls.
+
+    The stored counters are not reset. Translating each effective cap onto
+    its legacy variable is what makes the older binary refuse.
+    """
+    day = _day()
+
+    # Neutral-only voice global. This binary stops at 1. The older one
+    # uses 500 until the legacy variable is set to that same 1.
+    _clear_caps(monkeypatch)
+    monkeypatch.setenv(guard.VOICE_CAP_ENV, "1")
+    assert guard.consume_anthropic() is True
+    assert guard.consume_anthropic() is False
+    assert persistence.get_cost_calls(_SCHEMA29_VOICE, day) == 2
+    assert _schema29_voice() is True
+    assert persistence.get_cost_calls(_SCHEMA29_VOICE, day) == 3
+    monkeypatch.setenv(_SCHEMA29_VOICE_CAP, "1")
+    before = persistence.get_cost_calls(_SCHEMA29_VOICE, day)
+    assert _schema29_voice() is False
+    assert persistence.get_cost_calls(_SCHEMA29_VOICE, day) == before + 1
+
+    # Both voice per-user values disagree. This binary uses the lower 1.
+    # The older binary uses the legacy 3 until that variable is lowered.
+    _clear_caps(monkeypatch)
+    monkeypatch.setenv(guard.VOICE_PER_USER_CAP_ENV, "1")
+    monkeypatch.setenv(_SCHEMA29_VOICE_USER_CAP, "3")
+    monkeypatch.setenv(_SCHEMA29_VOICE_CAP, "20")
+    user = "nw_voice_user"
+    user_key = _schema29_user_bucket(_SCHEMA29_VOICE, user)
+    assert guard.consume_anthropic(user_key=user) is True
+    assert guard.consume_anthropic(user_key=user) is False
+    assert persistence.get_cost_calls(user_key, day) == 2
+    assert _schema29_voice(user) is True
+    assert persistence.get_cost_calls(user_key, day) == 3
+    monkeypatch.setenv(_SCHEMA29_VOICE_USER_CAP, "1")
+    assert _schema29_voice(user) is False
+    assert persistence.get_cost_calls(user_key, day) == 4
+
+    # Neutral-only image global falls through to the older default of 200.
+    _clear_caps(monkeypatch)
+    monkeypatch.setenv(guard.IMAGE_CAP_ENV, "1")
+    assert guard.consume_fal() is True
+    assert guard.consume_fal() is False
+    assert persistence.get_cost_calls(_SCHEMA29_IMAGE, day) == 2
+    assert _schema29_image() is True
+    monkeypatch.setenv(_SCHEMA29_IMAGE_CAP, "1")
+    image_before = persistence.get_cost_calls(_SCHEMA29_IMAGE, day)
+    assert _schema29_image() is False
+    assert persistence.get_cost_calls(_SCHEMA29_IMAGE, day) == image_before + 1
+
+    # Image per-user cap 0 must be copied. Unset, the older default is 60.
+    _clear_caps(monkeypatch)
+    monkeypatch.setenv(guard.IMAGE_PER_USER_CAP_ENV, "0")
+    monkeypatch.setenv(_SCHEMA29_IMAGE_CAP, "20")
+    image_user = "nw_image_user"
+    image_key = _schema29_user_bucket(_SCHEMA29_IMAGE, image_user)
+    assert guard.consume_fal(user_key=image_user) is False
+    assert persistence.get_cost_calls(image_key, day) == 0
+    assert _schema29_image(image_user) is True
+    assert persistence.get_cost_calls(image_key, day) == 1
+    monkeypatch.setenv(_SCHEMA29_IMAGE_USER_CAP, "0")
+    assert _schema29_image(image_user) is False
+    assert persistence.get_cost_calls(image_key, day) == 1
+
+    # A malformed neutral cap refuses here and is invisible to the older
+    # binary. The legacy variable has to be an explicit non-negative integer.
+    _clear_caps(monkeypatch)
+    monkeypatch.setenv(guard.VOICE_CAP_ENV, "nope")
+    monkeypatch.setenv(_SCHEMA29_VOICE_USER_CAP, "5")
+    malformed = persistence.get_cost_calls(_SCHEMA29_VOICE, day)
+    assert guard.consume_anthropic() is False
+    assert persistence.get_cost_calls(_SCHEMA29_VOICE, day) == malformed
+    assert _schema29_voice() is True
+    monkeypatch.setenv(_SCHEMA29_VOICE_CAP, "0")
+    held = persistence.get_cost_calls(_SCHEMA29_VOICE, day)
+    assert _schema29_voice() is False
+    assert persistence.get_cost_calls(_SCHEMA29_VOICE, day) == held
+
+    # Legacy-only per-user: both sides already share the integer.
+    _clear_caps(monkeypatch)
+    monkeypatch.setenv(_SCHEMA29_VOICE_USER_CAP, "1")
+    monkeypatch.setenv(_SCHEMA29_VOICE_CAP, "20")
+    legacy_user = "nw_legacy_only"
+    legacy_key = _schema29_user_bucket(_SCHEMA29_VOICE, legacy_user)
+    assert guard.consume_anthropic(user_key=legacy_user) is True
+    assert persistence.get_cost_calls(legacy_key, day) == 1
+    assert _schema29_voice(legacy_user) is False
+    assert persistence.get_cost_calls(legacy_key, day) == 2

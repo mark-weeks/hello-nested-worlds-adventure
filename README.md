@@ -249,7 +249,11 @@ does not open a second one. The neutral cap names are
 `NESTED_WORLDS_VOICE_DAILY_CALLS` and `NESTED_WORLDS_IMAGE_DAILY_CALLS`.
 The legacy `NESTED_WORLDS_ANTHROPIC_*` and `NESTED_WORLDS_FAL_*` names are
 still accepted. Rows already stored under `anthropic` and `fal_ai` still
-count.
+count. An older binary ignores the neutral names. Before rolling back,
+copy each effective voice and image cap, global and per user, onto the
+legacy variable. A neutral-only cap, or a higher leftover legacy value,
+lets that binary admit calls this one already refused. The counters are
+not reset. The commands are in the Fly runbook's same-schema rollback.
 
 Environment variables (see `.env.example`):
 

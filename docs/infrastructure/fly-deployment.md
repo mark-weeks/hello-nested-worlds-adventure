@@ -777,6 +777,66 @@ chronicle, do not look for a flag that skips the check. Go to
 [Restoring from a backup](#restoring-from-a-backup). Restoring abandons
 history written after that backup. There is no in-place downgrade.
 
+**Budget caps are not copied by the script.** Both images read and write
+`anthropic` and `fal_ai`, including the `:u:<hash>` per-user keys, so a
+spent counter stays spent. An older binary does not read
+`NESTED_WORLDS_VOICE_*` or `NESTED_WORLDS_IMAGE_*`. If those are the only
+caps set, rollback uses the older defaults (voice 500 and 150, image 200
+and 60) and can admit calls this binary already refused. Same-schema
+equality does not preserve the limits. Before the older image boots, write
+every effective cap onto the legacy variable that image reads:
+
+| Effective cap | Legacy variable the older binary reads | Older default |
+|---|---|---|
+| Voice, global | `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` | 500 |
+| Voice, per user | `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` | 150 |
+| Image, global | `NESTED_WORLDS_FAL_DAILY_CALLS` | 200 |
+| Image, per user | `NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER` | 60 |
+
+The effective value is the integer this binary enforces. One name set, or
+both equal, uses that integer. Both set to different non-negative integers
+uses the lower one. `0` is a valid refusal and must be copied as `0`. A
+non-integer or a negative value makes this binary refuse startup and treat
+the cap as 0. The older binary does not see a bad neutral value. A
+non-integer legacy value falls through to the older default, and a negative
+legacy value is clamped to 0. Set an explicit non-negative integer on each
+of the four legacy variables before rolling back. A legacy-only deployment
+already agrees. A neutral-only cap, or a higher leftover legacy value, does
+not.
+
+`fly secrets set` takes one or more `NAME=VALUE` pairs
+(`fly secrets set [flags] NAME=VALUE ...`). `--stage` saves them and skips
+the machine update. `fly secrets unset` takes names, not `NAME=VALUE`
+(`fly secrets unset [flags] NAME ...`), and its `--stage` flag also skips
+the update. `fly secrets deploy` then redeploys the current release with
+the staged secrets and does not rebuild the image. There is no command
+that sets and unsets in one invocation. Stage the four legacy values, then
+deploy, and only then roll the image back:
+
+```bash
+fly secrets set -a enfolded-beta \
+  NESTED_WORLDS_ANTHROPIC_DAILY_CALLS=<voice global> \
+  NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER=<voice per user> \
+  NESTED_WORLDS_FAL_DAILY_CALLS=<image global> \
+  NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER=<image per user> \
+  --stage
+fly secrets deploy -a enfolded-beta
+scripts/deploy.sh --rollback 'registry.fly.io/enfolded-beta:deployment-…'
+```
+
+The neutral names are optional to remove. The older binary ignores them.
+To drop them in the same restart, stage the unset before `fly secrets
+deploy`. An unset without `--stage` updates the machines immediately:
+
+```bash
+fly secrets unset -a enfolded-beta \
+  NESTED_WORLDS_VOICE_DAILY_CALLS \
+  NESTED_WORLDS_VOICE_DAILY_CALLS_PER_USER \
+  NESTED_WORLDS_IMAGE_DAILY_CALLS \
+  NESTED_WORLDS_IMAGE_DAILY_CALLS_PER_USER \
+  --stage
+```
+
 **If the machine will not stay up.** A schema mismatch that was deployed
 by hand exits before listen, `fly ssh` fails, and `scripts/deploy.sh` cannot
 take its backup. Redeploy the last image that matched the live schema:
@@ -925,9 +985,10 @@ not this restore.
       the legacy `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
       `NESTED_WORLDS_FAL_DAILY_CALLS` names are still accepted, and a day
       already spent under `anthropic` or `fal_ai` stays on those keys, so
-      it still counts). On an existing machine,
-      unset each legacy secret in the same `fly secrets` change as the new
-      cap, or a leftover lower value clamps the raise.
+      it still counts). On an existing machine, set each legacy variable
+      to the same integer in that `fly secrets set`. A leftover lower
+      legacy value clamps the raise. `fly secrets unset` is a separate
+      command.
       Set them with headroom above the estimate — the `_PER_USER` caps already bound any
       single account; the global cap is the one that can mute the whole
       cohort at the worst moment.
@@ -1070,7 +1131,7 @@ not this restore.
 | Restart the machine | `fly machine restart <id>` |
 | Inspect the volume | `fly volumes list` |
 | Restore from a backup | `python main.py restore --from <file>` then restart (§7) |
-| Adjust a runtime cap | On a deployment that still has the legacy secret, stage the new cap and unset the legacy name in the same change so one restart applies both: `fly secrets set NESTED_WORLDS_VOICE_DAILY_CALLS=1000 --stage` then `fly secrets unset NESTED_WORLDS_ANTHROPIC_DAILY_CALLS`. Do the same for `NESTED_WORLDS_IMAGE_DAILY_CALLS` and `NESTED_WORLDS_FAL_DAILY_CALLS`, and for the `_PER_USER` pair when that cap is raised. A leftover lower legacy secret is a warning, not a crash, and it clamps the raise to the lower integer. |
+| Adjust a runtime cap | Set the neutral name and the legacy name to the same integer in one `fly secrets set` (it accepts multiple `NAME=VALUE` pairs and restarts once). Example: `fly secrets set NESTED_WORLDS_VOICE_DAILY_CALLS=1000 NESTED_WORLDS_ANTHROPIC_DAILY_CALLS=1000`. Do the same for the image pair and for both `_PER_USER` pairs. A leftover lower legacy value is a warning, not a crash, and requests enforce that lower integer. Removing the legacy name is a separate `fly secrets unset NAME`. To apply the set and the unset in one restart, pass `--stage` on each and then run `fly secrets deploy`. There is no command that sets and unsets together. |
 | Bound slow HTTP reads, response writes, or handler threads | `fly secrets set NESTED_WORLDS_HTTP_READ_TIMEOUT=30 NESTED_WORLDS_HTTP_WRITE_TIMEOUT=30 NESTED_WORLDS_MAX_HANDLER_THREADS=160` |
 | Kill switch AI without redeploy | `fly secrets set NESTED_WORLDS_DISABLE_AI=1` |
 | Slow/speed causal ripple travel | `fly secrets set NESTED_WORLDS_HOP_DELAY=30` |
@@ -1096,11 +1157,13 @@ The phase-2 scale plan in `docs/roadmap/phase-2-scale.md` names the
 triggers for moving past this single-VM setup. The relevant ones for
 Fly:
 
-- **The configured provider's request-rate headroom shrinks (currently Anthropic)** → raise
-  `NESTED_WORLDS_VOICE_DAILY_CALLS` and unset `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS`
-  in the same `fly secrets` change (stage the set, then unset), and raise
-  `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`; no infra change needed. Leaving the
-  legacy secret set keeps the lower of the two integers. `busy` in
+- **The configured provider's request-rate headroom shrinks (currently Anthropic)** → set
+  `NESTED_WORLDS_VOICE_DAILY_CALLS` and `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS`
+  to the same new integer in one `fly secrets set`, and raise
+  `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`; no infra change needed. Leaving a
+  lower legacy secret set keeps that lower integer. Removing the legacy
+  name is `fly secrets unset`, staged and then `fly secrets deploy` when it
+  should share the restart. `busy` in
   `python main.py voice-health`, in the voice section or the shared-text
   screens, while the provider answers normally is the concurrency signal:
   calls waited out the slot bound and were not made.

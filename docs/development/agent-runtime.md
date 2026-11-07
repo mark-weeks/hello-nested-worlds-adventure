@@ -122,8 +122,13 @@ name absent or blank, uses that integer. Both equal uses that integer.
 Both different uses the lower integer, so the allowance cannot rise.
 `python main.py models`, `python main.py serve`, and `python main.py
 voice-health` print that disagreement and keep going; `serve` logs it and
-still opens the port. Unset the legacy secret when raising a cap, or the
-lower leftover value is what requests enforce. A non-integer or a negative
+still opens the port. Set the legacy variable to the same integer when
+raising a cap, in the one `fly secrets set`. A leftover lower value is
+what requests enforce. An older binary reads only the four legacy
+variables and ignores the neutral names. Its defaults are voice 500 and
+150, image 200 and 60. Copy every effective cap, including a `0`, onto
+those variables before a same-schema rollback, or the older process can
+admit calls this one refused. A non-integer or a negative
 value refuses the allowance (cap 0, no increment) and exits `models`,
 `serve`, and `voice-health`, without echoing the value. `0` is a valid cap
 and refuses every call.

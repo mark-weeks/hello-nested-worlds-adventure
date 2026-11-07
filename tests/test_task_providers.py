@@ -392,6 +392,89 @@ def test_a_cold_task_choice_publishes_its_name_with_its_source(monkeypatch):
     assert runtime._task_provider_sources[task] == runtime.SOURCE_PROVIDER_TASK
 
 
+def _first_publish_waits():
+    """Block the first ``_publish_task_choice`` until ``release`` is set.
+
+    The waiter stands outside the selection lock. The next publisher runs
+    the real function immediately. The handshake is an event, not a sleep.
+    """
+    real = runtime._publish_task_choice
+    state = {"held": False}
+    lock = threading.Lock()
+    arrived = threading.Event()
+    release = threading.Event()
+
+    def wrapped(task, source, name):
+        with lock:
+            hold = not state["held"]
+            if hold:
+                state["held"] = True
+        if hold:
+            arrived.set()
+            assert release.wait(2)
+        return real(task, source, name)
+
+    return wrapped, arrived, release
+
+
+def test_a_losing_publisher_returns_the_winning_source(monkeypatch):
+    """A task-specific loser must not load a missing name.
+
+    One thread resolves a task provider and waits before publication. The
+    other publishes the process provider first. The waiter then returns
+    that process adapter. The reverse order returns the task adapter.
+    """
+    _isolate(monkeypatch)
+    task_adapter = _register("taskprov", _Adapter("taskprov"))
+    process_adapter = _register("procprov", _Adapter("procprov"))
+    monkeypatch.setenv(runtime.PROVIDER_ENV, "procprov")
+    task = runtime.NODE_TASK
+    loaded = []
+    real_load = runtime._load_named
+
+    def spy(name, **kwargs):
+        loaded.append(name)
+        return real_load(name, **kwargs)
+
+    monkeypatch.setattr(runtime, "_load_named", spy)
+
+    def race(first_sets_task, winner):
+        loaded.clear()
+        runtime.reset_provider_selection()
+        if first_sets_task:
+            monkeypatch.setenv(runtime.NODE_PROVIDER_ENV, "taskprov")
+        else:
+            monkeypatch.delenv(runtime.NODE_PROVIDER_ENV, raising=False)
+        wrapped, arrived, release = _first_publish_waits()
+        monkeypatch.setattr(runtime, "_publish_task_choice", wrapped)
+        outcome = {}
+
+        def first():
+            try:
+                outcome["adapter"] = runtime.provider_for(task)
+            except BaseException as exc:  # noqa: BLE001 — report SystemExit too
+                outcome["error"] = exc
+
+        thread = threading.Thread(target=first)
+        thread.start()
+        assert arrived.wait(2)
+        if first_sets_task:
+            monkeypatch.delenv(runtime.NODE_PROVIDER_ENV, raising=False)
+        else:
+            monkeypatch.setenv(runtime.NODE_PROVIDER_ENV, "taskprov")
+        second = runtime.provider_for(task)
+        release.set()
+        thread.join(2)
+        assert thread.is_alive() is False
+        assert "error" not in outcome
+        assert second is winner
+        assert outcome["adapter"] is winner
+        assert None not in loaded
+
+    race(True, process_adapter)
+    race(False, task_adapter)
+
+
 def persistence_calls(bucket, day):
     import persistence
     return persistence.get_cost_calls(bucket, day)
