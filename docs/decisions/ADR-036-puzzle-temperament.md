@@ -132,10 +132,12 @@ a same-schema rollback (#152) to an earlier binary (*inferred*).
 - **Strikes** (per player): every wrong guess of theirs here, within the
   temperament's window, since their last send-away ended. Patience
   `P = max(2, b + t − g)` is read at each guess.
-- **Warning, then send-away.** A strike is *warned* when its count reaches
-  `P − 1`, with `P` as it stood then. A strike sends the player away only if
-  the previous one was warned and its own count reaches `P`, so a warning line
-  always comes first, even when others' failures lower `P` between guesses.
+- **Warning, then send-away.** A strike at or past `P − 1` that does not send
+  the player away is warned, and its row records `"warned": true`. A strike
+  sends the player away only if its count reaches `P` and the previous
+  strike's row carries `warned`. The fold reads these receipts and never
+  recomputes a warning, so one always comes first, even when others' failures
+  or a retune of `t`, a window or a mood threshold lower `P` between guesses.
   The send-away bars this puzzle only, for `first × 3^k` (`k` = their
   send-aways here in 24 hours), doubled while grumpy, capped at 4 hours;
   guesses meanwhile are neither judged nor stored. Anyone else can still
@@ -144,8 +146,9 @@ a same-schema rollback (#152) to an earlier binary (*inferred*).
   against "Fair, never a wall" (`puzzles/generators.py:12-15`).
 - **Excitement.** Every wrong guess is a strike. The band (D3) of the guess
   being judged picks its line, and a top-band guess that would send the player
-  away gets an excited warning instead ("Oh! So close. Try me once more."):
-  their next strike at or past patience goes, whatever its band. Closeness
+  away gets an excited warning instead ("Oh! So close. Try me once more.")
+  unless two `warned` rows already follow their last send-away. Its row
+  carries `warned` like any warning's, so no row records closeness. Closeness
   buys at most one guess beyond patience, and the fold never needs an earlier
   guess's band, which is not stored, nor reliably its text (*executed*
   2026-11-07T05:25:57Z: one one-edit miss stored no `guess` with moderation
@@ -174,13 +177,17 @@ fold, a pure `(rows, now) → mood, strikes, away_until`, runs in
 an away player so no screen or classify call is spent, and authoritatively in
 `puzzle_attempt`'s writer transaction (`:286-311`) before `record_attempt`
 claims a solver, so a right answer while away is not accepted and two quick
-guesses cannot both slip under a limit. **Lock expiry is not puzzle
-selection:** which puzzle a node serves stays a pure function of
-`(node, epoch)` and pinned rows; time decides only whether a guess is heard
-and which line answers, as the rate limiter (`server/guard.py` `RateLimiter`)
-and sanction expiry (`persistence/sanctions.py`) do. Lines are chosen by a
-hash of node, puzzle, actor and attempt ordinal, never entropy; moods are
-responses, not state, so Wayback shows none ([ADR-011](ADR-011-wayback-surface.md)).
+guesses cannot both slip under a limit. A send-away's `PUZZLE_FAILED` commits
+in that transaction with its triggering attempt: today's append
+(`server/handlers.py:2143-2153`) runs after the commit, outside the room lock
+(*executed*), so another guess could be judged first or a crash lose it.
+**Lock expiry is not puzzle selection:** which puzzle a node serves stays a
+pure function of `(node, epoch)` and pinned rows; time decides only whether a
+guess is heard and which line answers, as the rate limiter (`server/guard.py`
+`RateLimiter`) and sanction expiry (`persistence/sanctions.py`) do. Lines are
+chosen by a hash of node, puzzle, actor and attempt ordinal, never entropy;
+moods are responses, not state, so Wayback shows none
+([ADR-011](ADR-011-wayback-surface.md)).
 
 ### D3. Warmth: whole-answer bands in the puzzle's voice
 
@@ -196,8 +203,7 @@ within two.
 | anagram, cipher | edit distance: *way off*, *cold*, *warm*, *very close* at difficulty 1-2; 3 folds way off into cold; 4 says only *not close* or *close* | A word list, not the band, is what a searcher needs: 485 of 496 anagrams have one bank word with their letters (11 have two), and a cipher has 3 to 9 shifts. The letter-permutation bound (458 of 496 beyond a first window) holds only without a word list |
 | keeper_witness, augury names, lineage, bond, sealed_lock, word riddles | typo band only | A wrong word reads far: 4,976 of 493,536 one-word substitutions (1.0%) read very close. On lineage (910 candidates) a searcher using the band names 1 of 301 in a first window, 12 within two |
 | ancestral_compass | none: "not it" in voice | Small domains (median 56): blind enumeration names 137 of 828 in a first window, and the typo band doubles that to 279 |
-| numeric_pattern | *warm* only when the guess extends the last step's gap or ratio but not the pattern ("a rhythm, not its rhythm") | Four directionless magnitude bands made it a search: 268 of 499 found in a first window |
-| enfold, augury reach, integer riddles | none | Small domains (1..10, 2..8, 16..32) |
+| numeric_pattern, enfold, augury reach, integer riddles | none: "not it" in voice | Four directionless magnitude bands made numeric_pattern a search (268 of 499 found in a first window), and no narrower integer band was measured; the rest are small domains (1..10, 2..8, 16..32) |
 
 The typo band reads *very close* (*close* at difficulty 4) for one edit or
 under 15% normalized distance. A band still discloses something: a near miss
@@ -273,22 +279,24 @@ No new table or row kind. Moods fold from mechanical fields, so moderation
 cannot change a count: wrong `PUZZLE_ATTEMPT` rows at the current puzzle name
 (it carries the epoch) by the player's identities
 (`persistence/participants.py:100-109`; display name when keyless), their
-`recorded_at`, and the player's `PUZZLE_FAILED` rows carrying `away_s`;
-redaction keeps these (`persistence/__init__.py:917`). Changed write paths,
-each an existing call site: no `PUZZLE_ATTEMPT` for a guess refused while away
-(`server/handlers.py:2074-2077`); `PUZZLE_FAILED` once per send-away as
-`{"puzzle", "contributors", "away_s"}`, not on every guess after a pool fails
+`recorded_at` and `warned`, and the player's `PUZZLE_FAILED` rows carrying
+`away_s`; redaction keeps these (`persistence/__init__.py:917`). Changed write
+paths, each an existing call site: no `PUZZLE_ATTEMPT` for a guess refused
+while away (`server/handlers.py:2074-2077`); `warned` on a warned strike's row;
+`PUZZLE_FAILED` once per send-away as `{"puzzle", "contributors", "away_s"}`,
+in the attempt's transaction (D2), not on every guess after a pool fails
 (`:2143-2153`); no `guess` or `answer_given` in new rows, if open question 6
 agrees; no ambient `PUZZLE_*` rows (`server/heartbeat.py:486-487`,
 `agents/agent.py:122-123`); the CLI judged the same way, not printing the
 answer (`interface/__init__.py:198-201`, `puzzles/engine.py:110`); the
 restated `PUZZLE_REARM` trigger (`causality/wiring.py:66-69`).
 
-The fold counts only `PUZZLE_FAILED` rows with `away_s` and no `agent`, and
-keeps each stored length, so a retune never alters a running send-away and
-legacy pool or ambient rows never read as send-aways. The key also tells the
-eras apart for the other readers: art (`server/imageprompt.py:96`, two rows
-make a place "oppressive"), narration (`multiverse/history.py:77`), the feed
+The fold counts only `PUZZLE_FAILED` rows with `away_s` and no `agent`,
+keeps each stored length and reads warnings only from `warned`, so a retune
+never alters a running send-away or skips a warning, and legacy pool or
+ambient rows never read as send-aways. The key also tells the eras apart for
+the other readers: art (`server/imageprompt.py:96`, two rows make a place
+"oppressive"), narration (`multiverse/history.py:77`), the feed
 (`static/clientlogic.js:259`, "a puzzle resisted {who}") and
 `scripts/beta_metrics.py` after #155, whose failure count becomes a send-away
 count (C2c).
@@ -334,17 +342,20 @@ Batches 1 and 2 open write-path doors and should land before the first
 production boot (#156, finding 1).
 
 1. **No answer release; per-player send-aways** (one flat temperament): fold,
-   handler (both away checks), marked `PUZZLE_FAILED`, `GET /puzzle` away
-   state, both clients, the guide's Solve row and constellation line, and
+   handler (both away checks), `warned` receipts, marked `PUZZLE_FAILED` in
+   the attempt's transaction, `GET /puzzle` away state, both clients, the
+   guide's Solve row and constellation line, and
    `docs/design/game-design.md:125`. Tests: invert
    `tests/test_server.py:272-281`; fold (window, floor, a warning before every
    send-away even when `P` drops, one near-miss reprieve, escalation, grumpy
    factor, cap, per-player load cap, a zero-strike player never sent away
-   after 50 others fail, unmarked rows ignored, a retune leaves a running
-   send-away alone); HTTP (away is 200; a guess while away makes no
-   moderation call, writes no row and reveals nothing; a right answer while
-   away is refused; another player solves; equal strikes with moderation
-   disabled; moods survive a restart as in `tests/test_server_rooms.py`);
+   after 50 others fail, unmarked rows ignored, a retune across a restart
+   neither alters a running send-away nor reads an unwarned strike as warned);
+   HTTP (away is 200; a guess while away makes no moderation call, writes no
+   row and reveals nothing; a right answer while away is refused; another
+   player solves; equal strikes with moderation disabled; of two concurrent
+   sending strikes one sends away and one is refused; a rollback keeps
+   neither row; moods survive a restart as in `tests/test_server_rooms.py`);
    Vitest and Playwright.
 2. **Agents stop attempting; renewal on a human solve**: heartbeat,
    `Agent._act`, CLI, `_maybe_rearm`, the guide's "attempt puzzles" clause,
