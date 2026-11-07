@@ -423,6 +423,24 @@ erase an older backup; the outstanding backup-retention decision still governs
 when that copy expires. Lists are not sent to models or written to application
 logs, world history, public profiles or the blocked player's client.
 
+Browser targeting uses opaque handles scoped to the viewing participant and the
+current server process. The live envelope's legacy `participant_id` field now
+contains that handle, never another player's durable participant/profile ID or
+an `agent:` target. Handles also cover rosters, speech, encounters and the
+owner-only block list. A copied handle cannot target someone for another owner;
+the server resolves it before changing the private preference. A restart issues
+new handles on reconnect while preserving stored preferences; clients clear
+buffered live content from the previous handle scope and keep shared history and
+world effects. Retired registry targets remain removable from their owner's list.
+
+**Pending owner decision before this PR merges or its schema is deployed:**
+retain the internal `agent:<canonical name>` targets for this scoped feature,
+with an explicit translation when unified inhabitant participant identities
+are implemented, or introduce those opaque participant identities now. The
+latter is part of Proposed ADR-032, not ratified by this feature. Runtime
+handles remove the new public identity signal under either choice; they do not
+settle the durable storage contract or approve that proposed migration.
+
 Blocking filters the target's live chat and presence for the blocker in
 both browser clients and on the server's live socket delivery. It is one-way,
 reversible and applies across the blocker's open sessions. Historical facts,

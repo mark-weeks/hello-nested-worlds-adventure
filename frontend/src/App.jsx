@@ -89,6 +89,7 @@ export default function App() {
   const blockIds = useRef(new Set());
   const blockRevision = useRef(0);
   const mySessionId = useRef(null);
+  const liveViewerId = useRef(null);
   const [agents, setAgents]       = useState({});  // name → { node, persona }
   const [events, setEvents]       = useState([]);
   // The fetched world tree, retained so jump-to-traveler can rebuild a real
@@ -306,8 +307,13 @@ export default function App() {
     // The welcome roster: everyone already present when we connect. Without
     // this, a joining player sees an empty world until someone acts.
     onWelcome: (msg) => {
+      const previousViewer = liveViewerId.current;
+      const viewer = msg.participant_id || null;
+      setEvents(feed => globalThis.EnfoldedClient.liveEventsAfterWelcome(feed, previousViewer, viewer));
+      setTransients(effects => globalThis.EnfoldedClient.liveEventsAfterWelcome(effects, previousViewer, viewer));
+      liveViewerId.current = viewer;
       mySessionId.current = msg.session_id;
-      setParticipantId(msg.participant_id || null);
+      setParticipantId(viewer);
       applyBlocks(msg.blocks || []);
       const others = (msg.players || [])
         .filter(p => p.session_id !== msg.session_id && !blockIds.current.has(p.participant_id));

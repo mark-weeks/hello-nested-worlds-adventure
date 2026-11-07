@@ -1,7 +1,7 @@
 import {describe, it, expect, vi} from 'vitest';
 import '../../../static/clientlogic.js';
 
-const {withoutBlockedLiveEvents, savePersonalBlock} = globalThis.EnfoldedClient;
+const {withoutBlockedLiveEvents, liveEventsAfterWelcome, savePersonalBlock} = globalThis.EnfoldedClient;
 
 describe('private blocking in both clients', () => {
   it('removes buffered live chat and presence by participant, preserving history and shared effects', () => {
@@ -42,6 +42,20 @@ describe('private blocking in both clients', () => {
     });
     request.mockResolvedValue({ok:false,json:async()=>({error:'A current personal invite is required.'})});
     await expect(savePersonalBlock('/blocks','ada',false,request)).rejects.toThrow('A current personal invite is required.');
+  });
+
+  it('drops only obsolete live lines and encounter effects when a restart replaces targeting handles', () => {
+    const history = {type:'history', text:'A past encounter'};
+    const effect = {type:'causal', participant_id:'old-target', text:'A lasting shared change'};
+    const events = [
+      {type:'chat', liveParticipant:'old-target', text:'live speech'},
+      {type:'system', liveParticipant:'old-target', text:'A traveler joined'},
+      {kind:'encounter', liveParticipants:['old-target', 'old-other']},
+      history, effect,
+    ];
+    expect(liveEventsAfterWelcome(events, 'old-viewer', 'new-viewer')).toEqual([history, effect]);
+    expect(liveEventsAfterWelcome(events, 'same-viewer', 'same-viewer')).toBe(events);
+    expect(liveEventsAfterWelcome(events, null, 'first-viewer')).toBe(events);
   });
 
   it.each([

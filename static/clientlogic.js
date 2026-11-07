@@ -34,6 +34,13 @@
       && !(e.liveParticipants || []).some(id => hidden.has(id)));
   }
 
+  function liveEventsAfterWelcome(events, previousViewer, viewer) {
+    // A server restart replaces opaque targeting handles. Old live lines and
+    // encounter effects can no longer be matched to a new blocking choice.
+    if (!previousViewer || !viewer || previousViewer === viewer) return events;
+    return events.filter(e => !e.liveParticipant && !(e.liveParticipants || []).length);
+  }
+
   async function savePersonalBlock(url, participant, blocked, request = root.fetch) {
     const retry = 'Your block could not be saved. Try again.';
     let response, data;
@@ -513,6 +520,7 @@
 
   root.EnfoldedClient = Object.freeze({
     withoutBlockedLiveEvents,
+    liveEventsAfterWelcome,
     savePersonalBlock,
     BADGE_RULES,
     causalFeedLine,

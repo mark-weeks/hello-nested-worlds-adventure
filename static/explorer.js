@@ -1209,15 +1209,21 @@ function wsSend(msg) {
 
 function handleWsMsg(msg) {
   switch (msg.type) {
-    case 'welcome':
+    case 'welcome': {
+      const viewer = msg.participant_id || null;
+      eventFeed = EnfoldedClient.liveEventsAfterWelcome(eventFeed, myParticipantId, viewer);
+      if (myParticipantId && viewer && myParticipantId !== viewer) {
+        nodeG?.selectAll('.live-presence-flash').interrupt().remove();
+      }
       mySessionId = msg.session_id;
-      myParticipantId = msg.participant_id || null;
+      myParticipantId = viewer;
       applyBlocks(msg.blocks || []);
       replacePlayerRoster(msg.players);
       replaceAgentRoster(msg.agents);
       renderPlayers();
       updatePresenceRings();
       break;
+    }
     case 'blocks_changed':
       applyBlocks(msg.blocks || []);
       replacePlayerRoster(msg.players);
