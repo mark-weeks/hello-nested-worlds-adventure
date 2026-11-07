@@ -265,7 +265,11 @@ canon; do not add a chronicle row for every page view or journal read.
 implementation or delivery date assigned.** This develops the cross-scale
 co-op candidate U2 in the [beta checklist](beta-launch-checklist.md), after
 M7 observations establish where discovery and consequence recognition work.
-It adds no beta entry gate and authorizes no implementation.
+It is a candidate for U5's next situation in familiar geography, using the
+[ADR-013 situation model](../decisions/ADR-013-versioned-situations-and-delivery.md)
+and the bounded [ADR-025 precedent](../decisions/ADR-025-first-situation.md),
+with an added cross-scale cooperation requirement. It adds no beta entry gate
+and authorizes no implementation or separate mystery mechanism.
 
 The player problem to test is whether the nested scales give people a reason
 to investigate together and return to a shared place. Two willing players at
@@ -282,16 +286,26 @@ unrelated puzzles remain available; do not make another person's presence a
 condition of entering or leaving a place, or add a parallel quest controller.
 
 Design for human–human play and the owner's suggested human–AI collaboration,
-where agents help humans solve rather than solve independently. The
-[2026-11-06 puzzle direction](decision-packet-2026-11.md#3-puzzle-failure-semantics)
-also allows puzzle personalities and dynamic attempts and lock periods; its
-details still need a Proposed ADR. Before implementation, settle whether an
-agent can submit or only suggest an answer, the scope of annoyance and renewal,
-and near-miss feedback that preserves answer secrecy and per-node difficulty.
-Agent help remains subject to the current autonomy and human-progress covenants.
-Any chat-based agent participation also depends on the structural-parity contract,
-provider checks under the owner's 2026-11-07 model-provider data policy, and the
-budget decision recorded in the packet.
+where agents help humans solve rather than solve independently. The existing
+Proposed [ADR-036, puzzle temperament (#159)](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/159)
+and [ADR-037, agents as conversational players (#160)](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/160)
+own the puzzle and agent contracts. Both are unmerged proposals: the mystery
+inherits their eventual decisions on submissions, annoyance, renewal and near-miss
+feedback rather than maintaining a second list of answers or open questions.
+Their current proposals let agents reason from shared clues but never submit a
+puzzle answer; answer secrecy, per-node difficulty and the autonomy and
+human-progress covenants still apply.
+
+**Owner decision before designing human–AI completion:** may an independently
+accepted, non-solve action by an agent satisfy one scale's requirement for
+finishing the mystery, without counting as human puzzle progress? This entry
+does not approve that rule. Until it is settled, agent help covers clue-reading
+and suggestions only; completion requiring two accepted contributions needs two
+humans. Do not promise a lone human that an AI partner can finish it. Ordinary
+solo exploration remains available regardless. Any chat-based agent participation
+also depends on ADR-037's structural-parity contract, provider checks under the
+owner's 2026-11-07 model-provider data policy, and the budget decision recorded
+in the [decision packet](decision-packet-2026-11.md).
 
 Use the newcomer/pilot evidence to choose the problem, review the mystery's
 clues and aftermath, and settle any new puzzle-instance or delayed-action
@@ -311,4 +325,3 @@ experience, authoring effort, load, or participant demand identifies the need.
 If players cannot explain a reason to return, revise the situation and its
 consequences before adding these systems. If the experience works, introduce a
 new situation in familiar geography and extract only the reusable parts it needs.
-

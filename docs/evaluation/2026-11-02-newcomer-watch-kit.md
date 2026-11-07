@@ -143,6 +143,31 @@ deleted on the stated date.
      `provider=anthropic provider_source=default` on every task row; a set
      task variable shows `provider_source=task env` (executed at `3200eed` on
      a scratch `HOME`, 2026-11-07).
+     Those rows name the adapter, not the address it sends to. The default
+     adapter builds the SDK client with no arguments
+     (`consciousness/anthropic_provider.py:188-193`), so the pinned SDK
+     (anthropic 0.120.2, `requirements.lock:7`) sends every call to
+     `ANTHROPIC_BASE_URL` when it is set, and otherwise, when no API key or
+     bearer token is set, to any `base_url` in the profile config that
+     `ANTHROPIC_PROFILE` or `ANTHROPIC_CONFIG_DIR` selects
+     (`anthropic/_client.py:224-232`, `anthropic/_client.py:261-267`). The
+     operator's checks above test the default provider's terms against the
+     owner's 2026-11-07 policy; a gateway at another address receives the
+     same player text under terms nobody has checked. So, before the live
+     credential is set, unset `ANTHROPIC_BASE_URL`, and with it
+     `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL`
+     (`consciousness/openai_compat_provider.py:55`), which only a task routed
+     to `openai_compatible` uses, a routing the rows above rule out. Then
+     confirm the destination where the server runs:
+     `.venv/bin/python -c 'import anthropic; print(anthropic.Anthropic().base_url)'`
+     must print `https://api.anthropic.com`. Executed at `7762bb4` on a
+     scratch `HOME`, 2026-11-07, with a placeholder key and no request sent:
+     with `ANTHROPIC_BASE_URL` set to a test address, `main.py models`
+     printed the same four `provider=anthropic provider_source=default` rows
+     as without it, and the probe printed the test address; with a scratch
+     profile whose config named a `base_url` and no key, the probe printed
+     that address; with `ANTHROPIC_API_KEY` also set, it printed
+     `https://api.anthropic.com`.
      A participant's words to places and inhabitants, and chat lines at a
      node, are quoted into later prompts to the provider
      (`consciousness/__init__.py:868-873`). An intention they describe in Act
@@ -264,10 +289,14 @@ playbook and the backup workflow do (`docs/infrastructure/incident-response.md:4
 2. Set the voice mode. Per-scale silence: no provider secret on the app
    (`fly secrets unset -a enfolded-staging ANTHROPIC_API_KEY` if the
    rehearsal set one, `docs/infrastructure/fly-deployment.md:259`). Live
-   voice: the operator's checks in "Decide before session one" are done, the
-   key is set, `NESTED_WORLDS_PROVIDER`, `NESTED_WORLDS_DISABLE_AI` and, on a
-   build with #153, the four per-task provider variables are unset, and the
-   low caps are set with `fly secrets set -a enfolded-staging …`. Either
+   voice: the operator's checks in "Decide before session one" are done;
+   `ANTHROPIC_BASE_URL` and `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL` are
+   unset before the key is set (`fly secrets unset -a enfolded-staging
+   <name>` for either one a secret sets; the `[env]` block in `fly.toml`
+   sets neither, `fly.toml:18-23`); the key is set as `ANTHROPIC_API_KEY`;
+   `NESTED_WORLDS_PROVIDER`, `NESTED_WORLDS_DISABLE_AI` and, on a build with
+   #153, the four per-task provider variables are unset; and the low caps
+   are set with `fly secrets set -a enfolded-staging …`. Either
    way, leave `FAL_KEY` unset unless item 4 there is satisfied.
 3. Mint a check key under a one-word check name:
    `fly ssh console -a enfolded-staging -C "python main.py invite mint --name Watchcheck"`.
@@ -279,7 +308,15 @@ playbook and the backup workflow do (`docs/infrastructure/incident-response.md:4
 5. Voice: `fly ssh console -a enfolded-staging -C "python main.py models"`
    prints `provider not configured` in per-scale silence and does not in
    live voice (`main.py:420-428`). On a build with #153, every task row must
-   also show `provider=anthropic provider_source=default`. Then send the
+   also show `provider=anthropic provider_source=default`. Those rows read
+   the same with a gateway set, so in live voice also run
+   `fly ssh console -a enfolded-staging -C "printenv ANTHROPIC_BASE_URL NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL"`,
+   which must print nothing. With `ANTHROPIC_API_KEY` as the credential the
+   SDK reads no profile's `base_url` (`anthropic/_client.py:261`), and
+   `ANTHROPIC_BASE_URL` is the only address it reads from the environment
+   (`anthropic/_client.py:224-225`), so these two are the address settings
+   left to check. Executed locally on 2026-11-07: `printenv` printed nothing
+   with both unset and the address with one set. Then send the
    `/speak` request in the pre-session check below to
    `https://<staging app>.fly.dev/speak`: live
    voice must answer `"ai": true`; per-scale silence answers the place's
@@ -580,6 +617,8 @@ world contains no check traces.
      provider is not configured or failed, or a cap is spent
      (`server/handlers.py:1244-1248`, `server/handlers.py:1279-1311`). Fix it
      before any session; a live-voice session does not run on the quiet line.
+     A gateway also answers `"ai": true`, so `"ai": true` counts only after
+     the setup block's destination check printed `https://api.anthropic.com`.
    - Earlier evidence, dated: on 2026-11-02, and again on 2026-11-03 with the
      setup block as it then stood, in AI-disabled mode the answer was the
      quiet line with `"ai": false`; in live-voice mode with an inherited
@@ -654,11 +693,14 @@ unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_PROFILE \
   NESTED_WORLDS_INTENT_PROVIDER NESTED_WORLDS_MODERATION_PROVIDER
 # Live voice only (packet decision 10, the operator's checks done): replace
 # the unset above with
-#   unset NESTED_WORLDS_PROVIDER NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY \
+#   unset ANTHROPIC_BASE_URL NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL \
+#     NESTED_WORLDS_PROVIDER NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY \
 #     NESTED_WORLDS_NODE_PROVIDER NESTED_WORLDS_INHABITANT_PROVIDER \
 #     NESTED_WORLDS_INTENT_PROVIDER NESTED_WORLDS_MODERATION_PROVIDER
-# keep the default provider's credential in this terminal, and export the
-# low caps ("Decide before session one", item 3).
+# keep the default provider's credential in this terminal, export the low
+# caps ("Decide before session one", item 3), and, after the cd below, run
+#   .venv/bin/python -c 'import anthropic; print(anthropic.Anthropic().base_url)'
+# which must print https://api.anthropic.com before the server starts.
 cd /path/to/the/checkout
 .venv/bin/python main.py serve > "$HOME/serve.log" 2>&1 &
 SERVER_PID=$!                            # stop this process, and only this one
