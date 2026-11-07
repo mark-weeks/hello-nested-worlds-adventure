@@ -62,6 +62,17 @@ describe("a world that does not open", () => {
     }
   });
 
+  it("answers a 403 that is not the server's own JSON with the retry line", async () => {
+    // A proxy's HTML refusal or a cut-off body says nothing about the invitation.
+    for (const hasKey of [false, true]) {
+      for (const read of [answering(403, "<html>Forbidden</html>"), answering(403, '{"err')]) {
+        const { opened, screen } = await settle(read, { hasKey, introSeen: true, named: true });
+        expect(opened.unopened).toEqual({ kind: "retry", line: shared.WORLD_UNREACHED_LINE });
+        expect(screen).toBe("retry");
+      }
+    }
+  });
+
   it("answers a server failure or a non-JSON page with the retry line", async () => {
     for (const read of [
       answering(500, { error: "internal error" }),

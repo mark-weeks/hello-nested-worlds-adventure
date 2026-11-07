@@ -473,10 +473,16 @@
       return { unopened: worldUnopened(0, hasKey) };
     }
     let data = null;
+    let parsed = false;
     try {
       data = await response.json();
+      parsed = true;
     } catch (_) { /* a proxy's HTML error page, or a cut-off body */ }
     if (response.ok && data && !data.error) return { data };
+    // Only the server's own JSON answer speaks for the invite gate. A 403 page
+    // from a proxy in front of it, or a cut-off body, says nothing about the
+    // invitation, so it gets the retry line like any other failed read.
+    if (!parsed) return { unopened: worldUnopened(0, hasKey) };
     return { unopened: worldUnopened(response.status, hasKey, data && data.error) };
   }
 

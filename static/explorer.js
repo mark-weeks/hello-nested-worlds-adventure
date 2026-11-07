@@ -188,7 +188,7 @@ async function loadWorld() {
     const opened = await openWorld(url => fetch(url), withKey(`/world?depth=${depth}`), !!betaKey());
     if (opened.unopened) {
       setStatus(opened.unopened.line);
-      if (worldParams.seed === null) worldClosedLine = opened.unopened.line;
+      if (!selected) worldClosedLine = opened.unopened.line;
       // Before any place is in hand the map is empty; say it where a place
       // would be described, not only in the status bar.
       if (!selected) document.getElementById('node-description').textContent = opened.unopened.line;
@@ -205,8 +205,13 @@ async function loadWorld() {
     if (playerName && !sameWorld) wsConnect(data.seed);
     if (!sameWorld) loadHistoryFeed(data.seed);
   } catch (_) {
-    // The world arrived but could not be drawn.
+    // The world arrived but could not be drawn. With no place in hand, keep
+    // the retry line where a place would be described and for Speak/Observe.
     setStatus(WORLD_UNREACHED_LINE);
+    if (!selected) {
+      worldClosedLine = WORLD_UNREACHED_LINE;
+      document.getElementById('node-description').textContent = WORLD_UNREACHED_LINE;
+    }
   } finally {
     document.getElementById('gen-btn').disabled = false;
   }
