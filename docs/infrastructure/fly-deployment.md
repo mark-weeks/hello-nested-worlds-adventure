@@ -29,7 +29,9 @@ Same-schema rollback is [below](#same-schema-release-rollback). Incidents
 - Optionally, a fal.ai API key (`FAL_KEY`). Scene imagery is an
   enhancement wash over the built-in deterministic node art — without
   the key, every node still renders its generative art; with it,
-  `/image` layers AI backgrounds on top.
+  `/image` layers AI backgrounds on top. The same provider data rule
+  applies: image prompts carry world data, and fal.ai's data-use terms
+  have not been checked (§3a).
 - Optionally, a Sentry DSN (`SENTRY_DSN`). Sentry is already a default
   dependency — setting the DSN is sufficient to activate it.
 
@@ -220,7 +222,9 @@ fly apps create enfolded-beta
 fly volumes create enfolded_data --region iad --size 1
 
 # Set runtime secrets. These never appear in logs or the image.
-# FAL_KEY and SENTRY_DSN are optional — omit either line freely.
+# FAL_KEY and SENTRY_DSN are optional — omit either line freely. Set
+# FAL_KEY only once fal.ai's terms are checked against the provider data
+# rule (§3a).
 fly secrets set \
   ANTHROPIC_API_KEY=sk-ant-... \
   FAL_KEY=... \
@@ -273,7 +277,8 @@ the first invite key exists. The invite gate stays open until the first key
 is minted (§6), and the voice cannot spend in that window if the key is not
 yet set. Without it, places and inhabitants answer the authored quiet line
 (`"ai": false`). Name screening at mint is local and needs no provider
-(`server/moderation.py`, `name_refusal`).
+(`server/moderation.py`, `name_refusal`). Mint the keys early to close the
+gate, but send them only after step 7.
 
 ```bash
 # 1. A Fly account with billing (card on file), flyctl installed, and
@@ -284,30 +289,34 @@ yet set. Without it, places and inhabitants answer the authored quiet line
 fly apps create enfolded-staging
 fly volumes create enfolded_data -a enfolded-staging --region iad --size 1
 
-# 3. A deploy token for the staging app only. In GitHub, store it as the
-#    repository Actions secret FLY_API_TOKEN_STAGING (Settings > Secrets and
-#    variables > Actions). Paste it exactly as printed. Never use an
-#    organization token for the organization that holds production, and
-#    never a personal token (fly auth token): either can reach production.
+# 3. A deploy token for the staging app only. In GitHub, create the
+#    environment "staging" (Settings > Environments > New environment), set
+#    its deployment branches to main only, and add the token to it as the
+#    environment secret FLY_API_TOKEN_STAGING. Do not store it as a
+#    repository secret: a workflow on any branch can read those. Paste it
+#    exactly as printed. Never use an organization token for the
+#    organization that holds production, and never a personal token
+#    (fly auth token): either can reach production.
 fly tokens create deploy -a enfolded-staging
 
-# 4. First deploy: Actions > "Deploy staging" > Run workflow, ref main,
-#    first_deploy checked. From a terminal instead:
-#      gh workflow run deploy-staging.yml -f ref=main -f first_deploy=true
-#    or, without GitHub:
-#      FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy
+# 4. First deploy, from this terminal on an up-to-date main checkout. The
+#    workflow has no first-deploy option, because a first deploy skips the
+#    backup and the schema check.
+FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy
 
 # 5. Close the gate at once: mint one key per tester (2-3). Each output line
 #    "Share the URL: <BASE>/app?key=..." becomes
-#    https://enfolded-staging.fly.dev/app?key=... . Send each URL to its
-#    tester only, never in an issue, a PR, a chat channel or a CI log.
+#    https://enfolded-staging.fly.dev/app?key=... . Keep the URLs; do not
+#    send them yet (step 8).
 fly ssh console -a enfolded-staging -C "python main.py invite mint --name <Name> --note 'disposable staging watch'"
 
-# 6. Now the provider key. FAL_KEY and SENTRY_DSN are optional. Setting
-#    secrets restarts the machine.
+# 6. Now the provider key: one made for staging alone, not production's key.
+#    Ideally it sits in a workspace of its own with a low spend limit, if the
+#    provider's console offers one. Leave out FAL_KEY until fal.ai's terms
+#    are checked against the provider data rule (below). SENTRY_DSN is
+#    optional. Setting secrets restarts the machine (unverified, below).
 fly secrets set -a enfolded-staging \
   ANTHROPIC_API_KEY=sk-ant-... \
-  FAL_KEY=... \
   SENTRY_DSN=https://...ingest.sentry.io/... \
   SENTRY_ENVIRONMENT=staging
 
@@ -315,51 +324,98 @@ fly secrets set -a enfolded-staging \
 curl https://enfolded-staging.fly.dev/health
 curl -i https://enfolded-staging.fly.dev/world        # 403 without a key
 fly ssh console -a enfolded-staging -C "printenv SENTRY_ENVIRONMENT"
+
+# 8. Only now, and only once protocol 2's prerequisites below are recorded,
+#    send each URL to its tester only: never in an issue, a PR, a chat
+#    channel or a CI log.
 ```
+
+**Before step 8.** Protocol 2's prerequisites apply on staging as they do
+anywhere ([pilot protocol](../evaluation/2026-09-12-pilot-protocol.md),
+"Scope and venue"): record the facilitator or research owner, the
+observation dates, the supported devices, the client, the consent wording,
+and the retention and deletion date in the restricted research record
+before anyone is recruited. Protocol 2 also says: "Do not send invites until
+the operator confirms the correct world and its recovery status." The
+[facilitator kit](../evaluation/2026-11-02-newcomer-watch-kit.md)'s "Decide
+before session one" list, its facilitator script and its "What to capture,
+and where" rules apply on staging too. Its local setup, pre-session and
+after-session commands are written for a local world and do not apply. This
+runbook does not settle the consent wording.
 
 **Sentry environment.** The committed `fly.toml` sets
 `SENTRY_ENVIRONMENT = "beta"` in `[env]`, and `scripts/deploy.sh` passes no
-extra arguments to `fly deploy`, so neither the workflow nor the script can
-change it without editing production config. Step 6 sets
-`SENTRY_ENVIRONMENT=staging` as a staging secret instead. Whether a Fly
-secret overrides an `[env]` value of the same name was not verified from the
-session that wrote this. Step 7's `printenv` settles it. If it prints
-`beta`, give staging its own Sentry project's DSN so its events never mix
-with production's, or leave `SENTRY_DSN` unset on staging.
+extra arguments to `fly deploy`. Step 6 sets `SENTRY_ENVIRONMENT=staging` as
+a staging secret once, by hand. The workflow could instead stage a
+staging-only secret (`flyctl secrets set --stage -a enfolded-staging
+SENTRY_ENVIRONMENT=staging`). It does not; the one-time secret in step 6
+is the documented route. Whether a Fly secret overrides an `[env]` value of
+the same name was not verified from the session that wrote this.
+Step 7's `printenv` is the check. If it prints `beta`, give staging its own
+Sentry project's DSN so its events never mix with production's, or leave
+`SENTRY_DSN` unset on staging.
 
 #### Redeploying staging after a merge
 
 `.github/workflows/deploy-staging.yml` redeploys the twin from GitHub
-Actions, so an agent or the owner can do it without the owner's machine. It
-runs only on manual dispatch (`gh workflow run deploy-staging.yml -f ref=main`),
-one run at a time, and GitHub offers it for dispatch once the file is on
-`main`. It cannot be pointed at another app:
+Actions, so an agent or the owner can do it without the owner's machine.
+Dispatch it from `main` with no `--ref` (`gh workflow run deploy-staging.yml`,
+or Actions > "Deploy staging" > Run workflow on `main`). GitHub offers it for
+dispatch once the file is on `main`. It takes no inputs.
+
+What keeps it on staging:
 
 - The app name `enfolded-staging` is written into the workflow. It is not an
   input or a repository variable. The first step refuses any other value,
   and the deploy step names the app again when it calls `scripts/deploy.sh`.
-- Its only secret is `FLY_API_TOKEN_STAGING`. It never reads
-  `FLY_API_TOKEN`, the token `backup.yml` uses.
-- It runs `scripts/deploy.sh` from the checked-out ref: backup first, schema
-  check, prune, then `fly deploy`. With `first_deploy` it passes
-  `--first-deploy`. It then polls `https://enfolded-staging.fly.dev/health`
-  for `{"status": "ok"}`: 30 attempts, 10 s apart, 10 s each, about 10
-  minutes at most.
+- It deploys `main` only. The first step refuses a run dispatched from any
+  other branch, a tag or a pull request ref (`refs/pull/...`). There is no
+  `ref` input, and a later step refuses a checkout that is not the
+  dispatched commit.
+- It reads one token, `FLY_API_TOKEN_STAGING`, in the `staging` environment
+  (step 3). It never reads `FLY_API_TOKEN`, the token `backup.yml` uses.
+- It refuses a commit that does not descend from `f3ead74` (#152), the
+  first commit whose `scripts/deploy.sh` checks the schema and whose binary
+  refuses a newer chronicle. On any commit it accepts, `scripts/deploy.sh`
+  runs backup first, schema check, prune, then `fly deploy`, and refuses
+  over a failed backup.
+- It has no first-deploy option. If a run fails at the backup and
+  `deploy.sh` suggests `--first-deploy`, do not run a first deploy to get
+  past it. Check `fly machines list -a enfolded-staging` from a terminal: a
+  first deploy is only for an app with no machine.
+- It then polls `https://enfolded-staging.fly.dev/health` for
+  `{"status": "ok"}`: 30 attempts, 10 s apart, 10 s each, about 10 minutes
+  at most. `/health` answers that on any release once a server is up, so
+  the poll shows that staging is reachable, not which release is serving.
+  `fly deploy`'s own health checks are the release gate (unverified, below).
 - It mints no invite keys and runs no `fly ssh console` command of its own.
   A key printed in a job log is a leaked credential, so step 5 stays a
   terminal step.
+- One run at a time. A run dispatched while another is in progress waits
+  and does not cancel the running deploy. GitHub keeps one waiting run per
+  group, so a further dispatch replaces the waiting one (unverified, below).
 
-The guards in the file catch a mistake in the file. They cannot stop a ref
-whose own `scripts/deploy.sh` ignores `FLY_APP`. The token's scope is what
-stops that, so step 3's token must be scoped to `enfolded-staging` alone.
+What the file cannot stop:
+
+- A merged change, to this file or to `scripts/deploy.sh`, that drops these
+  guards or ignores `FLY_APP`. Review is the guard there, and the token's
+  app scope (step 3) is what stops such a change from reaching another app.
+- A copy of this workflow edited on another branch and dispatched with
+  `--ref`. GitHub runs that branch's copy, which can drop every guard above.
+  It can also read every repository secret, `backup.yml`'s `FLY_API_TOKEN`
+  included. That is true of any workflow file on any branch, for anyone with
+  write access, and not something this file adds. The `staging`
+  environment's main-only branch rule is what keeps `FLY_API_TOKEN_STAGING`
+  out of such a run.
+
 `tests/test_deploy_staging_workflow.py` checks the guards and runs the
-workflow's step scripts against a stub `fly`.
+workflow's step scripts against a stub `fly` and small git histories.
 
 **Not verified from the session that wrote this** (it could not reach
-fly.io):
+fly.io or github.com):
 
 - That a deploy token from `fly tokens create deploy -a enfolded-staging` is
-  refused by every other app. The production guard above rests on it.
+  refused by every other app. The first residual path above rests on it.
 - That such a token permits `fly ssh console`. `scripts/deploy.sh` uses it
   for the backup, the schema probe and the prune on every deploy except
   `--first-deploy`. `backup.yml` already assumes the same for its own token.
@@ -368,28 +424,45 @@ fly.io):
   machine (`FLY_APP=enfolded-staging scripts/deploy.sh`). Another is to move
   staging into a Fly organization of its own and store a token for that
   organization only. A token that can reach the production organization is
-  never a fallback.
+  never a fallback. If it does permit a console, anyone holding the token
+  can read the staging provider key from the machine's environment, which
+  is why step 6 uses a key made for staging alone.
 - That `fly deploy -a enfolded-staging` targets staging although the
   committed `fly.toml` says `app = "enfolded-beta"`. The procedure above has
   always assumed it.
 - That a deploy token can build on Fly's remote builder from a GitHub runner
-  (`scripts/deploy.sh` passes neither `--remote-only` nor `--local-only`).
+  (`scripts/deploy.sh` passes neither `--remote-only` nor `--local-only`),
+  and that `fly deploy` waits for the new machine's health checks before it
+  reports success.
 - That the pinned `setup-flyctl` action puts `flyctl` on the path. The
   workflow sets `FLY_BIN=flyctl`, as `backup.yml` calls `flyctl`.
 - That a Fly secret overrides an `[env]` value (Sentry environment, above),
-  and that `fly secrets set` restarts the running machine.
+  that `fly secrets set` restarts the running machine, and that `printenv`
+  in a `fly ssh console` session shows the same environment as the app's
+  own process.
+- That `fly apps destroy` revokes the tokens made for that app (teardown,
+  below, revokes the token explicitly in case it does not).
+- GitHub's side: that an environment's deployment-branch rule withholds its
+  secrets from a run on another ref, that a branch's own copy of a workflow
+  can read repository secrets (the second residual path), that a dispatch
+  from `main` sets `GITHUB_REF` to `refs/heads/main` and checks out
+  `GITHUB_SHA`, and that a concurrency group keeps one waiting run and
+  cancels it for a newer one.
+  If a run is refused because the checkout is not the dispatched commit,
+  dispatch it again.
 
 #### Provider data rule
 
 **Owner, 2026-11-07 (packet decision 10 / S2, with L4):** "Information can
 only be shared with model providers to facilitate game play. Enfolded data
 must not be used to train frontier models." This binds staging and
-production alike.
+production alike, and every model provider that receives Enfolded data:
+player text, and world data too.
 
 - Do not opt the provider account or organization that holds
   `ANTHROPIC_API_KEY` into any training or data-sharing programme, a
   development partner programme included. Do not submit feedback that
-  contains player content.
+  contains Enfolded data, player content included.
 - Anthropic's help centre, as a web search returned it on 2026-11-07, says
   customer content sent through the API under its commercial terms is not
   used to train its models by default. The exceptions are a customer who
@@ -397,11 +470,15 @@ production alike.
   customer submits. The page itself could not be opened from the session
   that wrote this. Read it before the first outside tester's text reaches
   the voice.
-- Check any other destination against this rule before it receives player
-  text. That includes an `openai_compatible` base URL (ADR-035, Proposed)
-  and any second provider.
-- Image prompts copy no player messages. `server/imageprompt.py` counts
-  distinct speakers and quotes none of them.
+- fal.ai receives Enfolded data when `FAL_KEY` is set. Image prompts carry
+  no player messages, but they carry the node's level, its name, its aspect
+  line and up to 32 of its properties (`server/imageprompt.py:120-141`).
+  fal.ai's training and data-use terms were not checked from the session
+  that wrote this. Leave `FAL_KEY` unset on staging until they are checked
+  against the rule. Without it every node still renders its built-in art.
+- Check any other destination against this rule before it receives
+  Enfolded data. That includes an `openai_compatible` base URL (ADR-035,
+  Proposed) and any second provider.
 
 This records the rule for operators. It does not build S2's allowlist in
 config or write L4's data-use note for each provider.
@@ -409,16 +486,26 @@ config or write L4's data-use note for each provider.
 #### Teardown before launch
 
 The staging chronicle must not linger as a second world that looks real.
+Rehearse against it first: the live-voice probe (§8), `scripts/ws_soak.py`,
+the newcomer watch, and a restore (§7) against its volume. Never on
+production. Then:
 
 ```bash
-# Rehearse against it first: the live-voice probe (§8), scripts/ws_soak.py,
-# the newcomer watch, and a restore (§7) against its volume. Never on
-# production.
+# 1. Revoke the deploy token, in case destroying the app does not.
+#    (The exact subcommand and its arguments were not verified; check
+#    fly tokens --help.)
+fly tokens list -a enfolded-staging
+fly tokens revoke <token-id>
+
+# 2. Destroy the app.
 fly apps destroy enfolded-staging --yes
 ```
 
-Then delete the `FLY_API_TOKEN_STAGING` repository secret. Without it the
-workflow stops at its token step and deploys nothing.
+3. Delete the `staging` environment's `FLY_API_TOKEN_STAGING` secret, or the
+   whole environment. Without it the workflow stops at its token step and
+   deploys nothing.
+4. Revoke the staging provider key (step 6) in the provider's console, and
+   archive any workspace made for staging.
 
 Fix what the rehearsal surfaces, then run §3 against the production app
 — deliberately.

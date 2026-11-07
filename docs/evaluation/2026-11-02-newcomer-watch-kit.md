@@ -1,16 +1,25 @@
 # Newcomer watch: facilitator kit (draft)
 
-**Date:** 2026-11-02, against `main` at `23b8830`. **Status:** a draft that is
-**contingent on the owner's venue ruling**
-([decision packet, decision 2](../roadmap/decision-packet-2026-11.md#2-newcomer-watch-venue)).
-If the ruling is to wait for the Fly staging twin, this kit does not apply as
-written; follow [runbook section 3a](../infrastructure/fly-deployment.md#3a-staging-rehearsal--before-the-permanent-world-begins)
-instead. The watch also waits on the
+**Date:** 2026-11-02, against `main` at `23b8830`. **Status:** a draft. The
+owner's venue answer of 2026-11-07
+([decision packet, decision 2](../roadmap/decision-packet-2026-11.md#2-newcomer-watch-venue),
+and below) prefers the Fly staging twin, so as written this kit is a
+fallback; follow [runbook section 3a](../infrastructure/fly-deployment.md#3a-staging-rehearsal--before-the-permanent-world-begins)
+for the watch. The watch also waits on the
 research basics that protocol 2 requires before anyone is approached
 (facilitator, observation dates, devices, client, consent wording, and the
 retention and deletion date: [protocol 2](2026-09-12-pilot-protocol.md), "Scope
 and venue"), and on the S2 question below if live voice is on. This kit
 recruits nobody, records no decision, and promises no persistence.
+
+**2026-11-07 venue answer:** The owner wrote "Let's expedite the test
+build, preferably in a staging environment rather than local." This kit's
+local world is a fallback only; the answer does not forbid it. On staging,
+this kit's "Decide before session one" list, facilitator script and "What
+to capture, and where" rules still apply; its local setup, pre-session and
+after-session commands do not. The owner's provider data rule of the same
+day (packet decision 10, quoted in runbook section 3a) bounds live voice in
+either venue. It does not settle the consent wording.
 
 **2026-11-04 client update:** The owner selected `/app` for the pilot's first
 visit and return ([ADR-005](../decisions/ADR-005-launch-operations.md)). The

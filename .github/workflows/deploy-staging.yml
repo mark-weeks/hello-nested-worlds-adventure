@@ -1,21 +1,35 @@
 name: Deploy staging
 
 # Redeploys the disposable staging twin (ADR-005 section 2, runbook section
-# 3a) and no other app. Agents and the owner can run it after a merge without
-# the owner's machine. Production deploys stay where they are: the owner runs
-# scripts/deploy.sh by hand.
+# 3a) from main, and no other app. Agents and the owner can run it after a
+# merge without the owner's machine. Production deploys stay where they are:
+# the owner runs scripts/deploy.sh by hand.
 #
-# Four guards keep production out of reach:
+# Guards in this file:
 #   1. The app name is written here, not taken from an input or a repository
-#      variable, and the first step refuses any other value.
-#   2. The deploy step names the staging app again when it calls deploy.sh.
-#   3. The only secret is FLY_API_TOKEN_STAGING. The owner creates it as a
-#      deploy token for the staging app alone (fly tokens create deploy -a
-#      enfolded-staging). This file names no other token and no other app.
-#   4. That token is the guard that does not depend on this file. A ref whose
-#      scripts/deploy.sh ignored FLY_APP would still hold a token that, per
-#      Fly's documentation, cannot act on another app. That scoping was not
-#      verified from the session that wrote this workflow.
+#      variable, and the first step refuses any other value. The deploy step
+#      names the staging app again when it calls deploy.sh.
+#   2. It deploys main only. There is no ref input. The first step refuses a
+#      run dispatched from any other branch, a tag or a pull request ref, and
+#      a later step refuses a checkout that is not the dispatched commit.
+#   3. The checked-out commit must descend from f3ead74 (#152), the first
+#      commit whose scripts/deploy.sh checks the schema and whose binary
+#      refuses a newer chronicle. So a normal run is backup, schema check,
+#      prune, deploy.
+#   4. It has no first-deploy option. A first deploy skips the backup and
+#      the schema check, so it runs from the owner's terminal (runbook 3a).
+#      If a run here fails at the backup, deploy.sh refuses and nothing is
+#      deployed.
+#   5. The only token is FLY_API_TOKEN_STAGING, held by the staging
+#      environment. The owner creates it as a deploy token for the staging
+#      app alone (fly tokens create deploy -a enfolded-staging) and limits
+#      that environment's deployment branches to main.
+#
+# What this file cannot stop (runbook 3a): a merged scripts/deploy.sh that
+# ignores FLY_APP, and a copy of this workflow edited on another branch and
+# dispatched with --ref. The token's app scope and the environment's branch
+# rule are what stop those. Neither was verified from the session that wrote
+# this workflow.
 #
 # Staging is declared disposable (ADR-004, 2026-10-25 amendment) and is torn
 # down before launch. This workflow mints no invite keys: a key printed in a
@@ -25,23 +39,13 @@ name: Deploy staging
 # pull request.
 on:
   workflow_dispatch:
-    inputs:
-      ref:
-        description: 'Branch, tag or commit to deploy to staging'
-        type: string
-        required: false
-        default: main
-      first_deploy:
-        description: 'First deploy only. No machine exists yet, so skip the chronicle backup.'
-        type: boolean
-        required: false
-        default: false
 
 permissions:
   contents: read
 
-# One staging deploy at a time. A second dispatch waits; it does not cancel
-# a deploy that is already rolling.
+# One staging deploy at a time. A run dispatched while another is in progress
+# waits and does not cancel the running deploy. GitHub keeps one waiting run
+# per group, so a further dispatch replaces the waiting one.
 concurrency:
   group: deploy-staging
   cancel-in-progress: false
@@ -51,6 +55,7 @@ jobs:
     name: Deploy enfolded-staging
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: staging
     defaults:
       run:
         shell: bash
@@ -58,28 +63,19 @@ jobs:
       FLY_APP: enfolded-staging
       FLY_BIN: flyctl
     steps:
-      - name: Refuse any app but the staging twin
-        env:
-          REF_INPUT: ${{ inputs.ref }}
-          FIRST_DEPLOY: ${{ inputs.first_deploy }}
+      - name: Refuse any app but staging and any ref but main
         run: |
           set -euo pipefail
           if [ "${FLY_APP-}" != "enfolded-staging" ]; then
             echo "::error::This workflow deploys only enfolded-staging. FLY_APP is something else. Refusing."
             exit 1
           fi
-          if [[ ! "$REF_INPUT" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$ || "$REF_INPUT" == *..* ]]; then
-            echo "::error::ref must be a branch, tag or commit: letters, digits, '.', '_', '/' and '-', not starting with '-'."
+          if [ "${GITHUB_REF-}" != "refs/heads/main" ]; then
+            echo "::error::This workflow deploys only main. Dispatch it from main, without --ref. Refusing."
             exit 1
           fi
-          case "$FIRST_DEPLOY" in
-            true|false) ;;
-            *)
-              echo "::error::first_deploy must be true or false."
-              exit 1
-              ;;
-          esac
           echo "Target app: $FLY_APP"
+          echo "Ref: $GITHUB_REF"
 
       - name: Refuse without the staging deploy token
         env:
@@ -87,32 +83,48 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${FLY_API_TOKEN:-}" ]; then
-            echo "::error::The repository secret FLY_API_TOKEN_STAGING is not set. Create a deploy token for enfolded-staging only (fly tokens create deploy -a enfolded-staging) and store it under that name. See docs/infrastructure/fly-deployment.md section 3a."
+            echo "::error::FLY_API_TOKEN_STAGING is not set. Create a deploy token for enfolded-staging only (fly tokens create deploy -a enfolded-staging) and store it as a secret of the staging environment, whose deployment branches are limited to main. See docs/infrastructure/fly-deployment.md section 3a."
             exit 1
           fi
           echo "FLY_API_TOKEN_STAGING is set."
 
-      - name: Check out the ref to deploy
+      - name: Check out main
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.ref }}
           persist-credentials: false
+          fetch-depth: 0
 
-      - name: Record what is being deployed
+      - name: Refuse a commit without the schema check
         env:
-          REF_INPUT: ${{ inputs.ref }}
-          FIRST_DEPLOY: ${{ inputs.first_deploy }}
+          SCHEMA_GUARD_COMMIT: f3ead7474e4556c2d5eaec12ccde6b57dff8c8c1
         run: |
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
-          echo "Deploying $REF_INPUT at $sha to $FLY_APP (first deploy: $FIRST_DEPLOY)"
+          if [ "$sha" != "${GITHUB_SHA-}" ]; then
+            echo "::error::The checkout is $sha, not the dispatched commit ${GITHUB_SHA-}. Refusing."
+            exit 1
+          fi
+          if ! git cat-file -e "${SCHEMA_GUARD_COMMIT}^{commit}" 2>/dev/null; then
+            echo "::error::Commit $SCHEMA_GUARD_COMMIT (#152) is not in this checkout's history, so the schema check cannot be confirmed. Refusing."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$SCHEMA_GUARD_COMMIT" "$sha"; then
+            echo "::error::$sha does not descend from $SCHEMA_GUARD_COMMIT (#152). Its scripts/deploy.sh has no schema check. Refusing."
+            exit 1
+          fi
+          echo "$sha descends from $SCHEMA_GUARD_COMMIT (#152)."
+
+      - name: Record what is being deployed
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "Deploying $GITHUB_REF at $sha to $FLY_APP"
           {
             echo "### Staging deploy"
             echo ""
             echo "- App: \`$FLY_APP\` (disposable staging twin)"
-            echo "- Ref: \`$REF_INPUT\`"
+            echo "- Ref: \`$GITHUB_REF\`"
             echo "- Commit: \`$sha\`"
-            echo "- First deploy: $FIRST_DEPLOY"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up flyctl
@@ -122,11 +134,12 @@ jobs:
 
       # deploy.sh backs up the staging chronicle first and refuses to deploy
       # over a failed backup, then checks the schema, prunes old backups and
-      # runs fly deploy. With first_deploy it skips straight to fly deploy.
+      # runs fly deploy. The schema-check step above confirmed that this
+      # commit's deploy.sh has that check. No --first-deploy: a first deploy
+      # runs from the owner's terminal.
       - name: Deploy with scripts/deploy.sh
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN_STAGING }}
-          FIRST_DEPLOY: ${{ inputs.first_deploy }}
         run: |
           set -euo pipefail
           # Checked again here, so a reordered step list cannot skip it.
@@ -134,12 +147,11 @@ jobs:
             echo "::error::FLY_APP is not enfolded-staging. Refusing to deploy."
             exit 1
           fi
-          args=()
-          if [ "$FIRST_DEPLOY" = "true" ]; then
-            args+=(--first-deploy)
-          fi
-          FLY_APP=enfolded-staging bash scripts/deploy.sh "${args[@]}"
+          FLY_APP=enfolded-staging bash scripts/deploy.sh
 
+      # /health always answers {"status": "ok"} once a server is up, so this
+      # confirms that staging is reachable after the deploy, not which release
+      # is serving. fly deploy's own health checks gate the release.
       - name: Wait for staging /health
         env:
           HEALTH_URL: https://enfolded-staging.fly.dev/health
