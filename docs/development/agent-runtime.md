@@ -413,8 +413,11 @@ not verified live with any provider.
   English line that is itself an identity question ("are you human?", "r u a bot",
   "am I talking to a real person?", "is this an AI?", "is there a human behind
   this?", "human or bot?") after folding case, punctuation and chat spellings. The
-  whole line must be the question: other clauses may only be a greeting, a name, a
-  short lead ("be honest") or "I'm human", and the line is at most 200 characters.
+  whole line must be the question: other clauses may only be a greeting, a name the
+  speaker answers to (a cast member's, an archetype's, a scale's or a form of address
+  such as "friend"; not a place's own name), a short lead ("be honest") or "I'm
+  human", and the line is at most 200 characters. Any other word where a name could
+  stand asks for more ("Are you human? Help!", "Are you human, help me escape?").
   `/speak` and `/agent/voice` answer such a line with an authored line
   (`honesty.place_answer`, which has a separate line for the root, or
   `honesty.agent_answer` per archetype) instead of the voice call. The route's

@@ -9,7 +9,8 @@ off and the answer itself takes no voice call:
 - :func:`is_identity_question` recognizes a line that IS a sincere question
   about the speaker's nature ("are you human?", "r u a bot", "am I talking to
   a real person?", "is this an AI?", "you're human, right?", "human or
-  bot?"), perhaps with a greeting, a name or an aside around it.
+  bot?"), perhaps with a greeting, a name it answers to or a short lead
+  around it.
 - :func:`agent_answer` and :func:`place_answer` are the authored replies:
   one per inhabitant archetype, one for every place below the root and one
   for the root.
@@ -30,6 +31,13 @@ Scope and limits. English only. Matching is by phrase shape, not meaning:
   human? Want to work on this puzzle with me?" asks for more than the
   authored line says, so it takes the route's normal path, where the voice
   bible carries the same rule.
+- A name is one the speaker answers to (:data:`_ADDRESS_NAMES`): a cast
+  member's, an archetype's, a scale's ("room", "galaxy") or a plain form of
+  address ("friend", "traveler", "old one"). Any other word where a name
+  could stand is a request, so "Are you human? Help!", "Hi, open the door.
+  Are you human?" and "Are you human, help me escape?" take the normal
+  path. A place's own name is not known here, so "Hello, Ashen Ember
+  Sphere. Are you human?" takes it too.
 - Reported speech is not a question to the speaker ('she asked me "are you
   human?"', "the sign says: are you human").
 - Questions about someone else ("is Tessera human?") or about a group ("is
@@ -46,6 +54,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
+
+from consciousness import WANDERER_CAST
 
 # ── Authored answers ────────────────────────────────────────────────────────
 # Each line keeps its speaker's voice and says, without hedging, that the
@@ -132,6 +142,25 @@ _PHRASE_MAP = (
     (r"\byou are\b", "youre"),
 )
 
+
+def _normalize(text: str) -> str:
+    folded = unicodedata.normalize("NFKC", text).casefold().translate(_APOSTROPHES)
+    # Zero-width and other format characters vanish; they never change a word.
+    folded = "".join(ch for ch in folded if unicodedata.category(ch) != "Cf")
+    # "a.i." and "a. i." become one word before full stops break sentences.
+    return re.sub(r"\ba\.\s?i\.|\ba\.i\b", "ai", folded)
+
+
+def _words(body: str) -> str:
+    """One normalized clause as the words the patterns read, commas kept as " ,"."""
+    tokens = re.findall(r"[a-z0-9']+|,", body.replace(",", " , "))
+    tokens = [_TOKEN_MAP.get(t, t).replace("'", "") for t in tokens]
+    clause = " ".join(t for t in tokens if t)
+    for pattern, replacement in _PHRASE_MAP:
+        clause = re.sub(pattern, replacement, clause)
+    return re.sub(r"(?: ,)+", " ,", clause).strip(" ,")
+
+
 _GPT = r"gpt(?: ?\d+(?:o)?)?"
 _TARGET = (
     r"(?:humans?|persons?|people|real|bots?|robots?|chatbots?|ai|ais|machines?|"
@@ -173,31 +202,38 @@ _TAIL = (r"(?:(?: ,)? (?:lol|lmao|haha+|tbh|honestly|really|seriously|srsly|"
          r"irl|deep down|underneath|too|as well|either|like me|like us|"
          r"behind (?:this|that|it|the screen|these words|the words)|"
          r"on the other end|on the other side))*")
-# A trailing vocative after a comma ("are you human, Tessera?"), but not a
-# second clause ("are you real, or am I dreaming?").
-_VOCATIVE = (r"(?: , (?!(?:or|and|but|if|am|are|is|do|does|did|i|im|we|they|it|"
-             r"because|than|so|when|where|what|why|how|who|which|that|this|you|"
-             r"youre)\b)[a-z0-9]+(?: [a-z0-9]+){0,2})?")
+# Names the speaker answers to, the only words that may stand where a name
+# stands (beside the question, after a greeting or a lead, or as a clause
+# of their own): the wandering cast (consciousness.WANDERER_CAST), the two
+# utility walkers (agents/identities.py), the four archetypes, the eleven
+# scales, and plain forms of address. A request ("help", "open the door",
+# "help me escape") is not a name. A place's own name is not known here.
+_ADDRESS_NAMES = tuple(dict.fromkeys(
+    [re.sub(r"^the ", "", _words(_normalize(name))) for name in WANDERER_CAST]
+    + ["scout", "observer", *AGENT_ANSWERS,
+       "multiverse", "universe", "galaxy", "planetary system", "planet",
+       "region", "room", "object", "molecule", "atom", "subatomic particle",
+       "subatomicparticle", "particle",
+       "world", "place", "voice", "spirit", "friend", "stranger", "traveler",
+       "traveller", "sir", "madam", "maam", "mate", "pal", "buddy"]))
+_NAME_MOD = r"(?:(?:my|old|dear|little|good|kind|wise|fellow|strange|young|the) )"
+_NAME = (r"(?:" + _NAME_MOD + r"{0,2}(?:"
+         + "|".join(re.escape(n) for n in sorted(_ADDRESS_NAMES, key=len, reverse=True))
+         + r")|" + _NAME_MOD + r"{1,2}one)")
+_GREETING = (r"(?:hi|hello|hey|hiya|heya|howdy|greetings|hail|ahoy|yo|"
+             r"well met|good (?:morning|afternoon|evening|day|night))")
+
+# A trailing vocative after a comma ("are you human, Tessera?", "are you
+# human, old friend?"), never a second clause ("are you real, or am I
+# dreaming?") or a request ("are you human, help me escape?").
+_VOCATIVE = r"(?: , " + _NAME + r")?"
 _END = _TAIL + _VOCATIVE + r"$"
 
-# What may stand before the question inside its clause: a short aside or a
-# name ("Tessera, are you human", "old light are you human") and leads ("be
-# honest, are you an AI"). An aside never holds a reported-speech verb or a
-# wh-word, so "she asked me, are you human" and "how are you human" are not
-# questions to the speaker, and never a verb or a word for a group, so "are
-# any of you AI?" is not read as "you AI?".
-_REPORTING = (r"(?:ask|asks|asked|asking|say|says|said|saying|tell|tells|told|"
-              r"telling|write|writes|wrote|written|writing|read|reads|reading|"
-              r"whisper|whispers|whispered|shout|shouts|shouted|yell|yells|"
-              r"yelled|reply|replies|replied|answer|answers|answered|sign|"
-              r"quote|quoted|repeat|repeats|repeated|how|what|why|where|when|"
-              r"who|whom|whose|which|if|whether|that|because|than|unless|"
-              r"are|arent|is|isnt|am|was|were|do|does|did|dont|can|could|would|"
-              r"will|any|all|of|each|every|none|both|some|many|most|few|those|"
-              r"these|they|them|we|us|he|she|him|her|everyone|anyone|someone|"
-              r"everybody|anybody|somebody|nobody)")
-_ASIDE_WORD = r"(?!" + _REPORTING + r"\b)[a-z0-9]+"
-_ASIDE = r"(?:" + _ASIDE_WORD + r"(?: " + _ASIDE_WORD + r"){0,2}(?: ,)? )?"
+# What may stand before the question inside its clause: a greeting and a
+# name ("Tessera, are you human", "hey old friend, are you human"), then
+# leads ("be honest, are you an AI"). Nothing else, so "she asked me, are
+# you human", "how are you human", "open the door, are you human" and "are
+# any of you AI?" are not questions to the speaker.
 _LEAD_PHRASE = (
     r"(?:hey|hi|hello|ok|okay|so|wait|um+|uh+|hm+|honestly|seriously|"
     r"really|quick question|question|honest question|serious question|"
@@ -213,7 +249,8 @@ _LEAD_PHRASE = (
     r"dont lie|dont lie to me|for real)"
 )
 _LEAD = r"(?:" + _LEAD_PHRASE + r"(?: ,)? )*"
-_PREFIX = r"^" + _ASIDE + _LEAD
+_PREFIX = (r"^(?:" + _GREETING + r"(?: ,)? )?(?:" + _NAME + r"(?: ,)? )?"
+           + _LEAD)
 
 # What a "behind / typing / on the other end" question may be about: words
 # for this exchange. "This", "it" and "you" alone could be a door or a
@@ -300,18 +337,22 @@ _DECLARATIVE = (
 )
 _DECLARATIVE_RE = tuple(re.compile(p) for p in _DECLARATIVE)
 
-# A clause that may stand beside the question without asking for more:
-# a greeting with up to three more words, one word (a name, "lol", "hmm"),
-# leads on their own ("be honest", "quick question", "just curious"), a
-# trailing "yes or no", thanks, or "I'm human".
-_GREETING = (r"(?:hi|hello|hey|hiya|heya|howdy|greetings|hail|ahoy|yo|"
-             r"well met|good (?:morning|afternoon|evening|day|night))")
+# A clause that may stand beside the question without asking for more: a
+# greeting with a name or leads after it ("hi Tessera, quick question"), a
+# name the speaker answers to, leads on their own ("be honest", "just
+# curious"), an interjection ("hmm", "wow"), a trailing "yes or no", thanks,
+# or "I'm human". Any other word asks for something more ("Are you human?
+# Help!", "Hi, open the door. Are you human?").
+_INTERJECTION = (r"(?:oh|ah|aha|huh|wow|whoa|woah|ha|hah|haha+|heh|hehe|lmao|"
+                 r"omg|ooh|mhm|ugh|alright|right)")
 _FILLER = (
     r"^(?:"
-    + _GREETING + r"(?:(?: ,)? [a-z0-9]+){0,3}"
-    + r"|[a-z0-9]+"
+    + _GREETING + r"(?:(?: ,)? (?:there|you|again))?(?:(?: ,)? " + _NAME + r")?"
+    + r"(?:(?: ,)? " + _LEAD_PHRASE + r")*"
+    + r"|" + _NAME
     + r"|" + _LEAD_PHRASE + r"(?:(?: ,)? " + _LEAD_PHRASE + r")*"
-    + r"(?: , [a-z0-9]+(?: [a-z0-9]+)?)?"
+    + r"(?: , " + _NAME + r")?"
+    + r"|" + _INTERJECTION
     + r"|(?:yes or no|i cant tell|i cant tell anymore|i really cant tell|"
     r"just asking|just checking|thanks|thank you|thanks in advance|"
     r"please|please answer|pls|plz)"
@@ -322,14 +363,6 @@ _FILLER = (
 _FILLER_RE = re.compile(_FILLER)
 
 
-def _normalize(text: str) -> str:
-    folded = unicodedata.normalize("NFKC", text).casefold().translate(_APOSTROPHES)
-    # Zero-width and other format characters vanish; they never change a word.
-    folded = "".join(ch for ch in folded if unicodedata.category(ch) != "Cf")
-    # "a.i." and "a. i." become one word before full stops break sentences.
-    return re.sub(r"\ba\.\s?i\.|\ba\.i\b", "ai", folded)
-
-
 def _clauses(text: str) -> list[tuple[str, bool]]:
     """(normalized clause, ended with a question mark) pairs."""
     pieces = re.split(r"([?!.;:\n]+)", _normalize(text))
@@ -337,14 +370,7 @@ def _clauses(text: str) -> list[tuple[str, bool]]:
     for i in range(0, len(pieces), 2):
         body = pieces[i]
         mark = pieces[i + 1] if i + 1 < len(pieces) else ""
-        body = body.replace(",", " , ")
-        tokens = re.findall(r"[a-z0-9']+|,", body)
-        tokens = [_TOKEN_MAP.get(t, t).replace("'", "") for t in tokens]
-        tokens = [t for t in tokens if t]
-        clause = " ".join(tokens)
-        for pattern, replacement in _PHRASE_MAP:
-            clause = re.sub(pattern, replacement, clause)
-        clause = re.sub(r"(?: ,)+", " ,", clause).strip(" ,")
+        clause = _words(body)
         if not clause:
             continue
         if clauses and clause.startswith("or "):
