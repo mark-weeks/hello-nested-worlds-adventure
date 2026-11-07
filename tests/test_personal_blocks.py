@@ -14,6 +14,7 @@ import persistence
 from multiverse import store
 from persistence import blocks, participants, sanctions
 from server import _Handler, _ThreadedServer
+from server.block_targets import handle
 from server.rooms import (Player, agent_enter, agent_leave, agent_move, agents_snapshot,
                           broadcast, clear_rooms, get_room, snapshot)
 from tests.test_day_one_recording import _ws_connect, _ws_send_json
@@ -90,20 +91,24 @@ def test_invalid_block_is_rejected_without_a_row(accounts, target, blocked):
 
 
 def test_http_ownership_strict_shape_privacy_and_unblock_revoked_target(server, accounts):
+    from server.block_targets import handle
     request, _ = server
     a, b = [participants.identify(k) for k in accounts]
-    response = request(accounts[0], {'participant': b['id'], 'blocked': True, 'owner': b['id']})
-    assert response[:2] == (200, {'blocks': [{'id': b['id'], 'name': 'Bea'}]})
+    target = handle(a['id'], b['id'])
+    response = request(accounts[0], {'participant': target, 'blocked': True, 'owner': b['id']})
+    assert response[:2] == (200, {'blocks': [{'id': target, 'name': 'Bea'}]})
     assert response[2]['Cache-Control'] == 'no-store'
-    assert accounts[0] not in json.dumps(response) and accounts[1] not in json.dumps(response)
+    assert all(value not in json.dumps(response) for value in (*accounts, a['id'], b['id']))
     assert request(accounts[1])[1] == {'blocks': []}
     assert request('')[0] == request('nw_' + 'z' * 32)[0] == 403
-    for data in ({}, {'participant': b['id'], 'blocked': 1},
-                 {'participant': a['id'], 'blocked': True}):
+    for data in ({}, {'participant': target, 'blocked': 1},
+                 {'participant': handle(a['id'], a['id']), 'blocked': True},
+                 {'participant': b['id'], 'blocked': True},
+                 {'participant': handle(b['id'], b['id']), 'blocked': True}):
         assert request(accounts[0], data)[0] == 400
     assert persistence.revoke_invite_key(accounts[1])
     assert request(accounts[0])[1]['blocks'][0]['name'] == 'Bea'
-    assert request(accounts[0], {'participant': b['id'], 'blocked': False})[:2] == (200, {'blocks': []})
+    assert request(accounts[0], {'participant': target, 'blocked': False})[:2] == (200, {'blocks': []})
     assert persistence.get_mutations(382) == []
 
 
@@ -119,7 +124,11 @@ def test_real_sockets_one_way_all_tabs_reconnect_unblock_and_history(server, acc
     ada, aw = join(accounts[0])
     ada2, _ = join(accounts[0])
     cleo, _ = join(KEY_C)
-    target = bw['participant_id']
+    a, b, c = [participants.identify(key)['id'] for key in (*accounts, KEY_C)]
+    target = handle(a, b)
+    cleo_target = handle(c, b)
+    assert len({target, cleo_target, bw['participant_id']}) == 3
+    assert all(identity not in json.dumps(aw) for identity in (a, b, c))
     assert next(p for p in aw['players'] if p['name'] == 'Bea')['participant_id'] == target
     for sock in (ada, ada2, bea, cleo):
         _through_pong(sock)
@@ -133,18 +142,20 @@ def test_real_sockets_one_way_all_tabs_reconnect_unblock_and_history(server, acc
         assert not any(m['type'] == 'blocks_changed' for m in _through_pong(sock))
 
     _ws_send_json(bea, {'type': 'chat', 'text': 'The signal reaches Cleo.'})
-    assert _until_type(bea, 'chat')[0]['participant_id'] == target
-    assert _until_type(cleo, 'chat')[0]['text'] == 'The signal reaches Cleo.'
+    assert _until_type(bea, 'chat')[0]['participant_id'] == bw['participant_id']
+    chat = _until_type(cleo, 'chat')[0]
+    assert chat['text'] == 'The signal reaches Cleo.'
+    assert chat['participant_id'] == cleo_target
     target_node = store.world_tree(382).name
     _ws_send_json(bea, {'type': 'move', 'node': target_node})
-    assert _until_type(cleo, 'player_move')[0]['participant_id'] == target
+    assert _until_type(cleo, 'player_move')[0]['participant_id'] == cleo_target
     bea2, _ = join(accounts[1])
-    assert _until_type(cleo, 'player_join')[0]['participant_id'] == target
+    assert _until_type(cleo, 'player_join')[0]['participant_id'] == cleo_target
     for sock in (ada, ada2):
         assert not any(m.get('participant_id') == target for m in _through_pong(sock))
 
     # Blocking a person never suppresses world changes or records.
-    broadcast(get_room(382), {'type': 'causal_event', 'participant_id': target,
+    broadcast(get_room(382), {'type': 'causal_event', 'participant_id': b,
                              'kind': 'RIPPLE', 'node': target_node})
     for sock in (ada, ada2):
         assert _until_type(sock, 'causal_event')[0]['participant_id'] == target
@@ -167,6 +178,10 @@ def test_real_sockets_one_way_all_tabs_reconnect_unblock_and_history(server, acc
     _ws_send_json(bea2, {'type': 'chat', 'text': 'Visible again.'})
     for sock in (ada, ada2, ada3):
         assert _until_type(sock, 'chat')[0]['text'] == 'Visible again.'
+    bea2.close()
+    leave = _until_type(cleo, 'player_leave')[0]
+    assert leave['participant_id'] == cleo_target
+    assert b not in json.dumps(leave)
 
 
 def test_writer_discards_queued_preblock_traffic_even_after_unblock():
@@ -219,7 +234,7 @@ def test_queued_welcome_rechecks_roster_and_slow_writer_does_not_stall_blocks():
             result, self.data = self.data[:n], self.data[n:]
             return result
     welcome = json.loads(_read_frame(BytesSocket(slow_sock.sent[0]))[1])
-    assert welcome['blocks'] == [{'id': target.participant_id, 'name': 'Bea'}]
+    assert welcome['blocks'] == [{'id': handle(slow.participant_id, target.participant_id), 'name': 'Bea'}]
     assert [p['name'] for p in welcome['players']] == ['Ada']
     slow.stop_writer()
     slow._writer.join(2)
@@ -265,6 +280,9 @@ def test_agent_live_block_filters_rosters_speech_encounters_and_summaries(server
     ada, _ = join(accounts[0])
     ada2, _ = join(accounts[0])
     bea, _ = join(accounts[1])
+    owner = participants.identify(accounts[0])['id']
+    tessera = handle(owner, 'agent:Tessera')
+    vex = handle(owner, 'agent:Vex')
     room = get_room(382)
     agent_enter(room, 'Tessera', 'tender')
     agent_move(room, 'Tessera', 'Vault-1')
@@ -272,10 +290,10 @@ def test_agent_live_block_filters_rosters_speech_encounters_and_summaries(server
     agent_move(room, 'Vex', 'Vault-1')
     for sock in (ada, ada2, bea):
         _through_pong(sock)
-    assert request(accounts[0], {'participant': 'agent:Tessera', 'blocked': True})[0] == 200
+    assert request(accounts[0], {'participant': tessera, 'blocked': True})[0] == 200
     for sock in (ada, ada2):
         changed = _until_type(sock, 'blocks_changed')[0]
-        assert changed['blocks'] == [{'id': 'agent:Tessera', 'name': 'Tessera'}]
+        assert changed['blocks'] == [{'id': tessera, 'name': 'Tessera'}]
         assert [a['name'] for a in changed['agents']] == ['Vex']
 
     agent_move(room, 'Tessera', 'Vault-2')
@@ -293,9 +311,9 @@ def test_agent_live_block_filters_rosters_speech_encounters_and_summaries(server
         frames = _through_pong(sock)
         assert [m['type'] for m in frames] == ['agent_talk']
         assert frames[0]['lines'] == [{'speaker': 'Vex', 'line': 'Ask me how it breaks.',
-                                      'participant_id': 'agent:Vex'}]
+                                      'participant_id': vex}]
         assert 'a' not in frames[0] and frames[0]['b'] == 'Vex'
-        assert frames[0]['participant_ids'] == ['agent:Vex']
+        assert frames[0]['participant_ids'] == [vex]
     seen = _through_pong(bea)
     assert [m['type'] for m in seen] == ['agent_move', 'agent_encounter', 'agent_talk',
                                        'agent_done', 'agent_leave']
@@ -311,9 +329,9 @@ def test_agent_live_block_filters_rosters_speech_encounters_and_summaries(server
     agent_enter(room, 'Tessera', 'tender')
     agent_move(room, 'Tessera', 'Vault-3')
     ada3, welcome = join(accounts[0])
-    assert welcome['blocks'] == [{'id': 'agent:Tessera', 'name': 'Tessera'}]
+    assert welcome['blocks'] == [{'id': tessera, 'name': 'Tessera'}]
     assert [a['name'] for a in welcome['agents']] == ['Vex']
-    assert request(accounts[0], {'participant': 'agent:Tessera', 'blocked': False})[0] == 200
+    assert request(accounts[0], {'participant': tessera, 'blocked': False})[0] == 200
     for sock in (ada, ada2, ada3):
         changed = _until_type(sock, 'blocks_changed')[0]
         assert changed['blocks'] == []
@@ -350,3 +368,85 @@ def test_queued_agent_speech_and_welcome_recheck_current_policy():
     assert welcome['type'] == 'welcome' and welcome['agents'] == []
     player.stop_writer()
     player._writer.join(2)
+
+
+def _sent_messages(sock):
+    from tests.test_ws_credential_lifetime import _read_frame
+
+    class BytesSocket:
+        def __init__(self, data):
+            self.data = data
+
+        def recv(self, n):
+            result, self.data = self.data[:n], self.data[n:]
+            return result
+
+    return [json.loads(_read_frame(BytesSocket(frame))[1]) for frame in sock.sent]
+
+
+def test_delayed_writer_preserves_each_block_change_but_refreshes_welcome():
+    from server.rooms import sync_blocks
+
+    room = get_room(382)
+    player = Player('Ada', 382, 'root', 'a', FakeSock(), participant_id='a' * 32)
+    target = Player('Bea', 382, 'root', 'b', FakeSock(), participant_id='b' * 32)
+    room.players.update(a=player, b=target)
+    player.send_lock.acquire()
+    player.start_writer()
+    try:
+        player.send({'type': 'welcome', 'players': snapshot(room)})
+        assert _wait_for(lambda: player.outbox.empty())
+        sync_blocks(player.participant_id, [{'id': target.participant_id, 'name': 'Bea'}])
+        sync_blocks(player.participant_id, [])
+    finally:
+        player.send_lock.release()
+    try:
+        assert _wait_for(lambda: len(player.sock.sent) == 3)
+        welcome, blocked, unblocked = _sent_messages(player.sock)
+        assert welcome['type'] == 'welcome' and welcome['blocks'] == []
+        assert blocked['type'] == unblocked['type'] == 'blocks_changed'
+        assert blocked['blocks'] == [
+            {'id': handle(player.participant_id, target.participant_id), 'name': 'Bea'}]
+        assert unblocked['blocks'] == []
+        assert [p['name'] for p in blocked['players']] == ['Ada']
+        assert [p['name'] for p in unblocked['players']] == ['Ada', 'Bea']
+    finally:
+        player.stop_writer()
+        player._writer.join(2)
+
+
+def test_agent_broadcast_enriches_once_for_all_recipients_and_queued_delivery(monkeypatch):
+    import server.rooms as rooms
+
+    calls = []
+    original = rooms.agent_target
+
+    def counted(name):
+        calls.append(name)
+        return original(name)
+
+    monkeypatch.setattr(rooms, 'agent_target', counted)
+    room = get_room(382)
+    players = [Player(name, 382, 'root', name, FakeSock(), participant_id=name * 32)
+               for name in ('a', 'b', 'c')]
+    players[0].set_blocks([{'id': 'agent:Tessera', 'name': 'Tessera'}])
+    for player in players:
+        room.players[player.session_id] = player
+        player.start_writer()
+    exchange = {'type': 'agent_talk', 'a': 'Tessera', 'b': 'Vex',
+                'lines': [{'speaker': 'Tessera', 'line': 'One.'},
+                          {'speaker': 'Vex', 'line': 'Two.'}]}
+    try:
+        broadcast(room, exchange)
+        assert _wait_for(lambda: all(len(p.sock.sent) == 1 for p in players))
+        assert sorted(calls) == ['Tessera', 'Vex']
+        filtered = _sent_messages(players[0].sock)[0]
+        assert 'a' not in filtered and filtered['b'] == 'Vex'
+        assert [line['speaker'] for line in filtered['lines']] == ['Vex']
+        for player in players[1:]:
+            assert len(_sent_messages(player.sock)[0]['lines']) == 2
+        assert all('participant_id' not in line for line in exchange['lines'])
+    finally:
+        for player in players:
+            player.stop_writer()
+            player._writer.join(2)

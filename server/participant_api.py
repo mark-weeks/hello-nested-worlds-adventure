@@ -13,13 +13,15 @@ def handle(handler, path, qs, body=None):
         me = participants.identify(guard.supplied_key(handler.headers, qs))
         if path == '/blocks':
             from server.rooms import BLOCKS_LOCK, sync_blocks
+            from server.block_targets import resolve, wire_blocks
             with BLOCKS_LOCK:
                 if body is None:
                     result = blocks.list_blocks(me['id'])
                 else:
-                    result = blocks.set_block(me['id'], body.get('participant'), body.get('blocked'))
+                    target = resolve(me['id'], body.get('participant'))
+                    result = blocks.set_block(me['id'], target, body.get('blocked'))
                     sync_blocks(me['id'], result)
-            handler._send_json({'blocks': result})
+            handler._send_json({'blocks': wire_blocks(me['id'], result)})
             return True
         seed = guard.world_seed(body.get('seed') if body is not None else qs.get('seed', [''])[0])
         if body is None:

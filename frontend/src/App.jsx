@@ -348,7 +348,7 @@ export default function App() {
     },
     onPlayerJoin: (msg) => {
       if (blockIds.current.has(msg.participant_id)) return;
-      setPlayers(p => [...p.filter(x => x.session_id !== msg.session_id), { ...msg, node: "" }]);
+      setPlayers(p => [...p.filter(x => x.session_id !== msg.session_id), { ...msg, node: msg.node || "" }]);
       pushEvent({ type: "system", liveParticipant: msg.participant_id, text: `${msg.name} joined` });
     },
     onPlayerLeave: (msg) => {

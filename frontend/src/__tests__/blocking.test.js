@@ -43,4 +43,13 @@ describe('private blocking in both clients', () => {
     request.mockResolvedValue({ok:false,json:async()=>({error:'A current personal invite is required.'})});
     await expect(savePersonalBlock('/blocks','ada',false,request)).rejects.toThrow('A current personal invite is required.');
   });
+
+  it.each([
+    ['an offline browser', () => Promise.reject(new TypeError('Failed to fetch'))],
+    ['a proxy error page', async () => ({ok:false,json:async()=>{throw new SyntaxError('Unexpected token <');}})],
+    ['an incomplete JSON reply', async () => ({ok:true,json:async()=>({})})],
+  ])('offers an authored retry after %s', async (_description, request) => {
+    await expect(savePersonalBlock('/blocks', 'ada', true, request))
+      .rejects.toThrow('Your block could not be saved. Try again.');
+  });
 });

@@ -50,19 +50,21 @@ def set_block(participant: str, target: str, blocked: bool) -> list[dict]:
     every connection, so validate both identities under the writer fence.
     """
     _validate_id(participant)
-    agent = _target_agent(target)
-    if not agent:
-        _validate_id(target)
-    if participant == target or not isinstance(blocked, bool):
+    if not isinstance(target, str) or participant == target or not isinstance(blocked, bool):
         raise ValueError("Choose another traveler and whether to block them.")
     with db.transaction() as conn:
         owner_exists = conn.execute("SELECT 1 FROM participants WHERE id=?",
                                     (participant,)).fetchone()
-        target_exists = agent or conn.execute("SELECT 1 FROM participants WHERE id=?",
-                                             (target,)).fetchone()
-        if not owner_exists or not target_exists:
+        if not owner_exists:
             raise ValueError("Choose another traveler.")
         if blocked:
+            agent = _target_agent(target)
+            if not agent:
+                _validate_id(target)
+            target_exists = agent or conn.execute("SELECT 1 FROM participants WHERE id=?",
+                                                 (target,)).fetchone()
+            if not target_exists:
+                raise ValueError("Choose another traveler.")
             conn.execute("""INSERT INTO participant_blocks(participant_id,blocked_id)
                 VALUES (?,?) ON CONFLICT DO NOTHING""", (participant, target))
         else:

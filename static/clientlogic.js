@@ -35,12 +35,19 @@
   }
 
   async function savePersonalBlock(url, participant, blocked, request = root.fetch) {
-    const response = await request(url, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({participant, blocked}),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Your block could not be saved. Try again.');
+    const retry = 'Your block could not be saved. Try again.';
+    let response, data;
+    try {
+      response = await request(url, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({participant, blocked}),
+      });
+      data = await response.json();
+    } catch {
+      throw new Error(retry);
+    }
+    if (!response.ok) throw new Error(typeof data?.error === 'string' && data.error || retry);
+    if (!Array.isArray(data?.blocks)) throw new Error(retry);
     return data.blocks;
   }
 

@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from persistence.blocks import agent_target
+from server.block_targets import wire_message
 from server.protocol import ws_send
 
 # Pending messages a client may fall behind before being declared dead.
@@ -35,29 +36,34 @@ _LIVE_TYPES = frozenset({"chat", "player_join", "player_move", "player_leave",
                          "agent_enter", "agent_move", "agent_leave", "agent_done"})
 
 
-def _live_agent_ids(message: dict) -> dict:
+def _live_agent_ids(message: dict) -> tuple[dict, dict]:
     """Enrich live server envelopes without changing stored events or world effects."""
     kind = message.get('type')
     if kind in ('agent_enter', 'agent_move', 'agent_leave', 'agent_done'):
         target = agent_target(message.get('name'))
-        return {**message, 'participant_id': target} if target else message
+        return ({**message, 'participant_id': target} if target else message), {}
     if kind == 'agent_encounter':
         return {**message, 'participant_ids': [target for name in
                     (message.get('agent1'), message.get('agent2'))
-                    if (target := agent_target(name))]}
+                    if (target := agent_target(name))]}, {}
     if kind == 'agent_talk':
+        names = {name for name in (message.get('a'), message.get('b'),
+                 *(line.get('speaker') for line in message.get('lines', [])))
+                 if isinstance(name, str)}
+        targets = {name: agent_target(name) for name in names}
         return {**message, 'participant_ids': [target for name in
-                    (message.get('a'), message.get('b')) if (target := agent_target(name))],
+                    (message.get('a'), message.get('b')) if (target := targets.get(name))],
                 'lines': [{**line, 'participant_id': target} if
-                          (target := agent_target(line.get('speaker'))) else line
-                          for line in message.get('lines', [])]}
-    return message
+                          (target := targets.get(line.get('speaker'))) else line
+                          for line in message.get('lines', [])]}, targets
+    return message, {}
 
 
 @dataclass(frozen=True)
 class _Delivery:
     message: dict
     revision: int
+    agent_ids: dict
 
 
 @dataclass(frozen=True)
@@ -108,9 +114,8 @@ class Player:
         self._block_policy = _BlockPolicy(
             tuple(dict(b) for b in blocks), ids, revision, revisions)
 
-    def _visible(self, message: dict, revision: int) -> dict | None:
+    def _visible(self, message: dict, revision: int, agent_ids: dict) -> dict | None:
         policy = self._block_policy
-        message = _live_agent_ids(message)
         target = message.get("participant_id")
         kind = message.get("type")
 
@@ -133,14 +138,16 @@ class Player:
             message = {**message, 'lines': lines,
                        'participant_ids': [p for p in message['participant_ids'] if not hidden(p)]}
             for key in ('a', 'b'):
-                if hidden(agent_target(message.get(key))):
+                if hidden(agent_ids.get(message.get(key))):
                     message.pop(key, None)
         if kind in ("welcome", "blocks_changed"):
-            message = {**message, "blocks": list(policy.blocks),
+            message = {**message,
                        "players": [p for p in message.get("players", [])
                                    if p.get("participant_id") not in policy.ids],
                        "agents": [a for a in message.get("agents", [])
                                   if a.get('participant_id') not in policy.ids]}
+            if kind == "welcome":
+                message["blocks"] = list(policy.blocks)
         return message
 
     def start_writer(self) -> None:
@@ -173,16 +180,16 @@ class Player:
                     if self._dead.is_set():
                         return
                     if isinstance(item, _Delivery):
-                        visible = self._visible(item.message, item.revision)
+                        visible = self._visible(item.message, item.revision, item.agent_ids)
                         if visible is None:
                             continue
-                        item = json.dumps(visible)
+                        item = json.dumps(wire_message(self.participant_id or self.session_id, visible))
                     ws_send(self.sock, item)
             except OSError:
                 self._dead.set()
                 return
 
-    def send(self, msg: dict) -> bool:
+    def send(self, msg: dict, *, _agent_ids: dict | None = None) -> bool:
         """Hand `msg` to this player without blocking the caller.
 
         With a writer thread running this only enqueues; a full outbox means
@@ -192,19 +199,22 @@ class Player:
         """
         if self._dead.is_set():
             return False
+        if _agent_ids is None:
+            msg, _agent_ids = _live_agent_ids(msg)
         revision = self._block_policy.revision
-        visible = self._visible(msg, revision)
+        visible = self._visible(msg, revision, _agent_ids)
         if visible is None:
             return True
         if self._writer is None:
             try:
-                ws_send(self.sock, json.dumps(visible), send_lock=self.send_lock)
+                ws_send(self.sock, json.dumps(wire_message(
+                    self.participant_id or self.session_id, visible)), send_lock=self.send_lock)
                 return True
             except OSError:
                 self._dead.set()
                 return False
         try:
-            self.outbox.put_nowait(_Delivery(visible, revision))
+            self.outbox.put_nowait(_Delivery(visible, revision, _agent_ids))
             return True
         except queue.Full:
             self._dead.set()
@@ -283,10 +293,11 @@ def broadcast(room: Room, msg: dict, exclude: str | None = None) -> None:
     with room.lock:
         targets = list(room.players.items())
     failed = []
+    msg, agent_ids = _live_agent_ids(msg)
     for sid, player in targets:
         if sid == exclude:
             continue
-        if not player.send(msg):
+        if not player.send(msg, _agent_ids=agent_ids):
             failed.append(sid)
     if failed:
         with room.lock:
@@ -347,12 +358,13 @@ def sync_blocks(participant: str, blocks: list[dict]) -> None:
         rooms = list(_rooms.values())
     for room in rooms:
         with room.lock:
+            players = snapshot(room)
+            agents = agents_snapshot(room)
             for player in room.players.values():
                 if player.participant_id == participant:
                     player.set_blocks(blocks)
                     player.send({"type": "blocks_changed", "blocks": blocks,
-                                 "players": snapshot(room, player),
-                                 "agents": agents_snapshot(room, player)})
+                                 "players": players, "agents": agents})
 
 
 def agents_snapshot(room: Room, viewer: Player | None = None) -> list[dict]:
@@ -360,9 +372,10 @@ def agents_snapshot(room: Room, viewer: Player | None = None) -> list[dict]:
     the agent half of the travelers roster the welcome payload carries."""
     with room.lock:
         return [{"name": n, "node": pos,
-                 "persona": room.agent_personas.get(n), 'participant_id': agent_target(n)}
+                 "persona": room.agent_personas.get(n), 'participant_id': target}
                 for n, pos in room.active_agents.items()
-                if viewer is None or agent_target(n) not in viewer.blocked_ids]
+                for target in (agent_target(n),)
+                if viewer is None or target not in viewer.blocked_ids]
 
 
 # ── Puzzle sessions (co-op state) ───────────────────────────────────────────

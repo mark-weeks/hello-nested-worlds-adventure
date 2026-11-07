@@ -1252,7 +1252,7 @@ function handleWsMsg(msg) {
       break;
     case 'player_join':
       if (msg.session_id !== mySessionId && !blockedIds.has(msg.participant_id)) {
-        players[msg.session_id] = { ...msg, node: '', color: PLAYER_COLOR };
+        players[msg.session_id] = { ...msg, node: msg.node || '', color: PLAYER_COLOR };
         pushFeed(`${msg.name} joined`, {liveParticipant: msg.participant_id});
         renderPlayers();
         updatePresenceRings();
