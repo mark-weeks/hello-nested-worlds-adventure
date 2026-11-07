@@ -31,7 +31,7 @@ def _quiet(line, *, ai=False, declined=False, clarification=False):
 
 
 def _propose(intention, key, name, node, props):
-    if guard.ai_disabled() or not runtime.configured():
+    if guard.ai_disabled() or not runtime.configured(runtime.INTENT_TASK):
         observability.voice_outcome(
             'intention', 'disabled' if guard.ai_disabled() else 'unconfigured')
         return None, _quiet(_UNSHAPED)
