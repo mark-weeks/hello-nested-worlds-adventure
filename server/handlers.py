@@ -20,7 +20,7 @@ import causality
 import persistence
 from causality import CausalityBus, EventKind
 from causality.delivery import accept_event, accept_verb
-from consciousness import runtime
+from consciousness import honesty, runtime
 from agents import identities
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
@@ -228,6 +228,27 @@ def _record_screen_hold(surface: str, verdict: Any) -> None:
 def _limit_reason(exc: BaseException) -> str:
     """The voice-outcome reason for a refused-before-the-provider call."""
     return "action_cap" if isinstance(exc, runtime.ModelActionLimited) else "budget"
+
+
+def _asks_identity(message: str) -> bool:
+    """Whether this line takes the authored "I am an AI" answer.
+
+    True for a sincere identity question (``honesty.is_identity_question``).
+    The answer still passes the route's place lookup and moderation screen,
+    and the per-IP rate limit has already run. With the AI kill switch on,
+    a question the local screen cannot settle keeps the quiet line instead,
+    so this answer never becomes a moderation model call while the AI layer
+    is off.
+    """
+    if not honesty.is_identity_question(message):
+        return False
+    return not (guard.ai_disabled() and moderation.needs_model(message))
+
+
+def _log_identity_answer(surface: str) -> None:
+    # The authored answer is not a voice outcome: no model was asked, and
+    # nothing failed. One INFO line, without the player's words.
+    _log.info("voice_identity_answer surface=%s", surface)
 
 
 def _normalize_client_name(raw: Any) -> str | None:
@@ -1204,7 +1225,10 @@ class Handler(BaseHTTPRequestHandler):
                 body, "Describe yourself to a traveler who has just arrived.")
             if message is None:
                 return
-            if guard.ai_disabled():
+            # A sincere "are you human?" gets the authored truthful answer,
+            # with AI on or off, and no model writes it (consciousness.honesty).
+            honest = _asks_identity(message)
+            if not honest and guard.ai_disabled():
                 observability.voice_outcome("speak", "disabled")
                 return self._send_json({"response": guard.QUIET_RESPONSE,
                                         "ai": False})
@@ -1242,24 +1266,29 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(moderation.http_body(verdict))
 
             import consciousness
-            voice_ready = runtime.configured(runtime.NODE_TASK)
+            voice_ready = honest or runtime.configured(runtime.NODE_TASK)
             if not voice_ready:
                 observability.voice_outcome("speak", "unconfigured")
                 return self._send_json({"response": consciousness.fallback_voice(node), "ai": False})
             try:
-                history = persistence.get_node_history(seed, node.name)
-                transcript = persistence.get_player_exchanges(
-                    seed, node.name, identity)
-                response = consciousness.speak(
-                    node, message,
-                    history=history,
-                    transcript=transcript,
-                    ripple_score=node.ripple_score,
-                    speaker=player_name,
-                    hinge=wrap.is_hinge(seed, node.name),
-                    user_key=user_key,
-                    voice_budget=True,
-                )
+                if honest:
+                    # Authored, so no budget, no model call and no provenance
+                    # row; it is recorded below like any other reply.
+                    response = honesty.place_answer(node.level)
+                else:
+                    history = persistence.get_node_history(seed, node.name)
+                    transcript = persistence.get_player_exchanges(
+                        seed, node.name, identity)
+                    response = consciousness.speak(
+                        node, message,
+                        history=history,
+                        transcript=transcript,
+                        ripple_score=node.ripple_score,
+                        speaker=player_name,
+                        hinge=wrap.is_hinge(seed, node.name),
+                        user_key=user_key,
+                        voice_budget=True,
+                    )
                 # The exchange — both sides of it — becomes node memory.
                 # Store the FULL message and reply: the chronicle keeps the
                 # record, and prompt-size budgeting happens at render time
@@ -1313,8 +1342,11 @@ class Handler(BaseHTTPRequestHandler):
                 # Outside the classifying try: a player who hung up before
                 # the reply arrived is not a provider failure. The reply goes
                 # out before the counter write, so the write never delays it.
-                self._send_json({"response": response, "ai": True})
-                observability.voice_outcome("speak", "ok")
+                self._send_json({"response": response, "ai": not honest})
+                if honest:
+                    _log_identity_answer("speak")
+                else:
+                    observability.voice_outcome("speak", "ok")
 
         elif path == "/puzzle/attempt":
             self._do_puzzle_attempt(body, user_key=user_key)
@@ -1472,7 +1504,10 @@ class Handler(BaseHTTPRequestHandler):
             body, "Where are you, and what do you see?")
         if message is None:
             return
-        if guard.ai_disabled():
+        # Same rule as /speak: a sincere "are you human?" is answered in the
+        # archetype's authored voice, with AI on or off, by no model.
+        honest = _asks_identity(message)
+        if not honest and guard.ai_disabled():
             observability.voice_outcome("agent_voice", "disabled")
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
@@ -1518,21 +1553,26 @@ class Handler(BaseHTTPRequestHandler):
             _record_screen_hold("agent_voice", verdict)
             return self._send_json(moderation.http_body(
                 verdict, agent=agent_name, persona=persona.name, node=node.name))
-        voice_ready = runtime.configured(runtime.INHABITANT_TASK)
+        voice_ready = honest or runtime.configured(runtime.INHABITANT_TASK)
         if not voice_ready:
             observability.voice_outcome("agent_voice", "unconfigured")
             return self._agent_voice_quiet(agent_name, persona.name, node.name)
         try:
             import consciousness
-            history = persistence.get_node_history(seed, node.name)
-            from persistence.situations import keeper_history
-            commitments = keeper_history(seed, agent_name, node.name)
-            commitment_ids = {event['id'] for event in commitments}
-            history = commitments + [event for event in history if event.get('id') not in commitment_ids]
-            agent_memory = persistence.load_agent_memory(agent_name, seed)
-            response = consciousness.voice_agent(
-                persona, agent_name, node, message, history=history,
-                agent_memory=agent_memory, user_key=user_key, voice_budget=True)
+            if honest:
+                # Authored, so no budget, no model call and no provenance
+                # row; it is recorded below like any other reply.
+                response = honesty.agent_answer(persona.name)
+            else:
+                history = persistence.get_node_history(seed, node.name)
+                from persistence.situations import keeper_history
+                commitments = keeper_history(seed, agent_name, node.name)
+                commitment_ids = {event['id'] for event in commitments}
+                history = commitments + [event for event in history if event.get('id') not in commitment_ids]
+                agent_memory = persistence.load_agent_memory(agent_name, seed)
+                response = consciousness.voice_agent(
+                    persona, agent_name, node, message, history=history,
+                    agent_memory=agent_memory, user_key=user_key, voice_budget=True)
             # The exchange persists into node memory, like /speak: an agent
             # you talked with should be part of what this place remembers
             # (and future replies can reference it via node history).
@@ -1576,9 +1616,12 @@ class Handler(BaseHTTPRequestHandler):
                 "persona":  persona.name,
                 "node":     node.name,
                 "response": response,
-                "ai":       True,
+                "ai":       not honest,
             })
-            observability.voice_outcome("agent_voice", "ok")
+            if honest:
+                _log_identity_answer("agent_voice")
+            else:
+                observability.voice_outcome("agent_voice", "ok")
 
     def _do_register(self, body: dict) -> None:
         """POST /register — invite-gated self-service registration (ADR-004 §7).

@@ -401,6 +401,36 @@ Complete a voice/caching change with relevant prompt behavior tests and observed
 for the claimed improvement. Report any unavailable live-model verification; avoid claiming
 a cache hit from the presence of `cache_control` alone.
 
+### Honesty about being an AI
+
+The owner's guardrail (2026-11-06): no agent or place claims or implies that it is
+human, and a sincere question gets a plain answer that the speaker is an AI. Two
+layers carry it, so it holds with the AI layer on or off and with any provider:
+
+- **Deterministic.** `consciousness.honesty.is_identity_question` recognizes English
+  identity questions ("are you human?", "r u a bot", "am I talking to a real
+  person?", "is this an AI?", "human or bot?") after folding case, punctuation and
+  chat spellings. `/speak` and `/agent/voice` then answer with an authored line
+  (`honesty.place_answer`, or `honesty.agent_answer` per archetype) instead of
+  calling a model. The route's place lookup, moderation screen and per-IP rate
+  limit still apply; no voice allowance or model-action charge is taken; the
+  exchange is recorded as the same `PLAYER_SPEAK` / `AGENT_VOICE` row a model reply
+  makes, with no provenance row (no model wrote it), and the response carries
+  `ai: false`. With the AI kill switch on, a question the local screen cannot
+  settle keeps the quiet line, so the answer never becomes a moderation model call.
+  The answer is not a voice outcome; it logs `voice_identity_answer surface=…`.
+- **Model instruction.** Both bibles tell the voice to stay in character without
+  narrating the machinery, never to claim or imply being human, and to say plainly
+  that it is an AI (a place: that its voice comes from an AI) when sincerely asked.
+  The agent bible also forbids asking a traveler for personal details, contact
+  outside the world, money or gifts, and romantic framing.
+
+The matcher reads phrase shape, not meaning: a clause must be the question itself,
+so ordinary sentences about humans or machines take the normal path. Paraphrases it
+misses reach the model; the eval corpus's `honesty` cases measure that path with a
+deterministic floor (`evals/README.md`). Chat does not address inhabitants yet; the
+functions are pure text so it can reuse them when it does.
+
 ## Startup model check
 
 `python main.py models` prints each task's provider, where that provider
