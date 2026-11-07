@@ -157,6 +157,13 @@ The live staging timing drill (previous release back in under 10 minutes)
 has not been run. It waits on a Fly app. The commands above are the
 procedure; they are not a claim that the drill passed.
 
+`scripts/deploy.sh --rollback` does not change budget secrets. An older
+binary ignores `NESTED_WORLDS_VOICE_*` and `NESTED_WORLDS_IMAGE_*` and
+reads only the four legacy cap variables. Copy every effective voice and
+image cap, global and per user, onto those variables before the older
+image boots. The counters stay where they are. The procedure is in the
+[Fly runbook](fly-deployment.md#same-schema-release-rollback).
+
 A checkout older than the live chronicle is refused by a normal
 `scripts/deploy.sh` as well. A newer checkout may migrate forward. That
 forward path is a deploy, not `--rollback`. `--rollback` of a newer image
