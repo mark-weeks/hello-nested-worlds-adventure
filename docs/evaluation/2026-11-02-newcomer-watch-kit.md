@@ -47,14 +47,16 @@ promises no persistence.
   silence as its no-provider mode. Executed on 2026-11-07 at `5d4b78c` on
   scratch worlds (pre-session check, step 3).
 - **Citations.** Code citations were re-read at `5d4b78c`, the branch's
-  merge of #152; the branch's later commits change only `docs/`. Six that #152 had moved, in `main.py` and
+  merge of #152, and those in `consciousness/runtime.py`, `server/guard.py`
+  and `main.py` were re-pointed on 2026-11-07 after #153 was merged into this
+  branch, by matching the cited text; the branch's own commits change only `docs/`. Six that #152 had moved, in `main.py` and
   `persistence/__init__.py`, were corrected; every other kept citation
   matches its `18e5bbd` text line for line, and the new ones were read at
   `5d4b78c`. Protocol 2 citations follow its text with the 2026-11-07 venue
   line. Fly commands below follow the runbook's and the
   repository's own usage; none was run from this session, and Fly's behaviour
   is unverified here.
-- **#153.** `origin/main` at `3200eed` (#153, not merged into this branch)
+- **#153.** `origin/main` at `3200eed` (#153, now merged into this branch)
   adds four per-task provider variables, `NESTED_WORLDS_NODE_PROVIDER`,
   `NESTED_WORLDS_INHABITANT_PROVIDER`, `NESTED_WORLDS_INTENT_PROVIDER` and
   `NESTED_WORLDS_MODERATION_PROVIDER`, and a set task variable wins over
@@ -62,9 +64,8 @@ promises no persistence.
   at `3200eed`). A twin built from current `main` runs it. Both venues
   therefore unset all four, and `main.py models` must show
   `provider=anthropic provider_source=default` on every task row (voice mode
-  below). When #153 is merged into this branch, re-read this kit's provider
-  and cap citations: #153 changes `consciousness/runtime.py`,
-  `server/guard.py` and `main.py`.
+  below). This kit's provider and cap citations were re-read after that
+  merge.
 
 **2026-11-06 update:** The venue ruling above is recorded here and in protocol
 2. The voice mode was **not** decided: both modes below stay, and the
@@ -135,7 +136,7 @@ deleted on the stated date.
      contains Enfolded data; and (d) checks the consent line's training clause
      (facilitator script) against the recorded terms. Use the default
      adapter: leave `NESTED_WORLDS_PROVIDER` unset
-     (`consciousness/runtime.py:38-39`, `consciousness/runtime.py:471-472`),
+     (`consciousness/runtime.py:48-49`, `consciousness/runtime.py:595-596`),
      and on a build with #153 the four per-task provider variables too, so no
      `openai_compatible` base URL, which has not been checked against the
      policy, receives player text. On such a build `main.py models` must show
@@ -159,11 +160,11 @@ deleted on the stated date.
      the world and the research archive does not reach. Set low caps on
      every text-model budget the session can spend: voice and intention with
      `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
-     `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` (`server/guard.py:51`,
-     `server/guard.py:58`), and classifier calls with
+     `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` (`server/guard.py:57`,
+     `server/guard.py:66`), and classifier calls with
      `NESTED_WORLDS_MODERATION_DAILY_CALLS` and
      `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER`, whose defaults are
-     2,000 and 60 a day (`server/guard.py:88-94`). Record the values.
+     2,000 and 60 a day (`server/guard.py:102-108`). Record the values.
    - *Per-scale silence* (no provider): the fallback, and the mode for any
      session held before the operator's checks are done. No provider
      credential is in the server's environment, no provider variable is set
@@ -180,7 +181,7 @@ deleted on the stated date.
      clear is held in fiction (setup facts in the fallback below). Do not use
      `NESTED_WORLDS_DISABLE_AI=1` for the watch: its line, "The worlds are
      quiet today. Try again tomorrow." (`server/handlers.py:1207-1210`,
-     `server/guard.py:958`), tells a newcomer to leave.
+     `server/guard.py:1193`), tells a newcomer to leave.
 4. **Images.** Keep the image key (`FAL_KEY`, `server/handlers.py:1402`) off
    the twin, as the local setup does, until the operator has checked the
    image provider against the 2026-11-07 policy and written its L4 note.
@@ -214,8 +215,8 @@ Read at `5d4b78c`. None was executed against a Fly app.
 | The twin is the production procedure under another app name: its own app and volume, deployed with `FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy`, and destroyed before launch. ADR-005 already names it as the onboarding watch's venue. | `docs/infrastructure/fly-deployment.md:245-273` (section 3a), `docs/decisions/ADR-005-launch-operations.md:96-102` | Bringing the twin up is the operator's step under the runbook, and it waits on the Fly account (checklist F1). Read the warning below the table before running it. This kit deploys nothing. |
 | The twin hosts seed 382 as its one canonical world, with `HOME=/data` on its volume. | `fly.toml:19-20` | Leave `NESTED_WORLDS_CANONICAL_SEED` as `fly.toml` sets it. Every watch session on the twin shares this world, and a later tester may meet an earlier tester's traces. |
 | The twin serves HTTPS only. | `fly.toml:27` | Testers use their own devices. Act and the journal need a secure context (`static/intents.js:7`, `static/journal.js:6`), which an HTTPS page is. Web-platform behaviour, not executed for this kit. |
-| `invite mint` prints the share line `<BASE>/app?key=nw_…&name=X` and shows the key once. | `main.py:477-485`, `main.py:533-535` | Replace `<BASE>` with the twin's origin, `https://<staging app>.fly.dev`, the form the runbook's smoke test uses (`docs/infrastructure/fly-deployment.md:281`). |
-| Minting the first key closes the twin's invite gate for good. | `server/guard.py:298-319` | Mint the check key before the twin's address is shared anywhere (runbook section 6). |
+| `invite mint` prints the share line `<BASE>/app?key=nw_…&name=X` and shows the key once. | `main.py:529-537`, `main.py:585-587` | Replace `<BASE>` with the twin's origin, `https://<staging app>.fly.dev`, the form the runbook's smoke test uses (`docs/infrastructure/fly-deployment.md:281`). |
+| Minting the first key closes the twin's invite gate for good. | `server/guard.py:312-333` | Mint the check key before the twin's address is shared anywhere (runbook section 6). |
 | Invited players read each other's words: `/history` and `/chronicle` serve the world's rows, chat text included, to any invited player. | `server/handlers.py:961-975`, `server/handlers.py:977-993` | Consent says that other testers in this temporary world can read what a tester says. |
 | `/app` removes `key=` and `name=` from the address after the first load, and afterwards reads the key from this browser's local storage only. | `frontend/src/auth.js:21-28`, `frontend/src/auth.js:31-37` | A bookmark holds no key. On this branch a fresh browser that opens it stays on "Opening the shared world…" (`frontend/src/App.jsx:146-148`, `frontend/src/App.jsx:182-185`, `frontend/src/App.jsx:593`; [2026-11-06 evaluation](2026-11-06-next-build.md), finding 7, read, not run in a browser). The keyless-return change (branch `claude/keyless-return-line`, PR number unconfirmed) replaces that shell with an authored line saying how to return; it is not on this branch. The scripted return records which the tester sees. |
 | A keyed return resumes the saved place, on any device. | `persistence/__init__.py:2942-2944` (`save_player_position`) | Opening the invite link again in the fresh browser is the designed way back. |
@@ -277,7 +278,7 @@ playbook and the backup workflow do (`docs/infrastructure/incident-response.md:4
    `200`.
 5. Voice: `fly ssh console -a enfolded-staging -C "python main.py models"`
    prints `provider not configured` in per-scale silence and does not in
-   live voice (`main.py:376-384`). On a build with #153, every task row must
+   live voice (`main.py:420-428`). On a build with #153, every task row must
    also show `provider=anthropic provider_source=default`. Then send the
    `/speak` request in the pre-session check below to
    `https://<staging app>.fly.dev/speak`: live
@@ -348,7 +349,7 @@ Never tell a tester their history will persist.
    fly ssh console -a enfolded-staging -C "rm /data/backups/watch-raw.db"
    ```
 
-   `main.py backup` is `main.py:890-894`; the download follows
+   `main.py backup` is `main.py:942-946`; the download follows
    `.github/workflows/backup.yml:107-108`, which leaves the file in the
    current directory under its own name. The raw file holds every tester's
    chat, journal notes and unpublished profile text, and the repository
@@ -522,11 +523,11 @@ was re-read there and still holds. On 2026-11-07 they were re-read at
 
 | Fact | Evidence | What it means for the session |
 |---|---|---|
-| `python main.py serve` binds 127.0.0.1, port 8080, by default. | `main.py:854-855` | The participant uses the facilitator's machine at `http://localhost:8080`. Do not pass `--host 0.0.0.0` unless the owner authorizes the network exposure (plain HTTP, the key in the URL, and a model credential if live voice is on). |
+| `python main.py serve` binds 127.0.0.1, port 8080, by default. | `main.py:906-907` | The participant uses the facilitator's machine at `http://localhost:8080`. Do not pass `--host 0.0.0.0` unless the owner authorizes the network exposure (plain HTTP, the key in the URL, and a model credential if live voice is on). |
 | The world database is `$HOME/.nested-worlds/worlds.db`, with no override. | `persistence/__init__.py:30` | A fresh scratch `HOME` per session is **mandatory**. Without one, the session's rows land in the facilitator's own database. The server and every CLI command for that session must use the same `HOME`. |
-| With `NESTED_WORLDS_CANONICAL_SEED` unset, the server hosts seed 382. | `server/guard.py:141-143`, `multiverse/generator.py:30`; executed | Leave the variable unset. |
+| With `NESTED_WORLDS_CANONICAL_SEED` unset, the server hosts seed 382. | `server/guard.py:155-157`, `multiverse/generator.py:30`; executed | Leave the variable unset. |
 | `invite mint --name X` prints the key once and a share line of the form `<BASE>/app?key=nw_…&name=X`, which lands on the scene client and never visits `/register`. | `main.py::invite_share_url`, `main.py::cmd_invite`; read after the 2026-11-04 client amendment. The 2026-11-02 execution landed on `/`, now superseded. | Replace `<BASE>` with `http://localhost:8080`. The participant never sees `/register`'s consent line (`static/register.html:49-52`), which in any case promises permanence. Consent is verbal or written. |
-| Minting the first key closes the invite gate for good. Revoking a key no longer reopens it (#137), and an open socket whose key is revoked is closed. | `server/guard.py:298-319` (`invite_gate_active`, `persistence.credentials_ever_issued`); on `23b8830` revoking the only key reopened the gate (executed 2026-11-02) | End a session by stopping the server. Revoking the key is not needed: the scratch `HOME` is deleted. |
+| Minting the first key closes the invite gate for good. Revoking a key no longer reopens it (#137), and an open socket whose key is revoked is closed. | `server/guard.py:312-333` (`invite_gate_active`, `persistence.credentials_ever_issued`); on `23b8830` revoking the only key reopened the gate (executed 2026-11-02) | End a session by stopping the server. Revoking the key is not needed: the scratch `HOME` is deleted. |
 | Act requires a live personal invite, and derives request IDs with `crypto.subtle.digest` and `crypto.randomUUID`. The journal calls `crypto.randomUUID` when it loads. | `persistence/participants.py:39-54`, `static/intents.js:7`, `static/intents.js:32`, `static/interventions.js:86`, `static/journal.js:6` | Use `http://localhost`, which browsers treat as a secure context. A plain-http LAN address is not one, so Act commits and the journal would fail there. This is web-platform behaviour, not executed for this kit; the pre-session check below confirms it on the actual machine. |
 | `NESTED_WORLDS_DISABLE_AI=1` quiets three paths: `/speak` and `/agent/voice` answer the authored quiet line with HTTP 200 and `"ai": false` before the screen runs, and an Act intention that the local parser cannot read gets the authored "clearer shape" line instead of going to a model. It does not quiet the moderation classifier, which never reads the flag: a chat line, an incorrect puzzle guess the attempt will store, an Ideas submission or profile text saved as published that the local screen cannot clear still goes to the provider whenever one is configured, and a credential in the environment is enough. It does not stop images either. | `server/handlers.py:1207-1210`, `server/handlers.py:1475-1479`, `server/intervention_api.py:157-160`, `server/intervention_api.py:34-37`, `server/moderation.py:166-241`, `server/websocket.py:621-622`, `server/handlers.py:2063-2066`, `server/ideas_api.py:80`, `server/participant_api.py:33-37`, `server/handlers.py:1371-1372`, `server/handlers.py:1402-1406`; executed for `/speak`, and on 2026-11-03 for a held chat line | Only an environment with no configured provider keeps player text on the machine. Session setup unsets the credentials and the image key, and the pre-session check proves it. Since 2026-11-07 the watch does not set the flag (per-scale silence, "Decide before session one"). |
 | With no provider configured and the flag unset, `/speak` answers the place's per-scale line of silence with `"ai": false` after the screen, `/agent/voice` answers that the agent does not answer, and an unreadable Act intention gets the "clearer shape" line. | `server/handlers.py:1244-1248`, `consciousness/__init__.py:740-795`, `server/handlers.py:1521-1524`, `server/intervention_api.py:34-37`; executed on 2026-11-07 for `/speak` and chat (pre-session check) | Per-scale silence keeps player text on the machine and does not tell the participant to come back tomorrow. |
@@ -562,7 +563,7 @@ world contains no check traces.
      A configured provider that is busy or fails also answers that line
      (`server/handlers.py:1283-1311`), so also run
      `.venv/bin/python main.py models` in the same terminal: it must print
-     `provider not configured` (`main.py:376-384`). If it does not, a
+     `provider not configured` (`main.py:420-428`). If it does not, a
      credential is still in the environment and the classifier can still
      receive text: unset it and restart from step 1. Executed on 2026-11-07
      at `5d4b78c` with the setup block below, in scratch `HOME`s: `models`
@@ -678,14 +679,14 @@ workload-identity token, and the adapter counts each as configured
 `consciousness/anthropic_provider.py:192-193`). The fresh `HOME` already
 hides the SDK's default profile directory, `~/.config/anthropic`. Unsetting
 `NESTED_WORLDS_PROVIDER` keeps the default adapter selected
-(`consciousness/runtime.py:39`, `consciousness/runtime.py:471-472`), so the
+(`consciousness/runtime.py:49`, `consciousness/runtime.py:595-596`), so the
 evaluation adapter, which needs no key for a loopback base URL, is not used
 (`consciousness/openai_compat_provider.py:294-295`); its key,
 `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY`, goes too
 (`consciousness/openai_compat_provider.py:56`). The four per-task provider
-variables are read only from #153 on (`consciousness/runtime.py:550-575` at
-`3200eed`); unsetting them is harmless on this branch, and on a build with
-#153 it keeps every task on the default adapter. `FAL_KEY` is the image key
+variables are read from #153 on (`consciousness/runtime.py:550-575` at
+`3200eed`, now merged here); unsetting them keeps every task on the default
+adapter. `FAL_KEY` is the image key
 (`server/handlers.py:1402`), and `NESTED_WORLDS_DISABLE_IMAGES=1` makes
 `/image` answer before it is read (`server/handlers.py:1371-1372`). Only
 `/app` requests images; the explorer does not. A source this list misses
@@ -695,13 +696,13 @@ Open the share URL only when all three checks pass: `server running` is
 printed, the keyless request returns `403`, and the keyed request returns
 `200`. Together they show that the server on port 8080 is the process just
 launched against this scratch world: only this world holds the new key, and
-minting it closed this world's invite gate (`server/guard.py:298-319`). A
+minting it closed this world's invite gate (`server/guard.py:312-333`). A
 `000` means the server is still starting; wait and repeat the checks. If port
 8080 is taken, `main.py serve` exits with an `Address already in use` error in
 `$HOME/serve.log` (`[Errno 98]` on Linux), but `invite mint` still succeeds
 against the scratch database, and the share URL would reach whichever server
 owns the port. Do not open it: stop the other server, or start this one with
-`--port <free port>` (`main.py:855`) and use that port wherever this kit says
+`--port <free port>` (`main.py:907`) and use that port wherever this kit says
 8080. Executed on 2026-11-02 in scratch `HOME`s: with the port held, `serve`
 exited with status 1 and the mint succeeded; with another Enfolded server
 holding its own key on the port, both requests returned 403; with the
@@ -720,7 +721,7 @@ not in the repository.
 1. While the server is still running, in the same terminal, snapshot the
    session database inside the scratch `HOME`, not yet in the restricted
    store: `.venv/bin/python main.py backup --to "$HOME/session-raw.db"`
-   (`main.py:890-894`). The snapshot is a self-contained copy of the whole
+   (`main.py:942-946`). The snapshot is a self-contained copy of the whole
    database (`persistence/__init__.py:3001-3022`), so it includes every
    journal note in plain text (`persistence/migrations/0021_participants.sql:26-34`).
 2. Remove private text from that copy before it leaves the scratch `HOME`.

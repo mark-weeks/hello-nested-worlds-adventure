@@ -52,9 +52,22 @@ def _isolate_rooms():
 
 
 @pytest.fixture(autouse=True)
-def _reset_text_provider():
-    """Selection is cached for the process. Each test starts unset."""
+def _reset_text_provider(monkeypatch):
+    """Selection is cached for the process. Each test starts unset.
+
+    Task provider overrides and the neutral budget names are cleared so a
+    developer environment cannot leak into the suite. Legacy budget names
+    are left for the test that sets them.
+    """
     from consciousness import runtime
+    from server import guard
+    for name in runtime.TASK_PROVIDER_ENVS:
+        monkeypatch.delenv(name, raising=False)
+    for name in (
+        guard.VOICE_CAP_ENV, guard.VOICE_PER_USER_CAP_ENV,
+        guard.IMAGE_CAP_ENV, guard.IMAGE_PER_USER_CAP_ENV,
+    ):
+        monkeypatch.delenv(name, raising=False)
     runtime.reset_provider_selection()
     yield
     runtime.reset_provider_selection()
