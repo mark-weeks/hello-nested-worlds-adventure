@@ -403,7 +403,7 @@ def test_authored_fallback_records_no_provider(http, monkeypatch, caplog):
     def authored(*args, **kwargs):
         return consciousness.fallback_voice(node)
     monkeypatch.setattr(consciousness, "speak", authored)
-    monkeypatch.setattr(runtime, "configured", lambda: True)
+    monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
     status, body, _ = http("/speak", body={"node_name": node.name, "message": "hello again"})
     assert status == 200 and body["ai"] is True
     rows = _rows()

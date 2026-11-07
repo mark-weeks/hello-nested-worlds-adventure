@@ -497,7 +497,7 @@ class TestVoiceHealth:
         args.func(args)
 
     def test_busy_is_a_failure_the_operator_sees(self, monkeypatch, capsys, caplog):
-        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
         caplog.set_level(logging.WARNING, logger="nested_worlds")
         observability.voice_outcome("speak", "ok")
         observability.voice_outcome("speak", "busy")

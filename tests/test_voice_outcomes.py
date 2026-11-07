@@ -50,7 +50,7 @@ def voiced(monkeypatch):
     """A configured voice and an open screen; each test sets the behaviour."""
     from consciousness import runtime
     monkeypatch.delenv(guard.DISABLE_AI_ENV, raising=False)
-    monkeypatch.setattr(runtime, "configured", lambda: True)
+    monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
     monkeypatch.setattr(moderation, "screen",
                         lambda text, **_kwargs: SimpleNamespace(allowed=True))
 
@@ -157,7 +157,7 @@ class TestSpeakOutcomes:
     def test_unconfigured_voice_is_an_alert(self, base, monkeypatch, caplog):
         from consciousness import runtime
         monkeypatch.delenv(guard.DISABLE_AI_ENV, raising=False)
-        monkeypatch.setattr(runtime, "configured", lambda: False)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: False)
         monkeypatch.setattr(moderation, "screen",
                             lambda text, **_kwargs: SimpleNamespace(allowed=True))
         caplog.set_level(logging.WARNING, logger="nested_worlds")
@@ -203,7 +203,7 @@ class TestSpeakOutcomes:
         # voice is asked, so it must count as an outage, not as silence.
         from consciousness import runtime
         monkeypatch.delenv(guard.DISABLE_AI_ENV, raising=False)
-        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
         monkeypatch.setattr(moderation, "screen",
                             lambda text, **_kwargs: moderation.Verdict(False, "error", "error"))
         caplog.set_level(logging.WARNING, logger="nested_worlds")
@@ -227,7 +227,7 @@ class TestSpeakOutcomes:
         # Review of #141: a held line is talking to silence whatever held it.
         from consciousness import runtime
         monkeypatch.delenv(guard.DISABLE_AI_ENV, raising=False)
-        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
         monkeypatch.setattr(moderation, "screen",
                             lambda text, **_kwargs: moderation.Verdict(False, outcome, outcome))
         status, data = _speak(base)
@@ -237,7 +237,7 @@ class TestSpeakOutcomes:
     def test_a_content_decline_is_policy_not_an_outage(self, base, monkeypatch):
         from consciousness import runtime
         monkeypatch.delenv(guard.DISABLE_AI_ENV, raising=False)
-        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
         monkeypatch.setattr(moderation, "screen",
                             lambda text, **_kwargs: moderation.Verdict(False, "classify", "block"))
         status, data = _speak(base)
@@ -374,7 +374,7 @@ class TestVoiceHealthCommand:
 
     def test_failures_in_the_window_exit_nonzero(self, monkeypatch, capsys):
         from consciousness import runtime
-        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
         observability.voice_outcome("speak", "ok")
         observability.voice_outcome("speak", "provider", RuntimeError())
         observability.voice_outcome("speak", "budget")
@@ -386,7 +386,7 @@ class TestVoiceHealthCommand:
 
     def test_limits_alone_pass(self, monkeypatch, capsys):
         from consciousness import runtime
-        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
         observability.voice_outcome("speak", "ok")
         observability.voice_outcome("agent_voice", "budget")
         self._run()
@@ -396,7 +396,7 @@ class TestVoiceHealthCommand:
         # Review of #141: credentials alone are not health. The same hard
         # problems the boot refuses make voice-health exit 1.
         from consciousness import model_check, runtime
-        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
         report = SimpleNamespace(
             hard=("node",), failure_line=lambda: "Model configuration: node has no model id")
         monkeypatch.setattr(model_check, "check_model_configuration", lambda *_a: report)
@@ -408,7 +408,7 @@ class TestVoiceHealthCommand:
 
     def test_a_failed_probe_fails_and_an_accepted_one_passes(self, monkeypatch, capsys):
         from consciousness import model_check, runtime
-        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
         monkeypatch.setattr(model_check, "probe_distinct_models", lambda *_a: (
             model_check.ProbeResult("fixture-model", False, "HTTP 401"),))
         with pytest.raises(SystemExit, match="live probe failed"):
@@ -420,10 +420,14 @@ class TestVoiceHealthCommand:
 
     def test_no_usable_provider_fails_unless_switched_off(self, monkeypatch):
         from consciousness import runtime
-        monkeypatch.setattr(runtime, "configured", lambda: False)
+        from server import moderation
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: False)
         with pytest.raises(SystemExit, match="no usable voice provider"):
             self._run()
         monkeypatch.setenv(guard.DISABLE_AI_ENV, "1")
+        with pytest.raises(SystemExit, match="no usable moderation provider"):
+            self._run()
+        monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
         self._run()
 
 
