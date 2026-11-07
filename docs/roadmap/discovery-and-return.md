@@ -259,6 +259,48 @@ For cohorts other than ten, use the corresponding proportions and report actual
 counts. Add lightweight research/operational measurement outside permanent world
 canon; do not add a chronicle row for every page view or journal read.
 
+## Prospective M8 item: one cross-scale cooperative mystery
+
+**Recorded 2026-11-06 at the owner's request. Status: prospective; no
+implementation or delivery date assigned.** This develops the cross-scale
+co-op candidate U2 in the [beta checklist](beta-launch-checklist.md), after
+M7 observations establish where discovery and consequence recognition work.
+It adds no beta entry gate and authorizes no implementation.
+
+The player problem to test is whether the nested scales give people a reason
+to investigate together and return to a shared place. Two willing players at
+different scales would discover connected evidence and coordinate materially
+different actions through the existing Puzzle, Speak and Act surfaces. Their
+consequences would leave an aftermath that returning players and later arrivals
+can investigate. The specific places, clues, operations and timing remain design
+hypotheses; there is no new situation installed by this entry.
+
+Keep the first experiment to one mystery in existing geography, with real
+scale-specific effects and independently accepted actions. Each player decides
+whether to participate and accepts only their own actions. Solo exploration and
+unrelated puzzles remain available; do not make another person's presence a
+condition of entering or leaving a place, or add a parallel quest controller.
+
+Design for human–human play and the owner's suggested human–AI collaboration,
+where agents help humans solve rather than solve independently. The
+[2026-11-06 puzzle direction](decision-packet-2026-11.md#3-puzzle-failure-semantics)
+also allows puzzle personalities and dynamic attempts and lock periods; its
+details still need a Proposed ADR. Before implementation, settle whether an
+agent can submit or only suggest an answer, the scope of annoyance and renewal,
+and near-miss feedback that preserves answer secrecy and per-node difficulty.
+Agent help remains subject to the current autonomy and human-progress covenants.
+Any chat-based agent participation also depends on the structural-parity contract,
+provider checks under the owner's 2026-11-07 model-provider data policy, and the
+budget decision recorded in the packet.
+
+Use the newcomer/pilot evidence to choose the problem, review the mystery's
+clues and aftermath, and settle any new puzzle-instance or delayed-action
+contract under the applicable ADRs before implementation. Acceptance evidence
+should show that participants infer the relationship between scales, coordinate
+without forced delegation, distinguish their attempts from observed consequences,
+and find something meaningful on return. Also exercise an absent or disconnected
+partner, retries, conflicting changes and late arrivals without rewriting history.
+
 ## Deferred scope and reopening triggers
 
 Defer additional scales, broad frontier growth, a universal quest engine, global
@@ -269,3 +311,4 @@ experience, authoring effort, load, or participant demand identifies the need.
 If players cannot explain a reason to return, revise the situation and its
 consequences before adding these systems. If the experience works, introduce a
 new situation in familiar geography and extract only the reusable parts it needs.
+
