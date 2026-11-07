@@ -433,13 +433,14 @@ new handles on reconnect while preserving stored preferences; clients clear
 buffered live content from the previous handle scope and keep shared history and
 world effects. Retired registry targets remain removable from their owner's list.
 
-**Pending owner decision before this PR merges or its schema is deployed:**
-retain the internal `agent:<canonical name>` targets for this scoped feature,
-with an explicit translation when unified inhabitant participant identities
-are implemented, or introduce those opaque participant identities now. The
-latter is part of Proposed ADR-032, not ratified by this feature. Runtime
-handles remove the new public identity signal under either choice; they do not
-settle the durable storage contract or approve that proposed migration.
+**Owner decision, 2026-11-07:** "Keep internal targets; translate during
+unified-identity work." This feature retains internal
+`agent:<canonical name>` targets and opaque browser handles. When unified
+inhabitant participant identities are implemented, that work must translate
+existing `participant_blocks.blocked_id` targets so saved preferences continue
+to match their travelers. This settles this feature's stored-target contract;
+[ADR-032](ADR-032-inhabitant-cognition.md) remains Proposed, and identity
+unification is future work.
 
 Blocking filters the target's live chat and presence for the blocker in
 both browser clients and on the server's live socket delivery. It is one-way,
