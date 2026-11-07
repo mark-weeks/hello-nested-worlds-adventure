@@ -3,10 +3,7 @@
 *Prepared 2026-11-02 against `main` at `23b8830` for the owner, Mark Weeks.
 Every recommendation on this page is **proposed by agent; not decided**,
 except decision 7, which the owner settled on 2026-11-03 and which ADR-004
-records; this page only notes that outcome. Decisions 2 and 10 carry the
-owner's answers of 2026-11-07, quoted in their sections; the recommendations
-beside them stay as proposed. Apart from quoting those answers, the page
-records no decision, ratifies no ADR, publishes nothing, and authorizes no
+records; this page only notes that outcome. The page records no decision, ratifies no ADR, publishes nothing, and authorizes no
 implementation, deployment, recruitment, tag or merge. The evidence behind it
 is in the [2026-11-02 week-plan audit](../evaluation/2026-11-02-week-plan.md).
 The [beta launch checklist](beta-launch-checklist.md) governs exit criteria;
@@ -15,12 +12,12 @@ the [Q4 plan](next-steps-2026-q4.md) governs order until it is re-planned
 
 ## Summary
 
-All recommendations in this table are proposed by agent; not decided, except decision 7 (decided 2026-11-03). Decisions 2 and 10 carry owner answers of 2026-11-07 (in their sections).
+All recommendations in this table are proposed by agent; not decided, except decision 7 (decided 2026-11-03).
 
 | # | Decision | Needed by | Blocks | Recommendation |
 |---|---|---|---|---|
 | 1 | [S5: is chat kept in the never-wipe chronicle?](#1-s5-chat-permanence) | Hard: the first production chat line. Practical: before the report queue is built (next week) | The S5 go/no-go line; report evidence (S3, G2); the privacy notice's chat sentence (L3); consent wording | (c) an operator-only chat log with a short retention window, kept out of the chronicle and out of prompts |
-| 2 | [Newcomer-watch venue](#2-newcomer-watch-venue) | Before the first newcomer session is scheduled; this week for a watch before Thanksgiving | O1 to O4 observations; C2c ratings; Q4 steps P6 and P7 | A local, declared-disposable world for the onboarding watch only; the Fly twin stays mandatory for P4 and production. **Owner, 2026-11-07:** staging preferred; the local world is a fallback only |
+| 2 | [Newcomer-watch venue](#2-newcomer-watch-venue) | Before the first newcomer session is scheduled; this week for a watch before Thanksgiving | O1 to O4 observations; C2c ratings; Q4 steps P6 and P7 | A local, declared-disposable world for the onboarding watch only; the Fly twin stays mandatory for P4 and production |
 | 3 | [Puzzle failure semantics](#3-puzzle-failure-semantics) | Before release-candidate scope freeze | The fix; honest C2a and C2c counts | Refuse attempts after a failure, and re-arm failed puzzles through decay with the condition "current epoch resolved (solved or failed)". A write-path door; no re-pin |
 | 4 | [World status (Q4 B)](#4-world-status-q4-decision-b) | Before any copy goes to recruits, and before the first invited outside player | R3, K2, "World status declared"; the permanence copy on `/register` and in the guide; L3 | Production for the cohort world if P4's restore and freshness checks pass; any staging or local watch declared disposable |
 | 5 | [Minimum tester age (S4)](#5-minimum-tester-age-s4) | Before recruitment (Q4 P5) and before any terms or invite text | S4; the terms text (L2); the invite template | 18 or older |
@@ -28,7 +25,7 @@ All recommendations in this table are proposed by agent; not decided, except dec
 | 7 | [Reserve Observer and Scout](#7-reserve-observer-and-scout) | Decided 2026-11-03 | Nothing now | Reserved, as recommended; recorded in ADR-004's 2026-11-03 reserved-names amendment |
 | 8 | [D6 timing (Q4 C, lapsed Oct 10)](#8-d6-timing-q4-decision-c) | Before the first production deploy; a migration-first answer needs about two more weeks before it | ADR-029 batch 1 ordering; how urgent the consumer inventory is | The Q4 recommendation stands: before the first structural operation, not before the pilot |
 | 9 | [#89 criteria (Q4 H, lapsed Oct 15)](#9-89-criteria-q4-decision-h) | Before anyone implements #89 | #89 only | The agent drafts revised criteria; the owner posts them or edits the issue |
-| 10 | [Player-text destinations (S2, with L4)](#10-player-text-destinations-s2) | Before any outside participant's text reaches a model: the first watch session with live voice, and P9 | S2, L4; the destinations named in the privacy notice; live voice in the watch; any second provider | One text provider for voice, intention and moderation, chosen by decision D's probes. Record that image prompts carry no player text. **Owner rule, 2026-11-07:** model providers receive information only to facilitate game play, and Enfolded data must not train frontier models |
+| 10 | [Player-text destinations (S2, with L4)](#10-player-text-destinations-s2) | Before any outside participant's text reaches a model: the first watch session with live voice, and P9 | S2, L4; the destinations named in the privacy notice; live voice in the watch; any second provider | One text provider for voice, intention and moderation, chosen by decision D's probes. Record that image prompts carry no player text |
 | 11 | [Dollar spend ceiling (E2)](#11-dollar-spend-ceiling-e2) | Before cohort budget sizing (E1) at P9 | E2, E1, M4 | Keep E2 blocking and move only D8's dollar posture ahead of the cohort, resolving the conflict with Q4 decision G. The owner sets the amount and period |
 | 12 | [Off-host backup destination and retention (Q4 I)](#12-off-host-backup-destination-and-retention-q4-decision-i) | Before `ENFOLDED_BACKUP_REQUIRED=true` (Q4 P1) | P3 to P5; the backup-retention sentence in L3; the retention tail in decision 1 | Choose a destination and a retention period deliberately; the 30 days in the runbook is an example, not a decision |
 
@@ -75,18 +72,7 @@ report.
 
 ## 2. Newcomer-watch venue
 
-*Owner answer recorded 2026-11-07 (below). The analysis and the
-recommendation are as prepared on 2026-11-02.*
-
-**Owner answer (2026-11-07):** "Let's expedite the test build, preferably in
-a staging environment rather than local." The owner prefers the Fly staging
-twin for the watch, brought up now rather than waited for; that is closest
-to option (c). [Runbook section 3a](../infrastructure/fly-deployment.md#3a-staging-rehearsal--before-the-permanent-world-begins)
-has the steps. The local world of option (a) and its
-[facilitator kit](../evaluation/2026-11-02-newcomer-watch-kit.md) stay a
-fallback only; the answer does not forbid them. The research basics protocol
-2 lists still come first on staging. The rest of P4 (soak, downloaded
-restore, live-voice probe) still follows on the twin.
+*Proposed by agent; not decided.*
 
 **Question.** May the 2 to 3 newcomer onboarding watch (protocol 2, script
 steps 1 to 3) run on a local, declared-disposable world on the facilitator's
@@ -278,21 +264,7 @@ revised criteria; the owner posts them or edits the issue. Not cohort-blocking.
 
 ## 10. Player-text destinations (S2)
 
-*Owner answer recorded 2026-11-07 (below). The analysis and the
-recommendation are as prepared on 2026-11-02. S2 and L4 stay open in the
-checklist.*
-
-**Owner answer (2026-11-07):** "Information can only be shared with model
-providers to facilitate game play. Enfolded data must not be used to train
-frontier models." [Runbook section 3a](../infrastructure/fly-deployment.md#provider-data-rule)
-records it for operators. It sets the purpose (game play) and the training
-bar for every model provider and for all Enfolded data, not only player
-text. It does not build S2's allowlist in config, write L4's data-use note
-for each provider, or settle the consent wording. Image prompts carry no
-player text, but they do carry world data: the node's level, name, aspect
-line and up to 32 properties (`server/imageprompt.py:120-141`), so the rule
-covers fal.ai too. fal.ai's terms have not been checked, and Anthropic's
-no-training default is known only from a web search result of 2026-11-07.
+*Proposed by agent; not decided. Held in the checklist, with L4.*
 
 **What reaches which provider today.** The configured text provider receives a
 player's speech to places and inhabitants, plus earlier players' names,

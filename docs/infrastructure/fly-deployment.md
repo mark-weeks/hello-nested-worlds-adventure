@@ -339,8 +339,9 @@ before anyone is recruited. Protocol 2 also says: "Do not send invites until
 the operator confirms the correct world and its recovery status." The
 [facilitator kit](../evaluation/2026-11-02-newcomer-watch-kit.md)'s "Decide
 before session one" list, its facilitator script and its "What to capture,
-and where" rules apply on staging too. Its local setup, pre-session and
-after-session commands are written for a local world and do not apply. This
+and where" rules apply on staging too. On `main` its setup, pre-session and
+after-session commands are written for a local world and do not apply here;
+#156 adds staging-twin versions of them. This
 runbook does not settle the consent wording.
 
 **Sentry environment.** The committed `fly.toml` sets
