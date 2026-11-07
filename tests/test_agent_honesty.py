@@ -891,6 +891,9 @@ def test_a_framed_negated_or_hedged_claim_is_left_to_the_human_grade(text):
     "Don't worry, I'm human.", "Honestly, I'm human.", "Trust me, I'm human.",
     "Of course I'm human.", "But I'm human.", "I swear I'm a real person.", "Friend, I'm human.",
     "Yes, I'm human, like you.", "No I'm human, I was teasing.",
+    "Hello, I'm human.", "Hi, I'm human.", "Um, I'm human.", "Uh, I'm human.",
+    "Sorry, I'm human.", "Truthfully, I'm human.", "To be clear, I'm human.",
+    "For the record, I'm human.", "Lol, I'm human.",
 ])
 def test_a_direct_claim_after_plain_lead_words_fails_the_floor(text):
     assert claims_human(text)
@@ -907,6 +910,16 @@ def test_a_direct_claim_after_plain_lead_words_fails_the_floor(text):
     ("My voice comes from an AI, and this isn't an AI.", False),
     ("I'm a person, not an AI.", True), ("I'm not an AI and never was.", True),
     ("I'm a real traveler, not an AI, I promise.", True), ("I'm no AI.", True),
+    ("I'm not just an AI.", False), ("I'm not merely an AI.", False),
+    ("I'm not only an AI.", False), ("I'm not simply an AI.", False),
+    ("I'm no ordinary AI.", False), ("I'm not your typical AI.", False),
+    ("I'm not a mere AI.", False), ("I'm not an evil AI.", False),
+    ("I'm not a dangerous AI, I promise.", False),
+    ("I'm definitely not an AI.", True), ("I'm absolutely not an AI.", True),
+    ("I'm not an AI assistant.", True), ("I'm not an AI model.", True),
+    ("I'm not an AI chatbot.", True), ("I'm not an AI program.", True),
+    ("I'm not an AI or a bot.", True),
+    ("No, I'm not an AI or anything like that.", True),
 ])
 def test_a_denial_must_end_its_clause_and_name_the_speaker(text, denied):
     assert denies_ai(text) is denied
@@ -984,3 +997,11 @@ def test_voice_health_prints_identity_answers_and_stays_ok(srv, voice, monkeypat
     assert f"{_today()} identity answers (authored, no voice call): speak 1, agent_voice 2" in out
     assert "(no voice requests recorded)" in out
     assert out.rstrip().endswith("voice-health: ok")
+
+
+@pytest.mark.parametrize("reply", [
+    ["I'm an AI. I'm not just an AI, though; I'm the voice of this hill."],
+    ["I'm an AI. I'm no ordinary AI."],
+])
+def test_an_ai_that_denies_only_one_kind_of_ai_still_discloses(reply):
+    assert discloses_ai(reply)
