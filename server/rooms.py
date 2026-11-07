@@ -19,12 +19,53 @@ import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
+from persistence.blocks import agent_target
 from server.protocol import ws_send
 
 # Pending messages a client may fall behind before being declared dead.
 OUTBOX_LIMIT = 64
 
 _STOP = object()  # outbox sentinel: writer thread exits
+
+# Serialize preference writes with connection enrollment. Delivery itself only
+# reads each player's immutable preference snapshot; no database read or global
+# lock is added to room broadcasts or socket writes.
+BLOCKS_LOCK = threading.RLock()
+_LIVE_TYPES = frozenset({"chat", "player_join", "player_move", "player_leave",
+                         "agent_enter", "agent_move", "agent_leave", "agent_done"})
+
+
+def _live_agent_ids(message: dict) -> dict:
+    """Enrich live server envelopes without changing stored events or world effects."""
+    kind = message.get('type')
+    if kind in ('agent_enter', 'agent_move', 'agent_leave', 'agent_done'):
+        target = agent_target(message.get('name'))
+        return {**message, 'participant_id': target} if target else message
+    if kind == 'agent_encounter':
+        return {**message, 'participant_ids': [target for name in
+                    (message.get('agent1'), message.get('agent2'))
+                    if (target := agent_target(name))]}
+    if kind == 'agent_talk':
+        return {**message, 'participant_ids': [target for name in
+                    (message.get('a'), message.get('b')) if (target := agent_target(name))],
+                'lines': [{**line, 'participant_id': target} if
+                          (target := agent_target(line.get('speaker'))) else line
+                          for line in message.get('lines', [])]}
+    return message
+
+
+@dataclass(frozen=True)
+class _Delivery:
+    message: dict
+    revision: int
+
+
+@dataclass(frozen=True)
+class _BlockPolicy:
+    blocks: tuple = ()
+    ids: frozenset = frozenset()
+    revision: int = 0
+    blocked_at: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -34,6 +75,8 @@ class Player:
     current_node: str
     session_id: str
     sock: object
+    participant_id: str | None = None
+    _block_policy: _BlockPolicy = field(default_factory=_BlockPolicy, repr=False)
     # Serializes all frame writes on this socket — the writer thread's data
     # frames and the reader thread's pong/close echoes (see protocol.ws_recv).
     send_lock: threading.Lock = field(
@@ -45,6 +88,60 @@ class Player:
         default_factory=threading.Event, compare=False, repr=False)
     _writer: threading.Thread | None = field(
         default=None, compare=False, repr=False)
+
+    @property
+    def blocks(self):
+        return self._block_policy.blocks
+
+    @property
+    def blocked_ids(self):
+        return self._block_policy.ids
+
+    def set_blocks(self, blocks: list[dict]) -> None:
+        """Publish one immutable policy snapshot, remembering queued-message fences."""
+        policy = self._block_policy
+        revision = policy.revision + 1
+        ids = frozenset(b["id"] for b in blocks)
+        revisions = dict(policy.blocked_at)
+        for target in ids - policy.ids:
+            revisions[target] = revision
+        self._block_policy = _BlockPolicy(
+            tuple(dict(b) for b in blocks), ids, revision, revisions)
+
+    def _visible(self, message: dict, revision: int) -> dict | None:
+        policy = self._block_policy
+        message = _live_agent_ids(message)
+        target = message.get("participant_id")
+        kind = message.get("type")
+
+        def hidden(target):
+            return target in policy.ids or policy.blocked_at.get(target, 0) > revision
+
+        if kind in _LIVE_TYPES and target:
+            # A block also discards pre-block queued traffic after an unblock.
+            if hidden(target):
+                return None
+        if kind == 'agent_encounter' and any(hidden(p) for p in message['participant_ids']):
+            return None
+        if kind == 'agent_talk':
+            pair_hidden = any(hidden(p) for p in message['participant_ids'])
+            lines = [line for line in message['lines']
+                     if not hidden(line.get('participant_id'))
+                     and (line.get('speaker') or not pair_hidden)]
+            if not lines:
+                return None
+            message = {**message, 'lines': lines,
+                       'participant_ids': [p for p in message['participant_ids'] if not hidden(p)]}
+            for key in ('a', 'b'):
+                if hidden(agent_target(message.get(key))):
+                    message.pop(key, None)
+        if kind in ("welcome", "blocks_changed"):
+            message = {**message, "blocks": list(policy.blocks),
+                       "players": [p for p in message.get("players", [])
+                                   if p.get("participant_id") not in policy.ids],
+                       "agents": [a for a in message.get("agents", [])
+                                  if a.get('participant_id') not in policy.ids]}
+        return message
 
     def start_writer(self) -> None:
         """Spawn the dedicated writer thread (called once per connection)."""
@@ -75,6 +172,11 @@ class Player:
                     # §5.5.1).
                     if self._dead.is_set():
                         return
+                    if isinstance(item, _Delivery):
+                        visible = self._visible(item.message, item.revision)
+                        if visible is None:
+                            continue
+                        item = json.dumps(visible)
                     ws_send(self.sock, item)
             except OSError:
                 self._dead.set()
@@ -90,16 +192,19 @@ class Player:
         """
         if self._dead.is_set():
             return False
-        data = json.dumps(msg)
+        revision = self._block_policy.revision
+        visible = self._visible(msg, revision)
+        if visible is None:
+            return True
         if self._writer is None:
             try:
-                ws_send(self.sock, data, send_lock=self.send_lock)
+                ws_send(self.sock, json.dumps(visible), send_lock=self.send_lock)
                 return True
             except OSError:
                 self._dead.set()
                 return False
         try:
-            self.outbox.put_nowait(data)
+            self.outbox.put_nowait(_Delivery(visible, revision))
             return True
         except queue.Full:
             self._dead.set()
@@ -223,19 +328,41 @@ def agent_persona(room: Room, name: str) -> str | None:
         return room.agent_personas.get(name)
 
 
-def snapshot(room: Room) -> list[dict]:
+def snapshot(room: Room, viewer: Player | None = None) -> list[dict]:
     with room.lock:
-        return [{"name": p.name, "node": p.current_node, "session_id": p.session_id}
-                for p in room.players.values()]
+        return [{"name": p.name, "node": p.current_node, "session_id": p.session_id,
+                 **({"participant_id": p.participant_id} if p.participant_id else {})}
+                for p in room.players.values()
+                if viewer is None or p.participant_id not in viewer.blocked_ids]
 
 
-def agents_snapshot(room: Room) -> list[dict]:
+def sync_blocks(participant: str, blocks: list[dict]) -> None:
+    """Called under BLOCKS_LOCK after commit; only the owner's tabs are notified.
+
+    A writer rechecks queued live speech/presence just before starting its frame.
+    A frame whose transmission has already begun cannot be taken back.
+    Slow sockets never hold this preference lock or delay another player.
+    """
+    with _rooms_lock:
+        rooms = list(_rooms.values())
+    for room in rooms:
+        with room.lock:
+            for player in room.players.values():
+                if player.participant_id == participant:
+                    player.set_blocks(blocks)
+                    player.send({"type": "blocks_changed", "blocks": blocks,
+                                 "players": snapshot(room, player),
+                                 "agents": agents_snapshot(room, player)})
+
+
+def agents_snapshot(room: Room, viewer: Player | None = None) -> list[dict]:
     """The cast members currently walking this world, with positions —
     the agent half of the travelers roster the welcome payload carries."""
     with room.lock:
         return [{"name": n, "node": pos,
-                 "persona": room.agent_personas.get(n)}
-                for n, pos in room.active_agents.items()]
+                 "persona": room.agent_personas.get(n), 'participant_id': agent_target(n)}
+                for n, pos in room.active_agents.items()
+                if viewer is None or agent_target(n) not in viewer.blocked_ids]
 
 
 # ── Puzzle sessions (co-op state) ───────────────────────────────────────────

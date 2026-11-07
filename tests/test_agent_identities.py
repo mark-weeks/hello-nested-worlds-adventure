@@ -192,9 +192,11 @@ def test_observe_walks_as_observer_never_as_a_registered_player(srv):
     presence = [frame for frame in frames
                 if frame["type"] in {"agent_enter", "agent_move", "agent_leave"}]
     assert presence[0] == {"type": "agent_enter", "name": "Observer",
-                           "persona": for_name("Observer").name}
+                           "persona": for_name("Observer").name,
+                           "participant_id": "agent:Observer"}
     assert {frame["name"] for frame in presence} == {"Observer"}
-    assert presence[-1] == {"type": "agent_leave", "name": "Observer"}
+    assert presence[-1] == {"type": "agent_leave", "name": "Observer",
+                            "participant_id": "agent:Observer"}
     # Since #141 the walk is live-only: its unapplied events are streamed to
     # the watcher, never broadcast as causal_events, and nothing is stored.
     assert not [frame for frame in frames if frame["type"] == "causal_event"]

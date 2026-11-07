@@ -11,6 +11,7 @@ export function dispatchMessage(msg, h) {
   if (!msg || typeof msg !== "object") return;
   switch (msg.type) {
     case "welcome":         h.onWelcome?.(msg); break;
+    case "blocks_changed":  h.onBlocksChanged?.(msg); break;
     case "player_join":     h.onPlayerJoin?.(msg); break;
     case "player_leave":    h.onPlayerLeave?.(msg); break;
     case "player_move":     h.onPlayerMove?.(msg); break;
