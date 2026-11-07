@@ -79,8 +79,11 @@ const {
   nodeAddress,
   nodeMark,
   observationRow,
+  openWorld,
   restoreChatInput,
   resumeDepth,
+  SPEAK_UNREACHED_LINE,
+  WORLD_UNREACHED_LINE,
   wrapAffordance,
 } = window.EnfoldedClient;
 
@@ -154,6 +157,12 @@ new ResizeObserver(() => {
 
 function setStatus(msg) { document.getElementById('status').textContent = msg; }
 
+// The line of a world that has not opened while nothing is drawn (the invite
+// line, a refused invitation or a retry). No place can be chosen until the
+// world opens, so a control that needs one leaves this line in place.
+let worldClosedLine = null;
+function needPlace() { setStatus(worldClosedLine || 'Select a node first.'); }
+
 function setMode(mode) {
   ['speak', 'puzzle', 'act'].forEach(m => {
     document.getElementById('panel-' + m).classList.toggle('active', m === mode);
@@ -176,9 +185,17 @@ async function loadWorld() {
     const { depth } = worldParams;
     // The server chooses the world. Its returned seed is carried only as the
     // identity needed by subsequent requests and deterministic senses.
-    const res  = await fetch(withKey(`/world?depth=${depth}`));
-    const data = await res.json();
-    if (!res.ok || data.error) throw Object.assign(new Error(data.error || 'The world could not be reached. Try opening the view again.'),{status:res.status});
+    const opened = await openWorld(url => fetch(url), withKey(`/world?depth=${depth}`), !!betaKey());
+    if (opened.unopened) {
+      setStatus(opened.unopened.line);
+      if (!selected) worldClosedLine = opened.unopened.line;
+      // Before any place is in hand the map is empty; say it where a place
+      // would be described, not only in the status bar.
+      if (!selected) document.getElementById('node-description').textContent = opened.unopened.line;
+      return;
+    }
+    const data = opened.data;
+    worldClosedLine = null;
     worldParams.seed = data.seed;
     wrapInfo = data.wrap || null;
     investigationEntry = data.entry_node || null;
@@ -187,8 +204,14 @@ async function loadWorld() {
     renderTree(data.world, { preservePresence: sameWorld });
     if (playerName && !sameWorld) wsConnect(data.seed);
     if (!sameWorld) loadHistoryFeed(data.seed);
-  } catch (e) {
-    setStatus(e.status ? e.message : 'The world could not be reached. Try opening the view again.');
+  } catch (_) {
+    // The world arrived but could not be drawn. With no place in hand, keep
+    // the retry line where a place would be described and for Speak/Observe.
+    setStatus(WORLD_UNREACHED_LINE);
+    if (!selected) {
+      worldClosedLine = WORLD_UNREACHED_LINE;
+      document.getElementById('node-description').textContent = WORLD_UNREACHED_LINE;
+    }
   } finally {
     document.getElementById('gen-btn').disabled = false;
   }
@@ -758,7 +781,7 @@ async function loadPresences(nodeName) {
 }
 
 async function speak() {
-  if (!selected) { setStatus('Select a node first.'); return; }
+  if (!selected) { needPlace(); return; }
   const message = document.getElementById('message').value.trim();
   if (!message) return;
   const box = document.getElementById('speak-response');
@@ -781,14 +804,14 @@ async function speak() {
     box.className   = data.error ? 'response-box error' : 'response-box';
     setStatus('Ready');
   } catch (e) {
-    box.textContent = 'Network error: ' + e.message;
+    box.textContent = SPEAK_UNREACHED_LINE;
     box.className   = 'response-box error';
-    setStatus('Error');
+    setStatus(SPEAK_UNREACHED_LINE);
   }
 }
 
 function observe() {
-  if (!selected) { setStatus('Select a node first.'); return; }
+  if (!selected) { needPlace(); return; }
   if (observeES) { observeES.close(); observeES = null; }
 
   document.getElementById('observe-rows').innerHTML = '';
@@ -842,7 +865,7 @@ function appendObserveRow({ node, level, kind, strength }) {
 
 let puzzleRequest = 0;
 async function fetchPuzzle() {
-  if (!selected) { setStatus('Select a node first.'); return; }
+  if (!selected) { needPlace(); return; }
   const { seed, depth } = worldParams;
   const nodeName=selected.name, request=++puzzleRequest;
   const current=()=>request===puzzleRequest && selected?.name===nodeName;

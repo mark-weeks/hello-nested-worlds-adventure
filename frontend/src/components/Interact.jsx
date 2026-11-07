@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import "../../../static/intents.js";
+import "../../../static/clientlogic.js";
 import { withKey } from "../auth.js";
 import Interventions from "./Interventions.jsx";
+
+// The line both clients show when speech does not reach the server.
+const { SPEAK_UNREACHED_LINE } = globalThis.EnfoldedClient;
 
 // Node interaction panel: the two core-loop mechanics the /app client was
 // missing — talk to a node (/speak) and solve its puzzle
@@ -97,7 +101,7 @@ function Speak({ node, seed, playerName }) {
       setResponse(data.error || data.response || "(no response)");
       setState(data.error ? "error" : "ok");
     } catch (e) {
-      setResponse("Your words did not reach this place. Try speaking again.");
+      setResponse(SPEAK_UNREACHED_LINE);
       setState("error");
     }
   }, [message, node, seed, playerName, state, target]);

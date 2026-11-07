@@ -423,6 +423,69 @@
     return line && current === "" ? line : current;
   }
 
+  // ── A world that does not open ──────────────────────────────────────────
+  // The invite key lives only in this browser's storage once the address is
+  // cleaned, so a bookmark, a private window, another device or cleared site
+  // data arrives with none, and the gate answers /world with a bare 403. The
+  // gate answers an unknown, revoked or sanctioned key with the same bare
+  // 403 and gives no reason. The line says only what this browser knows,
+  // which is whether it presented an invitation at all.
+  const WORLD_INVITE_LINE = "The world opens only to an invitation, and this "
+    + "browser holds none. To return, open the invite link you were sent, "
+    + "here on this device.";
+  const WORLD_REFUSED_LINE = "The invitation this browser holds does not open "
+    + "the world. If you were sent another invite link, open it here on this "
+    + "device.";
+  const WORLD_UNREACHED_LINE = "The world could not be reached. Try opening "
+    + "the view again.";
+  // Shared with /speak and /agent/voice when the request itself fails.
+  const SPEAK_UNREACHED_LINE = "Your words did not reach this place. Try "
+    + "speaking again.";
+
+  // `kind` is "invite" or "refused" while the gate holds this browser out
+  // (asking again changes nothing until an invite link is opened), and
+  // "retry" for everything else. Two answers keep the server's own line: the
+  // pace line (429) is authored, and a refused depth (400) names the range
+  // the player chose outside of on the map. Any other status, such as a 404
+  // or 401 from a proxy in front of the server, says nothing a player
+  // should read, so it gets the retry line.
+  const WORLD_LINE_STATUSES = [400, 429];
+  function worldUnopened(status, hasKey, serverLine) {
+    if (status === 403) {
+      return hasKey
+        ? { kind: "refused", line: WORLD_REFUSED_LINE }
+        : { kind: "invite", line: WORLD_INVITE_LINE };
+    }
+    if (WORLD_LINE_STATUSES.includes(status) && typeof serverLine === "string" && serverLine) {
+      return { kind: "retry", line: serverLine };
+    }
+    return { kind: "retry", line: WORLD_UNREACHED_LINE };
+  }
+
+  // Read /world through `read` (fetch, in both clients). Resolves to
+  // `{ data }` when the world opened and `{ unopened }` otherwise. It never
+  // rejects, so no raw transport message reaches a player.
+  async function openWorld(read, url, hasKey) {
+    let response;
+    try {
+      response = await read(url);
+    } catch (_) {
+      return { unopened: worldUnopened(0, hasKey) };
+    }
+    let data = null;
+    let parsed = false;
+    try {
+      data = await response.json();
+      parsed = true;
+    } catch (_) { /* a proxy's HTML error page, or a cut-off body */ }
+    if (response.ok && data && !data.error) return { data };
+    // Only the server's own JSON answer speaks for the invite gate. A 403 page
+    // from a proxy in front of it, or a cut-off body, says nothing about the
+    // invitation, so it gets the retry line like any other failed read.
+    if (!parsed) return { unopened: worldUnopened(0, hasKey) };
+    return { unopened: worldUnopened(response.status, hasKey, data && data.error) };
+  }
+
   root.EnfoldedClient = Object.freeze({
     BADGE_RULES,
     causalFeedLine,
@@ -445,12 +508,18 @@
     nodeAddress,
     nodeMark,
     observationRow,
+    openWorld,
     passageBadges,
     rememberInvite,
     restoreChatInput,
     resumeDepth,
+    SPEAK_UNREACHED_LINE,
     waybackMomentLine,
     waybackNode,
+    WORLD_INVITE_LINE,
+    WORLD_REFUSED_LINE,
+    WORLD_UNREACHED_LINE,
+    worldUnopened,
     wrapAffordance,
   });
 })(globalThis);
