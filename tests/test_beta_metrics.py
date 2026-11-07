@@ -740,3 +740,133 @@ class TestBetaMetrics:
         # word may also be part of a place name the report lists.
         assert s["answer"] not in section
         assert s["answer"] not in json.dumps(timeline)
+
+
+def _fixture_event(kind, *, actor="tester", seed=SEED, node=FAILING_NODE,
+                   data=None, ago="0 days"):
+    """Append a scratch-history event, including historical ambient traces."""
+    persistence.record_mutation(seed, node, kind, None, data or {},
+                                actor_identity=actor)
+    with persistence._connect() as conn:
+        event_id = conn.execute("SELECT MAX(id) FROM world_mutations").fetchone()[0]
+        conn.execute(
+            "UPDATE world_mutations SET recorded_at = datetime('now', ?) WHERE id = ?",
+            (f"-{ago}", event_id))
+
+
+class TestAmbientMetricsSafeguards:
+    def test_all_server_identities_and_agent_actions_stay_out_of_human_counts(self):
+        from agents.identities import SERVER_IDENTITIES
+        for actor in SERVER_IDENTITIES:
+            for kind in ("INTERVENTION_COMMITTED", "SCALE_ACT", "PUZZLE_SOLVED",
+                         "PUZZLE_FAILED", "PLAYER_JOIN"):
+                _fixture_event(kind, actor=actor)
+        # Older custom walkers can have identities outside today's roster.
+        # Their payload still tells us that these are ambient actions.
+        for kind in ("INTERVENTION_COMMITTED", "SCALE_ACT", "PUZZLE_ATTEMPT",
+                     "PUZZLE_SOLVED", "PUZZLE_FAILED"):
+            _fixture_event(kind, actor="historical-agent",
+                           data={"agent": "historical-agent"})
+        _fixture_event("INTERVENTION_COMMITTED", actor=None)
+        _fixture_event("INTERVENTION_ARRIVED")  # delivery is not another action
+        _fixture_event("INTERVENTION_COMMITTED")
+        _fixture_event("SCALE_ACT")
+        # A player asking an inhabitant is still a human conversation.
+        _fixture_event("AGENT_VOICE", data={"agent": "Tessera", "reply": "Welcome."})
+
+        metrics = _metrics(days=1, timeline=True)
+        assert metrics["visitors"] == metrics["acting_visitors"] == 1
+        assert metrics["events_per_visitor"] == metrics["actions_per_visitor"] == 3
+        assert metrics["act_commits"] == metrics["scale_acts"] == 1
+        assert metrics["conversations"] == 1
+        assert metrics["puzzle_attempts"] == metrics["puzzle_solves"] == 0
+        assert metrics["puzzle_failures"] == metrics["puzzle_failed_rows"] == 0
+        assert metrics["events_by_type"] == {
+            "INTERVENTION_COMMITTED": 1, "SCALE_ACT": 1, "AGENT_VOICE": 1}
+        assert len(metrics["timeline"]) == 1
+        assert metrics["timeline"][0]["first_solve"] is None
+
+    def test_ambient_failure_cannot_claim_the_first_human_failed_pool(self):
+        puzzle = {"puzzle": "The Sealed Room"}
+        for actor in ("Tessera", "Scout", "Observer", None):
+            _fixture_event("PUZZLE_FAILED", actor=actor, ago="2 days",
+                           data={**puzzle, "agent": actor or "historical-agent"})
+        _fixture_event("PUZZLE_FAILED", actor="historical-agent", ago="2 days",
+                       data={**puzzle, "agent": "historical-agent"})
+        _fixture_event("PUZZLE_FAILED", data=puzzle)
+        _fixture_event("PUZZLE_FAILED", actor="second-tester", data=puzzle)
+        _fixture_event("PUZZLE_SOLVED", actor="second-tester", data=puzzle)
+
+        metrics = _metrics(days=1)
+        assert metrics["puzzle_failures"] == 1
+        assert metrics["puzzle_failed_rows"] == 2
+        assert metrics["puzzle_solves"] == 1
+        assert _metrics(days=7)["puzzle_failures"] == 1
+        # Even though the first ambient failures cannot claim the pool,
+        # excluding the first human must not pass it to a late tester.
+        excluded = _metrics(days=1, exclude=["tester"])
+        assert excluded["puzzle_failures"] == 0
+        assert excluded["puzzle_failed_rows"] == excluded["puzzle_solves"] == 1
+
+    def test_unattributed_legacy_failure_cannot_transfer_its_pool_to_a_late_retry(self):
+        puzzle = {"puzzle": "The Sealed Room"}
+        _fixture_event("PUZZLE_FAILED", actor=None, data=puzzle, ago="3 days")
+        _fixture_event("PUZZLE_FAILED", actor="facilitator", data=puzzle)
+        _fixture_event("PUZZLE_FAILED", data=puzzle)
+
+        for days in (1, 7):
+            for exclude in ([], ["facilitator"], ["tester"]):
+                metrics = _metrics(days=days, exclude=exclude)
+                assert metrics["puzzle_failures"] == 0
+                assert metrics["puzzle_failed_rows"] == 2 - bool(exclude)
+
+        # A renewal releases that old pool's anchor for a new human failure.
+        _fixture_event("PUZZLE_REARM", actor=None)
+        _fixture_event("PUZZLE_FAILED", data=puzzle)
+        assert _metrics(days=1)["puzzle_failures"] == 1
+        assert _metrics(days=7)["puzzle_failures"] == 1
+
+    @pytest.mark.parametrize("agent", [
+        None, False, 0, 0.0, "", [], {},
+        True, 1, -1, 0.5, "0", "false", "[]", "{}", "Tessera", [0], {"id": 0},
+    ])
+    def test_agent_tag_truthiness_agrees_for_activity_and_failure_attribution(self, agent):
+        payload = {"agent": agent}
+        for kind in ("INTERVENTION_COMMITTED", "SCALE_ACT", "PUZZLE_ATTEMPT",
+                     "PUZZLE_SOLVED", "PUZZLE_FAILED"):
+            _fixture_event(kind, data=payload)
+
+        metrics = _metrics(days=1)
+        count = int(not bool(agent))
+        for field in ("act_commits", "scale_acts", "puzzle_attempts", "puzzle_solves",
+                      "puzzle_failures", "puzzle_failed_rows", "visitors"):
+            assert metrics[field] == count
+
+    def test_first_human_failure_keeps_its_window_until_the_pool_renews(self):
+        puzzle = {"puzzle": "The Sealed Room"}
+        _fixture_event("PUZZLE_FAILED", actor="Tessera", data=puzzle, ago="3 days")
+        _fixture_event("PUZZLE_FAILED", data=puzzle, ago="2 days")
+        _fixture_event("PUZZLE_FAILED", actor="second-tester", data=puzzle)
+        assert _metrics(days=1)["puzzle_failures"] == 0
+        assert _metrics(days=7)["puzzle_failures"] == 1
+        _fixture_event("PUZZLE_REARM", actor=None)
+        _fixture_event("PUZZLE_FAILED", actor="Observer", data=puzzle)
+        _fixture_event("PUZZLE_FAILED", data=puzzle)
+        assert _metrics(days=1)["puzzle_failures"] == 1
+        assert _metrics(days=7)["puzzle_failures"] == 2
+
+    def test_failed_pools_preserve_node_world_and_epoch_lineage(self):
+        puzzle = {"puzzle": "The Sealed Room"}
+        _fixture_event("PUZZLE_FAILED", data=puzzle)
+        _fixture_event("PUZZLE_REARM", seed=7, actor=None)
+        _fixture_event("PUZZLE_REARM", node="Elsewhere", actor=None)
+        _fixture_event("PUZZLE_FAILED", data=puzzle)
+        # Unrelated rearms did not split the original pool.
+        assert _metrics(seed=SEED)["puzzle_failures"] == 1
+        _fixture_event("PUZZLE_REARM", actor=None)
+        _fixture_event("PUZZLE_FAILED", data=puzzle)
+        _fixture_event("PUZZLE_FAILED", node="Elsewhere", data=puzzle)
+        _fixture_event("PUZZLE_FAILED", seed=7, data=puzzle)
+        assert _metrics(seed=SEED)["puzzle_failures"] == 3
+        assert _metrics(seed=7)["puzzle_failures"] == 1
+        assert _metrics()["puzzle_failures"] == 4
