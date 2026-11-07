@@ -8,10 +8,10 @@ citing it authorizes nothing.
 
 It depends on records not on `main`, named rather than linked: #156 (the
 2026-11-06 decisions in `docs/evaluation/2026-11-06-next-build.md`, checklist
-A1 rewritten); ADR-036 (puzzle temperament, Proposed, read at `a114cf8` on
+A1 rewritten); ADR-036 (puzzle temperament, Proposed, read at `dfc2bbb` on
 `claude/adr-036-puzzle-temperament`); and the honesty batch on
-`claude/agent-honesty-guardrails`, with no commit beyond `3200eed` at this
-writing, so its parts stay dependencies. Evidence is *executed* (scratch
+`claude/agent-honesty-guardrails` (read at `9106160`), whose parts stay
+dependencies until it merges. Evidence is *executed* (scratch
 seed-382 databases, `f3ead74` code, 2026-11-07), *read* (each `file:line`
 re-read at `f3ead74`) or *inferred*. #153 merged after this base (`3200eed`),
 moving only the cited `server/guard.py` lines and `consciousness/__init__.py`
@@ -177,7 +177,9 @@ What any player receives treats both kinds alike; operator tools keep the kind.
 **(a) Agents never claim to be human.** Asked sincerely (are you human, a bot,
 an AI, a real person), an agent says plainly, in character but unambiguously,
 that it is an AI: the honesty batch's deterministic authored answer with its
-model instruction as backup, reused unchanged, on the chat path before any
+model instruction as backup, reused with its whole-line rule (a line that
+asks the question and something more goes to the model, whose instruction
+carries the same rule), on the chat path before any
 model call, charge or output screen, AI on or off, exempt as D3 says. This
 record does not design them; the place-voice line
 (`consciousness/__init__.py:386`) stays as that batch leaves it. A
@@ -245,10 +247,12 @@ per-agent chat switch lets the operator silence one.
   agent in a quiet world leaves, within the caps. `/speak`'s quoting is not
   changed here. Chat text to the inhabitant-voice provider is a new
   destination ([ADR-034](ADR-034-provider-and-model-optionality.md) Decision 5).
-  #156 records [packet decision 10](../roadmap/decision-packet-2026-11.md#10-player-text-destinations-s2)
-  as a policy the owner set on 2026-11-07; this record has not confirmed it and
-  does not rely on it, and naming the destination (L3) and the terms check
-  (L4) are open there.
+  The owner set packet decision 10 (S2) on 2026-11-07: "Information can only be shared with model providers to facilitate game play. Enfolded data must not be used to train frontier models." #156 records it
+  in the decision packet and an ADR-004 amendment. Chat sent to an agent's
+  provider serves game play, so it falls within that policy when the
+  destination meets its no-training bar. Naming the destination (L3) and its
+  terms check (L4) stay open, and no agent reads chat outside tests until they
+  close.
 - **Spend.** Each reply is one inhabitant-voice call charged, as `/agent/voice`
   is today, to the triggering player (the voice allowance's global and
   per-user caps and the model-action cap, `server/guard.py:71`, `:75`, `:114`),
@@ -281,9 +285,9 @@ ambient attempts. The two records' batch 4 is one batch.
 - **The human proposes, explicitly.** A line addressing an agent (D3) at a
   place with an open puzzle, with a help or solve verb aimed at the puzzle by a
   fixed pattern ("help me with this puzzle", "can you solve the riddle?"), is
-  offered puzzle context; with AI on the model then judges whether help was
-  asked for (ADR-036 D5), and with AI off the pattern alone opens ADR-036's
-  authored line. A sincere honesty question never opens one. It covers that
+  offered puzzle context. The pattern alone opens the collaboration, with AI
+  on as with it off (ADR-036 D5); with AI off the agent answers with
+  ADR-036's authored line. A sincere honesty question never opens one. It covers that
   player, agent and puzzle epoch for 15 minutes. An agent never offers first.
 - **Same clues.** The prompt carries the puzzle as served to that player: the
   question, the hints that player has unlocked and the evidence snapshot;
@@ -394,7 +398,8 @@ Batches 2 and 3a reach any deployed build together, so the cast stays addressabl
 
 ## What this ADR does not decide
 
-S5, S2 (#156 records a 2026-11-07 policy for it, with L3 and L4 open), E2 and
+S5, S2's open parts (the owner set its policy on 2026-11-07; L3 and L4 stay
+open), E2 and
 the watch timing. ADR-036 owns puzzle temperament, near-miss hints, renewal,
 ambient attempts and the AI-off puzzle line; the honesty batch owns the
 sincere-question detector, its answer and the fourth-wall rewrite. ADR-032
