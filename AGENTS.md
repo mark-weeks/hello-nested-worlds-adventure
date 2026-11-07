@@ -62,7 +62,7 @@ it first.
   `docs/evaluation/2026-07-04-deep-evaluation.md` G1.
 - **No voice pretends to be human.** Agents and places stay in character but never
   claim or imply that they are human; asked sincerely, they say plainly that they are
-  an AI (`consciousness.honesty.is_identity_question`, before any model call; the bibles).
+  an AI (`consciousness.honesty`'s authored answer, AI on or off; the bibles instruct the model).
 - **Agent solves don't count as human progress.** An ambient/FSM agent standing
   on a puzzle never claims a co-op session, opens a seal, or lights a
   constellation. `persistence/__init__.py` (`Agent solves (payload carries

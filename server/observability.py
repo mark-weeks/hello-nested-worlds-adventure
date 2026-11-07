@@ -168,6 +168,59 @@ def voice_outcome_summary(days: int = 1) -> dict[str, dict[str, dict[str, int]]]
     return summary
 
 
+# ── Identity answers ────────────────────────────────────────────────────────
+# A line that is only a sincere "are you human?" gets an authored answer on
+# `/speak` and `/agent/voice` (`consciousness.honesty`). It is neither an
+# answered voice line (no voice call) nor a quiet one (the player got an
+# answer), so it is not a voice outcome: the voice counters above, and the
+# reports that read them as answered or quiet, do not see it. It is counted
+# here, under its own `identity_answer:` prefix in the same `cost_budget`
+# rows, so the pilot can see how often travelers ask. Surface only: no
+# player text, name, credential or node.
+
+IDENTITY_ANSWER_PREFIX = "identity_answer"
+
+
+def identity_answer_bucket(surface: str) -> str:
+    return f"{IDENTITY_ANSWER_PREFIX}:{surface}"
+
+
+def identity_answer(surface: str, *, recorded: bool) -> None:
+    """Count one authored identity answer. Never raises; waits at most 50 ms on the store.
+
+    `recorded` says whether the exchange became a chronicle row: it does
+    with AI on, and not while the kill switch is on.
+    """
+    if surface not in VOICE_SURFACES:
+        raise ValueError(f"unknown identity answer surface {surface}")
+    _voice.info("voice_identity_answer surface=%s recorded=%s",
+                surface, "yes" if recorded else "no")
+    try:
+        import persistence
+        from server import guard
+        persistence.increment_cost_calls(identity_answer_bucket(surface),
+                                         guard._utc_day(),
+                                         wait_ms=_VOICE_COUNTER_WAIT_MS)
+    except Exception as err:  # the answer has already reached the player
+        _voice.warning("identity_answer counter unavailable surface=%s "
+                       "exception=%s", surface, type(err).__name__)
+
+
+def identity_answer_summary(days: int = 1) -> dict[str, dict[str, int]]:
+    """``{day: {surface: count}}`` for the last `days` UTC days, today included."""
+    import datetime
+
+    import persistence
+    from server import guard
+    today = datetime.date.fromisoformat(guard._utc_day())
+    since = (today - datetime.timedelta(days=max(1, int(days)) - 1)).isoformat()
+    summary: dict[str, dict[str, int]] = {}
+    for bucket, day, calls in persistence.cost_rows(IDENTITY_ANSWER_PREFIX + ":", since):
+        surface = bucket.split(":", 1)[1]
+        summary.setdefault(day, {})[surface] = calls
+    return summary
+
+
 # ── Moderation outcomes ─────────────────────────────────────────────────────
 # The voice counters above see a screen only when it holds a voice line. A
 # busy or failed screen on chat, Ideas, a published profile, a registered

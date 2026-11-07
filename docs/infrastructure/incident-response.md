@@ -24,7 +24,7 @@ switch with `fly secrets unset` of that name. That restarts again.
 
 | Switch | Effect |
 |---|---|
-| `NESTED_WORLDS_DISABLE_AI=1` | `/speak` and `/agent/voice` return HTTP 200 `{"response":"The worlds are quiet today. Try again tomorrow.","ai":false}` before the screen, so that line is not classified. An Act intention the local parser can read still commits. One it cannot read is not sent; the player hears "That intention needs a clearer shape. Choose actions below, or name them in order, separated by commas." Chat, ideas, profiles, and puzzle guesses still go through moderation. |
+| `NESTED_WORLDS_DISABLE_AI=1` | `/speak` and `/agent/voice` return HTTP 200 `{"response":"The worlds are quiet today. Try again tomorrow.","ai":false}` before the screen, so that line is not classified. One exception: a line that is only a sincere question whether the speaker is human ("are you human?", "r u a bot") gets its authored truthful answer with `"ai":false` (`consciousness/honesty.py`) after the local screen, and no chronicle row is written; if the local screen would send that line to the classifier, it gets the quiet line instead. An Act intention the local parser can read still commits. One it cannot read is not sent; the player hears "That intention needs a clearer shape. Choose actions below, or name them in order, separated by commas." Chat, ideas, profiles, and puzzle guesses still go through moderation. |
 | `NESTED_WORLDS_DISABLE_IMAGES=1` | `/image` returns `{"url":null,"error":"image generation disabled"}`. |
 | `NESTED_WORLDS_DISABLE_MODERATION=1` | Shared text is held before any classifier call. Nothing is published. |
 

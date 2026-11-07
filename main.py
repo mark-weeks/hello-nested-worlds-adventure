@@ -243,7 +243,9 @@ def cmd_voice_health(args):
 
     Reads the daily voice-outcome counters every player-facing voice surface
     writes (`server.observability.voice_outcome`): answered lines and each
-    kind of quiet one. Then the shared-text screen counters
+    kind of quiet one, then any authored identity answers
+    (`server.observability.identity_answer`), which never fail the check.
+    Then the shared-text screen counters
     (`server.observability.moderation_outcome`): per surface (speech, agent
     voice, chat, Ideas, a published profile, a registered name, puzzle text,
     the CLI), every screen that logged a `moderation_call` line, then its
@@ -288,6 +290,14 @@ def cmd_voice_health(args):
             print(f"  {surface:<12} answered {counts.get('ok', 0):>4}"
                   + (f"   quiet: {quiet}" if quiet else ""))
             failures += sum(counts.get(r, 0) for r in observability.VOICE_FAILURES)
+    # Authored "I am an AI" answers are neither answered nor quiet voice
+    # lines, and never a failure. Printed only when there are any.
+    identity = observability.identity_answer_summary(days=args.days)
+    for day in sorted(identity):
+        counts = ", ".join(f"{surface} {identity[day][surface]}"
+                           for surface in observability.VOICE_SURFACES
+                           if identity[day].get(surface))
+        print(f"{day} identity answers (authored, no voice call): {counts}")
     used = guard.effective_calls(guard.VOICE_BUCKET)
     cap, _cap_problems = guard.resolve_budget_cap(
         guard.VOICE_CAP_ENV, guard.ANTHROPIC_CAP_ENV, guard._DEFAULT_ANTHROPIC_DAILY)
