@@ -10,7 +10,9 @@ Decision 1 (S5) stays open; the owner asked on 2026-11-06 whether chat must be
 kept because it shapes the world's state, history and progress. The
 [2026-11-06 evaluation](../evaluation/2026-11-06-next-build.md) records these
 rulings and the evidence behind them; the sections below keep the 2026-11-02
-analysis as prepared. Beyond those notes the page ratifies no ADR, publishes nothing, and authorizes no
+analysis as prepared. On 2026-11-07 the owner decided decision 10 as a policy,
+which ADR-004 records, and updated decision 2: the Fly staging twin is
+preferred, and the local world is the fallback. Beyond those notes the page ratifies no ADR, publishes nothing, and authorizes no
 implementation, deployment, recruitment, tag or merge. The evidence behind it
 is in the [2026-11-02 week-plan audit](../evaluation/2026-11-02-week-plan.md).
 The [beta launch checklist](beta-launch-checklist.md) governs exit criteria;
@@ -19,12 +21,12 @@ the [Q4 plan](next-steps-2026-q4.md) governs order until it is re-planned
 
 ## Summary
 
-All recommendations in this table are proposed by agent; not decided, except decision 7 (decided 2026-11-03), decision 2 (decided 2026-11-06) and decision 3 (options superseded by owner direction on 2026-11-06).
+All recommendations in this table are proposed by agent; not decided, except decision 7 (decided 2026-11-03), decision 2 (decided 2026-11-06, updated 2026-11-07), decision 3 (options superseded by owner direction on 2026-11-06) and decision 10 (decided as a policy on 2026-11-07).
 
 | # | Decision | Needed by | Blocks | Recommendation |
 |---|---|---|---|---|
 | 1 | [S5: is chat kept in the never-wipe chronicle?](#1-s5-chat-permanence) | Hard: the first production chat line. Practical: before the report queue is built (next week) | The S5 go/no-go line; report evidence (S3, G2); the privacy notice's chat sentence (L3); consent wording | (c) an operator-only chat log with a short retention window, kept out of the chronicle and out of prompts |
-| 2 | [Newcomer-watch venue](#2-newcomer-watch-venue) | Decided 2026-11-06 | O1 to O4 observations; C2c ratings; Q4 steps P6 and P7 | **Decided 2026-11-06: (a), as recommended.** A local, declared-disposable world for the onboarding watch only; the Fly twin stays mandatory for P4 and production. The watch's voice mode was not decided |
+| 2 | [Newcomer-watch venue](#2-newcomer-watch-venue) | Decided 2026-11-06; updated 2026-11-07 | O1 to O4 observations; C2c ratings; Q4 steps P6 and P7 | **Updated 2026-11-07:** "Let's expedite the test build, preferably in a staging environment rather than local." The owner prefers the Fly staging twin and an expedited test build; the local, declared-disposable world remains only as a fallback. The twin waits on the Fly account (F1). **Decided 2026-11-06: (a), as recommended.** A local, declared-disposable world for the onboarding watch only; the Fly twin stays mandatory for P4 and production. The watch's voice mode was not decided on 2026-11-06; live voice is allowed under decision 10's 2026-11-07 policy once the operator has confirmed the provider terms |
 | 3 | [Puzzle failure semantics](#3-puzzle-failure-semantics) | Direction set 2026-11-06; the details need a Proposed ADR before the release-candidate scope freeze | The fix; honest C2a and C2c counts | **Superseded 2026-11-06 by owner direction:** puzzles can have personalities, attempts and lock periods can be dynamic, and the owner suggested that agents help humans solve rather than solve on their own. Details wait on a Proposed ADR. *As prepared:* refuse attempts after a failure, and re-arm failed puzzles through decay with the condition "current epoch resolved (solved or failed)"; the 2026-11-06 evaluation found that this re-arm stops renewing a failed Room once decay has disturbed and fractured it, unless an earlier solve left it stabilized |
 | 4 | [World status (Q4 B)](#4-world-status-q4-decision-b) | Before any copy goes to recruits, and before the first invited outside player | R3, K2, "World status declared"; the permanence copy on `/register` and in the guide; L3 | Production for the cohort world if P4's restore and freshness checks pass; any staging or local watch declared disposable |
 | 5 | [Minimum tester age (S4)](#5-minimum-tester-age-s4) | Before recruitment (Q4 P5) and before any terms or invite text | S4; the terms text (L2); the invite template | 18 or older |
@@ -32,7 +34,7 @@ All recommendations in this table are proposed by agent; not decided, except dec
 | 7 | [Reserve Observer and Scout](#7-reserve-observer-and-scout) | Decided 2026-11-03 | Nothing now | Reserved, as recommended; recorded in ADR-004's 2026-11-03 reserved-names amendment |
 | 8 | [D6 timing (Q4 C, lapsed Oct 10)](#8-d6-timing-q4-decision-c) | Before the first production deploy; a migration-first answer needs about two more weeks before it | ADR-029 batch 1 ordering; how urgent the consumer inventory is | The Q4 recommendation stands: before the first structural operation, not before the pilot |
 | 9 | [#89 criteria (Q4 H, lapsed Oct 15)](#9-89-criteria-q4-decision-h) | Before anyone implements #89 | #89 only | The agent drafts revised criteria; the owner posts them or edits the issue |
-| 10 | [Player-text destinations (S2, with L4)](#10-player-text-destinations-s2) | Before any outside participant's text reaches a model: the first watch session with live voice, and P9 | S2, L4; the destinations named in the privacy notice; live voice in the watch; any second provider; since 2026-11-06, the owner's direction that agents answer players in chat, which sends chat text to a model provider | One text provider for voice, intention and moderation, chosen by decision D's probes. Record that image prompts carry no player text |
+| 10 | [Player-text destinations (S2, with L4)](#10-player-text-destinations-s2) | Decided 2026-11-07 as a policy. Still needed before any outside participant's text reaches a model: the operator's check of each destination's terms | S2, L4; the destinations named in the privacy notice; live voice in the watch; any second provider; since 2026-11-06, the owner's direction that agents answer players in chat, which sends chat text to a model provider | **Decided 2026-11-07 (policy):** "Information can only be shared with model providers to facilitate game play. Enfolded data must not be used to train frontier models." Recorded in ADR-004. Player text goes to a provider only for play; no training; the operator opts into no training or data-sharing programme and submits no feedback containing player content; each destination is checked against the policy first; image prompts carry no player text. Still open: naming the destinations in the privacy notice (L3) and the operator's confirmation of the current provider terms (L4). *As prepared:* one text provider for voice, intention and moderation, chosen by decision D's probes, and record that image prompts carry no player text |
 | 11 | [Dollar spend ceiling (E2)](#11-dollar-spend-ceiling-e2) | Before cohort budget sizing (E1) at P9 | E2, E1, M4; since 2026-11-06, agents answering players in chat (each answer is a model call) | Keep E2 blocking and move only D8's dollar posture ahead of the cohort, resolving the conflict with Q4 decision G. The owner sets the amount and period |
 | 12 | [Off-host backup destination and retention (Q4 I)](#12-off-host-backup-destination-and-retention-q4-decision-i) | Before `ENFOLDED_BACKUP_REQUIRED=true` (Q4 P1) | P3 to P5; the backup-retention sentence in L3; the retention tail in decision 1 | Choose a destination and a retention period deliberately; the 30 days in the runbook is an example, not a decision |
 
@@ -78,6 +80,26 @@ for chat text reaching the voice provider. Whether chat becomes place-local
 report.
 
 ## 2. Newcomer-watch venue
+
+**Updated 2026-11-07: the Fly staging twin is preferred.** Asked whether 2 to
+3 first-time testers should try the current build now or wait for agents in
+chat, the owner, Mark Weeks, answered: "Let's expedite the test build,
+preferably in a staging environment rather than local." The owner prefers
+the Fly staging twin and an expedited test build. The answer does not forbid
+the local, declared-disposable world decided on 2026-11-06; that setup
+remains only as a fallback, and the owner did not say when to use it. Staging
+is the venue that ADR-005 section 2
+(`docs/decisions/ADR-005-launch-operations.md:96-102`), runbook section 3a
+and protocol 2 already name, so no ADR is amended. The
+[facilitator kit](../evaluation/2026-11-02-newcomer-watch-kit.md) now puts
+the twin first: testers on their own devices with invite links minted on
+staging, live voice allowed under decision 10's 2026-11-07 policy once the
+operator has confirmed the provider terms, a sound-on step, and a scripted
+return from a bookmark in a fresh browser. Protocol 2
+gains one more dated line. The twin's critical path is the held Fly account
+(checklist F1: account, billing, flyctl and token). This record deploys
+nothing: bringing the twin up is the operator's step under the runbook, and
+the research basics are still required.
 
 **Decided 2026-11-06: option (a).** In a working session the owner, Mark
 Weeks, answered "yes, we can test locally on a temporary world." The 2 to 3
@@ -328,7 +350,54 @@ revised criteria; the owner posts them or edits the issue. Not cohort-blocking.
 
 ## 10. Player-text destinations (S2)
 
-*Proposed by agent; not decided. Held in the checklist, with L4.*
+**Decided 2026-11-07, as a policy.** The owner, Mark Weeks, wrote:
+"Information can only be shared with model providers to facilitate game
+play. Enfolded data must not be used to train frontier models."
+[ADR-004](../decisions/ADR-004-day-one-data-policy.md)'s 2026-11-07
+player-text destinations amendment records it. The owner set a policy rather
+than choosing among the options below, so the recommendation of exactly one
+provider is neither adopted nor rejected. Its consequences:
+
+- **Purpose limitation.** Player text goes to a model provider only for a
+  task that serves play: a place's or an inhabitant's voice, reading an
+  intention, and the moderation of shared text.
+- **No training.** No destination may use Enfolded data to train frontier
+  models.
+- **The operator's account.** The operator must not opt the Enfolded
+  provider account into any training or data-sharing programme, and must not
+  submit feedback that contains player content.
+- **Check before use.** Each destination is checked against the policy
+  before it receives player text: the configured text provider, a provider
+  chosen for one task, and any `openai_compatible` base URL under ADR-035
+  (Proposed).
+- **Images.** Image prompts carry no player text: they count distinct
+  speakers (`server/imageprompt.py:83-89`), and the prompt is built from the
+  node's level, name and properties (`server/imageprompt.py:120-143`).
+- **The watch.** Live voice is allowed under the policy, on the staging twin
+  or on the local fallback, once the operator has confirmed the current
+  provider terms. The
+  [facilitator kit](../evaluation/2026-11-02-newcomer-watch-kit.md) states
+  the conditions.
+
+The configured default text provider is `anthropic`
+(`consciousness/runtime.py:38-39`). A web search on 2026-11-07 returned its
+help-centre statement that customer content sent through the API under its
+commercial terms is not used to train its models by default, with exceptions
+when the customer opts in (for example, a development partner programme) or
+submits feedback. The page could not be opened from the session that wrote
+this record, so the statement is unverified here.
+
+Still open: naming the destinations in the privacy notice (checklist L3);
+the operator's confirmation of the current provider terms, recorded as L4's
+data use note; and whether "Enfolded data" also covers the world content in
+image prompts (node names and properties, not player text), which was not
+asked. The policy bears on decision 1's option (a), where chat is quoted into
+node voices, and on agents answering players in chat; both send chat text to
+a provider in the course of play (*inferred*). It decides neither: S5 and the
+structural-parity ADR stay open. The analysis below is as prepared on
+2026-11-02; its line numbers cite `23b8830`.
+
+*As prepared: proposed by agent; not decided. Held in the checklist, with L4.*
 
 **What reaches which provider today.** The configured text provider receives a
 player's speech to places and inhabitants, plus earlier players' names,

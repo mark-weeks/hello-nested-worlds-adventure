@@ -21,6 +21,8 @@ before the larger study. This is not the seven-day return cohort.
 
 **2026-11-06 venue ruling:** the owner decided ([decision packet](../roadmap/decision-packet-2026-11.md#2-newcomer-watch-venue), decision 2, option a) that this 2–3 person onboarding watch may run on a local, declared-disposable world on the facilitator's machine, using the [facilitator kit](2026-11-02-newcomer-watch-kit.md); the Fly staging twin stays mandatory for P4 and before production.
 
+**2026-11-07 venue update:** the owner prefers the Fly staging twin, this section's disposable staging, and an expedited test build ("Let's expedite the test build, preferably in a staging environment rather than local."; [decision packet](../roadmap/decision-packet-2026-11.md#2-newcomer-watch-venue), decision 2); the local, declared-disposable world above remains only as a fallback, and the [facilitator kit](2026-11-02-newcomer-watch-kit.md) covers both.
+
 Then invite 8–12 people to one continuing seed-382 world for seven days per person.
 Declare whether this is a retained research world or the permanent production
 world before the first session. Never promise persistence and subsequently wipe it.

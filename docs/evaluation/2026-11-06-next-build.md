@@ -286,3 +286,32 @@ the evaluation raised. Quoted words are the owner's.
 - It adds no migration, no golden re-pin and no `world_mutations` write path.
 - It does not settle the four puzzle questions above or the watch's voice
   mode.
+
+## Addendum, 2026-11-07: the owner's decisions of that day
+
+Recorded without changing the findings above. Quoted words are the owner's,
+Mark Weeks.
+
+1. **Watch venue (packet decision 2), updated.** Asked whether 2 to 3
+   first-time testers should try the current build now or wait for agents in
+   chat: "Let's expedite the test build, preferably in a staging environment
+   rather than local." The owner prefers the Fly staging twin and an
+   expedited test build. The local, declared-disposable world of decision 4
+   above remains only as a fallback. This takes up the critic's alternative
+   under "Deferred, and why": the
+   [facilitator kit](2026-11-02-newcomer-watch-kit.md) now runs the watch on
+   the twin, on testers' own devices, with a sound-on step and a scripted
+   return in a fresh browser from a bookmark. The twin still waits on the Fly
+   account (checklist F1).
+2. **Player-text destinations (packet decision 10, checklist S2 with L4),
+   decided as a policy.** "Information can only be shared with model
+   providers to facilitate game play. Enfolded data must not be used to
+   train frontier models."
+   [ADR-004](../decisions/ADR-004-day-one-data-policy.md)'s 2026-11-07
+   amendment records it with its operational rules. Still open: naming the
+   destinations in the privacy notice (L3), and the operator's confirmation
+   of the current provider terms, which the session that recorded this could
+   not open. The policy bears on the structural-parity dependency on S2
+   under "Deferred, and why": agents answering in chat would send chat text
+   to a provider in the course of play (*inferred*). The Proposed ADR, E2
+   and S5 are still needed.
