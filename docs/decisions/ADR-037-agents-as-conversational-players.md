@@ -114,12 +114,14 @@ them nothing new. A sincere question to no one ("is anyone here an AI?") gets
 the honesty answer, and nothing else, from each agent at the asker's place
 (open question 5).
 
-**Initiation.** A player connected for 60 s, with no other traveler at their
-place and no chat line in five minutes, gets one authored greeting from a
-present agent (once per agent per player per connection, at most one
-unsolicited line per player per ten minutes) as an ordinary chat line, since
-a line to one player alone is a shape no human can send. No cost; works with
-AI off. ADR-032 D5's model-written unsolicited speech is not adopted.
+**Initiation.** A player connected for 60 s, with no chat line in five minutes
+and no traveler at their place but the greeter, gets one authored greeting
+from a present agent: the one alone with them there, else one present
+elsewhere (once per agent per player per connection, at most one unsolicited
+line per player per ten minutes) as an ordinary chat line, since a line to one
+player alone is a shape no human can send. Humans elsewhere change nothing. No
+cost; works with AI off. ADR-032 D5's model-written unsolicited speech is not
+adopted.
 
 **Delivery.** An agent's line is an ordinary `chat` frame on a human's
 broadcast, so world-wide today; if checklist
@@ -343,7 +345,7 @@ ambient attempts. The two records' batch 4 is one batch.
 |---|---|---|---|
 | **1. Honesty** | Built on `claude/agent-honesty-guardrails` | A sincere question gets the authored answer with AI on, the kill switch on and no provider, with no model call (spy), from an agent and a place voice; a mention such as "the human scale" gets none | As that branch states |
 | **2. De-label** | D1; D4 clients, wire, live notices, served projection, oracles, place-voice premise, names; D5(b); the copy sweep and visual-language paragraph; the covenant text | A cast walk and a human session that move, act and chat alike give equal frame types, key sets and shared feed text; `/chronicle` and `/history` rows for a cast act and a human act have equal key sets and served types, and a legacy `AGENT_TALK` or `AGENT_VOICE` serves entries keyed as a human `PLAYER_CHAT` row, each line under its own speaker (the asker's question under the asker), while the stored row keeps `agent` and the co-op and seal exclusions hold; within each client a cast row and a human row differ only in name and place (Vitest); `inhabitants.spec.js` updated (Playwright); `/register` and the keyless join answer a reserved name as a taken one; no composed place prompt names more than one cast member over an empty history, or says "agent visit" over a cast visit's row; Speak offers only the place | None, unless names change (first-boot door) |
-| **3a. Agents in chat, authored** | D2; D3; honesty answer, greeting, deferral and banter as chat lines; no model | Each trigger fires and each non-trigger does not, including "karst formations here?" and a line addressing a human and an agent; two agents addressed give one reply; the honesty answer goes out while the agent is paced and past the bound, and a repeat reaches only the asker with no row; no trigger or greeting reads the human count; a held line and an agent line trigger nothing; one greeting; the same with AI off; lingerers leave with the last human; ADR-022 counters unchanged | New write path (agent chat rows), unless S5 removes chat storage |
+| **3a. Agents in chat, authored** | D2; D3; honesty answer, greeting, deferral and banter as chat lines; no model | Each trigger fires and each non-trigger does not, including "karst formations here?" and a line addressing a human and an agent; two agents addressed give one reply; the honesty answer goes out while the agent is paced and past the bound, and a repeat reaches only the asker with no row; no trigger or greeting reads the human count (the same outcomes with no other human connected and with several elsewhere); a held line and an agent line trigger nothing; one greeting, from the agent when the player is alone with one agent at their place and from an agent elsewhere when the player is alone there, but none while a human or a second agent shares their place; the same with AI off; lingerers leave with the last human; ADR-022 counters unchanged | New write path (agent chat rows), unless S5 removes chat storage |
 | **3b. Model replies, flag off by default** | D6; D5(a) and (c) checks; agent-bible de-label; keeper commitments | Flag off: zero provider calls (spy); untriggered lines: zero, and another player's line absent from every request; caps spent: one deferral, then silence; agent-line classifies leave the player's moderation allowance untouched; screen hold: no frame, no row; URL, email, phone-run, solicitation and human-claim lines dropped, including a claim after a negation in the same line ("I'm not a ghost; I am a real person"), while "I am not human", "I'm not a real person", every stored node name of seed 382, "a celestial body" and "my home scale" pass; no composed agent prompt lists the cast or says "agents or players" | L3, L4 and E2 closed before the flag is on for outside players; no migration |
 | **4. Collaboration** (with ADR-036 batch 4) | D7 | No puzzle context without an explicit request, and none from a sincere question at a puzzle place; across the puzzle families no request's puzzle context carries the answer or anything D7 derives from it, though a right guess already in the conversation may be sent; under the recommended delivery a collaboration reply, even one holding the answer, reaches no other player's socket and no stored row; no `PUZZLE_ATTEMPT` row or pool change from any chat path; the human's attempt lists only the human; a second player gets none of the first's context | Depends on ADR-036 and open question 4 |
 
