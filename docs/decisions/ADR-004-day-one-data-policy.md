@@ -73,48 +73,36 @@ character, or with nothing visible, and `invite mint` caps a name at 32
 characters as `/register` does. Confusable letters from other scripts are out
 of scope for beta. Names already registered are not changed.
 
-**2026-11-07 player-text destinations amendment (owner-directed):** Decided
-by the owner, Mark Weeks, on 2026-11-07, in answer to decision 10 of the
+**2026-11-07 model-provider data amendment (owner-directed):** Decided by
+the owner, Mark Weeks, on 2026-11-07, in answer to decision 10 of the
 [November decision packet](../roadmap/decision-packet-2026-11.md) (beta
-checklist S2, with L4). The owner's words: "Information can only be shared
-with model providers to facilitate game play. Enfolded data must not be used
-to train frontier models." This adds a rule on where player text and other
-Enfolded data may go. It amends no numbered section below, and it names no
-provider as the policy ([ADR-034](ADR-034-provider-and-model-optionality.md)).
-The operational rules, in the implementer's wording:
+checklist S2, with L4): "Information can only be shared with model providers
+to facilitate game play. Enfolded data must not be used to train frontier
+models." Both sentences apply to everything Enfolded sends to any model
+provider, player text and world content alike: the text provider's voice,
+intention and moderation calls, and the image provider's scene prompts, which
+carry node names and properties but no player text. Enfolded shares
+information with a model provider only for a task that serves play. The owner
+set no other limit on what a provider does with what it receives. The rest of
+this paragraph is the implementer's wording, not reviewed by the owner. Each
+destination is checked against both sentences, and the check is recorded as
+its data use note (checklist L4), before it receives any Enfolded data. The
+operator opts no provider account into a training or data-sharing programme
+and submits no feedback that contains Enfolded data, because either would
+let a provider train on it. Moderation of shared text under §2 is counted as
+a task that serves play (*inferred*). One question is left for the owner:
+whether a destination whose terms let Enfolded data train a model that is
+not plainly a frontier model, such as an image model or a provider's safety
+classifier, meets the second sentence. Until the owner answers, the
+implementer proposes that the operator asks the owner before such a
+destination receives Enfolded data. Still open: naming the destinations in
+the player-facing privacy notice (checklist L3), each destination's check and
+data use note (L4; none is written yet), and that question. This amends no
+numbered section and names no provider as the policy
+([ADR-034](ADR-034-provider-and-model-optionality.md)). The evidence is
+recorded in the packet and in checklist L4.
 
-- **Purpose.** Player text goes to a model provider only for a task that
-  serves play: a place's or an inhabitant's voice, reading an intention, and
-  the moderation of shared text under §2. No other use of player text by a
-  provider is allowed.
-- **No training.** No destination may use Enfolded data to train frontier
-  models. The operator must not opt the Enfolded provider account into any
-  training or data-sharing programme, and must not submit feedback that
-  contains player content.
-- **Check before use.** Each destination is checked against this policy
-  before it receives player text, and the check is recorded with that
-  provider's terms (checklist L4). This covers the configured text
-  provider, a provider chosen for a single task, and any `openai_compatible`
-  base URL under [ADR-035](ADR-035-openai-compatible-chat-completions.md)
-  (Proposed).
-- **Images.** Scene-image prompts carry no player text: they count history
-  kinds and distinct speakers (`server/imageprompt.py:83-89`), and the prompt
-  is built from the node's level, name and properties
-  (`server/imageprompt.py:120-143`).
-
-Still open: naming the destinations in the player-facing privacy notice
-(checklist L3), and the operator's confirmation of the current provider's
-terms. The configured default text provider is `anthropic`
-(`consciousness/runtime.py:38-39`). A web search on 2026-11-07 returned that
-provider's help-centre statement that API content under its commercial
-terms is not used to train its models by default, with exceptions when the
-customer opts in (for example, a development partner programme) or submits
-feedback. The page itself could not be opened from the session that wrote
-this amendment, so that statement is unverified here. Whether "Enfolded
-data" also covers the world content in image prompts (node names and
-properties, not player text) was not asked, and is not decided here.
-
-**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction (invite-gate latch and reserved names); sanction records 2026-11-03 on the owner's direction. §7 name comparison amended 2026-11-04 under the owner's delegation of #143's open choices. Player-text destinations rule added 2026-11-07 on the owner's direction.
+**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction (invite-gate latch and reserved names); sanction records 2026-11-03 on the owner's direction. §7 name comparison amended 2026-11-04 under the owner's delegation of #143's open choices. Model-provider data rule added 2026-11-07 on the owner's direction.
 
 ---
 

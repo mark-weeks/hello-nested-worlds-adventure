@@ -308,10 +308,15 @@ Mark Weeks.
    providers to facilitate game play. Enfolded data must not be used to
    train frontier models."
    [ADR-004](../decisions/ADR-004-day-one-data-policy.md)'s 2026-11-07
-   amendment records it with its operational rules. Still open: naming the
-   destinations in the privacy notice (L3), and the operator's confirmation
-   of the current provider terms, which the session that recorded this could
-   not open. The policy bears on the structural-parity dependency on S2
-   under "Deferred, and why": agents answering in chat would send chat text
-   to a provider in the course of play (*inferred*). The Proposed ADR, E2
+   amendment records it. Both sentences apply to all information and
+   Enfolded data sent to any model provider, the image provider's prompts
+   included. Still open: naming the destinations in the privacy notice (L3);
+   the operator's check of each destination, recorded as its L4 data use
+   note (none is written, and the session that recorded this could not open
+   the default provider's terms); and a question for the owner, whether a
+   provider whose terms let Enfolded data train a model that is not plainly
+   a frontier model, such as an image model, meets the policy. The policy
+   bears on the structural-parity dependency on S2 under "Deferred, and
+   why": agents answering in chat would send chat text to a provider in the
+   course of play (*inferred*). The Proposed ADR, E2
    and S5 are still needed.

@@ -14,9 +14,9 @@ on the twin itself, which needs the held Fly account (checklist F1), and on
 the research basics that protocol 2 requires before anyone is approached
 (facilitator, observation dates, devices, client, consent wording, and the
 retention and deletion date: [protocol 2](2026-09-12-pilot-protocol.md),
-"Scope and venue"). Live voice also waits on the operator's confirmation of
-the provider's terms (voice mode below). This kit recruits nobody, deploys
-nothing and promises no persistence.
+"Scope and venue"). Live voice also waits on the operator's checks of the
+provider (voice mode below). This kit recruits nobody, deploys nothing and
+promises no persistence.
 
 **2026-11-07 update:** The owner's two decisions of that day change this kit.
 
@@ -27,31 +27,44 @@ nothing and promises no persistence.
   (checklist Y5) that a session on the facilitator's machine cannot.
 - **Voice.** The owner's provider policy (packet decision 10, recorded in
   [ADR-004](../decisions/ADR-004-day-one-data-policy.md)'s 2026-11-07
-  amendment) allows live voice: "Information can only be shared with model
-  providers to facilitate game play. Enfolded data must not be used to train
-  frontier models." Live voice needs the operator's checks below. With no
-  provider configured, places answer in per-scale silence, each scale's own
-  authored line. That replaces the earlier pre-written-lines default, because
+  amendment): "Information can only be shared with model providers to
+  facilitate game play. Enfolded data must not be used to train frontier
+  models." The policy permits live voice (*inferred*); the watch's voice
+  mode remains a per-watch choice once the operator's checks below are done.
+  With no provider configured, places answer in per-scale silence, each
+  scale's own authored line. That replaces the earlier pre-written-lines default, because
   `NESTED_WORLDS_DISABLE_AI=1` answers "Try again tomorrow", which tells a
   newcomer to leave ([2026-11-06 evaluation](2026-11-06-next-build.md),
   finding 8).
 - **Script.** It gains a sound-on step and a scripted return in a fresh
   browser from a bookmark: the two additions the 2026-11-06 completeness
-  critic named. #154 (the keyless-return line, not on this branch when this
-  was written) changes what that return shows, so record the build the twin
-  runs. The other two confounds the 2026-11-06 evaluation found are now
-  facilitator notes in the script.
+  critic named. The keyless-return change (branch
+  `claude/keyless-return-line`; its PR number was not confirmed from this
+  session, and it is not on this branch) changes what that return shows, so
+  record the build the twin runs. The other two confounds the 2026-11-06
+  evaluation found are now facilitator notes in the script.
 - **Fallback.** The local setup is kept as the fallback, with per-scale
   silence as its no-provider mode. Executed on 2026-11-07 at `5d4b78c` on
   scratch worlds (pre-session check, step 3).
-- **Citations.** Code citations were re-read at the branch head `5d4b78c`,
-  which merged #152. Six that #152 had moved, in `main.py` and
+- **Citations.** Code citations were re-read at `5d4b78c`, the branch's
+  merge of #152; the branch's later commits change only `docs/`. Six that #152 had moved, in `main.py` and
   `persistence/__init__.py`, were corrected; every other kept citation
   matches its `18e5bbd` text line for line, and the new ones were read at
   `5d4b78c`. Protocol 2 citations follow its text with the 2026-11-07 venue
   line. Fly commands below follow the runbook's and the
   repository's own usage; none was run from this session, and Fly's behaviour
   is unverified here.
+- **#153.** `origin/main` at `3200eed` (#153, not merged into this branch)
+  adds four per-task provider variables, `NESTED_WORLDS_NODE_PROVIDER`,
+  `NESTED_WORLDS_INHABITANT_PROVIDER`, `NESTED_WORLDS_INTENT_PROVIDER` and
+  `NESTED_WORLDS_MODERATION_PROVIDER`, and a set task variable wins over
+  `NESTED_WORLDS_PROVIDER` for its task (`consciousness/runtime.py:550-575`
+  at `3200eed`). A twin built from current `main` runs it. Both venues
+  therefore unset all four, and `main.py models` must show
+  `provider=anthropic provider_source=default` on every task row (voice mode
+  below). When #153 is merged into this branch, re-read this kit's provider
+  and cap citations: #153 changes `consciousness/runtime.py`,
+  `server/guard.py` and `main.py`.
 
 **2026-11-06 update:** The venue ruling above is recorded here and in protocol
 2. The voice mode was **not** decided: both modes below stay, and the
@@ -95,10 +108,11 @@ deleted on the stated date.
 
 ## Decide before session one
 
-1. **Venue.** The Fly staging twin, which the owner prefers (2026-11-07).
-   Fall back to the local world only if the twin cannot serve the watch, and
-   record the venue and the reason in the research basics. The owner set no
-   rule for when to fall back.
+1. **Venue.** The Fly staging twin is preferred (2026-11-07). Falling back
+   to the local world is a judgement the facilitator records, best confirmed
+   with the owner first: for example, when the twin cannot be up in time for
+   an expedited watch because the Fly account (F1) is still held. Record the
+   venue and the reason in the research basics.
 2. **Research basics.** Recorded in the restricted research record
    (`docs/evaluation/2026-09-12-pilot-protocol.md:41-45`): facilitator,
    dates, each tester's device and browser (on the twin) or the machine and
@@ -108,17 +122,26 @@ deleted on the stated date.
    else ran on it before the watch (check names, any soak or probe), because
    their traces stay in the shared world.
 3. **Voice mode.** Choose one per watch and record it in the research basics.
-   - *Live voice*, allowed under the owner's 2026-11-07 policy. Before the
-     first session the operator (a) reads the configured provider's current
-     terms for API inputs, confirms them against the policy (no training on
-     Enfolded data), and records them, with the provider's retention and
-     deletion terms, in the research basics; the session that wrote this kit
-     could not open them; (b) confirms that the Enfolded provider account is
-     in no training or data-sharing programme; and (c) submits no feedback
-     that contains player content. Use the default adapter: leave
-     `NESTED_WORLDS_PROVIDER` unset (`consciousness/runtime.py:38-39`,
-     `consciousness/runtime.py:471-472`), so no `openai_compatible` base URL,
-     which has not been checked against the policy, receives player text.
+   - *Live voice*, which the owner's 2026-11-07 policy permits (*inferred*).
+     Before the first session the operator (a) reads the configured
+     provider's current terms for API inputs, checks them against both
+     sentences of the policy, records them, with what they say about
+     training and the provider's retention and deletion terms, in the
+     research basics, and writes the provider's L4 data use note from them;
+     the session that wrote this kit could not open them; if the terms let Enfolded data train
+     a model that is not plainly a frontier model, ask the owner first (packet
+     decision 10, still open); (b) confirms that the Enfolded provider account
+     is in no training or data-sharing programme; (c) submits no feedback that
+     contains Enfolded data; and (d) checks the consent line's training clause
+     (facilitator script) against the recorded terms. Use the default
+     adapter: leave `NESTED_WORLDS_PROVIDER` unset
+     (`consciousness/runtime.py:38-39`, `consciousness/runtime.py:471-472`),
+     and on a build with #153 the four per-task provider variables too, so no
+     `openai_compatible` base URL, which has not been checked against the
+     policy, receives player text. On such a build `main.py models` must show
+     `provider=anthropic provider_source=default` on every task row; a set
+     task variable shows `provider_source=task env` (executed at `3200eed` on
+     a scratch `HOME`, 2026-11-07).
      A participant's words to places and inhabitants, and chat lines at a
      node, are quoted into later prompts to the provider
      (`consciousness/__init__.py:868-873`). An intention they describe in Act
@@ -143,7 +166,8 @@ deleted on the stated date.
      2,000 and 60 a day (`server/guard.py:88-94`). Record the values.
    - *Per-scale silence* (no provider): the fallback, and the mode for any
      session held before the operator's checks are done. No provider
-     credential is in the server's environment, and
+     credential is in the server's environment, no provider variable is set
+     (on a build with #153, none of the four per-task ones either), and
      `NESTED_WORLDS_DISABLE_AI` is unset. A place answers its scale's
      authored line of silence with `"ai": false`
      (`server/handlers.py:1244-1248`, `consciousness/__init__.py:740-795`),
@@ -158,14 +182,16 @@ deleted on the stated date.
      quiet today. Try again tomorrow." (`server/handlers.py:1207-1210`,
      `server/guard.py:958`), tells a newcomer to leave.
 4. **Images.** Keep the image key (`FAL_KEY`, `server/handlers.py:1402`) off
-   the twin, as the local setup does, unless the operator has checked the
+   the twin, as the local setup does, until the operator has checked the
    image provider against the 2026-11-07 policy and written its L4 note.
    Without the key, `/image` answers the authored quiet line with
    `"images": false` (`server/handlers.py:1402-1406`). Image prompts carry
    no player text (`server/imageprompt.py:83-89`,
    `server/imageprompt.py:120-143`), but they carry the world's names and
-   properties, and whether the policy's "Enfolded data" covers those was not
-   asked (packet decision 10).
+   properties, which are Enfolded data, so the policy applies to the image
+   provider as it does to the text provider (packet decision 10). If its
+   terms let prompts train an image model, that is the owner's open question
+   in decision 10: ask before setting the key.
 5. **Display names.** The facilitator assigns each participant a neutral world
    name: not their real name, not their P-code, not one of the twelve cast
    names (`consciousness/__init__.py:309-313`), and not Observer or Scout,
@@ -185,22 +211,51 @@ Read at `5d4b78c`. None was executed against a Fly app.
 
 | Fact | Evidence | What it means for the watch |
 |---|---|---|
-| The twin is the production procedure under another app name: its own app and volume, deployed with `FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy`, and destroyed before launch. ADR-005 already names it as the onboarding watch's venue. | `docs/infrastructure/fly-deployment.md:245-273` (section 3a), `docs/decisions/ADR-005-launch-operations.md:96-102` | Bringing the twin up is the operator's step under the runbook, and it waits on the Fly account (checklist F1). This kit deploys nothing. |
+| The twin is the production procedure under another app name: its own app and volume, deployed with `FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy`, and destroyed before launch. ADR-005 already names it as the onboarding watch's venue. | `docs/infrastructure/fly-deployment.md:245-273` (section 3a), `docs/decisions/ADR-005-launch-operations.md:96-102` | Bringing the twin up is the operator's step under the runbook, and it waits on the Fly account (checklist F1). Read the warning below the table before running it. This kit deploys nothing. |
 | The twin hosts seed 382 as its one canonical world, with `HOME=/data` on its volume. | `fly.toml:19-20` | Leave `NESTED_WORLDS_CANONICAL_SEED` as `fly.toml` sets it. Every watch session on the twin shares this world, and a later tester may meet an earlier tester's traces. |
 | The twin serves HTTPS only. | `fly.toml:27` | Testers use their own devices. Act and the journal need a secure context (`static/intents.js:7`, `static/journal.js:6`), which an HTTPS page is. Web-platform behaviour, not executed for this kit. |
 | `invite mint` prints the share line `<BASE>/app?key=nw_…&name=X` and shows the key once. | `main.py:477-485`, `main.py:533-535` | Replace `<BASE>` with the twin's origin, `https://<staging app>.fly.dev`, the form the runbook's smoke test uses (`docs/infrastructure/fly-deployment.md:281`). |
 | Minting the first key closes the twin's invite gate for good. | `server/guard.py:298-319` | Mint the check key before the twin's address is shared anywhere (runbook section 6). |
 | Invited players read each other's words: `/history` and `/chronicle` serve the world's rows, chat text included, to any invited player. | `server/handlers.py:961-975`, `server/handlers.py:977-993` | Consent says that other testers in this temporary world can read what a tester says. |
-| `/app` removes `key=` and `name=` from the address after the first load, and afterwards reads the key from this browser's local storage only. | `frontend/src/auth.js:21-28`, `frontend/src/auth.js:31-37` | A bookmark holds no key. On this branch a fresh browser that opens it stays on "Opening the shared world…" (`frontend/src/App.jsx:146-148`, `frontend/src/App.jsx:182-185`, `frontend/src/App.jsx:593`; [2026-11-06 evaluation](2026-11-06-next-build.md), finding 7, read, not run in a browser). #154 replaces that shell with an authored line saying how to return; it is not on this branch. The scripted return records which the tester sees. |
+| `/app` removes `key=` and `name=` from the address after the first load, and afterwards reads the key from this browser's local storage only. | `frontend/src/auth.js:21-28`, `frontend/src/auth.js:31-37` | A bookmark holds no key. On this branch a fresh browser that opens it stays on "Opening the shared world…" (`frontend/src/App.jsx:146-148`, `frontend/src/App.jsx:182-185`, `frontend/src/App.jsx:593`; [2026-11-06 evaluation](2026-11-06-next-build.md), finding 7, read, not run in a browser). The keyless-return change (branch `claude/keyless-return-line`, PR number unconfirmed) replaces that shell with an authored line saying how to return; it is not on this branch. The scripted return records which the tester sees. |
 | A keyed return resumes the saved place, on any device. | `persistence/__init__.py:2942-2944` (`save_player_position`) | Opening the invite link again in the fresh browser is the designed way back. |
 | Sound starts by default on the first click or key press unless this browser has paused it; the "Sound & help" section's button reads "Listen to this world" while the score is paused and "Pause score" while it plays. | `frontend/src/App.jsx:97-102`, `frontend/src/App.jsx:513-524`, `frontend/src/components/TextPanel.jsx:56-58` | The sound-on step needs only the device's sound on. Whether a phone's silent switch mutes the score was not checked. |
 | `fly secrets set` and `fly secrets unset` restart the one machine, and live WebSockets drop. | `docs/infrastructure/incident-response.md:15-16` | Change the voice mode or a cap only between sessions. |
 
+**Warning: `scripts/deploy.sh` deploys to production unless told otherwise.**
+With `FLY_APP` unset it targets `enfolded-beta`, the production app
+(`scripts/deploy.sh:33`), and a misspelt name is deployed as written.
+`--first-deploy` skips the chronicle backup and the schema check
+(`scripts/deploy.sh:326-333`), so a slip there is the first production boot,
+the one-way door in the [2026-11-06 evaluation](2026-11-06-next-build.md)
+(finding 1). Run from the repository root, as the runbook's deploy commands
+are (`docs/infrastructure/fly-deployment.md:211`):
+
+- Keep `FLY_APP=enfolded-staging` inline on the same command line as
+  `scripts/deploy.sh`, never set in an earlier step.
+- Before it, run `fly status -a enfolded-staging` and confirm it names the
+  twin's app (Fly's output is unverified here).
+- Use `--first-deploy` only for the twin's very first deploy. Any later twin
+  redeploy, for example to pick up the keyless-return change, is
+  `FLY_APP=enfolded-staging scripts/deploy.sh` without the flag, which backs
+  the twin's chronicle up first and checks its schema
+  (`scripts/deploy.sh:335-372`).
+
+Executed on 2026-11-07 at this branch's head with a stub `fly` in scratch:
+with `--first-deploy`, `FLY_APP=enfolded-staging` ran
+`fly deploy -a enfolded-staging`, `FLY_APP` unset ran
+`fly deploy -a enfolded-beta`, and the misspelt `enfolded-stagng` ran
+`fly deploy -a enfolded-stagng`, each with no backup and exit 0; without the
+flag, the first call was the backup and the next the schema check, which the
+stub failed, so nothing was deployed. A guard in the script itself is outside
+this documentation batch.
+
 ### Before the first session (operator)
 
-Run from the repository root. `-a` names the app, as the playbook and the
-backup workflow do (`docs/infrastructure/incident-response.md:48`,
-`.github/workflows/backup.yml:100`).
+None of these commands needs the checkout: `-a` names the app, as the
+playbook and the backup workflow do (`docs/infrastructure/incident-response.md:48`,
+`.github/workflows/backup.yml:100`). Run the database download and scrub
+("After the watch, twin") outside the checkout, never in it.
 
 1. Confirm the twin answers: `curl -s https://<staging app>.fly.dev/health`
    returns `{"status": "ok"}` (`docs/infrastructure/fly-deployment.md:280-281`).
@@ -209,10 +264,10 @@ backup workflow do (`docs/infrastructure/incident-response.md:48`,
    (`fly secrets unset -a enfolded-staging ANTHROPIC_API_KEY` if the
    rehearsal set one, `docs/infrastructure/fly-deployment.md:259`). Live
    voice: the operator's checks in "Decide before session one" are done, the
-   key is set, `NESTED_WORLDS_PROVIDER` and `NESTED_WORLDS_DISABLE_AI` are
-   unset, and the low caps are set with
-   `fly secrets set -a enfolded-staging …`. Either way, leave `FAL_KEY` unset
-   unless item 4 there is satisfied.
+   key is set, `NESTED_WORLDS_PROVIDER`, `NESTED_WORLDS_DISABLE_AI` and, on a
+   build with #153, the four per-task provider variables are unset, and the
+   low caps are set with `fly secrets set -a enfolded-staging …`. Either
+   way, leave `FAL_KEY` unset unless item 4 there is satisfied.
 3. Mint a check key under a one-word check name:
    `fly ssh console -a enfolded-staging -C "python main.py invite mint --name Watchcheck"`.
    `-C` is split into words and run without a shell (`scripts/deploy.sh:22`),
@@ -222,8 +277,10 @@ backup workflow do (`docs/infrastructure/incident-response.md:48`,
    `200`.
 5. Voice: `fly ssh console -a enfolded-staging -C "python main.py models"`
    prints `provider not configured` in per-scale silence and does not in
-   live voice (`main.py:376-384`). Then send the `/speak` request in the
-   pre-session check below to `https://<staging app>.fly.dev/speak`: live
+   live voice (`main.py:376-384`). On a build with #153, every task row must
+   also show `provider=anthropic provider_source=default`. Then send the
+   `/speak` request in the pre-session check below to
+   `https://<staging app>.fly.dev/speak`: live
    voice must answer `"ai": true`; per-scale silence answers the place's
    scale line with `"ai": false`. In live voice,
    `fly ssh console -a enfolded-staging -C "python main.py voice-health"`
@@ -246,9 +303,10 @@ On a device of the facilitator's, never a tester's, with the check key:
 5. Bookmark the page, open the bookmark in a private window, and record
    what this build shows there. Then open the check share URL in that
    window: it returns to the saved place.
-6. Run "After the watch, twin" steps 1 and 2 on this check world, but do not
-   move the copy to the restricted store. `grep -c checkmarker` on the
-   scrubbed copy must print `0`; then delete the copy.
+6. Run "After the watch, twin" steps 1 and 2 on this check world (step 1
+   moves into its own scratch directory outside the checkout), but do not
+   move the copy to the restricted store. `grep -c checkmarker ./watch-raw.db` on the
+   scrubbed copy must print `0`; then delete the copy and its directory.
 7. Revoke the check key:
    `fly ssh console -a enfolded-staging -C "python main.py invite revoke <key>"`
    (runbook section 6). Its rows stay in the twin's world; record them in
@@ -279,10 +337,12 @@ Never tell a tester their history will persist.
 
 ### After the watch, twin
 
-1. Snapshot the twin's database on the twin, download it, and delete the
-   copy on the machine:
+1. In a new terminal, move into a fresh scratch directory outside the
+   checkout, then snapshot the twin's database on the twin, download it
+   there, and delete the copy on the machine:
 
    ```bash
+   cd "$(mktemp -d "${TMPDIR:-/tmp}/enfolded-watch-twin.XXXXXX")"  # owner-only, outside the checkout
    fly ssh console -a enfolded-staging -C "python main.py backup --to /data/backups/watch-raw.db"
    fly ssh sftp get /data/backups/watch-raw.db -a enfolded-staging
    fly ssh console -a enfolded-staging -C "rm /data/backups/watch-raw.db"
@@ -290,10 +350,16 @@ Never tell a tester their history will persist.
 
    `main.py backup` is `main.py:890-894`; the download follows
    `.github/workflows/backup.yml:107-108`, which leaves the file in the
-   current directory under its own name.
-2. Scrub the copy with the script in the fallback's "After each session",
-   step 2, passing `./watch-raw.db` in place of `"$HOME/session-raw.db"`, and
-   check that it prints `(0, 0)`. Then move it to the restricted store.
+   current directory under its own name. The raw file holds every tester's
+   chat, journal notes and unpublished profile text, and the repository
+   does not ignore `watch-raw.db`, so it must never land in the checkout.
+   `mktemp -d` creates the directory readable by its owner only.
+2. In the same directory, scrub the copy with the script in the fallback's
+   "After each session", step 2, run as
+   `/path/to/the/checkout/.venv/bin/python - ./watch-raw.db <<'EOF' … EOF`
+   in place of `.venv/bin/python - "$HOME/session-raw.db"`, and check that
+   it prints `(0, 0)`. Then move it to the restricted store and delete the
+   scratch directory.
 3. The twin's database holds every tester's words, journal notes included,
    until the twin is destroyed. Destroy it by the deletion date in the
    research record (`fly apps destroy enfolded-staging --yes`,
@@ -344,11 +410,13 @@ Open with protocol 2's explanation
   provider. Chat lines can be sent to it too, because a place quotes chat said
   there when someone speaks to it. Chat lines, wrong puzzle guesses, Ideas you
   submit and a profile you publish may also be sent to the same provider for
-  a safety check. It is sent only to run the game, and under the provider's
-  terms as recorded for this watch it is not used to train models. The
-  provider keeps its own copies under its own terms, which are <the terms
-  recorded in the research basics>; deleting this world does not delete
-  them."
+  a safety check. It is sent only to run the game. <One sentence stating
+  what the provider's terms, as recorded for this watch, say about training
+  on what it receives.> The provider keeps its own copies under its own
+  terms, which are <the retention terms recorded in the research basics>;
+  deleting this world does not delete them." The operator's check (d) in
+  "Decide before session one" confirms this wording against the recorded
+  terms before the first session.
 - "Participation and observation are voluntary."
 
 Then follow script steps 1 to 3
@@ -372,8 +440,9 @@ Then two scripted steps, both outside protocol 2's measures:
   close that window, and open the bookmark in a fresh browser: a private
   window, or another browser on the same device. Do not say how to get back.
   Time it, and record what they see and do. On this branch the page is
-  expected to stay on "Opening the shared world…"; with #154 it says to open
-  the invite link. If they cannot get back, tell them to open their invite
+  expected to stay on "Opening the shared world…"; with the keyless-return
+  change (branch `claude/keyless-return-line`) it says to open the invite
+  link. If they cannot get back, tell them to open their invite
   link in that browser, record that you did, and record whether it brought
   them to their saved place.
 
@@ -499,7 +568,12 @@ world contains no check traces.
      at `5d4b78c` with the setup block below, in scratch `HOME`s: `models`
      printed `provider not configured`, and the Multiverse root, a Galaxy, a
      Room and an Object answered their four different authored lines, each
-     with `"ai": false`.
+     with `"ai": false`. Executed again on 2026-11-07 at 04:49Z at the branch
+     head, whose code is `5d4b78c`'s, with the block as now written (the four
+     per-task provider names added) after planting a fake
+     `ANTHROPIC_API_KEY`, `NESTED_WORLDS_PROVIDER=openai_compatible`,
+     `NESTED_WORLDS_DISABLE_AI=1`, two per-task provider variables and
+     `FAL_KEY` in the terminal: the same results.
    - *Live voice*: `"ai": true` (`server/handlers.py:1316`). Here
      `"ai": false` means `NESTED_WORLDS_DISABLE_AI=1` is still set, the
      provider is not configured or failed, or a cap is spent
@@ -546,7 +620,8 @@ world contains no check traces.
      shared when it answered ALLOW. Executed again on 2026-11-07 at
      `5d4b78c` with the per-scale silence block below, over a WebSocket
      client and without a recorder: `Hello there` was shared and
-     `Check 1234567` was held with the hold line.
+     `Check 1234567` was held with the hold line; the same at 04:49Z with
+     the block as now written and the planted values of step 3.
 7. Run "After each session" step 1 and the scrub in step 2 on this check
    world, but do not move the copy to the restricted store.
    `grep -c checkmarker "$HOME/session-raw.db"` must print `0`. Any other
@@ -573,10 +648,14 @@ unset NESTED_WORLDS_DISABLE_AI           # an inherited =1 answers "Try again to
 # Per-scale silence: no text-provider credential or selection in this terminal
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_PROFILE \
   ANTHROPIC_CONFIG_DIR ANTHROPIC_IDENTITY_TOKEN ANTHROPIC_IDENTITY_TOKEN_FILE \
-  NESTED_WORLDS_PROVIDER NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY
+  NESTED_WORLDS_PROVIDER NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY \
+  NESTED_WORLDS_NODE_PROVIDER NESTED_WORLDS_INHABITANT_PROVIDER \
+  NESTED_WORLDS_INTENT_PROVIDER NESTED_WORLDS_MODERATION_PROVIDER
 # Live voice only (packet decision 10, the operator's checks done): replace
 # the unset above with
-#   unset NESTED_WORLDS_PROVIDER NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY
+#   unset NESTED_WORLDS_PROVIDER NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY \
+#     NESTED_WORLDS_NODE_PROVIDER NESTED_WORLDS_INHABITANT_PROVIDER \
+#     NESTED_WORLDS_INTENT_PROVIDER NESTED_WORLDS_MODERATION_PROVIDER
 # keep the default provider's credential in this terminal, and export the
 # low caps ("Decide before session one", item 3).
 cd /path/to/the/checkout
@@ -603,7 +682,10 @@ hides the SDK's default profile directory, `~/.config/anthropic`. Unsetting
 evaluation adapter, which needs no key for a loopback base URL, is not used
 (`consciousness/openai_compat_provider.py:294-295`); its key,
 `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY`, goes too
-(`consciousness/openai_compat_provider.py:56`). `FAL_KEY` is the image key
+(`consciousness/openai_compat_provider.py:56`). The four per-task provider
+variables are read only from #153 on (`consciousness/runtime.py:550-575` at
+`3200eed`); unsetting them is harmless on this branch, and on a build with
+#153 it keeps every task on the default adapter. `FAL_KEY` is the image key
 (`server/handlers.py:1402`), and `NESTED_WORLDS_DISABLE_IMAGES=1` makes
 `/image` answer before it is read (`server/handlers.py:1371-1372`). Only
 `/app` requests images; the explorer does not. A source this list misses
@@ -625,7 +707,8 @@ exited with status 1 and the mint succeeded; with another Enfolded server
 holding its own key on the port, both requests returned 403; with the
 intended server, 403 then 200, and `kill "$SERVER_PID"` stopped it. On
 2026-11-07 the per-scale silence block, with `--port` set to a free port,
-printed `server running`, then 403 and 200.
+printed `server running`, then 403 and 200, and did so again at 04:49Z with
+the four per-task provider names added.
 
 Write the share URL as `http://localhost:8080/app?key=nw_…&name=<check name>`
 (the printed URL with `<BASE>` replaced by `http://localhost:8080`). Record
