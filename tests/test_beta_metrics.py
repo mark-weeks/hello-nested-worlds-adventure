@@ -583,6 +583,36 @@ class TestBetaMetrics:
         assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
         assert m["timeline"][0]["first_move"] is not None
 
+    def test_a_socket_lost_to_a_deploy_does_not_keep_later_debts_open(self, world):
+        # Yesterday a socket joined and announced, then a deploy ended it
+        # with no PLAYER_LEAVE. Today a tab closes before announcing and
+        # the player reopens at once: the reopened tab's step is an action.
+        key = world.mint("Thessaly")
+        identity = _identity(key)
+        with persistence._connect() as conn:
+            for kind, node in (("PLAYER_JOIN", store.root_name(SEED)),
+                               ("PLAYER_MOVE", COSOLVE_NODE)):
+                conn.execute(
+                    """INSERT INTO world_mutations
+                       (world_seed, node_name, mutation_type, player_name, data,
+                        actor_identity, recorded_at)
+                       VALUES (?, ?, ?, 'Thessaly', '{}', ?,
+                               datetime('now', '-1 day'))""",
+                    (SEED, node, kind, identity))
+        early = world.connect(key)
+        early.wait_for(lambda f: f["type"] == "welcome")
+        early.close()
+        deadline = time.monotonic() + 5
+        while _recorded(identity, "PLAYER_LEAVE") < 1:
+            assert time.monotonic() < deadline, "a departure was not recorded"
+            time.sleep(0.02)
+        visit, _ = world.arrive(key)
+        world.announce(visit, key, COSOLVE_NODE)
+        _settle(world)
+        m = _metrics(days=1, timeline=True)
+        assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
+        assert m["timeline"][0]["first_move"] is not None
+
     def test_a_failed_pool_counts_once_however_many_wrong_guesses_follow(self, world):
         ada_key, bea_key = world.mint("Quorra"), world.mint("Zephyrine")
         opened = world.open_puzzle(ada_key, FAILING_NODE)

@@ -105,24 +105,27 @@ def _announced_moves(conn: sqlite3.Connection, *, seed: int | None = None,
     it arrives (the connect announcement, whichever node it names: a first
     visit can join at the root before the client's saved position lands),
     or when it names the same node as the identity's previous JOIN-or-MOVE
-    row. Every move pays the oldest announcement still owed. An owed
-    announcement lapses ``_ANNOUNCE_WITHIN_SEC`` after its join, so a socket
-    lost to a restart (which writes no PLAYER_LEAVE) owes nothing later.
-    The open sockets are the joins minus the leaves, never below zero, and
-    no more announcements are owed than sockets are open: a PLAYER_LEAVE
-    drops the oldest debt beyond that, and the last one to close clears
-    them all. So a socket that closed before its announcement was recorded
-    (closed early, or its announcement was turned away: a seal, no such
-    place, the shared move bucket) leaves nothing for the identity's next
-    visit.
+    row. Every move pays the oldest announcement still owed. A PLAYER_LEAVE
+    cancels one announcement still owed (the newest), so a socket that
+    closed before its announcement was recorded (closed early, or its
+    announcement was turned away: a seal, no such place, the shared move
+    bucket) leaves nothing for the identity's next visit. An owed
+    announcement also lapses ``_ANNOUNCE_WITHIN_SEC`` after its join, so a
+    socket lost to a restart or a deploy (neither writes a PLAYER_LEAVE)
+    owes nothing a minute later. No count of open sockets is kept: a lost
+    PLAYER_LEAVE would inflate it for good.
 
     Read over all time, so a join before the window still marks its
     announcement; the window filters the rows afterwards. Residual limits,
     without a stored socket id: a client that never announces (a raw
-    socket) loses its first real move. While another socket of the same
-    identity stays open, one that closes unannounced leaves a debt that a
-    step taken within ``_ANNOUNCE_WITHIN_SEC`` of its join pays, because a
-    PLAYER_LEAVE does not say which socket left. With two tabs open, a step
+    socket) loses its first real move. A PLAYER_LEAVE does not say which
+    socket left, so a tab that closes after announcing, between another
+    tab's join and that tab's announcement, cancels the other tab's debt
+    and its announcement reads as an action. An announcement recorded more
+    than ``_ANNOUNCE_WITHIN_SEC`` after its join, naming another node than
+    the join, reads as an action (both clients send it as the socket's first
+    frame; their 20 s keepalive keeps a socket whose announcement was turned
+    away open, which is harmless here). With two tabs open, a step
     one tab takes before the other's announcement is recorded reads as that
     announcement and the announcement as the step (the counts stay right;
     the timeline's first move can shift by the gap), and a reselect
@@ -138,32 +141,31 @@ def _announced_moves(conn: sqlite3.Connection, *, seed: int | None = None,
         where += " AND world_seed = ?"
         args.append(seed)
     announced: set[int] = set()
-    # (identity, world) -> [open sockets, owed join times, last node]
+    # (identity, world) -> [owed join times, last node]
     sockets: dict[tuple, list] = {}
     for row_id, identity, world, kind, node, at in conn.execute(
             f"""SELECT id, actor_identity, world_seed, mutation_type, node_name,
                        CAST(strftime('%s', recorded_at) AS INTEGER)
                 FROM world_mutations WHERE {where} ORDER BY id""", args):
-        state = sockets.setdefault((identity, world), [0, [], None])
+        state = sockets.setdefault((identity, world), [[], None])
         if kind == "PLAYER_JOIN":
-            state[0] += 1
-            state[1].append(at)
-            state[2] = node
+            state[0].append(at)
+            state[1] = node
         elif kind == "PLAYER_LEAVE":
-            state[0] = max(0, state[0] - 1)
-            del state[1][:max(0, len(state[1]) - state[0])]
+            if state[0]:
+                state[0].pop()
         else:
             # An unreadable time cannot lapse.
-            owed = [joined for joined in state[1]
+            owed = [joined for joined in state[0]
                     if at is None or joined is None
                     or at - joined <= _ANNOUNCE_WITHIN_SEC]
             if owed:
                 announced.add(row_id)
                 owed.pop(0)
-            elif node == state[2]:
+            elif node == state[1]:
                 announced.add(row_id)
-            state[1] = owed
-            state[2] = node
+            state[0] = owed
+            state[1] = node
     return announced
 
 _CONVERSATION_TYPES = ("PLAYER_SPEAK", "AGENT_VOICE")
