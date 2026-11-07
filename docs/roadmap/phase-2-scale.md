@@ -230,6 +230,15 @@ database is a continuous chronicle. Operationally that means:
   SQLite backup; `scripts/deploy.sh` runs it first and refuses to deploy
   over an unbacked chronicle, so a bad migration is a restore, not a lost
   epoch.
+* **An older binary does not boot a newer chronicle.** Startup compares
+  `schema_version` with the migrations that binary ships and exits before
+  migrating and before listening when the chronicle is newer. `init_db`
+  does that check read-only before it opens the file writable. A bad seed
+  or model id also exits before `init_db`, so that release does not move
+  the schema. Same-schema rollback is
+  `scripts/deploy.sh --rollback <image>`. Crossing a schema change is the
+  disaster restore, which abandons history since that backup. There is no
+  in-place downgrade.
 
 ---
 

@@ -8,6 +8,10 @@ End state: one VM in one region, one shared canonical world, SQLite on a
 persistent volume, the React frontend baked into the image, Sentry wired in,
 and per-user invite keys distributed to your testers.
 
+Same-schema rollback is [below](#same-schema-release-rollback). Incidents
+(kill switches, redaction, who decides) are the
+[incident response playbook](incident-response.md).
+
 ---
 
 ## 1. Prerequisites
@@ -697,6 +701,96 @@ runbook), retain its snapshot time, app, release SHA and file checksum, and
 rehearse the restore below on an isolated instance. Treat downloaded data as
 private operator data, never a public fixture.
 
+### Same-schema release rollback
+
+Use this when the running release and the previous release ship the same
+schema and the new release is the problem. It is not a restore. History
+stays. Target under 10 minutes once the app exists; that live staging drill
+has not been run (checklist F4, which waits on F1).
+
+```bash
+# 1. Previous successful release, not the one running now.
+fly releases -a enfolded-beta --image
+
+# 2. Backup, schema check, then redeploy that image. Quote the ref.
+scripts/deploy.sh --rollback 'registry.fly.io/enfolded-beta:deployment-…'
+
+# 3. The process must be listening, and the logs must not show a schema refusal.
+curl https://enfolded-beta.fly.dev/health
+fly logs -a enfolded-beta
+```
+
+What the script does, in order:
+
+1. `python main.py backup --to /data/backups/worlds-<UTC stamp>.db` on the
+   machine. If that fails, it stops. Nothing is deployed.
+2. Reads `MAX(schema_version)` from the live chronicle over
+   `fly ssh console -C`. Hallpass shell-splits that command and execs the
+   words; it does not run a shell. The probe starts with `env` and quotes
+   the whole `python3 -c` argument, so the Python source stays one
+   argument.
+   It reads the highest migration file inside the image with
+   `fly console -a <app> --image <ref> --skip-dns-registration -C ...`.
+   `fly console` starts an ephemeral machine whose init is `/bin/sleep inf`
+   (flyctl `ToConsoleMachineConfig`: restart `no`, auto-destroy, DNS
+   registration skipped), SSHes in, and copies that command's stdout.
+   `fly machine run` is not used: it prints launch metadata and does not
+   stream guest stdout. No `--volume` and no `--port`, so the probe does
+   not mount the chronicle and does not join the proxy. After the command,
+   flyctl stops the machine and waits up to 15 seconds for it to be destroyed.
+3. Deploys only when those two numbers are equal:
+   `fly deploy -a enfolded-beta --image <ref>` (`--image` / `-i` is flyctl's
+   "Docker image to deploy"). A newer or older image is refused. The backup
+   from step 1 is kept. Machine-local backups are pruned to the newest five
+   only after the check passes, and a failed prune does not block the deploy.
+4. Prints the `/health` and `fly logs` checks.
+
+`--first-deploy` cannot be combined with `--rollback`. The image ref must
+be `registry.fly.io/<this app>:<tag>` or
+`registry.fly.io/<this app>@sha256:<64 hex>`. Any other registry, app, or
+a ref that looks like a flag or contains whitespace or shell
+metacharacters is rejected before `fly` is called.
+
+`FLY_APP` selects the app (default `enfolded-beta`). `FLY_BIN` selects the
+flyctl binary (default `fly`).
+
+A normal `scripts/deploy.sh` also refuses when this checkout's migrations
+are older than the live chronicle, so deploying an old tree does not boot
+an incompatible image. A newer checkout may migrate forward. That is a
+deploy, not a rollback. `--rollback` of a newer image is refused because
+the image would migrate on boot.
+
+The process itself repeats the guard before it migrates. Startup reads
+`schema_version` read-only and exits 1 when the chronicle is newer than
+`known_schema_version()` (the highest migration shipped in that binary).
+It then checks `NESTED_WORLDS_CANONICAL_SEED` and the model configuration.
+`persistence.init_db` runs only after those checks, still before the port
+opens. It repeats the refusal from a read-only open before it opens the
+file writable, so a newer chronicle keeps its bytes and journal mode.
+The migration guard inside `init_db` still refuses if the file changes
+after that read. A release that ships the next migration and a bad seed or model id
+exits with the chronicle unmigrated, so `--rollback` to the previous
+release can still boot. The log line starts `chronicle schema_version`.
+
+**When to stop.** If the script says the image schema is older than the
+chronicle, do not look for a flag that skips the check. Go to
+[Restoring from a backup](#restoring-from-a-backup). Restoring abandons
+history written after that backup. There is no in-place downgrade.
+
+**If the machine will not stay up.** A schema mismatch that was deployed
+by hand exits before listen, `fly ssh` fails, and `scripts/deploy.sh` cannot
+take its backup. Redeploy the last image that matched the live schema:
+
+```bash
+fly deploy -a enfolded-beta --image 'registry.fly.io/enfolded-beta:deployment-…'
+```
+
+Use the ref from `fly releases --image` for the release that was healthy.
+When `/health` is ok again, decide whether a restore is still required.
+Do not restore until a binary that understands the current file is running,
+unless you are replacing the database file by the restore procedure below
+from a shell on that recovered machine.
+
 ### Restoring from a backup
 
 For M1 queue upgrades, pending-work inspection, and the prohibition on mixed
@@ -807,7 +901,9 @@ receipts and pending outcomes without opening new scripted choices.
 Do not run `python main.py situation` as onboarding. The scripted controller is
 retired; follow the [current pilot protocol](../evaluation/2026-09-12-pilot-protocol.md)
 for exploration and return. A production restore discards intervening history
-and remains an exceptional disaster operation, not an ordinary release rollback.
+and remains an exceptional disaster operation. An ordinary release rollback
+on the same schema is [same-schema release rollback](#same-schema-release-rollback),
+not this restore.
 
 **T-1 week:**
 
@@ -962,6 +1058,8 @@ and remains an exceptional disaster operation, not an ordinary release rollback.
 | Tail logs | `fly logs` |
 | Open a shell in the running machine | `fly ssh console` |
 | Redeploy after a code change | `git push` (CI runs), then `scripts/deploy.sh` (backs up first, per §7) |
+| Roll back to the previous image, same schema | `fly releases --image`, then `scripts/deploy.sh --rollback <image>` ([§7](#same-schema-release-rollback)) |
+| Incident: kill switch, revoke, redact | [incident-response.md](incident-response.md) |
 | See current machine status | `fly status` |
 | Restart the machine | `fly machine restart <id>` |
 | Inspect the volume | `fly volumes list` |

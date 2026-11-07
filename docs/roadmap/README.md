@@ -56,6 +56,7 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 | [Pilot protocol 2](../evaluation/2026-09-12-pilot-protocol.md) | The M7 study: curiosity, attempted-action and observed-consequence understanding, unprompted and useful return | Ready to run; no cohort observed |
 | [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md) | The decision agenda and a proposed 90-day sequence | Findings for the owner; ratifies nothing |
 | [Next steps, Q4 2026](next-steps-2026-q4.md) | The dated critical path to the M7 pilot, the owner's decisions and their needed-by dates, the parallel maintenance track, and the November–January batch order for ADR-029 to ADR-033 as ratified | Plan (2026-10-04); ratifies nothing |
+| [Incident response](../infrastructure/incident-response.md) | One-page operator playbook: kill switches, redaction, rollback versus restore, who decides | Operational. Records no policy decision |
 
 The owner's 2026-10-04 provider/model optionality direction is recorded in
 [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). It supersedes
