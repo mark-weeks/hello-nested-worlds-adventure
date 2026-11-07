@@ -41,7 +41,7 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
   Proposed design for a second text adapter that registers nothing and
   changes no runtime behavior; ratification of
   [ADR-036](../decisions/ADR-036-puzzle-temperament.md), the Proposed puzzle
-  temperament design, and its five open questions; the decision agenda below.
+  temperament design, and its six open questions; the decision agenda below.
 
 ## Live documents
 
@@ -59,7 +59,7 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 | [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md) | The decision agenda and a proposed 90-day sequence | Findings for the owner; ratifies nothing |
 | [Next steps, Q4 2026](next-steps-2026-q4.md) | The dated critical path to the M7 pilot, the owner's decisions and their needed-by dates, the parallel maintenance track, and the November–January batch order for ADR-029 to ADR-033 as ratified | Plan (2026-10-04); ratifies nothing |
 | [Incident response](../infrastructure/incident-response.md) | One-page operator playbook: kill switches, redaction, rollback versus restore, who decides | Operational. Records no policy decision |
-| [ADR-036: Puzzle temperament](../decisions/ADR-036-puzzle-temperament.md) | The owner's 2026-11-06 and 2026-11-07 puzzle decisions designed against the code: per-node temperaments, puzzle-wide grumpiness and per-player send-aways in place of the fixed pool and its answer release (F10), warmer/colder bands, no ambient agent attempts, agents who help only when asked and never see the answer; four ordered batches and five open questions | Proposed 2026-11-07, not ratified. Writes no code; authorizes no build |
+| [ADR-036: Puzzle temperament](../decisions/ADR-036-puzzle-temperament.md) | The owner's 2026-11-06 and 2026-11-07 puzzle decisions designed against the code: per-node temperaments, puzzle-wide grumpiness and per-player send-aways (always after a warning) in place of the fixed pool and its answer release (F10), whole-answer warmer/colder bands measured per family, no ambient agent attempts (superseding ADR-022's puzzle-eligibility paragraph in part), agents who help only on a human's proposal and never see the answer; four ordered batches and six open questions | Proposed 2026-11-07, not ratified. Writes no code; authorizes no build |
 
 The owner's 2026-10-04 provider/model optionality direction is recorded in
 [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). It supersedes
