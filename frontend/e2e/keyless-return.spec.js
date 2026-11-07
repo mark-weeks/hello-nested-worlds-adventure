@@ -5,6 +5,7 @@
 // failed /speak must answer with the authored line, never a raw error.
 import { expect, test } from "@playwright/test";
 import { serveBrowser } from "./server.js";
+import { disclose } from "./disclosures.js";
 
 const KEY = "nw_" + "e".repeat(32);
 const UNKNOWN_KEY = "nw_" + "f".repeat(32);
@@ -151,6 +152,29 @@ test("/app answers a world it cannot draw with a retry that answers its click at
   }
 });
 
+test("/app answers a proxy's 403 page with the retry, not an invitation line", async ({ page }) => {
+  const server = await serve();
+  const errors = watchErrors(page);
+  try {
+    await returning(page, KEY);
+    const worldRead = url => url.pathname === "/world";
+    await page.route(worldRead, route => route.fulfill({
+      status: 403, contentType: "text/html", body: "<html><body>Forbidden</body></html>",
+    }));
+    await page.goto(server.url + "/app");
+    await expect(page.getByRole("alert")).toHaveText(UNREACHED);
+    await expect(page.getByRole("button", { name: "Open the view again" })).toBeVisible();
+    await expect(page.locator("body")).not.toContainText(REFUSED);
+    await page.unroute(worldRead);
+    await page.getByRole("button", { name: "Open the view again" }).click();
+    await expect(page.locator("#node-name")).toBeVisible();
+    expect(errors).toEqual([]);
+  } finally {
+    await page.unrouteAll({ behavior: "wait" }).catch(() => {});
+    await server.close();
+  }
+});
+
 test("/app keeps a refused invitation neutral", async ({ page }) => {
   const server = await serve();
   const errors = watchErrors(page);
@@ -232,6 +256,40 @@ test("the map keeps a refused invitation neutral", async ({ page }) => {
     await expect(page.locator("#status")).toHaveText(REFUSED);
     await expect(page.locator("body")).not.toContainText(/forbidden/i);
   } finally {
+    await server.close();
+  }
+});
+
+test("the map keeps its line for a world it cannot draw, and for a refusal after it", async ({ page }) => {
+  const server = await serve();
+  const errors = watchErrors(page);
+  try {
+    await returning(page, KEY);
+    const worldRead = url => url.pathname === "/world";
+    // The server answers, but with no world in the body.
+    await page.route(worldRead, route => route.fulfill({
+      status: 200, contentType: "application/json", body: "{}",
+    }));
+    await page.goto(server.url + "/");
+    await expect(page.locator("#status")).toHaveText(UNREACHED);
+    await expect(page.locator("#node-description")).toHaveText(UNREACHED);
+    await page.locator("#btn-do-speak").click();
+    await expect(page.locator("#status")).toHaveText(UNREACHED);
+
+    // The next read is refused by the gate: its line must hold too.
+    await page.unroute(worldRead);
+    await page.route(worldRead, route => route.fulfill({
+      status: 403, contentType: "application/json", body: JSON.stringify({ error: "forbidden" }),
+    }));
+    await disclose(page, "Sound & help");
+    await page.click("#btn-advanced");
+    await page.locator("#gen-btn").click();
+    await expect(page.locator("#status")).toHaveText(REFUSED);
+    await page.locator("#btn-do-speak").click();
+    await expect(page.locator("#status")).toHaveText(REFUSED);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.unrouteAll({ behavior: "wait" }).catch(() => {});
     await server.close();
   }
 });
