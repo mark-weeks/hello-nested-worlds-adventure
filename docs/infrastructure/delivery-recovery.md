@@ -113,6 +113,55 @@ v1 patches; pre-M1 workers ignore `status` and can consume completed rows again.
 Neither mixed-version configuration is supported. There is no supported
 in-place binary downgrade.
 
+### Same-schema release rollback
+
+Redeploying a previous release that ships the same `schema_version` as the
+live chronicle is an ordinary rollback, not a restore. From a checkout of
+this repo, on the app that is actually running:
+
+```bash
+fly releases -a enfolded-beta --image
+scripts/deploy.sh --rollback 'registry.fly.io/enfolded-beta:deployment-…'
+curl https://enfolded-beta.fly.dev/health   # {"status":"ok"}
+fly logs -a enfolded-beta
+```
+
+`fly releases --image` prints each release's image reference. Copy the
+previous successful release, not the one that is misbehaving. The script
+backs the chronicle up first (`python main.py backup`) and stops if that
+backup fails. It then reads the live `schema_version` and the migration
+files inside the image. The two numbers must be equal. `fly deploy -a
+<app> --image <ref>` runs only after that. A failed schema read, two
+different answers, or a mismatch does not deploy. The new backup is kept.
+Pruning older machine-local backups happens only after the check passes.
+
+Stop and use the disaster restore below when the script says the image
+schema is older than the chronicle, or when the data itself has to be
+abandoned. An older binary refuses a newer chronicle at startup, before it
+listens and before it migrates: the read-only schema check and the seed
+and model checks run first, and `persistence.init_db` raises
+`SchemaTooNewError` from a read-only open if the chronicle is still
+newer, before it opens the file writable. The process exits 1
+without applying migrations and without changing the journal mode. A config typo in a release that also ships a
+new migration therefore leaves the chronicle on the previous schema.
+Putting an older image on the machine first can crash-loop and take SSH
+with it. Restore from a binary that can still open the file, then deploy
+the image that matches the restored schema. If SSH is already failing,
+deploy the last image that matched the live schema
+(`fly deploy -a <app> --image <that-ref>`) so a shell exists again before
+any restore. The image probe is `fly console --image`, whose stdout is the
+SSH command. `fly machine run` does not return that stdout. The ref has to
+be this app's `registry.fly.io` image.
+
+The live staging timing drill (previous release back in under 10 minutes)
+has not been run. It waits on a Fly app. The commands above are the
+procedure; they are not a claim that the drill passed.
+
+A checkout older than the live chronicle is refused by a normal
+`scripts/deploy.sh` as well. A newer checkout may migrate forward. That
+forward path is a deploy, not `--rollback`. `--rollback` of a newer image
+is refused because that image would migrate on boot.
+
 Rehearse the [launch runbook §7 restore](fly-deployment.md#7-backups) with pending
 work on disposable staging. Check queue counts/input IDs, a representative
 origin/continuation chain, material state and Wayback before and after restore;
