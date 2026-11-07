@@ -415,7 +415,7 @@ class TestClosedSets:
 
     def test_the_new_rows_inflate_no_spend_or_voice_figure(self, capsys, monkeypatch):
         from consciousness import runtime
-        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
         for outcome in observability.MODERATION_OUTCOMES:
             observability.moderation_outcome("chat", outcome)
         day = _today()
@@ -446,7 +446,7 @@ class TestVoiceHealth:
     @pytest.fixture(autouse=True)
     def _voice_ready(self, monkeypatch):
         from consciousness import runtime
-        monkeypatch.setattr(runtime, "configured", lambda: True)
+        monkeypatch.setattr(runtime, "configured", lambda *args, **kwargs: True)
 
     def test_a_busy_chat_screen_alone_fails_the_check(self, provider, quick_screen, capsys):
         with _saturated():

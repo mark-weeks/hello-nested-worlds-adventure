@@ -1242,7 +1242,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(moderation.http_body(verdict))
 
             import consciousness
-            voice_ready = runtime.configured()
+            voice_ready = runtime.configured(runtime.NODE_TASK)
             if not voice_ready:
                 observability.voice_outcome("speak", "unconfigured")
                 return self._send_json({"response": consciousness.fallback_voice(node), "ai": False})
@@ -1518,7 +1518,7 @@ class Handler(BaseHTTPRequestHandler):
             _record_screen_hold("agent_voice", verdict)
             return self._send_json(moderation.http_body(
                 verdict, agent=agent_name, persona=persona.name, node=node.name))
-        voice_ready = runtime.configured()
+        voice_ready = runtime.configured(runtime.INHABITANT_TASK)
         if not voice_ready:
             observability.voice_outcome("agent_voice", "unconfigured")
             return self._agent_voice_quiet(agent_name, persona.name, node.name)

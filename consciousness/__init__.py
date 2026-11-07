@@ -665,10 +665,11 @@ def cached_prefix_meets_minimum(min_tokens: int | None = None) -> bool:
     if min_tokens is not None:
         return (_estimate_tokens(_WORLD_BIBLE) >= min_tokens
                 and _estimate_tokens(_AGENT_BIBLE) >= min_tokens)
-    provider = runtime.get_provider()
+    node_provider = runtime.provider_for(runtime.NODE_TASK)
+    inhabitant_provider = runtime.provider_for(runtime.INHABITANT_TASK)
     node_model, inhabitant_model = _voice_models()
-    node_min = provider.cache_reference_tokens(node_model)
-    inhabitant_min = provider.cache_reference_tokens(inhabitant_model)
+    node_min = node_provider.cache_reference_tokens(node_model)
+    inhabitant_min = inhabitant_provider.cache_reference_tokens(inhabitant_model)
     if node_min is None or inhabitant_min is None:
         return False
     return (_estimate_tokens(_WORLD_BIBLE) >= node_min
@@ -716,14 +717,15 @@ def _warn_if_cache_ineffective() -> None:
     if _cache_warned:
         return
     _cache_warned = True
-    provider = runtime.get_provider()
+    node_provider = runtime.provider_for(runtime.NODE_TASK)
+    inhabitant_provider = runtime.provider_for(runtime.INHABITANT_TASK)
     node_model, inhabitant_model = _voice_models()
-    if node_model == inhabitant_model:
-        _warn_shared_cache(provider, node_model)
+    if node_provider.name == inhabitant_provider.name and node_model == inhabitant_model:
+        _warn_shared_cache(node_provider, node_model)
         return
-    _warn_task_cache(provider, node_model, _estimate_tokens(_WORLD_BIBLE), "node voice")
+    _warn_task_cache(node_provider, node_model, _estimate_tokens(_WORLD_BIBLE), "node voice")
     _warn_task_cache(
-        provider, inhabitant_model, _estimate_tokens(_AGENT_BIBLE), "inhabitant voice",
+        inhabitant_provider, inhabitant_model, _estimate_tokens(_AGENT_BIBLE), "inhabitant voice",
     )
 
 
@@ -1057,6 +1059,7 @@ def speak(node: SpatialNode, message: str,
         endpoint="speak", model=runtime.model_for(runtime.NODE_TASK), max_tokens=256,
         system=system_blocks, messages=messages,
         user_key=user_key, voice_budget=voice_budget,
+        task=runtime.NODE_TASK,
     )
     return Voiced(response.require_text(), response.provider, response.resolved_model)
 
@@ -1157,6 +1160,7 @@ def voice_agent(persona: Any, agent_name: str, node: SpatialNode,
         system=(SystemBlock(_AGENT_BIBLE, cacheable=True), SystemBlock(agent_context)),
         messages=[{"role": "user", "content": message}],
         user_key=user_key, voice_budget=voice_budget,
+        task=runtime.INHABITANT_TASK,
     )
     return Voiced(response.require_text(), response.provider, response.resolved_model)
 
@@ -1250,6 +1254,7 @@ def classify_content(text: str, *, surface: str = "classify",
         timeout=_MODERATION_TIMEOUT_SECONDS,
         user_key=user_key,
         reservation=reservation,
+        task=runtime.MODERATION_TASK,
     )
     elapsed_ms = (_time.monotonic() - started) * 1000.0
     outcome = moderation_outcome(response)

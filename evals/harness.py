@@ -460,21 +460,29 @@ class RecordingProvider:
 
 @contextmanager
 def task_routing(provider, model):
-    # Install the candidate id on the shared setting and clear per-task
-    # overrides. An operator shell must not redirect the candidate's call.
-    # Blank values are unset, so the three voice/intention tasks use `model`.
-    # model_for asks get_provider for a default. The candidate id is the
-    # environment below, so this patched provider is not asked for one.
-    with patch.object(runtime, "get_provider", return_value=provider), \
-         patch.dict(os.environ, {runtime.SHARED_MODEL_ENV: model,
-                                 runtime.NODE_MODEL_ENV: "",
-                                 runtime.INHABITANT_MODEL_ENV: "",
-                                 runtime.INTENT_MODEL_ENV: "",
-                                 runtime.MODERATION_MODEL_ENV: model,
-                                 "NESTED_WORLDS_DISABLE_MODERATION": "0",
-                                 "NESTED_WORLDS_MODERATION_BLOCK_EXTRA": "",
-                                 "NESTED_WORLDS_MODERATION_WATCH_EXTRA": ""}):
-        yield
+    # Every lookup, including provider_for(task) and a selection that was
+    # already cached, returns the candidate. Operator task-provider
+    # variables are removed for this context and restored on exit; the
+    # cache is left in place so the process selection returns afterward.
+    # The candidate id is installed on the shared setting and per-task
+    # model overrides are blanked, so model_for is not asked for a default.
+    saved = {}
+    for name in runtime.TASK_PROVIDER_ENVS:
+        if name in os.environ:
+            saved[name] = os.environ.pop(name)
+    try:
+        with runtime.override_provider(provider), \
+             patch.dict(os.environ, {runtime.SHARED_MODEL_ENV: model,
+                                     runtime.NODE_MODEL_ENV: "",
+                                     runtime.INHABITANT_MODEL_ENV: "",
+                                     runtime.INTENT_MODEL_ENV: "",
+                                     runtime.MODERATION_MODEL_ENV: model,
+                                     "NESTED_WORLDS_DISABLE_MODERATION": "0",
+                                     "NESTED_WORLDS_MODERATION_BLOCK_EXTRA": "",
+                                     "NESTED_WORLDS_MODERATION_WATCH_EXTRA": ""}):
+            yield
+    finally:
+        os.environ.update(saved)
 
 
 def execute(case, outputs=None):
