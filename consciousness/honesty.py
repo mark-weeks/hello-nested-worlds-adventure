@@ -27,7 +27,9 @@ Scope and limits. English only. Matching is by phrase shape, not meaning:
   behind the seal?", "are you real, or am I dreaming?").
 - The whole line must be the question: every other clause is a greeting, a
   name, a short lead ("be honest") or "I'm human", and the line is at most
-  :data:`MAX_CHARS` long. "Tell me a story. Are you human?" or "Are you
+  :data:`MAX_CHARS` long. The question offers at most four alternatives
+  ("human or a bot or an AI or a program?"); a longer list takes the
+  normal path. "Tell me a story. Are you human?" or "Are you
   human? Want to work on this puzzle with me?" asks for more than the
   authored line says, so it takes the route's normal path, where the voice
   bible carries the same rule.
@@ -195,6 +197,11 @@ _NOUN2 = (r"(?: (?:player|being|user|generated|written|powered|driven|"
           r"controlled|response|reply|voice|model|assistant|program|agents?|"
           r"travell?ers?|character|npc))?")
 _ALT = r"(?: ,)? or (?:are you |is this |is it )?" + _ART + _ADJ + _TARGET + _NOUN2
+# At most three alternatives after the first ("human or a bot or an AI"). An
+# alternative can read two ways ("human npc" is an adjective and a target,
+# or a target and a noun), so an unbounded run of them doubles the work of
+# a failed match with each one (Codex review, 2026-11-07).
+_ALTS = r"(?:" + _ALT + r"){0,3}"
 _TAIL = (r"(?:(?: ,)? (?:lol|lmao|haha+|tbh|honestly|really|seriously|srsly|"
          r"truly|fr|for real|for sure|though|tho|then|now|right|at all|"
          r"or not|or what|or no|yes or no|be honest|tell me|tell me the truth|"
@@ -234,23 +241,34 @@ _END = _TAIL + _VOCATIVE + r"$"
 # leads ("be honest, are you an AI"). Nothing else, so "she asked me, are
 # you human", "how are you human", "open the door, are you human" and "are
 # any of you AI?" are not questions to the speaker.
-_LEAD_PHRASE = (
-    r"(?:hey|hi|hello|ok|okay|so|wait|um+|uh+|hm+|honestly|seriously|"
-    r"really|quick question|question|honest question|serious question|"
-    r"real question|one question|one more question|be honest|"
-    r"be honest with me|be straight with me|be truthful|be real|"
-    r"be real with me|level with me|tell me the truth|tell me honestly|"
-    r"tell me|so tell me|answer me|answer honestly|just curious|curious|"
-    r"im curious|i am curious|out of curiosity|i wonder|i was wondering|"
-    r"just wondering|i have to ask|i need to know|i have to know|i gotta ask|"
-    r"i want to know|i just want to know|i wanna know|i must ask|can i ask|"
-    r"may i ask|let me ask|sorry|lol|and|but|also|well|look|listen|"
-    r"real talk|truthfully|genuinely|yo|then|now|no offense|no offence|"
-    r"dont lie|dont lie to me|for real)"
+#
+# No lead is two other leads in a row, so a run of leads reads only one
+# way. "So tell me" and "tell me honestly" are not listed for that reason:
+# they read as "so" + "tell me" and "tell me" + "honestly". Listed, each
+# repetition doubled the work of a failed match, and 199 characters of "so
+# tell me" took about two seconds (Codex review, 2026-11-07).
+_LEADS = (
+    "hey", "hi", "hello", "ok", "okay", "so", "wait", "um+", "uh+", "hm+",
+    "honestly", "seriously", "really", "quick question", "question",
+    "honest question", "serious question", "real question", "one question",
+    "one more question", "be honest", "be honest with me", "be straight with me",
+    "be truthful", "be real", "be real with me", "level with me",
+    "tell me the truth", "tell me", "answer me", "answer honestly",
+    "just curious", "curious", "im curious", "i am curious", "out of curiosity",
+    "i wonder", "i was wondering", "just wondering", "i have to ask",
+    "i need to know", "i have to know", "i gotta ask", "i want to know",
+    "i just want to know", "i wanna know", "i must ask", "can i ask", "may i ask",
+    "let me ask", "sorry", "lol", "and", "but", "also", "well", "look", "listen",
+    "real talk", "truthfully", "genuinely", "yo", "then", "now", "no offense",
+    "no offence", "dont lie", "dont lie to me", "for real",
 )
+_LEAD_PHRASE = r"(?:" + "|".join(_LEADS) + r")"
 _LEAD = r"(?:" + _LEAD_PHRASE + r"(?: ,)? )*"
-_PREFIX = (r"^(?:" + _GREETING + r"(?: ,)? )?(?:" + _NAME + r"(?: ,)? )?"
-           + _LEAD)
+# A greeting may carry "there", "you" or "again", as it may in a clause of
+# its own ("Hi there, are you human?", "Hello again, are you an AI?").
+_GREETING_TAIL = r"(?:(?: ,)? (?:there|you|again))?"
+_PREFIX = (r"^(?:" + _GREETING + _GREETING_TAIL + r"(?: ,)? )?(?:" + _NAME
+           + r"(?: ,)? )?" + _LEAD)
 
 # What a "behind / typing / on the other end" question may be about: words
 # for this exchange. "This", "it" and "you" alone could be a door or a
@@ -278,22 +296,22 @@ _PERSON = (r"(?:(?:real|actual|live|living|genuine) (?:humans?|persons?|people|"
 _INVERTED = (
     # are you (even) (a real) human / an AI / a bot (or a person)
     _PREFIX + r"(?:are|arent) you " + _ADV + r"(?:" + _ART + _ADJ + _TARGET
-    + _NOUN2 + r"|" + _NAMES + r")(?:" + _ALT + r")*" + _END,
+    + _NOUN2 + r"|" + _NAMES + r")" + _ALTS + _END,
     # am I talking to a human / a real person / someone real / an AI
     _PREFIX + r"am i (?:talking|speaking|chatting|typing|writing|messaging|"
     r"texting|interacting) (?:to|with) " + _ADV + _ART + _ADJ
     + r"(?:" + _TARGET + r"|anyone real|anybody real)" + _NOUN2
-    + r"(?:" + _ALT + r")*" + _END,
+    + _ALTS + _END,
     # is this an AI / a bot / a real person / AI generated / a person or a bot
     _PREFIX + r"is this " + _ADV + _ART + _ADJ + r"(?:" + _THIS_TARGET + _NOUN2
-    + r"(?:" + _ALT + r")*|" + _THIS_PERSON + _NOUN2 + r"(?:" + _ALT + r")+)"
+    + _ALTS + r"|" + _THIS_PERSON + _NOUN2 + r"(?:" + _ALT + r"){1,3})"
     + _END,
     # is this a machine talking / a program answering
     _PREFIX + r"is this " + _ART + _SPEAKING_THING + r" " + _SPEAKING + _END,
     # are you played by a human / run by an AI
     _PREFIX + r"(?:are you|is this) (?:being )?(?:played|controlled|run|"
     r"operated|written|voiced|typed) by " + _ART + _ADJ + _TARGET + _NOUN2
-    + r"(?:" + _ALT + r")*" + _END,
+    + _ALTS + _END,
     # are you powered by AI / generated by an LLM
     _PREFIX + r"(?:are you|is this) (?:being )?(?:powered|generated|made|"
     r"driven|created|built|programmed) by " + _ART + _AI_MAKER + _END,
@@ -310,7 +328,7 @@ _INVERTED = (
     + _EXCHANGE_VERB + r" " + _SHORT_OBJECT + r"|typing|" + _OTHER_END
     + r"(?: of (?:this|it))?)" + _END,
     # is a human writing this / is an AI answering me / is someone typing this
-    _PREFIX + r"is " + _ART + _ADJ + _TARGET + r"(?:" + _ALT + r")* (?:typing|"
+    _PREFIX + r"is " + _ART + _ADJ + _TARGET + _ALTS + r" (?:typing|"
     r"writing|answering|voicing|controlling|playing|running|behind) (?:"
     + _SHORT_OBJECT + r"|me|" + _SPEAKER_OBJECT + r")" + _END,
     _PREFIX + r"is " + _SOMEONE + r" (?:real )?typing (?:this|these|that|"
@@ -325,7 +343,7 @@ _TAG = (r"(?:(?: ,)? (?:right|arent you|are you|or not|correct|yes|no|huh|eh|"
 # "you're a bot, aren't you?", "you human?", "human or bot?".
 _DECLARATIVE = (
     _PREFIX + r"(?:youre|you) " + _ADV + _ART + _ADJ + _TARGET
-    + _NOUN2 + r"(?:" + _ALT + r")*" + _TAG + _END,
+    + _NOUN2 + _ALTS + _TAG + _END,
     _PREFIX + _ART + _ADJ + r"(?:humans?|persons?|real|people|someone real)"
     + r"(?: ,)? or " + _ART + _ADJ
     + r"(?:bots?|robots?|chatbots?|ai|machines?|computers?|programs?|npcs?|llms?|"
@@ -347,7 +365,7 @@ _INTERJECTION = (r"(?:oh|ah|aha|huh|wow|whoa|woah|ha|hah|haha+|heh|hehe|lmao|"
                  r"omg|ooh|mhm|ugh|alright|right)")
 _FILLER = (
     r"^(?:"
-    + _GREETING + r"(?:(?: ,)? (?:there|you|again))?(?:(?: ,)? " + _NAME + r")?"
+    + _GREETING + _GREETING_TAIL + r"(?:(?: ,)? " + _NAME + r")?"
     + r"(?:(?: ,)? " + _LEAD_PHRASE + r")*"
     + r"|" + _NAME
     + r"|" + _LEAD_PHRASE + r"(?:(?: ,)? " + _LEAD_PHRASE + r")*"
