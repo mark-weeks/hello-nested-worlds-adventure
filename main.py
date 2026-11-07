@@ -1,6 +1,7 @@
 import argparse
 import logging
 import secrets
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -433,6 +434,28 @@ def _print_unconfigured_hint(report) -> None:
     for name in unconfigured:
         tasks = ", ".join(groups[name])
         print(f"provider not configured ({tasks})")
+
+
+def cmd_schema_version(_args):
+    """Print this binary's schema and the chronicle's applied version.
+
+    Read-only: the database is not created and no migration runs. Exit 1
+    when the chronicle is newer than this binary.
+    """
+    try:
+        known = persistence.known_schema_version()
+        applied = persistence.read_applied_schema_version()
+    except sqlite3.Error as exc:
+        print(f"error: chronicle is unreadable: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"known {known}")
+    if applied is None:
+        print("applied none")
+        return
+    print(f"applied {applied}")
+    if applied > known:
+        raise persistence.SchemaTooNewError(
+            persistence.schema_too_new_message(applied, known))
 
 
 def cmd_backup(args):
@@ -911,6 +934,11 @@ def build_parser() -> argparse.ArgumentParser:
              "per distinct model id; no chronicle row, no voice budget).")
     p_voice.set_defaults(func=cmd_voice_health)
 
+    p_schema = sub.add_parser(
+        "schema-version",
+        help="Print this binary's schema and the chronicle's applied version")
+    p_schema.set_defaults(func=cmd_schema_version)
+
     p_backup = sub.add_parser("backup",
         help="Write an online snapshot of the SQLite store to a target path")
     p_backup.add_argument("--to", type=str, required=True,
@@ -1083,7 +1111,14 @@ def main(argv=None):
     """Run the CLI from either a source checkout or the installed script."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    args.func(args)
+    try:
+        args.func(args)
+    except persistence.SchemaTooNewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    except sqlite3.Error as exc:
+        print(f"error: chronicle is unreadable: {exc}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

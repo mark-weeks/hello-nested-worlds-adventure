@@ -8,7 +8,9 @@ the delegated decisions in G5 and the owner-approved pilot-client choice in
 O3, on 2026-11-04 for M2, P3 and P5 evidence only (no status change), and
 on 2026-11-05 for the eval harness (M3 Partial), and on 2026-11-06 for
 per-task text providers and the neutral voice and image budget names
-(E3 Done, M1 and M5 evidence); line numbers in other rows cite `23b8830`.
+(E3 Done, M1 and M5 evidence), same-schema rollback (F4 stays Partial),
+the incident playbook (F5 Done) and the schema-version guard (P6 Done);
+line numbers in other rows cite `23b8830`.
 Thresholds marked as proposals are not decided.
 Decisions held for the owner are listed in this page and are not made by
 recording it. It ratifies no ADR and authorizes no deployment. The [Q4
@@ -44,12 +46,12 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 
 ## At a glance
 
-95 items in 16 categories. 54 block beta, and 45 of them are still open.
+95 items in 16 categories. 54 block beta, and 44 of them are still open.
 
 | Status | Count |
 |---|---|
-| Done | 11 |
-| Partial | 39 |
+| Done | 13 |
+| Partial | 37 |
 | Not started | 42 |
 | Unknown | 3 |
 
@@ -64,12 +66,12 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | AI players and agent policy | 4 | 0 | 3 | 1 | 0 |
 | Safety and moderation | 5 | 1 | 2 | 2 | 0 |
 | Economy, budgets and cost | 5 | 2 | 1 | 2 | 0 |
-| Performance and reliability | 7 | 0 | 3 | 3 | 1 |
+| Performance and reliability | 7 | 1 | 2 | 3 | 1 |
 | Observability and feedback | 5 | 1 | 3 | 1 | 0 |
 | Model agnosticism | 6 | 1 | 3 | 2 | 0 |
 | Accessibility | 6 | 2 | 3 | 1 | 0 |
 | Legal and policy | 5 | 1 | 1 | 2 | 1 |
-| Deployment and ops | 6 | 0 | 2 | 4 | 0 |
+| Deployment and ops | 6 | 1 | 1 | 4 | 0 |
 | Community and beta cohort | 4 | 0 | 1 | 3 | 0 |
 | Community governance and self-policing | 12 | 1 | 1 | 10 | 0 |
 | Distinctiveness: why players return | 7 | 0 | 3 | 4 | 0 |
@@ -161,7 +163,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | P3 | Hosted backups | `backup_health.py` exits 0 on a real validated private-bucket object. | Not started | (Docs) Since #136 (`23b8830`), backups are objects in a private S3-compatible bucket, not GitHub artifacts (`.github/workflows/backup.yml`). The job is an inactive no-op and uploads nothing until `FLY_API_TOKEN` and the `ENFOLDED_BACKUP_S3_*` secrets are set (`scripts/backup_gate.sh`). `scripts/backup_health.py` exits 2 when the bucket credentials are not configured, then reports missing until a validated object is stored. No live backup is claimed. Needs those secrets and decision I. | **Blocks beta** |
 | P4 | Hosted restore rehearsal | A downloaded backup object is restored into staging, with checksum and timing recorded. | Not started | (Code) Local cold restore passes (`tests/test_beta_rehearsal.py`). | **Blocks beta** |
 | P5 | Freshness alerting | A stale or missing private-bucket object triggers a notification. | Partial | (Code) `scripts/backup_health.py` reads the private bucket (#136), and `.github/workflows/backup.yml` exists. That workflow's schedule is not a freshness alert, and while the bucket secrets are unset the job is an inactive no-op. The independent scheduler and notification destination for a stale or missing object are not configured. No live object has been checked. | **Blocks beta** |
-| P6 | Additive migrations | Every migration is additive, and the schema version is pinned. | Partial | (Code) `persistence/migrations` 0001 to 0029 are additive (0029, the sanction tables, landed with #138). The schema version is not pinned: `_run_migrations` applies missing migrations and never compares the highest applied version with the highest this binary knows (`persistence/__init__.py`), so an older binary runs silently against a newer database. | **Blocks beta** |
+| P6 | Additive migrations | Every migration is additive, and the schema version is pinned. | Done | (Code) `persistence/migrations` 0001 to 0029 are additive (0029, the sanction tables, landed with #138). `known_schema_version()` is the highest migration this binary ships. `persistence.init_db` raises `SchemaTooNewError` and the server exits 1 before it listens when any applied version is newer, and it applies nothing. `python main.py schema-version` reports both numbers without migrating. `scripts/deploy.sh` refuses a checkout older than the live chronicle, and `--rollback` refuses an image whose schema is not equal to the live one. A cross-schema downgrade is the disaster restore. | **Blocks beta** |
 | P7 | SQLite single-writer limits known | Measured writer ceiling recorded, with headroom 5x over the cohort. | Unknown | (Docs) Litestream replication (roadmap 4.1) is post-launch. | Can follow |
 
 ## Observability and feedback
@@ -213,8 +215,8 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | F1 | Fly staging twin | `/health` ok, invite gate closed, `/speak` returns ai true. | Not started | (Docs) Needs Mark's Fly account, billing, flyctl and token ([docs/infrastructure/fly-deployment.md](../infrastructure/fly-deployment.md)). | **Blocks beta** · Mark decides |
 | F2 | Release candidate | Version bumped from `0.1.1rc2`, tag cut, release workflow green, wheel smoke passes. | Not started | (Docs) The last tag, `v0.1.1-qa.2`, is far behind main. | **Blocks beta** |
 | F3 | Secrets via a secure channel | Secrets set only with `fly secrets` and never in the repo. | Not started | (Docs) Runbook. Only after Mark confirms. | **Blocks beta** · Mark decides |
-| F4 | Rollback | A previous release is redeployed on staging in under 10 min. | Partial | (Docs) Rollback across a schema change is documented: restore the matching pre-upgrade backup, abandoning later history, with no supported in-place binary downgrade ([delivery-recovery.md](../infrastructure/delivery-recovery.md), "Upgrade and rollback"). Redeploying a previous release on the same schema has no written procedure, and `scripts/deploy.sh` backs up before deploy but has no rollback mode. A restore is a disaster operation, not an ordinary release rollback ([docs/infrastructure/fly-deployment.md](../infrastructure/fly-deployment.md)). | **Blocks beta** |
-| F5 | Incident response | One-page playbook: kill switches, redaction, who decides. | Partial | (Code) Kill switches exist in `guard.py`. No incident doc found. | Can follow |
+| F4 | Rollback | A previous release is redeployed on staging in under 10 min. | Partial | (Code, docs) `scripts/deploy.sh --rollback <image>` backs up first, refuses a failed backup, compares the live `schema_version` with the image's migrations, and runs `fly deploy --image` only when they match. The procedure is [fly-deployment.md](../infrastructure/fly-deployment.md#same-schema-release-rollback) and [delivery-recovery.md](../infrastructure/delivery-recovery.md#same-schema-release-rollback). A cross-schema downgrade stays the disaster restore, which abandons later history. The live staging redeploy, timed under 10 min, has not been run; it waits on a Fly app (F1). | **Blocks beta** |
+| F5 | Incident response | One-page playbook: kill switches, redaction, who decides. | Done | (Docs) [incident-response.md](../infrastructure/incident-response.md) names the kill switches and caps in `server/guard.py`, how `fly secrets set` restarts the one machine, invite revocation and sanctions, moderation hold, `redact`, and when to roll back versus restore. Mark Weeks decides. Juries G3, G4, G6, G7 and G8 stay open owner decisions and are not active. No held policy (age, chat permanence, destinations, world status, backup retention) is decided here. | Can follow |
 | F6 | Production deploy | Staging torn down, first production backup verified, one key per person minted. | Not started | (Docs) Q4 plan step P9. | **Blocks beta** · Mark decides |
 
 ## Community and beta cohort
@@ -303,7 +305,7 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 - [x] One key cannot exhaust the global budget, and the invite gate closes after the first key (E4); the gate latches closed since #137
 - [ ] Latency targets written and met on staging (P1)
 - [ ] Hosted load soak with 12 or more clients (P2)
-- [ ] Every migration additive, and the schema version pinned (P6); a binary does not yet check for a newer database
+- [x] Every migration additive, and the schema version pinned (P6)
 - [ ] Live voice quality meets the rubric (D3)
 - [ ] Beta metrics read daily during the cohort (B2)
 - [ ] Research lead and consent written (K1)
@@ -359,3 +361,5 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 - Update on 2026-11-04 with the classify-deadline change: the classify now makes one provider attempt under its 3 s timeout, with no SDK retries, so G5's exception is at most 3 s for a provider slot and then one classify attempt. Measured with the pinned SDK against a local stub: a 429 with retry-after 60 now holds the chat after 0.05 s (one attempt) instead of about 120 s (three), and a provider that never answers after 3.07 s instead of 10.48 s. The timeout applies per network phase, not as one wall-clock deadline, so a reply trickled in pieces that each arrive within 3 s can take longer in all (one attempt took 6.0 s against a stub sending a chunk a second). A transient provider error now holds the chat instead of being retried; the player can send it again. No data reaches the client meanwhile. G5 stays Done.
 - Not verified: live model quality, hosted anything, real players.
 - Update on 2026-11-04. The 2026-11-02 correction already said #133 and #134 had merged; this note checks that against git. Both are on `main` as squash commits: `6713fee` (ADR-035, one parent `38fbe6e`, committed 2026-11-02) and `f4f3396` (adapter, one parent `6713fee`, committed 2026-11-02). ADR-035's status line, read in [ADR-035](../decisions/ADR-035-openai-compatible-chat-completions.md), is still "Proposed, 2026-11-01", so M2 stays Partial. Their test suites were not re-run. #136 (`23b8830`) is on `main`. P3 stays Not started and P5 stays Partial: `scripts/backup_gate.sh` leaves the job an inactive no-op until `FLY_API_TOKEN` and the `ENFOLDED_BACKUP_S3_*` secrets are set, and `scripts/backup_health.py` exits 2 when the bucket credentials are not configured. One scheduled Actions run, 41917000181 (2026-11-04, success, 10s), logged those values empty and the inactive warning. Other scheduled runs were not opened. No live backup and no restore were run. Status counts are unchanged: Done 10, Partial 38, Not started 44, Unknown 3.
+- Update on 2026-11-06 for same-schema rollback and the incident playbook. F5 moved from Partial to Done: [incident-response.md](../infrastructure/incident-response.md) is the one-page playbook. P6 moved from Partial to Done: startup and `scripts/deploy.sh` refuse a chronicle newer than the binary. F4 stays Partial: the rollback mode and the written procedure exist, and the live staging redeploy under 10 minutes has not been run (it waits on F1). The go/no-go list checks P6 and leaves F4 unchecked. Counts are Done 12, Partial 37, Not started 43, Unknown 3; 54 block beta and 44 of them are still open. No held decision (minimum age, chat permanence, external destinations, world status, backup retention) was made. No live Fly deploy, rollback, or restore was run.
+- Update on 2026-11-07 after merging #152 into the per-task provider branch. E3 stays Done. F5 stays Done. P6 stays Done with the schema-29 guard. F4 stays Partial. A recount of all 95 rows is Done 13, Partial 37, Not started 42, Unknown 3. 54 block beta, and 44 of them are still open. ADR-035 stays Proposed. No held destination, spend, or policy decision was made.

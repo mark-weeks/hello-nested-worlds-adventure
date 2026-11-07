@@ -374,6 +374,8 @@ python main.py ideas list
 
 # Restore from a backup or redact abusive content — the runbook's §7 is the procedure
 # python main.py restore ...   python main.py redact ...
+# Same-schema Fly rollback: scripts/deploy.sh --rollback <image>
+# Incident playbook: docs/infrastructure/incident-response.md
 
 # Operator/dev commands accept --seed INT; the hosted clients do not
 python main.py world --seed 7 --depth 6

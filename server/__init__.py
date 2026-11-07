@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import signal
+import sys
 import threading
 from http.server import HTTPServer
 from socketserver import TCPServer, ThreadingMixIn
@@ -141,7 +142,30 @@ def model_banner() -> list[str]:
     ]
 
 
+def _refuse_newer_schema_readonly() -> None:
+    """Exit before any migration when the chronicle is newer than this binary.
+
+    Read-only. A missing database is not an error: the first successful
+    boot creates it. This must run before ``init_db`` so a config typo
+    cannot apply a pending migration and then strand the rollback.
+    """
+    applied = persistence.read_applied_schema_version()
+    known = persistence.known_schema_version()
+    if applied is not None and applied > known:
+        raise persistence.SchemaTooNewError(
+            persistence.schema_too_new_message(applied, known))
+
+
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:
+    # Schema and configuration before any migration. A release that ships
+    # the next migration and a bad seed or model id must exit with the
+    # chronicle still on the previous schema, so a same-schema rollback
+    # can still boot. Migrations are forward-only.
+    try:
+        _refuse_newer_schema_readonly()
+    except persistence.SchemaTooNewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     observability.setup()
@@ -173,6 +197,11 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
         consciousness.warn_if_cache_ineffective()
     except ImportError:
         pass
+    try:
+        persistence.init_db()
+    except persistence.SchemaTooNewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     server = _ThreadedServer((host, port), _Handler)
 
     # The world heartbeat: ambient agent life that runs whether or not
