@@ -57,6 +57,7 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 | [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md) | The decision agenda and a proposed 90-day sequence | Findings for the owner; ratifies nothing |
 | [Next steps, Q4 2026](next-steps-2026-q4.md) | The dated critical path to the M7 pilot, the owner's decisions and their needed-by dates, the parallel maintenance track, and the November–January batch order for ADR-029 to ADR-033 as ratified | Plan (2026-10-04); ratifies nothing |
 | [Incident response](../infrastructure/incident-response.md) | One-page operator playbook: kill switches, redaction, rollback versus restore, who decides | Operational. Records no policy decision |
+| [ADR-037: agents as conversational players](../decisions/ADR-037-agents-as-conversational-players.md) | The owner's 2026-11-06 decisions on agent disclosure and structural parity, designed against `f3ead74`: travelers (human or agent) are talked to in chat and places in Speak; no live or served kind labels; the honesty, notice, no-solicitation and mute/report guardrails; triggers, caps and the AI-off floor; puzzle help without submission; five ordered batches | Proposed 2026-11-07; not ratified. Changes no code; approves no player-text destination (S2) or spend (E2); S5 stays open. Four open questions for the owner |
 
 The owner's 2026-10-04 provider/model optionality direction is recorded in
 [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). It supersedes
