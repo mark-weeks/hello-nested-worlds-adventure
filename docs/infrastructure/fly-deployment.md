@@ -509,6 +509,15 @@ must not be used to train frontier models." This binds staging and
 production alike, and every model provider that receives Enfolded data:
 player text, and world data too.
 
+The two quoted sentences are the owner's rule (ADR-004, 2026-11-07
+amendment). The operating steps below are how this runbook applies it. They
+follow the check procedure proposed in packet decision 10 and checklist S2
+and L4, which awaits the owner's acceptance; if the owner changes that
+procedure, these steps follow it. Testers' text reaches a provider only after
+the owner signs off that provider's L4 data use note (proposed there as the
+scoped ADR-034 §5 decision), so a newcomer watch runs in per-scale silence
+until then.
+
 - Do not opt the provider account or organization that holds
   `ANTHROPIC_API_KEY` into any training or data-sharing programme, a
   development partner programme included. Do not submit feedback that
