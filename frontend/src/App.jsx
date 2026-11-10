@@ -11,6 +11,7 @@ import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
 import { displayName } from "./names.js";
 import { createNodeRefresher } from "./nodeRefresh.js";
 import { createChatDraft, createChatRestore } from "./chatDraft.js";
+import { arrivalScreen, openWorld, WORLD_UNREACHED_LINE } from "./arrival.js";
 import { NodeAmbience } from "../../static/score.js";
 
 // Honor the OS-level motion preference: transient overlays (ripples,
@@ -90,6 +91,9 @@ export default function App() {
   const [walkThrough, setWalkThrough] = useState(null);
   const [transients, setTransients] = useState([]);
   const [loading, setLoading]     = useState(true);
+  // Why the world did not open, while it has not: { kind, line } from the
+  // shared rule (an invite to open, a refused invitation, or a retry).
+  const [unopened, setUnopened]   = useState(null);
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || urlName() || "");
   const [introSeen, setIntroSeen] = useState(() => !!localStorage.getItem(INTRO_SEEN));
   const [soundOn, setSoundOn] = useState(false);
@@ -136,16 +140,28 @@ export default function App() {
     const requestedDepth = resumeDepth(
       depth, savedNode, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
     );
-    if (!background) setLoading(true);
+    if (!background) {
+      setLoading(true);
+      setUnopened(null);
+    }
     if (!preserveSession) {
       setPlayers([]);
       setEvents([]);
     }
     const startedAt = refreshSerial.current;
+    // Whether this read put a place in hand before anything after it failed.
+    let placed = false;
     try {
-      const response = await fetch(withKey(`/world?depth=${requestedDepth}`));
-      const data = await response.json();
-      if (!response.ok || data.error) throw new Error(data.error || "world unavailable");
+      const opened = await openWorld(
+        url => fetch(url), withKey(`/world?depth=${requestedDepth}`), !!betaKey(),
+      );
+      if (opened.unopened) {
+        // The arrival screens show this only while no place is in hand; a
+        // horizon read keeps its own retry beside the scene.
+        if (!background) setUnopened(opened.unopened);
+        return false;
+      }
+      const data = opened.data;
       setSeed(data.seed);
       setWorldDepth(requestedDepth);
       setWrapInfo(data.wrap || null);
@@ -162,6 +178,7 @@ export default function App() {
         return node;
       });
       setNodeStack(path);
+      placed = true;
       // A deep link selects this arrival once; later reloads resume actual travel.
       if (new URLSearchParams(location.search).has("node")) {
         const url = new URL(location.href);
@@ -180,8 +197,13 @@ export default function App() {
         }
       }
     } catch (_) {
-      // The loading shell remains the quiet failure surface; client-error
-      // forwarding records the underlying browser failure separately.
+      // A failure after the world opened. A world that answered but could not
+      // be drawn (no tree, no entry path) leaves no place in hand, so it gets
+      // the retry line instead of the loading shell with nothing in flight.
+      // After a place is in hand (the history backfill), the scene stays.
+      if (!background && !placed) {
+        setUnopened({ kind: "retry", line: WORLD_UNREACHED_LINE });
+      }
       return false;
     } finally {
       if (!background) setLoading(false);
@@ -375,25 +397,31 @@ export default function App() {
     },
   });
 
-  // Mount once. First pull any server-side (cross-device) resume into
-  // localStorage, then load — so the position follows the player across devices,
-  // falling back to this browser's cache when there's no server row.
+  // First pull any server-side (cross-device) resume into localStorage, then
+  // load — so the position follows the player across devices, falling back to
+  // this browser's cache when there's no server row.
+  const arrive = useCallback(async (cancelled = () => false) => {
+    // The loading shell shows at once, so a retry answers its click before
+    // the position hydrate and cannot be pressed again while it runs.
+    setLoading(true);
+    const position = await hydratePositionFromServer();
+    if (cancelled()) return;
+    const targetNode = new URLSearchParams(location.search).get("node") || position?.node || localStorage.getItem(LAST_NODE_KEY);
+    const targetDepth = resumeDepth(
+      position?.depth ?? localStorage.getItem(LAST_DEPTH_KEY),
+      targetNode,
+      INITIAL_WORLD_DEPTH,
+      MAX_WORLD_DEPTH,
+    );
+    loadWorld({ depth: targetDepth, targetNode });
+  }, [loadWorld]);
+
+  // Mount once.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const position = await hydratePositionFromServer();
-      if (cancelled) return;
-      const targetNode = new URLSearchParams(location.search).get("node") || position?.node || localStorage.getItem(LAST_NODE_KEY);
-      const targetDepth = resumeDepth(
-        position?.depth ?? localStorage.getItem(LAST_DEPTH_KEY),
-        targetNode,
-        INITIAL_WORLD_DEPTH,
-        MAX_WORLD_DEPTH,
-      );
-      loadWorld({ depth: targetDepth, targetNode });
-    })();
+    arrive(() => cancelled);
     return () => { cancelled = true; };
-  }, [loadWorld]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [arrive]);
 
   // Broadcast our position whenever it changes or we (re)connect, so other
   // players see us where we actually are — including the initial drop-in /
@@ -573,7 +601,16 @@ export default function App() {
 
   useEffect(() => { ambienceRef.current?.setVolume(scoreVolume); }, [scoreVolume, soundOn]);
 
-  if (!introSeen) {
+  const screen = arrivalScreen({
+    loading, hasNode: !!currentNode, unopened, introSeen, named: !!playerName,
+    hasKey: !!betaKey(),
+  });
+
+  if (screen === "gate") {
+    return <Unopened line={unopened.line} />;
+  }
+
+  if (screen === "intro") {
     return <Intro onBegin={() => {
       enablePreferredSound();
       localStorage.setItem(INTRO_SEEN, "1");
@@ -581,7 +618,7 @@ export default function App() {
     }} />;
   }
 
-  if (!playerName) {
+  if (screen === "name") {
     return <NameEntry onSubmit={(name) => {
       enablePreferredSound();
       localStorage.setItem(NAME_KEY, name);
@@ -589,7 +626,11 @@ export default function App() {
     }} />;
   }
 
-  if (loading || !currentNode) {
+  if (screen === "retry") {
+    return <Unopened line={unopened.line} onRetry={() => arrive()} />;
+  }
+
+  if (screen === "loading") {
     return <div style={s.loading}>Opening the shared world…</div>;
   }
 
@@ -648,6 +689,22 @@ function Intro({ onBegin }) {
           <li style={s.introItem}><b style={s.introVerb}>Solve</b> — crack a node's puzzle; the ripple settles places far above and below.</li>
         </ul>
         <button onClick={onBegin} style={{ ...s.nameButton, alignSelf: "flex-start" }}>Begin</button>
+      </div>
+    </div>
+  );
+}
+
+// The world did not open. The line comes from the shared rule; only a
+// failure that asking again can mend offers to ask again.
+function Unopened({ line, onRetry }) {
+  return (
+    <div style={s.nameWrap}>
+      <div style={{ ...s.nameBox, textAlign: "left" }}>
+        <div style={s.nameTitle}>Enfolded</div>
+        <div role="alert" style={s.introBody}>{line}</div>
+        {onRetry && (
+          <button onClick={onRetry} style={s.nameButton}>Open the view again</button>
+        )}
       </div>
     </div>
   );
