@@ -388,8 +388,8 @@ batch 2 and the owner's approval of these words):
   carry no actor-kind flag. Only operator tools record who is who; the stored
   `agent` key stays for them and the agent-solve covenant. What an agent says
   when sincerely asked is the honesty covenant's." The honesty rule itself is
-  #158's covenant, which #158 (at `387e219`) narrows to agents ("No agent
-  pretends to be human"; places are held there as a proposal for the owner), so
+  #158's covenant, "No voice pretends to be human", which covers agents (owner
+  guardrail, 2026-11-06) and places (owner decision, 2026-11-10), so
   `AGENTS.md` states it once.
 - In "Extend or replace an experience": "New action capabilities belong in
   Act, speech to a place in Speak, conversation with travelers, human or agent,
