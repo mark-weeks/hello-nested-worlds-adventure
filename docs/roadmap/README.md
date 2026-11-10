@@ -127,7 +127,7 @@ those batches merges first takes the next free number.
   D4, D7). [ADR-032](../decisions/ADR-032-inhabitant-cognition.md)
   (Proposed) puts inhabitant speech in Speak (D2, D5), persona-tags visitor
   agents (D6) and has inhabitants answer puzzles (D4). ADR-037 asks that
-  ADR-032 be revised before either is ratified.
+  ADR-032 be revised before ADR-032 is ratified.
 - Resolved 2026-10-25 by the owner in chat. ADR-004 section 2 said
   "Fail-open everywhere" for moderation, and no open agenda item covered that
   posture before outside players arrived. The amendment in
