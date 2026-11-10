@@ -8,10 +8,17 @@ pinned action commits as `backup.yml`, and no production app name anywhere.
 The second runs the workflow's own step scripts the way GitHub's
 `shell: bash` runs them (`bash --noprofile --norc -eo pipefail`), with the
 step and job `env:` the workflow declares, against the flyctl stub from
-`tests/test_deploy_rollback.py` and a curl stub. The schema-check step runs
+`tests/test_deploy_rollback.py` (taught `flyctl releases` here) and a curl
+stub. The schema-check step runs
 against small git repositories built here and, where the local history has
-them, against this repository's own commits and tags. Nothing here contacts
+them, against this repository's own commits and tags. The main-tip step asks
+a local bare repository standing in for `origin`. Nothing here contacts
 Fly.io or the network.
+
+A third part runs runbook §3a's and §8's terminal commands as written: the
+staging mint and revoke lines through bash and the fly stub's `-C` split
+into `main.py`, and the live-voice probe's curl lines replayed against an
+in-process server with a stub provider.
 
 PyYAML is not a dependency (requirements-dev.lock), so a small loader below
 reads the block-style subset this workflow uses and raises on anything
@@ -20,13 +27,23 @@ misread.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
+import shlex
+import sqlite3
 import subprocess
+import sys
+import threading
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import pytest
 
+import persistence
 from tests.test_deploy_rollback import _STUB, _calls, _known
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -47,12 +64,14 @@ _GUARD = "Refuse any app but staging and any ref but main"
 _TOKEN_STEP = "Refuse without the staging deploy token"
 _CHECKOUT_STEP = "Check out main"
 _SCHEMA_STEP = "Refuse a commit without the schema check"
+_TIP = "Refuse a commit that is not main's tip"
 _RECORD = "Record what is being deployed"
 _FLYCTL = "Set up flyctl"
 _DEPLOY = "Deploy with scripts/deploy.sh"
 _HEALTH = "Wait for staging /health"
-_STEPS = [_GUARD, _TOKEN_STEP, _CHECKOUT_STEP, _SCHEMA_STEP, _RECORD,
-          _FLYCTL, _DEPLOY, _HEALTH]
+_RELEASE = "Record the release Fly reports"
+_STEPS = [_GUARD, _TOKEN_STEP, _CHECKOUT_STEP, _SCHEMA_STEP, _TIP, _RECORD,
+          _FLYCTL, _DEPLOY, _HEALTH, _RELEASE]
 
 
 # --- A strict loader for the workflow's YAML subset -------------------------
@@ -361,10 +380,12 @@ def test_each_step_has_exactly_its_env(job):
         _TOKEN_STEP: {"FLY_API_TOKEN"},
         _CHECKOUT_STEP: set(),
         _SCHEMA_STEP: {"SCHEMA_GUARD_COMMIT"},
+        _TIP: set(),
         _RECORD: set(),
         _FLYCTL: set(),
         _DEPLOY: {"FLY_API_TOKEN"},
         _HEALTH: {"HEALTH_URL", "HEALTH_ATTEMPTS", "HEALTH_INTERVAL_SECONDS"},
+        _RELEASE: {"FLY_API_TOKEN"},
     }
     assert {step["name"]: set(step.get("env") or {})
             for step in job["steps"]} == expected
@@ -385,7 +406,7 @@ def test_the_token_reaches_only_the_steps_that_need_it(job):
             assert env["FLY_API_TOKEN"] == "${{ secrets.FLY_API_TOKEN_STAGING }}"
             holders.append(step["name"])
         assert "FLY_API_TOKEN" not in (step.get("with") or {})
-    assert holders == [_TOKEN_STEP, _DEPLOY]
+    assert holders == [_TOKEN_STEP, _DEPLOY, _RELEASE]
     assert "FLY_API_TOKEN" not in job["env"]
 
 
@@ -437,9 +458,18 @@ def _has_commit(cwd, sha) -> bool:
     return _git(cwd, "cat-file", "-e", f"{sha}^{{commit}}", check=False).returncode == 0
 
 
+def _is_work_tree(path: Path) -> bool:
+    """True when `path` is the top of a git work tree (not a `git archive` export)."""
+    try:
+        top = _git(path, "rev-parse", "--show-toplevel", check=False)
+    except OSError:
+        return False
+    return top.returncode == 0 and Path(top.stdout.strip()).resolve() == path.resolve()
+
+
 def test_the_schema_guard_commit_is_152(job):
     assert _step(job, _SCHEMA_STEP)["env"]["SCHEMA_GUARD_COMMIT"] == _SCHEMA_GUARD
-    if not _has_commit(_ROOT, _SCHEMA_GUARD):
+    if not _is_work_tree(_ROOT) or not _has_commit(_ROOT, _SCHEMA_GUARD):
         pytest.skip("this checkout's history does not reach #152")
     # The pinned commit is the one that brought in the schema check and the
     # newer-chronicle refusal: present in it, absent from its parent.
@@ -494,8 +524,51 @@ def _write_curl(bin_dir: Path) -> None:
     curl.chmod(0o755)
 
 
+# `flyctl releases -a <app> --json`, as flyctl 0.5.1 prints it: fly-go's
+# Release struct through render.JSON (four-space indent, Go field names),
+# sorted by Version, highest first (internal/command/apps/releases.go). The
+# user's email is in the answer; the step must never print it.
+_RELEASE_IMAGE = "registry.fly.io/enfolded-staging:deployment-01JFIXTURE0000000000000000"
+_RELEASE_EMAIL = "deployer@example.invalid"
+_RELEASES = json.dumps([
+    {"ID": "rel_new", "Version": 42, "Stable": True, "InProgress": False,
+     "Reason": "", "Description": "Release", "Status": "complete",
+     "DeploymentStrategy": "", "Metadata": None,
+     "User": {"ID": "u1", "Email": _RELEASE_EMAIL, "Name": "Deployer"},
+     "EvaluationID": "", "CreatedAt": "2026-11-10T12:34:56.789Z",
+     "ImageRef": _RELEASE_IMAGE},
+    {"ID": "rel_old", "Version": 41, "Stable": True, "InProgress": False,
+     "Reason": "", "Description": "Release", "Status": "complete",
+     "DeploymentStrategy": "", "Metadata": None,
+     "User": {"ID": "u1", "Email": _RELEASE_EMAIL, "Name": "Deployer"},
+     "EvaluationID": "", "CreatedAt": "2026-11-09T08:00:00Z",
+     "ImageRef": "registry.fly.io/enfolded-staging:deployment-01JOLDER"},
+], indent=4)
+
+# The rollback test's fly stub, taught `releases`: FLY_STUB_RELEASES_RAW
+# replaces the answer, FLY_STUB_RELEASES_FAIL=1 fails the call.
+_FALLTHROUGH = 'echo "unexpected fly invocation: $*" >&2\n'
+_RELEASES_BRANCH = r"""if [[ "${1:-}" == "releases" ]]; then
+  if [[ "${FLY_STUB_RELEASES_FAIL:-}" == 1 ]]; then
+    echo "Error: failed retrieving app releases" >&2
+    exit 1
+  fi
+  if [[ -n "${FLY_STUB_RELEASES_RAW+set}" ]]; then
+    printf '%s\n' "$FLY_STUB_RELEASES_RAW"
+    exit 0
+  fi
+  printf '%s\n' "${FLY_STUB_RELEASES_DEFAULT:?}"
+  exit 0
+fi
+"""
+assert _STUB.count(_FALLTHROUGH) == 1
+_FLY_STUB = _STUB.replace(_FALLTHROUGH, _RELEASES_BRANCH + _FALLTHROUGH)
+
+
 @pytest.fixture(scope="module")
 def head_sha() -> str:
+    if not _is_work_tree(_ROOT):
+        pytest.skip("this copy of the repository is not a git work tree")
     return _git(_ROOT, "rev-parse", "HEAD").stdout.strip()
 
 
@@ -507,7 +580,7 @@ def _run_step(tmp_path, job, name, *, context=None, env=None, cwd=None,
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     fly = bin_dir / "fly-stub"
-    fly.write_text(_STUB)
+    fly.write_text(_FLY_STUB)
     fly.chmod(0o755)
     _write_curl(bin_dir)
     fly_log = tmp_path / "fly.log"
@@ -526,6 +599,7 @@ def _run_step(tmp_path, job, name, *, context=None, env=None, cwd=None,
         "FLY_STUB_LOG": str(fly_log),
         "FLY_STUB_APPLIED": str(_known()),
         "FLY_STUB_KNOWN": str(_known()),
+        "FLY_STUB_RELEASES_DEFAULT": _RELEASES,
         "CURL_STUB_LOG": str(curl_log),
     }
     if head is not None:
@@ -728,6 +802,8 @@ def test_schema_step_accepts_this_checkout(tmp_path, job, head_sha):
 @pytest.mark.parametrize("ref", ["v0.1.1-qa.2", "18e5bbd"])
 def test_schema_step_refuses_real_commits_before_152(tmp_path, job, ref):
     # v0.1.1-qa.2 and #151 ship a deploy.sh with no schema check.
+    if not _is_work_tree(_ROOT):
+        pytest.skip("this copy of the repository is not a git work tree")
     found = _git(_ROOT, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False)
     if found.returncode != 0 or not _has_commit(_ROOT, _SCHEMA_GUARD):
         pytest.skip(f"{ref} or #152 is not in this checkout's history")
@@ -738,6 +814,116 @@ def test_schema_step_refuses_real_commits_before_152(tmp_path, job, ref):
     proc = _schema_step(tmp_path, job, clone, _SCHEMA_GUARD)
     assert proc.returncode == 1
     assert f"{sha} does not descend from {_SCHEMA_GUARD}" in proc.stdout
+
+
+# --- The main-tip step -------------------------------------------------------
+
+_DECOY = "refs/heads/a/refs/heads/main"
+
+
+@pytest.fixture()
+def published(history, tmp_path):
+    """`history` with a bare `origin` whose main is at "after".
+
+    origin also holds a branch whose name ends in `refs/heads/main`, at
+    "before". `git ls-remote origin refs/heads/main` matches ref patterns
+    from the end, so it lists that branch too, and before main.
+    """
+    repo, shas = history
+    origin = tmp_path / "origin.git"
+    _git(tmp_path, "clone", "-q", "--bare", str(repo), str(origin))
+    _git(repo, "remote", "add", "origin", str(origin))
+    _git(repo, "push", "-q", "origin", f"{shas['before']}:{_DECOY}")
+    return repo, origin, shas
+
+
+def _advance_main(repo: Path, shas: dict) -> str:
+    """Merge one more commit to origin's main, as a later PR would."""
+    _git(repo, "checkout", "-q", "main")
+    shas["newer"] = _commit(repo, "newer")
+    _git(repo, "push", "-q", "origin", "main")
+    return shas["newer"]
+
+
+def _tip_step(tmp_path, job, repo, head):
+    proc, calls, _curls, _summary = _run_step(
+        tmp_path, job, _TIP, cwd=repo, head=head)
+    assert calls == []
+    return proc
+
+
+def test_tip_step_accepts_main_s_tip(tmp_path, job, published):
+    repo, _origin, shas = published
+    _at(repo, shas["after"])
+    proc = _tip_step(tmp_path, job, repo, shas["after"])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert f"{shas['after']} is main's tip." in proc.stdout
+
+
+def test_tip_step_reads_main_and_not_a_branch_whose_name_ends_in_it(
+        tmp_path, job, published):
+    repo, _origin, shas = published
+    listed = _git(repo, "ls-remote", "origin", _MAIN).stdout.split("\n")
+    # The fixture's decoy is real: ls-remote lists it, first.
+    assert listed[:2] == [f"{shas['before']}\t{_DECOY}", f"{shas['after']}\t{_MAIN}"]
+    _at(repo, shas["after"])
+    proc = _tip_step(tmp_path, job, repo, shas["after"])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert f"{shas['after']} is main's tip." in proc.stdout
+    _at(repo, shas["before"])
+    proc = _tip_step(tmp_path, job, repo, shas["before"])
+    assert proc.returncode == 1
+    assert (f"::error::This run's commit is {shas['before']}, but main is now at "
+            f"{shas['after']}.") in proc.stdout
+
+
+def test_a_rerun_after_main_moves_passes_every_earlier_step_and_stops_here(
+        tmp_path, job, published):
+    # A re-run keeps its run's GITHUB_SHA. Main has since moved to "newer".
+    # The ref, dispatched-commit and #152 checks all still pass for the old
+    # commit; only the tip step refuses it.
+    repo, _origin, shas = published
+    newer = _advance_main(repo, shas)
+    _at(repo, shas["after"])
+    guard, *_ = _run_step(tmp_path, job, _GUARD, cwd=repo, head=shas["after"])
+    assert guard.returncode == 0, guard.stdout + guard.stderr
+    assert _schema_step(tmp_path, job, repo, shas["guard"]).returncode == 0
+    proc = _tip_step(tmp_path, job, repo, shas["after"])
+    assert proc.returncode == 1
+    assert (f"::error::This run's commit is {shas['after']}, but main is now at "
+            f"{newer}.") in proc.stdout
+    assert "Dispatch a new run from main instead of re-running this one." in proc.stdout
+    assert "is main's tip" not in proc.stdout
+
+
+def test_tip_step_refuses_a_commit_that_main_never_held(tmp_path, job, published):
+    repo, _origin, shas = published
+    _at(repo, shas["before"])
+    proc = _tip_step(tmp_path, job, repo, shas["before"])
+    assert proc.returncode == 1
+    assert f"but main is now at {shas['after']}" in proc.stdout
+
+
+def test_tip_step_refuses_when_origin_cannot_be_read(tmp_path, job, published):
+    repo, origin, shas = published
+    _at(repo, shas["after"])
+    _git(repo, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
+    proc = _tip_step(tmp_path, job, repo, shas["after"])
+    assert proc.returncode == 1
+    assert "::error::Could not read main's tip from origin" in proc.stdout
+    _git(repo, "remote", "remove", "origin")
+    proc = _tip_step(tmp_path, job, repo, shas["after"])
+    assert proc.returncode == 1
+    assert "::error::Could not read main's tip from origin" in proc.stdout
+
+
+def test_tip_step_refuses_when_origin_has_no_main(tmp_path, job, published):
+    repo, origin, shas = published
+    _at(repo, shas["after"])
+    _git(origin, "branch", "-q", "-m", "main", "trunk")
+    proc = _tip_step(tmp_path, job, repo, shas["after"])
+    assert proc.returncode == 1
+    assert "::error::origin did not report one commit for refs/heads/main" in proc.stdout
 
 
 # --- The deploy step ---------------------------------------------------------
@@ -864,11 +1050,384 @@ def test_health_step_fails_when_staging_never_answers(tmp_path, job):
     assert len(curls) == 3
 
 
-def test_record_step_writes_the_target_to_the_summary(tmp_path, job):
-    proc, calls, _curls, summary = _run_step(tmp_path, job, _RECORD)
+def test_record_step_writes_the_target_to_the_summary(tmp_path, job, history):
+    # A repository built here, so the test runs in a `git archive` export too.
+    repo, shas = history
+    _at(repo, shas["after"])
+    proc, calls, _curls, summary = _run_step(tmp_path, job, _RECORD, cwd=repo)
     assert proc.returncode == 0, proc.stderr
     assert "- App: `enfolded-staging` (disposable staging twin)" in summary
     assert "- Ref: `refs/heads/main`" in summary
-    assert re.search(r"- Commit: `[0-9a-f]{40}`", summary)
+    assert f"- Commit: `{shas['after']}`" in summary
     assert _TOKEN not in proc.stdout + summary
     assert calls == []
+
+
+# --- The release step --------------------------------------------------------
+
+_DEPLOYED = "0123456789abcdef0123456789abcdef01234567"
+_UNREAD = "- Fly release: could not read the release"
+
+
+def _release_step(tmp_path, job, **env):
+    proc, calls, curls, summary = _run_step(
+        tmp_path, job, _RELEASE, head=_DEPLOYED, env=env)
+    assert calls == [["releases", "-a", _STAGING, "--json"]]
+    _assert_only_staging(calls)
+    assert curls == []
+    for leaked in (_TOKEN, _RELEASE_EMAIL):
+        assert leaked not in proc.stdout + proc.stderr + summary
+    return proc, summary
+
+
+def test_release_step_names_the_commit_and_the_newest_release(tmp_path, job):
+    proc, summary = _release_step(tmp_path, job)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert summary.splitlines() == [
+        "- Deployed commit: `0123456`",
+        f"- Fly release: v42 (complete), image `{_RELEASE_IMAGE}`, "
+        "created 2026-11-10T12:34:56.789Z",
+    ]
+    assert f"Fly reports release v42 (complete), image `{_RELEASE_IMAGE}`" in proc.stdout
+    assert "::warning::" not in proc.stdout
+    # The older release is not reported, and the raw answer is not echoed.
+    assert "v41" not in summary + proc.stdout
+    assert '"ID"' not in proc.stdout
+
+
+def test_release_step_reports_fields_it_cannot_trust_as_not_reported(tmp_path, job):
+    # Fly's strings go into Markdown; one with a backtick, a newline or no
+    # date shape is left out rather than written.
+    raw = json.dumps([{"Version": 7, "Status": "complete\n## injected",
+                       "ImageRef": "registry`x", "CreatedAt": "yesterday"}])
+    proc, summary = _release_step(tmp_path, job, FLY_STUB_RELEASES_RAW=raw)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert summary.splitlines()[1] == (
+        "- Fly release: v7 (status not reported), image not reported, "
+        "creation time not reported")
+    assert "injected" not in summary
+
+
+@pytest.mark.parametrize("raw", [
+    "", "not json", "Error: something\n[]", "[]", "{}", '{"Version": 42}', "[1]",
+    '[{"Status": "complete"}]', '[{"Version": "42"}]', '[{"Version": true}]',
+    '[{"Version": 42.0}]', "[null]",
+])
+def test_release_step_passes_with_the_fallback_line_on_an_unreadable_answer(
+        tmp_path, job, raw):
+    proc, summary = _release_step(tmp_path, job, FLY_STUB_RELEASES_RAW=raw)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert summary.splitlines() == ["- Deployed commit: `0123456`", _UNREAD]
+    assert "::warning::Could not read the release from flyctl." in proc.stdout
+    assert "Fly reports release" not in proc.stdout
+
+
+def test_release_step_passes_with_the_fallback_line_when_flyctl_fails(tmp_path, job):
+    proc, summary = _release_step(tmp_path, job, FLY_STUB_RELEASES_FAIL="1")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert summary.splitlines() == ["- Deployed commit: `0123456`", _UNREAD]
+    assert "::warning::Could not read the release from flyctl." in proc.stdout
+    assert "failed retrieving app releases" in proc.stderr
+
+
+# --- Runbook §3a and §8: the terminal commands as written -------------------
+
+_RUNBOOK = _ROOT / "docs" / "infrastructure" / "fly-deployment.md"
+_KIT_CHECK_NAME = "Watchcheck"  # the facilitator kit's staging check key (#156)
+
+
+def _runbook_commands() -> list[str]:
+    """Each command line of the runbook, as a reader would copy it.
+
+    A leading `#` comment marker (an alternative shown inside a bash block)
+    and the backticks around an inline command are removed.
+    """
+    commands = []
+    for line in _RUNBOOK.read_text().splitlines():
+        text = line.strip()
+        if text.startswith("#"):
+            text = text.lstrip("#").strip()
+        if len(text) > 1 and text[0] == text[-1] == "`":
+            text = text[1:-1]
+        if text.startswith(("fly ", "curl ")):
+            commands.append(text)
+    return commands
+
+
+def _staging_invite_lines(action: str) -> list[str]:
+    return [c for c in _runbook_commands()
+            if c.startswith("fly ssh console -a enfolded-staging -C ")
+            and f"python main.py invite {action}" in c]
+
+
+def _remote_words(line: str) -> list[str]:
+    """The words main.py receives: bash's parse, then Hallpass's split of -C."""
+    words = shlex.split(line)
+    return shlex.split(words[words.index("-C") + 1])
+
+
+def _check_key_mint_line() -> str:
+    # The check key is the staging mint line with no placeholder name.
+    lines = [line for line in _staging_invite_lines("mint") if "<" not in line]
+    assert len(lines) == 1, lines
+    return lines[0]
+
+
+def _check_name() -> str:
+    words = _remote_words(_check_key_mint_line())
+    return words[words.index("--name") + 1]
+
+
+def _fly_terminal(tmp_path, line: str) -> subprocess.CompletedProcess:
+    """Run a runbook line in bash with the fly stub executing -C directly.
+
+    `python` is this interpreter; HOME (and so the chronicle) is scratch.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    fly = bin_dir / "fly"
+    fly.write_text(_STUB)
+    fly.chmod(0o755)
+    python = bin_dir / "python"
+    python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    python.chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '/usr/bin:/bin')}",
+        "HOME": str(tmp_path / "home"),
+        "FLY_STUB_LOG": str(tmp_path / "fly.log"),
+        "FLY_STUB_EXEC_PROBE": "1",
+    }
+    return subprocess.run(
+        ["bash", "--noprofile", "--norc", "-c", line], cwd=_ROOT, env=env,
+        text=True, capture_output=True, check=False)
+
+
+def _invite_rows(tmp_path) -> dict[str, bool]:
+    """name -> revoked, from the scratch chronicle the commands wrote."""
+    db = tmp_path / "home" / ".nested-worlds" / "worlds.db"
+    with sqlite3.connect(db) as conn:
+        return {name: revoked is not None for name, revoked in
+                conn.execute("SELECT name, revoked_at FROM invite_keys")}
+
+
+def test_runbook_tester_mint_lines_mint_the_names_they_are_given(tmp_path):
+    lines = [line for line in _staging_invite_lines("mint") if "<Name>" in line]
+    assert lines, "runbook §3a has no staging mint line for a tester"
+    minted = {}
+    for index, line in enumerate(lines):
+        for name in ("Jane Doe", "O'Brien"):
+            proc = _fly_terminal(tmp_path, line.replace("<Name>", name))
+            if proc.returncode == 0:
+                assert f"Minted invite for {name}:" in proc.stdout
+                minted.setdefault(name, []).append(index)
+                # Free the name for the next line: a revoked name stays
+                # taken, so start each mint from a fresh chronicle.
+                (tmp_path / "home" / ".nested-worlds" / "worlds.db").unlink()
+            else:
+                assert proc.stdout == "", proc.stdout
+    # Every documented line takes a name with a space; some line takes a
+    # name with an apostrophe.
+    assert minted.get("Jane Doe") == list(range(len(lines))), minted
+    assert minted.get("O'Brien"), minted
+
+
+def test_single_quoted_name_with_an_apostrophe_mints_nothing(tmp_path):
+    # Why the runbook needs its second form: the remote split ends the
+    # quote at the apostrophe.
+    line = ("fly ssh console -a enfolded-staging -C \"python main.py invite mint "
+            "--name 'O'Brien' --note 'disposable staging watch'\"")
+    proc = _fly_terminal(tmp_path, line)
+    assert proc.returncode == 127
+    assert "No closing quotation" in proc.stderr
+    assert "Minted" not in proc.stdout
+
+
+def test_runbook_check_key_is_minted_revoked_and_frees_the_kits_check_name(tmp_path):
+    proc = _fly_terminal(tmp_path, _check_key_mint_line())
+    assert proc.returncode == 0, proc.stderr
+    name = _check_name()
+    assert f"Minted invite for {name}:" in proc.stdout
+    key = re.search(r"key: (nw_[0-9a-f]{32})", proc.stdout).group(1)
+    revokes = _staging_invite_lines("revoke")
+    assert len(revokes) == 1, revokes
+    placeholder = re.search(r"<[^>]+>", revokes[0]).group(0)
+    proc = _fly_terminal(tmp_path, revokes[0].replace(placeholder, key))
+    assert proc.returncode == 0, proc.stderr
+    assert f"Revoked: {key}" in proc.stdout
+    assert _invite_rows(tmp_path) == {name: True}
+    # A tester and the facilitator kit's own check key can still be minted
+    # after the runbook's check: its name collides with neither.
+    tester = [line for line in _staging_invite_lines("mint") if "'<Name>'" in line][0]
+    assert _fly_terminal(tmp_path, tester.replace("<Name>", "Jane Doe")).returncode == 0
+    kit = _fly_terminal(
+        tmp_path, f'fly ssh console -a enfolded-staging -C "python main.py invite '
+                  f'mint --name {_KIT_CHECK_NAME}"')
+    assert kit.returncode == 0, kit.stdout + kit.stderr
+    assert _invite_rows(tmp_path) == {name: True, "Jane Doe": False, _KIT_CHECK_NAME: False}
+
+
+def test_runbook_step_7_probes_with_the_check_key_before_revoking_it():
+    commands = _runbook_commands()
+    mint = commands.index(_check_key_mint_line())
+    revokes = [i for i, c in enumerate(commands)
+               if c in _staging_invite_lines("revoke")]
+    assert len(revokes) == 1, revokes
+    probes = [i for i, c in enumerate(commands)
+              if c.startswith("curl ") and _CHECK_KEY_PLACEHOLDER in c
+              and "https://enfolded-staging.fly.dev/" in c
+              and ("/world" in c or "/speak" in c)]
+    assert len(probes) == 2, probes
+    assert mint < min(probes)
+    assert revokes[0] > max(probes)
+
+
+def test_a_later_probe_mints_a_new_check_name(tmp_path):
+    # Teardown and §8 send the reader back to step 5's check-key line for
+    # each later probe. Step 7 has revoked its key, and a revoked name stays
+    # taken, so the line as written mints nothing; each example name the
+    # runbook gives instead does.
+    line = _check_key_mint_line()
+    first = _fly_terminal(tmp_path, line)
+    assert first.returncode == 0, first.stderr
+    key = re.search(r"key: (nw_[0-9a-f]{32})", first.stdout).group(1)
+    revoke = _staging_invite_lines("revoke")[0]
+    placeholder = re.search(r"<[^>]+>", revoke).group(0)
+    assert _fly_terminal(tmp_path, revoke.replace(placeholder, key)).returncode == 0
+    again = _fly_terminal(tmp_path, line)
+    assert again.returncode != 0
+    assert "Minted" not in again.stdout
+    assert f"the name '{_check_name()}' is already registered" in again.stderr
+    examples = sorted(set(re.findall(rf"`({_check_name()}\d+)`", _RUNBOOK.read_text())))
+    assert examples, "the runbook gives no example of a new check name"
+    old = f"--name {_check_name()}"
+    assert line.count(old) == 1, line
+    for example in examples:
+        proc = _fly_terminal(tmp_path, line.replace(old, f"--name {example}"))
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert f"Minted invite for {example}:" in proc.stdout
+    assert _invite_rows(tmp_path) == {
+        _check_name(): True, **{example: False for example in examples}}
+
+
+@pytest.fixture()
+def live_server(monkeypatch):
+    from server import _Handler, _ThreadedServer
+    monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "382")
+    server = _ThreadedServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+
+
+_CHECK_KEY_PLACEHOLDER = "<check key>"
+
+
+def _replay_curl(command: str, base: str, *, check_key: str, other_key: str,
+                 place: str | None = None):
+    """Send a documented curl command to `base`; return status, raw body, pipe.
+
+    `<check key>` in a header value is `check_key`. Any other `<...>` there
+    (`<key>`, `<tester key>`) is read as the key a reader would reach for
+    instead, a tester's: it is sent as `other_key`. `<...>` as a JSON body
+    value is `place`. Everything after `|` is returned as words, unrun.
+    """
+    words = shlex.split(command)
+    pipe = words.index("|") if "|" in words else len(words)
+    curl, rest = words[1:pipe], words[pipe + 1:]
+    method, headers, data, url = "GET", {}, None, None
+    while curl:
+        word = curl.pop(0)
+        if word in ("-s", "-sS"):
+            continue
+        if word == "-X":
+            method = curl.pop(0)
+        elif word == "-H":
+            name, _, value = curl.pop(0).partition(":")
+            value = value.strip()
+            if value == _CHECK_KEY_PLACEHOLDER:
+                value = check_key
+            elif re.fullmatch(r"<[^>]+>", value):
+                value = other_key
+            headers[name.strip()] = value
+        elif word in ("-d", "--data"):
+            body = json.loads(curl.pop(0))
+            for field, value in body.items():
+                if isinstance(value, str) and re.fullmatch(r"<[^>]+>", value):
+                    assert place is not None, command
+                    body[field] = place
+            data = json.dumps(body).encode()
+        elif word.startswith("https://"):
+            url = word
+        else:
+            raise AssertionError(f"unexpected curl word {word!r} in {command!r}")
+    parts = urllib.parse.urlsplit(url)
+    target = base + parts.path + (f"?{parts.query}" if parts.query else "")
+    request = urllib.request.Request(target, data=data, headers=headers, method=method)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        response = opener.open(request, timeout=10)
+    except urllib.error.HTTPError as exc:
+        response = exc
+    with response:
+        return response.status, response.read().decode(), rest
+
+
+def test_runbook_voice_probe_answers_live_under_the_check_key_only(live_server, monkeypatch):
+    from server import guard
+    from tests.test_model_provenance import Stub, _enable
+    check_key, tester_key = "nw_" + "c" * 32, "nw_" + "d" * 32
+    persistence.mint_invite_key(check_key, _check_name())
+    persistence.mint_invite_key(tester_key, "Jane Doe", note="disposable staging watch")
+    _enable(monkeypatch, Stub("A voice from the stub provider."))
+    # The gate stamps last_used_at on a key's first use in a process; start
+    # with no key remembered, so each key's first use here is recorded.
+    monkeypatch.setattr(guard, "_touch_cache", {})
+    keys = {"check_key": check_key, "other_key": tester_key}
+    commands = _runbook_commands()
+
+    # How the runbook says to find a place name (§3a step 7 and §8).
+    finders = [c for c in commands if c.startswith("curl ") and "/world" in c
+               and "python3 -c" in c]
+    assert len(finders) >= 2, finders
+    places = set()
+    for command in finders:
+        status, raw, rest = _replay_curl(command, live_server, **keys)
+        assert status == 200, raw
+        assert rest[:2] == ["python3", "-c"], rest
+        printed = subprocess.run(
+            [sys.executable, "-c", rest[2]], input=raw, text=True,
+            capture_output=True, check=True).stdout.strip()
+        places.add(printed)
+    assert len(places) == 1 and "" not in places, places
+    place = places.pop()
+
+    # The probe itself, as §3a step 7 and §8 write it.
+    probes = [c for c in commands if c.startswith("curl ") and "/speak" in c]
+    assert len(probes) >= 2, probes
+    for command in probes:
+        status, raw, rest = _replay_curl(
+            command, live_server, place=place, **keys)
+        assert status == 200, raw
+        assert rest[:2] == ["grep", "-o"], rest
+        assert rest[2] in raw, raw  # the grep finds "ai": true
+        assert json.loads(raw)["ai"] is True
+
+    identity = hashlib.sha256(check_key.encode()).hexdigest()[:16]
+    with persistence._connect() as conn:
+        spoken = conn.execute(
+            """SELECT node_name, player_name, actor_identity FROM world_mutations
+               WHERE mutation_type = 'PLAYER_SPEAK'""").fetchall()
+    # Each probe wrote one row under the check key's name and identity;
+    # nothing was recorded as the tester speaking.
+    assert spoken == [(place, _check_name(), identity)] * len(probes)
+    # And no documented line presented the tester's key at all: the gate
+    # recorded the check key's use and never the tester's.
+    used = {row["name"]: row["last_used_at"]
+            for row in persistence.list_invite_keys(include_revoked=True)}
+    assert used["Jane Doe"] is None, used
+    assert used[_check_name()] is not None, used

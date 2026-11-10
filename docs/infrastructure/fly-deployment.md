@@ -304,26 +304,47 @@ fly tokens create deploy -a enfolded-staging
 #    backup and the schema check.
 FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy
 
-# 5. Close the gate at once: mint one key per tester (2-3). Each output line
-#    "Share the URL: <BASE>/app?key=..." becomes
-#    https://enfolded-staging.fly.dev/app?key=... . Keep the URLs; do not
-#    send them yet (step 8).
+# 5. Close the gate at once. First mint the check key, which step 7 uses
+#    and then revokes, so no tester's key is ever used for a check. Its name
+#    is one word, because the remote command is split into words. It is not
+#    Watchcheck, the name the facilitator kit's staging check mints (#156):
+#    a revoked name stays taken. Then mint one key per tester (2-3). Each
+#    output line "Share the URL: <BASE>/app?key=..." becomes
+#    https://enfolded-staging.fly.dev/app?key=... . Keep the tester URLs; do
+#    not send them yet (step 8).
+fly ssh console -a enfolded-staging -C "python main.py invite mint --name Stagingcheck"
 fly ssh console -a enfolded-staging -C "python main.py invite mint --name '<Name>' --note 'disposable staging watch'"
+#    A name with an apostrophe, such as O'Brien, ends the single quotes
+#    early and mints nothing. Put that name in escaped double quotes:
+#    fly ssh console -a enfolded-staging -C "python main.py invite mint --name \"<Name>\" --note 'disposable staging watch'"
 
-# 6. Now the provider key: one made for staging alone, not production's key.
-#    Ideally it sits in a workspace of its own with a low spend limit, if the
-#    provider's console offers one. Leave out FAL_KEY until fal.ai's terms
-#    are checked against the provider data rule (below). SENTRY_DSN is
-#    optional. Setting secrets restarts the machine (unverified, below).
-fly secrets set -a enfolded-staging \
-  ANTHROPIC_API_KEY=sk-ant-... \
-  SENTRY_DSN=https://...ingest.sentry.io/... \
-  SENTRY_ENVIRONMENT=staging
+# 6. Secrets. Each `fly secrets set` restarts the machine (unverified,
+#    below); no tester has a URL yet. First Sentry's environment name,
+#    alone, then check it. Set SENTRY_DSN, which is optional, only if the
+#    check prints staging ("Sentry environment", below).
+fly secrets set -a enfolded-staging SENTRY_ENVIRONMENT=staging
+fly ssh console -a enfolded-staging -C "printenv SENTRY_ENVIRONMENT"
+fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
+#    Then the provider key. Before setting it, read the provider's
+#    data-use terms against the provider data rule (below): step 7's probe
+#    already sends the provider world data. Use a key made for staging
+#    alone, not production's. Ideally it sits in a workspace of its own with
+#    a low spend limit, if the provider's console offers one. Leave out
+#    FAL_KEY until fal.ai's terms are checked against the same rule.
+fly secrets set -a enfolded-staging ANTHROPIC_API_KEY=sk-ant-...
 
-# 7. Check it: /health ok, the gate closed, the voice live (§8 probe).
+# 7. Check it with the check key from step 5, never a tester's: /health
+#    ok, the gate closed, the voice live (§8 probe: a place name from
+#    /world, then /speak must answer "ai": true). A live answer writes a
+#    PLAYER_SPEAK row to the staging chronicle under the check key's name,
+#    and the node's transcript is keyed on that key. Under a tester's key
+#    it would read as that tester speaking before they arrived. Then revoke
+#    the check key.
 curl https://enfolded-staging.fly.dev/health
 curl -i https://enfolded-staging.fly.dev/world        # 403 without a key
-fly ssh console -a enfolded-staging -C "printenv SENTRY_ENVIRONMENT"
+curl -s -H 'X-Beta-Key: <check key>' 'https://enfolded-staging.fly.dev/world?depth=1' | python3 -c 'import json, sys; print(json.load(sys.stdin)["world"]["name"])'
+curl -s -X POST https://enfolded-staging.fly.dev/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<the place name printed above>"}' | grep -o '"ai": true'
+fly ssh console -a enfolded-staging -C "python main.py invite revoke <check key>"
 
 # 8. Only now, and only once protocol 2's prerequisites below are recorded,
 #    send each URL to its tester only: never in an issue, a PR, a chat
@@ -352,9 +373,10 @@ staging-only secret (`flyctl secrets set --stage -a enfolded-staging
 SENTRY_ENVIRONMENT=staging`). It does not; the one-time secret in step 6
 is the documented route. Whether a Fly secret overrides an `[env]` value of
 the same name was not verified from the session that wrote this.
-Step 7's `printenv` is the check. If it prints `beta`, give staging its own
-Sentry project's DSN so its events never mix with production's, or leave
-`SENTRY_DSN` unset on staging.
+Step 6's `printenv` is the check, and it runs before any DSN is set, so
+staging sends Sentry nothing until the answer is known. If it prints `beta`,
+give staging its own Sentry project's DSN so its events never mix with
+production's, or leave `SENTRY_DSN` unset on staging.
 
 #### Redeploying staging after a merge
 
@@ -362,7 +384,9 @@ Sentry project's DSN so its events never mix with production's, or leave
 Actions, so an agent or the owner can do it without the owner's machine.
 Dispatch it from `main` with no `--ref` (`gh workflow run deploy-staging.yml`,
 or Actions > "Deploy staging" > Run workflow on `main`). GitHub offers it for
-dispatch once the file is on `main`. It takes no inputs.
+dispatch once the file is on `main`. It takes no inputs. To redeploy, always
+dispatch a new run. Do not re-run an old run: a re-run keeps the commit of
+the run it repeats, and the workflow refuses it once `main` has moved on.
 
 What keeps it on staging:
 
@@ -373,6 +397,10 @@ What keeps it on staging:
   other branch, a tag or a pull request ref (`refs/pull/...`). There is no
   `ref` input, and a later step refuses a checkout that is not the
   dispatched commit.
+- It refuses a commit that is not `main`'s tip when the check runs. It asks
+  `origin` with `git ls-remote`, which needs no credential while the
+  repository is public, and refuses if `origin` cannot be read. So a re-run
+  of an old run cannot put an older commit over a newer deploy.
 - It reads one token, `FLY_API_TOKEN_STAGING`, in the `staging` environment
   (step 3). It never reads `FLY_API_TOKEN`, the token `backup.yml` uses.
 - It refuses a commit that does not descend from `f3ead74` (#152), the
@@ -389,6 +417,15 @@ What keeps it on staging:
   at most. `/health` answers that on any release once a server is up, so
   the poll shows that staging is reachable, not which release is serving.
   `fly deploy`'s own health checks are the release gate (unverified, below).
+- Last, it writes to the run summary the commit it deployed (short form)
+  and the newest release Fly reports, from `flyctl releases -a
+  enfolded-staging --json`: its version, status, image and creation time.
+  It reads only those four fields. The answer also names the deploying
+  user's email, which is never printed. Fly's image tag does not name the
+  commit, so compare the version and time with the previous run. If flyctl
+  fails or its answer cannot be read, the summary says "could not read the
+  release" and the run still passes; check `fly releases -a
+  enfolded-staging --image` from a terminal.
 - It mints no invite keys and runs no `fly ssh console` command of its own.
   A key printed in a job log is a leaked credential, so step 5 stays a
   terminal step.
@@ -451,6 +488,18 @@ fly.io or github.com):
   cancels it for a newer one.
   If a run is refused because the checkout is not the dispatched commit,
   dispatch it again.
+- That the staging deploy token may read the app's releases
+  (`flyctl releases -a enfolded-staging --json`). The subcommand, its `-a`
+  and `--json` flags, the newest-first order (highest version) and the field
+  names `Version`, `Status`, `ImageRef` and `CreatedAt` were read on
+  2026-11-10 from flyctl v0.5.1's source (`internal/command/apps/releases.go`)
+  and fly-go v0.11.7's `Release` type on GitHub. Fly's documentation site
+  could not be reached, and no live answer was seen. If the token cannot
+  read releases, the release line says so and the run still passes.
+- That `actions/checkout` with `persist-credentials: false` leaves `origin`
+  pointing at this repository, and that an anonymous `git ls-remote` of it
+  works from a runner. If the repository is made private, the tip step
+  refuses every run until it is given a credential.
 
 #### Provider data rule
 
@@ -469,8 +518,9 @@ player text, and world data too.
   used to train its models by default. The exceptions are a customer who
   opts in, for example to a development partner programme, and feedback a
   customer submits. The page itself could not be opened from the session
-  that wrote this. Read it before the first outside tester's text reaches
-  the voice.
+  that wrote this. Read it before step 6 sets the provider key: step 7's
+  probe already sends the provider world data, so the check comes before
+  any Enfolded data reaches it.
 - fal.ai receives Enfolded data when `FAL_KEY` is set. Image prompts carry
   no player messages, but they carry the node's level, its name, its aspect
   line and up to 32 of its properties (`server/imageprompt.py:120-141`).
@@ -489,7 +539,12 @@ config or write L4's data-use note for each provider.
 The staging chronicle must not linger as a second world that looks real.
 Rehearse against it first: the live-voice probe (§8), `scripts/ws_soak.py`,
 the newcomer watch, and a restore (§7) against its volume. Never on
-production. Then:
+production. Each probe after step 7 needs a check key of its own: mint it
+with step 5's check-key line under a new one-word name each time, for
+example `Stagingcheck2`, then `Stagingcheck3`. A revoked name stays taken,
+so step 5's line as written mints nothing once step 7 has revoked
+`Stagingcheck`. Never use a tester's key, and revoke the check key after the
+probe, as step 7 does. Then:
 
 ```bash
 # 1. Revoke the deploy token, in case destroying the app does not.
@@ -1248,8 +1303,21 @@ not this restore.
       so verify the voice is LIVE, not just answering: a `/speak` reply
       must carry `"ai": true`. `"ai": false` means the failure voice is
       covering for a missing key or an exhausted budget (the probe spends
-      one budgeted call — that's the point):
-      `curl -s -X POST https://<app>/speak -H 'X-Beta-Key: <key>' -H 'Content-Type: application/json' -d '{"message":"hello"}' | grep -o '"ai": true'`
+      one budgeted call — that's the point). `/speak` needs a `node_name`
+      that names a place in the world; without one it answers 404 "no such
+      place in this world". The world's root place is `"world"` > `"name"`
+      in `/world`:
+      `curl -s -H 'X-Beta-Key: <check key>' 'https://<app>/world?depth=1' | python3 -c 'import json, sys; print(json.load(sys.stdin)["world"]["name"])'`
+      Then send that name:
+      `curl -s -X POST https://<app>/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<a place name from /world>"}' | grep -o '"ai": true'`
+      A live answer writes a `PLAYER_SPEAK` row under the check key's
+      registered name, and the node's transcript is keyed on that key.
+      Mint a check key for each probe with the check-key line of
+      [§3a](#3a-staging-rehearsal--before-the-permanent-world-begins)
+      step 5, under a new one-word name each time, for example
+      `Stagingcheck2`. A revoked name stays taken, so that line as written
+      mints nothing once step 7 has revoked `Stagingcheck`. Never use a
+      player's key, and revoke the check key afterwards.
 - [ ] Watch spend as the cohort arrives: the `cost_budget` table carries
       per-day counters — `fly ssh console -C "sqlite3 /data/.nested-worlds/worlds.db 'SELECT * FROM cost_budget ORDER BY day DESC LIMIT 20'"`.
       Buckets that start `voice_outcome:` or `moderation_outcome:` are
