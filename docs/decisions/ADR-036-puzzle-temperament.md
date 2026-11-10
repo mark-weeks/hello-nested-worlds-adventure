@@ -167,8 +167,9 @@ a same-schema rollback (#152) to an earlier binary (*inferred*).
   rule and models it. The cap bounds one player's day, not a campaign (D3).
   `C = 12` is twice the largest calm patience (6), so every temperament
   allows a full window, a send-away and a second window first; of 8, 12, 16
-  and 24 it is the largest at which the one measured band that beats blind
-  search, lineage's, meets D3's bar.
+  and 24 it is the largest at which the one band D3 keeps that beats blind
+  search, lineage's, meets D3's bar (the typo and magnitude bands also beat it,
+  which is why D3 drops them).
 - **Warning, then send-away.** A strike at or past `P − 1`, or a miss at or
   past the `(C − 1)`-th of the day, that does not send the player away is
   warned, and its row records `"warned": true`. A miss sends the player away
@@ -524,7 +525,9 @@ production boot (#156, finding 1). Batch 1 ships as two releases, 1a then 1b.
   Renewal` gave 1 failed, 2 passed); a scratch soak records the danger spread
   before and after.
 - **3. Temperaments, voice bank, warmth, per-player hints**, whatever open
-  question 6 decides; the end of stored wrong-guess text if it agrees, and the
+  question 6 decides; it adds the temperament draw as a frozen read-time
+  surface beside era names in AGENTS.md, the irreversibility skill and the PR
+  template, in one change (D6); the end of stored wrong-guess text if it agrees, and the
   near-miss reprieve only with that end. Tests: secrecy in
   `tests/test_puzzles.py` over every line and band on the seed-382 census; no
   band for integers or compass marks;
