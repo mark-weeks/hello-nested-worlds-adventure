@@ -1,10 +1,15 @@
 """Truthful answers when a traveler sincerely asks whether a voice is human.
 
-The owner's guardrail (2026-11-06): agents and places never claim or imply
-that they are human, and a sincere identity question gets a plain answer that
-the speaker is an AI. The voice bibles instruct the model the same way. This
-module is the deterministic half, so the answer holds with the AI layer on or
-off and the answer itself takes no voice call:
+The owner's guardrail (2026-11-06): agents never claim or imply that they
+are human, and a sincere identity question gets a plain answer that the agent
+is an AI. The guardrail names agents, not places: extending it to places
+(:func:`place_answer` and the place bible's line) is proposed in PR #158 and
+awaits the owner's decision. The voice bibles instruct the model the same
+way. This module is the deterministic half: on ``/speak`` and
+``/agent/voice`` a line it reads, put to a place or a known agent and passed
+by the moderation screen, gets the authored answer with the AI layer on or
+off, and the answer itself takes no voice call (an escalated or held line
+and an unknown agent keep their quiet or hold line):
 
 - :func:`is_identity_question` recognizes a line that IS a sincere question
   about the speaker's nature ("are you human?", "r u a bot", "am I talking to
@@ -24,28 +29,36 @@ Scope and limits. English only. Matching is by phrase shape, not meaning:
 - A clause must BE the identity question, so an ordinary sentence that
   mentions humans, robots or machines does not trigger ("I met a human here
   once", "are you afraid of humans?", "is this a machine?", "is there anyone
-  behind the seal?", "are you real, or am I dreaming?").
+  behind the seal?", "is a machine running it?", "your people?", "are you
+  real, or am I dreaming?"). An agent or an envoy is a role in this world,
+  so a bare "are you an agent?" is not one while "are you an AI agent?" is,
+  and "is this the machine I'm talking to?" points at one in the room.
 - The whole line must be the question: every other clause is a greeting, a
-  name, a short lead ("be honest") or "I'm human", and the line is at most
-  :data:`MAX_CHARS` long. The question offers at most four alternatives
+  name, a short lead ("be honest") or "I'm human" ("I am"), and the line is
+  at most :data:`MAX_CHARS` long. The question offers at most four alternatives
   ("human or a bot or an AI or a program?"); a longer list takes the
   normal path. "Tell me a story. Are you human?" or "Are you
   human? Want to work on this puzzle with me?" asks for more than the
   authored line says, so it takes the route's normal path, where the voice
   bible carries the same rule.
-- A name is one the speaker answers to (:data:`_ADDRESS_NAMES`): a cast
-  member's, an archetype's, a scale's ("room", "galaxy") or a plain form of
-  address ("friend", "traveler", "old one"). Any other word where a name
-  could stand is a request, so "Are you human? Help!", "Hi, open the door.
-  Are you human?" and "Are you human, help me escape?" take the normal
-  path. A place's own name is not known here, so "Hello, Ashen Ember
-  Sphere. Are you human?" takes it too.
+- A name is one the speaker answers to: a form of address every speaker
+  shares (:data:`_ADDRESS_NAMES`: an archetype's, a scale's ("room",
+  "galaxy") or a plain one ("friend", "traveler", "old one")), or the
+  speaker's own name, which the route passes in ``own_names`` (the
+  inhabitant's name for ``/agent/voice``, none for a place). Any other
+  word where a name could stand is a request, so "Are you human? Help!",
+  "Hi, open the door. Are you human?" and "Are you human, help me
+  escape?" take the normal path. A place's own name is not known here, so
+  "Hello, Ashen Ember Sphere. Are you human?" takes it too.
 - Reported speech is not a question to the speaker ('she asked me "are you
   human?"', "the sign says: are you human").
-- Questions about someone else ("is Tessera human?") or about a group ("is
-  anyone here human?", "is anyone here an AI?") are left to the voice. The
-  authored lines answer for the speaker alone, so a chat surface that wants
-  to answer a question put to no one needs its own predicate.
+- Questions about someone else ("is Tessera human?"), put to someone else
+  ("Tessera, are you human?" asked of a place or of Vex: a cast member's
+  or a walker's name counts only as its own speaker's) or about a group
+  ("is anyone here human?", "is anyone here an AI?") are left to the
+  voice. The authored lines answer for the speaker alone, so a chat
+  surface that wants to answer a question put to no one needs its own
+  predicate.
 - Paraphrases outside these shapes ("were you born or built?") reach the
   model; the eval corpus holds paraphrases this matcher deliberately misses.
 
@@ -54,8 +67,10 @@ rest of ``consciousness``.
 """
 from __future__ import annotations
 
+import functools
 import re
 import unicodedata
+from collections.abc import Iterable
 
 from consciousness import WANDERER_CAST
 
@@ -87,6 +102,8 @@ AGENT_ANSWERS: dict[str, str] = {
 # persona name the catalog does not know, so the answer is never a lie.
 _AGENT_DEFAULT = "I'm not human. I'm an AI, one of the travelers in this world."
 
+# The place answers are the proposed half (module docstring): the owner's
+# guardrail names agents, and these await the owner's decision.
 PLACE_ANSWER = (
     "I am not a person. I am a place in this world, and the voice you hear "
     "from me comes from an AI."
@@ -121,11 +138,14 @@ _APOSTROPHES = str.maketrans({"’": "'", "‘": "'", "ʼ": "'",
                               "`": "'", "´": "'"})
 
 # Token rewrites after punctuation is stripped: chat spellings and
-# contractions without their apostrophes.
+# contractions without their apostrophes. "Your", "ur" and "yr" stay one
+# word, "your": it is "you're" misspelt only before what follows "you're"
+# ("your a bot", "your not human"), never before a noun it owns ("your
+# people?", "your machine?").
 _TOKEN_MAP = {
     "u": "you", "ya": "you", "yu": "you", "yoo": "you",
     "r": "are",
-    "ur": "youre", "your": "youre", "yr": "youre",
+    "ur": "your", "yr": "your",
     "aren't": "arent", "you're": "youre", "i'm": "im", "isn't": "isnt",
 }
 
@@ -164,10 +184,15 @@ def _words(body: str) -> str:
 
 
 _GPT = r"gpt(?: ?\d+(?:o)?)?"
+# A bare "agent" is not here: in a world of factions and envoys "are you an
+# agent?" can be about the world. It counts after a target word, as
+# :data:`_NOUN2` ("are you an AI agent?", and also "a human agent" and "a
+# real agent"), and as a thing at this exchange (:data:`_THING`: "is an
+# agent typing these words?").
 _TARGET = (
     r"(?:humans?|persons?|people|real|bots?|robots?|chatbots?|ai|ais|machines?|"
     r"computers?|programs?|npcs?|llms?|chatgpt|" + _GPT + r"|automated|"
-    r"artificial|algorithms?|androids?|agents?|someone real|somebody real)"
+    r"artificial|algorithms?|androids?|someone real|somebody real)"
 )
 # Assistant names count only without an article: "are you a gemini" is
 # astrology, "are you claude" is not.
@@ -181,16 +206,29 @@ _THIS_TARGET = (
     r"(?:real|actual|live|living|genuine) (?:persons?|people|humans?))"
 )
 _THIS_PERSON = r"(?:persons?|people)"
+# Assistant names "is this" reads, without an article as for "are you":
+# _NAMES less "chatgpt" and "gpt", which _THIS_TARGET reads already, and
+# "gemini", which in a world of galaxies is first a constellation.
+_THIS_NAMES = r"(?:claude|copilot|grok|siri|alexa)"
+# "Is this a person I'm talking to?" names the speaker as plainly as "is
+# this a person or a bot?" does. After "the" it points at something in the
+# world: "is this the machine I'm talking to?" asks whether the machine in
+# the room is the one, so these words follow only an indefinite article,
+# none or a name (:data:`_INDEF_ART`).
+_TALKING_TO = r" (?:im|i am) (?:talking|speaking|chatting) (?:to|with)"
 # Things that are speakers only when they are said to be speaking.
 _SPEAKING_THING = r"(?:machines?|computers?|programs?|robots?|algorithms?|scripts?)"
 _SPEAKING = r"(?:talking|speaking|answering|replying|responding|writing|typing)"
 # "Made by" a person is an object's history; "made by an AI" is not.
 _AI_MAKER = r"(?:ai|ais|llms?|chatgpt|" + _GPT + r"|chatbots?|algorithms?)"
-_ADV = (r"(?:(?:even|actually|really|truly|honestly|secretly|literally|just|"
-        r"like|definitely|seriously|still|not|also|maybe|perhaps|possibly|"
-        r"in fact) )*")
+_ADV_WORD = (r"(?:even|actually|really|truly|honestly|secretly|literally|just|"
+             r"like|definitely|seriously|still|not|also|maybe|perhaps|possibly|"
+             r"in fact)")
+_ADV = r"(?:" + _ADV_WORD + r" )*"
 _ART = (r"(?:(?:a|an|the|some|some kind of|some sort of|a kind of|a sort of|"
         r"kind of|sort of) )?")
+_INDEF_ART = (r"(?:(?:a|an|some|some kind of|some sort of|a kind of|a sort of|"
+              r"kind of|sort of) )?")
 _ADJ = (r"(?:(?:real|actual|live|living|genuine|true|regular|normal|human|"
         r"fellow) )?")
 _NOUN2 = (r"(?: (?:player|being|user|generated|written|powered|driven|"
@@ -202,6 +240,10 @@ _ALT = r"(?: ,)? or (?:are you |is this |is it )?" + _ART + _ADJ + _TARGET + _NO
 # or a target and a noun), so an unbounded run of them doubles the work of
 # a failed match with each one (Codex review, 2026-11-07).
 _ALTS = r"(?:" + _ALT + r"){0,3}"
+# The same alternatives without "the", before a trailing "I'm talking to".
+_ALT_INDEF = (r"(?: ,)? or (?:are you |is this |is it )?" + _INDEF_ART + _ADJ + _TARGET
+              + _NOUN2)
+_ALTS_INDEF = r"(?:" + _ALT_INDEF + r"){0,3}"
 _TAIL = (r"(?:(?: ,)? (?:lol|lmao|haha+|tbh|honestly|really|seriously|srsly|"
          r"truly|fr|for real|for sure|though|tho|then|now|right|at all|"
          r"or not|or what|or no|yes or no|be honest|tell me|tell me the truth|"
@@ -209,24 +251,46 @@ _TAIL = (r"(?:(?: ,)? (?:lol|lmao|haha+|tbh|honestly|really|seriously|srsly|"
          r"irl|deep down|underneath|too|as well|either|like me|like us|"
          r"behind (?:this|that|it|the screen|these words|the words)|"
          r"on the other end|on the other side))*")
-# Names the speaker answers to, the only words that may stand where a name
-# stands (beside the question, after a greeting or a lead, or as a clause
-# of their own): the wandering cast (consciousness.WANDERER_CAST), the two
-# utility walkers (agents/identities.py), the four archetypes, the eleven
-# scales, and plain forms of address. A request ("help", "open the door",
-# "help me escape") is not a name. A place's own name is not known here.
-_ADDRESS_NAMES = tuple(dict.fromkeys(
-    [re.sub(r"^the ", "", _words(_normalize(name))) for name in WANDERER_CAST]
-    + ["scout", "observer", *AGENT_ANSWERS,
-       "multiverse", "universe", "galaxy", "planetary system", "planet",
-       "region", "room", "object", "molecule", "atom", "subatomic particle",
-       "subatomicparticle", "particle",
-       "world", "place", "voice", "spirit", "friend", "stranger", "traveler",
-       "traveller", "sir", "madam", "maam", "mate", "pal", "buddy"]))
+def _name_words(name: str) -> str:
+    """A name as the patterns read it ("The Locksmith" is "locksmith")."""
+    return re.sub(r"^the ", "", _words(_normalize(name)))
+
+
+# The only words that may stand where a name stands (beside the question,
+# after a greeting or a lead, or as a clause of their own) are names the
+# speaker answers to. A request ("help", "open the door", "help me escape")
+# is not a name, and a place's own name is not known here.
+#
+# The names of particular speakers: the wandering cast
+# (consciousness.WANDERER_CAST) and the two utility walkers
+# (agents/identities.py). Each counts only for its own speaker, which the
+# route names in ``own_names``; beside the question, another speaker's
+# name means it was put to someone else ("Tessera, are you human?" asked of
+# a place or of Vex), so the line takes the normal path (round-5 review of
+# 31f1bb8).
+_SPEAKER_NAMES = tuple(dict.fromkeys(
+    _name_words(name) for name in [*WANDERER_CAST, "Scout", "Observer"]))
+# Forms of address every speaker answers to: the four archetypes, the
+# eleven scales and plain forms of address. An archetype is a kind that
+# several travelers share (agents/personas.py), never one speaker's name
+# (no server identity is called "wanderer"), so "good evening, wanderer"
+# addresses its listener as "traveler" would. No speaker's name is one.
+_ADDRESS_NAMES = tuple(name for name in dict.fromkeys(
+    [*AGENT_ANSWERS,
+     "multiverse", "universe", "galaxy", "planetary system", "planet",
+     "region", "room", "object", "molecule", "atom", "subatomic particle",
+     "subatomicparticle", "particle",
+     "world", "place", "voice", "spirit", "friend", "stranger", "traveler",
+     "traveller", "sir", "madam", "maam", "mate", "pal", "buddy"])
+    if name not in _SPEAKER_NAMES)
 _NAME_MOD = r"(?:(?:my|old|dear|little|good|kind|wise|fellow|strange|young|the) )"
+# Where the speaker's own names join the forms of address
+# (:func:`_patterns`). A regex comment, so a pattern reads no own name
+# until one is put in its place.
+_OWN_NAMES = "(?#own names)"
 _NAME = (r"(?:" + _NAME_MOD + r"{0,2}(?:"
          + "|".join(re.escape(n) for n in sorted(_ADDRESS_NAMES, key=len, reverse=True))
-         + r")|" + _NAME_MOD + r"{1,2}one)")
+         + _OWN_NAMES + r")|" + _NAME_MOD + r"{1,2}one)")
 _GREETING = (r"(?:hi|hello|hey|hiya|heya|howdy|greetings|hail|ahoy|yo|"
              r"well met|good (?:morning|afternoon|evening|day|night))")
 
@@ -272,15 +336,15 @@ _PREFIX = (r"^(?:" + _GREETING + _GREETING_TAIL + r"(?: ,)? )?(?:" + _NAME
 
 # What a "behind / typing / on the other end" question may be about: words
 # for this exchange. "This", "it" and "you" alone could be a door or a
-# river's far bank, so they need a person-word ("is there a human behind
-# this", not "is there anyone behind you").
+# river's far bank, so they need a word for a kind of speaker ("is there a
+# human behind this", not "is there anyone behind you").
 _SPEAKER_OBJECT = (
-    r"(?:these words|the words|youre words|this voice|the voice|youre voice|"
-    r"these messages|this message|youre messages|these replies|youre replies|"
-    r"these answers|youre answers|the screen|this screen|youre screen|"
-    r"the keyboard|this keyboard|youre keyboard|this conversation|"
-    r"this chat|the chat|this account|youre account|this character|"
-    r"youre character)"
+    r"(?:these words|the words|your words|this voice|the voice|your voice|"
+    r"these messages|this message|your messages|these replies|your replies|"
+    r"these answers|your answers|the screen|this screen|your screen|"
+    r"the keyboard|this keyboard|your keyboard|this conversation|"
+    r"this chat|the chat|this account|your account|this character|"
+    r"your character)"
 )
 _SHORT_OBJECT = r"(?:this|that|it|you|these)"
 _EXCHANGE_VERB = (r"(?:behind|typing|writing|controlling|playing|answering|"
@@ -291,6 +355,47 @@ _SOMEONE = r"(?:someone|somebody|anyone|anybody)"
 # "person" is not one: "is there a person behind you" is about the room.
 _PERSON = (r"(?:(?:real|actual|live|living|genuine) (?:humans?|persons?|people|"
            + _SOMEONE + r")|humans?|" + _SOMEONE + r" real)")
+# A word for a kind of speaker: a person-word, or a word for an AI that
+# "is this" also reads as a speaker ("is this an AI?", not "is this a
+# machine?"). A machine, a robot, an algorithm or a bare "person" running
+# "it" is the mill or the clockwork (round-5 review of 31f1bb8).
+_KIND = r"(?:" + _PERSON + r"|ai|ais|bots?|chatbots?|llms?|npcs?|chatgpt|" + _GPT + r")"
+# What a kind of speaker may be doing: behind this, typing these words,
+# answering me, typing, on the other end. "Me" follows only "answering":
+# a human behind me or controlling me is about the traveler.
+_KIND_DOING = (r"(?:" + _EXCHANGE_VERB + r" (?:" + _SHORT_OBJECT + r"|" + _SPEAKER_OBJECT
+               + r")|answering me|typing|" + _OTHER_END + r"(?: of (?:this|it|"
+               + _SPEAKER_OBJECT + r"|the line|this line))?)")
+# What anyone at all may be doing: only something about this exchange.
+_ANYONE_DOING = (r"(?:" + _EXCHANGE_VERB + r" " + _SPEAKER_OBJECT + r"|" + _OTHER_END
+                 + r" of (?:" + _SPEAKER_OBJECT + r"|the line|this line))")
+# Things that are speakers only when they are said to be at this exchange.
+# "Is a machine writing these words?" and "is a robot answering me?" ask
+# what the speaker is; "is a machine running it?" asks about the mill
+# (round-5 check of the finding-1 fix, which had dropped the first two).
+_THING = (r"(?:machines?|computers?|programs?|robots?|algorithms?|scripts?|androids?|"
+          r"agents?|persons?|people)")
+_KIND_OR_THING = r"(?:" + _KIND + r"|" + _THING + r")"
+# "Is there a human behind this?" and "is a human behind this?" are one
+# question, so one rule reads both and they never disagree: "is a person
+# behind you?" is "is there a person behind you?", about the room.
+_WHO_DET = r"(?:(?:a|an|any|some|the|some kind of|some sort of|a kind of|a sort of) )?"
+# "The" names a thing already in the world: "is the machine answering me?"
+# asks about the one in the room, "is a machine answering me?" about the
+# speaker. Before words for this exchange either article asks about the
+# speaker ("is the machine writing these words?").
+_WHO_SOME_DET = r"(?:(?:a|an|any|some|some kind of|some sort of|a kind of|a sort of) )?"
+_KIND_RUN = _KIND + r"(?:(?: ,)? or " + _WHO_DET + _KIND + r"){0,3}"
+_THING_RUN = _KIND_OR_THING + r"(?:(?: ,)? or " + _WHO_DET + _KIND_OR_THING + r"){0,3}"
+# A run of kinds may be doing anything _KIND_DOING allows. A run with a thing
+# in it may only be doing something to this exchange, or answering me
+# without "the". Each run is at most four long and reads one way, and the
+# branches differ only in which of them reads a run, so a failed match costs
+# a constant factor more, not a power of the run's length.
+_WHO = (r"is (?:there )?(?:" + _WHO_DET + _KIND_RUN + r" " + _KIND_DOING
+        + r"|" + _WHO_DET + _THING_RUN + r" " + _ANYONE_DOING
+        + r"|" + _WHO_SOME_DET + _THING_RUN + r" answering me"
+        + r"|" + _WHO_DET + _SOMEONE + r" " + _ANYONE_DOING + r")")
 
 # Inverted questions are interrogative without a question mark.
 _INVERTED = (
@@ -302,12 +407,18 @@ _INVERTED = (
     r"texting|interacting) (?:to|with) " + _ADV + _ART + _ADJ
     + r"(?:" + _TARGET + r"|anyone real|anybody real)" + _NOUN2
     + _ALTS + _END,
-    # is this an AI / a bot / a real person / AI generated / a person or a bot
-    _PREFIX + r"is this " + _ADV + _ART + _ADJ + r"(?:" + _THIS_TARGET + _NOUN2
-    + _ALTS + r"|" + _THIS_PERSON + _NOUN2 + r"(?:" + _ALT + r"){1,3})"
-    + _END,
-    # is this a machine talking / a program answering
-    _PREFIX + r"is this " + _ART + _SPEAKING_THING + r" " + _SPEAKING + _END,
+    # is this an AI / a bot / a real person / AI generated / a person or a
+    # bot / Claude
+    _PREFIX + r"is this " + _ADV + r"(?:" + _ART + _ADJ + r"(?:" + _THIS_TARGET
+    + _NOUN2 + _ALTS + r"|" + _THIS_PERSON + _NOUN2 + r"(?:" + _ALT + r"){1,3})|"
+    # an AI I'm talking to / a person I'm talking to / Claude I'm talking to,
+    # but not "the machine I'm talking to"
+    + _INDEF_ART + _ADJ + r"(?:" + _THIS_TARGET + _NOUN2 + _ALTS_INDEF + r"|"
+    + _THIS_PERSON + _NOUN2 + r"(?:" + _ALT_INDEF + r"){0,3})" + _TALKING_TO + r"|"
+    + _THIS_NAMES + r"(?:" + _ALTS + r"|" + _ALTS_INDEF + _TALKING_TO + r"))" + _END,
+    # is this a machine talking / a program answering / a machine I'm talking to
+    _PREFIX + r"is this (?:" + _ART + _SPEAKING_THING + r" " + _SPEAKING + r"|"
+    + _INDEF_ART + _SPEAKING_THING + _TALKING_TO + r")" + _END,
     # are you played by a human / run by an AI
     _PREFIX + r"(?:are you|is this) (?:being )?(?:played|controlled|run|"
     r"operated|written|voiced|typed) by " + _ART + _ADJ + _TARGET + _NOUN2
@@ -319,22 +430,14 @@ _INVERTED = (
     _PREFIX + r"(?:im|i am) " + _ADV + _ART + _ADJ
     + r"(?:humans?|persons?|real|people) , (?:are|arent) you"
     r"(?: too| as well| also| like me)?" + _END,
-    # is there a human behind this / anyone typing these words / a real
-    # person on the other end
-    _PREFIX + r"is there (?:a |an |any |some )?(?:" + _PERSON + r"|" + _SOMEONE
-    + r") (?:" + _EXCHANGE_VERB + r" " + _SPEAKER_OBJECT + r"|" + _OTHER_END
-    + r" of (?:" + _SPEAKER_OBJECT + r"|the line|this line))" + _END,
-    _PREFIX + r"is there (?:a |an |any |some )?" + _PERSON + r" (?:"
-    + _EXCHANGE_VERB + r" " + _SHORT_OBJECT + r"|typing|" + _OTHER_END
-    + r"(?: of (?:this|it))?)" + _END,
-    # is a human writing this / is an AI answering me / is someone typing this
-    _PREFIX + r"is " + _ART + _ADJ + _TARGET + _ALTS + r" (?:typing|"
-    r"writing|answering|voicing|controlling|playing|running|behind) (?:"
-    + _SHORT_OBJECT + r"|me|" + _SPEAKER_OBJECT + r")" + _END,
+    # is there a human behind this / is a human writing this / is an AI
+    # answering me / is there anyone typing these words / a real person on
+    # the other end
+    _PREFIX + _WHO + _END,
+    # is someone typing this
     _PREFIX + r"is " + _SOMEONE + r" (?:real )?typing (?:this|these|that|"
     + _SPEAKER_OBJECT + r")" + _END,
 )
-_INVERTED_RE = tuple(re.compile(p) for p in _INVERTED)
 
 _TAG = (r"(?:(?: ,)? (?:right|arent you|are you|or not|correct|yes|no|huh|eh|"
         r"isnt it|then|too|yeah|yep|innit))?")
@@ -342,8 +445,14 @@ _TAG = (r"(?:(?: ,)? (?:right|arent you|are you|or not|correct|yes|no|huh|eh|"
 # Statements become questions only with a question mark: "you're human?",
 # "you're a bot, aren't you?", "you human?", "human or bot?".
 _DECLARATIVE = (
-    _PREFIX + r"(?:youre|you) " + _ADV + _ART + _ADJ + _TARGET
+    _PREFIX + r"(?:youre|you(?: arent)?) " + _ADV + _ART + _ADJ + _TARGET
     + _NOUN2 + _ALTS + _TAG + _END,
+    # "your" for "you're": before an adverb ("your not human"), an article
+    # ("your a bot", "your an AI") or a bare "human" or "real". "Your
+    # people?", "your machine?" and "your AI?" ask about something it owns.
+    _PREFIX + r"your (?:" + _ADV_WORD + r" " + _ADV + _ART + _ADJ + _TARGET + _NOUN2
+    + r"|(?:a|an|some|some kind of|some sort of|a kind of|a sort of) " + _ADJ + _TARGET
+    + _NOUN2 + r"|human|real)" + _ALTS + _TAG + _END,
     _PREFIX + _ART + _ADJ + r"(?:humans?|persons?|real|people|someone real)"
     + r"(?: ,)? or " + _ART + _ADJ
     + r"(?:bots?|robots?|chatbots?|ai|machines?|computers?|programs?|npcs?|llms?|"
@@ -353,7 +462,6 @@ _DECLARATIVE = (
     + r"(?: ,)? or " + _ART + _ADJ
     + r"(?:humans?|persons?|real|people|not|someone real)" + _TAG + _END,
 )
-_DECLARATIVE_RE = tuple(re.compile(p) for p in _DECLARATIVE)
 
 # A clause that may stand beside the question without asking for more: a
 # greeting with a name or leads after it ("hi Tessera, quick question"), a
@@ -374,11 +482,42 @@ _FILLER = (
     + r"|(?:yes or no|i cant tell|i cant tell anymore|i really cant tell|"
     r"just asking|just checking|thanks|thank you|thanks in advance|"
     r"please|please answer|pls|plz)"
-    + r"|(?:im|i am) " + _ADV + _ART + _ADJ + r"(?:human|person|real|people)"
-    + r"(?: (?:by the way|btw|myself|too|here))?"
+    + r"|(?:im|i am)(?: " + _ADV + _ART + _ADJ + r"(?:human|person|real|people)"
+    + r"(?: (?:by the way|btw|myself|too|here))?)?"
     + r")$"
 )
-_FILLER_RE = re.compile(_FILLER)
+
+
+@functools.lru_cache(maxsize=32)
+def _patterns(own: tuple[str, ...]) -> tuple[
+        tuple[re.Pattern[str], ...], tuple[re.Pattern[str], ...], re.Pattern[str]]:
+    """The inverted, declarative and filler patterns, reading these own names as names.
+
+    Each name joins the forms of address in every name slot. No name slot
+    repeats, so an own name can add a reading to its slot but never to a
+    run of leads or alternatives. Compiled once per set of names: a route
+    passes one speaker's.
+    """
+    names = "".join("|" + re.escape(name) for name in own)
+
+    def compiled(pattern: str) -> re.Pattern[str]:
+        return re.compile(pattern.replace(_OWN_NAMES, names))
+
+    return (tuple(compiled(p) for p in _INVERTED), tuple(compiled(p) for p in _DECLARATIVE),
+            compiled(_FILLER))
+
+
+_patterns(())  # compiled at import, as the patterns always were
+
+
+def _own_key(own_names: Iterable[str] | str | None) -> tuple[str, ...]:
+    """The speaker's own names as the patterns read them, less the shared forms of address."""
+    if own_names is None:
+        return ()
+    if isinstance(own_names, str):
+        own_names = (own_names,)
+    words = {_name_words(name) for name in own_names if isinstance(name, str)}
+    return tuple(sorted(word for word in words if word and word not in _ADDRESS_NAMES))
 
 
 def _clauses(text: str) -> list[tuple[str, bool]]:
@@ -402,14 +541,15 @@ def _clauses(text: str) -> list[tuple[str, bool]]:
 _ARE_YOU_TOO = re.compile(r"(?:are|arent) you(?: too| as well| also| like me)?")
 
 
-def _asks(clause: str, asked: bool) -> bool:
+def _asks(clause: str, asked: bool, inverted: tuple[re.Pattern[str], ...],
+          declarative: tuple[re.Pattern[str], ...]) -> bool:
     """Whether this one clause is itself the identity question."""
-    if any(p.match(clause) for p in _INVERTED_RE):
+    if any(p.match(clause) for p in inverted):
         return True
-    return asked and any(p.match(clause) for p in _DECLARATIVE_RE)
+    return asked and any(p.match(clause) for p in declarative)
 
 
-def is_identity_question(text: object) -> bool:
+def is_identity_question(text: object, *, own_names: Iterable[str] | None = ()) -> bool:
     """True when ``text`` is a sincere question whether the speaker is human or an AI.
 
     English only. Case, punctuation, curly apostrophes, zero-width
@@ -419,18 +559,26 @@ def is_identity_question(text: object) -> bool:
     every other clause must be one that asks for nothing more (a greeting,
     a name, a lead such as "be honest", or "I'm human"; at most three). A
     line over :data:`MAX_CHARS` characters is never one.
+
+    A name beside the question may be a form of address every speaker
+    shares or one of ``own_names``, the speaker's own: the inhabitant's
+    name for ``/agent/voice``, none for a place. Any other cast member's or
+    walker's name means the question was put to someone else, so "Tessera,
+    are you human?" asked of a place, or of Vex, is not one.
     """
     if not isinstance(text, str) or not text.strip() or len(text.strip()) > MAX_CHARS:
         return False
+    inverted, declarative, filler = _patterns(_own_key(own_names))
     clauses = _clauses(text)
-    covered = {i for i, (clause, asked) in enumerate(clauses) if _asks(clause, asked)}
+    covered = {i for i, (clause, asked) in enumerate(clauses)
+               if _asks(clause, asked, inverted, declarative)}
     # "I'm human. Are you?" spans two clauses; read each such pair as one.
     for i in range(len(clauses) - 1):
         (a, _), (b, asked) = clauses[i], clauses[i + 1]
-        if _ARE_YOU_TOO.fullmatch(b) and _asks(f"{a} , {b}", asked):
+        if _ARE_YOU_TOO.fullmatch(b) and _asks(f"{a} , {b}", asked, inverted, declarative):
             covered |= {i, i + 1}
     if not covered:
         return False
     rest = [clause for i, (clause, _) in enumerate(clauses) if i not in covered]
     return (len(rest) <= _MAX_FILLER_CLAUSES
-            and all(_FILLER_RE.match(clause) for clause in rest))
+            and all(filler.match(clause) for clause in rest))

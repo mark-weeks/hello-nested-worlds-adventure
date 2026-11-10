@@ -189,7 +189,9 @@ def identity_answer(surface: str, *, recorded: bool) -> None:
     """Count one authored identity answer. Never raises; waits at most 50 ms on the store.
 
     `recorded` says whether the exchange became a chronicle row: it does
-    with AI on, and not while the kill switch is on.
+    with AI on and the route's provider configured, and not while the kill
+    switch is on or the route has no provider configured. It is counted
+    either way.
     """
     if surface not in VOICE_SURFACES:
         raise ValueError(f"unknown identity answer surface {surface}")

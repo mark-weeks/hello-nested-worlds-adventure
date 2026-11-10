@@ -230,18 +230,22 @@ def _limit_reason(exc: BaseException) -> str:
     return "action_cap" if isinstance(exc, runtime.ModelActionLimited) else "budget"
 
 
-def _asks_identity(message: str, ai_off: bool) -> bool:
+def _asks_identity(message: str, ai_off: bool, own_names: tuple[str, ...] = ()) -> bool:
     """Whether this line takes the authored "I am an AI" answer.
 
     True when the whole line is a sincere identity question
     (``honesty.is_identity_question``); a line that also asks for anything
-    else takes the route's normal path. The answer still passes the route's
-    place lookup and moderation screen, and the per-IP rate limit has
-    already run. With the AI kill switch on, a question the local screen
-    cannot settle keeps the quiet line instead, so this answer never becomes
-    a moderation model call while the AI layer is off.
+    else takes the route's normal path, and so does one put by name to a
+    speaker other than this one. ``own_names`` are this speaker's own: the
+    voiced agent's name for ``/agent/voice``, none for a place, so
+    "Tessera, are you human?" is answered by Tessera alone. The answer
+    still passes the route's place lookup and moderation screen, and the
+    per-IP rate limit has already run. With the AI kill switch on, a
+    question the local screen cannot settle keeps the quiet line instead,
+    so this answer never becomes a moderation model call while the AI
+    layer is off.
     """
-    if not honesty.is_identity_question(message):
+    if not honesty.is_identity_question(message, own_names=own_names):
         return False
     return not (ai_off and moderation.needs_model(message))
 
@@ -1222,7 +1226,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             # A line that is only a sincere "are you human?" gets the
             # authored truthful answer, with AI on or off, and no model
-            # writes it (consciousness.honesty).
+            # writes it (consciousness.honesty). A place answers to no cast
+            # member's name: "Tessera, are you human?" was put to Tessera.
             ai_off = guard.ai_disabled()
             honest = _asks_identity(message, ai_off)
             if not honest and ai_off:
@@ -1263,16 +1268,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(moderation.http_body(verdict))
 
             import consciousness
-            voice_ready = honest or runtime.configured(runtime.NODE_TASK)
-            if not voice_ready:
+            # Recorded only where this place's voice could have answered:
+            # with the kill switch on, or with no provider configured for
+            # this route, every other line gets authored silence and writes
+            # no row, so the identity answer is given but not recorded.
+            recorded = not ai_off and runtime.configured(runtime.NODE_TASK)
+            if not (honest or recorded):
                 observability.voice_outcome("speak", "unconfigured")
                 return self._send_json({"response": consciousness.fallback_voice(node), "ai": False})
             try:
                 if honest:
                     # Authored, so no voice allowance, no voice call and no
-                    # provenance row. With AI on it is recorded below like
-                    # any other reply; with the kill switch on it is not,
-                    # because these routes write no row while AI is off.
+                    # provenance row. With AI on and a provider configured
+                    # it is recorded below like any other reply; with the
+                    # kill switch on or no provider configured it is not.
                     response = honesty.place_answer(node.level)
                 else:
                     history = persistence.get_node_history(seed, node.name)
@@ -1298,7 +1307,7 @@ class Handler(BaseHTTPRequestHandler):
                 data = {"message": message, "reply": response}
                 if identity:
                     data["identity"] = identity
-                if not (honest and ai_off):
+                if recorded:
                     persistence.record_mutation(
                         seed, node.name, "PLAYER_SPEAK", player_name, data,
                         actor_identity=identity,
@@ -1344,7 +1353,7 @@ class Handler(BaseHTTPRequestHandler):
                 # out before the counter write, so the write never delays it.
                 self._send_json({"response": response, "ai": not honest})
                 if honest:
-                    observability.identity_answer("speak", recorded=not ai_off)
+                    observability.identity_answer("speak", recorded=recorded)
                 else:
                     observability.voice_outcome("speak", "ok")
 
@@ -1504,21 +1513,22 @@ class Handler(BaseHTTPRequestHandler):
             body, "Where are you, and what do you see?")
         if message is None:
             return
-        # Same rule as /speak: a line that is only a sincere "are you
-        # human?" is answered in the archetype's authored voice, with AI on
-        # or off, by no model.
-        ai_off = guard.ai_disabled()
-        honest = _asks_identity(message, ai_off)
-        if not honest and ai_off:
-            observability.voice_outcome("agent_voice", "disabled")
-            return self._send_json({"response": guard.QUIET_RESPONSE,
-                                    "agent": "", "persona": "", "node": "",
-                                    "ai": False})
         # Only a server-owned identity can be voiced (agents/identities.py),
         # in its canonical spelling: the name lands in AGENT_VOICE data.agent,
         # which is neither redactable nor screened.
         requested = body.get("agent_name", identities.SCOUT)
         agent_name = identities.canonical(requested)
+        # Same rule as /speak: a line that is only a sincere "are you
+        # human?" is answered in the archetype's authored voice, with AI on
+        # or off, by no model. A name beside it must be one this agent
+        # answers to: "Vex, are you human?" asked of Tessera was put to Vex.
+        ai_off = guard.ai_disabled()
+        honest = _asks_identity(message, ai_off, (agent_name,) if agent_name else ())
+        if not honest and ai_off:
+            observability.voice_outcome("agent_voice", "disabled")
+            return self._send_json({"response": guard.QUIET_RESPONSE,
+                                    "agent": "", "persona": "", "node": "",
+                                    "ai": False})
         node_name  = str(body.get("node_name",  ""))[:128]
         try:
             seed = guard.world_seed(body.get("seed"))
@@ -1555,15 +1565,18 @@ class Handler(BaseHTTPRequestHandler):
             _record_screen_hold("agent_voice", verdict)
             return self._send_json(moderation.http_body(
                 verdict, agent=agent_name, persona=persona.name, node=node.name))
-        voice_ready = honest or runtime.configured(runtime.INHABITANT_TASK)
-        if not voice_ready:
+        # Same rule as /speak: recorded only where the agent's voice could
+        # have answered, so not with the kill switch on or no provider
+        # configured for this route.
+        recorded = not ai_off and runtime.configured(runtime.INHABITANT_TASK)
+        if not (honest or recorded):
             observability.voice_outcome("agent_voice", "unconfigured")
             return self._agent_voice_quiet(agent_name, persona.name, node.name)
         try:
             import consciousness
             if honest:
                 # Authored, so no voice allowance, no voice call and no
-                # provenance row; recorded below only with AI on, as /speak.
+                # provenance row; recorded below only when `recorded`.
                 response = honesty.agent_answer(persona.name)
             else:
                 history = persistence.get_node_history(seed, node.name)
@@ -1579,7 +1592,7 @@ class Handler(BaseHTTPRequestHandler):
             # you talked with should be part of what this place remembers
             # (and future replies can reference it via node history).
             player_name = _display_name(user_key, body.get("player_name"))
-            if not (honest and ai_off):
+            if recorded:
                 persistence.record_mutation(
                     seed, node.name, "AGENT_VOICE", player_name,
                     # Full exchange stored; the prompt clips at render time. (ADR-004.)
@@ -1622,7 +1635,7 @@ class Handler(BaseHTTPRequestHandler):
                 "ai":       not honest,
             })
             if honest:
-                observability.identity_answer("agent_voice", recorded=not ai_off)
+                observability.identity_answer("agent_voice", recorded=recorded)
             else:
                 observability.voice_outcome("agent_voice", "ok")
 

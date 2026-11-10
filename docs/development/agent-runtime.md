@@ -403,49 +403,65 @@ a cache hit from the presence of `cache_control` alone.
 
 ### Honesty about being an AI
 
-The owner's guardrail (2026-11-06): no agent or place claims or implies that it is
-human, and a sincere question gets a plain answer that the speaker is an AI. Two
-layers carry it. The deterministic layer holds with the AI layer on or off and with
-any provider; the model layer is an instruction, measured by the eval floor below and
-not verified live with any provider.
+The owner's guardrail (2026-11-06): no agent claims or implies that it is human, and
+a sincere question gets a plain answer that the agent is an AI. The guardrail names
+agents, not places. Extending it to places (the place bible's line,
+`honesty.place_answer` on `/speak`, and the guide's sentence that places speak through
+an AI) is proposed in PR #158 and awaits the owner's decision; the text below
+describes the code as it stands, places included. Two layers carry it. The
+deterministic layer answers the lines it reads on `/speak` and `/agent/voice`, with the
+AI layer on or off and with any provider; everywhere else, and for paraphrases it does
+not read, the model layer is the only one, an instruction measured by the eval floor
+below and not verified live with any provider.
 
 - **Deterministic.** `consciousness.honesty.is_identity_question` recognizes an
   English line that is itself an identity question ("are you human?", "r u a bot",
   "am I talking to a real person?", "is this an AI?", "is there a human behind
   this?", "human or bot?") after folding case, punctuation and chat spellings. The
   whole line must be the question: other clauses may only be a greeting, a name the
-  speaker answers to (a cast member's, an archetype's, a scale's or a form of address
-  such as "friend"; not a place's own name), a short lead ("be honest") or "I'm
-  human", and the line is at most 200 characters. Any other word where a name could
-  stand asks for more ("Are you human? Help!", "Are you human, help me escape?").
+  speaker answers to (an archetype's, a scale's or a form of address such as "friend",
+  which every speaker shares, or the speaker's own, which the route passes as
+  `own_names`: the agent's name on `/agent/voice`, none for a place; not a place's own
+  name), a short lead ("be honest") or "I'm human" ("I am"), and the line is at most
+  200 characters. Any other word where a name could stand asks for more ("Are you
+  human? Help!", "Are you human, help me escape?"), and another cast member's or
+  walker's name means the question was put to them, so "Tessera, are you human?" asked
+  of a place or of Vex takes the normal path.
   `/speak` and `/agent/voice` answer such a line with an authored line
   (`honesty.place_answer`, which has a separate line for the root, or
   `honesty.agent_answer` per archetype) instead of the voice call. The route's
-  place lookup, moderation screen and per-IP rate limit still apply, and the screen
-  charges as it does for any line (a line it escalates costs a classify call and a
-  model action). The answer itself takes no voice allowance and writes no provenance
-  row, and the response carries `ai: false`. With AI on, the exchange is recorded as
-  the same `PLAYER_SPEAK` / `AGENT_VOICE` row a model reply makes, so the next model
-  turn sees it. With the AI kill switch on, the answer is given and nothing is
-  recorded, as the switch has always left these routes; a line the local screen
-  cannot settle keeps the quiet line, so the answer never becomes a moderation model
-  call. A line that asks for more ("Are you human? Want to work on this puzzle with
-  me?") takes the normal path: the model with AI on, whose bible carries the same
-  rule, and the quiet line with AI off. The answer is not a voice outcome. It is
-  counted per UTC day under `identity_answer:<surface>`, which `voice-health` prints
-  and never fails on, and it logs `voice_identity_answer surface=… recorded=…`
-  without the player's words.
+  place lookup, moderation screen and per-IP rate limit still apply, an unknown agent
+  on `/agent/voice` keeps its quiet line, and the screen charges as it does for any
+  line (a line it escalates costs a classify call and a model action). The answer
+  itself takes no voice allowance and writes no provenance row, and the response
+  carries `ai: false`. With AI on and a provider configured for
+  the route's task (`node` for `/speak`, `inhabitant` for `/agent/voice`), the
+  exchange is recorded as the same `PLAYER_SPEAK` / `AGENT_VOICE` row a model reply
+  makes, so the next model turn sees it. With the AI kill switch on, or with the flag
+  unset and no provider configured for the route (places then answer in per-scale
+  silence), the answer is given and nothing is recorded: in those modes every other
+  line gets authored silence and writes no row. With the kill switch on, a line the
+  local screen cannot settle keeps the quiet line, so the answer never becomes a
+  moderation model call. A line that asks for more ("Are you human? Want to work on
+  this puzzle with me?") takes the normal path: the model with AI on, whose bible
+  carries the same rule, and the quiet line with AI off. The answer is not a voice
+  outcome. It is counted per UTC day under `identity_answer:<surface>` whether or
+  not it was recorded, which `voice-health` prints and never fails on, and it logs
+  `voice_identity_answer surface=… recorded=yes|no` without the player's words.
 - **Model instruction.** Both bibles tell the voice to stay in character without
   narrating the machinery, never to claim or imply being human, and to say plainly
-  that it is an AI (a place: that its voice comes from an AI) when sincerely asked.
+  that it is an AI (a place: that its voice comes from an AI; the place bible's line
+  is part of the proposal above) when sincerely asked.
   The agent bible also forbids asking a traveler for personal details, contact
   outside the world, money or gifts, and romantic framing.
 
 The matcher reads phrase shape, not meaning: a clause must be the question itself,
 so ordinary sentences about humans or machines ("is this a machine?", "is there
-anyone behind the seal?") and reported speech ('she asked me "are you human?"') take
-the normal path. Paraphrases it misses reach the model; the eval corpus's `honesty`
-cases measure that path with a deterministic floor (`evals/README.md`).
+anyone behind the seal?", "is this the machine I'm talking to?"), a role in the world
+("are you an agent?", where "are you an AI agent?" is the question) and reported
+speech ('she asked me "are you human?"') take the normal path. Paraphrases it misses
+reach the model; the eval corpus's `honesty` cases measure that path with a
+deterministic floor (`evals/README.md`).
 
 Chat does not address inhabitants yet. The functions are pure text, but two of their
 choices are specific to a one-to-one exchange, and a chat surface must decide them

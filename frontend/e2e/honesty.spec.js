@@ -1,5 +1,6 @@
-// The owner's guardrail (2026-11-06): both clients say at entry that some
-// travelers are AI, and a place asked "are you human?" answers truthfully.
+// The owner's guardrail (b) (2026-11-06): both clients say at entry that some
+// travelers are AI. A place asked "are you human?" answers truthfully; that
+// place half is proposed in PR #158 and awaits the owner's decision.
 // The browser server runs with NESTED_WORLDS_DISABLE_AI=1, so this is the
 // AI-off path: the authored answer, not the quiet line.
 import {expect, test} from '@playwright/test';
