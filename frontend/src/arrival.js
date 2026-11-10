@@ -12,15 +12,17 @@ export const WORLD_UNREACHED_LINE = shared.WORLD_UNREACHED_LINE;
 // a live invitation cannot enter under any name it chooses, and the
 // introduction is still unseen when the player opens the invite link. So a
 // browser that holds no key waits on the loading shell for the gate's answer
-// before it is shown the introduction or asked for a name; a browser with a
-// key reads the introduction while its world loads. Any other failure waits
-// behind onboarding like the loading shell does. The loading shell stays for
-// a read in flight. A failed reload with a place already in hand keeps the
-// scene.
+// before it is shown the introduction or asked for a name, and a read that
+// fails without that answer (a 502 during a deploy, a dropped connection)
+// shows the retry line there too, since asking again may still meet the
+// gate. A browser with a key reads the introduction while its world loads,
+// and any other failure waits behind its onboarding like the loading shell
+// does. The loading shell stays for a read in flight. A failed reload with a
+// place already in hand keeps the scene.
 export function arrivalScreen({ loading, hasNode, unopened, introSeen, named, hasKey }) {
   const settled = !loading && !hasNode && unopened ? unopened : null;
   if (settled && settled.kind !== "retry") return "gate";
-  if (!hasKey && !hasNode && !settled) return "loading";
+  if (!hasKey && !hasNode) return settled ? "retry" : "loading";
   if (!introSeen) return "intro";
   if (!named) return "name";
   if (settled) return "retry";
