@@ -73,7 +73,23 @@ character, or with nothing visible, and `invite mint` caps a name at 32
 characters as `/register` does. Confusable letters from other scripts are out
 of scope for beta. Names already registered are not changed.
 
-**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction (invite-gate latch and reserved names); sanction records 2026-11-03 on the owner's direction. §7 name comparison amended 2026-11-04 under the owner's delegation of #143's open choices.
+**2026-11-07 model-provider data amendment (owner-directed):** Decided by
+the owner, Mark Weeks, on 2026-11-07, in answer to decision 10 of the
+[November decision packet](../roadmap/decision-packet-2026-11.md) (beta
+checklist S2, with L4): "Information can only be shared with model providers
+to facilitate game play. Enfolded data must not be used to train frontier
+models." The two sentences are the owner's words, and they are this
+amendment's whole rule. They cover all information and Enfolded data sent to
+any model provider, player text and world content alike: the text provider's
+voice, intention and moderation calls, and the image provider's scene
+prompts, which carry node names and properties but no player text. This
+amends no numbered section and names no provider
+([ADR-034](ADR-034-provider-and-model-optionality.md)). How a destination is
+checked against the rule, and the questions it leaves open, are proposals
+awaiting the owner's acceptance, recorded in packet decision 10 and checklist
+S2 and L4; they are not part of this ADR.
+
+**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction (invite-gate latch and reserved names); sanction records 2026-11-03 on the owner's direction. §7 name comparison amended 2026-11-04 under the owner's delegation of #143's open choices. Model-provider data rule added 2026-11-07 on the owner's direction.
 
 ---
 
@@ -441,6 +457,14 @@ existing `participant_blocks.blocked_id` targets so saved preferences continue
 to match their travelers. This settles this feature's stored-target contract;
 [ADR-032](ADR-032-inhabitant-cognition.md) remains Proposed, and identity
 unification is future work.
+
+**Rollback boundary:** applying `0030_participant_blocks` advances the database
+to schema 30. A schema-29 image cannot use same-schema rollback against it.
+Keep a fallback build that includes migration 0030, or fix forward while retaining
+schema 30. A matched pre-0030 disaster restore would abandon every later world
+and player record, not just block preferences; it is not an ordinary rollback.
+The schema guard and [deployment procedure](../infrastructure/fly-deployment.md#same-schema-release-rollback)
+must remain in force.
 
 Blocking filters the target's live chat and presence for the blocker in
 both browser clients and on the server's live socket delivery. It is one-way,

@@ -80,6 +80,7 @@ def propose(intention, context, *, user_key=None, voice_budget=False):
         messages=[{'role': 'user', 'content': json.dumps({'intention': intention, 'place': context})}],
         json_schema=schema,
         user_key=user_key, voice_budget=voice_budget,
+        task=runtime.INTENT_TASK,
     )
     if not response.complete:
         raise ValueError('The intention is not yet clear enough to enact.')

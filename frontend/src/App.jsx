@@ -746,6 +746,7 @@ function Intro({ onBegin }) {
           <li style={s.introItem}><b style={s.introVerb}>Act</b> — change what matters to you. Each scale offers different possibilities; combine actions and follow their consequences.</li>
           <li style={s.introItem}><b style={s.introVerb}>Solve</b> — crack a node's puzzle; the ripple settles places far above and below.</li>
         </ul>
+        <p style={s.introBody}>Some travelers you meet are AI. You won't always be able to tell, but if you ask one, it will tell you the truth.</p>
         <button onClick={onBegin} style={{ ...s.nameButton, alignSelf: "flex-start" }}>Begin</button>
       </div>
     </div>

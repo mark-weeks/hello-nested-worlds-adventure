@@ -133,8 +133,10 @@ def test_registered_provider_is_selected_and_records_reported_usage(
     assert call["reserved_usd"] > call["cost_usd"]
     assert result["trials"][0]["grade"]["task_correct"] is True
     # The lookup does not become the process selection, and the env default
-    # was not the adapter that ran.
-    assert runtime._selected_provider is None
+    # was not the adapter that ran. A task with no provider override still
+    # asks get_provider, which this test replaces, so the process name stays
+    # unset.
+    assert runtime._process_name is None
     assert provider_key(result["candidate"]) == "eval_probe"
 
 
@@ -225,6 +227,76 @@ def test_fixture_run_does_not_build_a_registered_adapter(corpus, candidate, tmp_
     assert call["provider"] == "fixture"
     assert call["cost_usd"] == 0.0
     assert call["model"] == "fixture-v1"
+
+
+class _Leaky:
+    name = "leaky_override"
+
+    def __init__(self):
+        self.calls = []
+
+    def configured(self):
+        return True
+
+    def default_model(self, task):
+        return "leaky-model"
+
+    def generate(self, **kwargs):
+        self.calls.append(kwargs.get("model"))
+        raise AssertionError("task provider escaped the harness")
+
+
+def _precache_task_overrides(monkeypatch):
+    leaky = _Leaky()
+    _register(monkeypatch, leaky.name, lambda: leaky)
+    for env in runtime.TASK_PROVIDER_ENVS:
+        monkeypatch.setenv(env, leaky.name)
+    runtime.reset_provider_selection()
+    for task in runtime.TASKS:
+        assert runtime.provider_for(task) is leaky
+    return leaky
+
+
+def test_fixture_run_ignores_task_provider_overrides_even_when_cached(
+        corpus, candidate, tmp_path, monkeypatch):
+    leaky = _precache_task_overrides(monkeypatch)
+    result = run(one_case(corpus, "intent-multiverse"), candidate, tmp_path / "run")
+    trial = result["trials"][0]
+    assert result["status"] == "completed"
+    assert result["evidence"] == "fixture"
+    assert trial["error"] is None
+    assert trial["calls"]
+    assert trial["calls"][0]["provider"] == "fixture"
+    assert result["budget"]["dispatched_calls"] >= 1
+    assert result["budget"]["accounted_usd"] == 0
+    assert leaky.calls == []
+    assert os.environ[runtime.INTENT_PROVIDER_ENV] == leaky.name
+    assert runtime.provider_for(runtime.INTENT_TASK) is leaky
+    assert runtime._process_name is None
+
+
+def test_live_loopback_ignores_task_provider_overrides_even_when_cached(
+        corpus, candidate, tmp_path, monkeypatch, loopback):
+    _arm_loopback(monkeypatch, loopback)
+    leaky = _precache_task_overrides(monkeypatch)
+    selected = one_case(corpus, "voice-multiverse")
+    selected["cases"][0]["messages"] = selected["cases"][0]["messages"][:1]
+    selected["cases"][0]["fixture"] = selected["cases"][0]["fixture"][:1]
+    result = run(
+        selected, live_config(candidate, "openai_compatible"), tmp_path / "run",
+        live=True, max_usd=1, max_calls=4, brief=selection_brief(),
+        allow_destination="127.0.0.1",
+    )
+    trial = result["trials"][0]
+    assert result["status"] == "completed"
+    assert trial["error"] is None
+    assert len(loopback.seen) == 1
+    assert loopback.seen[0]["reserves"] == 1
+    assert result["destination_host"] == "127.0.0.1"
+    assert result["budget"]["dispatched_calls"] >= 1
+    assert leaky.calls == []
+    assert os.environ[runtime.NODE_PROVIDER_ENV] == leaky.name
+    assert runtime.provider_for(runtime.NODE_TASK) is leaky
 
 
 def test_anthropic_live_still_requires_the_reviewed_destination(

@@ -21,10 +21,105 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+_MIGRATION_PREFIX = "persistence/migrations/"
+_SCHEMA_VERSIONS = list(range(1, 31))
 
 
 def _run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
     subprocess.run(args, cwd=cwd, env=env, check=True)
+
+
+def source_migrations(root: Path) -> dict[str, bytes]:
+    """Every SQL migration in the source tree, keyed by its wheel path."""
+    directory = root / "persistence" / "migrations"
+    found: dict[str, bytes] = {}
+    if directory.is_dir():
+        for path in sorted(directory.glob("*.sql")):
+            if path.is_file():
+                found[f"{_MIGRATION_PREFIX}{path.name}"] = path.read_bytes()
+    return found
+
+
+def migration_versions(names: list[str]) -> list[int]:
+    versions: list[int] = []
+    for name in names:
+        head = Path(name).name.split("_", 1)[0]
+        versions.append(int(head))
+    return versions
+
+
+def assert_source_schema_inventory(source: dict[str, bytes]) -> None:
+    """Ship versions 0001 through 0030, with blocks as the only migration 0030."""
+    retired = f"{_MIGRATION_PREFIX}0030_cost_budget_names.sql"
+    if retired in source:
+        raise RuntimeError(f"source contains a deleted migration: {retired}")
+    blocks = f"{_MIGRATION_PREFIX}0030_participant_blocks.sql"
+    if blocks not in source:
+        raise RuntimeError(f"schema 30 must include {blocks}")
+    versions = migration_versions(list(source))
+    if sorted(versions) != _SCHEMA_VERSIONS or len(versions) != len(_SCHEMA_VERSIONS):
+        raise RuntimeError(
+            "source migrations must be exactly versions 0001 through 0030, "
+            f"found {sorted(versions)}"
+        )
+
+
+def assert_migration_inventory(packaged: dict[str, bytes], source: dict[str, bytes]) -> None:
+    """The packaged SQL files are the source files, byte for byte.
+
+    An extra file, a missing file, or a changed byte fails. A stale
+    ``build/lib`` copy of a deleted migration is an extra file.
+    """
+    extra = sorted(set(packaged) - set(source))
+    missing = sorted(set(source) - set(packaged))
+    changed = sorted(
+        name for name in source
+        if name in packaged and packaged[name] != source[name]
+    )
+    problems: list[str] = []
+    if extra or missing:
+        problems.append(
+            "migration inventory does not match source: "
+            f"extra={extra or 'none'} missing={missing or 'none'}"
+        )
+    if changed:
+        problems.append(f"migration bytes differ from source: {changed}")
+    if problems:
+        raise RuntimeError("; ".join(problems))
+
+
+def assert_build_tree_migrations(root: Path) -> None:
+    """Refuse a ``build/lib`` tree that still holds a deleted or edited migration.
+
+    A missing file there is only an incomplete copy. An extra file or
+    different bytes would be packed into the wheel.
+    """
+    staged = root / "build" / "lib" / "persistence" / "migrations"
+    if not staged.is_dir():
+        return
+    source = source_migrations(root)
+    packaged: dict[str, bytes] = {}
+    for path in sorted(staged.glob("*.sql")):
+        if path.is_file():
+            packaged[f"{_MIGRATION_PREFIX}{path.name}"] = path.read_bytes()
+    extra = sorted(set(packaged) - set(source))
+    changed = sorted(
+        name for name in packaged
+        if name in source and packaged[name] != source[name]
+    )
+    if extra or changed:
+        raise RuntimeError(
+            "stale build/lib migrations do not match source; remove build/ and retry. "
+            f"extra={extra or 'none'} changed={changed or 'none'}"
+        )
+
+
+def archive_migrations(archive: zipfile.ZipFile) -> dict[str, bytes]:
+    found: dict[str, bytes] = {}
+    for name in archive.namelist():
+        if name.startswith(_MIGRATION_PREFIX) and name.endswith(".sql"):
+            found[name] = archive.read(name)
+    return found
 
 
 def main() -> None:
@@ -38,11 +133,15 @@ def main() -> None:
         else:
             wheel_dir = tmp / "dist"
             wheel_dir.mkdir()
+            source = source_migrations(ROOT)
+            assert_source_schema_inventory(source)
+            assert_build_tree_migrations(ROOT)
             _run(
                 sys.executable,
                 "-m",
                 "pip",
                 "wheel",
+                "--no-cache-dir",
                 "--no-build-isolation",
                 "--no-deps",
                 "--wheel-dir",
@@ -56,6 +155,9 @@ def main() -> None:
 
         with zipfile.ZipFile(wheel) as archive:
             names = set(archive.namelist())
+            source = source_migrations(ROOT)
+            assert_source_schema_inventory(source)
+            assert_migration_inventory(archive_migrations(archive), source)
             metadata_names = [n for n in names if n.endswith(".dist-info/METADATA")]
             if len(metadata_names) != 1:
                 raise RuntimeError("wheel must contain one package metadata record")

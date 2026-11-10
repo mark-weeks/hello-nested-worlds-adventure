@@ -183,6 +183,9 @@ class Player:
                         visible = self._visible(item.message, item.revision, item.agent_ids)
                         if visible is None:
                             continue
+                        # Keyless local sessions use connection-scoped opaque
+                        # handles for rendering only. /blocks requires a personal
+                        # invite and resolves in that participant's namespace.
                         item = json.dumps(wire_message(self.participant_id or self.session_id, visible))
                     ws_send(self.sock, item)
             except OSError:

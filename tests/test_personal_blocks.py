@@ -7,6 +7,8 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlencode
+from types import SimpleNamespace
 
 import pytest
 
@@ -76,6 +78,50 @@ def test_block_survives_both_rotations_restart_and_target_sanction(accounts):
     assert persistence.get_mutations(382) == []
     with persistence._connection() as conn:
         assert conn.execute('SELECT COUNT(*) FROM participant_blocks').fetchone()[0] == 0
+
+
+def test_block_list_uses_newest_credential_name_after_rotation(accounts):
+    owner, target = [participants.identify(k)['id'] for k in accounts]
+    blocks.set_block(owner, target, True)
+    old_digest = persistence._credential_digest(accounts[1])
+    replacement = 'nw_' + 'z' * 32
+    participants.rotate(accounts[1], replacement)
+    with persistence.transaction() as conn:
+        # Preserve an old invite alias as a revoked operational record and
+        # give the replacement a new name. Both credential timestamps may
+        # fall in one second; enrollment order breaks that tie deterministically.
+        conn.execute("""INSERT INTO invite_keys(key,name,revoked_at)
+            VALUES (?, 'Earlier name', datetime('now'))""", (old_digest,))
+        conn.execute("UPDATE invite_keys SET name='Current name' WHERE key=?",
+                     (persistence._credential_digest(replacement),))
+        conn.execute("""UPDATE participant_credentials
+            SET created_at='2026-11-01 00:00:00' WHERE participant_id=?""", (target,))
+    assert blocks.list_blocks(owner) == [{'id': target, 'name': 'Current name'}]
+    persistence.revoke_invite_key(replacement)
+    assert blocks.list_blocks(owner) == [{'id': target, 'name': 'Current name'}]
+    assert blocks.set_block(owner, target, False) == []
+
+
+@pytest.mark.parametrize('ai_off', [False, True])
+def test_live_block_keeps_explicit_identity_answers_and_history_readable(http, accounts, monkeypatch, ai_off):
+    from consciousness import runtime
+    from server import guard, moderation
+    owner = participants.identify(accounts[0])['id']
+    blocks.set_block(owner, 'agent:Tessera', True)
+    node = store.world_tree(382).name
+    persistence.record_mutation(382, node, 'AGENT_TALK', None,
+                                {'a': 'Tessera', 'lines': [{'speaker': 'Tessera', 'line': 'An older line.'}]})
+    before = persistence.get_mutations(382)
+    monkeypatch.setenv(guard.DISABLE_AI_ENV, '1' if ai_off else '0')
+    monkeypatch.setattr(runtime, 'configured', lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(moderation, 'screen', lambda *_args, **_kwargs: SimpleNamespace(allowed=True))
+    status, reply, _ = http('/agent/voice', body={
+        'agent_name': 'Tessera', 'node_name': node, 'message': 'Are you an AI?'})
+    assert status == 200 and reply['ai'] is False and "I'm an AI" in reply['response']
+    assert blocks.list_blocks(owner) == [{'id': 'agent:Tessera', 'name': 'Tessera'}]
+    assert all(row in persistence.get_mutations(382) for row in before)
+    status, history, _ = http('/history?' + urlencode({'node_name': node}))
+    assert status == 200 and any(row['data'].get('a') == 'Tessera' for row in history['mutations'])
 
 
 @pytest.mark.parametrize('target,blocked', [

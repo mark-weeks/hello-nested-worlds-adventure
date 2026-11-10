@@ -17,6 +17,8 @@ const REFUSED = "The invitation this browser holds does not open the world. If "
 const UNREACHED = "The world could not be reached. Try opening the view again.";
 const SPEAK_UNREACHED = "Your words did not reach this place. Try speaking again.";
 const LOADING = "Opening the shared world…";
+const QUIET = "The worlds are quiet today. Try again tomorrow.";
+const PACE = "the world asks for a quieter pace — a breath, then try again";
 const inviteLink = route => `${route}?key=${KEY}&name=${encodeURIComponent(NAME)}`;
 
 // Minting a key latches the gate: every data read now needs a live key.
@@ -103,21 +105,53 @@ test("/app on a new device says how to return, then opens from the invite link",
   }
 });
 
+test("/app shows a keyless browser the retry before onboarding when /world fails", async ({ page }) => {
+  const server = await serve();
+  const errors = watchErrors(page);
+  try {
+    // Nothing stored: no key, no name, no introduction seen. The first read
+    // meets a 502 (a deploy in progress), so the gate has not answered.
+    const worldRead = url => url.pathname === "/world";
+    await page.route(worldRead, route => route.fulfill({
+      status: 502, contentType: "text/html", body: "<html>Bad Gateway</html>",
+    }));
+    await page.goto(server.url + "/app");
+    await expect(page.getByRole("alert")).toHaveText(UNREACHED);
+    await expect(page.getByRole("button", { name: "Begin", exact: true })).toHaveCount(0);
+    await expect(page.getByPlaceholder("Your name", { exact: true })).toHaveCount(0);
+    await page.unroute(worldRead);
+    // Asking again meets the latched gate: its line, still before onboarding.
+    await page.getByRole("button", { name: "Open the view again" }).click();
+    await expect(page.getByRole("alert")).toHaveText(INVITE);
+    await expect(page.getByRole("button", { name: "Begin", exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("nw_seen_intro"))).toBeNull();
+    expect(await page.evaluate(() => localStorage.getItem("nw_player_name"))).toBeNull();
+    expect(errors).toEqual([]);
+  } finally {
+    await page.unrouteAll({ behavior: "wait" }).catch(() => {});
+    await server.close();
+  }
+});
+
 test("/app answers a world it cannot draw with a retry that answers its click at once", async ({ page }) => {
   const server = await serve();
   const errors = watchErrors(page);
   let release = () => {};
   try {
     await returning(page, KEY);
-    // The server answers, but with no world in the body.
+    // The server answers, but with no world in the body (refused by the
+    // shared rule), or with a seed and a tree that cannot be walked (refused
+    // when the entry path is drawn).
     const worldRead = url => url.pathname === "/world";
-    await page.route(worldRead, route => route.fulfill({
-      status: 200, contentType: "application/json", body: "{}",
-    }));
-    await page.goto(server.url + "/app");
-    await expect(page.getByRole("alert")).toHaveText(UNREACHED);
-    await expect(page.getByText(LOADING)).toHaveCount(0);
-    await page.unroute(worldRead);
+    for (const body of ["{}", JSON.stringify({ seed: 382, world: { children: 5 } })]) {
+      await page.route(worldRead, route => route.fulfill({
+        status: 200, contentType: "application/json", body,
+      }));
+      await page.goto(server.url + "/app");
+      await expect(page.getByRole("alert")).toHaveText(UNREACHED);
+      await expect(page.getByText(LOADING)).toHaveCount(0);
+      await page.unroute(worldRead);
+    }
 
     // A slow position hydrate: the retry must answer before it returns, and
     // a second click must not start a second arrival.
@@ -266,18 +300,22 @@ test("the map keeps its line for a world it cannot draw, and for a refusal after
   try {
     await returning(page, KEY);
     const worldRead = url => url.pathname === "/world";
-    // The server answers, but with no world in the body.
-    await page.route(worldRead, route => route.fulfill({
-      status: 200, contentType: "application/json", body: "{}",
-    }));
-    await page.goto(server.url + "/");
-    await expect(page.locator("#status")).toHaveText(UNREACHED);
-    await expect(page.locator("#node-description")).toHaveText(UNREACHED);
-    await page.locator("#btn-do-speak").click();
-    await expect(page.locator("#status")).toHaveText(UNREACHED);
+    // The server answers, but with no world in the body (refused by the
+    // shared rule), or with a seed and a tree the map cannot draw (refused
+    // while the tree is drawn).
+    for (const body of ["{}", JSON.stringify({ seed: 382, world: { children: 5 } })]) {
+      await page.route(worldRead, route => route.fulfill({
+        status: 200, contentType: "application/json", body,
+      }));
+      await page.goto(server.url + "/");
+      await expect(page.locator("#status")).toHaveText(UNREACHED);
+      await expect(page.locator("#node-description")).toHaveText(UNREACHED);
+      await page.locator("#btn-do-speak").click();
+      await expect(page.locator("#status")).toHaveText(UNREACHED);
+      await page.unroute(worldRead);
+    }
 
     // The next read is refused by the gate: its line must hold too.
-    await page.unroute(worldRead);
     await page.route(worldRead, route => route.fulfill({
       status: 403, contentType: "application/json", body: JSON.stringify({ error: "forbidden" }),
     }));
@@ -287,6 +325,140 @@ test("the map keeps its line for a world it cannot draw, and for a refusal after
     await expect(page.locator("#status")).toHaveText(REFUSED);
     await page.locator("#btn-do-speak").click();
     await expect(page.locator("#status")).toHaveText(REFUSED);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.unrouteAll({ behavior: "wait" }).catch(() => {});
+    await server.close();
+  }
+});
+
+// Speech meets the gate (a key that no longer opens the world) or a server
+// error. The real server's gate answers the first; the second is the body of
+// the server's own dispatch failure. Neither raw word reaches the place's
+// voice, and the server's own reply is still shown.
+const speechRead = url => ["/speak", "/agent/voice"].includes(url.pathname);
+async function answerSpeech(page) {
+  let calls = 0;
+  await page.route(speechRead, route => {
+    calls += 1;
+    if (calls === 1) {
+      // The gate's own 403, from the real server: the key it sees is unknown.
+      return route.continue({ url: route.request().url().replace(KEY, UNKNOWN_KEY) });
+    }
+    if (calls === 2) {
+      return route.fulfill({
+        status: 500, contentType: "application/json",
+        body: JSON.stringify({ error: "internal server error" }),
+      });
+    }
+    if (calls === 3) {
+      return route.fulfill({
+        status: 429, contentType: "application/json", body: JSON.stringify({ error: PACE }),
+      });
+    }
+    return route.continue();
+  });
+}
+
+test("/app answers a refused or failed speech with authored lines, and keeps the server's own", async ({ page }) => {
+  const server = await serve();
+  const errors = watchErrors(page);
+  try {
+    await returning(page, KEY);
+    await page.goto(server.url + "/app");
+    await expect(page.locator("#node-name")).toBeVisible();
+    await answerSpeech(page);
+    const say = page.getByRole("button", { name: /^Speak to / });
+    await page.getByRole("textbox", { name: "Message to this place" }).fill("Who keeps this place?");
+    for (const line of [REFUSED, SPEAK_UNREACHED, PACE, QUIET]) {
+      await say.click();
+      await expect(page.getByText(line, { exact: true })).toBeVisible();
+    }
+    await expect(page.locator("body")).not.toContainText(/forbidden|internal server error/i);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.unrouteAll({ behavior: "wait" }).catch(() => {});
+    await server.close();
+  }
+});
+
+test("the map answers a refused or failed speech with authored lines, and keeps the server's own", async ({ page }) => {
+  const server = await serve();
+  const errors = watchErrors(page);
+  try {
+    await returning(page, KEY);
+    await page.goto(server.url + "/");
+    await expect(page.locator("#status")).toContainText("nodes · shared world");
+    await expect(page.locator("#node-name")).not.toHaveText("Select a node");
+    await answerSpeech(page);
+    const box = page.locator("#speak-response");
+    const status = page.locator("#status");
+    for (const [line, bar] of [
+      [REFUSED, REFUSED], [SPEAK_UNREACHED, SPEAK_UNREACHED], [PACE, "Ready"], [QUIET, "Ready"],
+    ]) {
+      await page.locator("#btn-do-speak").click();
+      await expect(box).toHaveText(line);
+      await expect(status).toHaveText(bar);
+    }
+    await expect(page.locator("body")).not.toContainText(/forbidden|internal server error/i);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.unrouteAll({ behavior: "wait" }).catch(() => {});
+    await server.close();
+  }
+});
+
+test("the map asks again for a deeper view after a paced or undrawable read", async ({ page, request }) => {
+  const server = await serve();
+  const errors = watchErrors(page);
+  try {
+    const world = await (await request.get(`${server.url}/world?depth=8&key=${KEY}`)).json();
+    let deep = world.world;
+    while (deep.name.split("-").pop().length < 8) deep = deep.children[0];
+    await returning(page, KEY);
+    await page.goto(server.url + "/");
+    await expect(page.locator("#status")).toContainText("depth 6");
+
+    // The deepening read toward a place below the horizon is paced.
+    const worldRead = url => url.pathname === "/world";
+    let paced = 0;
+    await page.route(worldRead, route => {
+      paced += 1;
+      return route.fulfill({
+        status: 429, contentType: "application/json", body: JSON.stringify({ error: PACE }),
+      });
+    });
+    await page.evaluate(name => jumpTo(name), deep.name);
+    expect(paced).toBe(1);
+    await expect(page.locator("#status")).toHaveText(PACE);
+    // The view stays at the depth actually drawn.
+    await expect(page.locator("#depth")).toHaveValue("6");
+    expect(await page.evaluate(() => localStorage.getItem("nw_view_depth"))).toBe("6");
+    await page.unroute(worldRead);
+
+    // The next deepening read answers with a tree the map cannot draw.
+    let undrawable = 0;
+    await page.route(worldRead, route => {
+      undrawable += 1;
+      return route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ seed: 382, world: { children: 5 } }),
+      });
+    });
+    await page.evaluate(name => jumpTo(name), deep.name);
+    expect(undrawable).toBe(1);
+    await expect(page.locator("#status")).toHaveText(UNREACHED);
+    await expect(page.locator("#depth")).toHaveValue("6");
+    expect(await page.evaluate(() => localStorage.getItem("nw_view_depth"))).toBe("6");
+    await page.unroute(worldRead);
+
+    // The same jump asks again, and arrives.
+    let reads = 0;
+    page.on("request", r => { if (new URL(r.url()).pathname === "/world") reads += 1; });
+    await page.evaluate(name => jumpTo(name), deep.name);
+    expect(reads).toBe(1);
+    await expect(page.locator("#status")).toContainText("depth 8");
+    await expect(page.locator("#node-address")).toContainText(deep.name.split("-").pop());
     expect(errors).toEqual([]);
   } finally {
     await page.unrouteAll({ behavior: "wait" }).catch(() => {});

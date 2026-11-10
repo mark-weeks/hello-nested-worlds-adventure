@@ -76,13 +76,13 @@ const {
   findNodeByName,
   createSocketKeepalive,
   firstWrapCrossing,
+  hearSpeech,
   nodeAddress,
   nodeMark,
   observationRow,
   openWorld,
   restoreChatInput,
   resumeDepth,
-  SPEAK_UNREACHED_LINE,
   WORLD_UNREACHED_LINE,
   wrapAffordance,
 } = window.EnfoldedClient;
@@ -163,6 +163,17 @@ function setStatus(msg) { document.getElementById('status').textContent = msg; }
 let worldClosedLine = null;
 function needPlace() { setStatus(worldClosedLine || 'Select a node first.'); }
 
+// The depth of the tree on screen, or null before one is drawn. A read that
+// does not open (refused, paced or unreachable) leaves the view at this
+// depth, so asking again for the deeper view makes a new read.
+let drawnDepth = null;
+function keepDrawnDepth() {
+  if (drawnDepth === null) return;
+  worldParams.depth = drawnDepth;
+  try { localStorage.setItem(LAST_DEPTH_KEY, String(drawnDepth)); } catch (_) {}
+  document.getElementById('depth').value = drawnDepth;
+}
+
 function setMode(mode) {
   ['speak', 'puzzle', 'act'].forEach(m => {
     document.getElementById('panel-' + m).classList.toggle('active', m === mode);
@@ -187,6 +198,7 @@ async function loadWorld() {
     // identity needed by subsequent requests and deterministic senses.
     const opened = await openWorld(url => fetch(url), withKey(`/world?depth=${depth}`), !!betaKey());
     if (opened.unopened) {
+      keepDrawnDepth();
       setStatus(opened.unopened.line);
       if (!selected) worldClosedLine = opened.unopened.line;
       // Before any place is in hand the map is empty; say it where a place
@@ -202,11 +214,13 @@ async function loadWorld() {
     const sameWorld = previousSeed !== null && previousSeed === data.seed;
     setStatus(`${data.node_count} nodes · shared world · depth ${depth}`);
     renderTree(data.world, { preservePresence: sameWorld });
+    drawnDepth = depth;
     if (playerName && !sameWorld) wsConnect(data.seed);
     if (!sameWorld) loadHistoryFeed(data.seed);
   } catch (_) {
     // The world arrived but could not be drawn. With no place in hand, keep
     // the retry line where a place would be described and for Speak/Observe.
+    keepDrawnDepth();
     setStatus(WORLD_UNREACHED_LINE);
     if (!selected) {
       worldClosedLine = WORLD_UNREACHED_LINE;
@@ -788,26 +802,23 @@ async function speak() {
   box.textContent = '…';
   box.className = 'response-box dim';
   setStatus('Awaiting response…');
-  try {
-    const addressingAgent = !!speakTarget;
-    const res  = await fetch(withKey(addressingAgent ? '/agent/voice' : '/speak'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(addressingAgent
-        ? { agent_name: speakTarget, node_name: selected.name, message,
-            seed: worldParams.seed }
-        : { node_name: selected.name, message,
-            seed: worldParams.seed, player_name: playerName }),
-    });
-    const data = await res.json();
-    box.textContent = data.error || data.response;
-    box.className   = data.error ? 'response-box error' : 'response-box';
-    setStatus('Ready');
-  } catch (e) {
-    box.textContent = SPEAK_UNREACHED_LINE;
-    box.className   = 'response-box error';
-    setStatus(SPEAK_UNREACHED_LINE);
-  }
+  const addressingAgent = !!speakTarget;
+  // The shared rule keeps a raw refusal or server error out of the place's
+  // voice; it never rejects.
+  const heard = await hearSpeech(url => fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(addressingAgent
+      ? { agent_name: speakTarget, node_name: selected.name, message,
+          seed: worldParams.seed }
+      : { node_name: selected.name, message,
+          seed: worldParams.seed, player_name: playerName }),
+  }), withKey(addressingAgent ? '/agent/voice' : '/speak'), !!betaKey());
+  box.textContent = heard.line;
+  box.className   = heard.kind === 'reply' ? 'response-box' : 'response-box error';
+  // The server's own lines (a reply, the pace line, a refused message) stay
+  // in the box; a line about the request itself also takes the status bar.
+  setStatus(heard.kind === 'reply' || heard.kind === 'server' ? 'Ready' : heard.line);
 }
 
 function observe() {

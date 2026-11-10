@@ -416,7 +416,7 @@ class TestCostCap:
         # adapter's generate is the provider contact the budget must gate.
         from consciousness import runtime
         from multiverse.generator import DEFAULT_WORLD_SEED, generate_node_hierarchy
-        monkeypatch.setattr("consciousness.runtime.configured", lambda: True)
+        monkeypatch.setattr("consciousness.runtime.configured", lambda *args, **kwargs: True)
         contacted = []
 
         def must_not_call(**kwargs):

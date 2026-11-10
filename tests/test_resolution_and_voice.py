@@ -101,7 +101,7 @@ class TestSpeakResolution:
         # An explicitly unavailable provider must go quiet in character —
         # HTTP 200, an authored line in the node's
         # register, never an SDK error or a 503.
-        monkeypatch.setattr(consciousness.runtime, "configured", lambda: False)
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda *args, **kwargs: False)
         real = generate_node_hierarchy(seed=42, max_depth=1)
         data, status = _post(
             f"{srv}/speak",
@@ -121,7 +121,7 @@ class TestSpeakResolution:
             seen["speaker"] = speaker
             return f"I heard: {message}"
 
-        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda *args, **kwargs: True)
         monkeypatch.setattr(consciousness, "speak", fake_speak)
 
         _post(f"{srv}/speak", {"node_name": real.name, "seed": 42,
@@ -153,7 +153,7 @@ class TestSpeakResolution:
                        ripple_score=0.0, speaker=None, hinge=False, **kwargs):
             return "a reply comfortably longer than the old two-hundred-char cap " * 4
 
-        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda *args, **kwargs: True)
         monkeypatch.setattr(consciousness, "speak", fake_speak)
         _post(f"{srv}/speak", {"node_name": real.name, "seed": 42,
                                "message": long_msg, "player_name": "Ada"})
@@ -328,7 +328,7 @@ class TestAgentAddressability:
                             history=history)
             return "…"
 
-        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda *args, **kwargs: True)
         monkeypatch.setattr(consciousness, "voice_agent", fake_voice_agent)
         _post(f"{srv}/agent/voice",
               {"agent_name": "Tessera", "node_name": real.name,
@@ -370,7 +370,7 @@ class TestTranscriptIdentityOverHTTP:
             seen["transcript"] = list(transcript or [])
             return "reply"
 
-        monkeypatch.setattr(consciousness.runtime, "configured", lambda: True)
+        monkeypatch.setattr(consciousness.runtime, "configured", lambda *args, **kwargs: True)
         monkeypatch.setattr(consciousness, "speak", fake_speak)
         _post(f"{srv}/speak?key=nw_ada",
               {"node_name": real.name, "seed": 42,

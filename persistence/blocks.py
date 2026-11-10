@@ -12,7 +12,7 @@ def _validate_id(value: str) -> None:
 
 
 def agent_target(name: str) -> str | None:
-    """Public targeting identity derived only from the server's canonical registry."""
+    """Internal targeting identity derived only from the server's canonical registry."""
     from agents.identities import canonical
     canonical_name = canonical(name)
     return 'agent:' + canonical_name if canonical_name is not None else None
@@ -28,7 +28,8 @@ def _target_agent(target: str) -> str | None:
 def _list(conn, participant: str) -> list[dict]:
     rows = conn.execute("""SELECT b.blocked_id, COALESCE((
         SELECT i.name FROM invite_keys i JOIN participant_credentials c
-        ON c.credential_digest=i.key WHERE c.participant_id=b.blocked_id LIMIT 1
+        ON c.credential_digest=i.key WHERE c.participant_id=b.blocked_id
+        ORDER BY c.created_at DESC,c.rowid DESC LIMIT 1
         ), 'Unavailable traveler')
         FROM participant_blocks b WHERE b.participant_id=?
         ORDER BY b.created_at,b.blocked_id""", (participant,)).fetchall()

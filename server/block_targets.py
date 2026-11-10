@@ -9,14 +9,30 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import threading
+from collections import OrderedDict
 
 _KEY = secrets.token_bytes(32)
+_HANDLE_LIMIT = 4096
+_HANDLES: OrderedDict[tuple[str, str], str] = OrderedDict()
+_HANDLE_LOCK = threading.Lock()
+
+
+def _token(viewer: str, target: str) -> str:
+    return hmac.new(_KEY, f'{viewer}\0{target}'.encode(), hashlib.sha256).hexdigest()[:32]
 
 
 def handle(viewer: str, target: str | None) -> str | None:
     if not target:
         return None
-    return hmac.new(_KEY, f'{viewer}\0{target}'.encode(), hashlib.sha256).hexdigest()[:32]
+    token = _token(viewer, target)
+    with _HANDLE_LOCK:
+        key = (viewer, token)
+        _HANDLES[key] = target
+        _HANDLES.move_to_end(key)
+        while len(_HANDLES) > _HANDLE_LIMIT:
+            _HANDLES.popitem(last=False)
+    return token
 
 
 def wire_message(viewer: str, message: dict) -> dict:
@@ -41,22 +57,41 @@ def wire_blocks(viewer: str, rows: list[dict]) -> list[dict]:
 def resolve(viewer: str, token: str) -> str:
     """Resolve only a handle minted for this viewer, never a supplied durable ID.
 
-    Writes are rate-limited. This read includes disconnected participants so an
-    already displayed live line remains blockable, and the owner's stored rows
-    so retired agent identities remain removable.
+    Recently displayed handles include disconnected travelers without scanning
+    every historical participant. The bounded cache is process-local; after an
+    eviction, live travelers and the owner's saved blocks can still be resolved.
+    Stored rows keep offline/retired targets removable after reconnect/restart.
     """
     import persistence as db
     from agents.identities import SERVER_IDENTITIES
     from persistence.blocks import agent_target
+    from server.rooms import _rooms, _rooms_lock
 
-    if not isinstance(token, str) or len(token) != 32:
+    if (not isinstance(token, str) or len(token) != 32
+            or any(char not in '0123456789abcdef' for char in token)):
         raise ValueError('Choose another traveler.')
+    with _HANDLE_LOCK:
+        key = (viewer, token)
+        target = _HANDLES.get(key)
+        if target is not None:
+            # A process restart replaces both the key and the cache. Rechecking
+            # also prevents a stale cache from accepting a replaced runtime key.
+            if hmac.compare_digest(_token(viewer, target), token):
+                _HANDLES.move_to_end(key)
+                return target
+            _HANDLES.pop(key)
     with db._connection() as conn:
-        candidates = {row[0] for row in conn.execute('SELECT id FROM participants')}
-        candidates.update(row[0] for row in conn.execute(
-            'SELECT blocked_id FROM participant_blocks WHERE participant_id=?', (viewer,)))
+        candidates = {row[0] for row in conn.execute(
+            'SELECT blocked_id FROM participant_blocks WHERE participant_id=?', (viewer,))}
+    with _rooms_lock:
+        rooms = list(_rooms.values())
+    for room in rooms:
+        with room.lock:
+            candidates.update(player.participant_id for player in room.players.values()
+                              if player.participant_id is not None)
     candidates.update(target for name in SERVER_IDENTITIES if (target := agent_target(name)))
     for target in candidates:
-        if hmac.compare_digest(handle(viewer, target), token):
+        if hmac.compare_digest(_token(viewer, target), token):
+            handle(viewer, target)
             return target
     raise ValueError('Choose another traveler.')

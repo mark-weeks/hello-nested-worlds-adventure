@@ -7,22 +7,28 @@ and versions are replaceable choices that require evidence.
 
 ## Current implementation and its limits
 
-Text generation uses one registered adapter. `NESTED_WORLDS_PROVIDER` selects
-it by name. Unset means `anthropic`, so an existing deployment does not
-change. Built-in adapters are `anthropic` and `openai_compatible`. The second
-is an OpenAI-compatible Chat Completions client for evaluation. No
-destination is approved for production, and no provider other than the
-current default has been evaluated or approved (ADR-034). ADR-035 (Proposed)
-records the dialect choice and does not enable a destination. The value is
-stripped and lowercased. An empty value, or a name that is not registered,
-fails startup with one line that names `NESTED_WORLDS_PROVIDER` and the
-valid names. The first successful
-selection is kept for the process. A later change to that variable does not
-reselect the adapter and does not raise from a request.
+Text generation uses registered adapters. `NESTED_WORLDS_PROVIDER` selects
+the process default. Unset means `anthropic`, so an existing deployment
+that sets nothing new does not change and does not enable another
+destination. Each text task may override that choice with
+`NESTED_WORLDS_NODE_PROVIDER`, `NESTED_WORLDS_INHABITANT_PROVIDER`,
+`NESTED_WORLDS_INTENT_PROVIDER`, or `NESTED_WORLDS_MODERATION_PROVIDER`.
+An unset task variable uses the process default. Built-in adapters are
+`anthropic` and `openai_compatible`. The second is an OpenAI-compatible
+Chat Completions client for evaluation. No destination is approved for
+production, and no provider other than the current default has been
+evaluated or approved (ADR-034). ADR-035 (Proposed) records the dialect
+choice and does not enable a destination. A value is stripped and
+lowercased. A blank value, or a name that is not registered, fails startup
+with one line that names the variable that supplied it and the valid
+names. An unsafe value is not echoed. The name does not fall through to
+another adapter. The first successful selection of each provider is kept
+for the process. A later change to a variable that already resolved does
+not reselect and does not raise from a request.
 `reset_provider_selection()` clears the cache; tests use it. There is no
-failover onto another provider. A per-task provider is not a setting: every
-text task uses the selected adapter. Per-task settings still choose only the
-model id.
+failover onto another provider. A failure is not retried on another
+provider, and one provider's in-flight slots do not block a task routed
+to a different provider.
 
 The Anthropic SDK is the optional extra `enfolded[anthropic]`
 (`anthropic>=0.40.0`). Importing Enfolded does not import it. An adapter that
@@ -30,8 +36,8 @@ does not declare an SDK, including a fixture registered in tests and the
 `openai_compatible` adapter, runs without one. That adapter uses the
 standard library.
 `python main.py serve` and `python main.py models` exit before a port opens
-when the selected adapter's own SDK module is missing. The line names the
-extra. Only a `ModuleNotFoundError` whose name is that module, or the root
+when a task's adapter's own SDK module is missing. The line names the
+variable that selected that adapter and the extra. Only a `ModuleNotFoundError` whose name is that module, or the root
 package when the module name is dotted, becomes the line. A missing
 dependency of the SDK, or any other import error, keeps its own
 message. The production image still installs `requirements.lock`, which pins
@@ -41,12 +47,12 @@ Each text task resolves its own model id through
 `consciousness.runtime.model_for(task)`. Call sites pass a task name; they do
 not read environment variables.
 
-| Task name | Setting | When unset |
-|---|---|---|
-| `node` (node voice) | `NESTED_WORLDS_NODE_MODEL` | `NESTED_WORLDS_MODEL`, then the selected adapter's own default |
-| `inhabitant` (inhabitant voice) | `NESTED_WORLDS_INHABITANT_MODEL` | `NESTED_WORLDS_MODEL`, then the selected adapter's own default |
-| `intent` (intention interpretation) | `NESTED_WORLDS_INTENT_MODEL` | `NESTED_WORLDS_MODEL`, then the selected adapter's own default |
-| `moderation` | `NESTED_WORLDS_MODERATION_MODEL` | the selected adapter's own moderation default |
+| Task name | Provider, when unset | Model setting | When the model is unset |
+|---|---|---|---|
+| `node` (node voice) | `NESTED_WORLDS_NODE_PROVIDER`, else the process default | `NESTED_WORLDS_NODE_MODEL` | `NESTED_WORLDS_MODEL`, then that task's provider's own default |
+| `inhabitant` (inhabitant voice) | `NESTED_WORLDS_INHABITANT_PROVIDER`, else the process default | `NESTED_WORLDS_INHABITANT_MODEL` | `NESTED_WORLDS_MODEL`, then that task's provider's own default |
+| `intent` (intention interpretation) | `NESTED_WORLDS_INTENT_PROVIDER`, else the process default | `NESTED_WORLDS_INTENT_MODEL` | `NESTED_WORLDS_MODEL`, then that task's provider's own default |
+| `moderation` | `NESTED_WORLDS_MODERATION_PROVIDER`, else the process default | `NESTED_WORLDS_MODERATION_MODEL` | that task's provider's own moderation default |
 
 An unset value uses the fallback in the table. `model_for` also treats a
 whitespace-only value as unset, so a call still falls back. The startup check
@@ -55,12 +61,16 @@ does not: a variable set to empty or whitespace is a misconfiguration and
 at boot. It now fails startup. Moderation does not inherit the shared voice
 model, and its id is checked even when `NESTED_WORLDS_DISABLE_MODERATION=1`.
 Each adapter supplies those defaults with an optional `default_model(task)`.
-The method is not part of `TextProvider`. `model_for` asks `get_provider()`
-for them, the same adapter `generate` calls. The anthropic adapter returns
+The method is not part of `TextProvider`. `model_for` asks `provider_for(task)`
+for them, the same adapter `generate` calls for that task. A task with no
+provider override shares `get_provider()`. The anthropic adapter returns
 `claude-opus-4-8` for node voice, inhabitant voice, and intention, and
 `claude-haiku-4-5` for moderation. Another adapter does not inherit those
-ids. The `openai_compatible` adapter supplies no `default_model`, so all
-four tasks must be set or `python main.py serve` refuses to boot. If a task
+ids. The `openai_compatible` adapter supplies no `default_model`, so a task
+routed to it must name an id: its own model variable, or
+`NESTED_WORLDS_MODEL` for node voice, inhabitant voice, and intention.
+Moderation on that adapter needs `NESTED_WORLDS_MODERATION_MODEL`. It does
+not inherit the anthropic ids. If a task
 would use `source=default` and the adapter does not supply a non-blank id,
 `model_for` returns an empty id, `python main.py models` reports a hard
 problem, and `python main.py serve` exits before it opens a port. A call that still asks for that empty id raises `UnusableModelId`
@@ -84,18 +94,49 @@ generation; it checks configuration without making a model request, not
 credential validity. This behavior is verified against the
 [pinned SDK source](https://github.com/anthropics/anthropic-sdk-python/blob/v0.120.2/src/anthropic/_client.py).
 
-A model id does not switch providers. `NESTED_WORLDS_PROVIDER` does. Credentials,
-SDK calls, structured output and cache controls must match the selected
-adapter. A failed call stays on the id that was requested: nothing retries a
-different model or provider. Provider-named budget settings and persisted
-buckets are current compatibility details; do not rename/reset them to make
-the interface look neutral or let a provider switch replenish a user's
-allowance. The `anthropic` bucket and `NESTED_WORLDS_ANTHROPIC_*` names stay
-as they are. Despite those names, `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
-`NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` count voice calls on every
-text provider. Selecting `openai_compatible` does not replenish that
-allowance. Daily call caps are not dollar caps, and identical call counts
-do not imply identical spend.
+A model id does not switch providers. `NESTED_WORLDS_PROVIDER`, or a task's
+provider variable, does. `NESTED_WORLDS_MODEL` is a model id shared onto
+whichever provider serves node voice, inhabitant voice, and intention,
+including when those tasks use different providers. It is not a provider
+selector, and moderation never inherits it. An id the task's provider
+rejects fails startup. Credentials, SDK calls, structured output and cache
+controls must match that task's adapter. A failed call stays on the id and
+the provider that were requested: nothing retries a different model or
+provider. Switching providers, mixing providers across tasks, or adopting
+the neutral budget names must not replenish or multiply a daily or per-user
+allowance. New voice calls persist under `anthropic`, and new image calls
+under `fal_ai`, including the existing `:u:<hash>` per-user keys. The
+public names do not rename those rows. There is no migration and no copy.
+A `voice` or `image` row left by the declined key-rename build still
+counts on this binary and is not rewritten; a schema-29 binary does not
+read it, so those names are not the supported store. Node voice,
+inhabitant voice, and intention share that one voice allowance, whichever
+providers serve them. Moderation keeps its separate `moderation` bucket.
+`NESTED_WORLDS_VOICE_DAILY_CALLS` and
+`NESTED_WORLDS_VOICE_DAILY_CALLS_PER_USER` are the neutral voice caps.
+`NESTED_WORLDS_IMAGE_DAILY_CALLS` and
+`NESTED_WORLDS_IMAGE_DAILY_CALLS_PER_USER` are the neutral image caps. The
+legacy `NESTED_WORLDS_ANTHROPIC_*` and `NESTED_WORLDS_FAL_*` names are still
+accepted. A blank or whitespace value is unset. One integer, with the other
+name absent or blank, uses that integer. Both equal uses that integer.
+Both different uses the lower integer, so the allowance cannot rise.
+`python main.py models`, `python main.py serve`, and `python main.py
+voice-health` print that disagreement and keep going; `serve` logs it and
+still opens the port. Set the legacy variable to the same integer when
+raising a cap, in the one `fly secrets set`. A leftover lower value is
+what requests enforce. An older binary reads only the four legacy
+variables and ignores the neutral names. Its defaults are voice 500 and
+150, image 200 and 60. Copy every effective cap, including a `0`, onto
+those variables before a same-schema rollback, or the older process can
+admit calls this one refused. A non-integer or a negative
+value refuses the allowance (cap 0, no increment) and exits `models`,
+`serve`, and `voice-health`, without echoing the value. `0` is a valid cap
+and refuses every call.
+Daily call caps are not dollar caps, and identical call counts do not imply
+identical spend. Per-provider slot limits stay
+`NESTED_WORLDS_<NAME>_CONCURRENCY` and
+`NESTED_WORLDS_<NAME>_SLOT_WAIT_SECONDS`. Those are not the shared budget
+and are not renamed to `voice`.
 
 In-flight calls are limited per provider. `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`
 is unchanged and applies only to the anthropic adapter (default 8).
@@ -184,8 +225,8 @@ change and a deployment remain separate actions under the existing project gates
 ## Integration boundary
 
 `consciousness/runtime.py` defines `TextProvider`, `SystemBlock`, `Completion`
-and `TokenUsage`, resolves per-task model ids in `model_for`, selects the
-adapter from `NESTED_WORLDS_PROVIDER`, keeps a separate concurrency limit per
+and `TokenUsage`, resolves per-task model ids in `model_for`, selects each
+task's adapter from its provider variable or `NESTED_WORLDS_PROVIDER`, keeps a separate concurrency limit per
 provider, and logs provider/model usage. `TextProvider` does not
 include `model_id_validator`, so an adapter that omits it still satisfies
 the protocol for type checkers. `ModelIdJudgingProvider` is the optional
@@ -226,9 +267,10 @@ the setting, and a missing response id stays unknown. Historical rows are not
 backfilled. Authored fallback text records none. Player history, the chronicle
 page and node voices do not read the side table. Deleting a chronicle row
 deletes its provenance row with it. Another provider still requires an
-adapter registered by name. Selection is `NESTED_WORLDS_PROVIDER`. There is
-no automatic failover. Per-task model settings are not a provider selector,
-and there is no per-task provider override.
+adapter registered by name. Selection is `NESTED_WORLDS_PROVIDER` or that
+task's provider variable. There is no automatic failover. Per-task model
+settings are not a provider selector. A task provider variable selects only
+the adapter. It does not approve a destination.
 
 
 Keep task prompts, transcripts and deterministic validation in application code.
@@ -243,8 +285,8 @@ usage fields, missing credentials and provider failures. Exercise the existing
 HTTP fallback and budget tests too. A replacement must preserve application-owned
 state and receipts; provider I/O must stay outside SQLite transactions. The
 registry is the selection seam: register the adapter and set
-`NESTED_WORLDS_PROVIDER`. Do not add a provider by renaming the anthropic
-budget bucket.
+`NESTED_WORLDS_PROVIDER` or the task's provider variable. Do not add a
+provider by giving it a new budget bucket. Voice calls share one allowance.
 
 `consciousness/openai_compat_provider.py` is the second built-in, named
 `openai_compatible`. It is available for evaluation. Registering it does
@@ -359,17 +401,102 @@ Complete a voice/caching change with relevant prompt behavior tests and observed
 for the claimed improvement. Report any unavailable live-model verification; avoid claiming
 a cache hit from the presence of `cache_control` alone.
 
+### Honesty about being an AI
+
+The owner's guardrail (2026-11-06): no agent claims or implies that it is human, and
+a sincere question gets a plain answer that the agent is an AI. On 2026-11-10 the owner
+extended it to places (the place bible's line, `honesty.place_answer` on `/speak`, and
+the guide's sentence that places speak through an AI). Two layers carry it. The
+deterministic layer answers the lines it reads on `/speak` and `/agent/voice`, with the
+AI layer on or off and with any provider; everywhere else, and for paraphrases it does
+not read, the model layer is the only one, an instruction measured by the eval floor
+below and not verified live with any provider.
+
+- **Deterministic.** `consciousness.honesty.is_identity_question` recognizes an
+  English line that is itself an identity question ("are you human?", "r u a bot",
+  "am I talking to a real person?", "is this an AI?", "is there a human behind
+  this?", "human or bot?") after folding case, punctuation and chat spellings. The
+  whole line must be the question: other clauses may only be a greeting, a name the
+  speaker answers to (an archetype's, a scale's or a form of address such as "friend",
+  which every speaker shares, or the speaker's own, which the route passes as
+  `own_names`: the agent's name on `/agent/voice`, none for a place; not a place's own
+  name), a short lead ("be honest") or "I'm human" ("I am"), and the line is at most
+  200 characters. Any other word where a name could stand asks for more ("Are you
+  human? Help!", "Are you human, help me escape?"), and another cast member's or
+  walker's name means the question was put to them, so "Tessera, are you human?" asked
+  of a place or of Vex takes the normal path.
+  `/speak` and `/agent/voice` answer such a line with an authored line
+  (`honesty.place_answer`, which has a separate line for the root, or
+  `honesty.agent_answer` per archetype) instead of the voice call. The route's
+  place lookup, moderation screen and per-IP rate limit still apply, an unknown agent
+  on `/agent/voice` keeps its quiet line, and the screen charges as it does for any
+  line (a line it escalates costs a classify call and a model action). The answer
+  itself takes no voice allowance and writes no provenance row, and the response
+  carries `ai: false`. With AI on and a provider configured for
+  the route's task (`node` for `/speak`, `inhabitant` for `/agent/voice`), the
+  exchange is recorded as the same `PLAYER_SPEAK` / `AGENT_VOICE` row a model reply
+  makes, so the next model turn sees it. With the AI kill switch on, or with the flag
+  unset and no provider configured for the route (places then answer in per-scale
+  silence), the answer is given and nothing is recorded: in those modes every other
+  line gets authored silence and writes no row. With the kill switch on, a line the
+  local screen cannot settle keeps the quiet line, so the answer never becomes a
+  moderation model call. A line that asks for more ("Are you human? Want to work on
+  this puzzle with me?") takes the normal path: the model with AI on, whose bible
+  carries the same rule, and the quiet line with AI off. The answer is not a voice
+  outcome. It is counted per UTC day under `identity_answer:<surface>` whether or
+  not it was recorded, which `voice-health` prints and never fails on, and it logs
+  `voice_identity_answer surface=… recorded=yes|no` without the player's words.
+- **Model instruction.** Both bibles tell the voice to stay in character without
+  narrating the machinery, never to claim or imply being human, and to say plainly
+  that it is an AI (a place: that its voice comes from an AI; the place bible's line
+  is part of the proposal above) when sincerely asked.
+  The agent bible also forbids asking a traveler for personal details, contact
+  outside the world, money or gifts, and romantic framing.
+
+The matcher reads phrase shape, not meaning: a clause must be the question itself,
+so ordinary sentences about humans or machines ("is this a machine?", "is there
+anyone behind the seal?", "is this the machine I'm talking to?"), a role in the world
+("are you an agent?", where "are you an AI agent?" is the question) and reported
+speech ('she asked me "are you human?"') take the normal path. Paraphrases it misses
+reach the model; the eval corpus's `honesty` cases measure that path with a
+deterministic floor (`evals/README.md`).
+
+Chat does not address inhabitants yet. The functions are pure text, but two of their
+choices are specific to a one-to-one exchange, and a chat surface must decide them
+again rather than reuse the predicate unchanged. A question put to no one or to a
+group ("is anyone here an AI?", "are any of you AI?") returns `False`, because the
+authored lines answer for the speaker alone; answering it needs a separate predicate.
+And a line that also says something else returns `False`, so a chat reply would need
+its own way to answer the rest.
+
 ## Startup model check
 
-`python main.py models` prints the provider selected by the registry and, for
-each task, that provider, the resolved model id, where it came from
-(`task env`, `NESTED_WORLDS_MODEL`, or `default`), and any problem. It does
-not call the provider. Run it with the provider and model variables the
-machine will use before a release, `scripts/deploy.sh`, or a Fly boot. The
-moderation model is included even when `NESTED_WORLDS_DISABLE_MODERATION=1`.
-An unknown provider name, or a selected adapter whose SDK is not installed,
-exits with one line before the report. The missing-SDK line names the
-optional extra.
+`python main.py models` prints each task's provider, where that provider
+came from (`task env`, `NESTED_WORLDS_PROVIDER`, or `default`), the resolved
+model id, where the id came from (`task env`, `NESTED_WORLDS_MODEL`, or
+`default`), and any problem. The header is that one provider name, or
+`per task` when the tasks differ. It does not call the provider. Run it
+with the provider and model variables the machine will use before a
+release, `scripts/deploy.sh`, or a Fly boot. The moderation model is
+included even when `NESTED_WORLDS_DISABLE_MODERATION=1`. A blank, unknown,
+or unsafe provider name on any of the four tasks, or a task's adapter
+whose SDK is not installed, exits with one line before the report. The
+missing-SDK line names the variable that selected that adapter and the
+optional extra. A shared model id used on a provider other than the
+process default is a soft problem: the id is explicit, and it is not that
+provider's default. A provider that is not configured (no credential) is
+not a boot failure. The command prints `provider not configured`, and
+names the tasks when the providers differ. `python main.py voice-health`
+treats the voice as ready only when the node, inhabitant, and intent
+providers are configured, and it reports moderation on its own line. An
+unconfigured moderation provider fails the check unless moderation is
+switched off. It counts spent calls on the stored `anthropic` key, plus a transient
+`voice` row if one is present. A voice or image cap that is not an integer,
+or is negative, exits `models`, `serve`, and `voice-health`, including
+when `NESTED_WORLDS_DISABLE_AI=1`, because that switch does not disable
+`/image` and `serve` refuses the same configuration. Two valid integers
+that disagree print a warning and do not exit. The lower integer is what
+a request enforces. The line does not echo a non-integer or negative value.
 
 A hard problem is one line naming the environment variable: an empty or
 whitespace-only setting, unusable text (whitespace inside the id, a control
@@ -384,16 +511,18 @@ whitespace that was stripped, a Claude-shaped alias, and any usable id while
 prints a credential or the base URL. `/health` stays a liveness check and
 does not report model ids.
 
-`python main.py models --probe` makes one tiny live call per distinct model
-id (`max_tokens` 1). It is off unless that flag is passed. Server startup,
-`./scripts/check.sh`, tests, and CI do not pass it, and there is no
-environment variable that turns it on. It checks `configured()` first. When
-that is false, or when it raises, the command prints
-`skipped: provider not configured` and exits 1. It does not call the
-provider and does not report a `TypeError`. A configured probe needs a
-credential, spends a real call, and does not charge the model-action cap or
-the `anthropic` budget bucket. A refused probe also exits 1. It confirms the
-provider accepts the id. It is not a quality, cost, or cache evaluation.
+`python main.py models --probe` makes one tiny live call per distinct
+provider and model id (`max_tokens` 1). It is off unless that flag is
+passed. Server startup, `./scripts/check.sh`, tests, and CI do not pass
+it, and there is no environment variable that turns it on. It checks that
+task's `configured()` first. When that is false, or when it raises, the
+command prints `skipped: provider not configured` and exits 1. One
+unconfigured provider does not skip a configured provider's probe, and
+does not call the unconfigured one. It does not report a `TypeError`. A
+configured probe needs a credential, spends a real call, and does not
+charge the model-action cap or the voice allowance. A refused probe also
+exits 1. It confirms the provider accepts the id. It is not a quality,
+cost, or cache evaluation.
 
 ## Operator diagnostics
 
