@@ -1425,10 +1425,13 @@ not this restore.
 
 **T+1 day and weekly:**
 
-- [ ] Read the world's own numbers — visitors, RETURNING visitors,
-      conversations, solves — straight from the chronicle:
+- [ ] Read the world's own numbers — visitors, RETURNING visitors
+      (acted on two or more UTC days), acting visitors, conversations,
+      Act commits, solves — straight from the chronicle:
       `python scripts/beta_metrics.py --days 1` (works on the machine or
-      against any off-host backup with `--db`). The return rate is the
+      against any off-host backup with `--db`). Leave the facilitator out
+      with `--exclude-identity NAME`; read an archived watch by UTC date
+      with `--since`/`--until`. The return rate is the
       success metric for a contemplative world; decide response
       thresholds before you look.
 
