@@ -241,6 +241,17 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     return Verdict(False, "undecided", "undecided")
 
 
+def needs_model(text: str) -> bool:
+    """Whether :func:`screen` would ask the moderation model about ``text``.
+
+    Only the local tier's ambiguous verdict escalates to a classify call.
+    Empty text, a local block and a local clean verdict are settled here at
+    no model cost. A switch, a cap or a budget can still stop the screen
+    before the call; this answers only whether the text itself needs one.
+    """
+    return bool(text and str(text).strip()) and _local_tier(text) == "escalate"
+
+
 def public_excerpt(text: str, *, user_key: str | None = None,
                    surface: str = "puzzle") -> str | None:
     """The player's words when they may be stored for others, else None.
