@@ -36,6 +36,8 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
   ADR-015 through ADR-018 (referential puzzles, spoken interaction,
   multidimensional leaderboards, collectibles), which remain unimplemented
   directions pending both implementation and ratification; ratification of
+  [ADR-037](../decisions/ADR-037-agents-as-conversational-players.md), the
+  Proposed design for agents in chat, and its five open questions; ratification of
   the ADR-029 through ADR-033 drafts; ratification of
   [ADR-035](../decisions/ADR-035-openai-compatible-chat-completions.md), a
   Proposed design for a second text adapter that registers nothing and
@@ -59,6 +61,7 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 | [Pilot protocol 2](../evaluation/2026-09-12-pilot-protocol.md) | The M7 study: curiosity, attempted-action and observed-consequence understanding, unprompted and useful return | Ready to run; no cohort observed |
 | [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md) | The decision agenda and a proposed 90-day sequence | Findings for the owner; ratifies nothing |
 | [Next steps, Q4 2026](next-steps-2026-q4.md) | The dated critical path to the M7 pilot, the owner's decisions and their needed-by dates, the parallel maintenance track, and the November–January batch order for ADR-029 to ADR-033 as ratified | Plan (2026-10-04); ratifies nothing |
+| [ADR-037: agents as conversational players](../decisions/ADR-037-agents-as-conversational-players.md) | The owner's 2026-11-06 decisions on agent disclosure and structural parity and the owner's 2026-11-07 puzzle answers, designed against `f3ead74`: travelers (human or agent) are talked to in chat and places in Speak; no human-or-agent label on any player-facing surface, live notices and prompts included; the honesty, notice, no-solicitation and mute/report guardrails; triggers, caps and the AI-off floor; puzzle help only on a human's explicit request, never submitted, with its batch shared with ADR-036; five ordered batches | Proposed 2026-11-07; not ratified. Changes no code; approves no player-text destination or spend. S2: a policy is recorded in #156, and the destinations (L3) and the terms check (L4) are still open; S5 and E2 open. Five open questions for the owner |
 | [Incident response](../infrastructure/incident-response.md) | One-page operator playbook: kill switches, redaction, rollback versus restore, who decides | Operational. Records no policy decision |
 | [ADR-036: Puzzle temperament](../decisions/ADR-036-puzzle-temperament.md) | The owner's 2026-11-06 and 2026-11-07 puzzle decisions designed against the code: per-node temperaments, puzzle-wide grumpiness and per-player send-aways (always after a warning, within a proposed 24-hour cap of 12 misses) in place of the fixed pool and its answer release (F10), whole-answer warmer/colder bands measured per family over a day (the [band-searcher record](../evaluation/2026-11-07-puzzle-band-searchers.md)), no ambient agent attempts (superseding ADR-022's puzzle-eligibility paragraph in part), agents who help only on a human's proposal and never see the answer; four ordered batches, the first shipping its answer withdrawal alone as a rollback floor, and eight open questions | Proposed 2026-11-07, revised 2026-11-10, not ratified. Writes no code; authorizes no build |
 
@@ -121,6 +124,14 @@ those batches merges first takes the next free number.
   November–January order places ADR-032 batch 1 after pilot evidence, January
   at the earliest ([next-steps-2026-q4.md](next-steps-2026-q4.md) line 171).
   The decision agenda above records the same timing (line 69).
+- ADR-037 (Proposed) talks to agents in chat and leaves Speak to places,
+  keeps every traveler unlabeled, and lets an agent only suggest a puzzle
+  answer to a human who asked
+  ([ADR-037](../decisions/ADR-037-agents-as-conversational-players.md) D1,
+  D4, D7). [ADR-032](../decisions/ADR-032-inhabitant-cognition.md)
+  (Proposed) puts inhabitant speech in Speak (D2, D5), persona-tags visitor
+  agents (D6) and has inhabitants answer puzzles (D4). ADR-037 asks that
+  ADR-032 be revised before ADR-032 is ratified.
 - Resolved 2026-10-25 by the owner in chat. ADR-004 section 2 said
   "Fail-open everywhere" for moderation, and no open agenda item covered that
   posture before outside players arrived. The amendment in
