@@ -8,8 +8,15 @@ third-party analytics, and no network — it answers the launch questions
 from the world's own memory:
 
   * how many humans visited in the window, and how many CAME BACK
-    (active on two or more distinct days — the single most honest
-    beta-success signal for a contemplative world). A visitor is a
+    (acted on two or more distinct UTC days — the single most honest
+    beta-success signal for a contemplative world). Only a day that holds
+    an action counts toward a return: presence cannot tell a person who
+    came back from a tab that reconnected, so a visit that crosses
+    midnight and only leaves after it, or an open tab that a deploy
+    reconnects after midnight, is one day. The costs: a visitor who comes
+    back only to look, with no step and no word, is a visitor but not a
+    returning one; and one session with actions on both sides of 00:00
+    UTC still counts as two days. A visitor is a
     participant: a rotated key's identities fold into one visitor through
     participant_credentials (migration 0021), read-only
   * how many of them did something beyond connecting: an action is any
@@ -18,7 +25,9 @@ from the world's own memory:
     PLAYER_LEAVE every socket writes, and a PLAYER_MOVE that goes nowhere
     (see _announced_moves)
   * how much they actually did: conversations with places and agents,
-    Act commits, puzzle attempts and solves, failed puzzles (each failed
+    Act commits, puzzle attempts and solves (an entangled twin that
+    resolves with its partner's solve is reported apart, not as a second
+    solve or a second action), failed puzzles (each failed
     pool once, in the window that holds its first failure row that is not
     a wanderer's roll and only when that row's actor counts, however many
     wrong guesses followed it), scale verbs, chat
@@ -79,6 +88,15 @@ _HUMAN_TYPES = (
 # presence, not an action. So is an announced move (_announced_moves).
 # Everything else in _HUMAN_TYPES is something the player chose to do.
 _PRESENCE_TYPES = frozenset({"PLAYER_JOIN", "PLAYER_LEAVE"})
+
+# A solve at an entangled particle resolves its twin in the same commit
+# (server/world_mechanics.py, resolve_entangled_twin): a second
+# PUZZLE_SOLVED at the twin, under the solver's actor_identity, whose data
+# names the partner in "entangled_with". It is the world answering one
+# solve, not a second solve, an action, or a visit to the twin, so it stays
+# out of the human rows and is counted apart.
+_TWIN_SOLVE = ("(mutation_type = 'PUZZLE_SOLVED'"
+               " AND json_extract(data, '$.entangled_with') IS NOT NULL)")
 
 # How long after its PLAYER_JOIN a socket's connect announcement can still
 # land. Both clients send it as the socket's first frame, as soon as it
@@ -243,24 +261,36 @@ class _Window:
 def parse_bound(text: str, *, end: bool = False) -> datetime:
     """An ISO date or date-time as naive UTC.
 
-    A bare date means that whole UTC day: as ``--since`` it starts at
-    00:00:00, and as ``--until`` (``end=True``) it runs through 23:59:59,
-    so the exclusive bound is the next midnight. A date-time is used as
-    given; one with an offset is converted to UTC, one without is UTC.
+    Whatever ``date.fromisoformat`` reads is a date, in any ISO form it
+    takes (2026-01-05, 20260105, 2026-W02-1, 2026W021), and means that
+    whole UTC day: as ``--since`` it starts at 00:00:00, and as ``--until``
+    (``end=True``) it runs through 23:59:59, so the exclusive bound is the
+    next midnight. Anything else must be a date-time; one with an offset is
+    converted to UTC, one without is UTC. recorded_at holds whole seconds,
+    so a fractional bound widens to the second it falls in: ``--since``
+    rounds down and ``--until`` rounds up, and a row stamped in that second
+    stays inside the window.
     """
     raw = str(text).strip()
     try:
-        if len(raw) == 10:
-            day = date.fromisoformat(raw)
-            moment = datetime(day.year, day.month, day.day)
-            return moment + timedelta(days=1) if end else moment
+        day = date.fromisoformat(raw)
+    except ValueError:
+        pass
+    else:
+        moment = datetime(day.year, day.month, day.day)
+        return moment + timedelta(days=1) if end else moment
+    try:
         moment = datetime.fromisoformat(raw)
     except ValueError:
         raise ValueError(
             f"{raw!r} is not an ISO date (YYYY-MM-DD) or date-time") from None
     if moment.tzinfo is not None:
         moment = moment.astimezone(timezone.utc).replace(tzinfo=None)
-    return moment.replace(microsecond=0)
+    if moment.microsecond:
+        moment = moment.replace(microsecond=0)
+        if end:
+            moment += timedelta(seconds=1)
+    return moment
 
 
 def _window(days: int | None, since: datetime | str | None,
@@ -415,7 +445,7 @@ def compute_metrics(db_path: Path, days: int | None = None,
         skip = (*cast, *excluded)
         skip_ph = ",".join("?" for _ in skip)
         time_clause, time_args = window.rows()
-        human_where = (
+        counted_where = (
             f"mutation_type IN ({type_ph}) "
             f"AND actor_identity IS NOT NULL "
             f"AND actor_identity NOT IN ({skip_ph}) "
@@ -423,8 +453,10 @@ def compute_metrics(db_path: Path, days: int | None = None,
         )
         args: list = [*_HUMAN_TYPES, *skip, *time_args]
         if seed is not None:
-            human_where += " AND world_seed = ?"
+            counted_where += " AND world_seed = ?"
             args.append(seed)
+        # Same placeholders, so q() serves both.
+        human_where = f"{counted_where} AND NOT {_TWIN_SOLVE}"
 
         def q(sql: str, extra: tuple = ()):
             return conn.execute(sql, (*args, *extra)).fetchall()
@@ -470,6 +502,8 @@ def compute_metrics(db_path: Path, days: int | None = None,
                         WHERE f.mutation_type = 'PUZZLE_FAILED'
                           AND json_extract(f.data, '$.agent') IS NULL)
                     GROUP BY world_seed, node_name, epoch)""")[0][0]
+        twins_resolved = q(f"""SELECT COUNT(*) FROM world_mutations
+                               WHERE {counted_where} AND {_TWIN_SOLVE}""")[0][0]
 
         total_rows = conn.execute(
             "SELECT COUNT(*) FROM world_mutations").fetchone()[0]
@@ -514,9 +548,12 @@ def compute_metrics(db_path: Path, days: int | None = None,
             v = visitors.setdefault(key, {"events": 0, "actions": 0,
                                           "days": set()})
             v["events"] += count
-            v["days"].add(day)
+            # Only an action marks a day (see the module docstring): a
+            # leave after midnight, or a reconnect's join and announcement,
+            # is not a second visit.
             if kind not in _PRESENCE_TYPES and not announced:
                 v["actions"] += count
+                v["days"].add(day)
 
         n_visitors = len(visitors)
         returning = sum(1 for v in visitors.values() if len(v["days"]) >= 2)
@@ -544,6 +581,7 @@ def compute_metrics(db_path: Path, days: int | None = None,
             "act_commits": by_type.get("INTERVENTION_COMMITTED", 0),
             "puzzle_attempts": by_type.get("PUZZLE_ATTEMPT", 0),
             "puzzle_solves": by_type.get("PUZZLE_SOLVED", 0),
+            "entangled_twins_resolved": twins_resolved,
             "puzzle_failures": failed_pools,
             "puzzle_failed_rows": by_type.get("PUZZLE_FAILED", 0),
             "scale_acts": by_type.get("SCALE_ACT", 0),
@@ -628,7 +666,8 @@ def render(m: dict) -> str:
         "=" * 56,
         f"visitors:            {m['visitors']}",
         f"returning (2+ days): {m['returning_visitors']}"
-        + (f"  ({m['return_rate']:.0%})" if m["return_rate"] is not None else ""),
+        + (f"  ({m['return_rate']:.0%})" if m["return_rate"] is not None else "")
+        + "  (acted on each)",
         f"acting visitors:     {m['acting_visitors']}"
         "  (did more than connect)",
         f"events/visitor:      {m['events_per_visitor'] or 0}",
@@ -657,6 +696,10 @@ def render(m: dict) -> str:
         lines.append(f"  (failed counts each puzzle once, where it first "
                      f"failed; {m['puzzle_failed_rows']} failure rows include "
                      "wrong guesses after a puzzle had failed)")
+    if m["entangled_twins_resolved"]:
+        n = m["entangled_twins_resolved"]
+        lines.append(f"  ({n} entangled {'twin' if n == 1 else 'twins'} "
+                     "resolved alongside a solve; not counted as solves)")
     if m["top_nodes"]:
         lines += ["", "most-visited ground:"]
         lines += [f"  {t['events']:>5}  {t['node']}" for t in m["top_nodes"]]
