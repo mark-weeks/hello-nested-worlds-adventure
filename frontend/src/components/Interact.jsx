@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import "../../../static/intents.js";
-import { withKey } from "../auth.js";
+import "../../../static/clientlogic.js";
+import { betaKey, withKey } from "../auth.js";
 import Interventions from "./Interventions.jsx";
+
+// The rule both clients use for what a player reads after speaking: the
+// server's reply, or an authored line in place of a raw refusal or error.
+const { hearSpeech } = globalThis.EnfoldedClient;
 
 // Node interaction panel: the two core-loop mechanics the /app client was
 // missing — talk to a node (/speak) and solve its puzzle
@@ -75,31 +80,26 @@ function Speak({ node, seed, playerName }) {
     if (!text || state === "loading") return;
     setState("loading");
     setResponse("…");
-    try {
-      const addressingAgent = target !== "node";
-      const r = await fetch(withKey(addressingAgent ? "/agent/voice" : "/speak"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(addressingAgent ? {
-          agent_name: target,
-          node_name: node.name,
-          message: text,
-          seed: seed ?? 0,
-          player_name: playerName || undefined,
-        } : {
-          node_name: node.name,
-          message: text,
-          seed: seed ?? 0,
-          player_name: playerName || undefined,
-        }),
-      });
-      const data = await r.json();
-      setResponse(data.error || data.response || "(no response)");
-      setState(data.error ? "error" : "ok");
-    } catch (e) {
-      setResponse("Your words did not reach this place. Try speaking again.");
-      setState("error");
-    }
+    const addressingAgent = target !== "node";
+    // Never rejects: a failed request resolves to an authored line.
+    const heard = await hearSpeech(url => fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(addressingAgent ? {
+        agent_name: target,
+        node_name: node.name,
+        message: text,
+        seed: seed ?? 0,
+        player_name: playerName || undefined,
+      } : {
+        node_name: node.name,
+        message: text,
+        seed: seed ?? 0,
+        player_name: playerName || undefined,
+      }),
+    }), withKey(addressingAgent ? "/agent/voice" : "/speak"), !!betaKey());
+    setResponse(heard.line || "(no response)");
+    setState(heard.kind === "reply" ? "ok" : "error");
   }, [message, node, seed, playerName, state, target]);
 
   return (

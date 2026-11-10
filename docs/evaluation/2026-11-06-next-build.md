@@ -4,7 +4,13 @@
 with the owner's decisions of 2026-11-06 recorded. This record writes no code,
 ratifies no ADR, and authorizes no implementation, deployment, recruitment or
 merge. Where a finding below cites `file:line`, the line was re-read at
-`18e5bbd` for this record.
+`18e5bbd` for this record. Re-checked on 2026-11-10 at the branch head,
+whose code is `main` at `3200eed` (#152 and #153): every cited range still
+reads the same except seven that those merges moved, which this record keeps
+at `18e5bbd`: `server/__init__.py:167-172` (now `:207-212`),
+`persistence/__init__.py:609` (now `:682`), `:1028` (now `:1101`), `:1240`
+(now `:1313`), `server/guard.py:958` (now `:1193`) and `main.py:510-512` and
+`:541` (now `:585-587` and `:616`).
 
 ## Question
 
@@ -140,16 +146,25 @@ and re-read here.
    (`static/clientlogic.js:249`), so that projection also needs a client
    change, not a quick HTTP strip.
 7. **A returning tester whose stored key is gone sees a loading screen
-   forever.** `/app` removes `key=` from the address bar on first load
-   (`frontend/src/auth.js:21-28`) and afterwards reads it only from local
-   storage (`frontend/src/auth.js:31-37`). Without it the world request fails
-   (`frontend/src/App.jsx:146-148`), the error is swallowed
-   (`frontend/src/App.jsx:182-185`), and the page stays on "Opening the shared
-   world…" (`frontend/src/App.jsx:592-593`). The invite CLI prints "Share once"
-   (`main.py:541`). A bookmark, another browser or device, a private window or
-   cleared storage would read as a non-return in R1's one-shot 7-day
-   measurement. *Read, not run in a browser.* Safari's limit on script-written
-   storage is outside knowledge and was not checked.
+   forever.** `/app` removes `key=` and `name=` from the address bar on
+   first load (`frontend/src/auth.js:21-28`) and afterwards reads the key
+   only from local storage (`frontend/src/auth.js:31-37`). A fresh browser
+   (a private window, another browser or device, or cleared storage) holds
+   no stored key, name or `nw_seen_intro`, so it first shows the
+   introduction and then the name prompt (`frontend/src/App.jsx:576-590`).
+   After that the world request fails (`frontend/src/App.jsx:146-148`), the
+   error is swallowed (`frontend/src/App.jsx:182-185`), and the page stays
+   on "Opening the shared world…" (`frontend/src/App.jsx:592-593`). A
+   returning tester who types a fresh name there may think they are
+   registering again. `invite mint` prints "Share the URL: …" and says
+   "this is the only time the key is shown" (`main.py:510-512`); "Share
+   once" is what `invite rotate` prints (`main.py:541`). A bookmark, another
+   browser or device, a private window or cleared storage would read as a
+   non-return in R1's one-shot 7-day measurement. *Read, not run in a
+   browser.* Safari's limit on script-written storage is outside knowledge
+   and was not checked. (Corrected on 2026-11-10 after review: the first
+   version omitted the introduction and name prompt, and attributed
+   "Share once" to `invite mint`.)
 8. **With AI disabled, the default Speak tab tells a newcomer to leave.**
    `/app` opens on Speak with a prefilled line
    (`frontend/src/components/Interact.jsx:12`, `:49`), and the quiet line is
@@ -190,17 +205,23 @@ the evaluation raised. Quoted words are the owner's.
 1. **#152 and #153.** "the tracks referenced are another coding agent's
    work." The owner will have Claude review their code before they merge.
    This batch does not duplicate their scope.
-2. **Agents are not labeled. They become structurally like human players.**
-   The owner chose option (b), making agents structurally like human players:
-   they can be addressed in chat and answer there, and the guide stops naming
-   the cast.
+2. **Agents are not labeled, and an agent does not pretend to be human.**
+   The owner wrote ("#2" numbers the question in that session):
+
+   > On #2, let's not label agents. It will be more interesting if it's not obvious which players are human and which are agents. That being said, there are probably some boundaries and guardrails that would be appropriate. For example, if a player asks an AI agent player "are you human?" the AI agent player should not pretend to be human.
+
+   Neither live presence nor history labels the actor kind. This answers
+   checklist open question 10 and the held row on history labels, and
+   replaces A1's labeling criterion. The guardrails in decision 4 follow
+   from the second half. (Added on 2026-11-10 after review: the first
+   version of this record quoted none of these words.)
+3. **Agents become structurally like human players.** The owner chose
+   option (b), making agents structurally like human players: they can be
+   addressed in chat and answer there, and the guide stops naming the cast.
    The owner's reasons: "this would allow human-ai collaboration on puzzles.
    It would also give human players other players to interact with, even if
-   there are no other human players logged in at the same time." Neither live
-   presence nor history labels the actor kind. This answers checklist open
-   question 10 and the held row on history labels, and replaces A1's
-   labeling criterion.
-3. **Guardrails accepted** ("the recommended guardrails seem reasonable"):
+   there are no other human players logged in at the same time."
+4. **Guardrails accepted** ("the recommended guardrails seem reasonable"):
    - (a) Agents never claim to be human. Asked sincerely whether it is
      human, a bot, an AI or a real person, an agent says plainly, in character
      but unambiguously, that it is an AI. The plan is a deterministic authored
@@ -212,10 +233,10 @@ the evaluation raised. Quoted words are the owner's.
      contact, and never frame the relationship romantically.
    - (d) Mute and report treat agents exactly as humans; only operator tools
      record who is who.
-4. **Watch venue (packet decision 2): (a).** "yes, we can test locally on a
+5. **Watch venue (packet decision 2): (a).** "yes, we can test locally on a
    temporary world." The Fly twin stays mandatory for P4 and production. The
    watch's voice mode was not decided.
-5. **Puzzle failure (packet decision 3): options superseded by direction.**
+6. **Puzzle failure (packet decision 3): options superseded by direction.**
    Puzzles "can have personalities of sorts": after too many failed attempts
    a puzzle "may get annoyed" and tell the player to go away and leave it
    alone; if an answer is close, the puzzle may "get excited by the progress"
@@ -223,7 +244,7 @@ the evaluation raised. Quoted words are the owner's.
    "can be dynamic in this way rather than fixed and static." The owner also
    wrote: "I suggest that AI agents do not solve puzzles independently.
    However, they can cooperate with human players to help solve puzzles."
-6. **S5 chat permanence stays open.** The owner asked: "chat history impacts
+7. **S5 chat permanence stays open.** The owner asked: "chat history impacts
    the evolution of the world - it's current state, historical states, and
    progress. To that end, don't we need to preserve chat history?" No decision
    is recorded. The question bears on packet options (b) and (c), which keep
@@ -267,7 +288,10 @@ the evaluation raised. Quoted words are the owner's.
   how much a near-miss may reveal, given answer secrecy and per-node
   difficulty; and how a failed puzzle renews (finding 2). The ADR should also
   settle ambient solves and ambient failures (findings 1 and 4), and keep the
-  epoch equal to the count of `PUZZLE_REARM` rows.
+  epoch equal to the count of `PUZZLE_REARM` rows. *Updated by the
+  2026-11-07 addendum (item 3):* the owner has since answered annoyance
+  scope and agent submission and allowed subtle hints; the hints' bounds and
+  renewal stay open.
 - **S5.** Open; the owner's question is recorded above.
 - **The critic's alternative** was to run the watch on the Fly twin, which
   would exercise invites, devices, the return path and real latency. With the
@@ -284,8 +308,8 @@ the evaluation raised. Quoted words are the owner's.
 - It writes no ADR and ratifies none. It decides nothing about S5, world
   status, tester age, the spend ceiling or player-text destinations.
 - It adds no migration, no golden re-pin and no `world_mutations` write path.
-- It does not settle the four puzzle questions above or the watch's voice
-  mode.
+- It does not settle the watch's voice mode, or the puzzle questions above
+  that the owner's 2026-11-07 answers (addendum, item 3) leave open.
 
 ## Addendum, 2026-11-07: the owner's decisions of that day
 
@@ -296,7 +320,7 @@ Mark Weeks.
    first-time testers should try the current build now or wait for agents in
    chat: "Let's expedite the test build, preferably in a staging environment
    rather than local." The owner prefers the Fly staging twin and an
-   expedited test build. The local, declared-disposable world of decision 4
+   expedited test build. The local, declared-disposable world of decision 5
    above remains only as a fallback. This takes up the critic's alternative
    under "Deferred, and why": the
    [facilitator kit](2026-11-02-newcomer-watch-kit.md) now runs the watch on
@@ -310,13 +334,35 @@ Mark Weeks.
    [ADR-004](../decisions/ADR-004-day-one-data-policy.md)'s 2026-11-07
    amendment records it. Both sentences apply to all information and
    Enfolded data sent to any model provider, the image provider's prompts
-   included. Still open: naming the destinations in the privacy notice (L3);
-   the operator's check of each destination, recorded as its L4 data use
-   note (none is written, and the session that recorded this could not open
-   the default provider's terms); and a question for the owner, whether a
-   provider whose terms let Enfolded data train a model that is not plainly
-   a frontier model, such as an image model, meets the policy. The policy
-   bears on the structural-parity dependency on S2 under "Deferred, and
-   why": agents answering in chat would send chat text to a provider in the
-   course of play (*inferred*). The Proposed ADR, E2
-   and S5 are still needed.
+   included. How each destination is checked, and the owner's sign-off on
+   its L4 data use note before testers' text reaches it, are proposals
+   awaiting the owner's acceptance in packet decision 10, not part of the
+   ADR. Still open: those proposals; naming the destinations in the privacy
+   notice (L3); each destination's L4 data use note (none is written, and
+   the session that recorded this could not open the default provider's
+   terms); and a question for the owner, whether a provider whose terms let
+   Enfolded data train a model that is not plainly a frontier model, such as
+   an image model, meets the policy. The policy bears on the
+   structural-parity dependency on S2 under "Deferred, and why": agents
+   answering in chat would send chat text to a provider in the course of
+   play (*inferred*). The Proposed ADR, E2 and S5 are still needed.
+3. **Puzzle failure (packet decision 3), three questions answered.** Asked
+   follow-up questions on decision 6 above, the owner answered:
+
+   > 1. an annoyed player generally gets grumpier toward all players, but especially the player(s) that are annoying it 2. agents can suggest puzzle answers if a human engages with the agent and proposes collaboration. Agents do not submit puzzle answers 3. puzzles can give subtle hints like "you're getting warmer" or "you're way off" in their voice and personality 4. I don't understand the question 5. I don't understand the question
+
+   Answer 1 says "player"; this record, like Proposed ADR-036 (#159, not on
+   `main`), reads it as an annoyed **puzzle**, the subject of the question.
+   Read that way, annoyance scope is answered (grumpier toward all players,
+   especially toward whoever annoys the puzzle), agent submission is
+   answered (an agent may suggest an answer when a human engages it and
+   proposes collaboration, and does not submit one), and near-miss hints
+   such as "you're getting warmer" or "you're way off" are allowed in the
+   puzzle's own voice. Answers 4 and 5 are not read as decisions, and this
+   record does not say which questions they answered. Still open, for the
+   Proposed ADR: how much a hint may reveal under answer secrecy and
+   per-node difficulty; how a failed puzzle renews (finding 2); ambient
+   solves and failures (findings 1 and 4); and the further questions
+   ADR-036 puts to the owner (packet decision 3 lists them). (Added on
+   2026-11-10 after review: the first version of this addendum listed only
+   the venue and provider rulings.)

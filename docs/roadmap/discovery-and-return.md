@@ -274,10 +274,11 @@ and authorizes no implementation or separate mystery mechanism.
 The player problem to test is whether the nested scales give people a reason
 to investigate together and return to a shared place. Two willing players at
 different scales would discover connected evidence and coordinate materially
-different actions through the existing Puzzle, Speak and Act surfaces. Their
-consequences would leave an aftermath that returning players and later arrivals
-can investigate. The specific places, clues, operations and timing remain design
-hypotheses; there is no new situation installed by this entry.
+different actions through the existing Puzzle, Act and chat surfaces, with
+Speak for places. Their consequences would leave an aftermath that returning
+players and later arrivals can investigate. The specific places, clues, operations
+and timing remain design hypotheses; there is no new situation installed by this
+entry.
 
 Keep the first experiment to one mystery in existing geography, with real
 scale-specific effects and independently accepted actions. Each player decides
@@ -287,11 +288,12 @@ condition of entering or leaving a place, or add a parallel quest controller.
 
 Design for human–human play and the owner's suggested human–AI collaboration,
 where agents help humans solve rather than solve independently. The existing
-Proposed [ADR-036, puzzle temperament (#159)](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/159)
-and [ADR-037, agents as conversational players (#160)](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/160)
-own the puzzle and agent contracts. Both are unmerged proposals: the mystery
-inherits their eventual decisions on submissions, annoyance, renewal and near-miss
-feedback rather than maintaining a second list of answers or open questions.
+Proposed [ADR-036, puzzle temperament](../decisions/ADR-036-puzzle-temperament.md)
+and [ADR-037, agents as conversational players](../decisions/ADR-037-agents-as-conversational-players.md)
+own the puzzle and agent contracts. Both are merged Proposed records that remain
+unratified. The mystery inherits their eventual decisions on submissions,
+annoyance, renewal and near-miss feedback rather than maintaining a second list
+of answers or open questions.
 Their current proposals let agents reason from shared clues but never submit a
 puzzle answer; answer secrecy, per-node difficulty and the autonomy and
 human-progress covenants still apply.

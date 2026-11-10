@@ -14,9 +14,32 @@ on the twin itself, which needs the held Fly account (checklist F1), and on
 the research basics that protocol 2 requires before anyone is approached
 (facilitator, observation dates, devices, client, consent wording, and the
 retention and deletion date: [protocol 2](2026-09-12-pilot-protocol.md),
-"Scope and venue"). Live voice also waits on the operator's checks of the
-provider (voice mode below). This kit recruits nobody, deploys nothing and
-promises no persistence.
+"Scope and venue"). The watch runs in per-scale silence, with no provider
+key, until the owner signs off the named provider's L4 data use note (voice
+mode below). This kit recruits nobody, deploys nothing and promises no
+persistence.
+
+**2026-11-10 review update:** An owner-requested review of this kit at
+`7eb5bc9` changed it as follows.
+
+- **Voice.** The owner's 2026-11-07 policy may permit live voice
+  (*inferred*), but it is a test a provider must pass, not the allowlist
+  that checklist S2 asks for (still Partial), and ADR-034 §5 requires a
+  scoped decision for each new data destination. So live voice with testers
+  now waits for the owner's sign-off on the named provider's L4 data use
+  note, which is how the owner makes that decision (proposed in packet
+  decision 10, awaiting the owner's acceptance). Until then every session
+  runs in per-scale silence. Earlier text below that leaves the voice mode
+  to the operator's checks is superseded by this.
+- **Twin bring-up.** Runbook section 3a, as it reads on `main`, sets a
+  provider key before the first deploy and then probes the live voice, which
+  sends Enfolded data before any L4 note exists. "Bringing the twin up for
+  this watch" below sets no provider key until the note is written, and the
+  operator checks that `FAL_KEY` is absent.
+- **Return.** On this build a fresh browser shows the introduction and the
+  name prompt before the loading line that never ends; the return step now
+  says so and records any name the tester types.
+- **Citations.** See the 2026-11-07 "Citations" note below, updated.
 
 **2026-11-07 update:** The owner's two decisions of that day change this kit.
 
@@ -29,8 +52,9 @@ promises no persistence.
   [ADR-004](../decisions/ADR-004-day-one-data-policy.md)'s 2026-11-07
   amendment): "Information can only be shared with model providers to
   facilitate game play. Enfolded data must not be used to train frontier
-  models." The policy permits live voice (*inferred*); the watch's voice
-  mode remains a per-watch choice once the operator's checks below are done.
+  models." The policy may permit live voice (*inferred*); live voice with
+  testers waits for the owner's sign-off on the provider's L4 note
+  (2026-11-10 review update above).
   With no provider configured, places answer in per-scale silence, each
   scale's own authored line. That replaces the earlier pre-written-lines default, because
   `NESTED_WORLDS_DISABLE_AI=1` answers "Try again tomorrow", which tells a
@@ -46,16 +70,23 @@ promises no persistence.
 - **Fallback.** The local setup is kept as the fallback, with per-scale
   silence as its no-provider mode. Executed on 2026-11-07 at `5d4b78c` on
   scratch worlds (pre-session check, step 3).
-- **Citations.** Code citations were re-read at `5d4b78c`, the branch's
-  merge of #152, and those in `consciousness/runtime.py`, `server/guard.py`
-  and `main.py` were re-pointed on 2026-11-07 after #153 was merged into this
-  branch, by matching the cited text; the branch's own commits change only `docs/`. Six that #152 had moved, in `main.py` and
-  `persistence/__init__.py`, were corrected; every other kept citation
-  matches its `18e5bbd` text line for line, and the new ones were read at
-  `5d4b78c`. Protocol 2 citations follow its text with the 2026-11-07 venue
-  line. Fly commands below follow the runbook's and the
-  repository's own usage; none was run from this session, and Fly's behaviour
-  is unverified here.
+- **Citations.** On 2026-11-10 every `file:line` in this kit was printed
+  and read at the branch head, whose code is `main` at `3200eed` (#153);
+  the branch's own commits change only `docs/`. Three cited ranges (six
+  occurrences) had not followed #153 and were corrected: two in
+  `consciousness/__init__.py`, which moved two lines down (the node history
+  that a voice prompt quotes, now `:870-875`, and the per-scale lines and
+  `fallback_voice`, now `:742-797`), and `main.py`'s `provider not
+  configured` report (now `:428-436`). The 2026-11-07 re-pointing after #153 had covered only
+  `consciousness/runtime.py`, `server/guard.py` and `main.py`, and missed
+  those. Runbook citations now name a section, not lines, because open PR
+  #157 rewrites section 3a; each named section exists on `main` and on
+  #157's branch (`claude/staging-deploy-workflow`). Earlier passes: at
+  `5d4b78c`, the branch's merge of #152, six citations that #152 had moved
+  in `main.py` and `persistence/__init__.py` were corrected. Protocol 2
+  citations follow its text with the 2026-11-07 venue line. Fly commands
+  below follow the runbook's and the repository's own usage; none was run
+  from this session, and Fly's behaviour is unverified here.
 - **#153.** `origin/main` at `3200eed` (#153, now merged into this branch)
   adds four per-task provider variables, `NESTED_WORLDS_NODE_PROVIDER`,
   `NESTED_WORLDS_INHABITANT_PROVIDER`, `NESTED_WORLDS_INTENT_PROVIDER` and
@@ -97,8 +128,8 @@ device, consent and live-provider prerequisites above are unchanged.
 The first 2 to 3 newcomer sessions of [protocol 2](2026-09-12-pilot-protocol.md),
 script steps 1 to 3 only: entry, navigation, acceptance and
 consequence recognition, observed with a facilitator present, in person or
-by screen share (the runbook allows screen share,
-`docs/infrastructure/fly-deployment.md:928-931`). It is not the seven-day
+by screen share (the runbook allows screen share: section 8, "Launch
+window", T-1 week). It is not the seven-day
 return cohort, so the return fields in the observation record stay unknown;
 the scripted return at the end of a session tests the way back, not voluntary
 return. On the twin, each tester plays on their own device in one disposable
@@ -122,20 +153,30 @@ deleted on the stated date.
    the deletion date. On the twin, also record the commit it runs and what
    else ran on it before the watch (check names, any soak or probe), because
    their traces stay in the shared world.
-3. **Voice mode.** Choose one per watch and record it in the research basics.
-   - *Live voice*, which the owner's 2026-11-07 policy permits (*inferred*).
-     Before the first session the operator (a) reads the configured
-     provider's current terms for API inputs, checks them against both
-     sentences of the policy, records them, with what they say about
-     training and the provider's retention and deletion terms, in the
-     research basics, and writes the provider's L4 data use note from them;
-     the session that wrote this kit could not open them; if the terms let Enfolded data train
-     a model that is not plainly a frontier model, ask the owner first (packet
-     decision 10, still open); (b) confirms that the Enfolded provider account
-     is in no training or data-sharing programme; (c) submits no feedback that
-     contains Enfolded data; and (d) checks the consent line's training clause
-     (facilitator script) against the recorded terms. Use the default
-     adapter: leave `NESTED_WORLDS_PROVIDER` unset
+3. **Voice mode.** Per-scale silence unless the owner has signed off live
+   voice. Record the mode in the research basics.
+   - *Live voice*, which the owner's 2026-11-07 policy may permit
+     (*inferred*). The policy is a test a provider must pass, not an
+     allowlist (checklist S2 is still Partial), and ADR-034 §5 requires a
+     scoped decision for each new data destination. So no tester's text goes
+     to a provider until the owner has signed off that named provider's L4
+     data use note: the sign-off is the owner's scoped decision (proposed in
+     packet decision 10, awaiting the owner's acceptance). The operator
+     prepares the note: (a) reads the configured provider's current terms
+     for API inputs, checks them against both sentences of the policy,
+     records them, with what they say about training and the provider's
+     retention and deletion terms, in the research basics, and writes the
+     provider's L4 data use note from them (the session that wrote this kit
+     could not open them); if the terms let Enfolded data train a model that
+     is not plainly a frontier model, the note says so for the owner (packet
+     decision 10, still open); (b) confirms that the Enfolded provider
+     account is in no training or data-sharing programme; (c) submits no
+     feedback that contains Enfolded data; and (d) checks the consent line's
+     training clause (facilitator script) against the recorded terms. Items
+     (b) and (c) follow operating rules proposed in packet decision 10,
+     which await the owner's acceptance. Then the owner signs the note off,
+     or does not. With the sign-off recorded, use the default adapter:
+     leave `NESTED_WORLDS_PROVIDER` unset
      (`consciousness/runtime.py:48-49`, `consciousness/runtime.py:595-596`),
      and on a build with #153 the four per-task provider variables too, so no
      `openai_compatible` base URL, which has not been checked against the
@@ -170,7 +211,7 @@ deleted on the stated date.
      `https://api.anthropic.com`.
      A participant's words to places and inhabitants, and chat lines at a
      node, are quoted into later prompts to the provider
-     (`consciousness/__init__.py:868-873`). An intention they describe in Act
+     (`consciousness/__init__.py:870-875`). An intention they describe in Act
      is sent to the provider to be read
      (`consciousness/interventions.py:57-81`). Any shared text the local
      screen cannot clear goes to the provider's classifier
@@ -184,19 +225,24 @@ deleted on the stated date.
      The provider keeps its own copies under its own terms, which deleting
      the world and the research archive does not reach. Set low caps on
      every text-model budget the session can spend: voice and intention with
+     `NESTED_WORLDS_VOICE_DAILY_CALLS` and
+     `NESTED_WORLDS_VOICE_DAILY_CALLS_PER_USER` (`server/guard.py:55`,
+     `server/guard.py:64`; the legacy names
      `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
-     `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` (`server/guard.py:57`,
-     `server/guard.py:66`), and classifier calls with
+     `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER`, `server/guard.py:57`
+     and `server/guard.py:66`, are still read, and when a neutral and a
+     legacy value disagree the lower holds, `server/guard.py:909-920`), and
+     classifier calls with
      `NESTED_WORLDS_MODERATION_DAILY_CALLS` and
      `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER`, whose defaults are
      2,000 and 60 a day (`server/guard.py:102-108`). Record the values.
-   - *Per-scale silence* (no provider): the fallback, and the mode for any
-     session held before the operator's checks are done. No provider
+   - *Per-scale silence* (no provider): the default, and the mode for every
+     session until the owner has signed off the provider's L4 note. No provider
      credential is in the server's environment, no provider variable is set
      (on a build with #153, none of the four per-task ones either), and
      `NESTED_WORLDS_DISABLE_AI` is unset. A place answers its scale's
      authored line of silence with `"ai": false`
-     (`server/handlers.py:1244-1248`, `consciousness/__init__.py:740-795`),
+     (`server/handlers.py:1244-1248`, `consciousness/__init__.py:742-797`),
      an addressed agent answers that it does not answer
      (`server/handlers.py:1521-1524`, `server/handlers.py:1451-1462`), and an
      Act intention the local parser cannot read gets the authored "clearer
@@ -208,8 +254,9 @@ deleted on the stated date.
      quiet today. Try again tomorrow." (`server/handlers.py:1207-1210`,
      `server/guard.py:1193`), tells a newcomer to leave.
 4. **Images.** Keep the image key (`FAL_KEY`, `server/handlers.py:1402`) off
-   the twin, as the local setup does, until the operator has checked the
-   image provider against the 2026-11-07 policy and written its L4 note.
+   the twin for this watch, as the local setup does: no image provider's L4
+   note is written, and none is signed off. On the twin, "Before the first
+   session" unsets it if it is set and checks that it is absent.
    Without the key, `/image` answers the authored quiet line with
    `"images": false` (`server/handlers.py:1402-1406`). Image prompts carry
    no player text (`server/imageprompt.py:83-89`,
@@ -217,7 +264,7 @@ deleted on the stated date.
    properties, which are Enfolded data, so the policy applies to the image
    provider as it does to the text provider (packet decision 10). If its
    terms let prompts train an image model, that is the owner's open question
-   in decision 10: ask before setting the key.
+   in decision 10.
 5. **Display names.** The facilitator assigns each participant a neutral world
    name: not their real name, not their P-code, not one of the twelve cast
    names (`consciousness/__init__.py:309-313`), and not Observer or Scout,
@@ -237,13 +284,13 @@ Read at `5d4b78c`. None was executed against a Fly app.
 
 | Fact | Evidence | What it means for the watch |
 |---|---|---|
-| The twin is the production procedure under another app name: its own app and volume, deployed with `FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy`, and destroyed before launch. ADR-005 already names it as the onboarding watch's venue. | `docs/infrastructure/fly-deployment.md:245-273` (section 3a), `docs/decisions/ADR-005-launch-operations.md:96-102` | Bringing the twin up is the operator's step under the runbook, and it waits on the Fly account (checklist F1). Read the warning below the table before running it. This kit deploys nothing. |
+| The twin is the production procedure under another app name: its own app and volume, deployed with `FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy`, and destroyed before launch. ADR-005 already names it as the onboarding watch's venue. | Runbook section 3a, "Staging rehearsal — before the permanent world begins"; `docs/decisions/ADR-005-launch-operations.md:96-102` | Bringing the twin up is the operator's step under the runbook, and it waits on the Fly account (checklist F1). Read the warning and "Bringing the twin up for this watch" below the table before running it: for this watch the twin starts with no provider key. This kit deploys nothing. |
 | The twin hosts seed 382 as its one canonical world, with `HOME=/data` on its volume. | `fly.toml:19-20` | Leave `NESTED_WORLDS_CANONICAL_SEED` as `fly.toml` sets it. Every watch session on the twin shares this world, and a later tester may meet an earlier tester's traces. |
 | The twin serves HTTPS only. | `fly.toml:27` | Testers use their own devices. Act and the journal need a secure context (`static/intents.js:7`, `static/journal.js:6`), which an HTTPS page is. Web-platform behaviour, not executed for this kit. |
-| `invite mint` prints the share line `<BASE>/app?key=nw_…&name=X` and shows the key once. | `main.py:529-537`, `main.py:585-587` | Replace `<BASE>` with the twin's origin, `https://<staging app>.fly.dev`, the form the runbook's smoke test uses (`docs/infrastructure/fly-deployment.md:281`). |
+| `invite mint` prints the share line `<BASE>/app?key=nw_…&name=X` and shows the key once. | `main.py:529-537`, `main.py:585-587` | Replace `<BASE>` with the twin's origin, `https://<staging app>.fly.dev`, the form the runbook's smoke test uses (section 4, "Smoke test"). |
 | Minting the first key closes the twin's invite gate for good. | `server/guard.py:312-333` | Mint the check key before the twin's address is shared anywhere (runbook section 6). |
 | Invited players read each other's words: `/history` and `/chronicle` serve the world's rows, chat text included, to any invited player. | `server/handlers.py:961-975`, `server/handlers.py:977-993` | Consent says that other testers in this temporary world can read what a tester says. |
-| `/app` removes `key=` and `name=` from the address after the first load, and afterwards reads the key from this browser's local storage only. | `frontend/src/auth.js:21-28`, `frontend/src/auth.js:31-37` | A bookmark holds no key. On this branch a fresh browser that opens it stays on "Opening the shared world…" (`frontend/src/App.jsx:146-148`, `frontend/src/App.jsx:182-185`, `frontend/src/App.jsx:593`; [2026-11-06 evaluation](2026-11-06-next-build.md), finding 7, read, not run in a browser). The keyless-return change (branch `claude/keyless-return-line`, PR number unconfirmed) replaces that shell with an authored line saying how to return; it is not on this branch. The scripted return records which the tester sees. |
+| `/app` removes `key=` and `name=` from the address after the first load, and afterwards reads the key from this browser's local storage only. | `frontend/src/auth.js:21-28`, `frontend/src/auth.js:31-37` | A bookmark holds neither the key nor the name. On this build a fresh browser (a private window or another browser, with no stored key, name or `nw_seen_intro`) that opens it first shows the introduction and then the name prompt (`frontend/src/App.jsx:576-590`), and then "Opening the shared world…", which never ends (`frontend/src/App.jsx:146-148`, `frontend/src/App.jsx:182-185`, `frontend/src/App.jsx:592-593`; [2026-11-06 evaluation](2026-11-06-next-build.md), finding 7, read, not run in a browser). A name typed there stays in that browser and registers nothing; opening the invite link there replaces it with the invite's name (`static/clientlogic.js:10-27`). Open PR #154 (branch `claude/keyless-return-line`, head `d55800b`, not on this branch) changes this for a keyless browser: it holds the loading line until the gate answers, then shows the invite line, "The world opens only to an invitation, and this browser holds none. To return, open the invite link you were sent, here on this device.", with no introduction or name prompt first. Record which build the twin runs; the scripted return records what the tester sees. |
 | A keyed return resumes the saved place, on any device. | `persistence/__init__.py:2942-2944` (`save_player_position`) | Opening the invite link again in the fresh browser is the designed way back. |
 | Sound starts by default on the first click or key press unless this browser has paused it; the "Sound & help" section's button reads "Listen to this world" while the score is paused and "Pause score" while it plays. | `frontend/src/App.jsx:97-102`, `frontend/src/App.jsx:513-524`, `frontend/src/components/TextPanel.jsx:56-58` | The sound-on step needs only the device's sound on. Whether a phone's silent switch mutes the score was not checked. |
 | `fly secrets set` and `fly secrets unset` restart the one machine, and live WebSockets drop. | `docs/infrastructure/incident-response.md:15-16` | Change the voice mode or a cap only between sessions. |
@@ -255,7 +302,7 @@ With `FLY_APP` unset it targets `enfolded-beta`, the production app
 (`scripts/deploy.sh:326-333`), so a slip there is the first production boot,
 the one-way door in the [2026-11-06 evaluation](2026-11-06-next-build.md)
 (finding 1). Run from the repository root, as the runbook's deploy commands
-are (`docs/infrastructure/fly-deployment.md:211`):
+are (runbook section 3, "First deploy"):
 
 - Keep `FLY_APP=enfolded-staging` inline on the same command line as
   `scripts/deploy.sh`, never set in an earlier step.
@@ -276,6 +323,39 @@ flag, the first call was the backup and the next the schema check, which the
 stub failed, so nothing was deployed. A guard in the script itself is outside
 this documentation batch.
 
+### Bringing the twin up for this watch
+
+Runbook section 3a, as it reads on `main`, sets `ANTHROPIC_API_KEY` ("+
+FAL_KEY / SENTRY_DSN as desired") before the first deploy, and then runs the
+section 8 live-voice probe. A live answer is built from the place's world
+content, so the probe sends Enfolded data to the provider before any L4 data
+use note exists, and none does yet (checklist L4). For this watch:
+
+- Bring the twin up with no provider key: leave out `ANTHROPIC_API_KEY` and
+  `FAL_KEY` from section 3a's `fly secrets set`, and skip the live-voice
+  probe.
+- Set `ANTHROPIC_API_KEY` only after the provider's L4 note is written, and
+  for a session with testers only after the owner has signed that note off
+  (voice mode, item 3 of "Decide before session one"). Checklist F1's exit
+  criterion includes `/speak` answering `"ai": true`, so F1 cannot close
+  before the key is set.
+- Never set `FAL_KEY` for this watch (item 4); step 5 below checks that it
+  is absent.
+- Section 3a also offers `SENTRY_DSN`. Whether the twin reports errors to
+  Sentry during a watch is an open observability question for the owner:
+  the pinned sentry-sdk 2.66.1 (`requirements.lock:19`) defaults
+  `include_local_variables` to true and `server/observability.py:58-63`
+  does not change it, so the local variables on an unhandled error, which
+  can hold a tester's text, would reach Sentry; leave `SENTRY_DSN` unset for
+  the watch unless the owner decides otherwise.
+
+Open PR #157 (branch `claude/staging-deploy-workflow`) rewrites section 3a
+in the same direction: it moves the provider terms check ahead of the step
+that sets the key, probes the live voice with its own one-word check key
+(`Stagingcheck`), which it revokes before testers arrive, and adds
+`node_name` to the probe's body. This kit does not edit the runbook. Under
+either text, the order above holds for this watch.
+
 ### Before the first session (operator)
 
 None of these commands needs the checkout: `-a` names the app, as the
@@ -284,12 +364,13 @@ playbook and the backup workflow do (`docs/infrastructure/incident-response.md:4
 ("After the watch, twin") outside the checkout, never in it.
 
 1. Confirm the twin answers: `curl -s https://<staging app>.fly.dev/health`
-   returns `{"status": "ok"}` (`docs/infrastructure/fly-deployment.md:280-281`).
+   returns `{"status": "ok"}` (runbook section 4, "Smoke test").
    Record the commit it was deployed from.
-2. Set the voice mode. Per-scale silence: no provider secret on the app
-   (`fly secrets unset -a enfolded-staging ANTHROPIC_API_KEY` if the
-   rehearsal set one, `docs/infrastructure/fly-deployment.md:259`). Live
-   voice: the operator's checks in "Decide before session one" are done;
+2. Set the voice mode. Per-scale silence, the default: no provider secret
+   on the app (`fly secrets unset -a enfolded-staging ANTHROPIC_API_KEY` if
+   the rehearsal set one under runbook section 3a). Live voice, only after
+   the owner has signed off the provider's L4 note (item 3 in "Decide
+   before session one"):
    `ANTHROPIC_BASE_URL` and `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL` are
    unset before the key is set (`fly secrets unset -a enfolded-staging
    <name>` for either one a secret sets; the `[env]` block in `fly.toml`
@@ -297,7 +378,8 @@ playbook and the backup workflow do (`docs/infrastructure/incident-response.md:4
    `NESTED_WORLDS_PROVIDER`, `NESTED_WORLDS_DISABLE_AI` and, on a build with
    #153, the four per-task provider variables are unset; and the low caps
    are set with `fly secrets set -a enfolded-staging …`. Either
-   way, leave `FAL_KEY` unset unless item 4 there is satisfied.
+   way, if `FAL_KEY` is set, run `fly secrets unset -a enfolded-staging
+   FAL_KEY` (item 4 there).
 3. Mint a check key under a one-word check name:
    `fly ssh console -a enfolded-staging -C "python main.py invite mint --name Watchcheck"`.
    `-C` is split into words and run without a shell (`scripts/deploy.sh:22`),
@@ -307,7 +389,7 @@ playbook and the backup workflow do (`docs/infrastructure/incident-response.md:4
    `200`.
 5. Voice: `fly ssh console -a enfolded-staging -C "python main.py models"`
    prints `provider not configured` in per-scale silence and does not in
-   live voice (`main.py:420-428`). On a build with #153, every task row must
+   live voice (`main.py:428-436`). On a build with #153, every task row must
    also show `provider=anthropic provider_source=default`. Those rows read
    the same with a gateway set, so in live voice also run
    `fly ssh console -a enfolded-staging -C "printenv ANTHROPIC_BASE_URL NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL"`,
@@ -322,7 +404,11 @@ playbook and the backup workflow do (`docs/infrastructure/incident-response.md:4
    voice must answer `"ai": true`; per-scale silence answers the place's
    scale line with `"ai": false`. In live voice,
    `fly ssh console -a enfolded-staging -C "python main.py voice-health"`
-   shows the day's answered lines and budget use (runbook section 8).
+   shows the day's answered lines and budget use (runbook section 8). In
+   either mode, `fly secrets list -a enfolded-staging` lists the app's
+   secret names, not their values (Fly's output is unverified here): it
+   must not list `FAL_KEY`, and in per-scale silence it must not list
+   `ANTHROPIC_API_KEY`. Record only the names.
 
 ### Pre-session check, twin
 
@@ -401,7 +487,7 @@ Never tell a tester their history will persist.
 3. The twin's database holds every tester's words, journal notes included,
    until the twin is destroyed. Destroy it by the deletion date in the
    research record (`fly apps destroy enfolded-staging --yes`,
-   `docs/infrastructure/fly-deployment.md:269`). If P4 still needs a twin
+   runbook section 3a). If P4 still needs a twin
    after that date, stand up a fresh one. Any copy taken from the twin,
    including the `worlds-*.db` copies a deploy writes to its volume
    (`scripts/deploy.sh:253-254`), follows the same date. Fly keeps volume
@@ -477,12 +563,18 @@ Then two scripted steps, both outside protocol 2's measures:
 - **Return step.** Ask the participant to bookmark the page they are on,
   close that window, and open the bookmark in a fresh browser: a private
   window, or another browser on the same device. Do not say how to get back.
-  Time it, and record what they see and do. On this branch the page is
-  expected to stay on "Opening the shared world…"; with the keyless-return
-  change (branch `claude/keyless-return-line`) it says to open the invite
-  link. If they cannot get back, tell them to open their invite
-  link in that browser, record that you did, and record whether it brought
-  them to their saved place.
+  Time it, and record what they see and do. On this build the fresh
+  browser first shows the introduction and then a name prompt, and then a
+  loading line, "Opening the shared world…", that never ends (setup facts,
+  twin). A tester who types a fresh name there may think they are
+  registering again: do not explain during the step, and record whether
+  they typed a name and which. If the twin runs open PR #154's change
+  (branch `claude/keyless-return-line`), a keyless browser instead holds
+  the loading line until the gate answers and then shows the invite line,
+  with no introduction or name prompt; check which build the twin runs
+  before the session (research basics). If they cannot get back, tell them
+  to open their invite link in that browser, record that you did, and
+  record whether it brought them to their saved place.
 
 Stop there. Protocol 2's steps 4 and 5 belong to the seven-day cohort.
 
@@ -521,9 +613,9 @@ commit.
   end-of-session answer to "where are you, and how would you go back?"
   (checklist O4); any failed puzzle or sealed room, noted as a confusion.
 - The sound step: the answer, and whether the score played.
-- The return step: what the fresh browser showed, the time taken, whether the
-  participant got back unaided, and whether the invite link restored their
-  place.
+- The return step: what the fresh browser showed, any name typed into its
+  name prompt, the time taken, whether the participant got back unaided,
+  and whether the invite link restored their place.
 - A confusion list in the four buckets Q4 step P7 allows: entry, navigation,
   acceptance, and consequence recognition. The return step's confusions are
   entry.
@@ -567,7 +659,7 @@ was re-read there and still holds. On 2026-11-07 they were re-read at
 | Minting the first key closes the invite gate for good. Revoking a key no longer reopens it (#137), and an open socket whose key is revoked is closed. | `server/guard.py:312-333` (`invite_gate_active`, `persistence.credentials_ever_issued`); on `23b8830` revoking the only key reopened the gate (executed 2026-11-02) | End a session by stopping the server. Revoking the key is not needed: the scratch `HOME` is deleted. |
 | Act requires a live personal invite, and derives request IDs with `crypto.subtle.digest` and `crypto.randomUUID`. The journal calls `crypto.randomUUID` when it loads. | `persistence/participants.py:39-54`, `static/intents.js:7`, `static/intents.js:32`, `static/interventions.js:86`, `static/journal.js:6` | Use `http://localhost`, which browsers treat as a secure context. A plain-http LAN address is not one, so Act commits and the journal would fail there. This is web-platform behaviour, not executed for this kit; the pre-session check below confirms it on the actual machine. |
 | `NESTED_WORLDS_DISABLE_AI=1` quiets three paths: `/speak` and `/agent/voice` answer the authored quiet line with HTTP 200 and `"ai": false` before the screen runs, and an Act intention that the local parser cannot read gets the authored "clearer shape" line instead of going to a model. It does not quiet the moderation classifier, which never reads the flag: a chat line, an incorrect puzzle guess the attempt will store, an Ideas submission or profile text saved as published that the local screen cannot clear still goes to the provider whenever one is configured, and a credential in the environment is enough. It does not stop images either. | `server/handlers.py:1207-1210`, `server/handlers.py:1475-1479`, `server/intervention_api.py:157-160`, `server/intervention_api.py:34-37`, `server/moderation.py:166-241`, `server/websocket.py:621-622`, `server/handlers.py:2063-2066`, `server/ideas_api.py:80`, `server/participant_api.py:33-37`, `server/handlers.py:1371-1372`, `server/handlers.py:1402-1406`; executed for `/speak`, and on 2026-11-03 for a held chat line | Only an environment with no configured provider keeps player text on the machine. Session setup unsets the credentials and the image key, and the pre-session check proves it. Since 2026-11-07 the watch does not set the flag (per-scale silence, "Decide before session one"). |
-| With no provider configured and the flag unset, `/speak` answers the place's per-scale line of silence with `"ai": false` after the screen, `/agent/voice` answers that the agent does not answer, and an unreadable Act intention gets the "clearer shape" line. | `server/handlers.py:1244-1248`, `consciousness/__init__.py:740-795`, `server/handlers.py:1521-1524`, `server/intervention_api.py:34-37`; executed on 2026-11-07 for `/speak` and chat (pre-session check) | Per-scale silence keeps player text on the machine and does not tell the participant to come back tomorrow. |
+| With no provider configured and the flag unset, `/speak` answers the place's per-scale line of silence with `"ai": false` after the screen, `/agent/voice` answers that the agent does not answer, and an unreadable Act intention gets the "clearer shape" line. | `server/handlers.py:1244-1248`, `consciousness/__init__.py:742-797`, `server/handlers.py:1521-1524`, `server/intervention_api.py:34-37`; executed on 2026-11-07 for `/speak` and chat (pre-session check) | Per-scale silence keeps player text on the machine and does not tell the participant to come back tomorrow. |
 | Chat lines the local screen clears are shared. A line it cannot clear needs the classifier and is held, in fiction, if the classifier cannot run. | `server/moderation.py:183-205`, `server/moderation.py:217-241` | With no working classifier, expect some ordinary chat lines to be held with the authored hold line. Record a held line as an observation, not a fault. |
 | The heartbeat cast walks and talks unless `NESTED_WORLDS_HEARTBEAT=0`, and their conversation renders like human chat. The Travelers panel still marks the cast with `✦` and a persona. | `server/heartbeat.py:22`, `server/heartbeat.py:71`; scene `frontend/src/App.jsx:360-366`, `onAgentTalk`, puts named lines into the chat feed just as `onChat` does; `frontend/src/components/TextPanel.jsx:48` | Tell the participant that every other traveler in this session is an AI character (script above). Live labels will not ship: on 2026-11-06 the owner decided agents are not labeled, so the panel marks go when the structural-parity work lands. |
 | The browser keeps the key and Act receipts in local storage. | `static/journal.js:4`, `static/intents.js:11-13`, `static/intents.js:29-34` | Use a fresh browser profile or a private window for each participant. |
@@ -596,11 +688,11 @@ world contains no check traces.
    - *Per-scale silence*: `"ai": false` with the place's own scale line,
      such as a Room's "Dust settles where a voice should be. The room
      remembers footsteps, but it will not speak of them now."
-     (`server/handlers.py:1244-1248`, `consciousness/__init__.py:740-795`).
+     (`server/handlers.py:1244-1248`, `consciousness/__init__.py:742-797`).
      A configured provider that is busy or fails also answers that line
      (`server/handlers.py:1283-1311`), so also run
      `.venv/bin/python main.py models` in the same terminal: it must print
-     `provider not configured` (`main.py:420-428`). If it does not, a
+     `provider not configured` (`main.py:428-436`). If it does not, a
      credential is still in the environment and the classifier can still
      receive text: unset it and restart from step 1. Executed on 2026-11-07
      at `5d4b78c` with the setup block below, in scratch `HOME`s: `models`
@@ -691,7 +783,8 @@ unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_PROFILE \
   NESTED_WORLDS_PROVIDER NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY \
   NESTED_WORLDS_NODE_PROVIDER NESTED_WORLDS_INHABITANT_PROVIDER \
   NESTED_WORLDS_INTENT_PROVIDER NESTED_WORLDS_MODERATION_PROVIDER
-# Live voice only (packet decision 10, the operator's checks done): replace
+# Live voice only (packet decision 10: the provider's L4 note written and
+# signed off by the owner; see "Decide before session one", item 3): replace
 # the unset above with
 #   unset ANTHROPIC_BASE_URL NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL \
 #     NESTED_WORLDS_PROVIDER NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY \
