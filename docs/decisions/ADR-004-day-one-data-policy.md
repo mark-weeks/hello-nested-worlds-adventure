@@ -78,29 +78,16 @@ the owner, Mark Weeks, on 2026-11-07, in answer to decision 10 of the
 [November decision packet](../roadmap/decision-packet-2026-11.md) (beta
 checklist S2, with L4): "Information can only be shared with model providers
 to facilitate game play. Enfolded data must not be used to train frontier
-models." Both sentences apply to everything Enfolded sends to any model
-provider, player text and world content alike: the text provider's voice,
-intention and moderation calls, and the image provider's scene prompts, which
-carry node names and properties but no player text. Enfolded shares
-information with a model provider only for a task that serves play. The owner
-set no other limit on what a provider does with what it receives. The rest of
-this paragraph is the implementer's wording, not reviewed by the owner. Each
-destination is checked against both sentences, and the check is recorded as
-its data use note (checklist L4), before it receives any Enfolded data. The
-operator opts no provider account into a training or data-sharing programme
-and submits no feedback that contains Enfolded data, because either would
-let a provider train on it. Moderation of shared text under §2 is counted as
-a task that serves play (*inferred*). One question is left for the owner:
-whether a destination whose terms let Enfolded data train a model that is
-not plainly a frontier model, such as an image model or a provider's safety
-classifier, meets the second sentence. Until the owner answers, the
-implementer proposes that the operator asks the owner before such a
-destination receives Enfolded data. Still open: naming the destinations in
-the player-facing privacy notice (checklist L3), each destination's check and
-data use note (L4; none is written yet), and that question. This amends no
-numbered section and names no provider as the policy
-([ADR-034](ADR-034-provider-and-model-optionality.md)). The evidence is
-recorded in the packet and in checklist L4.
+models." The two sentences are the owner's words, and they are this
+amendment's whole rule. They cover all information and Enfolded data sent to
+any model provider, player text and world content alike: the text provider's
+voice, intention and moderation calls, and the image provider's scene
+prompts, which carry node names and properties but no player text. This
+amends no numbered section and names no provider
+([ADR-034](ADR-034-provider-and-model-optionality.md)). How a destination is
+checked against the rule, and the questions it leaves open, are proposals
+awaiting the owner's acceptance, recorded in packet decision 10 and checklist
+S2 and L4; they are not part of this ADR.
 
 **Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction (invite-gate latch and reserved names); sanction records 2026-11-03 on the owner's direction. §7 name comparison amended 2026-11-04 under the owner's delegation of #143's open choices. Model-provider data rule added 2026-11-07 on the owner's direction.
 

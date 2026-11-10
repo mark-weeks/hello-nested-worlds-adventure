@@ -11,8 +11,11 @@ kept because it shapes the world's state, history and progress. The
 [2026-11-06 evaluation](../evaluation/2026-11-06-next-build.md) records these
 rulings and the evidence behind them; the sections below keep the 2026-11-02
 analysis as prepared. On 2026-11-07 the owner decided decision 10 as a policy,
-which ADR-004 records, and updated decision 2: the Fly staging twin is
-preferred, and the local world is the fallback. Beyond those notes the page ratifies no ADR, publishes nothing, and authorizes no
+which ADR-004 records, updated decision 2 (the Fly staging twin is preferred,
+and the local world is the fallback), and answered two of decision 3's
+open questions (annoyance scope, agent submission) while allowing in-voice
+hints; how much a hint may reveal stays open. The operating rules under decision 10 are proposals by
+agent, awaiting the owner's acceptance. Beyond those notes the page ratifies no ADR, publishes nothing, and authorizes no
 implementation, deployment, recruitment, tag or merge. The evidence behind it
 is in the [2026-11-02 week-plan audit](../evaluation/2026-11-02-week-plan.md).
 The [beta launch checklist](beta-launch-checklist.md) governs exit criteria;
@@ -21,20 +24,20 @@ the [Q4 plan](next-steps-2026-q4.md) governs order until it is re-planned
 
 ## Summary
 
-All recommendations in this table are proposed by agent; not decided, except decision 7 (decided 2026-11-03), decision 2 (decided 2026-11-06, updated 2026-11-07), decision 3 (options superseded by owner direction on 2026-11-06) and decision 10 (decided as a policy on 2026-11-07).
+All recommendations in this table are proposed by agent; not decided, except decision 7 (decided 2026-11-03), decision 2 (decided 2026-11-06, updated 2026-11-07), decision 3 (options superseded by owner direction on 2026-11-06; three of its open questions answered on 2026-11-07) and decision 10 (decided as a policy on 2026-11-07; its operating rules are proposed by agent, not decided).
 
 | # | Decision | Needed by | Blocks | Recommendation |
 |---|---|---|---|---|
 | 1 | [S5: is chat kept in the never-wipe chronicle?](#1-s5-chat-permanence) | Hard: the first production chat line. Practical: before the report queue is built (next week) | The S5 go/no-go line; report evidence (S3, G2); the privacy notice's chat sentence (L3); consent wording | (c) an operator-only chat log with a short retention window, kept out of the chronicle and out of prompts |
-| 2 | [Newcomer-watch venue](#2-newcomer-watch-venue) | Decided 2026-11-06; updated 2026-11-07 | O1 to O4 observations; C2c ratings; Q4 steps P6 and P7 | **Updated 2026-11-07:** "Let's expedite the test build, preferably in a staging environment rather than local." The owner prefers the Fly staging twin and an expedited test build; the local, declared-disposable world remains only as a fallback. The twin waits on the Fly account (F1). **Decided 2026-11-06: (a), as recommended.** A local, declared-disposable world for the onboarding watch only; the Fly twin stays mandatory for P4 and production. The watch's voice mode was not decided on 2026-11-06; decision 10's 2026-11-07 policy permits live voice (*inferred*), and the voice mode remains a per-watch choice once the operator's checks are done |
-| 3 | [Puzzle failure semantics](#3-puzzle-failure-semantics) | Direction set 2026-11-06; the details need a Proposed ADR before the release-candidate scope freeze | The fix; honest C2a and C2c counts | **Superseded 2026-11-06 by owner direction:** puzzles can have personalities, attempts and lock periods can be dynamic, and the owner suggested that agents help humans solve rather than solve on their own. Details wait on a Proposed ADR. *As prepared:* refuse attempts after a failure, and re-arm failed puzzles through decay with the condition "current epoch resolved (solved or failed)"; the 2026-11-06 evaluation found that this re-arm stops renewing a failed Room once decay has disturbed and fractured it, unless an earlier solve left it stabilized |
+| 2 | [Newcomer-watch venue](#2-newcomer-watch-venue) | Decided 2026-11-06; updated 2026-11-07 | O1 to O4 observations; C2c ratings; Q4 steps P6 and P7 | **Updated 2026-11-07:** "Let's expedite the test build, preferably in a staging environment rather than local." The owner prefers the Fly staging twin and an expedited test build; the local, declared-disposable world remains only as a fallback. The twin waits on the Fly account (F1). **Decided 2026-11-06: (a), as recommended.** A local, declared-disposable world for the onboarding watch only; the Fly twin stays mandatory for P4 and production. The watch's voice mode was not decided on 2026-11-06. Decision 10's 2026-11-07 policy may permit live voice (*inferred*), but it is a test a provider must pass, not an allowlist: live voice with testers waits for the owner's sign-off on the named provider's L4 data use note (proposed, decision 10), and the watch runs in per-scale silence, with no provider key, until then |
+| 3 | [Puzzle failure semantics](#3-puzzle-failure-semantics) | Direction set 2026-11-06; three questions answered 2026-11-07; the rest need a Proposed ADR before the release-candidate scope freeze | The fix; honest C2a and C2c counts | **Superseded 2026-11-06 by owner direction:** puzzles can have personalities, attempts and lock periods can be dynamic, and the owner suggested that agents help humans solve rather than solve on their own. **Answered 2026-11-07** (quoted in section 3): an annoyed puzzle grows grumpier toward all players, most toward whoever annoys it (the answer says "player", read as the puzzle); agents may suggest answers when a human engages them and proposes collaboration, and do not submit answers; puzzles may give subtle hints in their own voice. Still open: how much a hint may reveal, renewal, and the questions Proposed ADR-036 (#159) puts to the owner. *As prepared:* refuse attempts after a failure, and re-arm failed puzzles through decay with the condition "current epoch resolved (solved or failed)"; the 2026-11-06 evaluation found that this re-arm stops renewing a failed Room once decay has disturbed and fractured it, unless an earlier solve left it stabilized |
 | 4 | [World status (Q4 B)](#4-world-status-q4-decision-b) | Before any copy goes to recruits, and before the first invited outside player | R3, K2, "World status declared"; the permanence copy on `/register` and in the guide; L3 | Production for the cohort world if P4's restore and freshness checks pass; any staging or local watch declared disposable |
 | 5 | [Minimum tester age (S4)](#5-minimum-tester-age-s4) | Before recruitment (Q4 P5) and before any terms or invite text | S4; the terms text (L2); the invite template | 18 or older |
 | 6 | [Re-plan date (Q4 A, lapsed Oct 10)](#6-re-plan-date-q4-decision-a) | Now | Every dated step | Do not adopt the mechanical November 29 date. Plan an early-to-mid January cohort and set the exact date after the watch, once Fly timing is known |
 | 7 | [Reserve Observer and Scout](#7-reserve-observer-and-scout) | Decided 2026-11-03 | Nothing now | Reserved, as recommended; recorded in ADR-004's 2026-11-03 reserved-names amendment |
 | 8 | [D6 timing (Q4 C, lapsed Oct 10)](#8-d6-timing-q4-decision-c) | Before the first production deploy; a migration-first answer needs about two more weeks before it | ADR-029 batch 1 ordering; how urgent the consumer inventory is | The Q4 recommendation stands: before the first structural operation, not before the pilot |
 | 9 | [#89 criteria (Q4 H, lapsed Oct 15)](#9-89-criteria-q4-decision-h) | Before anyone implements #89 | #89 only | The agent drafts revised criteria; the owner posts them or edits the issue |
-| 10 | [Player-text destinations (S2, with L4)](#10-player-text-destinations-s2) | Decided 2026-11-07 as a policy. Still needed before any outside participant's text or other Enfolded data reaches a model: the operator's check of each destination | S2, L4; the destinations named in the privacy notice; live voice in the watch; scene images; any second provider; since 2026-11-06, the owner's direction that agents answer players in chat, which sends chat text to a model provider | **Decided 2026-11-07 (policy):** "Information can only be shared with model providers to facilitate game play. Enfolded data must not be used to train frontier models." Recorded in ADR-004. Both sentences apply to all information and Enfolded data sent to any model provider, image prompts included. Implementer's wording: each destination, the image provider included, is checked against the policy and gets its L4 data use note before it receives any Enfolded data, and the operator opts no provider account into a training or data-sharing programme and submits no feedback containing Enfolded data. Still open: naming the destinations in the privacy notice (L3); the operator's checks and notes (L4: none written yet); and the owner's question whether a destination that may train a model that is not plainly frontier (an image model, a safety classifier) meets the policy. *As prepared:* one text provider for voice, intention and moderation, chosen by decision D's probes, and record that image prompts carry no player text |
+| 10 | [Player-text destinations (S2, with L4)](#10-player-text-destinations-s2) | Decided 2026-11-07 as a policy. Still needed before any outside participant's text or other Enfolded data reaches a model: each destination's check and L4 data use note, and, for testers' text, the owner's sign-off on that note (proposed) | S2, L4; the destinations named in the privacy notice; live voice in the watch; scene images; any second provider; since 2026-11-06, the owner's direction that agents answer players in chat, which sends chat text to a model provider | **Decided 2026-11-07 (policy):** "Information can only be shared with model providers to facilitate game play. Enfolded data must not be used to train frontier models." Recorded in ADR-004. Both sentences apply to all information and Enfolded data sent to any model provider, image prompts included. *Proposed by agent, awaiting the owner's acceptance, and not part of ADR-004:* each destination, the image provider included, is checked against the policy and gets its L4 data use note before it receives any Enfolded data; the owner signs off a destination's note before testers' text reaches it, which is the scoped decision ADR-034 §5 requires for a new data destination; and the operator opts no provider account into a training or data-sharing programme and submits no feedback containing Enfolded data. Still open: those proposals; naming the destinations in the privacy notice (L3); the notes themselves (L4: none written yet); and the owner's question whether a destination that may train a model that is not plainly frontier (an image model, a safety classifier) meets the policy. *As prepared:* one text provider for voice, intention and moderation, chosen by decision D's probes, and record that image prompts carry no player text |
 | 11 | [Dollar spend ceiling (E2)](#11-dollar-spend-ceiling-e2) | Before cohort budget sizing (E1) at P9 | E2, E1, M4; since 2026-11-06, agents answering players in chat (each answer is a model call) | Keep E2 blocking and move only D8's dollar posture ahead of the cohort, resolving the conflict with Q4 decision G. The owner sets the amount and period |
 | 12 | [Off-host backup destination and retention (Q4 I)](#12-off-host-backup-destination-and-retention-q4-decision-i) | Before `ENFOLDED_BACKUP_REQUIRED=true` (Q4 P1) | P3 to P5; the backup-retention sentence in L3; the retention tail in decision 1 | Choose a destination and a retention period deliberately; the 30 days in the runbook is an example, not a decision |
 
@@ -93,9 +96,11 @@ is the venue that ADR-005 section 2
 and protocol 2 already name, so no ADR is amended. The
 [facilitator kit](../evaluation/2026-11-02-newcomer-watch-kit.md) now puts
 the twin first: testers on their own devices with invite links minted on
-staging, live voice as a per-watch choice that decision 10's 2026-11-07
-policy permits (*inferred*) once the operator's checks are done, a sound-on
-step, and a scripted return from a bookmark in a fresh browser. Protocol 2
+staging, per-scale silence with no provider key until the owner signs off
+the named provider's L4 data use note (decision 10's 2026-11-07 policy may
+permit live voice, *inferred*, but it is a test a provider must pass, not an
+allowlist), a sound-on step, and a scripted return from a bookmark in a
+fresh browser. Protocol 2
 gains one more dated line. The twin's critical path is the held Fly account
 (checklist F1: account, billing, flyctl and token). This record deploys
 nothing: bringing the twin up is the operator's step under the runbook, and
@@ -156,14 +161,38 @@ player to go away and leave it alone, and a close answer may excite it into
 encouraging the player to try again. Puzzle attempts and lock periods "can
 be dynamic in this way rather than fixed and static." The owner also wrote:
 "I suggest that AI agents do not solve puzzles independently. However, they
-can cooperate with human players to help solve puzzles." Not decided, and
-left for a Proposed ADR before anything is built:
+can cooperate with human players to help solve puzzles." That left four
+questions for a Proposed ADR: whether annoyance applies to one player or to
+everyone at the puzzle; whether an agent may submit an answer or only
+suggest one; how much a near-miss may reveal; and how a puzzle renews once
+it has been failed or has sent a player away.
 
-- whether annoyance applies to one player or to everyone at the puzzle;
-- whether an agent may submit an answer or only suggest one;
-- how much a near-miss may reveal, given answer secrecy
-  (`tests/test_puzzles.py`) and per-node difficulty (AGENTS.md);
-- how a puzzle renews once it has been failed or has sent a player away.
+**Answered in part 2026-11-07.** Asked follow-up questions, the owner,
+Mark Weeks, answered:
+
+> 1. an annoyed player generally gets grumpier toward all players, but especially the player(s) that are annoying it 2. agents can suggest puzzle answers if a human engages with the agent and proposes collaboration. Agents do not submit puzzle answers 3. puzzles can give subtle hints like "you're getting warmer" or "you're way off" in their voice and personality 4. I don't understand the question 5. I don't understand the question
+
+Answer 1 says "player"; this record, like Proposed ADR-036, reads it as an
+annoyed **puzzle**, the subject of the question. Read that way, the first
+three answers settle annoyance (a puzzle grows grumpier toward all players,
+and especially toward the player or players annoying it) and agent
+submission (an agent may suggest an answer when a human engages it and
+proposes collaboration, and does not submit one), and they allow near-miss
+hints such as "you're getting warmer" or "you're way off" in the puzzle's
+own voice. Answers 4 and 5 are not read as decisions, and this record does
+not say which questions they answered. Still open, for a Proposed ADR before
+anything is built:
+
+- how much a hint may reveal: the owner allowed subtle hints, not their
+  bounds under answer secrecy (`tests/test_puzzles.py`) and per-node
+  difficulty (AGENTS.md);
+- how a puzzle renews once it has been failed or has sent a player away;
+- the further questions that Proposed ADR-036 (#159, branch
+  `claude/adr-036-puzzle-temperament`, not on `main`) puts to the owner: how
+  long the longest send-away lasts, whether each player climbs their own
+  hint ladder, whether an agent that helped is named in the solve credit,
+  whether a send-away says when to come back, and whether other players can
+  read a player's wrong guesses.
 
 The 2026-11-06 evaluation also found that the recommended (b) could renew a
 failed Room only a few times in its life. `_maybe_rearm` runs only when a
@@ -354,60 +383,77 @@ revised criteria; the owner posts them or edits the issue. Not cohort-blocking.
 "Information can only be shared with model providers to facilitate game
 play. Enfolded data must not be used to train frontier models."
 [ADR-004](../decisions/ADR-004-day-one-data-policy.md)'s 2026-11-07
-model-provider data amendment records it. The owner set a policy rather
-than choosing among the options below, so the recommendation of exactly one
-provider is neither adopted nor rejected. Both sentences apply to all
-information and Enfolded data sent to any model provider: player text and
-world content, the text provider and the image provider alike. Its
-consequences:
+model-provider data amendment records it, and those two sentences are that
+amendment's whole rule. The owner set a policy rather than choosing among
+the options below, so the recommendation of exactly one provider is neither
+adopted nor rejected. Both sentences apply to all information and Enfolded
+data sent to any model provider: player text and world content, the text
+provider and the image provider alike. The policy is a test each destination
+must pass, not the allowlist that S2 asks for. The owner set no other limit
+on what a provider does with what it receives.
 
-- **Purpose.** Enfolded shares information with a model provider only for a
-  task that serves play: today a place's or an inhabitant's voice, reading
-  an intention, scene images, and the moderation of shared text (counting
-  moderation as a play task is the implementer's reading, *inferred*). The
-  owner set no other limit on what a provider does with what it receives.
-- **No training.** Enfolded data must not be used to train frontier models.
-- **The operator's accounts** (implementer's wording, following from the
-  no-training rule). The operator opts no provider account into a training
-  or data-sharing programme, and submits no feedback that contains Enfolded
-  data.
-- **Check before use** (implementer's wording). Each destination is checked
-  against both sentences before it receives any Enfolded data, and the check
-  is recorded as its L4 data use note: the configured text provider, a
-  provider chosen for one task, any `openai_compatible` base URL under
-  ADR-035 (Proposed), and the image provider, whose key (`FAL_KEY`) stays
-  unset until its note is written.
 - **Images.** Image prompts carry no player text: they count distinct
   speakers (`server/imageprompt.py:83-89`), and the prompt is built from the
   node's level, name and properties (`server/imageprompt.py:120-143`). Those
   names and properties are Enfolded data, so the image provider is a
   destination under the policy.
-- **The watch.** The policy permits live voice (*inferred*), on the staging
-  twin or on the local fallback; the watch's voice mode remains a per-watch
-  choice once the operator's checks are done. The
+- **The watch.** The policy may permit live voice (*inferred*), on the
+  staging twin or on the local fallback. Under proposal 3 below, live voice
+  with testers waits for the owner's sign-off on the named provider's L4
+  data use note, and until then the watch runs in per-scale silence, with
+  no provider key. The
   [facilitator kit](../evaluation/2026-11-02-newcomer-watch-kit.md) states
-  the checks.
+  the steps.
+
+**Proposed operating rules** (*proposed by agent; not decided; awaiting the
+owner's acceptance*). They are the implementer's reading of how to apply the
+policy, and they are not part of ADR-004. A first version of this record put
+them in ADR-004's amendment, marked as the implementer's wording; review on
+2026-11-10 moved them here, because an Accepted ADR reads as binding.
+
+1. **Purpose.** Today Enfolded sends information to a model provider for a
+   place's or an inhabitant's voice, reading an intention, scene images, and
+   the moderation of shared text. Counting moderation as a task that
+   facilitates game play is the implementer's reading (*inferred*).
+2. **Check before use.** Each destination is checked against both sentences
+   before it receives any Enfolded data, and the check is recorded as its L4
+   data use note: the configured text provider; a provider chosen for one
+   task, since each of `NESTED_WORLDS_NODE_PROVIDER`,
+   `NESTED_WORLDS_INHABITANT_PROVIDER`, `NESTED_WORLDS_INTENT_PROVIDER` and
+   `NESTED_WORLDS_MODERATION_PROVIDER` overrides `NESTED_WORLDS_PROVIDER`
+   for its task (`consciousness/runtime.py:550-575` at `3200eed`); any
+   `openai_compatible` base URL under ADR-035 (Proposed); and the image
+   provider, whose key (`FAL_KEY`) stays unset until its note is written.
+3. **The owner signs off.** ADR-034 §5 requires its own scoped decision for
+   each new data destination. The owner makes that decision by signing off
+   the destination's L4 note, and testers' text reaches no provider before
+   the sign-off.
+4. **The operator's accounts.** The operator opts no provider account into a
+   training or data-sharing programme, and submits no feedback that
+   contains Enfolded data, because either would let a provider train on it.
+5. **Models that are not plainly frontier.** Until the owner answers open
+   item 4 below, the operator asks the owner before a destination whose
+   terms let Enfolded data train such a model receives Enfolded data.
 
 The configured default text provider is `anthropic`
-(`consciousness/runtime.py:38-39`). A web search on 2026-11-07 returned its
-help-centre statement that customer content sent through the API under its
-commercial terms is not used to train its models by default, with exceptions
-when the customer opts in (for example, a development partner programme) or
-submits feedback. The page could not be opened from the session that wrote
-this record, so the statement is unverified here. No data use note has been
-written for any destination.
+(`consciousness/runtime.py:48-49` at `3200eed`). A web search on 2026-11-07
+returned its help-centre statement that customer content sent through the
+API under its commercial terms is not used to train its models by default,
+with exceptions when the customer opts in (for example, a development
+partner programme) or submits feedback. The page could not be opened from
+the session that wrote this record, so the statement is unverified here. No
+data use note has been written for any destination.
 
 Still open:
 
-1. Naming the destinations in the privacy notice (checklist L3).
-2. The operator's check of each destination against the policy, recorded as
-   its L4 data use note: the default text provider's current terms
-   confirmed, and the image provider's note written before `FAL_KEY` is set.
-3. A question for the owner: whether a destination whose terms let Enfolded
+1. The owner's acceptance of the proposed operating rules above.
+2. Naming the destinations in the privacy notice (checklist L3).
+3. Each destination's L4 data use note: the default text provider's current
+   terms confirmed, and the image provider's note written before `FAL_KEY`
+   is set.
+4. A question for the owner: whether a destination whose terms let Enfolded
    data train a model that is not plainly a frontier model, such as an image
-   model or a provider's safety classifier, meets the policy. Until the owner
-   answers, the implementer proposes that the operator asks the owner before
-   such a destination receives Enfolded data.
+   model or a provider's safety classifier, meets the policy.
 
 The policy bears on decision 1's option (a), where chat is quoted into
 node voices, and on agents answering players in chat; both send chat text to
