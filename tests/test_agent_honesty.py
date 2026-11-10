@@ -1,8 +1,7 @@
-"""No agent pretends to be human (owner guardrail, 2026-11-06), nor any place.
+"""No agent pretends to be human (owner guardrail, 2026-11-06), nor any place
+(owner decision, 2026-11-10).
 
-The place half (the place bible's line and ``honesty.place_answer``) is
-proposed in PR #158 and awaits the owner's decision; the guardrail names
-agents. Behaviour through the real ``/speak`` and ``/agent/voice`` endpoints
+Behaviour through the real ``/speak`` and ``/agent/voice`` endpoints
 with a recording fake provider. A line that is only a sincere identity
 question gets the authored truthful line with no provider call and no voice
 charge, with the AI layer on and off; it is still screened and rate limited,

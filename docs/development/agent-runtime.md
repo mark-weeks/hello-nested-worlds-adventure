@@ -404,11 +404,9 @@ a cache hit from the presence of `cache_control` alone.
 ### Honesty about being an AI
 
 The owner's guardrail (2026-11-06): no agent claims or implies that it is human, and
-a sincere question gets a plain answer that the agent is an AI. The guardrail names
-agents, not places. Extending it to places (the place bible's line,
-`honesty.place_answer` on `/speak`, and the guide's sentence that places speak through
-an AI) is proposed in PR #158 and awaits the owner's decision; the text below
-describes the code as it stands, places included. Two layers carry it. The
+a sincere question gets a plain answer that the agent is an AI. On 2026-11-10 the owner
+extended it to places (the place bible's line, `honesty.place_answer` on `/speak`, and
+the guide's sentence that places speak through an AI). Two layers carry it. The
 deterministic layer answers the lines it reads on `/speak` and `/agent/voice`, with the
 AI layer on or off and with any provider; everywhere else, and for paraphrases it does
 not read, the model layer is the only one, an instruction measured by the eval floor

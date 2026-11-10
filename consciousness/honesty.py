@@ -2,9 +2,8 @@
 
 The owner's guardrail (2026-11-06): agents never claim or imply that they
 are human, and a sincere identity question gets a plain answer that the agent
-is an AI. The guardrail names agents, not places: extending it to places
-(:func:`place_answer` and the place bible's line) is proposed in PR #158 and
-awaits the owner's decision. The voice bibles instruct the model the same
+is an AI. The owner extended it to places on 2026-11-10 (:func:`place_answer`
+and the place bible's line). The voice bibles instruct the model the same
 way. This module is the deterministic half: on ``/speak`` and
 ``/agent/voice`` a line it reads, put to a place or a known agent and passed
 by the moderation screen, gets the authored answer with the AI layer on or

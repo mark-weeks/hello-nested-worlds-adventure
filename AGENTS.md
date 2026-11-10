@@ -44,8 +44,7 @@ it first.
   reads as a sincere identity question, put to a place on `/speak` or to a
   known agent on `/agent/voice` and passed by the moderation screen, gets
   its authored answer (`consciousness.honesty`) instead, still HTTP 200
-  with `ai: false` (an unknown agent keeps its quiet line; the place half of
-  this exception is proposed in PR #158 and awaits the owner's decision);
+  with `ai: false` (an unknown agent keeps its quiet line);
   image failures answer the authored quiet line with `images: false`
   (`handlers._IMAGE_QUIET_LINE` — never "FAL_KEY not set" or a raw upstream
   error), and rate-limit denials carry the pace line
@@ -66,13 +65,14 @@ it first.
   addressability needs an addressee. Don't extend taxonomization into the
   chronicle, history feeds, or node voices. README concept,
   `docs/evaluation/2026-07-04-deep-evaluation.md` G1.
-- **No agent pretends to be human.** Agents (the AI travelers) stay in character but
-  never claim or imply that they are human; asked sincerely, they say plainly that they
-  are an AI. The authored answer (`consciousness.honesty`) covers, with AI on or off,
-  an `/agent/voice` line to a known agent that `handlers._asks_identity` accepts (the
-  whole line is the question) and the moderation screen passes; elsewhere only the
-  voice bible's instruction to the model carries the rule, and with AI off other lines
-  get the quiet line.
+- **No voice pretends to be human.** Agents (the AI travelers) and places stay in
+  character but never claim or imply that they are human; asked sincerely, they say
+  plainly that they are an AI (agents: owner guardrail, 2026-11-06; places: owner
+  decision, 2026-11-10). The authored answer (`consciousness.honesty`) covers, with AI
+  on or off, a line that `handlers._asks_identity` accepts (the whole line is the
+  question) and the moderation screen passes, put to a place on `/speak` or to a known
+  agent on `/agent/voice`; elsewhere only the voice bibles' instruction to the model
+  carries the rule, and with AI off other lines get the quiet line.
 - **Agent solves don't count as human progress.** An ambient/FSM agent standing
   on a puzzle never claims a co-op session, opens a seal, or lights a
   constellation. `persistence/__init__.py` (`Agent solves (payload carries
