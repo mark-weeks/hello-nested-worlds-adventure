@@ -107,7 +107,7 @@ class PuzzleEngine:
             if result == PuzzleResult.SOLVED:
                 print("Correct!")
             elif result == PuzzleResult.FAILED:
-                print("Failed.")
+                print("The question keeps its answer.")
             else:
                 print("Wrong." + (f" Hint: {hint}" if hint else ""))
 

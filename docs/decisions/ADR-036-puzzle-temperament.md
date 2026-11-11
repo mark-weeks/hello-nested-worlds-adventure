@@ -16,12 +16,16 @@ on `claude/pilot-measurement`, read at `8f8e969`) and ADR-037 (#160, Proposed,
 `docs/decisions/ADR-037-agents-as-conversational-players.md` on
 `claude/adr-037-agents-in-chat`, read at `4267eba`).
 
-**Implementation note (2026-11-11):** The owner's instruction to continue the
-recommended staging work separately authorizes D8 batch **1a**, withdrawing
-answer disclosure alone. Its [implementation record](../evaluation/2026-11-11-puzzle-answer-withdrawal.md)
-tracks the response, CLI and client changes and their checks. The shared
-pool, `FAILED` and write paths remain. This does not accept the rest of this
-Proposed ADR or settle its open questions; batches 1b–4 remain unimplemented.
+**Implementation note (2026-11-11):** PR #170 prepares D8 batch **1a** from
+the owner's Codex working-session request, "Shall we proceed with remaining
+implementation in the recommended sequence?" Owner approval of that PR
+confirms this bounded scope, its authored line and the unchanged interim
+post-exhaustion behavior; it does not accept the rest of this Proposed ADR.
+The [implementation record](../evaluation/2026-11-11-puzzle-answer-withdrawal.md)
+tracks the checks and limits. The intended order puts 1a in the first
+production image, before the first boot, as the rollback floor for 1b. The
+shared pool, `FAILED` and write paths remain; batches 1b–4 and their open
+questions are not implemented or settled here.
 
 ## Context
 

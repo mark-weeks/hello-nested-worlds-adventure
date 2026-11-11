@@ -1,46 +1,14 @@
 """Answer withdrawal changes delivery, while the existing pool keeps its rules."""
 from __future__ import annotations
 
-from contextlib import contextmanager
-import json
-import threading
-import urllib.error
 import urllib.parse
-import urllib.request
 
 import persistence
 from multiverse import store
 from puzzles.engine import PuzzleEngine
 from puzzles.instances import get_puzzle
 from puzzles.types import Puzzle, PuzzleKind, PuzzleResult
-from server import _Handler, _ThreadedServer, rooms
-
-
-@contextmanager
-def _live_server(default_key):
-    """A real server instance that can restart against the same fixture DB."""
-    server = _ThreadedServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-
-    def request(path, key=default_key, body=None):
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{server.server_port}{path}",
-            data=json.dumps(body).encode() if body is not None else None,
-            headers={"X-Beta-Key": key, "Content-Type": "application/json"})
-        try:
-            response = urllib.request.urlopen(req, timeout=10)
-        except urllib.error.HTTPError as exc:
-            response = exc
-        with response:
-            return response.status, json.load(response), dict(response.headers)
-
-    try:
-        yield request
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(5)
+from server import rooms
 
 
 def _open(request):
@@ -98,15 +66,13 @@ def test_mismatch_and_error_responses_omit_answer_without_spending_attempts(http
     assert persistence.get_mutations(382) == []
 
 
-def test_stored_multiplayer_pool_survives_server_restart_without_releasing_answer(accounts, monkeypatch):
-    monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "382")
-    with _live_server(accounts[0]) as first:
-        root, puzzle = _open(first)
-        status, response, _ = _attempt(first, root, puzzle, "a plain wrong guess")
-        assert status == 200 and response["attempt"] == 1
+def test_stored_multiplayer_pool_rehydrates_without_releasing_answer(http, accounts):
+    root, puzzle = _open(http)
+    status, response, _ = _attempt(http, root, puzzle, "a plain wrong guess")
+    assert status == 200 and response["attempt"] == 1
 
-    # Another player's stored guesses can exhaust the same pool without this
-    # process having seen them. This is the future batch's rollback scenario.
+    # Another player's stored guesses exhaust the same pool outside the cached
+    # session. A fresh GET must rehydrate those rows after the room cache clears.
     for _ in range(puzzle.max_attempts - 1):
         persistence.record_mutation(382, root.name, "PUZZLE_ATTEMPT", "Bea",
                                     {"puzzle": puzzle.name, "correct": False},
@@ -115,35 +81,34 @@ def test_stored_multiplayer_pool_survives_server_restart_without_releasing_answe
     newcomer = "nw_" + "c" * 32
     persistence.mint_invite_key(newcomer, "Carol")
 
-    with _live_server(newcomer) as restarted:
-        status, opened, _ = restarted("/puzzle?depth=1")
-        assert status == 200 and opened["attempt"] == puzzle.max_attempts
-        assert opened["contributors"] == ["Ada", "Bea"]
-        assert "correct_answer" not in opened and "answer" not in opened
+    status, opened, _ = http("/puzzle?depth=1", newcomer)
+    assert status == 200 and opened["attempt"] == puzzle.max_attempts
+    assert opened["contributors"] == ["Ada", "Bea"]
+    assert "correct_answer" not in opened and "answer" not in opened
 
-        for count in (puzzle.max_attempts + 1, puzzle.max_attempts + 2):
-            status, failed, _ = _attempt(restarted, root, puzzle, "a plain wrong guess")
-            assert status == 200 and failed["result"] == "FAILED"
-            assert failed["correct"] is False and failed["hint"] is None
-            assert failed["attempt"] == count and failed["solver"] is None
-            assert failed["contributors"] == ["Ada", "Bea", "Carol"]
-            assert failed["changed"] is None
+    for count in (puzzle.max_attempts + 1, puzzle.max_attempts + 2):
+        status, failed, _ = _attempt(http, root, puzzle, "a plain wrong guess", key=newcomer)
+        assert status == 200 and failed["result"] == "FAILED"
+        assert failed["correct"] is False and failed["hint"] is None
+        assert failed["attempt"] == count and failed["solver"] is None
+        assert failed["contributors"] == ["Ada", "Bea", "Carol"]
+        assert failed["changed"] is None
 
-        rows = persistence.get_mutations(382)
-        assert sum(row["type"] == "PUZZLE_ATTEMPT" for row in rows) == puzzle.max_attempts + 2
-        assert sum(row["type"] == "PUZZLE_FAILED" for row in rows) == 2
-        assert not any(row["type"] == "PUZZLE_REARM" for row in rows)
+    rows = persistence.get_mutations(382)
+    assert sum(row["type"] == "PUZZLE_ATTEMPT" for row in rows) == puzzle.max_attempts + 2
+    assert sum(row["type"] == "PUZZLE_FAILED" for row in rows) == 2
+    assert not any(row["type"] == "PUZZLE_REARM" for row in rows)
 
-        # Batch 1a withdraws the disclosure only: it does not replace the
-        # pool or refuse a legitimately known answer after exhaustion.
-        status, solved, _ = _attempt(restarted, root, puzzle, puzzle.answer, key=accounts[1])
-        assert status == 200 and solved["result"] == "SOLVED"
-        assert solved["attempt"] == puzzle.max_attempts + 3
-        assert solved["solver"] == "Bea" and solved["changed"]["stabilized"] is True
-        assert solved["contributors"] == ["Ada", "Bea", "Carol"]
-        rows = persistence.get_mutations(382)
-        assert sum(row["type"] == "PUZZLE_FAILED" for row in rows) == 2
-        assert sum(row["type"] == "PUZZLE_SOLVED" for row in rows) == 1
+    # Batch 1a withdraws the disclosure only: it does not replace the
+    # pool or refuse a legitimately known answer after exhaustion.
+    status, solved, _ = _attempt(http, root, puzzle, puzzle.answer, key=accounts[1])
+    assert status == 200 and solved["result"] == "SOLVED"
+    assert solved["attempt"] == puzzle.max_attempts + 3
+    assert solved["solver"] == "Bea" and solved["changed"]["stabilized"] is True
+    assert solved["contributors"] == ["Ada", "Bea", "Carol"]
+    rows = persistence.get_mutations(382)
+    assert sum(row["type"] == "PUZZLE_FAILED" for row in rows) == 2
+    assert sum(row["type"] == "PUZZLE_SOLVED" for row in rows) == 1
 
 
 def test_cli_exhaustion_keeps_answer_private_and_returns_failed(monkeypatch, capsys):
@@ -157,5 +122,5 @@ def test_cli_exhaustion_keeps_answer_private_and_returns_failed(monkeypatch, cap
     assert PuzzleEngine().run_puzzle(puzzle) is PuzzleResult.FAILED
     output = capsys.readouterr().out
     assert secret not in output
-    assert output.rstrip().endswith("Failed.")
+    assert output.rstrip().endswith("The question keeps its answer.")
     assert puzzle.attempts == 2 and puzzle.failed

@@ -55,6 +55,8 @@ for (const client of ['/', '/app']) for (const legacy of [false, true]) {
   test(`${client}: an exhausted real pool keeps its answer hidden${legacy ? ', including an old response field' : ''}`, async ({page}) => {
     const server = await fixture();
     const upstreamResults = [];
+    const browserResults = [];
+    let failedInjections = 0;
     try {
       await page.addInitScript(({node, key, player}) => {
         localStorage.setItem('nw_seen_intro', '1');
@@ -63,10 +65,13 @@ for (const client of ['/', '/app']) for (const legacy of [false, true]) {
         localStorage.setItem('nw_beta_key', key);
         localStorage.setItem('nw_last_node', node);
       }, {node: server.node, key, player});
-      if (legacy) await page.route('**/puzzle/attempt', async route => {
+      // Both clients append their invite key to the URL. Match the path so
+      // this fixture also intercepts /puzzle/attempt?key=... under Playwright.
+      if (legacy) await page.route(url => url.pathname === '/puzzle/attempt', async route => {
         const response = await route.fetch();
         const data = await response.json();
         upstreamResults.push(data);
+        if (data.result === 'FAILED') failedInjections += 1;
         await route.fulfill({response, json: data.result === 'FAILED'
           ? {...data, correct_answer: legacyAnswer} : data});
       });
@@ -83,11 +88,19 @@ for (const client of ['/', '/app']) for (const legacy of [false, true]) {
         ]);
         expect(response.status()).toBe(200);
         const result = await response.json();
+        browserResults.push(result);
         if (!legacy) upstreamResults.push(result);
         expect(result.correct).toBe(false);
         expect(result.attempt).toBe(index + 1);
         expect(result.result).toBe(index ? 'FAILED' : 'UNSOLVED');
+        if (legacy && index === 1) expect(result).toHaveProperty('correct_answer', legacyAnswer);
+        else expect(result).not.toHaveProperty('correct_answer');
       }
+      expect(upstreamResults).toHaveLength(2);
+      expect(browserResults).toHaveLength(2);
+      expect(failedInjections).toBe(legacy ? 1 : 0);
+      expect(browserResults.filter(result => Object.hasOwn(result, 'correct_answer'))).toEqual(
+        legacy ? [expect.objectContaining({result: 'FAILED', correct_answer: legacyAnswer})] : []);
       for (const result of upstreamResults) expect(result).not.toHaveProperty('correct_answer');
       await expect(page.getByText(failureLine, {exact: true})).toBeVisible();
       await expect(input).toBeDisabled();
@@ -100,6 +113,16 @@ for (const client of ['/', '/app']) for (const legacy of [false, true]) {
       await page.reload();
       await page.getByRole('button', {name: 'Puzzle', exact: true}).click();
       await expect(page.getByText('The Fixture Question', {exact: true})).toBeVisible();
+      await expect(input).toBeVisible();
+      // Preserve the current reload divergence explicitly. Correcting the
+      // reopened scene input is part of batch 1b, not answer withdrawal.
+      if (client === '/') {
+        await expect(input).toBeDisabled();
+        await expect(page.locator('#puzzle-submit')).toBeDisabled();
+      } else {
+        await expect(input).toBeEnabled();
+        await expect(page.getByRole('button', {name: 'Submit', exact: true})).toBeEnabled();
+      }
       const reopened = await (await page.request.get(server.url + '/puzzle?node_name=' + encodeURIComponent(server.node),
         {headers: {'X-Beta-Key': key}})).json();
       expect(reopened.attempt).toBe(2);

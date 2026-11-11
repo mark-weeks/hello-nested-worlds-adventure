@@ -9,6 +9,14 @@ The executed measurements, with their source, salts and outputs, are in the
 **Amends ADR-010 in part, on ratification:** the Causal Augury's election
 becomes a keyed hash of the node's identity and the deployment salt (D2).
 
+**Answer-withdrawal cross-reference (2026-11-11):** [PR #170](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/170)
+implements ADR-036 batch 1a separately. On its merge, direct answer release
+is removed from responses, the CLI and both clients. The answer-release
+observations and source-line references below describe the code before
+#170; post-exhaustion guessing remains the separate batch-1b issue recorded
+in the [implementation evidence](../evaluation/2026-11-11-puzzle-answer-withdrawal.md).
+This does not adopt or implement the salt proposal.
+
 ## Context
 
 **The question.** Before the first production boot, should the hosted world
