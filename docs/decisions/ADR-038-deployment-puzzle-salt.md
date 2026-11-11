@@ -46,7 +46,10 @@ everyone can use it. The table describes the born world. A puzzle is pinned
 from the live node, overlays applied (`puzzles/instances.py:24-37`, `:50-57`),
 so a world-reading puzzle first opened after players change its evidence
 (a Region's terrain or weather, a Molecule's geometry) follows the changed
-properties instead. Every other puzzle matches the table.
+properties instead. Word puzzles can differ too, because their word choice
+and the leak screen avoid the node's property values
+(`puzzles/generators.py:268-279`, `:329-342`). Every puzzle matches the table
+until a property it reads changes.
 
 **3. Puzzles become permanent from the first heartbeat tick** (read).
 `puzzles/instances.py:46-68` (`get_puzzle`) pins a definition the first time
@@ -229,10 +232,13 @@ drawn under the salt.
   - difficulty is "a character trait; content is what renews"
     (`puzzles/generators.py:1136-1139`);
   - ADR-010's Augury "survives renewal by contract".
-- **Why the pin is always there:** a node renews only after a solve
-  (`causality/wiring.py:54-65`), and a solve pins the epoch-0 puzzle. B1
-  reads the traits through `get_puzzle`, which would pin epoch 0 if it were
-  ever missing.
+- **When there is no epoch-0 pin yet:** a node renews after a recorded
+  solve (`causality/wiring.py:54-69`). A solve that a player or an agent
+  makes pins epoch 0. A propagated `PUZZLE_SOLVED` can, however, be recorded
+  on a node whose puzzle was never opened (`causality/staging.py:154-160`).
+  So B1 must read the traits through `get_puzzle` at epoch 0, which pins it
+  first if it is missing. A puzzle nobody opened has traits nobody has seen,
+  so pinning them then breaks no continuity.
 
 **ADR-036's proposed temperament draw stays unkeyed** unless ADR-036 stores
 it in the pin. It is read at use and never stored (ADR-036 D1). A keyed draw
@@ -403,7 +409,9 @@ unchanged. This ADR edits none of these files.
 - the accessor, the keyed draws, renewals that read the epoch-0 pin's traits,
   and the marked-deployment refusal;
 - the `fly.toml` marker and the `deploy.sh` check;
-- Sentry's `include_local_variables=False`, or a scrubber for the salt (D3);
+- Sentry's `include_local_variables=False` (D3). A scrubber would have to
+  remove both the salt and every puzzle answer to pass the capture test
+  below;
 - `main.py puzzle-audit`;
 - the D8 clause, once approved;
 - the `fly-deployment.md` steps, with the staging salt set before staging's
