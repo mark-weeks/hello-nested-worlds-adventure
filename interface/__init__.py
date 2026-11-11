@@ -241,7 +241,7 @@ def _speak_to(node: SpatialNode, message: str, seed: int = 0,
         _log.warning("speak fallback: %s", type(exc).__name__)
         print(f"  {_DIM}(The worlds are silent today.){_RESET}\n")
         return
-    history = persistence.get_node_history(seed, node.name)
+    history = consciousness.history_for_voice(seed, node.name)
     transcript = persistence.get_player_exchanges(seed, node.name, player_name)
     try:
         response = consciousness.speak(

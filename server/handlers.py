@@ -1290,9 +1290,13 @@ class Handler(BaseHTTPRequestHandler):
                     # provenance row. With AI on and a provider configured
                     # it is recorded below like any other reply; with the
                     # kill switch on or no provider configured it is not.
+                    # Once recorded, no voice's history quotes this exchange
+                    # (consciousness._is_identity_exchange); the asker's own
+                    # transcript with this place keeps it, and a later reply
+                    # that restates it is recorded as an ordinary row.
                     response = honesty.place_answer(node.level)
                 else:
-                    history = persistence.get_node_history(seed, node.name)
+                    history = consciousness.history_for_voice(seed, node.name)
                     transcript = persistence.get_player_exchanges(
                         seed, node.name, identity)
                     response = consciousness.speak(
@@ -1584,10 +1588,12 @@ class Handler(BaseHTTPRequestHandler):
             import consciousness
             if honest:
                 # Authored, so no voice allowance, no voice call and no
-                # provenance row; recorded below only when `recorded`.
+                # provenance row; recorded below only when `recorded`, and
+                # left out of the history any voice reads
+                # (consciousness._is_identity_exchange).
                 response = honesty.agent_answer(persona.name)
             else:
-                history = persistence.get_node_history(seed, node.name)
+                history = consciousness.history_for_voice(seed, node.name)
                 from persistence.situations import keeper_history
                 commitments = keeper_history(seed, agent_name, node.name)
                 commitment_ids = {event['id'] for event in commitments}

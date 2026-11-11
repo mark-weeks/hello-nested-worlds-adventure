@@ -18,6 +18,11 @@ and an unknown agent keep their quiet or hold line):
 - :func:`agent_answer` and :func:`place_answer` are the authored replies:
   one per inhabitant archetype, one for every place below the root and one
   for the root.
+- :func:`is_authored_answer` tells whether a stored reply is one of those
+  lines, or one they returned before a rewording (:data:`AUTHORED_ANSWERS`);
+  the history fed to voices leaves such a recorded exchange out, so no later
+  voice quotes it. A later model reply that restates the answer in other
+  words is not one of these lines and is quoted like any other.
 
 ``/speak`` and ``/agent/voice`` read the line first and, after the place
 lookup and the moderation screen, give the authored answer instead of the
@@ -78,6 +83,7 @@ from consciousness import WANDERER_CAST
 # speaker is not human and is an AI. None opens with "No", which would
 # answer "are you an AI?" the wrong way round before correcting itself.
 # Player-facing text: the owner approves or vetoes these strings verbatim.
+# Rewording one? Move the old line to _RETIRED_ANSWERS below; never drop it.
 
 AGENT_ANSWERS: dict[str, str] = {
     "tender": (
@@ -101,8 +107,8 @@ AGENT_ANSWERS: dict[str, str] = {
 # persona name the catalog does not know, so the answer is never a lie.
 _AGENT_DEFAULT = "I'm not human. I'm an AI, one of the travelers in this world."
 
-# The place answers are the proposed half (module docstring): the owner's
-# guardrail names agents, and these await the owner's decision.
+# A place says it is a place, not a person, and that an AI voices it (owner
+# decision, 2026-11-10).
 PLACE_ANSWER = (
     "I am not a person. I am a place in this world, and the voice you hear "
     "from me comes from an AI."
@@ -123,6 +129,37 @@ def agent_answer(persona_name: str | None) -> str:
 def place_answer(level: str | None = None) -> str:
     """The authored truthful answer for a place: one line for the root, one for every other scale."""
     return ROOT_PLACE_ANSWER if level == _ROOT_LEVEL else PLACE_ANSWER
+
+
+# Lines :func:`agent_answer` or :func:`place_answer` returned before the owner
+# reworded them. A recorded row keeps the words it was answered with for good
+# (the chronicle is append-only), and the history filter below knows a row
+# only by those words, so a line never leaves AUTHORED_ANSWERS once main has
+# shipped it: when an answer is reworded, its old text moves here, verbatim.
+# Empty while every line reads as #158 merged it.
+# ``tests/test_agent_honesty.py`` pins every line main has shipped.
+_RETIRED_ANSWERS: tuple[str, ...] = ()
+
+# Every line :func:`agent_answer` and :func:`place_answer` can return, and
+# every line they returned before a rewording. With AI on, an identity
+# exchange is recorded like any reply, but the history fed to voices
+# (``consciousness._history_block``) leaves that exchange out, so no later
+# voice quotes it to another traveler (owner decision, 2026-11-10). Only the
+# recorded exchange is known by these lines: a later model reply that
+# restates one in other words, such as a place's next turn with the asker,
+# is not.
+AUTHORED_ANSWERS: frozenset[str] = frozenset(
+    (*AGENT_ANSWERS.values(), _AGENT_DEFAULT, PLACE_ANSWER, ROOT_PLACE_ANSWER,
+     *_RETIRED_ANSWERS))
+
+
+def is_authored_answer(text: object) -> bool:
+    """Whether ``text`` is one of the authored identity answers.
+
+    Matches the stored text exactly once surrounding whitespace is stripped,
+    so a reply that quotes an answer inside other words is not one.
+    """
+    return isinstance(text, str) and text.strip() in AUTHORED_ANSWERS
 
 
 # ── Recognizing a sincere identity question ─────────────────────────────────
