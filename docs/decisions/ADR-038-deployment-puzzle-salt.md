@@ -6,6 +6,8 @@ sets no secret, and authorizes no implementation, deployment or merge. Cited
 ranges were read at `e8081c0`. Claims are *executed*, *read* or *inferred*.
 The executed measurements, with their source, salts and outputs, are in the
 [salt-probe record](../evaluation/2026-11-11-puzzle-salt-probes.md).
+**Amends ADR-010 in part, on ratification:** the Causal Augury's election
+becomes a keyed hash of the node's identity and the deployment salt (D2).
 
 ## Context
 
@@ -211,12 +213,36 @@ salt keeps off a one-guess table from about 75% to about 84–85% (finding 4).
   the puzzle as served, so neither needs a change.
 - **The Augury still serves about 10% of the inhabited scales,** the share
   ADR-010 tuned against the ecology gate. Which nodes serve it now depends on
-  the salt. Every one of 403 salts passes the gate (D7).
+  the salt: 365–391 under the three test salts, against ADR-010's census of
+  396 unsalted. Every one of 403 salts passes the gate (D7). This is the part
+  of ADR-010 that D2 amends. ADR-010's census and the README's "396
+  hash-elected nodes (9.41%)" describe the unsalted world.
 
-**Left unkeyed:**
-- **`node_rng` in `puzzles/engine.py:36`.** That fallback serves only
-  non-canonical test levels.
-- **World birth.** `world_nodes`, names and properties are untouched.
+**A renewal keeps its node's epoch-0 traits.** For epoch 1 and later,
+difficulty and whether the node serves the Augury come from the node's
+epoch-0 pin, not from a fresh keyed draw. Only the renewal's content is
+drawn under the salt.
+- **Why the pin, not the salt, carries them** (executed): under one salt the
+  two agree. Rebuilding seed 382 at epoch 1 kept all 4,208 difficulties and
+  all 391 Auguries. After a rotation they would not: only 1,073 difficulties
+  and 35 of 391 Auguries survived. That would break two promises:
+  - difficulty is "a character trait; content is what renews"
+    (`puzzles/generators.py:1136-1139`);
+  - ADR-010's Augury "survives renewal by contract".
+- **Why the pin is always there:** a node renews only after a solve
+  (`causality/wiring.py:54-65`), and a solve pins the epoch-0 puzzle. B1
+  reads the traits through `get_puzzle`, which would pin epoch 0 if it were
+  ever missing.
+
+**ADR-036's proposed temperament draw stays unkeyed** unless ADR-036 stores
+it in the pin. It is read at use and never stored (ADR-036 D1). A keyed draw
+read at use would change a pinned puzzle's temperament on rotation, against
+D6.
+
+**Not keyed:** world birth. `world_nodes`, names and properties are
+untouched. The engine's fallback for non-canonical test levels
+(`puzzles/engine.py:36`) calls `node_rng` and so is keyed too; it serves no
+canonical node.
 
 **With no salt, or an empty one,** the code takes today's `sha256` path,
 byte-identical. The continuity pins, local play, the CLI, tests and local
@@ -292,8 +318,10 @@ homes hold none.
 
 Pinned definitions are the authority: `get_puzzle` reads the pinned row
 first (`puzzles/instances.py:47-49`). So a new salt changes only puzzles not
-yet pinned. A lost salt is replaced, and a suspected leak is answered by
-rotation. A leak costs only the secrecy the salt bought, for the puzzles
+yet pinned. A renewal keeps its node's difficulty and Augury family from the
+epoch-0 pin (D2), so a rotation changes no node's traits either, only the
+content of puzzles not yet opened. A lost salt is replaced, and a suspected
+leak is answered by rotation. A leak costs only the secrecy the salt bought, for the puzzles
 pinned under it.
 
 **The secret's lifecycle:**
@@ -355,16 +383,25 @@ sentence:
 
 The covenant "Difficulty is per-node, never a depth curve" says each node
 "draws its own 1–4 difficulty from its identity". It would add "and the
-deployment's puzzle salt (ADR-038)", and the README's puzzle row would say
-the same.
+deployment's puzzle salt (ADR-038), kept across renewals".
+
+B1 would also bring these into line, with no approval needed beyond this
+ADR's:
+- the README puzzle row's Augury census ("396 hash-elected nodes (9.41%,
+  stable across renewal epochs)"), which would describe the unsalted world;
+- `docs/architecture/overview.md:129` ("draws each node's 1–4 rating from
+  its identity");
+- the generator's module comment and `node_difficulty` docstring
+  (`puzzles/generators.py:21-27`, `:65-71`).
 
 The salt is a constant, not entropy, so the no-entropy rule stands
-unchanged. This ADR edits neither `AGENTS.md` nor the README.
+unchanged. This ADR edits none of these files.
 
 ### Batches
 
 **B1 — one implementation PR:**
-- the accessor, the keyed draws and the marked-deployment refusal;
+- the accessor, the keyed draws, renewals that read the epoch-0 pin's traits,
+  and the marked-deployment refusal;
 - the `fly.toml` marker and the `deploy.sh` check;
 - Sentry's `include_local_variables=False`, or a scrubber for the salt (D3);
 - `main.py puzzle-audit`;
@@ -384,7 +421,8 @@ unchanged. This ADR edits neither `AGENTS.md` nor the README.
   (`tests/test_puzzles.py`) pass, parametrized over a test salt;
 - the ecology gate passes under the test salts;
 - a marked process without a salt refuses to start;
-- rotation changes no pinned puzzle and no solve;
+- rotation changes no pinned puzzle and no solve, and a renewal after a
+  rotation keeps the node's epoch-0 difficulty and Augury family;
 - the salt is absent from every served payload, every log line and every
   error;
 - an exception raised inside a keyed draw, or in a frame holding a puzzle,
@@ -495,9 +533,10 @@ B1 and B2 must also come before it.
 - **A puzzle family changes how its answer is drawn**, or ADR-015/ADR-036
   change what is served or how many guesses a player gets. Rerun the
   [salt probe](../evaluation/2026-11-11-puzzle-salt-probes.md), scored at the
-  new guess limit, and D7. If
-  ADR-036 is ratified, run its band searchers and pass bar under the test
-  salts too.
+  new guess limit, and D7. If ADR-036 is ratified:
+  - run its band searchers and pass bar under the test salts too;
+  - check its "keeps its temper as it keeps its difficulty" against D2's
+    renewal rule and the unkeyed temperament draw.
 - **Production is ever restored from a non-production backup.**
 
 ## Rejected alternatives
@@ -523,8 +562,16 @@ B1 and B2 must also come before it.
   400 attacker salts). No answer is the same under every salt, but the first
   guess is right for 17.1–18.3% (3–5 guesses: 34.8–36.3%), against
   14.8–15.9% (31.1–32.1%) with difficulty keyed too. Keying difficulty also
-  hides each puzzle's family weights and attempt count until its prompt is
-  served.
+  keeps each puzzle's family weights and attempt count off an offline table.
+  A client still reads them with the prompt. Until ADR-036 D5 ends ambient
+  attempts, they are also in `/history` for places the cast has attempted
+  (`server/heartbeat.py:483-487`).
+- **Drawing renewal traits under the current salt** (measured). This is
+  simpler than D2's renewal rule, but a rotation, or dropping the salt, would
+  change difficulty at about three quarters of nodes and move about nine in
+  ten Auguries at their next renewal (D2).
+- **A second salt for traits that is never rotated.** Losing it would cause
+  the same breakage, and it would be one more secret to hold.
 - **Moving word banks and the hand-written pools out of the public
   repository.** This covers anagrams and the hand-written pool, about 13% of
   puzzles, which an offline list

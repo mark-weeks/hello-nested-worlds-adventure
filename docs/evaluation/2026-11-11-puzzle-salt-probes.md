@@ -296,9 +296,10 @@ for variant, (key_election, key_difficulty) in VARIANTS.items():
         g.node_difficulty(NODES[i]) for i in range(len(NODES)) if every[i]))
     # 3. An offline attacker who never sees a deployed salt ranks, per node, the
     #    answers its own N builds produce, most frequent first, and is scored at
-    #    four list lengths: 1; the node's pooled attempts today (max_attempts,
-    #    3 to 5, from the unkeyed difficulty); 12, ADR-036's proposed daily cap
-    #    per player; and every candidate it has seen.
+    #    four list lengths: 1; the deployed puzzle's pooled attempts
+    #    (max_attempts, 3 to 5, from its difficulty as served: unkeyed in
+    #    "content" and "content+election", keyed in "all"); 12, ADR-036's
+    #    proposed daily cap per player; and every candidate it has seen.
     v["attack"] = {}
     for n in SCORED_AT:
         ranked = [[a for a, _ in collections.Counter(run_[i] for run_ in attacker[:n]).most_common()]
