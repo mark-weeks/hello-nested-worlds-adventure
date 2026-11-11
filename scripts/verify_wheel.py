@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _MIGRATION_PREFIX = "persistence/migrations/"
-_SCHEMA_VERSIONS = list(range(1, 30))
+_SCHEMA_VERSIONS = list(range(1, 31))
 
 
 def _run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
@@ -48,12 +48,18 @@ def migration_versions(names: list[str]) -> list[int]:
     return versions
 
 
-def assert_schema29_inventory(source: dict[str, bytes]) -> None:
-    """This tree ships migrations 0001 through 0029 and no other SQL file."""
+def assert_source_schema_inventory(source: dict[str, bytes]) -> None:
+    """Ship versions 0001 through 0030, with blocks as the only migration 0030."""
+    retired = f"{_MIGRATION_PREFIX}0030_cost_budget_names.sql"
+    if retired in source:
+        raise RuntimeError(f"source contains a deleted migration: {retired}")
+    blocks = f"{_MIGRATION_PREFIX}0030_participant_blocks.sql"
+    if blocks not in source:
+        raise RuntimeError(f"schema 30 must include {blocks}")
     versions = migration_versions(list(source))
     if sorted(versions) != _SCHEMA_VERSIONS or len(versions) != len(_SCHEMA_VERSIONS):
         raise RuntimeError(
-            "source migrations must be exactly versions 0001 through 0029, "
+            "source migrations must be exactly versions 0001 through 0030, "
             f"found {sorted(versions)}"
         )
 
@@ -128,7 +134,7 @@ def main() -> None:
             wheel_dir = tmp / "dist"
             wheel_dir.mkdir()
             source = source_migrations(ROOT)
-            assert_schema29_inventory(source)
+            assert_source_schema_inventory(source)
             assert_build_tree_migrations(ROOT)
             _run(
                 sys.executable,
@@ -150,7 +156,7 @@ def main() -> None:
         with zipfile.ZipFile(wheel) as archive:
             names = set(archive.namelist())
             source = source_migrations(ROOT)
-            assert_schema29_inventory(source)
+            assert_source_schema_inventory(source)
             assert_migration_inventory(archive_migrations(archive), source)
             metadata_names = [n for n in names if n.endswith(".dist-info/METADATA")]
             if len(metadata_names) != 1:

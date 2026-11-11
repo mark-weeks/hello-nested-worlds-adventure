@@ -26,6 +26,38 @@
     return name;
   }
 
+  // Blocking is a private live-view preference. History and shared effects
+  // intentionally have no liveParticipant marker and stay visible.
+  function withoutBlockedLiveEvents(events, blocks) {
+    const hidden = new Set(blocks.map(b => b.id));
+    return events.filter(e => (!e.liveParticipant || !hidden.has(e.liveParticipant))
+      && !(e.liveParticipants || []).some(id => hidden.has(id)));
+  }
+
+  function liveEventsAfterWelcome(events, previousViewer, viewer) {
+    // A server restart replaces opaque targeting handles. Old live lines and
+    // encounter effects can no longer be matched to a new blocking choice.
+    if (!previousViewer || !viewer || previousViewer === viewer) return events;
+    return events.filter(e => !e.liveParticipant && !(e.liveParticipants || []).length);
+  }
+
+  async function savePersonalBlock(url, participant, blocked, request = root.fetch) {
+    const retry = 'Your block could not be saved. Try again.';
+    let response, data;
+    try {
+      response = await request(url, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({participant, blocked}),
+      });
+      data = await response.json();
+    } catch {
+      throw new Error(retry);
+    }
+    if (!response.ok) throw new Error(typeof data?.error === 'string' && data.error || retry);
+    if (!Array.isArray(data?.blocks)) throw new Error(retry);
+    return data.blocks;
+  }
+
   function findPath(node, name) {
     if (!node) return null;
     if (node.name === name) return [node];
@@ -540,6 +572,9 @@
   }
 
   root.EnfoldedClient = Object.freeze({
+    withoutBlockedLiveEvents,
+    liveEventsAfterWelcome,
+    savePersonalBlock,
     BADGE_RULES,
     causalFeedLine,
     createChatDraft,

@@ -380,9 +380,15 @@ class TestTwoTravelers:
         # Each line reached the other socket, under its sender's name.
         assert s["heard_by_bea"]["name"] == "Quorra"
         assert s["heard_by_ada"]["name"] == "Zephyrine"
+        # The same viewer-scoped handle follows arrival and movement, without
+        # exposing the other traveler's durable participant identity.
+        target = s["bea_arrives"]["participant_id"]
+        assert isinstance(target, str) and len(target) == 32
+        assert target != participants.identify(s["bea_key"])["id"]
         assert s["bea_moves"] == {"type": "player_move", "name": "Zephyrine",
                                   "node": COSOLVE_NODE,
-                                  "session_id": s["bea_moves"]["session_id"]}
+                                  "session_id": s["bea_moves"]["session_id"],
+                                  "participant_id": target}
 
     def test_a_cosolve_credits_both_registered_names(self, world):
         s = _meet_and_cosolve(world)

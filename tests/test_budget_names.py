@@ -448,11 +448,13 @@ def _rows():
 
 
 def test_schema29_and_this_binary_share_one_spent_allowance(monkeypatch):
-    """Upgrade and rollback on one database do not replenish or double-count.
+    """Legacy and current budget writers do not replenish or double-count.
 
     Both writers use the schema-29 keys. Spend recorded before the switch
     is still spent after it, and spend recorded after the switch is still
-    spent when the schema-29 writer runs again.
+    spent when the legacy budget helper runs again. This replays its counter
+    logic, not an old binary boot: the schema guard refuses a schema-29 binary
+    against a database whose schema has advanced.
     """
     monkeypatch.setenv(guard.ANTHROPIC_CAP_ENV, "3")
     monkeypatch.setenv(guard.ANTHROPIC_PER_USER_CAP_ENV, "2")
@@ -462,7 +464,7 @@ def test_schema29_and_this_binary_share_one_spent_allowance(monkeypatch):
     monkeypatch.delenv(guard.VOICE_PER_USER_CAP_ENV, raising=False)
     monkeypatch.delenv(guard.IMAGE_CAP_ENV, raising=False)
     monkeypatch.delenv(guard.IMAGE_PER_USER_CAP_ENV, raising=False)
-    assert persistence.schema_versions()[-1] == 29
+    assert persistence.schema_versions()[-1] == persistence.known_schema_version()
     day = _day()
     alice_voice = _schema29_user_bucket(_SCHEMA29_VOICE, "nw_alice")
     bob_voice = _schema29_user_bucket(_SCHEMA29_VOICE, "nw_bob")
@@ -502,8 +504,8 @@ def test_schema29_and_this_binary_share_one_spent_allowance(monkeypatch):
     assert persistence.get_cost_calls(guard.VOICE_BUCKET, day) == 0
     assert persistence.get_cost_calls(guard.IMAGE_BUCKET, day) == 0
 
-    # Rolled back. Bob's per-user row is already at its cap, so the
-    # schema-29 writer refuses before the global counter. A fresh user
+    # Replay the legacy budget writer. Bob's per-user row is already at its
+    # cap, so the helper refuses before the global counter. A fresh user
     # still has per-user room and is refused on the global spend this
     # binary already recorded. Neither call finds a new allowance.
     assert persistence.get_cost_calls(bob_voice, day) == 2
