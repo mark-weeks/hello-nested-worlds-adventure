@@ -144,6 +144,7 @@ ships, a decision is ratified, or a document moves to
 | [Incident response](../infrastructure/incident-response.md) | One-page operator playbook: kill switches, redaction, rollback versus restore, who decides | Operational. Records no policy decision |
 | [ADR-036: Puzzle temperament](../decisions/ADR-036-puzzle-temperament.md) | The owner's 2026-11-06 and 2026-11-07 puzzle decisions designed against the code: per-node temperaments, puzzle-wide grumpiness and per-player send-aways (always after a warning, within a proposed 24-hour cap of 12 misses) in place of the fixed pool and its answer release (F10), whole-answer warmer/colder bands measured per family over a day (the [band-searcher record](../evaluation/2026-11-07-puzzle-band-searchers.md)), no ambient agent attempts (superseding ADR-022's puzzle-eligibility paragraph in part), agents who help only on a human's proposal and never see the answer; four ordered batches, the first shipping its answer withdrawal alone as a rollback floor, and eight open questions | Proposed 2026-11-07, revised 2026-11-10, not ratified. Writes no code; authorizes no build |
 | [ADR-038: Deployment puzzle salt](../decisions/ADR-038-deployment-puzzle-salt.md) | Whether the hosted world gets a secret salt for puzzle content before its first boot: keep seed 382 (no puzzle draw reads the seed, and `/world` serves it); HMAC-key every draw in puzzle generation, difficulty and the Augury election included (amending ADR-010 in part), with a per-deployment salt, renewals keeping their epoch-0 difficulty and Augury family, birth unkeyed and the unsalted path byte-identical; a marked deployment refuses to run without it; separate staging and production salts; Sentry stops sending frame locals. Measured on seed 382 (the [salt-probe record](../evaluation/2026-11-11-puzzle-salt-probes.md)): an offline attacker using 400 salts of their own still guesses 15–16% of epoch-0 answers first time and 31–32% within today's 3–5 pooled attempts (every sealed lock and lineage), so the salt keeps at most about 84–85% off a one-guess table and 68–69% off such a list; every family stays mechanically solvable once its prompt is served, and the answer release (ADR-036 F10) stays until ADR-036 batch 1a | Proposed 2026-11-10, revised 2026-11-11; not ratified. Writes no code; sets no secret. Three open questions; the first must be answered before the first production boot |
+| [Backup schedule cadence](../evaluation/2026-11-11-backup-schedule-cadence.md) | What GitHub's schedule delivers for `backup.yml` against ADR-005's one-hour bound and the 60-minute default of `scripts/backup_health.py`: 1,018 runs measured, the consequence for standing commitment 1.2 and checklist P3 and P5, and five options with their costs | Findings for the owner (2026-11-11). The options and the recommendation are proposed by agent, not decided. Changes no workflow, threshold or ADR status |
 
 The owner's 2026-10-04 provider/model optionality direction is recorded in
 [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). It supersedes
@@ -249,7 +250,9 @@ kept so the archived text can be cross-read.
 - **1.2** Activate hosted backups: set `FLY_API_TOKEN`, the private-bucket
   secrets and variables in [backup-bucket.md](../infrastructure/backup-bucket.md),
   `ENFOLDED_BACKUP_APP`, and, before permanent history, `ENFOLDED_BACKUP_REQUIRED=true`;
-  dispatch `.github/workflows/backup.yml` (every 30 minutes, SQLite validation,
+  dispatch `.github/workflows/backup.yml` (scheduled every 30 minutes; the
+  [2026-11-11 cadence record](../evaluation/2026-11-11-backup-schedule-cadence.md)
+  measures one run in about five hours; SQLite validation,
   private bucket, no GitHub artifact), and prove freshness with
   `scripts/backup_health.py` (runbook §7–§8; readiness record "Remaining gates").
   Observed on GitHub on 2026-11-11: the schedule asks for a run every 30
@@ -274,7 +277,10 @@ kept so the archived text can be cross-read.
   [pilot protocol](../evaluation/2026-09-12-pilot-protocol.md) defines the
   measurements; depends on M7.
 - **4.1** Litestream-style continuous replication, the first post-launch
-  infrastructure batch (ADR-005; the phase-2 plan).
+  infrastructure batch (ADR-005; the phase-2 plan). The
+  [2026-11-11 cadence record](../evaluation/2026-11-11-backup-schedule-cadence.md)
+  lists bringing it forward as one of the owner's options for 1.2's one-hour
+  bound; that is proposed by agent, not decided.
 - **4.2** The `/app` device, accessibility and onboarding checks before using
   the cohort's devices. The owner selected `/app` as the pilot default on
   2026-11-04 (ADR-005); that choice does not supply the missing device or human
