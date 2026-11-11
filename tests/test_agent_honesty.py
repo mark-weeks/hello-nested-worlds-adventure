@@ -578,13 +578,15 @@ class Stub:
 
 @pytest.fixture(autouse=True)
 def _counters_wait_for_a_busy_store(monkeypatch):
-    """Let the best-effort counters wait out a busy store in these tests.
+    """Let every best-effort counter wait out a busy store in these tests.
 
-    In production the identity-answer and voice-outcome counters wait at most
+    In production the identity-answer, voice-outcome and moderation-outcome
+    counters (`server/observability.py`) wait at most
     `_VOICE_COUNTER_WAIT_MS` (50 ms) for the store and drop the count rather
     than hold the handler thread; tests/test_voice_outcomes.py pins that
-    bound. The tests here send requests back to back and then count exactly.
-    Each count is written after its reply, so on a slow disk the previous
+    bound for the voice-outcome and identity-answer counters. The tests here
+    send requests back to back and then count exactly. Each count is written
+    after its reply, so on a slow disk the previous
     request's write can hold the lock past 50 ms and a count is dropped
     (CI run 42922441921 on 2026-11-10 counted 3 of 6 `agent_voice` answers;
     reproduced locally under CPU and fsync load). Here the counters wait as

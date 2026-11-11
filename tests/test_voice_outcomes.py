@@ -353,6 +353,26 @@ class TestOutcomeRecording:
         assert any(m.startswith("voice_outcome counter unavailable")
                    for _, m in _voice_records(caplog))
 
+    def test_a_locked_store_cannot_hold_an_identity_answer(self, caplog):
+        # The identity-answer counter has the same ~50 ms bound (review on
+        # #165: tests/test_agent_honesty.py lifts it for its exact counts).
+        import time
+        persistence.get_cost_calls("warm", guard._utc_day())  # create the DB
+        holder = sqlite3.connect(persistence._DB_PATH)
+        holder.execute("BEGIN IMMEDIATE")
+        caplog.set_level(logging.WARNING, logger="nested_worlds")
+        try:
+            started = time.monotonic()
+            observability.identity_answer("speak", recorded=True)
+            elapsed = time.monotonic() - started
+        finally:
+            holder.rollback()
+            holder.close()
+        assert elapsed < 1.0
+        assert any(m.startswith("identity_answer counter unavailable")
+                   for _, m in _voice_records(caplog))
+        assert observability.identity_answer_summary() == {}
+
     def test_unknown_outcomes_are_a_programming_error(self):
         with pytest.raises(ValueError):
             observability.voice_outcome("speak", "mystery")
