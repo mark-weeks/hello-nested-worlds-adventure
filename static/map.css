@@ -33,6 +33,11 @@ header details[open] { flex-basis:100%; }
 .puzzle-diff { margin-left:8px; }
 .player-row { display:flex;gap:8px;align-items:center;padding:8px 0; }
 .player-node { margin-left:auto; }.player-dot { width:1rem;flex-shrink:0;text-align:center; }.traveler-row{width:100%;text-align:left}
+.traveler-controls { display:flex;align-items:center;gap:8px;margin:8px 0;min-width:0; }
+.traveler-controls > .traveler-row { flex:1;min-width:0; }
+.traveler-controls .player-name,.traveler-controls .player-node { min-width:0;overflow-wrap:anywhere; }
+.traveler-controls > span { flex:1;overflow-wrap:anywhere; }
+.block-control { margin-inline-start:8px; }
 #event-feed { max-height:18rem;overflow:auto; }.feed-item{font-size:.875rem;margin:12px 0;overflow-wrap:anywhere}.feed-time{margin-right:8px}
 #chat-row { display:flex;gap:8px; }#chat-input { flex:1; }
 .statusbar { color:var(--muted);font-size:.8125rem; }

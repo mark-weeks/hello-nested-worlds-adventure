@@ -18,6 +18,7 @@ and on 2026-11-07 for the owner's provider policy and venue preference
 S2, E2 and L4 go/no-go line), and on 2026-11-10 for review corrections
 (S2 and L4 evidence, and the held rows for destinations, puzzle failure and
 the watch venue; no status change); line numbers in other rows cite `23b8830`.
+The 2026-11-10 personal-block reconciliation updates C7/G1 and the P6 migration range.
 Thresholds marked as proposals are not decided.
 Decisions held for the owner are listed in this page and are not made by
 recording it. It ratifies no ADR and authorizes no deployment. The [Q4
@@ -58,15 +59,15 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Status | Count |
 |---|---|
 | Done | 13 |
-| Partial | 38 |
-| Not started | 42 |
+| Partial | 40 |
+| Not started | 40 |
 | Unknown | 2 |
 
 ### By category
 
 | Category | Items | Done | Partial | Not started | Unknown |
 |---|---|---|---|---|---|
-| Mark's seven criteria | 9 | 0 | 5 | 4 | 0 |
+| Mark's seven criteria | 9 | 0 | 6 | 3 | 0 |
 | First session and onboarding | 4 | 0 | 3 | 1 | 0 |
 | Retention and return | 5 | 0 | 3 | 1 | 1 |
 | Content depth and variety | 5 | 2 | 2 | 1 | 0 |
@@ -80,10 +81,10 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Legal and policy | 5 | 1 | 1 | 3 | 0 |
 | Deployment and ops | 6 | 1 | 1 | 4 | 0 |
 | Community and beta cohort | 4 | 0 | 1 | 3 | 0 |
-| Community governance and self-policing | 12 | 1 | 1 | 10 | 0 |
+| Community governance and self-policing | 12 | 1 | 2 | 9 | 0 |
 | Distinctiveness: why players return | 7 | 0 | 3 | 4 | 0 |
 
-> **Biggest gaps:** The core loop is built and tested locally, but no one except Mark has played it. Blocking, reporting, alignment and tangible rewards don't exist yet, puzzle fun is unmeasured, and every hosted gate (Fly, backups, live models) waits on Mark's account and decisions.
+> **Biggest gaps:** The core loop is built and tested locally, but no one except Mark has played it. Personal blocking is implemented locally; reporting, alignment and tangible rewards don't exist yet, puzzle fun is unmeasured, and every hosted gate (Fly, backups, live models) waits on Mark's account and decisions.
 
 **Legend.** *Gate*: **Blocks beta** or **Can follow** (nice-to-have for the first cohort); "Mark decides" marks a held decision. *Basis* of evidence: Code (read in the repo), Docs (ADRs, runbooks, records), Ran (script executed), Inference (proposal, not a repo fact).
 
@@ -99,7 +100,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | C4 | Players experience other players' and agents' effects | A returning player's recap shows at least one change made by someone else. Player B's act is visible to player A live and after a reload. Permanent history does not label the actor human or agent (owner decision, 2026-11-06; see A1). | Partial | (Code) Append-only chronicle, `participants.recap()`, Wayback, ripple propagation in `causality/`, heartbeat agents acting in `server/heartbeat.py`, and delayed v3 attempts. Implemented locally. (Test) Since #155, `tests/test_beta_metrics.py` pins B's co-solve and Act reaching A live, as frames on A's keyed socket, and again after a reload, over `/chronicle`, credited to B's registered name. No human has observed it yet. The chronicle covenant (AGENTS.md) leaves a stored trace unlabeled, but what `/chronicle` serves still signals the actor's kind at `18e5bbd`: cast rows carry `agent` and `persona` in their data (`AGENT_TALK` rows carry `a_persona` and `b_persona`), and `actor` is a credential hash for a keyed human but a cast name for a cast member's act ([2026-11-06 evaluation](../evaluation/2026-11-06-next-build.md), finding 6). Projecting those out of served history, without touching stored rows, is a known gap under this criterion. | **Blocks beta** |
 | C5 | Actions dynamically adjust alignment scores | Every committed act maps to one or more documented axes. The player sees the change and the reason in the same session. The mapping is pinned by tests. | Not started | (Code) No alignment code: 'alignment' appears only as an orbital property in `interventions_v3.py`. ADR-014 proposes independent disposition meters, explicitly not an alignment axis, and ADR-017 rules out ranking by alignment extremity. | Can follow · Mark decides |
 | C6 | Players communicate, collaborate and compete | Two testers can find each other, chat, and co-solve a puzzle with shared credit. Competition (standings, ADR-017) follows the first cohort; Mark decides. | Partial | (Code) WebSocket `chat` in `server/websocket.py` is moderated, rate-limited, 256 chars, broadcast world-wide and persisted as PLAYER_CHAT. Puzzle co-op is pooled. The retired scripted situation is not beta onboarding, and its opposing choices are not this gate. (Test) Since #155, `tests/test_beta_metrics.py` pins the find, chat and co-solve path with two keyed sockets: the second traveler finds the first in the welcome roster, and the first receives the second's `player_join`, both under their registered names, never a name the client sent; each chat line arrives on the other socket; and a co-solve over HTTP credits both. No testers have done it. No direct messages, groups or competitive standings. | **Blocks beta** |
-| C7 | Players can disengage from or block other players | A player can mute or block someone from chat or presence. The block persists per participant, hides that player's chat and presence, and is covered by tests. A report goes to an operator queue. | Not started | (Code) No block, mute or report in `server/` or `frontend/src/components/TextPanel.jsx`. Chat reaches every connected player in the world, the sender included (`server/websocket.py:236-244`). `GET /players`, which returned every live player's position to any invited requester and which no client called, was removed by #137. The Chronicle shows every move as 'X passed into Y' (`static/clientlogic.js:255`), so a block can hide live presence but not location; hiding Chronicle moves is an owner question. | **Blocks beta** |
+| C7 | Players can disengage from or block other players | A player can mute or block someone from chat or presence. The block persists per participant, hides that player's chat and presence, and is covered by tests. A report goes to an operator queue. | Partial | (Code) Persistent block/unblock for human and agent travelers in both clients, through their existing Travelers & chat surface and live speech. Private preferences follow participant identity across invite rotation; updates synchronize open tabs and retain offline unblocking. Server delivery filters live presence and speech; clients remove buffered live lines and encounters. Shared history, consequences and deliberate Speak requests through saved evidence remain available. Migration `0030_participant_blocks.sql`, `persistence/blocks.py`, `server/rooms.py`, `tests/test_personal_blocks.py`, `frontend/e2e/blocking.spec.js`. Reporting remains open (S3/G2), so C7 is not Done. | **Blocks beta** |
 
 **On puzzles:** world-reading means the answer comes from the node itself, from its own properties and its place in the hierarchy, not from a generic anagram, cipher or number pattern (the decode family). The seven world-reading families in `WORLD_READING_FAMILIES` (`puzzles/quality.py`) are sealed_lock, lineage, bond, enfold, keeper_witness, ancestral_compass and causal_augury. The D2 gate proves puzzles are tied to nodes, not that they are deep or fun, so C2c measures that with players.
 
@@ -170,7 +171,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | P3 | Hosted backups | `backup_health.py` exits 0 on a real validated private-bucket object. | Not started | (Docs) Since #136 (`23b8830`), backups are objects in a private S3-compatible bucket, not GitHub artifacts (`.github/workflows/backup.yml`). The job is an inactive no-op and uploads nothing until `FLY_API_TOKEN` and the `ENFOLDED_BACKUP_S3_*` secrets are set (`scripts/backup_gate.sh`). `scripts/backup_health.py` exits 2 when the bucket credentials are not configured, then reports missing until a validated object is stored. No live backup is claimed. Needs those secrets and decision I. | **Blocks beta** |
 | P4 | Hosted restore rehearsal | A downloaded backup object is restored into staging, with checksum and timing recorded. | Not started | (Code) Local cold restore passes (`tests/test_beta_rehearsal.py`). | **Blocks beta** |
 | P5 | Freshness alerting | A stale or missing private-bucket object triggers a notification. | Partial | (Code) `scripts/backup_health.py` reads the private bucket (#136), and `.github/workflows/backup.yml` exists. That workflow's schedule is not a freshness alert, and while the bucket secrets are unset the job is an inactive no-op. The independent scheduler and notification destination for a stale or missing object are not configured. No live object has been checked. | **Blocks beta** |
-| P6 | Additive migrations | Every migration is additive, and the schema version is pinned. | Done | (Code) `persistence/migrations` 0001 to 0029 are additive (0029, the sanction tables, landed with #138). `known_schema_version()` is the highest migration this binary ships. `persistence.init_db` raises `SchemaTooNewError` and the server exits 1 before it listens when any applied version is newer, and it applies nothing. `python main.py schema-version` reports both numbers without migrating. `scripts/deploy.sh` refuses a checkout older than the live chronicle, and `--rollback` refuses an image whose schema is not equal to the live one. A cross-schema downgrade is the disaster restore. | **Blocks beta** |
+| P6 | Additive migrations | Every migration is additive, and the schema version is pinned. | Done | (Code) `persistence/migrations` 0001 to 0030 are additive (0029 adds sanctions; 0030 adds private personal-block preferences). `known_schema_version()` is the highest migration this binary ships. `persistence.init_db` raises `SchemaTooNewError` and the server exits 1 before it listens when any applied version is newer, and it applies nothing. `python main.py schema-version` reports both numbers without migrating. `scripts/deploy.sh` refuses a checkout older than the live chronicle, and `--rollback` refuses an image whose schema is not equal to the live one. A cross-schema downgrade is the disaster restore. | **Blocks beta** |
 | P7 | SQLite single-writer limits known | Measured writer ceiling recorded, with headroom 5x over the cohort. | Unknown | (Docs) Litestream replication (roadmap 4.1) is post-launch. | Can follow |
 
 ## Observability and feedback
@@ -239,7 +240,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 
 | ID | Item | Exit criterion | Status | Evidence | Gate |
 |---|---|---|---|---|---|
-| G1 | Precondition: personal block, mute and report exist | C7 and S3 are Done before any community consequence ships. | Not started | (Code) No block, mute or report in `server/` or `TextPanel.jsx` (see C7). | **Blocks beta** |
+| G1 | Precondition: personal block, mute and report exist | C7 and S3 are Done before any community consequence ships. | Partial | (Code) Persistent personal block/unblock now applies to humans and server-owned agents (C7). Reporting remains open under S3 and G2; no community consequence or jury is introduced. | **Blocks beta** |
 | G2 | Report with a reason and optional evidence | Any player can report another with one reason category from a fixed list and optional evidence (chat lines or chronicle entries). The report is stored per reporter and confirmed to them, and it is never shown to the reported player as coming from a named person. | Not started | (Code) No report flow exists. Chat is stored as PLAYER_CHAT, which could serve as evidence. | **Blocks beta** |
 | G3 | Corroboration before any consequence | A case opens only after reports from N distinct established players. A test proves one report alone never triggers a consequence. | Not started | (Inference) Proposed design. N and the meaning of established are Mark's. | Can follow · Mark decides |
 | G4 | Graduated consequences | The ladder is written and enforced in code with tests: personal mute (instant), then a temporary suspension, then a permanent ban only after a recorded review. | Not started | (Inference) Proposed design. Who can suspend or ban is Mark's. | Can follow · Mark decides |
@@ -259,10 +260,10 @@ Proposed from Mark's idea of community self-policing. Personal block and mute st
 | ID | Item | Exit criterion | Status | Evidence | Gate |
 |---|---|---|---|---|---|
 | U1 | Cross-scale consequence chains | A player can trace one of their acts across 2 or more scales in Wayback. | Partial | (Code) Ripples with dampening (`causality/`). The trace UI is unverified. | Can follow |
-| U2 | Cross-scale co-op | At least one puzzle needs two players at different scales acting together. | Not started | (Inference) A new idea that fits the nested premise. | Can follow |
+| U2 | Cross-scale co-op | At least one puzzle needs two players at different scales acting together. | Not started | (Docs/Inference) Prospective M8 [cross-scale cooperative mystery](discovery-and-return.md#prospective-m8-item-one-cross-scale-cooperative-mystery), recorded 2026-11-06: connected clues and voluntary coordination at different scales, with an investigable aftermath. Candidate for U5's next situation using the ADR-013 model. Human–human completion is in scope; agent clue help follows Proposed ADR-036 (#159) and ADR-037 (#160), and whether an accepted agent non-solve action can satisfy completion needs the owner's decision. Unassigned, contingent on player evidence, and not a beta entry gate. | Can follow |
 | U3 | Places that remember you | A node mentions a tester's past visit (with consent) on return. | Partial | (Code) `get_node_history` feeds `consciousness.speak()`. The live effect is unmeasured. | Can follow |
 | U4 | Lasting legacy marks | A tester's inscription is still visible to others a week later. | Partial | (Code) The Room `inscribe` and Object `engrave` verbs exist. Persistence to others was not verified. | Can follow |
-| U5 | Seasonal mysteries | A second situation opens after the first resolves, in familiar geography. | Not started | (Docs) ADR-013 versioned situations. Only one situation exists (ADR-025). | Can follow · Mark decides |
+| U5 | Seasonal mysteries | A second situation opens after the first resolves, in familiar geography. | Not started | (Docs) ADR-013 versioned situations. Only one situation exists (ADR-025); the prospective [cross-scale cooperative mystery](discovery-and-return.md#prospective-m8-item-one-cross-scale-cooperative-mystery) is a candidate for the next, with U2's cooperation requirement. | Can follow · Mark decides |
 | U6 | Agents with goals players can sway | A tester changes an agent's plan through play, and it is recorded in the chronicle. | Not started | (Docs) ADR-032 inhabitant cognition is Proposed. | Can follow · Mark decides |
 | U7 | Assembled artifacts from several scales | One assembly in the first mystery grants a real ability. | Not started | (Docs) ADR-018 Proposed. A small assembly is reviewed first. | Can follow · Mark decides |
 

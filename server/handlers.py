@@ -362,7 +362,7 @@ def _accepts_gzip(value: str) -> bool:
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
     "/interventions/preview", "/interventions/commit",
-    "/client-error", "/register", "/journal/note", "/profile/save", "/profile/home", "/situation/discover", "/situation/choose", "/situation/follow-up",
+    "/client-error", "/register", "/journal/note", "/profile/save", "/profile/home", "/blocks", "/situation/discover", "/situation/choose", "/situation/follow-up",
 })
 
 # API reads are limited by default, including newly added routes. Static shells
@@ -1854,7 +1854,7 @@ class Handler(BaseHTTPRequestHandler):
                           persona=persona, world_seed=seed, pin_puzzles=False)
             agent.traverse(target, max_nodes=40)
             nodes_visited = len(agent.visited)
-            broadcast(room, {"type": "agent_done", "node": target.name,
+            broadcast(room, {"type": "agent_done", "name": agent_name, "node": target.name,
                              "nodes_visited": nodes_visited})
         finally:
             agent_leave(room, agent_name)

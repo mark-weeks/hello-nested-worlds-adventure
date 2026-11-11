@@ -550,7 +550,7 @@ def _run_tick(seed, rng, max_nodes, pace):
         if companion is not None:
             agent_leave(room, companion)
     work.update(inspected=getattr(agent, "inspected", 0), visited=len(getattr(agent, "activity_nodes", [])))
-    broadcast(room, {"type": "agent_done", "node": target.name,
+    broadcast(room, {"type": "agent_done", "name": agent_name, "node": target.name,
                      "nodes_visited": work["visited"]})
     summary = {"seed": seed, "agent": agent_name, "persona": persona.name,
                "origin": target.name, "fresh": agent.fresh_count, "act": act, "work": work}
