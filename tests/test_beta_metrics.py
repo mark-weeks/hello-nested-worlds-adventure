@@ -405,7 +405,7 @@ class TestTwoTravelers:
         # Credit, and the material change committed with the solve.
         assert solved["solver"] == "Zephyrine"
         assert solved["changed"]["stabilized"] is True
-        assert solved["correct_answer"] is None
+        assert "correct_answer" not in solved
 
     def test_one_travelers_solve_and_act_reach_the_other_live(self, world):
         s = _meet_and_cosolve(world)

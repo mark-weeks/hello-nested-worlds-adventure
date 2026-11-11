@@ -43,6 +43,6 @@ def test_attempt_leak_prevented(srv_url):
             "attempt": 99999,
         },
     )
-    assert data.get("correct_answer") is None, (
-        "correct_answer must be None when attempt is out-of-bounds"
+    assert "correct_answer" not in data, (
+        "correct_answer must be absent even when the client supplies an out-of-bounds attempt"
     )

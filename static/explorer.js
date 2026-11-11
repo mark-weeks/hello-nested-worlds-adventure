@@ -996,7 +996,7 @@ async function submitAnswer() {
       // validates every move the same way).
       if (selected) wsSend({ type: 'move', node: selected.name });
     } else if (data.result === 'FAILED') {
-      resultEl.textContent = `Failed. The answer was: ${data.correct_answer}`;
+      resultEl.textContent = 'The question keeps its answer.';
       resultEl.className   = 'puzzle-result failed';
       hintEl.textContent   = '';
       document.getElementById('puzzle-answer').disabled = true;

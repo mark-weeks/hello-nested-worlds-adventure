@@ -86,7 +86,7 @@ class TestServerHTTP:
                 "attempt": 99999,
             },
         )
-        assert data.get("correct_answer") is None
+        assert "correct_answer" not in data
 
     def test_puzzle_get_returns_durable_solved_state_and_reward(self, srv):
         """Revisiting a solve must show the permanent result, not reset it."""
@@ -269,16 +269,17 @@ class TestCoopPuzzles:
         assert c["solver"] == "Bob"  # Bob still has the credit
         assert "Carol" in c["contributors"]
 
-    def test_failed_attempt_releases_answer(self, srv):
+    def test_failed_attempt_keeps_answer_private(self, srv):
         base, _ = srv
         # Generated puzzles grant 3–5 attempts by scale; exhaust them with a
-        # word no puzzle answer will ever be, then confirm the answer is only
-        # released once the room truly fails.
+        # word no puzzle answer will ever be. Exhaustion still returns FAILED
+        # and counts later attempts, but it never releases the answer.
         last = None
         for _ in range(6):
             last = self._attempt(base, answer="not-it")
         assert last["result"] == "FAILED"
-        assert last["correct_answer"] is not None
+        assert last["attempt"] == 6
+        assert "correct_answer" not in last
 
 
 class TestAgentPersonas:
