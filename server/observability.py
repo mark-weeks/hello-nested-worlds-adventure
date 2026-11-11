@@ -59,6 +59,7 @@ def setup() -> None:
         dsn=dsn,
         traces_sample_rate=0.0,        # spans off by default — beta is small
         send_default_pii=False,        # never include IP, headers, etc.
+        include_local_variables=False,  # prompts, answers and keys may be in frames
         environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
     )
     _sentry_ready = True

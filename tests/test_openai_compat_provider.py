@@ -506,6 +506,32 @@ class TestResponseMapping:
             cache_read_tokens=8, cache_write_tokens=None,
         )
 
+    @pytest.mark.parametrize("completion", [None, True, -1, "2", 2.0, {}, []])
+    def test_invalid_present_completion_count_leaves_output_unknown(self, completion):
+        parsed = parse_response({
+            "choices": [{"finish_reason": "stop", "message": {"content": "ok"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": completion, "total_tokens": 12,
+                      "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0}},
+        })
+        assert parsed.usage == TokenUsage(10, None, 0, 0)
+
+    @pytest.mark.parametrize("completion,total", [(32, 10), (3, 12)])
+    def test_completion_count_cannot_exceed_derived_output(self, completion, total):
+        parsed = parse_response({
+            "choices": [{"finish_reason": "stop", "message": {"content": "ok"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": completion, "total_tokens": total,
+                      "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0}},
+        })
+        assert parsed.usage == TokenUsage(10, None, 0, 0)
+
+    def test_absent_completion_count_still_uses_reported_total(self):
+        parsed = parse_response({
+            "choices": [{"finish_reason": "stop", "message": {"content": "ok"}}],
+            "usage": {"prompt_tokens": 10, "total_tokens": 12,
+                      "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0}},
+        })
+        assert parsed.usage == TokenUsage(10, 2, 0, 0)
+
     def test_missing_and_negative_usage_stay_unknown(self):
         missing = parse_response({
             "model": "echo-model",

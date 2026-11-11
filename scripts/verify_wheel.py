@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _MIGRATION_PREFIX = "persistence/migrations/"
-_SCHEMA_VERSIONS = list(range(1, 32))
+_SCHEMA_VERSIONS = list(range(1, 33))
 
 
 def _run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
@@ -49,7 +49,7 @@ def migration_versions(names: list[str]) -> list[int]:
 
 
 def assert_source_schema_inventory(source: dict[str, bytes]) -> None:
-    """Ship 0001 through 0031, retaining blocks and participation consent."""
+    """Ship 0001 through 0032, retaining blocks, consent and spend controls."""
     retired = f"{_MIGRATION_PREFIX}0030_cost_budget_names.sql"
     if retired in source:
         raise RuntimeError(f"source contains a deleted migration: {retired}")
@@ -59,10 +59,13 @@ def assert_source_schema_inventory(source: dict[str, bytes]) -> None:
     consents = f"{_MIGRATION_PREFIX}0031_participation_consents.sql"
     if consents not in source:
         raise RuntimeError(f"schema 31 must include {consents}")
+    spend = f"{_MIGRATION_PREFIX}0032_model_spend.sql"
+    if spend not in source:
+        raise RuntimeError(f"schema 32 must include {spend}")
     versions = migration_versions(list(source))
     if sorted(versions) != _SCHEMA_VERSIONS or len(versions) != len(_SCHEMA_VERSIONS):
         raise RuntimeError(
-            "source migrations must be exactly versions 0001 through 0031, "
+            "source migrations must be exactly versions 0001 through 0032, "
             f"found {sorted(versions)}"
         )
 
@@ -204,6 +207,10 @@ def main() -> None:
         required = {
             "main.py",
             "content_screen.py",
+            "consciousness/model_policy.py",
+            "consciousness/model_dispatch.py",
+            "persistence/model_spend.py",
+            "persistence/migrations/0032_model_spend.sql",
             "persistence/ideas_cli.py",
             "static/ideas.html",
             "static/interface.js",
@@ -257,16 +264,22 @@ def main() -> None:
         smoke = (
             "import persistence; "
             "persistence.init_db(); "
+            f"assert persistence.known_schema_version() == {_SCHEMA_VERSIONS[-1]}; "
+            "from consciousness import model_policy, model_dispatch; "
+            "from persistence import model_spend; "
             "from server.handlers import _STATIC_DIR; "
             "assert (_STATIC_DIR / 'index.html').is_file(); "
             "assert persistence._MIGRATIONS_DIR.is_dir(); "
             "from server import idea_promotion; "
             "assert (_STATIC_DIR / 'ideas.html').is_file(); "
             "assert (_STATIC_DIR / 'ideas.js').is_file(); "
-            "assert persistence._connect().execute(\"SELECT count(*) FROM community_promotions\").fetchone()[0] == 0"
+            "assert persistence._connect().execute(\"SELECT count(*) FROM community_promotions\").fetchone()[0] == 0; "
+            "assert persistence._connect().execute(\"SELECT count(*) FROM model_spend_reservations\").fetchone()[0] == 0; "
+            "assert persistence._connect().execute(\"SELECT count(*) FROM model_spend_latch\").fetchone()[0] == 0"
         )
         _run(str(python), "-c", smoke, cwd=tmp, env=smoke_env)
         _run(str(cli), "--help", cwd=tmp, env=smoke_env)
+        _run(str(cli), "model-policy", "--help", cwd=tmp, env=smoke_env)
         _run(str(cli), "work-report", "--db",
              str(tmp / "home" / ".nested-worlds" / "worlds.db"), "--json",
              cwd=tmp, env=smoke_env)

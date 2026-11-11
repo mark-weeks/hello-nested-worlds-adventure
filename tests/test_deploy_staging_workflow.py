@@ -1377,7 +1377,7 @@ def _replay_curl(command: str, base: str, *, check_key: str, other_key: str,
         return response.status, response.read().decode(), rest
 
 
-def test_runbook_voice_probe_answers_live_under_the_check_key_only(live_server, monkeypatch):
+def test_runbook_voice_probes_default_quiet_and_live_check_key_only(live_server, monkeypatch):
     from server import guard
     from tests.test_model_provenance import Stub, _enable
     check_key, tester_key = "nw_" + "c" * 32, "nw_" + "d" * 32
@@ -1409,22 +1409,31 @@ def test_runbook_voice_probe_answers_live_under_the_check_key_only(live_server, 
     # The probe itself, as §3a step 7 and §8 write it.
     probes = [c for c in commands if c.startswith("curl ") and "/speak" in c]
     assert len(probes) >= 2, probes
+    live_probes = 0
     for command in probes:
+        # The initial watch is authored silence; §8's live check has its
+        # own approval/configuration prerequisites. Both use the check key.
+        pipe = shlex.split(command)
+        expected_live = pipe[-1] == '"ai": true'
+        monkeypatch.setenv("NESTED_WORLDS_DISABLE_AI", "0" if expected_live else "1")
         status, raw, rest = _replay_curl(
             command, live_server, place=place, **keys)
         assert status == 200, raw
         assert rest[:2] == ["grep", "-o"], rest
-        assert rest[2] in raw, raw  # the grep finds "ai": true
-        assert json.loads(raw)["ai"] is True
+        printed = subprocess.run(rest, input=raw, text=True, capture_output=True, check=True)
+        assert printed.stdout.strip() == rest[2]
+        assert json.loads(raw)["ai"] is expected_live
+        live_probes += expected_live
+    assert 0 < live_probes < len(probes)
 
     identity = hashlib.sha256(check_key.encode()).hexdigest()[:16]
     with persistence._connect() as conn:
         spoken = conn.execute(
             """SELECT node_name, player_name, actor_identity FROM world_mutations
                WHERE mutation_type = 'PLAYER_SPEAK'""").fetchall()
-    # Each probe wrote one row under the check key's name and identity;
-    # nothing was recorded as the tester speaking.
-    assert spoken == [(place, _check_name(), identity)] * len(probes)
+    # Only the live check writes, under the check key's name and identity;
+    # the default quiet check and tester leave no spoken rows.
+    assert spoken == [(place, _check_name(), identity)] * live_probes
     # And no documented line presented the tester's key at all: the gate
     # recorded the check key's use and never the tester's.
     used = {row["name"]: row["last_used_at"]

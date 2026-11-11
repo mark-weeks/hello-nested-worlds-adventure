@@ -386,7 +386,8 @@ def _usage(raw: object) -> TokenUsage | None:
     that one server folds into ``completion_tokens`` and another leaves
     outside it are both billed. Without both of those fields, output is
     unknown. ``completion_tokens`` is not a substitute: it can omit
-    reasoning. A negative result is unknown.
+    reasoning. A negative result, or a present ``completion_tokens`` that is
+    invalid or greater than that result, leaves output unknown too.
     """
     if not isinstance(raw, dict):
         return None
@@ -411,7 +412,13 @@ def _usage(raw: object) -> TokenUsage | None:
     output_tokens: int | None = None
     if prompt is not None and total is not None:
         output = total - prompt
-        output_tokens = output if output >= 0 else None
+        if output >= 0:
+            if "completion_tokens" not in raw:
+                output_tokens = output
+            else:
+                completion = _nonneg_int(raw["completion_tokens"])
+                if completion is not None and completion <= output:
+                    output_tokens = output
     return TokenUsage(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
@@ -903,6 +910,8 @@ class OpenAICompatibleProvider:
                  messages: list[dict[str, str]], max_tokens: int,
                  json_schema: dict | None = None,
                  timeout: float | None = None) -> Completion:
+        from consciousness import model_dispatch
+        model_dispatch.validate_adapter_call(self)
         settings = _settings()
         if (settings.base is None or settings.key_invalid
                 or (settings.api_key is None and not settings.base.loopback)):
@@ -926,13 +935,29 @@ class OpenAICompatibleProvider:
         except (TypeError, ValueError):
             raise MalformedProviderResponse() from None
         transport = self._transport or urllib_transport
-        status, _ignored, raw = _post(
-            settings, encoded, _call_timeout(timeout), transport,
+        endpoint = chat_completions_url(settings.base.url)
+        effective_timeout = _call_timeout(timeout)
+        options = {
+            "max_tokens_param": settings.max_tokens_param,
+            "structured_outputs": settings.structured_outputs,
+            "send_store_false": settings.send_store_false,
+            "reasoning_effort": settings.reasoning_effort,
+        }
+
+        def send_once():
+            status, _ignored, raw = _post(
+                settings, encoded, effective_timeout, transport, endpoint=endpoint,
+            )
+            return decode_response(status, raw)
+
+        return model_dispatch.execute_prepared(
+            adapter=self, endpoint=endpoint, model=model, max_output_tokens=max_tokens,
+            timeout_seconds=effective_timeout, options=options, send_once=send_once,
+            retries=0, redirects=False,
         )
-        return decode_response(status, raw)
 
 
-def _post(settings, encoded: bytes, timeout: float, transport):
+def _post(settings, encoded: bytes, timeout: float, transport, *, endpoint: str):
     """Send one request. The header list does not outlive this call.
 
     ``generate`` must not keep a ``Bearer`` list in its own frame: a
@@ -948,7 +973,7 @@ def _post(settings, encoded: bytes, timeout: float, transport):
         headers.append(("Authorization", f"Bearer {settings.api_key}"))
     prepared = TransportRequest(
         method="POST",
-        url=chat_completions_url(settings.base.url),
+        url=endpoint,
         headers=tuple(headers),
         body=encoded,
         timeout=timeout,

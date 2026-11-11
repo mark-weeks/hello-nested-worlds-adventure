@@ -230,6 +230,10 @@ class AnthropicProvider:
                  messages: list[dict[str, str]], max_tokens: int,
                  json_schema: dict | None = None,
                  timeout: float | None = None) -> Completion:
+        # This adapter has not yet earned a controlled one-attempt,
+        # no-redirect dispatch path. Keep legacy SDK behavior only locally.
+        from consciousness import model_dispatch
+        model_dispatch.validate_adapter_call(self)
         if len(system) == 1 and not system[0].cacheable:
             wire_system: str | list[dict] = system[0].text
         else:
