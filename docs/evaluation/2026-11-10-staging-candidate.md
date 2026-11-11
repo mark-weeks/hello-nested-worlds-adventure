@@ -188,7 +188,9 @@ Both workflows keep identical real-server setup, production build and the
 full browser suite. The first container run pulled and started successfully and
 selected Python 3.11.18, then exposed that setup-python v5's optional pip
 cache calls `lsb_release`, absent from this image. Browser jobs now omit
-that cache setting; dependency installation and all checks remain required. Release publishing depends on its separate browser job,
+that cache setting; dependency installation and all checks remain required. Package installation
+uses `python -m pip`, because the host tool-cache pip launcher's absolute
+shebang is not valid at the container's mounted tool-cache path. Release publishing depends on its separate browser job,
 so a browser failure still prevents publication. No release was triggered.
 
 Verified: actionlint 1.7.12 passed on both workflows (release binary checksum
