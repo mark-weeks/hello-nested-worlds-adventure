@@ -652,11 +652,13 @@ def _today():
     return guard._utc_day()
 
 
-def _identity_counts(expected, timeout=3.0):
+def _identity_counts(expected, timeout=6.0):
     """The identity-answer counts once they reach ``expected`` (or the timeout).
 
     The counter is written after the reply is sent, so a test waits for it
-    before its next request, as tests/test_voice_outcomes.py does.
+    before its next request, as tests/test_voice_outcomes.py does. The
+    timeout outlasts the 5 s store wait `_counters_wait_for_a_busy_store`
+    allows, so a write that waited its full time is still counted.
     """
     import time
     deadline = time.monotonic() + timeout
