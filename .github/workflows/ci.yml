@@ -76,7 +76,15 @@ jobs:
 
   e2e:
     name: Browser E2E smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # Match frontend/package-lock.json and release.yml when upgrading Playwright.
+    # The image supplies Chromium and its OS dependencies without a live apt run.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --init --shm-size=1g
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -102,12 +110,19 @@ jobs:
         run: npm ci
         working-directory: frontend
 
+      - name: Verify bundled Playwright version
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const { version } = JSON.parse(readFileSync('node_modules/@playwright/test/package.json', 'utf8'));
+          const { driverVersion } = JSON.parse(readFileSync('/ms-playwright/.docker-info', 'utf8'));
+          assert.equal(version, driverVersion, 'Update the pinned Playwright images in ci.yml and release.yml with the package lock.');
+          JS
+
       - name: Build the production bundle
         run: npm run build
-        working-directory: frontend
-
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
         working-directory: frontend
 
       # Loads both clients from the real Python server under the production

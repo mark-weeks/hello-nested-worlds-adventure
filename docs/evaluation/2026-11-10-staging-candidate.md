@@ -167,6 +167,43 @@ Current tested browser assets:
 - `index-1EslDMRk.css`: SHA-256 `2d4038cec1d8e8e71eb8e21e1bffe3d9e912ea6b0e2f7f2a4791351aeea98b4b`.
 
 
+## Browser CI infrastructure follow-up — 2026-11-11
+
+Both GitHub CI runs for `a5f3330` passed Python and frontend checks, but the
+browser jobs failed in `playwright install --with-deps chromium`, before
+executing tests. Retrying each failed job produced the same Ubuntu mirror
+DNS errors and apt exit 100. Another branch had the same failure earlier
+that day, while recent main runs passed on the same Ubuntu 26.04 image.
+The evidence does not identify the runner's Ubuntu version as the cause.
+
+The browser jobs in CI and Release now use the official Playwright
+`v1.61.1-noble` image, pinned to registry manifest digest
+`sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48`.
+Its preinstalled Chromium and system dependencies remove the apt dependency
+from each test run. The host is pinned to Ubuntu 24.04 to match the container
+and cached toolchain platform. Explicit setup still selects Python 3.11 and
+Node 20; the image's bundled Node 24 is not used for the project. A guard
+compares installed Playwright with the image's version marker before tests.
+Both workflows keep identical real-server setup, production build and the
+full browser suite. Release publishing depends on its separate browser job,
+so a browser failure still prevents publication. No release was triggered.
+
+Verified: actionlint 1.7.12 passed on both workflows (release binary checksum
+verified); YAML parsed; browser steps/images matched; the publisher requires
+successful E2E. The actual version-guard script, with a temporary metadata
+path, accepted matching 1.61.1 and rejected a different version, malformed
+JSON and a missing marker (**4/4**). The registry supplied the pinned digest.
+The local Docker pull was denied by this environment's network policy, so
+container execution is left to GitHub CI. Application code and browser tests
+are unchanged from the previously passed full gate; it was not repeated
+locally for these workflow changes.
+
+Contract sources inspected: [official Playwright Docker guidance](https://github.com/microsoft/playwright/blob/v1.61.1/docs/src/docker.md),
+the [versioned Noble Dockerfile](https://github.com/microsoft/playwright/blob/v1.61.1/utils/docker/Dockerfile.noble),
+the installed 1.61.1 version-marker reader/writer, and the live Microsoft
+registry manifest. No migration, world-history write, golden re-pin,
+world-meta pin or era-bank edit is introduced by this follow-up.
+
 ## Hosted prerequisites
 
 Local Python 3.11.14, Node 20.19.0 and system Chromium are available. This
