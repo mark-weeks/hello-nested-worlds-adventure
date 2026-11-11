@@ -106,7 +106,7 @@ not ratify the five drafts or approve map retirement.
 
 Migration numbers are assigned at merge time. The first batch to merge takes
 the next free number. Drafts must not reserve numbers. The current top
-migration on `main` is `0029_sanctions`. ADR-029, ADR-030,
+migration on `main` is `0031_participation_consents`. ADR-029, ADR-030,
 ADR-032 and ADR-033 each describe a migration they would add; whichever of
 those batches merges first takes the next free number.
 

@@ -91,7 +91,7 @@ describe("socket keepalive", () => {
 });
 
 describe("world socket subscription", () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
   function harness() {
     vi.useFakeTimers();
@@ -169,6 +169,50 @@ describe("world socket subscription", () => {
     expect(again.sockets[0].sent).toEqual([PING]);
     expect(sockets[0].sent).toEqual([]);
     again.cleanup();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps normal backoff when a reconnect notice check finds no pending choice", async () => {
+    const { sockets, cleanup } = harness();
+    const recheck = vi.fn().mockResolvedValue(false);
+    vi.stubGlobal('EnfoldedParticipation', { recheck });
+    open(sockets[0]);
+    sockets[0].close();
+    await Promise.resolve();
+    expect(recheck).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(750);
+    expect(sockets).toHaveLength(2);
+    cleanup();
+  });
+
+  it("holds reconnect while a new notice is being read and never replays socket messages", async () => {
+    const { sockets, cleanup } = harness();
+    let resolve;
+    vi.stubGlobal('EnfoldedParticipation', { recheck: () => new Promise(done => { resolve = done; }) });
+    open(sockets[0]);
+    sockets[0].close();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(60_000);
+    expect(sockets).toHaveLength(1);
+    resolve(true);
+    await Promise.resolve();
+    expect(vi.getTimerCount()).toBe(1);
+    expect(sockets[0].sent).toEqual([]);
+    cleanup();
+  });
+
+  it("does not revive an unmounted subscription after its notice check finishes", async () => {
+    const { sockets, cleanup } = harness();
+    let resolve;
+    vi.stubGlobal('EnfoldedParticipation', { recheck: () => new Promise(done => { resolve = done; }) });
+    open(sockets[0]);
+    sockets[0].close();
+    cleanup();
+    resolve(false);
+    await Promise.resolve();
+    vi.advanceTimersByTime(60_000);
+    expect(sockets).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -188,7 +188,11 @@ export default function App() {
     let placed = false;
     try {
       const opened = await openWorld(
-        url => fetch(url), withKey(`/world?depth=${requestedDepth}`), !!betaKey(),
+        async url => {
+          let response = await fetch(url);
+          if (await globalThis.EnfoldedParticipation.recover(response)) response = await fetch(url);
+          return response;
+        }, withKey(`/world?depth=${requestedDepth}`), !!betaKey(),
       );
       if (opened.unopened) {
         // The arrival screens show this only while no place is in hand; a

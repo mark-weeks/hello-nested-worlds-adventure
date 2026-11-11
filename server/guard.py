@@ -396,7 +396,10 @@ WS_SWEEP_INTERVAL_SEC = 5.0
 
 
 def ws_session_authorized(ws_key: str, credentialed: bool) -> bool:
-    """Whether an open WebSocket may still act. One database read.
+    """Whether an open WebSocket may still act.
+
+    Normal mode performs one credential lookup. Test-world mode instead
+    checks the live key and its current notice acknowledgement together.
 
     The upgrade is authorized once, but a session can outlive its
     credential. The message loop calls this before a move or chat writes
@@ -406,15 +409,30 @@ def ws_session_authorized(ws_key: str, credentialed: bool) -> bool:
     sweep calls it for a socket not checked for `WS_SWEEP_INTERVAL_SEC`:
 
       * `credentialed` (the socket upgraded with a live per-user key): it
-        stays authorized only while that key is live. A revoked or rotated
-        key fails, whatever the gate state.
+        stays authorized only while that key is live and, in test-world
+        mode, has acknowledged the current ready notice. A revoked or
+        rotated key fails, whatever the gate state.
       * otherwise (keyless, or an unrecognized key on an open dev server):
-        it stays authorized only while the gate is open, so the first
-        credential ever issued ends every keyless session.
+        normal mode permits it only while the gate is open, so the first
+        credential ever issued ends every keyless session. Test-world mode
+        always requires a credentialed session.
 
-    Fails closed: a read error ends the session. Errors are logged by
-    exception class only, never with the key.
+    Fails closed: a read error ends the session. Ordinary refusals are
+    quiet; unexpected errors are logged by class only, never with the key.
     """
+    from server import participation
+    if participation.required():
+        if not credentialed:
+            return False
+        from persistence import participants
+        try:
+            return participation.session_authorized(ws_key)
+        except participants.Unauthorized:
+            return False
+        except Exception as exc:  # noqa: BLE001 — an unchecked notice closes the socket
+            _log.error("WebSocket participation re-check failed (%s); closing "
+                       "the session", type(exc).__name__)
+            return False
     if credentialed:
         try:
             return persistence.lookup_invite_key(ws_key) is not None

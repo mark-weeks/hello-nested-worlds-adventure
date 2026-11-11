@@ -11,6 +11,15 @@
       headers: {'X-Beta-Key': key, 'Content-Type': 'application/json'},
       ...(body ? {body: JSON.stringify({...body, seed})} : {}), cache: 'no-store'});
     const data = await response.json();
+    if (response.status === 428 || (response.status === 503 && data.participation_required)) {
+      status('Review the participation notice before trying this request again. The request was not saved.');
+      if (await globalThis.EnfoldedParticipation.recover(response, data)) {
+        if (!body) $('retry-journal').hidden = false;
+        throw new Error(body
+          ? 'The participation notice is now accepted. Your previous change was not saved. Choose that action again.'
+          : 'The participation notice is now accepted. Load this page again to continue.');
+      }
+    }
     if (!response.ok || data.error) throw new Error(data.error || 'Please try again.');
     return data;
   }
@@ -95,6 +104,11 @@
     } else status('This traveler has not published a profile.');
     document.body.append(section);
   }
-  (params.has('participant') ? publicProfile() : load().then(() => status('Your journal is private.')))
-    .catch(e => status(e.message));
+  function openJournal() {
+    $('retry-journal').hidden = true;
+    return (params.has('participant') ? publicProfile() : load().then(() => status('Your journal is private.')))
+      .catch(e => { status(e.message); $('retry-journal').hidden = false; });
+  }
+  $('retry-journal').onclick = openJournal;
+  globalThis.EnfoldedParticipation.ensure().then(openJournal).catch(e => status(e.message));
 })();
