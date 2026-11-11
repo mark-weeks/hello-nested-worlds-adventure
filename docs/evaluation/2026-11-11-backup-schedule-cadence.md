@@ -453,18 +453,24 @@ days that would otherwise go to the M7 pilot gates.
 3. Which service holds the dispatch credential? This couples to the pending
    bucket decision (Q4 decision I).
 
-## Follow-up edits this record queues (none made here)
+## Follow-up edits this record queued (made by the follow-up batch; see the update below)
 
-**Update, 2026-11-11:** the owner asked for all three after this record
-merged, and a follow-up batch made them the same day (see its entry in
-`docs/CHANGELOG.md`). The "What it says" column below quotes each text as it
+**Update, 2026-11-11:** this record made none of these edits. After it
+merged, the owner asked for all three in the same working session ("make the
+three follow-up edits the record queues"; the session is linked from the
+follow-up pull request and cannot be verified from the repository), and a
+follow-up batch made them that day (see its entry in `docs/CHANGELOG.md`). The "What it says" column below quotes each text as it
 stood before that batch, and the line ranges are where it stood. The new
 wording holds to the one-hour bound ADR-005 sets today, measured as
 `backup_health.py` measures it, and treats the rehearsal length as a
 proposal. Its freshness test does not depend on what triggers the snapshots
 (options A and B). Relaxing the bound (option C) would change it again, and
 so would replication (option D), under which `backup_health.py` would not
-describe the replica.
+describe the replica. The test needs the time each object arrived in the
+bucket. No repository command prints that: `backup_health.py` shows only the
+newest object at the moment it runs, so a pass after each run proves
+nothing about the gaps (finding 4), and the evidence has to come from the
+store's own listing.
 
 A review of that batch found that the queue below was not complete. These
 current texts also state the half-hourly cadence without the measurement, or
