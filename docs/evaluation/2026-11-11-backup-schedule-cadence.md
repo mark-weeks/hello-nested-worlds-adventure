@@ -1,7 +1,8 @@
 # Backup schedule cadence: what GitHub delivers against the one-hour bound
 
 **Status:** evaluation record, 2026-11-11, read against `main` at `7a7b632`
-(#163). Findings and options for the owner. It changes no workflow,
+(#163); its line citations were checked again at `bd03148` (#169), where one
+had moved and is updated. Findings and options for the owner. It changes no workflow,
 threshold, secret, deployment or ADR status, and it ratifies nothing. Every
 recommendation below is **proposed by agent, not decided**.
 
@@ -464,7 +465,7 @@ Proposed by agent, not decided.
 | Where | What it says | What is wrong with it |
 |---|---|---|
 | `.github/workflows/backup.yml:14-18`, the header comment | "Half-hourly full copies leave slack within that one-hour limit." | Measured false for the schedule as GitHub delivers it: no two copies would have been within an hour of each other (finding 1). It holds again only once copies do arrive half-hourly, which is option A or B. Until then the comment can state what is measured, without waiting for the decision. |
-| Runbook §8, first T-1 week item (`docs/infrastructure/fly-deployment.md:1279-1281`) | "Manual dispatch and subsequent scheduled runs produce fresh app-specific objects." | Satisfied by a dispatched object and by any scheduled run on the day it lands (finding 4). It needs the gaps between validated objects, read from the bucket over days. |
+| Runbook §8, first T-1 week item (`docs/infrastructure/fly-deployment.md:1387-1389`) | "Manual dispatch and subsequent scheduled runs produce fresh app-specific objects." | Satisfied by a dispatched object and by any scheduled run on the day it lands (finding 4). It needs the gaps between validated objects, read from the bucket over days. |
 | Checklist P3's criterion (`docs/roadmap/beta-launch-checklist.md`) | "`backup_health.py` exits 0 on a real validated private-bucket object." | Passes right after any backup, whatever the cadence (finding 4). The criterion over time currently lives only in P5, which is not built. |
 
 Runbook §7 already hedges its own version of the first claim ("it does not
