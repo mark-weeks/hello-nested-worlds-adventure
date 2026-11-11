@@ -147,7 +147,7 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
   const [status, setStatus] = useState("");
   const [answer, setAnswer] = useState("");
   const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState(null); // {correct,result,hint,correct_answer,solver}
+  const [result, setResult] = useState(null); // {correct,result,hint,solver}
   const [busy, setBusy] = useState(false);
   const [retryable, setRetryable] = useState(false);
 
@@ -256,7 +256,7 @@ function Puzzle({ node, seed, depth, playerName, onSolved }) {
         </div>
       )}
       {result && !result.correct && result.result === "FAILED" && (
-        <div style={s.failed}>Failed. The answer was: {result.correct_answer}</div>
+        <div style={s.failed}>The question keeps its answer.</div>
       )}
       {result && !result.correct && result.result === "UNSOLVED" && (
         <div style={s.wrong}>
