@@ -169,6 +169,12 @@ A checkout older than the live chronicle is refused by a normal
 forward path is a deploy, not `--rollback`. `--rollback` of a newer image
 is refused because that image would migrate on boot.
 
+Personal blocking's `0030_participant_blocks` is a concrete schema boundary.
+Once it has run, a schema-29 image is refused. Keep a fallback build that ships
+0030 or fix forward on schema 30. Restoring a pre-0030 database to run an older
+image abandons all world and player records after that backup, not only block
+preferences; use the disaster procedure only when that loss is explicitly chosen.
+
 Rehearse the [launch runbook §7 restore](fly-deployment.md#7-backups) with pending
 work on disposable staging. Check queue counts/input IDs, a representative
 origin/continuation chain, material state and Wayback before and after restore;

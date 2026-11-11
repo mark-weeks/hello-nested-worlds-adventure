@@ -282,7 +282,9 @@ the evaluation raised. Quoted words are the owner's.
 - **The A1 guardrails.** Recorded as A1's criterion; not built. The implementing
   PR must replace the instructions in finding 5 and add the authored answer.
   Whether the place-voice line at `consciousness/__init__.py:386` changes too
-  is not decided: the guardrails name agents, not places.
+  is not decided: the guardrails name agents, not places. *Updated by the
+  2026-11-10 addendum item (item 4):* places are included, and #158 built
+  the authored answer and the voice bibles' line for agents and places.
 - **Puzzle personalities.** Open for the ADR: whether annoyance applies to one
   player or everyone; whether an agent may submit an answer or only suggest;
   how much a near-miss may reveal, given answer secrecy and per-node
@@ -314,7 +316,7 @@ the evaluation raised. Quoted words are the owner's.
 ## Addendum, 2026-11-07: the owner's decisions of that day
 
 Recorded without changing the findings above. Quoted words are the owner's,
-Mark Weeks.
+Mark Weeks. Item 4, added later, records two decisions of 2026-11-10.
 
 1. **Watch venue (packet decision 2), updated.** Asked whether 2 to 3
    first-time testers should try the current build now or wait for agents in
@@ -366,3 +368,27 @@ Mark Weeks.
    ADR-036 puts to the owner (packet decision 3 lists them). (Added on
    2026-11-10 after review: the first version of this addendum listed only
    the venue and provider rulings.)
+4. **2026-11-10: places included, and identity answers kept out of the
+   history fed to other voices.** Decided by the owner on 2026-11-10, when
+   merging #158; this item records the two choices. On 2026-11-11, asked on
+   #166 to confirm them, the owner stated the intent behind them:
+
+   > the idea here is that the boundary between human and AI agent players
+   > is intentionally blurred, but if a human asks an AI agent explicitly
+   > "are you human" or similar the AI agent will answer honestly.
+
+   (a) Places, like agents, say plainly that they are an AI when sincerely
+   asked: a place answers that it is a place, not a person, and that its
+   voice comes from an AI. This settles the place-voice question left open
+   under "Deferred, and why", and #158 merged with the place half and
+   AGENTS.md's "No voice pretends to be human" covering both. (b) With AI
+   on, the identity exchange is still recorded like any reply, as a
+   `PLAYER_SPEAK` or `AGENT_VOICE` row with the same fields, but it is left
+   out of the history fed to other voices, so that the disclosure reaches
+   the traveler who asked rather than being relayed by a later voice at that
+   node ("Tessera said she is an AI"). #158 merged with the relay as it was; the
+   filter is the follow-up batch after it (`docs/CHANGELOG.md`). It leaves
+   out the recorded exchange itself; its CHANGELOG entry lists what still
+   reaches other voices, such as a later model reply that restates the
+   answer. The choice concerns voices only: `/chronicle` and `/history` keep
+   serving the rows unchanged.

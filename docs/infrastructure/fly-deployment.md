@@ -1080,6 +1080,12 @@ chronicle, do not look for a flag that skips the check. Go to
 [Restoring from a backup](#restoring-from-a-backup). Restoring abandons
 history written after that backup. There is no in-place downgrade.
 
+For example, personal blocking's `0030_participant_blocks` advances the live
+database to schema 30. After it runs, retain a fallback image that also ships
+0030, or fix forward on schema 30; a schema-29 image is refused. A matched
+pre-0030 restore discards every later world and player record, not just block
+preferences, and is a disaster restore rather than a routine release rollback.
+
 **Budget caps are not copied by the script.** Both images read and write
 `anthropic` and `fal_ai`, including the `:u:<hash>` per-user keys, so a
 spent counter stays spent. An older binary does not read

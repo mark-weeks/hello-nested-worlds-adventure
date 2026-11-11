@@ -362,7 +362,7 @@ def _accepts_gzip(value: str) -> bool:
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
     "/interventions/preview", "/interventions/commit",
-    "/client-error", "/register", "/journal/note", "/profile/save", "/profile/home", "/situation/discover", "/situation/choose", "/situation/follow-up",
+    "/client-error", "/register", "/journal/note", "/profile/save", "/profile/home", "/blocks", "/situation/discover", "/situation/choose", "/situation/follow-up",
 })
 
 # API reads are limited by default, including newly added routes. Static shells
@@ -1282,9 +1282,13 @@ class Handler(BaseHTTPRequestHandler):
                     # provenance row. With AI on and a provider configured
                     # it is recorded below like any other reply; with the
                     # kill switch on or no provider configured it is not.
+                    # Once recorded, no voice's history quotes this exchange
+                    # (consciousness._is_identity_exchange); the asker's own
+                    # transcript with this place keeps it, and a later reply
+                    # that restates it is recorded as an ordinary row.
                     response = honesty.place_answer(node.level)
                 else:
-                    history = persistence.get_node_history(seed, node.name)
+                    history = consciousness.history_for_voice(seed, node.name)
                     transcript = persistence.get_player_exchanges(
                         seed, node.name, identity)
                     response = consciousness.speak(
@@ -1576,10 +1580,12 @@ class Handler(BaseHTTPRequestHandler):
             import consciousness
             if honest:
                 # Authored, so no voice allowance, no voice call and no
-                # provenance row; recorded below only when `recorded`.
+                # provenance row; recorded below only when `recorded`, and
+                # left out of the history any voice reads
+                # (consciousness._is_identity_exchange).
                 response = honesty.agent_answer(persona.name)
             else:
-                history = persistence.get_node_history(seed, node.name)
+                history = consciousness.history_for_voice(seed, node.name)
                 from persistence.situations import keeper_history
                 commitments = keeper_history(seed, agent_name, node.name)
                 commitment_ids = {event['id'] for event in commitments}
@@ -1854,7 +1860,7 @@ class Handler(BaseHTTPRequestHandler):
                           persona=persona, world_seed=seed, pin_puzzles=False)
             agent.traverse(target, max_nodes=40)
             nodes_visited = len(agent.visited)
-            broadcast(room, {"type": "agent_done", "node": target.name,
+            broadcast(room, {"type": "agent_done", "name": agent_name, "node": target.name,
                              "nodes_visited": nodes_visited})
         finally:
             agent_leave(room, agent_name)

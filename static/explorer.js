@@ -1017,12 +1017,72 @@ async function submitAnswer() {
 let playerName  = localStorage.getItem('nw_player_name') || _inviteName || null;
 let ws          = null;
 let mySessionId = null;
+let myParticipantId = null;
+let personalBlocks = [];
+let blockedIds = new Set();
+let blockBusy = false;
+let blockRevision = 0;
 let players     = {};
 let agents      = {};   // name → { node, persona } — the ambient cast, live
 
 const PLAYER_COLOR = 'var(--accent)';
 const AGENT_RING_COLOR = 'var(--attention)'; // Diamonds/solid rings: players; stars/dashed rings: inhabitants.
-const eventFeed = [];
+let eventFeed = [];
+
+function applyBlocks(list) {
+  blockRevision += 1;
+  personalBlocks = list;
+  blockedIds = new Set(list.map(b => b.id));
+  for (const [sid, p] of Object.entries(players)) {
+    if (blockedIds.has(p.participant_id)) delete players[sid];
+  }
+  for (const [name, a] of Object.entries(agents)) {
+    if (blockedIds.has(a.participant_id)) delete agents[name];
+  }
+  eventFeed = EnfoldedClient.withoutBlockedLiveEvents(eventFeed, list);
+  nodeG?.selectAll('.live-presence-flash')
+    .filter(function () { return JSON.parse(this.dataset.participants || '[]').some(id => blockedIds.has(id)); })
+    .interrupt().remove();
+  renderFeed();
+  renderPlayers();
+  updatePresenceRings();
+}
+
+async function changeBlock(participant, blocked) {
+  if (blockBusy) return;
+  blockBusy = true;
+  const status = document.getElementById('blocking-status');
+  status.textContent = 'Saving your choice…';
+  renderPlayers();
+  renderFeed();
+  const revision = blockRevision;
+  try {
+    const list = await EnfoldedClient.savePersonalBlock(withKey('/blocks'), participant, blocked);
+    if (revision === blockRevision) applyBlocks(list);
+    status.textContent = blockedIds.has(participant) ? 'Blocked. Their live chat and presence are hidden.' : 'Unblocked.';
+  } catch (error) {
+    status.textContent = error.message || 'Your block could not be saved. Try again.';
+  } finally {
+    blockBusy = false;
+    renderPlayers();
+    renderFeed();
+  }
+}
+
+function replacePlayerRoster(roster) {
+  players = {};
+  for (const p of roster || []) {
+    if (p.session_id !== mySessionId && !blockedIds.has(p.participant_id))
+      players[p.session_id] = {...p, color: PLAYER_COLOR};
+  }
+}
+
+function replaceAgentRoster(roster) {
+  agents = {};
+  for (const a of roster || []) {
+    if (!blockedIds.has(a.participant_id)) agents[a.name] = a;
+  }
+}
 
 // ── Travelers: jump-to-presence ─────────────────────────────────────────────
 // Names encode their path ("Vault-1121" lies under path 1→1→2→1), so the
@@ -1160,26 +1220,36 @@ function wsSend(msg) {
 
 function handleWsMsg(msg) {
   switch (msg.type) {
-    case 'welcome':
-      mySessionId = msg.session_id;
-      players = {};
-      for (const p of (msg.players || [])) {
-        if (p.session_id !== mySessionId)
-          players[p.session_id] = { name: p.name, node: p.node, color: PLAYER_COLOR };
+    case 'welcome': {
+      const viewer = msg.participant_id || null;
+      eventFeed = EnfoldedClient.liveEventsAfterWelcome(eventFeed, myParticipantId, viewer);
+      if (myParticipantId && viewer && myParticipantId !== viewer) {
+        nodeG?.selectAll('.live-presence-flash').interrupt().remove();
       }
-      agents = {};
-      for (const a of (msg.agents || []))
-        agents[a.name] = { node: a.node, persona: a.persona };
+      mySessionId = msg.session_id;
+      myParticipantId = viewer;
+      applyBlocks(msg.blocks || []);
+      replacePlayerRoster(msg.players);
+      replaceAgentRoster(msg.agents);
+      renderPlayers();
+      updatePresenceRings();
+      break;
+    }
+    case 'blocks_changed':
+      applyBlocks(msg.blocks || []);
+      replacePlayerRoster(msg.players);
+      replaceAgentRoster(msg.agents);
       renderPlayers();
       updatePresenceRings();
       break;
     case 'agent_enter':
-      agents[msg.name] = { node: '', persona: msg.persona };
+      if (blockedIds.has(msg.participant_id)) break;
+      agents[msg.name] = { ...msg, node: '' };
       renderPlayers();
       break;
     case 'agent_move':
-      if (!agents[msg.name]) agents[msg.name] = { node: '', persona: null };
-      agents[msg.name].node = msg.node;
+      if (blockedIds.has(msg.participant_id)) break;
+      agents[msg.name] = {...(agents[msg.name] || {}), ...msg};
       renderPlayers();
       updatePresenceRings();
       break;
@@ -1203,24 +1273,24 @@ function handleWsMsg(msg) {
       }
       break;
     case 'player_join':
-      if (msg.session_id !== mySessionId) {
-        players[msg.session_id] = { name: msg.name, node: '', color: PLAYER_COLOR };
-        pushFeed(`${msg.name} joined`);
+      if (msg.session_id !== mySessionId && !blockedIds.has(msg.participant_id)) {
+        players[msg.session_id] = { ...msg, node: msg.node || '', color: PLAYER_COLOR };
+        pushFeed(`${msg.name} joined`, {liveParticipant: msg.participant_id});
         renderPlayers();
         updatePresenceRings();
       }
       break;
     case 'player_leave':
       if (players[msg.session_id]) {
-        pushFeed(`${players[msg.session_id].name} left`);
+        pushFeed(`${players[msg.session_id].name} left`, {liveParticipant: players[msg.session_id].participant_id});
         delete players[msg.session_id];
         renderPlayers();
         updatePresenceRings();
       }
       break;
     case 'player_move':
-      if (players[msg.session_id]) {
-        players[msg.session_id].node = msg.node;
+      if (msg.session_id !== mySessionId && !blockedIds.has(msg.participant_id)) {
+        players[msg.session_id] = {...msg, color: PLAYER_COLOR};
         renderPlayers();
         updatePresenceRings();
       }
@@ -1239,11 +1309,12 @@ function handleWsMsg(msg) {
       break;
     }
     case 'agent_done':
-      pushFeed(`Agent: ${msg.nodes_visited} nodes from ${displayName(msg.node)}`);
+      if (!blockedIds.has(msg.participant_id)) pushFeed(`Agent: ${msg.nodes_visited} nodes from ${displayName(msg.node)}`, {liveParticipant: msg.participant_id});
       break;
     case 'chat': {
+      if (blockedIds.has(msg.participant_id)) break;
       const nameHtml = `<span class="chat-name">${escHtml(msg.name)}</span>`;
-      pushFeed(`${nameHtml} ${escHtml(msg.text)}`, { cls: 'chat-msg', html: true });
+      pushFeed(`${nameHtml} ${escHtml(msg.text)}`, { cls: 'chat-msg', html: true, liveParticipant: msg.participant_id, chatName: msg.name });
       break;
     }
     case 'chat_declined': {
@@ -1283,24 +1354,26 @@ function handleWsMsg(msg) {
       flashNode(msg.node, 1.0);
       break;
     case 'agent_encounter':
-      pushFeed(`⚡ ${escHtml(msg.agent1)} meets ${escHtml(msg.agent2)} @ ${escHtml(displayName(msg.node))}`);
-      flashNode(msg.node, 0.9);
+      if ((msg.participant_ids || []).some(id => blockedIds.has(id))) break;
+      pushFeed(`⚡ ${escHtml(msg.agent1)} meets ${escHtml(msg.agent2)} @ ${escHtml(displayName(msg.node))}`, {liveParticipants: msg.participant_ids});
+      flashNode(msg.node, 0.9, msg.participant_ids);
       break;
     case 'agent_talk':
       // Two wanderers in conversation — the world telling its own story.
       for (const l of msg.lines || []) {
         if (l.speaker) {
+          if (blockedIds.has(l.participant_id)) continue;
           pushFeed(`<span class="chat-name">${escHtml(l.speaker)}</span> ${escHtml(l.line)}`,
-                   { cls: 'chat-msg', html: true });
-        } else {
-          pushFeed(escHtml(l.line));
+                   { cls: 'chat-msg', html: true, liveParticipant: l.participant_id, chatName: l.speaker });
+        } else if (!(msg.participant_ids || []).some(id => blockedIds.has(id))) {
+          pushFeed(escHtml(l.line), {liveParticipants: msg.participant_ids});
         }
       }
       break;
   }
 }
 
-function flashNode(nodeName, strength) {
+function flashNode(nodeName, strength, liveParticipants = []) {
   if (!nodeG || REDUCED_MOTION) return;
   const target = nodeG.filter(d => d.data.name === nodeName);
   if (target.empty()) return;
@@ -1309,6 +1382,8 @@ function flashNode(nodeName, strength) {
   const color = window.EnfoldedInterface.resolve(datum.data)['--accent'];
   const peakR   = baseR + Math.round(strength * 28);
   target.append('circle')
+    .attr('class', liveParticipants.length ? 'live-presence-flash' : null)
+    .attr('data-participants', liveParticipants.length ? JSON.stringify(liveParticipants) : null)
     .attr('r',              baseR)
     .attr('fill',           'none')
     .attr('stroke',         color)
@@ -1323,6 +1398,12 @@ function flashNode(nodeName, strength) {
 
 function renderPlayers() {
   const el     = document.getElementById('players-list');
+  document.getElementById('blocking-controls').hidden = !myParticipantId;
+  const blocked = document.getElementById('blocked-travelers');
+  blocked.hidden = !personalBlocks.length;
+  blocked.querySelector('summary').textContent = `Blocked travelers (${personalBlocks.length})`;
+  document.getElementById('blocked-list').innerHTML = personalBlocks.map(b =>
+    `<div class="traveler-controls"><span>${escHtml(b.name)}</span><button data-unblock="${escHtml(b.id)}" aria-label="Unblock ${escHtml(b.name)}"${blockBusy ? ' disabled' : ''}>Unblock</button></div>`).join('');
   const humans = Object.values(players);
   const cast   = Object.entries(agents);
   if (!humans.length && !cast.length) {
@@ -1334,23 +1415,23 @@ function renderPlayers() {
   const rows = [];
   for (const p of humans) {
     rows.push(
-      `<button class="player-row traveler-row" data-node="${escHtml(p.node || '')}"${p.node ? '' : ' disabled'} ` +
+      `<div class="traveler-controls"><button class="player-row traveler-row" data-node="${escHtml(p.node || '')}"${p.node ? '' : ' disabled'} ` +
       `title="go to ${escHtml(p.name)}">` +
       `<span class="player-dot" style="color:${p.color}" aria-label="Player">◆</span>` +
       `<span class="player-name">${escHtml(p.name)}</span>` +
       `<span class="player-node" title="${escHtml(p.node || '')}">${escHtml(p.node ? displayName(p.node) : '—')}</span>` +
-      `</button>`);
+      `</button>` + (myParticipantId && p.participant_id && p.participant_id !== myParticipantId ? `<button data-block="${escHtml(p.participant_id)}" aria-label="Block ${escHtml(p.name)}"${blockBusy ? ' disabled' : ''}>Block</button>` : '') + `</div>`);
   }
   for (const [name, a] of cast) {
     rows.push(
-      `<button class="player-row traveler-row" data-node="${escHtml(a.node || '')}"${a.node ? '' : ' disabled'} ` +
+      `<div class="traveler-controls"><button class="player-row traveler-row" data-node="${escHtml(a.node || '')}"${a.node ? '' : ' disabled'} ` +
       `title="follow ${escHtml(name)}">` +
       `<span class="player-dot" style="color:${AGENT_RING_COLOR}" aria-label="Inhabitant">✦</span>` +
       `<span class="player-name">${escHtml(name)}` +
       (a.persona ? ` <span style="color:var(--muted)">· ${escHtml(a.persona)}</span>` : '') +
       `</span>` +
       `<span class="player-node" title="${escHtml(a.node || '')}">${escHtml(a.node ? displayName(a.node) : '…arriving')}</span>` +
-      `</button>`);
+      `</button>` + (myParticipantId && a.participant_id ? `<button data-block="${escHtml(a.participant_id)}" aria-label="Block ${escHtml(name)}"${blockBusy ? ' disabled' : ''}>Block</button>` : '') + `</div>`);
   }
   el.innerHTML = rows.join('');
 }
@@ -1358,18 +1439,34 @@ function renderPlayers() {
 // One delegated listener: traveler rows carry their node in data-node
 // (inline handlers are barred by the production CSP).
 document.getElementById('players-list').addEventListener('click', (e) => {
+  const block = e.target.closest('[data-block]');
+  if (block) { changeBlock(block.dataset.block, true); return; }
   const row = e.target.closest('[data-node]');
   if (row && row.dataset.node) jumpTo(row.dataset.node);
 });
 
-function pushFeed(text, { cls = '', html = false } = {}) {
+document.getElementById('blocked-list').addEventListener('click', e => {
+  const button = e.target.closest('[data-unblock]');
+  if (button) changeBlock(button.dataset.unblock, false);
+});
+document.getElementById('event-feed').addEventListener('click', e => {
+  const button = e.target.closest('[data-block]');
+  if (button) changeBlock(button.dataset.block, true);
+});
+
+function pushFeed(text, { cls = '', html = false, liveParticipant, liveParticipants, chatName } = {}) {
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const content = html ? text : escHtml(text);
-  eventFeed.unshift({ content, time, cls });
+  eventFeed.unshift({ content, time, cls, liveParticipant, liveParticipants, chatName });
   if (eventFeed.length > 20) eventFeed.pop();
+  renderFeed();
+}
+
+function renderFeed() {
   const el = document.getElementById('event-feed');
   el.innerHTML = eventFeed.map(e =>
-    `<div class="feed-item ${escHtml(e.cls || '')}"><span class="feed-time">${e.time}</span>${e.content}</div>`
+    `<div class="feed-item ${escHtml(e.cls || '')}"><span class="feed-time">${e.time}</span>${e.content}` +
+    (e.chatName && myParticipantId && e.liveParticipant && e.liveParticipant !== myParticipantId ? `<button class="block-control" data-block="${escHtml(e.liveParticipant)}" aria-label="Block ${escHtml(e.chatName)}"${blockBusy ? ' disabled' : ''}>Block</button>` : '') + `</div>`
   ).join('');
 }
 

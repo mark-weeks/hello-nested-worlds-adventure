@@ -6,7 +6,10 @@ with a recording fake provider. A line that is only a sincere identity
 question gets the authored truthful line with no provider call and no voice
 charge, with the AI layer on and off; it is still screened and rate limited,
 and it is recorded like a voice reply with AI on and a provider configured,
-and not at all with AI off or no provider configured for the route. Every
+and not at all with AI off or no provider configured for the route. A
+recorded identity exchange stays out of the history fed to voices (owner
+decision, 2026-11-10), including one recorded under a line since reworded,
+and is served unchanged by ``/chronicle``. Every
 other line, including one that asks more besides, takes the normal path. The
 prompt pins at the end are a regression check beside these behaviour tests,
 not a substitute for them.
@@ -17,6 +20,7 @@ import json
 import re
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from types import SimpleNamespace
 
@@ -1250,6 +1254,285 @@ def test_the_answer_is_recorded_like_a_voice_reply_and_joins_the_conversation(sr
     assert {"role": "user", "content": "Are you a real person?"} in third_call
     assert {"role": "assistant", "content": honesty.place_answer(node.level)} in third_call
     assert len(voice.stub.calls) == 3  # the two model lines and the Sela greeting
+
+
+# ── Identity answers stay out of the history fed to voices ──────────────────
+# Owner decision, 2026-11-10: with AI on, the exchange is still recorded like
+# any reply, but no voice's history quotes that exchange. The chronicle serves
+# the rows unchanged. The asker's own transcript keeps a place's answer; a
+# later model reply that restates it is an ordinary row and is not filtered
+# (a known limit, named in the CHANGELOG entry).
+
+def _get(port, path):
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=10) as resp:
+        return resp.status, json.loads(resp.read())
+
+
+def test_an_identity_exchange_stays_out_of_the_history_fed_to_other_voices(srv, voice):
+    seed = 1451
+    node = _place(seed)
+    tender = honesty.AGENT_ANSWERS["tender"]
+    place = honesty.place_answer(node.level)
+    tessera = {"agent_name": "Tessera", "node_name": node.name, "seed": seed}
+    speak = {"node_name": node.name, "seed": seed}
+    for path, body in (
+        ("/agent/voice", {**tessera, "message": "Tell me about the lanterns.", "player_name": "Ada"}),
+        ("/agent/voice", {**tessera, "message": "Are you human?", "player_name": "Ada"}),
+        ("/speak", {**speak, "message": "Are you a real person?", "player_name": "Bo"}),
+    ):
+        assert _post(srv, path, body)[0] == 200
+    assert len(voice.stub.calls) == 1  # only the lantern line reached a voice
+    rows = _rows(seed, node.name)
+    # Recorded exactly as #158 records them.
+    assert [(r["type"], r["player"], r["data"]) for r in rows] == [
+        ("AGENT_VOICE", "Ada", {"agent": "Tessera", "persona": "tender",
+                                "message": "Tell me about the lanterns.", "reply": VOICED}),
+        ("AGENT_VOICE", "Ada", {"agent": "Tessera", "persona": "tender",
+                                "message": "Are you human?", "reply": tender}),
+        ("PLAYER_SPEAK", "Bo", {"message": "Are you a real person?", "reply": place,
+                                "identity": "Bo"}),
+    ]
+
+    # Later voices at this node: the place and two agents for a third
+    # traveler, then the place for the traveler who asked it.
+    for path, body in (
+        ("/speak", {**speak, "message": "What has happened here?", "player_name": "Cy"}),
+        ("/agent/voice", {**tessera, "message": "Who have you met here?", "player_name": "Cy"}),
+        ("/agent/voice", {**tessera, "agent_name": "Vex", "message": "What did Tessera say?",
+                          "player_name": "Cy"}),
+        ("/speak", {**speak, "message": "What did you just tell me?", "player_name": "Bo"}),
+    ):
+        status, data = _post(srv, path, body)
+        assert (status, data["response"], data["ai"]) == (200, VOICED, True), (path, data)
+    later = voice.stub.calls[1:]
+    contexts = [call["system"][1].text for call in later]
+    assert [context.split(",")[0] for context in contexts] == [
+        f"You are presently embodying {node.name}", "You are Tessera", "You are Vex",
+        f"You are presently embodying {node.name}"]
+    for context in contexts:
+        # The ordinary exchange is remembered, both its sides.
+        assert 'they asked: "Tell me about the lanterns."' in context
+        assert f'Tessera answered: "{VOICED}"' in context
+        # Neither identity exchange is, question or answer.
+        for words in ("Are you human?", "Are you a real person?", tender, place):
+            assert words not in context, (context.split(",")[0], words)
+    # The place's answer stays in the asker's own conversation with it, and
+    # in no one else's. The stub's fixed reply shows only what the prompt
+    # holds, not what a model would say with it.
+    assert later[0]["messages"] == [{"role": "user", "content": "What has happened here?"}]
+    assert later[3]["messages"] == [
+        {"role": "user", "content": "Are you a real person?"},
+        {"role": "assistant", "content": place},
+        {"role": "user", "content": "What did you just tell me?"},
+    ]
+
+    # The chronicle and the node's history serve the identity rows unchanged.
+    rows = _rows(seed, node.name)
+    assert len(rows) == 7
+    status, page = _get(srv, f"/chronicle?seed={seed}&limit=200")
+    assert status == 200
+    served = {e["id"]: (e["type"], e["player"], e["data"]) for e in page["entries"]}
+    assert served == {r["id"]: (r["type"], r["player"], r["data"]) for r in rows}
+    status, page = _get(srv, f"/history?seed={seed}&node_name={urllib.parse.quote(node.name)}")
+    assert status == 200
+    served = {e["id"]: (e["type"], e["player"], e["data"]) for e in page["mutations"]}
+    assert served == {r["id"]: (r["type"], r["player"], r["data"]) for r in rows}
+
+
+def _spoken(message, reply, kind="PLAYER_SPEAK"):
+    data = {"message": message, "reply": reply}
+    if kind == "AGENT_VOICE":
+        data = {"agent": "Sela", "persona": "wanderer", **data}
+    return {"type": kind, "player": "Ada", "at": "2026-11-10T00:00:00", "data": data}
+
+
+def test_every_authored_answer_is_left_out_of_a_voice_prompt(voice):
+    import consciousness
+    from multiverse.node import SpatialNode
+    node = SpatialNode(name="The Mire", level="Region", properties={})
+    persona = SimpleNamespace(name="wanderer")
+    for answer in sorted(honesty.AUTHORED_ANSWERS):
+        for kind in ("PLAYER_SPEAK", "AGENT_VOICE"):
+            history = [_spoken("Is the river deep?", "Deeper than it looks.", kind),
+                       # As stored, give or take surrounding whitespace.
+                       _spoken("r u a bot", f" {answer}\n", kind)]
+            consciousness.speak(node, "Hello?", history=history)
+            consciousness.voice_agent(persona, "Sela", node, "Hello?", history=history)
+    assert len(voice.stub.calls) == 2 * 2 * len(honesty.AUTHORED_ANSWERS)
+    for call in voice.stub.calls:
+        context = call["system"][1].text
+        assert '"Is the river deep?"' in context and '"Deeper than it looks."' in context
+        assert "r u a bot" not in context
+        assert not any(answer in context for answer in honesty.AUTHORED_ANSWERS)
+
+
+def test_only_an_exact_authored_answer_is_left_out():
+    import consciousness
+    quoted = f"Someone told me once: {honesty.PLACE_ANSWER}"
+    edited = honesty.PLACE_ANSWER.replace("an AI", "a machine")
+    for reply in (quoted, edited, VOICED):
+        block = consciousness._history_block([_spoken("What did they say?", reply)])
+        assert '"What did they say?"' in block, reply
+    # A history of identity exchanges alone reads like no history at all.
+    only = [_spoken("Are you human?", honesty.ROOT_PLACE_ANSWER),
+            _spoken("Are you a bot?", honesty.AGENT_ANSWERS["scholar"], "AGENT_VOICE")]
+    assert consciousness._history_block(only) == consciousness._history_block([]) == ""
+
+
+def test_identity_exchanges_push_no_older_history_out_of_a_voice():
+    # Review on #166: the filter used to run after get_node_history's 10-row
+    # window, so ten recorded identity exchanges left a later voice with none.
+    import consciousness
+    seed, node = 4471, "The Mire"
+    persistence.record_mutation(seed, node, "PLAYER_SPEAK", "Ada",
+                                {"message": "Is the river deep?", "reply": "Deeper than it looks."})
+    for i in range(12):
+        persistence.record_mutation(seed, node, "PLAYER_SPEAK", f"P{i}",
+                                    {"message": "Are you human?", "reply": honesty.PLACE_ANSWER})
+    window = persistence.get_node_history(seed, node)
+    assert len(window) == 10 and all(consciousness._is_identity_exchange(h) for h in window)
+    history = consciousness.history_for_voice(seed, node)
+    assert [h["data"]["message"] for h in history] == ["Is the river deep?"]
+    block = consciousness._history_block(history)
+    assert '"Deeper than it looks."' in block and "Are you human?" not in block
+
+
+def test_a_voice_history_without_identity_exchanges_is_unchanged():
+    import consciousness
+    seed, node = 4472, "The Mire"
+    for i in range(15):
+        persistence.record_mutation(seed, node, "PLAYER_SPEAK", "Ada",
+                                    {"message": f"Line {i}?", "reply": f"Answer {i}."})
+    assert (consciousness.history_for_voice(seed, node)
+            == persistence.get_node_history(seed, node))
+    assert len(consciousness.history_for_voice(seed, node, limit=4)) == 4
+
+
+def test_a_long_flood_reads_further_back():
+    # Independent check of the first window fix: a fixed 50-row read still
+    # emptied the window once 50 identity exchanges were recorded in a row.
+    import consciousness
+    seed, node = 4473, "The Mire"
+    for i in range(15):
+        persistence.record_mutation(seed, node, "PLAYER_SPEAK", "Ada",
+                                    {"message": f"Line {i}?", "reply": f"Answer {i}."})
+    for i in range(60):
+        persistence.record_mutation(seed, node, "PLAYER_SPEAK", f"P{i}",
+                                    {"message": "Are you human?", "reply": honesty.PLACE_ANSWER})
+    history = consciousness.history_for_voice(seed, node)
+    assert [h["data"]["message"] for h in history] == [f"Line {i}?" for i in range(14, 4, -1)]
+
+
+def test_a_voice_history_clamps_its_limit_like_the_raw_window():
+    import consciousness
+    seed, node = 4474, "The Mire"
+    for i in range(30):
+        persistence.record_mutation(seed, node, "PLAYER_SPEAK", "Ada",
+                                    {"message": f"Line {i}?", "reply": f"Answer {i}."})
+    for limit in (-5, -1, 0, 1, 10, 49, 50, 51, 1000, 5000):
+        assert (consciousness.history_for_voice(seed, node, limit=limit)
+                == persistence.get_node_history(seed, node, limit=limit)), limit
+
+
+@pytest.mark.parametrize("surface", ["command", "interactive"])
+def test_both_cli_speak_paths_read_the_voice_history(monkeypatch, surface):
+    import consciousness
+    import interface
+    import main
+    from multiverse.node import SpatialNode
+    seed, node = 4475, SpatialNode(name="Vault", level="Room", properties={})
+    persistence.record_mutation(seed, node.name, "PLAYER_SPEAK", "Ada",
+                                {"message": "Is the river deep?", "reply": "Deeper than it looks."})
+    for i in range(12):
+        persistence.record_mutation(seed, node.name, "PLAYER_SPEAK", f"P{i}",
+                                    {"message": "Are you human?", "reply": honesty.PLACE_ANSWER})
+    seen = []
+    monkeypatch.setattr(consciousness, "speak",
+                        lambda *a, history=None, **k: seen.append(history) or "A quiet answer.")
+    monkeypatch.setattr(main.store, "world_tree", lambda **kwargs: node)
+    monkeypatch.setattr(main.wrap, "is_hinge", lambda *args: False)
+    monkeypatch.setattr(interface.wrap, "is_hinge", lambda *args: False)
+    if surface == "command":
+        main.cmd_speak(SimpleNamespace(seed=seed, node=None, message="Hello"))
+    else:
+        interface._speak_to(node, "Hello", seed=seed)
+    assert [[h["data"]["message"] for h in history] for history in seen] == [["Is the river deep?"]]
+
+
+def test_a_flood_of_identity_exchanges_leaves_the_voice_its_history(srv, voice):
+    # The same through /speak and /agent/voice: both read history_for_voice.
+    seed = 1452
+    node = _place(seed)
+    persistence.record_mutation(seed, node.name, "PLAYER_SPEAK", "Ada",
+                                {"message": "Tell me about the lanterns.", "reply": VOICED})
+    for i in range(12):
+        persistence.record_mutation(seed, node.name, "PLAYER_SPEAK", f"P{i}",
+                                    {"message": "Are you human?",
+                                     "reply": honesty.place_answer(node.level)})
+    for path, extra in (("/speak", {}), ("/agent/voice", {"agent_name": "Tessera"})):
+        status, data = _post(srv, path, {"node_name": node.name, "seed": seed, "player_name": "Cy",
+                                         "message": "What has happened here?", **extra})
+        assert (status, data["ai"]) == (200, True), (path, data)
+    contexts = [call["system"][1].text for call in voice.stub.calls]
+    assert len(contexts) == 2
+    for context in contexts:
+        assert '"Tell me about the lanterns."' in context
+        assert "Are you human?" not in context
+
+
+# Every identity answer main has shipped, verbatim. A row recorded under a
+# line keeps it for good, so the history filter must keep knowing the line
+# after a rewording. When the owner rewords an answer, add the new line here
+# and move the old one to `honesty._RETIRED_ANSWERS`; never remove a line.
+ANSWERS_EVER_SHIPPED = (
+    # #158 (0798a3e), 2026-11-10
+    "I'm not human. I'm an AI, one of the travelers who tend this world, and I "
+    "would rather you knew that than wondered.",
+    "I'm an AI, not a human. I crack most certainties I find; that one I leave "
+    "whole for you.",
+    "For your record, stated plainly: I am not human. I am an AI, and I study "
+    "this world as one.",
+    "Not human. I'm an AI, passing through, like everyone on this road.",
+    "I'm not human. I'm an AI, one of the travelers in this world.",
+    "I am not a person. I am a place in this world, and the voice you hear from "
+    "me comes from an AI.",
+    "I am not a person. I am this world, all of it, and the voice you hear from "
+    "me comes from an AI.",
+)
+
+
+def _answers_honesty_returns():
+    from multiverse.generator import LEVELS
+    returned = {honesty.agent_answer(p.name) for p in CATALOG}
+    returned |= {honesty.agent_answer(name) for name in (None, "", "unknown", " Tender ")}
+    return returned | {honesty.place_answer(level) for level in (*LEVELS, None)}
+
+
+def test_the_authored_answers_are_every_line_honesty_returns_or_retired():
+    returned = _answers_honesty_returns()
+    assert len(returned) == len(CATALOG) + 3  # the default agent line and two places
+    # A reworded line stays authored, so the set may hold more than today's lines.
+    assert returned <= honesty.AUTHORED_ANSWERS
+    assert honesty.AUTHORED_ANSWERS == returned | set(honesty._RETIRED_ANSWERS)
+    assert all(honesty.is_authored_answer(f"\n {line} ") for line in honesty.AUTHORED_ANSWERS)
+    for other in (None, 7, "", VOICED, honesty.PLACE_ANSWER.lower(), [honesty.PLACE_ANSWER]):
+        assert not honesty.is_authored_answer(other), other
+
+
+def test_every_answer_ever_shipped_stays_out_of_a_voice_history():
+    import consciousness
+    for line in _answers_honesty_returns():
+        assert line in ANSWERS_EVER_SHIPPED, f"new answer, add it to ANSWERS_EVER_SHIPPED: {line!r}"
+    for line in honesty._RETIRED_ANSWERS:
+        assert line in ANSWERS_EVER_SHIPPED, f"retired, so it shipped: {line!r}"
+    ordinary = _spoken("Is the river deep?", "Deeper than it looks.")
+    for line in ANSWERS_EVER_SHIPPED:
+        assert honesty.is_authored_answer(line), (
+            f"recorded rows may hold this line; keep it in honesty._RETIRED_ANSWERS: {line!r}")
+        for kind in ("PLAYER_SPEAK", "AGENT_VOICE"):
+            block = consciousness._history_block([ordinary, _spoken("Are you human?", line, kind)])
+            assert '"Deeper than it looks."' in block
+            assert "Are you human?" not in block and line not in block
 
 
 @pytest.mark.parametrize("ai_off", [False, True], ids=["ai-on", "ai-off"])

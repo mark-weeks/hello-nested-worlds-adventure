@@ -18,6 +18,7 @@ describe("dispatchMessage", () => {
 
   it.each([
     ["player_join", "onPlayerJoin"],
+    ["blocks_changed", "onBlocksChanged"],
     ["player_leave", "onPlayerLeave"],
     ["player_move", "onPlayerMove"],
     ["move_denied", "onMoveDenied"],
