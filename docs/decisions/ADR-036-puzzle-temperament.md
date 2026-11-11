@@ -16,6 +16,13 @@ on `claude/pilot-measurement`, read at `8f8e969`) and ADR-037 (#160, Proposed,
 `docs/decisions/ADR-037-agents-as-conversational-players.md` on
 `claude/adr-037-agents-in-chat`, read at `4267eba`).
 
+**Implementation note (2026-11-11):** The owner's instruction to continue the
+recommended staging work separately authorizes D8 batch **1a**, withdrawing
+answer disclosure alone. Its [implementation record](../evaluation/2026-11-11-puzzle-answer-withdrawal.md)
+tracks the response, CLI and client changes and their checks. The shared
+pool, `FAILED` and write paths remain. This does not accept the rest of this
+Proposed ADR or settle its open questions; batches 1b–4 remain unimplemented.
+
 ## Context
 
 **The owner's decisions, verbatim.**

@@ -2191,7 +2191,6 @@ class Handler(BaseHTTPRequestHandler):
                 "max_attempts":   p.max_attempts,
                 "solver":         session.solver,
                 "contributors":   sorted(session.contributors),
-                "correct_answer": None,
             })
 
         failed = not correct and session.attempts >= p.max_attempts
@@ -2247,7 +2246,4 @@ class Handler(BaseHTTPRequestHandler):
             # client uses it for immediate feedback, then refreshes /world so
             # the visible property panel comes from canonical state.
             "changed":         changed,
-            # Server-tracked attempt count means `failed` only flips at the
-            # real last attempt; safe to release the answer there.
-            "correct_answer": p.answer if failed else None,
         })
