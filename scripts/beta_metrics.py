@@ -7,22 +7,30 @@ attribution, so this script needs no instrumentation, no
 third-party analytics, and no network — it answers the launch questions
 from the world's own memory:
 
-  * how many humans visited in the window, and how many were active on
-    two or more distinct days (an operational return count, not evidence
-    of unprompted or useful return; the pilot observations measure those).
-    A visitor is a
+  * how many humans visited in the window, and how many acted on two or
+    more distinct UTC days (an operational return count, not evidence of
+    unprompted or useful return; the pilot measures those). Only a day that holds
+    an action counts toward a return: presence cannot tell a person who
+    came back from a tab that reconnected, so a visit that crosses
+    midnight and only leaves after it, or an open tab that a deploy
+    reconnects after midnight, is one day. The costs: a visitor who comes
+    back only to look, with no step and no word, is a visitor but not a
+    returning one; and one session with actions on both sides of 00:00
+    UTC still counts as two days. A visitor is a
     participant: a rotated key's identities fold into one visitor through
     participant_credentials (migration 0021), read-only
   * how many of them did something beyond connecting: an action is any
     human row that is not presence, so an Act commit
     (INTERVENTION_COMMITTED) counts. Presence is the PLAYER_JOIN and
     PLAYER_LEAVE every socket writes, and a PLAYER_MOVE that goes nowhere
-    (see _ANNOUNCED_MOVES)
+    (see _announced_moves)
   * how much they actually did: conversations with places and agents,
-    Act commits, puzzle attempts and solves, failed puzzles (each failed
-    pool once, in the window that holds its first non-agent failure row and
-    only when that row's actor counts, however many wrong guesses followed it),
-    scale verbs, chat
+    Act commits, puzzle attempts and solves (an entangled twin that
+    resolves with its partner's solve is reported apart, not as a second
+    solve or a second action), failed puzzles (each failed
+    pool once, in the window that holds its first non-agent failure row
+    and only when that row's actor counts, however many
+    wrong guesses followed it), scale verbs, chat
   * where they went (top nodes by human activity)
   * whether the world itself is alive (total chronicle size, first event)
   * whether the world could answer: voice lines answered vs. quiet, by
@@ -78,8 +86,9 @@ _HUMAN_TYPES = (
 
 # AGENT_VOICE carries the addressed agent while its actor is the player.
 # On action/puzzle rows, data.agent instead marks the acting ambient agent.
-# Match Python's bool(data.get("agent")), including false, zero and empty
-# containers. Keep one predicate for activity and failed-pool attribution.
+# Match Python's bool(data.get("agent")): null/false/0/""/[]/{} are false;
+# nonzero numbers, nonempty strings (including "0") and containers are true.
+# TestAmbientMetricsSafeguards pins both paths against that truth table.
 _NO_AGENT_TAG = """(COALESCE(json_extract({data}, '$.agent'), '') IN ('', 0)
     OR (json_type({data}, '$.agent') IN ('array', 'object')
         AND NOT EXISTS (SELECT 1 FROM json_each({data}, '$.agent'))))"""
@@ -89,34 +98,106 @@ _PLAYER_ACTION = f"""(mutation_type NOT IN (
     OR {_NO_AGENT_TAG.format(data='data')})"""
 
 # Rows every WebSocket connection writes on its own (server/websocket.py):
-# presence, not an action. So is an announced move (_ANNOUNCED_MOVES).
+# presence, not an action. So is an announced move (_announced_moves).
 # Everything else in _HUMAN_TYPES is something the player chose to do.
 _PRESENCE_TYPES = frozenset({"PLAYER_JOIN", "PLAYER_LEAVE"})
 
-# PLAYER_MOVE rows that go nowhere. Both shipped clients send a move for
-# the node they show on every WebSocket (re)connect, with no player input
-# (static/explorer.js in ws.onopen; frontend/src/App.jsx once connected),
-# and the explorer sends one again when it reloads the view at another
-# depth or the node it is on is selected again. server/websocket.py writes
-# a PLAYER_MOVE for every move frame, including one to the node the
-# socket already stands on. A move is announced when the same identity's
-# previous JOIN-or-MOVE row in that world is a PLAYER_JOIN (the connect
-# announcement, whichever node it names: a first visit can join at the
-# root before the client's saved position lands) or names the same node.
-# Over all time, so a join before the window still marks its announcement.
-# A client that never announces (a raw socket) loses its first real move
-# to this rule; the shipped clients always announce.
-_ANNOUNCED_MOVES = """announced_moves AS (
-    SELECT id FROM (
-        SELECT id, mutation_type, node_name,
-               LAG(mutation_type) OVER w AS previous_type,
-               LAG(node_name) OVER w AS previous_node
-        FROM world_mutations
-        WHERE mutation_type IN ('PLAYER_JOIN', 'PLAYER_MOVE')
-          AND actor_identity IS NOT NULL
-        WINDOW w AS (PARTITION BY actor_identity, world_seed ORDER BY id))
-    WHERE mutation_type = 'PLAYER_MOVE'
-      AND (previous_type = 'PLAYER_JOIN' OR previous_node = node_name))"""
+# A solve at an entangled particle resolves its twin in the same commit
+# (server/world_mechanics.py, resolve_entangled_twin): a second
+# PUZZLE_SOLVED at the twin, under the solver's actor_identity, whose data
+# names the partner in "entangled_with". It is the world answering one
+# solve, not a second solve, an action, or a visit to the twin, so it stays
+# out of the human rows and is counted apart.
+_TWIN_SOLVE = ("(mutation_type = 'PUZZLE_SOLVED'"
+               " AND json_extract(data, '$.entangled_with') IS NOT NULL)")
+
+# How long after its PLAYER_JOIN a socket's connect announcement can still
+# land. Both clients send it as the socket's first frame, as soon as it
+# opens, and server/websocket.py closes a socket that sends nothing for
+# 60 s, writing its PLAYER_LEAVE: a join not announced by then never is.
+_ANNOUNCE_WITHIN_SEC = 60
+
+
+def _announced_moves(conn: sqlite3.Connection, *, seed: int | None = None,
+                     skip: tuple[str, ...] = ()) -> set[int]:
+    """Ids of the PLAYER_MOVE rows that go nowhere: presence, not a step.
+
+    Both shipped clients send a move for the node they show on every
+    WebSocket (re)connect, with no player input (static/explorer.js in
+    ws.onopen; frontend/src/App.jsx once connected), and the explorer sends
+    one again when it reloads the view at another depth or the node it is
+    on is selected again. server/websocket.py writes a PLAYER_MOVE for every
+    move frame, including one to the node the socket already stands on.
+
+    The rows name no socket (data is {}), and two tabs on one credential
+    share one actor_identity, so their rows can interleave: JOIN, JOIN,
+    MOVE, MOVE. So, per identity and world in row order, each PLAYER_JOIN
+    owes one announcement. A move is announced when one is still owed as
+    it arrives (the connect announcement, whichever node it names: a first
+    visit can join at the root before the client's saved position lands),
+    or when it names the same node as the identity's previous JOIN-or-MOVE
+    row. Every move pays the oldest announcement still owed. A PLAYER_LEAVE
+    cancels one announcement still owed (the newest), so a socket that
+    closed before its announcement was recorded (closed early, or its
+    announcement was turned away: a seal, no such place, the shared move
+    bucket) leaves nothing for the identity's next visit. An owed
+    announcement also lapses ``_ANNOUNCE_WITHIN_SEC`` after its join, so a
+    socket lost to a restart or a deploy (neither writes a PLAYER_LEAVE)
+    owes nothing a minute later. No count of open sockets is kept: a lost
+    PLAYER_LEAVE would inflate it for good.
+
+    Read over all time, so a join before the window still marks its
+    announcement; the window filters the rows afterwards. Residual limits,
+    without a stored socket id: a client that never announces (a raw
+    socket) loses its first real move. A PLAYER_LEAVE does not say which
+    socket left, so a tab that closes after announcing, between another
+    tab's join and that tab's announcement, cancels the other tab's debt
+    and its announcement reads as an action. An announcement recorded more
+    than ``_ANNOUNCE_WITHIN_SEC`` after its join, naming another node than
+    the join, reads as an action (both clients send it as the socket's first
+    frame; their 20 s keepalive keeps a socket whose announcement was turned
+    away open, which is harmless here). With two tabs open, a step
+    one tab takes before the other's announcement is recorded reads as that
+    announcement and the announcement as the step (the counts stay right;
+    the timeline's first move can shift by the gap), and a reselect
+    compares against the other tab's last row.
+    """
+    where = ("mutation_type IN ('PLAYER_JOIN', 'PLAYER_MOVE', 'PLAYER_LEAVE')"
+             " AND actor_identity IS NOT NULL")
+    args: list = []
+    if skip:
+        where += f" AND actor_identity NOT IN ({','.join('?' for _ in skip)})"
+        args.extend(skip)
+    if seed is not None:
+        where += " AND world_seed = ?"
+        args.append(seed)
+    announced: set[int] = set()
+    # (identity, world) -> [owed join times, last node]
+    sockets: dict[tuple, list] = {}
+    for row_id, identity, world, kind, node, at in conn.execute(
+            f"""SELECT id, actor_identity, world_seed, mutation_type, node_name,
+                       CAST(strftime('%s', recorded_at) AS INTEGER)
+                FROM world_mutations WHERE {where} ORDER BY id""", args):
+        state = sockets.setdefault((identity, world), [[], None])
+        if kind == "PLAYER_JOIN":
+            state[0].append(at)
+            state[1] = node
+        elif kind == "PLAYER_LEAVE":
+            if state[0]:
+                state[0].pop()
+        else:
+            # An unreadable time cannot lapse.
+            owed = [joined for joined in state[0]
+                    if at is None or joined is None
+                    or at - joined <= _ANNOUNCE_WITHIN_SEC]
+            if owed:
+                announced.add(row_id)
+                owed.pop(0)
+            elif node == state[1]:
+                announced.add(row_id)
+            state[0] = owed
+            state[1] = node
+    return announced
 
 _CONVERSATION_TYPES = ("PLAYER_SPEAK", "AGENT_VOICE")
 
@@ -193,24 +274,36 @@ class _Window:
 def parse_bound(text: str, *, end: bool = False) -> datetime:
     """An ISO date or date-time as naive UTC.
 
-    A bare date means that whole UTC day: as ``--since`` it starts at
-    00:00:00, and as ``--until`` (``end=True``) it runs through 23:59:59,
-    so the exclusive bound is the next midnight. A date-time is used as
-    given; one with an offset is converted to UTC, one without is UTC.
+    Whatever ``date.fromisoformat`` reads is a date, in any ISO form it
+    takes (2026-01-05, 20260105, 2026-W02-1, 2026W021), and means that
+    whole UTC day: as ``--since`` it starts at 00:00:00, and as ``--until``
+    (``end=True``) it runs through 23:59:59, so the exclusive bound is the
+    next midnight. Anything else must be a date-time; one with an offset is
+    converted to UTC, one without is UTC. recorded_at holds whole seconds,
+    so a fractional bound widens to the second it falls in: ``--since``
+    rounds down and ``--until`` rounds up, and a row stamped in that second
+    stays inside the window.
     """
     raw = str(text).strip()
     try:
-        if len(raw) == 10:
-            day = date.fromisoformat(raw)
-            moment = datetime(day.year, day.month, day.day)
-            return moment + timedelta(days=1) if end else moment
+        day = date.fromisoformat(raw)
+    except ValueError:
+        pass
+    else:
+        moment = datetime(day.year, day.month, day.day)
+        return moment + timedelta(days=1) if end else moment
+    try:
         moment = datetime.fromisoformat(raw)
     except ValueError:
         raise ValueError(
             f"{raw!r} is not an ISO date (YYYY-MM-DD) or date-time") from None
     if moment.tzinfo is not None:
         moment = moment.astimezone(timezone.utc).replace(tzinfo=None)
-    return moment.replace(microsecond=0)
+    if moment.microsecond:
+        moment = moment.replace(microsecond=0)
+        if end:
+            moment += timedelta(seconds=1)
+    return moment
 
 
 def _window(days: int | None, since: datetime | str | None,
@@ -365,7 +458,7 @@ def compute_metrics(db_path: Path, days: int | None = None,
         skip = (*cast, *excluded)
         skip_ph = ",".join("?" for _ in skip)
         time_clause, time_args = window.rows()
-        human_where = (
+        counted_where = (
             f"mutation_type IN ({type_ph}) "
             f"AND actor_identity IS NOT NULL "
             f"AND actor_identity NOT IN ({skip_ph}) "
@@ -374,20 +467,25 @@ def compute_metrics(db_path: Path, days: int | None = None,
         )
         args: list = [*_HUMAN_TYPES, *skip, *time_args]
         if seed is not None:
-            human_where += " AND world_seed = ?"
+            counted_where += " AND world_seed = ?"
             args.append(seed)
+        # Same placeholders, so q() serves both.
+        human_where = f"{counted_where} AND NOT {_TWIN_SOLVE}"
 
         def q(sql: str, extra: tuple = ()):
             return conn.execute(sql, (*args, *extra)).fetchall()
 
+        # Classified in Python over the fetched rows, then looked up from
+        # SQL; registering a function writes nothing.
+        announced = _announced_moves(conn, seed=seed, skip=skip)
+        conn.create_function("announced_move", 1, announced.__contains__,
+                             deterministic=True)
+
         # Per identity, day, type and announced flag; folded into
         # participants below so a rotated key's days and actions add up
         # under one visitor.
-        per_day = q(f"""WITH {_ANNOUNCED_MOVES}
-                        SELECT actor_identity, date(recorded_at),
-                               mutation_type,
-                               id IN (SELECT id FROM announced_moves),
-                               COUNT(*)
+        per_day = q(f"""SELECT actor_identity, date(recorded_at),
+                               mutation_type, announced_move(id), COUNT(*)
                         FROM world_mutations WHERE {human_where}
                         GROUP BY 1, 2, 3, 4""")
         top_nodes = q(f"""SELECT node_name, COUNT(*) AS n
@@ -423,6 +521,8 @@ def compute_metrics(db_path: Path, days: int | None = None,
                                OR f.actor_identity NOT IN ({cast_ph}))
                           AND {_NO_AGENT_TAG.format(data='f.data')})
                     GROUP BY world_seed, node_name, epoch)""", cast)[0][0]
+        twins_resolved = q(f"""SELECT COUNT(*) FROM world_mutations
+                               WHERE {counted_where} AND {_TWIN_SOLVE}""")[0][0]
 
         total_rows = conn.execute(
             "SELECT COUNT(*) FROM world_mutations").fetchone()[0]
@@ -467,9 +567,12 @@ def compute_metrics(db_path: Path, days: int | None = None,
             v = visitors.setdefault(key, {"events": 0, "actions": 0,
                                           "days": set()})
             v["events"] += count
-            v["days"].add(day)
+            # Only an action marks a day (see the module docstring): a
+            # leave after midnight, or a reconnect's join and announcement,
+            # is not a second visit.
             if kind not in _PRESENCE_TYPES and not announced:
                 v["actions"] += count
+                v["days"].add(day)
 
         n_visitors = len(visitors)
         returning = sum(1 for v in visitors.values() if len(v["days"]) >= 2)
@@ -497,6 +600,7 @@ def compute_metrics(db_path: Path, days: int | None = None,
             "act_commits": by_type.get("INTERVENTION_COMMITTED", 0),
             "puzzle_attempts": by_type.get("PUZZLE_ATTEMPT", 0),
             "puzzle_solves": by_type.get("PUZZLE_SOLVED", 0),
+            "entangled_twins_resolved": twins_resolved,
             "puzzle_failures": failed_pools,
             "puzzle_failed_rows": by_type.get("PUZZLE_FAILED", 0),
             "scale_acts": by_type.get("SCALE_ACT", 0),
@@ -512,10 +616,8 @@ def compute_metrics(db_path: Path, days: int | None = None,
         }
         if timeline:
             metrics["timeline"] = _timeline(
-                q(f"""WITH {_ANNOUNCED_MOVES}
-                      SELECT actor_identity, mutation_type,
-                             id IN (SELECT id FROM announced_moves),
-                             MIN(recorded_at), MIN(id)
+                q(f"""SELECT actor_identity, mutation_type,
+                             announced_move(id), MIN(recorded_at), MIN(id)
                       FROM world_mutations WHERE {human_where}
                       GROUP BY 1, 2, 3"""),
                 owners)
@@ -534,7 +636,7 @@ def _timeline(firsts: list, owners: dict[str, str]) -> list[dict]:
     row in the window is not a PLAYER_JOIN (an HTTP-only client, or a
     socket opened before the window began) is measured from that first row
     instead, and says so, so no offset is negative. An announced move
-    (_ANNOUNCED_MOVES) can start the clock but is never the first move.
+    (_announced_moves) can start the clock but is never the first move.
     """
     people: dict[str, dict] = {}
     for identity, kind, announced, at, row_id in firsts:
@@ -583,7 +685,8 @@ def render(m: dict) -> str:
         "=" * 56,
         f"visitors:            {m['visitors']}",
         f"returning (2+ days): {m['returning_visitors']}"
-        + (f"  ({m['return_rate']:.0%})" if m["return_rate"] is not None else ""),
+        + (f"  ({m['return_rate']:.0%})" if m["return_rate"] is not None else "")
+        + "  (acted on each)",
         f"acting visitors:     {m['acting_visitors']}"
         "  (did more than connect)",
         f"events/visitor:      {m['events_per_visitor'] or 0}",
@@ -612,6 +715,10 @@ def render(m: dict) -> str:
         lines.append(f"  (failed counts each puzzle once, where it first "
                      f"failed; {m['puzzle_failed_rows']} failure rows include "
                      "wrong guesses after a puzzle had failed)")
+    if m["entangled_twins_resolved"]:
+        n = m["entangled_twins_resolved"]
+        lines.append(f"  ({n} entangled {'twin' if n == 1 else 'twins'} "
+                     "resolved alongside a solve; not counted as solves)")
     if m["top_nodes"]:
         lines += ["", "most-visited ground:"]
         lines += [f"  {t['events']:>5}  {t['node']}" for t in m["top_nodes"]]

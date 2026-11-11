@@ -217,6 +217,9 @@ def test_invalid_bound_halts_further_dispatch(candidate):
 
 
 def test_partial_run_preserves_calls_and_is_not_comparable(corpus, candidate, tmp_path):
+    # One two-turn case, so the call limit stops it mid-dialogue whichever
+    # order the schedule shuffles a growing corpus into.
+    corpus = {**corpus, 'cases': [case(corpus, 'voice-room')]}
     result = run(corpus, live_config(candidate), tmp_path / 'partial', tasks=['node_voice'],
                  live=True, max_usd=.003, max_calls=1, provider=FixtureProvider(['first']), brief=selection_brief())
     assert result['status'] == 'call_limit_reached'

@@ -73,7 +73,23 @@ character, or with nothing visible, and `invite mint` caps a name at 32
 characters as `/register` does. Confusable letters from other scripts are out
 of scope for beta. Names already registered are not changed.
 
-**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction (invite-gate latch and reserved names); sanction records 2026-11-03 on the owner's direction. §7 name comparison amended 2026-11-04 under the owner's delegation of #143's open choices.
+**2026-11-07 model-provider data amendment (owner-directed):** Decided by
+the owner, Mark Weeks, on 2026-11-07, in answer to decision 10 of the
+[November decision packet](../roadmap/decision-packet-2026-11.md) (beta
+checklist S2, with L4): "Information can only be shared with model providers
+to facilitate game play. Enfolded data must not be used to train frontier
+models." The two sentences are the owner's words, and they are this
+amendment's whole rule. They cover all information and Enfolded data sent to
+any model provider, player text and world content alike: the text provider's
+voice, intention and moderation calls, and the image provider's scene
+prompts, which carry node names and properties but no player text. This
+amends no numbered section and names no provider
+([ADR-034](ADR-034-provider-and-model-optionality.md)). How a destination is
+checked against the rule, and the questions it leaves open, are proposals
+awaiting the owner's acceptance, recorded in packet decision 10 and checklist
+S2 and L4; they are not part of this ADR.
+
+**Status:** Accepted 2026-07-12. §2 amended 2026-10-25, approved by the owner in chat. §7 amended 2026-11-03 on the owner's direction (invite-gate latch and reserved names); sanction records 2026-11-03 on the owner's direction. §7 name comparison amended 2026-11-04 under the owner's delegation of #143's open choices. Model-provider data rule added 2026-11-07 on the owner's direction.
 
 ---
 
@@ -399,6 +415,71 @@ the shared key entirely:
   "Revisit when…").
 
 ---
+
+## Personal blocking — scoped implementation, 2026-11-06
+
+The owner requested persistent personal block/unblock on 2026-11-06. The
+owner's guardrail recorded in PR #156 treats agents and humans equally for
+personal disengagement. This section records that feature's data and access
+scope; it does not resolve S5
+chat retention or authorize reporting, historical-location concealment or
+community consequences.
+
+An authenticated participant owns their block list. The operational
+`participant_blocks` table stores an owning participant ID and a target ID,
+not reasons, chat text or a permanent audit of block/unblock actions. A human
+target is a participant ID; an agent target is `agent:<canonical name>` from
+the server-owned identity registry, without enrolling the agent as a credentialed
+participant. A block remains until its owner
+removes it; unblocking deletes the pair. It follows the same participant across
+credential rotation. The list is private to its owner and available to the
+operator through the database, including backups under the existing backup
+retention policy. This sets no new backup retention period. Unblocking does not
+erase an older backup; the outstanding backup-retention decision still governs
+when that copy expires. Lists are not sent to models or written to application
+logs, world history, public profiles or the blocked player's client.
+
+Browser targeting uses opaque handles scoped to the viewing participant and the
+current server process. The live envelope's legacy `participant_id` field now
+contains that handle, never another player's durable participant/profile ID or
+an `agent:` target. Handles also cover rosters, speech, encounters and the
+owner-only block list. A copied handle cannot target someone for another owner;
+the server resolves it before changing the private preference. A restart issues
+new handles on reconnect while preserving stored preferences; clients clear
+buffered live content from the previous handle scope and keep shared history and
+world effects. Retired registry targets remain removable from their owner's list.
+
+**Owner decision, 2026-11-07:** "Keep internal targets; translate during
+unified-identity work." This feature retains internal
+`agent:<canonical name>` targets and opaque browser handles. When unified
+inhabitant participant identities are implemented, that work must translate
+existing `participant_blocks.blocked_id` targets so saved preferences continue
+to match their travelers. This settles this feature's stored-target contract;
+[ADR-032](ADR-032-inhabitant-cognition.md) remains Proposed, and identity
+unification is future work.
+
+**Rollback boundary:** applying `0030_participant_blocks` advances the database
+to schema 30. A schema-29 image cannot use same-schema rollback against it.
+Keep a fallback build that includes migration 0030, or fix forward while retaining
+schema 30. A matched pre-0030 disaster restore would abandon every later world
+and player record, not just block preferences; it is not an ordinary rollback.
+The schema guard and [deployment procedure](../infrastructure/fly-deployment.md#same-schema-release-rollback)
+must remain in force.
+
+Blocking filters the target's live chat and presence for the blocker in
+both browser clients and on the server's live socket delivery. It is one-way,
+reversible and applies across the blocker's open sessions. Historical facts,
+shared world consequences, puzzle credit and access to places remain shared.
+Someone already blocked can still be found in the owner's private list for
+unblocking after they disconnect or their credential is revoked. Blocking is
+personal disengagement, not an operator sanction or a promise to hide historical
+locations.
+
+Agent speech and encounters use the same personal controls and delivery
+filtering. A deliberate Speak request addressed through saved history remains
+available, like other explicit interactions with shared evidence. This feature
+does not change live labels, make agents converse through world chat, or alter
+their puzzle-solving rules; those are separate contracts in the owner's record.
 
 ## Trade-offs accepted
 

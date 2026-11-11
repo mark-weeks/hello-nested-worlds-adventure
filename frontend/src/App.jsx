@@ -11,6 +11,7 @@ import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
 import { displayName } from "./names.js";
 import { createNodeRefresher } from "./nodeRefresh.js";
 import { createChatDraft, createChatRestore } from "./chatDraft.js";
+import { arrivalScreen, openWorld, WORLD_UNREACHED_LINE } from "./arrival.js";
 import { NodeAmbience } from "../../static/score.js";
 
 // Honor the OS-level motion preference: transient overlays (ripples,
@@ -81,6 +82,14 @@ export default function App() {
   const [wrapInfo, setWrapInfo]   = useState(null);
   const [nodeStack, setNodeStack] = useState([]);
   const [players, setPlayers]     = useState([]);
+  const [blocks, setBlocks] = useState([]);
+  const [participantId, setParticipantId] = useState(null);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [blockStatus, setBlockStatus] = useState('');
+  const blockIds = useRef(new Set());
+  const blockRevision = useRef(0);
+  const mySessionId = useRef(null);
+  const liveViewerId = useRef(null);
   const [agents, setAgents]       = useState({});  // name → { node, persona }
   const [events, setEvents]       = useState([]);
   // The fetched world tree, retained so jump-to-traveler can rebuild a real
@@ -90,6 +99,9 @@ export default function App() {
   const [walkThrough, setWalkThrough] = useState(null);
   const [transients, setTransients] = useState([]);
   const [loading, setLoading]     = useState(true);
+  // Why the world did not open, while it has not: { kind, line } from the
+  // shared rule (an invite to open, a refused invitation, or a retry).
+  const [unopened, setUnopened]   = useState(null);
   const [playerName, setPlayerName] = useState(() => localStorage.getItem(NAME_KEY) || urlName() || "");
   const [introSeen, setIntroSeen] = useState(() => !!localStorage.getItem(INTRO_SEEN));
   const [soundOn, setSoundOn] = useState(false);
@@ -108,6 +120,33 @@ export default function App() {
   const pushEvent = useCallback((evt) => {
     setEvents(ev => [evt, ...ev].slice(0, MAX_EVENTS));
   }, []);
+
+  function applyBlocks(list) {
+    blockRevision.current += 1;
+    blockIds.current = new Set(list.map(b => b.id));
+    setBlocks(list);
+    setPlayers(roster => roster.filter(p => !blockIds.current.has(p.participant_id)));
+    setAgents(roster => Object.fromEntries(Object.entries(roster).filter(([, a]) => !blockIds.current.has(a.participant_id))));
+    setEvents(feed => globalThis.EnfoldedClient.withoutBlockedLiveEvents(feed, list));
+    setTransients(effects => globalThis.EnfoldedClient.withoutBlockedLiveEvents(effects, list));
+  }
+
+  async function changeBlock(participant, blocked) {
+    if (blockBusy) return;
+    setBlockBusy(true);
+    setBlockStatus('Saving your choice…');
+    const revision = blockRevision.current;
+    try {
+      const list = await globalThis.EnfoldedClient.savePersonalBlock(withKey('/blocks'), participant, blocked);
+      // A newer private socket update (possibly from another tab) wins.
+      if (revision === blockRevision.current) applyBlocks(list);
+      setBlockStatus(blockIds.current.has(participant) ? 'Blocked. Their live chat and presence are hidden.' : 'Unblocked.');
+    } catch (error) {
+      setBlockStatus(error.message || 'Your block could not be saved. Try again.');
+    } finally {
+      setBlockBusy(false);
+    }
+  }
 
   // Transients are short-lived visual overlays in SceneView (ripples,
   // encounter glyphs, solve sparkles). Only the ones whose node matches
@@ -136,16 +175,28 @@ export default function App() {
     const requestedDepth = resumeDepth(
       depth, savedNode, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
     );
-    if (!background) setLoading(true);
+    if (!background) {
+      setLoading(true);
+      setUnopened(null);
+    }
     if (!preserveSession) {
       setPlayers([]);
       setEvents([]);
     }
     const startedAt = refreshSerial.current;
+    // Whether this read put a place in hand before anything after it failed.
+    let placed = false;
     try {
-      const response = await fetch(withKey(`/world?depth=${requestedDepth}`));
-      const data = await response.json();
-      if (!response.ok || data.error) throw new Error(data.error || "world unavailable");
+      const opened = await openWorld(
+        url => fetch(url), withKey(`/world?depth=${requestedDepth}`), !!betaKey(),
+      );
+      if (opened.unopened) {
+        // The arrival screens show this only while no place is in hand; a
+        // horizon read keeps its own retry beside the scene.
+        if (!background) setUnopened(opened.unopened);
+        return false;
+      }
+      const data = opened.data;
       setSeed(data.seed);
       setWorldDepth(requestedDepth);
       setWrapInfo(data.wrap || null);
@@ -162,6 +213,7 @@ export default function App() {
         return node;
       });
       setNodeStack(path);
+      placed = true;
       // A deep link selects this arrival once; later reloads resume actual travel.
       if (new URLSearchParams(location.search).has("node")) {
         const url = new URL(location.href);
@@ -180,8 +232,13 @@ export default function App() {
         }
       }
     } catch (_) {
-      // The loading shell remains the quiet failure surface; client-error
-      // forwarding records the underlying browser failure separately.
+      // A failure after the world opened. A world that answered but could not
+      // be drawn (no tree, no entry path) leaves no place in hand, so it gets
+      // the retry line instead of the loading shell with nothing in flight.
+      // After a place is in hand (the history backfill), the scene stays.
+      if (!background && !placed) {
+        setUnopened({ kind: "retry", line: WORLD_UNREACHED_LINE });
+      }
       return false;
     } finally {
       if (!background) setLoading(false);
@@ -250,20 +307,34 @@ export default function App() {
     // The welcome roster: everyone already present when we connect. Without
     // this, a joining player sees an empty world until someone acts.
     onWelcome: (msg) => {
+      const previousViewer = liveViewerId.current;
+      const viewer = msg.participant_id || null;
+      setEvents(feed => globalThis.EnfoldedClient.liveEventsAfterWelcome(feed, previousViewer, viewer));
+      setTransients(effects => globalThis.EnfoldedClient.liveEventsAfterWelcome(effects, previousViewer, viewer));
+      liveViewerId.current = viewer;
+      mySessionId.current = msg.session_id;
+      setParticipantId(viewer);
+      applyBlocks(msg.blocks || []);
       const others = (msg.players || [])
-        .filter(p => p.session_id !== msg.session_id)
-        .map(p => ({ name: p.name, session_id: p.session_id, node: p.node || "" }));
+        .filter(p => p.session_id !== msg.session_id && !blockIds.current.has(p.participant_id));
       setPlayers(others);
       const cast = {};
-      for (const a of (msg.agents || [])) cast[a.name] = { node: a.node || "", persona: a.persona };
+      for (const a of (msg.agents || [])) {
+        if (!blockIds.current.has(a.participant_id)) cast[a.name] = { ...a, node: a.node || "" };
+      }
       setAgents(cast);
       if (others.length) {
         pushEvent({ type: "system",
                     text: `${others.length} explorer${others.length > 1 ? "s" : ""} already here` });
       }
     },
-    onAgentEnter: (msg) => setAgents(a => ({ ...a, [msg.name]: { node: "", persona: msg.persona } })),
-    onAgentMove:  (msg) => setAgents(a => ({ ...a, [msg.name]: { ...(a[msg.name] || {}), node: msg.node } })),
+    onBlocksChanged: (msg) => {
+      applyBlocks(msg.blocks || []);
+      setPlayers((msg.players || []).filter(p => p.session_id !== mySessionId.current && !blockIds.current.has(p.participant_id)));
+      setAgents(Object.fromEntries((msg.agents || []).filter(a => !blockIds.current.has(a.participant_id)).map(a => [a.name, a])));
+    },
+    onAgentEnter: (msg) => !blockIds.current.has(msg.participant_id) && setAgents(a => ({ ...a, [msg.name]: { ...msg, node: "" } })),
+    onAgentMove:  (msg) => !blockIds.current.has(msg.participant_id) && setAgents(a => ({ ...a, [msg.name]: { ...(a[msg.name] || {}), ...msg } })),
     onAgentLeave: (msg) => setAgents(a => {
       const next = { ...a };
       delete next[msg.name];
@@ -282,26 +353,27 @@ export default function App() {
       }
     },
     onPlayerJoin: (msg) => {
-      setPlayers(p => [...p, { name: msg.name, session_id: msg.session_id, node: "" }]);
-      pushEvent({ type: "system", text: `${msg.name} joined` });
+      if (blockIds.current.has(msg.participant_id)) return;
+      setPlayers(p => [...p.filter(x => x.session_id !== msg.session_id), { ...msg, node: msg.node || "" }]);
+      pushEvent({ type: "system", liveParticipant: msg.participant_id, text: `${msg.name} joined` });
     },
     onPlayerLeave: (msg) => {
       setPlayers(p => {
         const leaving = p.find(x => x.session_id === msg.session_id);
-        pushEvent({ type: "system", text: `${leaving?.name ?? "Someone"} left` });
+        if (leaving) pushEvent({ type: "system", liveParticipant: leaving.participant_id, text: `${leaving.name} left` });
         return p.filter(x => x.session_id !== msg.session_id);
       });
     },
     // Upsert on move: a mover we don't know yet (raced past the roster)
     // must appear, not be silently dropped.
-    onPlayerMove: (msg) => setPlayers(p =>
+    onPlayerMove: (msg) => !blockIds.current.has(msg.participant_id) && setPlayers(p =>
       p.some(x => x.session_id === msg.session_id)
         ? p.map(x => x.session_id === msg.session_id ? { ...x, node: msg.node } : x)
-        : [...p, { name: msg.name, session_id: msg.session_id, node: msg.node }]),
-    onChat:         (msg) => pushEvent({ type: "chat",   name: msg.name, text: msg.text }),
-    // Moderation hold or decline (sender-only): the message reached nobody
-    // and was stored nowhere — surface the world's line so it doesn't
-    // silently vanish, and give the player's own words back to the input.
+        : [...p, msg]),
+    onChat: (msg) => {
+      if (!blockIds.current.has(msg.participant_id)) pushEvent({ type: "chat", name: msg.name, text: msg.text, liveParticipant: msg.participant_id });
+    },
+    // Moderation hold or decline restores only the sender's own draft.
     onChatDeclined: (msg) => {
       pushEvent({ type: "system", text: `✕ ${msg.text}` });
       chatRestore.deliver(chatDraft.declined(msg));
@@ -340,7 +412,9 @@ export default function App() {
         pushTransient({ kind: "solve", duration: 2500 });
       }
     },
-    onAgentDone:      (msg) => pushEvent({ type: "system", text: `Agent visited ${msg.nodes_visited} nodes from ${displayName(msg.node)}` }),
+    onAgentDone: (msg) => {
+      if (!blockIds.current.has(msg.participant_id)) pushEvent({ type: "system", liveParticipant: msg.participant_id, text: `Agent visited ${msg.nodes_visited} nodes from ${displayName(msg.node)}` });
+    },
     onIntervention: (msg) => {
       pushEvent({type: 'system', text: msg.flavor || 'A new arrangement arrives.'});
       // Like scale acts: only the place this client stands on is re-read.
@@ -361,39 +435,50 @@ export default function App() {
       // Two wanderers in conversation — surface the lines like chat, the
       // closing stage direction as ambience.
       for (const l of msg.lines || []) {
-        if (l.speaker) pushEvent({ type: "chat", name: l.speaker, text: l.line });
-        else pushEvent({ type: "system", text: l.line });
+        if (l.speaker) {
+          if (!blockIds.current.has(l.participant_id)) pushEvent({ type: "chat", name: l.speaker, text: l.line, liveParticipant: l.participant_id });
+        } else if (!(msg.participant_ids || []).some(id => blockIds.current.has(id))) {
+          pushEvent({ type: "system", text: l.line, liveParticipants: msg.participant_ids });
+        }
       }
     },
     onAgentEncounter: (msg) => {
-      pushEvent({ type: "system", text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${displayName(msg.node)}` });
+      if ((msg.participant_ids || []).some(id => blockIds.current.has(id))) return;
+      pushEvent({ type: "system", liveParticipants: msg.participant_ids, text: `⚡ ${msg.agent1} meets ${msg.agent2} @ ${displayName(msg.node)}` });
       if (msg.node === currentNodeName) {
         pushTransient({ kind: "encounter",
                         agent1: msg.agent1, agent2: msg.agent2,
+                        liveParticipants: msg.participant_ids,
                         duration: 1800 });
       }
     },
   });
 
-  // Mount once. First pull any server-side (cross-device) resume into
-  // localStorage, then load — so the position follows the player across devices,
-  // falling back to this browser's cache when there's no server row.
+  // First pull any server-side (cross-device) resume into localStorage, then
+  // load — so the position follows the player across devices, falling back to
+  // this browser's cache when there's no server row.
+  const arrive = useCallback(async (cancelled = () => false) => {
+    // The loading shell shows at once, so a retry answers its click before
+    // the position hydrate and cannot be pressed again while it runs.
+    setLoading(true);
+    const position = await hydratePositionFromServer();
+    if (cancelled()) return;
+    const targetNode = new URLSearchParams(location.search).get("node") || position?.node || localStorage.getItem(LAST_NODE_KEY);
+    const targetDepth = resumeDepth(
+      position?.depth ?? localStorage.getItem(LAST_DEPTH_KEY),
+      targetNode,
+      INITIAL_WORLD_DEPTH,
+      MAX_WORLD_DEPTH,
+    );
+    loadWorld({ depth: targetDepth, targetNode });
+  }, [loadWorld]);
+
+  // Mount once.
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const position = await hydratePositionFromServer();
-      if (cancelled) return;
-      const targetNode = new URLSearchParams(location.search).get("node") || position?.node || localStorage.getItem(LAST_NODE_KEY);
-      const targetDepth = resumeDepth(
-        position?.depth ?? localStorage.getItem(LAST_DEPTH_KEY),
-        targetNode,
-        INITIAL_WORLD_DEPTH,
-        MAX_WORLD_DEPTH,
-      );
-      loadWorld({ depth: targetDepth, targetNode });
-    })();
+    arrive(() => cancelled);
     return () => { cancelled = true; };
-  }, [loadWorld]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [arrive]);
 
   // Broadcast our position whenever it changes or we (re)connect, so other
   // players see us where we actually are — including the initial drop-in /
@@ -573,7 +658,16 @@ export default function App() {
 
   useEffect(() => { ambienceRef.current?.setVolume(scoreVolume); }, [scoreVolume, soundOn]);
 
-  if (!introSeen) {
+  const screen = arrivalScreen({
+    loading, hasNode: !!currentNode, unopened, introSeen, named: !!playerName,
+    hasKey: !!betaKey(),
+  });
+
+  if (screen === "gate") {
+    return <Unopened line={unopened.line} />;
+  }
+
+  if (screen === "intro") {
     return <Intro onBegin={() => {
       enablePreferredSound();
       localStorage.setItem(INTRO_SEEN, "1");
@@ -581,7 +675,7 @@ export default function App() {
     }} />;
   }
 
-  if (!playerName) {
+  if (screen === "name") {
     return <NameEntry onSubmit={(name) => {
       enablePreferredSound();
       localStorage.setItem(NAME_KEY, name);
@@ -589,7 +683,11 @@ export default function App() {
     }} />;
   }
 
-  if (loading || !currentNode) {
+  if (screen === "retry") {
+    return <Unopened line={unopened.line} onRetry={() => arrive()} />;
+  }
+
+  if (screen === "loading") {
     return <div style={s.loading}>Opening the shared world…</div>;
   }
 
@@ -610,6 +708,7 @@ export default function App() {
       <TextPanel
         node={currentNode}
         players={players}
+        blocks={blocks} participantId={participantId} onBlock={changeBlock} blockBusy={blockBusy} blockStatus={blockStatus}
         agents={agents}
         connected={connected}
         events={events}
@@ -647,7 +746,24 @@ function Intro({ onBegin }) {
           <li style={s.introItem}><b style={s.introVerb}>Act</b> — change what matters to you. Each scale offers different possibilities; combine actions and follow their consequences.</li>
           <li style={s.introItem}><b style={s.introVerb}>Solve</b> — crack a node's puzzle; the ripple settles places far above and below.</li>
         </ul>
+        <p style={s.introBody}>Some travelers you meet are AI. You won't always be able to tell, but if you ask one, it will tell you the truth.</p>
         <button onClick={onBegin} style={{ ...s.nameButton, alignSelf: "flex-start" }}>Begin</button>
+      </div>
+    </div>
+  );
+}
+
+// The world did not open. The line comes from the shared rule; only a
+// failure that asking again can mend offers to ask again.
+function Unopened({ line, onRetry }) {
+  return (
+    <div style={s.nameWrap}>
+      <div style={{ ...s.nameBox, textAlign: "left" }}>
+        <div style={s.nameTitle}>Enfolded</div>
+        <div role="alert" style={s.introBody}>{line}</div>
+        {onRetry && (
+          <button onClick={onRetry} style={s.nameButton}>Open the view again</button>
+        )}
       </div>
     </div>
   );

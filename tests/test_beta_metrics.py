@@ -16,10 +16,16 @@ responses, never by reading a PLAYER_CHAT row back.
 
 The second half reads the worlds those paths leave with
 ``scripts/beta_metrics.py`` (checklist B2): an Act-only tester acted, the
-move every client sends on connect is not an action, a failed puzzle counts
-once where it first failed however many wrong guesses follow, a rotated key
-is one visitor, ``--exclude-identity`` drops the facilitator under every
-key, ``--since``/``--until`` read an archive without changing it, and
+move every client sends on connect is not an action (from two tabs on one
+key either), a socket that closed before announcing or a join a restart
+lost does not turn a later step into presence, a failed puzzle counts once
+where it first failed however many wrong guesses follow (and a wanderer's
+failed roll does not hide it), an entangled twin that resolves with a solve
+is not a second solve, a rotated key is one visitor, a return needs an
+action on each of two UTC days (a visit that crosses midnight, or a tab a
+deploy reconnects after it, is one day), ``--exclude-identity`` drops the
+facilitator under every key, ``--since``/``--until`` read an archive without
+changing it and take every ISO date form as a whole day, and
 ``--timeline`` names nobody.
 
 Sockets that stand for a browser announce their node right after the
@@ -45,11 +51,12 @@ from pathlib import Path
 import pytest
 
 import persistence
+from causality import EventKind
 from multiverse import store
 from multiverse.situation import NODES
 from persistence import participants
 from puzzles.engine import PuzzleEngine
-from server import observability
+from server import heartbeat, observability
 from tests.test_server_protocol import _client_frame
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -278,6 +285,19 @@ def _metrics(**kwargs) -> dict:
     return beta_metrics.compute_metrics(persistence._DB_PATH, **kwargs)
 
 
+def _chronicle(identity: str, rows: list[tuple[str, str, str]]) -> None:
+    """Write (type, node, UTC time) rows as the server stores them ({} data),
+    for a moment the clock cannot reach, such as midnight."""
+    persistence.init_db()
+    with persistence._connect() as conn:
+        conn.executemany(
+            """INSERT INTO world_mutations
+               (world_seed, node_name, mutation_type, player_name, data,
+                actor_identity, recorded_at)
+               VALUES (?, ?, ?, 'Thessaly', '{}', ?, ?)""",
+            [(SEED, node, kind, identity, at) for kind, node, at in rows])
+
+
 def _cli(capsys, *argv: str) -> str:
     beta_metrics.main(["--db", str(persistence._DB_PATH), *argv])
     return capsys.readouterr().out
@@ -288,6 +308,10 @@ def _cli(capsys, *argv: str) -> str:
 COSOLVE_NODE = "Ashen Ember Sphere-11"
 # A galaxy beneath it, three attempts, for the failure pool.
 FAILING_NODE = "Mossbound Bell Disc-111"
+# A subatomic particle and its entangled twin: a solve at the first
+# resolves the second (server/world_mechanics.py).
+ENTANGLED_NODE = "Bright Dawn Spark-11112121111"
+ENTANGLED_TWIN = "Cedar Rain Point-11112121112"
 CHAT = "marker-chat-lantern by the reeds"
 REPLY = "marker-chat-reply on my way"
 GUESS = "marker-guess-nowhere"
@@ -356,9 +380,15 @@ class TestTwoTravelers:
         # Each line reached the other socket, under its sender's name.
         assert s["heard_by_bea"]["name"] == "Quorra"
         assert s["heard_by_ada"]["name"] == "Zephyrine"
+        # The same viewer-scoped handle follows arrival and movement, without
+        # exposing the other traveler's durable participant identity.
+        target = s["bea_arrives"]["participant_id"]
+        assert isinstance(target, str) and len(target) == 32
+        assert target != participants.identify(s["bea_key"])["id"]
         assert s["bea_moves"] == {"type": "player_move", "name": "Zephyrine",
                                   "node": COSOLVE_NODE,
-                                  "session_id": s["bea_moves"]["session_id"]}
+                                  "session_id": s["bea_moves"]["session_id"],
+                                  "participant_id": target}
 
     def test_a_cosolve_credits_both_registered_names(self, world):
         s = _meet_and_cosolve(world)
@@ -476,6 +506,139 @@ class TestBetaMetrics:
             True, True, False]
         assert m["timeline"][2]["first_move"] >= 0
 
+    def test_two_tabs_on_one_key_announce_without_acting(self, world):
+        # One credential, two tabs that show different places. Both sockets
+        # join before either announces, so the chronicle interleaves them:
+        # JOIN, JOIN, MOVE(root), MOVE(elsewhere). No row names its socket.
+        key = world.mint("Thessaly")
+        first, second = world.connect(key), world.connect(key)
+        for client in (first, second):
+            client.wait_for(lambda f: f["type"] == "welcome")
+        deadline = time.monotonic() + 5
+        while _recorded(_identity(key), "PLAYER_JOIN") < 2:
+            assert time.monotonic() < deadline, "a join was not recorded"
+            time.sleep(0.02)
+        world.announce(first, key, store.root_name(SEED))
+        world.announce(second, key, COSOLVE_NODE)
+
+        m = _metrics(days=1, timeline=True)
+        assert (m["visitors"], m["events_by_type"]["PLAYER_MOVE"]) == (1, 2)
+        assert m["acting_visitors"] == 0
+        assert m["timeline"][0]["first_move"] is None
+
+        # A step either tab takes after both announced is the player's.
+        world.announce(first, key, FAILING_NODE)
+        _settle(world)
+        m = _metrics(days=1, timeline=True)
+        assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
+        assert m["timeline"][0]["first_move"] >= 0
+
+    def test_a_socket_that_closed_before_announcing_owes_nothing_later(self, world):
+        key = world.mint("Thessaly")
+        identity = _identity(key)
+
+        def closed(client: _Socket, leaves: int) -> None:
+            client.close()
+            deadline = time.monotonic() + 5
+            while _recorded(identity, "PLAYER_LEAVE") < leaves:
+                assert time.monotonic() < deadline, "a departure was not recorded"
+                time.sleep(0.02)
+
+        # One tab closes before its announcement lands; the server turns
+        # another's announcement away. Neither writes a PLAYER_MOVE.
+        early = world.connect(key)
+        early.wait_for(lambda f: f["type"] == "welcome")
+        closed(early, 1)
+        refused = world.connect(key)
+        refused.wait_for(lambda f: f["type"] == "welcome")
+        refused.send({"type": "move", "node": "Nowhere At All-0"})
+        assert refused.wait_for(lambda f: f["type"] == "move_denied")[
+            "reason"] == "no such place"
+        closed(refused, 2)
+        assert _recorded(identity, "PLAYER_MOVE") == 0
+
+        # Seconds later, one tab at a time: the announcement, then one
+        # real step. Every socket before it has closed, so none owes.
+        visit, _ = world.arrive(key)
+        world.announce(visit, key, COSOLVE_NODE)
+        _settle(world)
+        m = _metrics(days=1, timeline=True)
+        assert (m["visitors"], m["events_by_type"]["PLAYER_MOVE"]) == (1, 2)
+        assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
+        assert m["timeline"][0]["first_move"] >= 0
+
+    def test_a_second_tab_that_closes_before_announcing_owes_nothing(self, world):
+        # Two tabs on one key join; the second closes before announcing
+        # while the first stays open. No row says which socket left.
+        key = world.mint("Thessaly")
+        first, second = world.connect(key), world.connect(key)
+        welcome = first.wait_for(lambda f: f["type"] == "welcome")
+        second.wait_for(lambda f: f["type"] == "welcome")
+        deadline = time.monotonic() + 5
+        while _recorded(_identity(key), "PLAYER_JOIN") < 2:
+            assert time.monotonic() < deadline, "a join was not recorded"
+            time.sleep(0.02)
+        second.close()
+        while _recorded(_identity(key), "PLAYER_LEAVE") < 1:
+            assert time.monotonic() < deadline, "a departure was not recorded"
+            time.sleep(0.02)
+        # One socket is open, so one announcement is owed: the first tab's.
+        world.announce(first, key, _own_node(welcome))
+        world.announce(first, key, COSOLVE_NODE)
+        _settle(world)
+        m = _metrics(days=1)
+        assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
+
+    def test_a_join_lost_to_a_restart_owes_nothing_later(self, world):
+        key = world.mint("Thessaly")
+        # An hour ago a socket joined and the server restarted before its
+        # announcement landed; a restart writes no PLAYER_LEAVE.
+        with persistence._connect() as conn:
+            conn.execute(
+                """INSERT INTO world_mutations
+                   (world_seed, node_name, mutation_type, player_name, data,
+                    actor_identity, recorded_at)
+                   VALUES (?, ?, 'PLAYER_JOIN', 'Thessaly', '{}', ?,
+                           datetime('now', '-1 hour'))""",
+                (SEED, store.root_name(SEED), _identity(key)))
+        visit, _ = world.arrive(key)
+        world.announce(visit, key, COSOLVE_NODE)
+        _settle(world)
+        m = _metrics(days=1, timeline=True)
+        assert m["events_by_type"]["PLAYER_MOVE"] == 2
+        assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
+        assert m["timeline"][0]["first_move"] is not None
+
+    def test_a_socket_lost_to_a_deploy_does_not_keep_later_debts_open(self, world):
+        # Yesterday a socket joined and announced, then a deploy ended it
+        # with no PLAYER_LEAVE. Today a tab closes before announcing and
+        # the player reopens at once: the reopened tab's step is an action.
+        key = world.mint("Thessaly")
+        identity = _identity(key)
+        with persistence._connect() as conn:
+            for kind, node in (("PLAYER_JOIN", store.root_name(SEED)),
+                               ("PLAYER_MOVE", COSOLVE_NODE)):
+                conn.execute(
+                    """INSERT INTO world_mutations
+                       (world_seed, node_name, mutation_type, player_name, data,
+                        actor_identity, recorded_at)
+                       VALUES (?, ?, ?, 'Thessaly', '{}', ?,
+                               datetime('now', '-1 day'))""",
+                    (SEED, node, kind, identity))
+        early = world.connect(key)
+        early.wait_for(lambda f: f["type"] == "welcome")
+        early.close()
+        deadline = time.monotonic() + 5
+        while _recorded(identity, "PLAYER_LEAVE") < 1:
+            assert time.monotonic() < deadline, "a departure was not recorded"
+            time.sleep(0.02)
+        visit, _ = world.arrive(key)
+        world.announce(visit, key, COSOLVE_NODE)
+        _settle(world)
+        m = _metrics(days=1, timeline=True)
+        assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 1.0)
+        assert m["timeline"][0]["first_move"] is not None
+
     def test_a_failed_pool_counts_once_however_many_wrong_guesses_follow(self, world):
         ada_key, bea_key = world.mint("Quorra"), world.mint("Zephyrine")
         opened = world.open_puzzle(ada_key, FAILING_NODE)
@@ -537,6 +700,63 @@ class TestBetaMetrics:
         week = _metrics(days=7, exclude=["Oonagh"])
         assert (week["puzzle_failures"], week["puzzle_failed_rows"]) == (0, 2)
 
+    def test_a_wanderers_failed_roll_does_not_hide_the_pool_failing(self, world):
+        facilitator, tester = world.mint("Oonagh"), world.mint("Quorra")
+        opened = world.open_puzzle(tester, FAILING_NODE)
+        # A wanderer's roll fails here first, through the heartbeat's own
+        # ambient write. It is not an attempt from the human pool.
+        heartbeat._ambient_event(
+            SEED, store.resolve_node_by_name(SEED, FAILING_NODE),
+            EventKind.PUZZLE_FAILED,
+            {"agent": beta_metrics._cast_names()[0], "puzzle": opened["name"],
+             "difficulty": 1})
+        for i in range(opened["max_attempts"]):
+            last = world.attempt(facilitator, FAILING_NODE, opened["name"], f"demo-{i}")
+        assert last["result"] == "FAILED"
+        assert world.attempt(tester, FAILING_NODE, opened["name"],
+                             "late-one")["result"] == "FAILED"
+        with sqlite3.connect(f"file:{persistence._DB_PATH}?mode=ro", uri=True) as conn:
+            first = conn.execute(
+                """SELECT actor_identity, json_extract(data, '$.agent')
+                   FROM world_mutations
+                   WHERE node_name = ? AND mutation_type = 'PUZZLE_FAILED'
+                   ORDER BY id LIMIT 1""", (FAILING_NODE,)).fetchone()
+        assert first == (None, beta_metrics._cast_names()[0])
+
+        # The facilitator's attempt exhausted the pool, behind the roll.
+        m = _metrics(days=1)
+        assert (m["puzzle_failures"], m["puzzle_failed_rows"]) == (1, 2)
+        # Still theirs when they are excluded: the tester only guessed late.
+        m = _metrics(days=1, exclude=["Oonagh"])
+        assert (m["puzzle_failures"], m["puzzle_failed_rows"]) == (0, 1)
+
+    def test_an_entangled_solve_is_one_solve(self, world):
+        key = world.mint("Quorra")
+        opened = world.open_puzzle(key, ENTANGLED_NODE)
+        solved = world.attempt(key, ENTANGLED_NODE, opened["name"],
+                               _answer(ENTANGLED_NODE))
+        assert solved["result"] == "SOLVED"
+        # The twin resolved in the same commit, under the solver's key.
+        twin = [row for row in persistence.get_node_history(SEED, ENTANGLED_TWIN)
+                if row["type"] == "PUZZLE_SOLVED"]
+        assert [row["data"]["entangled_with"] for row in twin] == [ENTANGLED_NODE]
+        assert _recorded(_identity(key), "PUZZLE_SOLVED") == 2
+
+        m = _metrics(days=1, timeline=True)
+        assert (m["puzzle_attempts"], m["puzzle_solves"]) == (1, 1)
+        assert m["entangled_twins_resolved"] == 1
+        # One attempt that solved: two actions, at the one place visited.
+        assert (m["acting_visitors"], m["actions_per_visitor"]) == (1, 2.0)
+        assert m["events_by_type"] == {"PUZZLE_ATTEMPT": 1, "PUZZLE_SOLVED": 1}
+        assert [row["node"] for row in m["top_nodes"]] == [ENTANGLED_NODE]
+        assert m["timeline"][0]["first_solve"] is not None
+        report = beta_metrics.render(m)
+        assert "(solved 1, failed 0)" in report
+        assert "1 entangled twin resolved alongside a solve" in report
+        # An excluded solver's twin leaves with the solve.
+        m = _metrics(days=1, exclude=["Quorra"])
+        assert (m["puzzle_solves"], m["entangled_twins_resolved"]) == (0, 0)
+
     def test_a_rotated_key_is_one_visitor(self, world):
         old = world.mint("Quorra")
         first = world.connect(old)
@@ -564,16 +784,18 @@ class TestBetaMetrics:
 
     def test_a_rotated_key_returning_the_next_day_is_one_returning_visitor(self, world):
         old = world.mint("Quorra")
-        # Yesterday's visit under the first key (the clock cannot be moved,
-        # so the row is written with yesterday's time).
+        # Yesterday's visit under the first key, a join and one line of
+        # chat: a return needs an action on each day (the clock cannot be
+        # moved, so the rows are written with yesterday's time).
         with persistence._connect() as conn:
-            conn.execute(
-                """INSERT INTO world_mutations
-                   (world_seed, node_name, mutation_type, player_name, data,
-                    actor_identity, recorded_at)
-                   VALUES (?, ?, 'PLAYER_JOIN', 'Quorra', '{}', ?,
-                           datetime('now', '-1 day'))""",
-                (SEED, store.root_name(SEED), _identity(old)))
+            for kind in ("PLAYER_JOIN", "PLAYER_CHAT"):
+                conn.execute(
+                    """INSERT INTO world_mutations
+                       (world_seed, node_name, mutation_type, player_name, data,
+                        actor_identity, recorded_at)
+                       VALUES (?, ?, ?, 'Quorra', '{}', ?,
+                               datetime('now', '-1 day'))""",
+                    (SEED, store.root_name(SEED), kind, _identity(old)))
         new = "nw_" + secrets.token_hex(16)
         participants.rotate(old, new)
         today = world.connect(new)
@@ -586,6 +808,54 @@ class TestBetaMetrics:
         assert m["visitor_identities"] == 2
         assert (m["visitors"], m["returning_visitors"]) == (1, 1)
         assert m["return_rate"] == 1.0
+
+    def test_a_visit_across_midnight_is_one_day(self):
+        # One sitting from 23:55 to 00:05 UTC: the join, the connect
+        # announcement, one step, and the leave after midnight.
+        _chronicle("one-sitting", [
+            ("PLAYER_JOIN", COSOLVE_NODE, "2026-01-05 23:55:00"),
+            ("PLAYER_MOVE", COSOLVE_NODE, "2026-01-05 23:55:01"),
+            ("PLAYER_MOVE", FAILING_NODE, "2026-01-05 23:58:00"),
+            ("PLAYER_LEAVE", FAILING_NODE, "2026-01-06 00:05:00")])
+        m = _metrics(since="2026-01-05", until="2026-01-06")
+        assert (m["visitors"], m["acting_visitors"]) == (1, 1)
+        assert (m["returning_visitors"], m["return_rate"]) == (0, 0.0)
+
+        # The stated limit: a step on each side of midnight, in one
+        # sitting, is two days.
+        _chronicle("steps-either-side", [
+            ("PLAYER_JOIN", COSOLVE_NODE, "2026-01-05 23:55:00"),
+            ("PLAYER_MOVE", COSOLVE_NODE, "2026-01-05 23:55:01"),
+            ("PLAYER_MOVE", FAILING_NODE, "2026-01-05 23:58:00"),
+            ("PLAYER_MOVE", COSOLVE_NODE, "2026-01-06 00:02:00"),
+            ("PLAYER_LEAVE", COSOLVE_NODE, "2026-01-06 00:05:00")])
+        m = _metrics(since="2026-01-05", until="2026-01-06")
+        assert (m["visitors"], m["returning_visitors"]) == (2, 1)
+
+    def test_an_open_tab_a_deploy_reconnects_after_midnight_is_not_a_return(self):
+        # A step at 23:45, then the tab stays open and idle. A deploy at
+        # 00:10 ends its socket with no PLAYER_LEAVE; the client reconnects
+        # by itself and announces the node it shows. The tab closes at 07:30.
+        _chronicle("idle-tab", [
+            ("PLAYER_JOIN", COSOLVE_NODE, "2026-01-05 23:40:00"),
+            ("PLAYER_MOVE", COSOLVE_NODE, "2026-01-05 23:40:01"),
+            ("PLAYER_MOVE", FAILING_NODE, "2026-01-05 23:45:00"),
+            ("PLAYER_JOIN", FAILING_NODE, "2026-01-06 00:10:05"),
+            ("PLAYER_MOVE", FAILING_NODE, "2026-01-06 00:10:06"),
+            ("PLAYER_LEAVE", FAILING_NODE, "2026-01-06 07:30:00")])
+        m = _metrics(since="2026-01-05", until="2026-01-06", timeline=True)
+        assert (m["visitors"], m["acting_visitors"]) == (1, 1)
+        assert m["events_by_type"]["PLAYER_JOIN"] == 2
+        assert m["actions_per_visitor"] == 1.0
+        assert m["returning_visitors"] == 0
+
+        # Opening the page that afternoon and taking a step is a return.
+        _chronicle("idle-tab", [
+            ("PLAYER_JOIN", FAILING_NODE, "2026-01-06 15:00:00"),
+            ("PLAYER_MOVE", FAILING_NODE, "2026-01-06 15:00:01"),
+            ("PLAYER_MOVE", COSOLVE_NODE, "2026-01-06 15:02:00")])
+        m = _metrics(since="2026-01-05", until="2026-01-06")
+        assert (m["visitors"], m["returning_visitors"]) == (1, 1)
 
     def test_exclude_identity_drops_the_facilitator_under_every_key(self, world, capsys):
         facilitator = world.mint("Oonagh")
@@ -703,6 +973,39 @@ class TestBetaMetrics:
             beta_metrics.main(["--db", str(archive), "--since", "last tuesday"])
         assert hashlib.sha256(archive.read_bytes()).hexdigest() == before
         assert not Path(str(archive) + "-wal").exists()
+
+    def test_every_iso_date_is_a_whole_day_and_a_fraction_keeps_its_second(self, capsys):
+        # An Act commit stamped 10:04:00, as recorded_at stores it: whole
+        # seconds, UTC.
+        _chronicle("archived", [
+            ("PLAYER_JOIN", COSOLVE_NODE, "2026-01-05 10:00:00"),
+            ("INTERVENTION_COMMITTED", COSOLVE_NODE, "2026-01-05 10:04:00"),
+            ("PLAYER_LEAVE", COSOLVE_NODE, "2026-01-05 10:20:00")])
+
+        def read(*argv):
+            return json.loads(_cli(capsys, "--json", *argv))
+
+        # Basic and week-date forms of 5 January are the whole day too.
+        whole_day = {"since": "2026-01-05 00:00:00", "until": "2026-01-06 00:00:00"}
+        for since, until in (("20260105", "20260105"), ("2026W021", "2026W021"),
+                             ("2026-W02-1", "20260105")):
+            day = read("--since", since, "--until", until)
+            assert (day["window"], day["act_commits"]) == (whole_day, 1), (since, until)
+        alone = read("--until", "20260105")
+        assert alone["window"]["until"] == "2026-01-06 00:00:00"
+        assert alone["act_commits"] == 1
+        # A fraction widens to its whole second: --until rounds up and
+        # --since down, so the row stamped in that second stays inside.
+        upper = read("--since", "2026-01-05T10:00", "--until", "2026-01-05T10:04:00.7")
+        assert (upper["window"]["until"], upper["act_commits"]) == ("2026-01-05 10:04:01", 1)
+        lower = read("--since", "2026-01-05T10:04:00.3", "--until", "2026-01-05T10:05")
+        assert (lower["window"]["since"], lower["act_commits"]) == ("2026-01-05 10:04:00", 1)
+        # After conversion to UTC; and a whole second stays exclusive.
+        offset = read("--since", "2026-01-05T10:00Z",
+                      "--until", "2026-01-05T11:04:00.25+01:00")
+        assert (offset["window"]["until"], offset["act_commits"]) == ("2026-01-05 10:04:01", 1)
+        assert read("--since", "2026-01-05T10:00",
+                    "--until", "2026-01-05T10:04:00.000000")["act_commits"] == 0
 
     def test_the_timeline_names_nobody(self, world, capsys):
         s = _meet_and_cosolve(world)
