@@ -1,7 +1,7 @@
 # ADR-038: A deployment puzzle salt, so the hosted world has no offline answer table
 
-**Status:** Proposed, 2026-11-10; revised 2026-11-11 after an adversarial
-check of `7482379`. **Owner:** Mark Weeks. Not ratified; it writes no code,
+**Status:** Proposed, 2026-11-10; revised 2026-11-11 after two adversarial
+checks (of `7482379` and `75f4fff`). **Owner:** Mark Weeks. Not ratified; it writes no code,
 sets no secret, and authorizes no implementation, deployment or merge. Cited
 ranges were read at `e8081c0`. Claims are *executed*, *read* or *inferred*.
 The executed measurements, with their source, salts and outputs, are in the
@@ -75,49 +75,48 @@ release has been cut and the hosted world is not deployed
 (`docs/CHANGELOG.md:3-9`), so the window is still open.
 
 **4. What a salt hides offline, measured** (executed). The probe prototypes
-D2: the three content draws in finding 1 become HMAC-SHA256 under a salt,
-while difficulty and Augury election stay unkeyed. It rebuilds seed 382's
-4,208 epoch-0 puzzles, as born, under 3 deployment salts and 400 attacker
-salts. It scores one simple offline attacker who never sees a deployment
-salt: for each node, the answers its own builds produce, most frequent
-first.
+D2: every draw in finding 1, difficulty and the Augury election included,
+becomes HMAC-SHA256 under a salt. It rebuilds seed 382's 4,208 epoch-0
+puzzles, as born, under 3 deployment salts and 400 attacker salts. It scores
+one simple offline attacker who never sees a deployment salt: for each node,
+the answers its own builds produce, most frequent first.
 
 | Offline, zero requests: the deployed answer is | 100 attacker salts | 400 attacker salts |
 |---|---:|---:|
-| the unsalted answer, as published today | 575–593 (13.7–14.1%) | — |
-| the attacker's first guess | 975–1,031 (23.2–24.5%) | 985–1,056 (23.4–25.1%) |
-| in its first 3–5 guesses (each puzzle's pooled attempts today) | 1,563–1,647 (37.1–39.1%) | 1,621–1,685 (38.5–40.0%) |
-| in its first 12 guesses (ADR-036's proposed daily cap) | 1,817–1,867 (43.2–44.4%) | 1,888–1,957 (44.9–46.5%) |
-| anywhere in its candidate list | 2,493–2,572 (59.2–61.1%) | 3,410–3,437 (81.0–81.7%) |
-| the same under every salt (3 + 400) | — | 242 (5.75%) |
+| the unsalted answer, as published today | 193–211 (4.6–5.0%) | — |
+| the attacker's first guess | 595–634 (14.1–15.1%) | 623–670 (14.8–15.9%) |
+| in its first 3–5 guesses (each puzzle's pooled attempts today) | 1,245–1,300 (29.6–30.9%) | 1,308–1,351 (31.1–32.1%) |
+| in its first 12 guesses (ADR-036's proposed daily cap) | 1,565–1,582 (37.2–37.6%) | 1,658–1,694 (39.4–40.3%) |
+| anywhere in its candidate list | 2,185–2,199 (51.9–52.3%) | 3,124–3,139 (74.2–74.6%) |
+| the same under every salt (3 + 400) | — | 0 |
 
-- **Most matches are chance.** The family draw and each family's own draws
-  are keyed, so each salt matches a different set. A sealed lock picks one of
-  three keys (`puzzles/generators.py:508`, `:893-898`), so roughly one lock
-  in three matches the unsalted answer under any one salt (39 of 140 under
-  the first test salt).
-- **What no draw reaches.** The 242 answers that never change are all Causal
-  Augury nodes with a single valid question form: every 1-star Augury and
-  most 3- and 4-star ones (94, 6, 78 and 64 at difficulty 1 to 4). Where two
-  forms are valid, the keyed draw picks one (`:1029-1030`). Election is
-  unkeyed (D2), so which nodes serve the Augury is public.
+- **Matches are chance.** Every draw is keyed, so each salt matches a
+  different set, and no answer is the same under every salt. A sealed lock
+  picks one of three keys (`puzzles/generators.py:508`, `:893-898`), so
+  roughly one lock in three matches the unsalted answer under any one salt
+  (39 of 140 under the first test salt).
 - **Small candidate sets fit in a few guesses.** Within each puzzle's 3–5
   pooled attempts, the 100-salt attacker's list holds the deployed answer for
-  every sealed lock (140 of 140), every Augury (396 of 396) and every lineage,
-  nearly every bond, 50–56% of keeper witnesses and 15–17% of numeric
-  patterns. It holds almost no anagram, cipher, compass or hand-written pool
-  answers: at most 9, 0, 6 and 1, of roughly 500, 430, 825 and 50 puzzles.
+  every sealed lock (140 of 140), every lineage and nearly every bond, 68–73%
+  of Auguries, 37–39% of keeper witnesses and 2–3% of numeric patterns. It
+  holds almost no anagram, cipher, compass or hand-written pool answers: at
+  most 7, 0, 5 and 2, of roughly 500, 430, 830 and 50 puzzles.
 - **More salts or more guesses help the attacker.** This attacker's success
   is a floor on what an offline attacker can do, so the protection figures
   below are ceilings. The pooled attempts are not a hard limit either. Today
   the answer is released once they are spent (finding 5), and ADR-036
   proposes a per-player cap of 12 misses a day in their place.
+- **Keying less protects less.** Keying only the three content draws, as the
+  first draft proposed, leaves 242 Augury answers the same under every salt,
+  and the 400-salt attacker's first guess right for 23.4–25.1%. Keying the
+  Augury election as well removes those 242 and leaves 17.1–18.3% (Rejected
+  alternatives; the salt-probe record has every variant).
 
-**So the salt keeps at most about three quarters of epoch-0 answers off a
-one-guess offline table (74.9–76.8%), about 60% off a list sized to today's
-pooled attempts (60.0–62.9%), and about 54–57% off a 12-guess list.** Given
-unlimited guesses, the 400-salt attacker's candidates already contain 81% of
-the answers. Renewals draw the same way at each epoch (inferred; the probe
+**So the salt keeps at most about 84–85% of epoch-0 answers off a one-guess
+offline table, about 68–69% off a list sized to today's pooled attempts, and
+about 60% off a 12-guess list** (400 attacker salts). Given unlimited
+guesses, that attacker's candidates already contain about 74% of the
+answers. Renewals draw the same way at each epoch (inferred; the probe
 measures epoch 0).
 
 **5. What no salt hides** (read and executed). Once a puzzle's prompt is
@@ -168,14 +167,14 @@ can always be detected" (`docs/decisions/ADR-017-multidimensional-leaderboards.m
 - **A salt is a speed bump that needs an invited key, not secrecy.** It is
   never served, so an exact table needs every prompt fetched.
 - **What the salt removes:** the anonymous, zero-request one-answer table
-  for at most about three quarters of epoch-0 answers. Against a short list
-  of guesses it protects less: about 60% at today's 3–5 pooled attempts,
-  and about 54–57% at 12 (finding 4).
+  for at most about 84–85% of epoch-0 answers. Against a short list of
+  guesses it protects less: about 68–69% at today's 3–5 pooled attempts, and
+  about 60% at 12 (finding 4).
 - **What it does not stop:**
   - an invited player with a script (finding 5);
   - the answer release, until ADR-036 batch 1a;
-  - offline lists for families with small candidate sets: every sealed lock,
-    lineage and Augury, and nearly every bond, fit in a few guesses.
+  - offline lists for families with small candidate sets: every sealed lock
+    and lineage, nearly every bond and most Auguries fit in a few guesses.
 
 ## Decision
 
@@ -194,22 +193,27 @@ reference for ADR-036's band measurements and the runbooks. Another seed
 would need its own curation and certification, and would buy only the
 protection the Conclusion describes, until the first `/world` read.
 
-### D2. Salt the three content draws, and nothing else
+### D2. Salt every draw in puzzle generation
 
-With a salt configured, the three content draws in finding 1 use
-`HMAC-SHA256(salt, <the existing domain string>)` in place of
-`sha256(<domain string>)`. They take the first 8 bytes big-endian, as today.
-The domain strings do not change.
+With a salt configured, every `sha256` draw in `puzzles/generators.py` uses
+`HMAC-SHA256(salt, <the existing domain string>)` in its place: the three
+content draws, difficulty and the Augury election (finding 1). They take the
+first 8 bytes big-endian, or the first byte for difficulty, as today. The
+domain strings do not change, and one keyed helper replaces the five call
+sites. Keying difficulty and the election as well as content raises what the
+salt keeps off a one-guess table from about 75% to about 84–85% (finding 4).
 
-**Left unkeyed on purpose:**
-- **`node_difficulty`.** Difficulty is a trait of the node that players are
-  shown as stars (`frontend/src/components/Interact.jsx:227-229`), and the
-  agent success odds read it (`agents/agent.py:97`).
-- **`_augury_elected`.** This keeps ADR-010's per-node placement of the ~10%
-  Augury share, the share the ecology gate was tuned against. The cost is the
-  242 Augury answers that no draw reaches (finding 4). Keying the election
-  too would remove those, but lowers the 100-salt attacker's 3–5-guess list
-  only from 37.1–39.1% to 33.5–35.3% (Rejected alternatives).
+**What keying difficulty and the election changes:**
+- **Difficulty stays per node,** drawn from the node's identity and the
+  salt, never from depth, so the covenant holds (D8 proposes its wording).
+  Players still see it as stars (`frontend/src/components/Interact.jsx:227-229`),
+  and the agent success odds still read it (`agents/agent.py:97`). Both read
+  the puzzle as served, so neither needs a change.
+- **The Augury still serves about 10% of the inhabited scales,** the share
+  ADR-010 tuned against the ecology gate. Which nodes serve it now depends on
+  the salt. Every one of 403 salts passes the gate (D7).
+
+**Left unkeyed:**
 - **`node_rng` in `puzzles/engine.py:36`.** That fallback serves only
   non-canonical test levels.
 - **World birth.** `world_nodes`, names and properties are untouched.
@@ -280,10 +284,9 @@ homes hold none.
   twin rehearses mechanics, not answers.
 - **The gain:** staging testers, staging backups and staging operators hold
   nothing about production answers beyond what anyone can compute with a
-  salt of their own. Two independent salts give the same answer at 575–615
-  of 4,208 places (13.7–14.6%, three pairs measured). That is the same chance
-  overlap as finding 4, and it includes the 242 Augury answers that are the
-  same under every salt.
+  salt of their own. Two independent salts give the same answer at 208–238
+  of 4,208 places (4.9–5.7%, three pairs measured), the same chance overlap
+  as finding 4.
 
 ### D6. Losing or rotating the salt costs no continuity
 
@@ -314,23 +317,25 @@ Production would serve a salted one.
 
 | Metric | Limit | Unsalted | Under 403 salts |
 |---|---|---|---|
-| decode-family ratio | ≤ 0.50 | 0.337 | 0.331–0.368 |
-| world-reading ratio | ≥ 0.55 | 0.656 | 0.625–0.662 |
-| largest family | ≤ 0.25 | 0.199 | 0.188–0.211 |
-| unique prompts | ≥ 0.99 | 0.9990 | 0.9967–1.0000 |
-| unique answers | ≥ 0.45 | 0.541 | 0.524–0.563 |
+| decode-family ratio | ≤ 0.50 | 0.337 | 0.332–0.371 |
+| world-reading ratio | ≥ 0.55 | 0.656 | 0.622–0.662 |
+| largest family | ≤ 0.25 | 0.199 | 0.185–0.212 |
+| unique prompts | ≥ 0.99 | 0.9990 | 0.9962–0.9998 |
+| unique answers | ≥ 0.45 | 0.541 | 0.526–0.565 |
 | families | ≥ 10 | 11 | 11 |
 | kinds | ≥ 8 | 9 | 8–9 |
 
-Kinds is the tight metric. It sits at its floor of 8 under 29 of the 403
+Kinds is the tight metric. It sits at its floor of 8 under 23 of the 403
 salts, which still passes.
 
 **ADR-036's band verdicts are unchanged** (executed). That record's band
 searchers (`docs/evaluation/2026-11-07-puzzle-band-searchers.md`) were rerun
-under two of the test salts. At the 12-miss cap, lineage's typo band names
-+51 of 274 (18.6%) and +49 of 287 (17.1%) more than blind search, against
-+54 of 301 (17.9%) unsalted and ADR-036's one-fifth bar. Bond and sealed lock
-stay at +0, and compass still fails.
+under two of the test salts, every draw keyed. At the 12-miss cap, lineage's
+typo band names +47 of 267 (17.6%) and +45 of 276 (16.3%) more than blind
+search, against +54 of 301 (17.9%) unsalted and ADR-036's one-fifth bar.
+Bond and sealed lock stay at +0, and compass still fails. Its temperament
+and difficulty cells stay balanced (smallest 234 and 240, largest 299 and
+289, against 241 and 282 unsalted).
 
 **Checks:**
 - CI runs the gate under fixed test salts.
@@ -344,12 +349,17 @@ stay at +0, and compass still fails.
 sentence:
 
 > … art/sound/puzzles derive deterministically from the node *as served* —
-> puzzle content also from the deployment's puzzle salt (ADR-038), a
-> per-deployment constant that is never served — so co-op reproducibility
-> and reproducible screenshots follow the served state.
+> puzzles also from the deployment's puzzle salt (ADR-038), a per-deployment
+> constant that is never served — so co-op reproducibility and reproducible
+> screenshots follow the served state.
+
+The covenant "Difficulty is per-node, never a depth curve" says each node
+"draws its own 1–4 difficulty from its identity". It would add "and the
+deployment's puzzle salt (ADR-038)", and the README's puzzle row would say
+the same.
 
 The salt is a constant, not entropy, so the no-entropy rule stands
-unchanged. This ADR does not edit `AGENTS.md`.
+unchanged. This ADR edits neither `AGENTS.md` nor the README.
 
 ### Batches
 
@@ -394,10 +404,10 @@ bring them into the canonical chronicle.
 
 1. **Should the hosted world get a puzzle salt before its first boot?**
    *Recommended: yes, for a modest gain.*
-   - **What it buys.** It keeps at most about three quarters of epoch-0
-     answers off a one-guess offline table, and about 60% off a list sized
-     to today's 3–5 pooled attempts. It does not stop scripts, the answer
-     release (until ADR-036 batch 1a) or small candidate sets (finding 4).
+   - **What it buys.** It keeps at most about 84–85% of epoch-0 answers off
+     a one-guess offline table, and about 68–69% off a list sized to today's
+     3–5 pooled attempts. It does not stop scripts, the answer release (until
+     ADR-036 batch 1a) or small candidate sets (finding 4).
    - **Adopting can be undone for future pins.** Remove the D4 marker and
      deploy, then unset the secret (D6). Pins made under the salt stay as
      stored: readable in `puzzle_instances`, but not reproducible from the
@@ -425,7 +435,7 @@ bring them into the canonical chronicle.
 **Defaults for the owner to veto:**
 - a marked deployment refuses to run without a salt of 32 or more characters
   (D4);
-- difficulty and Augury election stay unkeyed (D2);
+- every draw is keyed, difficulty and the Augury election included (D2);
 - Sentry stops sending frame locals (D3);
 - the operator audits the production salt once before setting it (D7);
 - no per-pin record of which salt built a definition (Trade-offs).
@@ -450,16 +460,19 @@ B1 and B2 must also come before it.
   D7's CI runs and operator audit cover the gap. ADR-036's band measurements
   also describe the unsalted answers; their verdicts held under two test
   salts (D7).
+- **Difficulty differs from the repository's.** A node's stars in
+  production need not match what an unsalted local build shows. Anyone
+  comparing the two reads the pinned definition instead.
 - **No reproduction from the repository.** A developer cannot rebuild a
   production puzzle from the repository alone and reads its pinned
   definition (`puzzle_instances`) instead. No pin records which salt built
   it. An operator who needs to know rebuilds the puzzle with the salt and
   compares.
 - **Staging's puzzle content is not production's** (D5).
-- **Offline lists still reach a large share of answers:** about a quarter
-  on the first guess, about 40% within 3–5 guesses, and 242 Augury answers
-  exactly (finding 4). Every answer stays mechanically solvable once its
-  prompt is served (finding 5).
+- **Offline lists still reach a large share of answers:** about 15% on the
+  first guess, about 31–32% within 3–5 guesses and about 40% within 12
+  (finding 4). Every answer stays mechanically solvable once its prompt is
+  served (finding 5).
 - **No read is attributed to a key.** The salt makes spoiling need an
   invited key, but today's logs cannot say which key crawled (finding 5).
 - **A missing secret now stops a deploy.** That is intended.
@@ -496,14 +509,20 @@ B1 and B2 must also come before it.
   content durable, but this breaks the determinism contract's no-entropy
   rule and the tests' reproducibility. A keyed draw gives the same secrecy
   deterministically.
-- **Keying difficulty as well.** Difficulty is a trait players are shown,
-  the agent odds read it, and the attempt budget it sets is served with every
-  prompt.
-- **Keying the Augury election as well** (measured, 100 attacker salts). No
-  answer then survives every salt. But the 3–5-guess list still reaches
-  1,409–1,486 answers (33.5–35.3%), against 37.1–39.1% with election
-  unkeyed, and the first guess 16.9–17.5%, against 23.2–24.5%: a gain of
-  about four and six points. Under evaluation (see the salt-probe record).
+- **Keying only the three content draws** (the first draft's D2; measured,
+  400 attacker salts). Difficulty and the election stay public, so 242
+  Augury answers are the same under every salt, and the attacker's first
+  guess is right for 23.4–25.1% (3–5 guesses: 38.5–40.0%), against
+  14.8–15.9% (31.1–32.1%) with every draw keyed. Its reasons were that
+  players see difficulty and that the election keeps ADR-010's placement;
+  neither holds up, since both read the puzzle as served and the share is
+  unchanged.
+- **Keying the content draws and the election, not difficulty** (measured,
+  400 attacker salts). No answer is the same under every salt, but the first
+  guess is right for 17.1–18.3% (3–5 guesses: 34.8–36.3%), against
+  14.8–15.9% (31.1–32.1%) with difficulty keyed too. Keying difficulty also
+  hides each puzzle's family weights and attempt count until its prompt is
+  served.
 - **Moving word banks and the hand-written pools out of the public
   repository.** This covers anagrams and the hand-written pool, about 13% of
   puzzles, which an offline list
