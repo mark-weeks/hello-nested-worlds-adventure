@@ -212,6 +212,14 @@ def model_for(task: str) -> str:
     default the task's provider did not supply, and refuses to serve. This
     function does not retry or substitute another id when a call fails.
     """
+    from consciousness import model_policy
+    if model_policy.active():
+        try:
+            policy = model_policy.current()
+        except model_policy.ModelPolicyError:
+            raise model_policy.ModelPolicyDenied() from None
+        if policy is None or task not in policy.routes:
+            raise model_policy.ModelPolicyDenied()
     return resolve_model(task).model
 
 
@@ -836,11 +844,19 @@ def installation_error(provider: TextProvider, selector_env: str | None = None) 
 
 
 def configured(task: str | None = None) -> bool:
-    """Whether the process provider, or one task's provider, can be called.
+    """Whether the process provider, or one permitted task, can be called.
 
-    Callers that patch this with a zero-argument function still match the
-    historical no-task check. A task argument asks that task's adapter.
+    Controlled disabled routes do not resolve an adapter or its defaults.
     """
+    from consciousness import model_policy
+    if model_policy.active():
+        try:
+            policy = model_policy.current()
+        except model_policy.ModelPolicyError:
+            return False
+        if (policy is None or task not in policy.routes
+                or os.getenv("NESTED_WORLDS_DISABLE_AI", "").strip() == "1"):
+            return False
     provider = provider_for(task) if task else get_provider()
     return provider.configured()
 
@@ -965,8 +981,15 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
     enforce it per network phase (connect, send, each read) rather than as
     one wall-clock deadline; its module says which. Nothing here retries.
     """
+    from consciousness import model_dispatch
+    from consciousness import model_policy
+    if model_policy.active():
+        # A disabled task needs no adapter/SDK/model configuration, including
+        # after a key or invalid provider selector appears in the environment.
+        model_policy.route_for(task, model, max_tokens)
     require_model_id(model)
     provider = provider_for(task) if task else get_provider()
+    model_dispatch.validate_runtime_call(provider, task, model, user_key, max_tokens)
     if json_schema is not None:
         supports = getattr(provider, "supports_json_schema", None)
         if callable(supports) and not supports():
@@ -984,9 +1007,10 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
     if not gate.acquire(timeout=_slot_wait(provider.name, timeout)):
         raise ProviderBusy()
     try:
-        result = provider.generate(model=model, system=system, messages=messages,
-                                   max_tokens=max_tokens, json_schema=json_schema,
-                                   timeout=timeout)
+        with model_dispatch.call_scope(task=task, user_key=user_key):
+            result = provider.generate(model=model, system=system, messages=messages,
+                                       max_tokens=max_tokens, json_schema=json_schema,
+                                       timeout=timeout)
     finally:
         gate.release()
     usage = result.usage

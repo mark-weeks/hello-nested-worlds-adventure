@@ -188,6 +188,24 @@ def cmd_serve(args):
     server.run(host=args.host, port=args.port)
 
 
+def cmd_model_policy(args):
+    """Validate operator policy locally, without activating or probing it."""
+    import json
+    from consciousness import model_policy
+
+    try:
+        policy = model_policy.check_file(args.policy)
+        model_policy.validate_configuration(policy)
+    except model_policy.ModelPolicyError:
+        print("error: model policy configuration is invalid", file=sys.stderr)
+        raise SystemExit(1) from None
+    print(json.dumps({
+        "configuration": model_policy.summary(policy),
+        "remote_verified": False,
+        "live_calls": False,
+    }, sort_keys=True))
+
+
 def cmd_models(args):
     """Print the resolved provider and model for each text task.
 
@@ -916,6 +934,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     p_serve.add_argument("--port", type=int, default=8080, help="Bind port (default: 8080)")
     p_serve.set_defaults(func=cmd_serve)
+
+    p_model_policy = sub.add_parser(
+        "model-policy", help="Check operator model policy without live calls")
+    p_model_policy.add_argument("--check", action="store_true", required=True,
+                                help="Validate without activating the policy")
+    p_model_policy.add_argument("--policy", required=True, metavar="PATH",
+                                help="Operator policy file to validate locally")
+    p_model_policy.set_defaults(func=cmd_model_policy)
 
     p_models = sub.add_parser(
         "models",

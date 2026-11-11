@@ -1430,6 +1430,14 @@ class Handler(BaseHTTPRequestHandler):
     def _do_image(self, body: dict, user_key: str = "") -> None:
         import os
         import urllib.request as _urlreq
+        from consciousness import model_policy
+
+        # No controlled image adapter is available in this build. Freeze the
+        # denial independently of credentials or later kill-switch changes,
+        # before cache delivery, quota charges, or any outbound request.
+        if model_policy.active():
+            return self._send_json({"url": None, "images": False,
+                                    "error": _IMAGE_QUIET_LINE})
 
         if guard.images_disabled():
             return self._send_json({"url": None, "error": "image generation disabled"})

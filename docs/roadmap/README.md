@@ -194,6 +194,11 @@ acknowledgements, #169). ADR-029 through ADR-033 each describe a migration
 they would add; whichever of those batches merges first takes the next free
 number.
 
+The controlled-model batch prepares provisional `0032_model_spend` and a
+schema-32 wheel check ([ADR-039](../decisions/ADR-039-controlled-model-spend.md)).
+It does not reserve that number or enable a provider; reconcile it with `main`
+again at merge.
+
 ### Known open conflicts (unresolved; pending owner decision)
 
 Line numbers in this section were re-read at the commit in the verification

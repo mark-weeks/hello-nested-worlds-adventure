@@ -59,18 +59,23 @@ def _reset_text_provider(monkeypatch):
     developer environment cannot leak into the suite. Legacy budget names
     are left for the test that sets them.
     """
-    from consciousness import runtime
+    from consciousness import model_dispatch, model_policy, runtime
     from server import guard
     for name in runtime.TASK_PROVIDER_ENVS:
         monkeypatch.delenv(name, raising=False)
     for name in (
         guard.VOICE_CAP_ENV, guard.VOICE_PER_USER_CAP_ENV,
         guard.IMAGE_CAP_ENV, guard.IMAGE_PER_USER_CAP_ENV,
+        model_policy.POLICY_ENV, model_policy.REQUIRED_ENV,
     ):
         monkeypatch.delenv(name, raising=False)
     runtime.reset_provider_selection()
+    model_policy.reset_for_tests()
+    model_dispatch.reset_for_tests()
     yield
     runtime.reset_provider_selection()
+    model_policy.reset_for_tests()
+    model_dispatch.reset_for_tests()
 
 
 @pytest.fixture(autouse=True)

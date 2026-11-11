@@ -7,7 +7,7 @@ and versions are replaceable choices that require evidence.
 
 ## Current implementation and its limits
 
-Text generation uses registered adapters. `NESTED_WORLDS_PROVIDER` selects
+Outside controlled mode (below), text generation uses registered adapters. `NESTED_WORLDS_PROVIDER` selects
 the process default. Unset means `anthropic`, so an existing deployment
 that sets nothing new does not change and does not enable another
 destination. Each text task may override that choice with
@@ -560,3 +560,14 @@ submitted text. The CLI still prints the authored in-fiction fallback. Providers
 normalize completion reasons at the boundary; voice extraction preserves partial
 text but raises a shared no-text error for missing output, distinguishing refusal
 from an unknown or anomalous finish.
+
+## Controlled staging policy
+
+Hosted and declared temporary test worlds require the
+[controlled model policy](model-policy.md). It adds exact destination/model/options
+permission and durable global/per-participant USD reservations before transmission.
+This first controlled slice supports the built-in Chat Completions adapter only;
+other adapters, direct probes, live wrappers, keyless calls and images refuse.
+The all-off example selects no destination, price, cap or retention period.
+Existing local/fixture behavior outside controlled mode and the call-count caps
+remain. A valid policy is not provider evaluation or live activation approval.

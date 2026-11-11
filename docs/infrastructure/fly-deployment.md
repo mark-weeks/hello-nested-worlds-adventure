@@ -330,24 +330,29 @@ fly ssh console -a enfolded-staging -C "python main.py invite mint --name '<Name
 fly secrets set -a enfolded-staging SENTRY_ENVIRONMENT=staging
 fly ssh console -a enfolded-staging -C "printenv SENTRY_ENVIRONMENT"
 fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
-#    Then the provider key. Before setting it, read the provider's
-#    data-use terms against the provider data rule (below): step 7's probe
-#    already sends the provider world data. Use a key made for staging
-#    alone, not production's. Ideally it sits in a workspace of its own with
-#    a low spend limit, if the provider's console offers one. Leave out
-#    FAL_KEY until fal.ai's terms are checked against the same rule.
-#    Approved-live path only: supplying a key does not clear step 4's
-#    kill switch. Clear it explicitly for this app once review and spend
-#    settings are complete. Skip this command for the no-provider watch.
-fly secrets set -a enfolded-staging ANTHROPIC_API_KEY=sk-ant-... NESTED_WORLDS_DISABLE_AI=0
+#    This build requires an immutable model policy on hosted/test worlds.
+#    Keep both external kill switches at 1 for the no-provider watch.
+#    A provider key alone cannot activate a route. The former Anthropic
+#    activation command is deliberately removed: this first controlled
+#    slice supports only the built-in Chat Completions transport and
+#    refuses Anthropic, direct probes, wrappers and images.
+#    Before any approved-live rehearsal, follow the model-policy guide:
+#    review destination/account terms, full context maximum, prices,
+#    daily global/participant USD limits and ledger/backup retention;
+#    install the reviewed policy file, configure each enabled task and
+#    run the offline check in the machine's intended environment. Use a
+#    staging-only provider account/key. Then restart with that policy
+#    path and clear only the text kill switch. No live file/values are
+#    selected or installed by this runbook; do not remove the requirement.
 
 # 7. Complete the temporary-world notice (below), then open the check
 #    identity's /app invite URL yourself and acknowledge it. Do not accept
 #    on a tester's behalf. Without acknowledgement a keyed /world or /ws
 #    is refused with 428; an incomplete notice refuses gameplay with 503.
 #    Check it with the check key from step 5, never a tester's: /health
-#    ok, the gate closed, the voice live (§8 probe: a place name from
-#    /world, then /speak must answer "ai": true). A live answer writes a
+#    ok, the gate closed, and the voice authored/quiet for the default
+#    no-provider watch. Only after separately approved live activation
+#    must /speak answer "ai": true. A live answer writes a
 #    PLAYER_SPEAK row to the staging chronicle under the check key's name,
 #    and the node's transcript is keyed on that key. Under a tester's key
 #    it would read as that tester speaking before they arrived. Then revoke
@@ -355,7 +360,7 @@ fly secrets set -a enfolded-staging ANTHROPIC_API_KEY=sk-ant-... NESTED_WORLDS_D
 curl https://enfolded-staging.fly.dev/health
 curl -i https://enfolded-staging.fly.dev/world        # 403 without a key
 curl -s -H 'X-Beta-Key: <check key>' 'https://enfolded-staging.fly.dev/world?depth=1' | python3 -c 'import json, sys; print(json.load(sys.stdin)["world"]["name"])'
-curl -s -X POST https://enfolded-staging.fly.dev/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<the place name printed above>"}' | grep -o '"ai": true'
+curl -s -X POST https://enfolded-staging.fly.dev/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<the place name printed above>"}' | grep -o '"ai": false'
 fly ssh console -a enfolded-staging -C "python main.py invite revoke <check key>"
 
 # 8. Only now, and only once protocol 2's prerequisites below are recorded,
@@ -364,6 +369,13 @@ fly ssh console -a enfolded-staging -C "python main.py invite revoke <check key>
 ```
 
 #### Temporary-world notice and acknowledgement
+
+The [controlled model policy guide](../development/model-policy.md) describes
+the required configuration, offline preflight and remaining live gates. Fly ships
+the requirement and both external kill switches; the checked-in policy example
+has every route disabled. A backup restore must keep external calls disabled
+until the day's provider spend is reconciled; restoring an older ledger does
+not restore the provider's bill.
 
 The explicit `NESTED_WORLDS_TEST_WORLD=1` setting enables the staging gate;
 the app name and Sentry environment do not enable it. Keep it set throughout

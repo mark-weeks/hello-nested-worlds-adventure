@@ -156,6 +156,32 @@ def _refuse_newer_schema_readonly() -> None:
             persistence.schema_too_new_message(applied, known))
 
 
+def _start_model_spend_retention(*, interval_seconds: float = 60.0,
+                                 prune=None) -> tuple[threading.Event, threading.Thread]:
+    """Prune private accounting while idle, including an all-off restart."""
+    if prune is None:
+        from persistence.model_spend import prune_expired
+        prune = prune_expired
+    stopped = threading.Event()
+    logger = logging.getLogger("nested_worlds.model_spend")
+
+    def cleanup():
+        while not stopped.is_set():
+            try:
+                prune()
+            except Exception as exc:
+                # Database messages and traceback locals may carry private
+                # accounting metadata. A later tick retries the cleanup.
+                logger.warning("model accounting retention unavailable (%s)",
+                               type(exc).__name__)
+            if stopped.wait(interval_seconds):
+                break
+
+    worker = threading.Thread(target=cleanup, name="model-spend-retention", daemon=True)
+    worker.start()
+    return stopped, worker
+
+
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     # Schema and configuration before any migration. A release that ships
     # the next migration and a bad seed or model id must exit with the
@@ -166,6 +192,14 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     except persistence.SchemaTooNewError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1)
+    # Freeze external-call permissions before migrations, observability,
+    # workers, or the listener. Merely adding a key cannot activate a route.
+    from consciousness import model_policy
+    try:
+        policy = model_policy.initialize()
+    except model_policy.ModelPolicyError:
+        print("error: model policy configuration is invalid", file=sys.stderr)
+        raise SystemExit(1) from None
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     observability.setup()
@@ -182,21 +216,25 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     # crash-loop a restart. Soft model problems log one warning. This does
     # not make a live call. A provider that is not configured still boots:
     # the world answers in fiction until a key is present.
-    from consciousness.model_check import enforce_model_configuration
-    enforce_model_configuration()
+    if policy is None:
+        from consciousness.model_check import enforce_model_configuration
+        enforce_model_configuration()
+    # Controlled configurations were validated by initialize(). Disabled
+    # routes deliberately need neither SDKs nor implicit provider/model ids.
     budget_warning = guard.budget_configuration_warning_line()
     if budget_warning:
         logging.getLogger("nested_worlds.guard").warning("%s", budget_warning)
     budget_line = guard.budget_configuration_line()
     if budget_line:
         raise SystemExit(budget_line)
-    # Operator signal only — deliberately emitted here at server startup so
-    # a CLI player speaking to a node never sees billing internals.
-    try:
-        import consciousness
-        consciousness.warn_if_cache_ineffective()
-    except ImportError:
-        pass
+    # Legacy cache advice resolves both voice defaults, even when they are
+    # disabled. Controlled routes are described by the offline policy report.
+    if policy is None:
+        try:
+            import consciousness
+            consciousness.warn_if_cache_ineffective()
+        except ImportError:
+            pass
     try:
         persistence.init_db()
     except persistence.SchemaTooNewError as exc:
@@ -233,19 +271,35 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
         print("World hosting            →  local multi-world mode")
     else:
         print(f"Shared canonical world   →  seed {hosted_seed}")
-    for line in model_banner():
-        print(line)
+    if policy is None:
+        for line in model_banner():
+            print(line)
+    else:
+        status = "configured" if policy.enabled_routes else "all external routes disabled"
+        print(f"Model policy             →  {status}")
     print(f"Multiplayer WebSocket   →  ws://localhost:{port}/ws")
     if host == "127.0.0.1":
         print("For network access: restart with --host 0.0.0.0")
     else:
         print(f"Share this URL with beta testers: {display}")
     print("Press Ctrl+C to stop.")
+    retention = None
     try:
+        if policy is not None:
+            retention = _start_model_spend_retention()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if retention is not None:
+            stopped, worker = retention
+            stopped.set()
+            # SQLite waits at most five seconds for its write lock. Bound
+            # shutdown too; an unfinished daemon exits with the process.
+            worker.join(timeout=6.0)
+            if worker.is_alive():
+                logging.getLogger("nested_worlds.model_spend").warning(
+                    "model accounting retention worker is still stopping")
         if heartbeat_stop is not None:
             heartbeat_stop.set()
         if pump_stop is not None:

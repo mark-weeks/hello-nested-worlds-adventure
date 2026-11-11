@@ -197,6 +197,9 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     from consciousness import runtime
     try:
         runtime.require_model_id(runtime.model_for(runtime.MODERATION_TASK))
+    except runtime.VoiceBudgetLimited:
+        _moderation_log("budget", surface)
+        return Verdict(False, "budget", "budget")
     except Exception as exc:
         # The class only. The message can carry a pasted credential, and
         # the player text never belongs on this line.
@@ -231,6 +234,9 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     except runtime.ProviderBusy:
         _moderation_log("busy", surface, (_time.monotonic() - started) * 1000.0)
         return Verdict(False, "busy", "busy")
+    except runtime.VoiceBudgetLimited:
+        _moderation_log("budget", surface, (_time.monotonic() - started) * 1000.0)
+        return Verdict(False, "budget", "budget")
     except Exception:
         _moderation_log("error", surface, (_time.monotonic() - started) * 1000.0)
         return Verdict(False, "error", "error")
