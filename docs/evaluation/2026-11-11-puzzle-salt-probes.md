@@ -2,7 +2,7 @@
 
 **Status:** evaluation record, 2026-11-11. It is the evidence behind Proposed
 [ADR-038](../decisions/ADR-038-deployment-puzzle-salt.md) (#164) findings 4
-and 5, D2, D3, D5 and D7, and the method its Revisit trigger reruns. It
+and 5, D2, D3, D5, D6 and D7, and the method its Revisit trigger reruns. It
 ratifies nothing and authorizes no build. **Counts only:** no puzzle answer,
 candidate or prompt appears here, and the probes below print none.
 
@@ -147,6 +147,20 @@ blind search names, within `C`.
 No verdict changes. In `all`, ADR-036's temperament and difficulty cells
 stay balanced: the smallest cells are 234 and 240, and the largest 299 and
 289, against 241 and 282 unsalted.
+
+### Renewal traits across a salt rotation
+
+With every draw keyed, seed 382 was rebuilt at epoch 0 under salt 1, and at
+epoch 1 under salt 1 and under salt 2 (the rotation probe below):
+
+```
+same salt, epoch 0 -> 1: difficulty kept 4208 | Augury kept 391 of 391
+rotated,   epoch 0 -> 1: difficulty kept 1073 | attempts changed 2604 | Augury kept 35 of 391 | Augury new 354 | nodes 4208
+```
+
+Under one salt a renewal keeps every node's difficulty and every Augury.
+After a rotation it would not, which is why ADR-038's D2 has a renewal take
+its traits from the node's epoch-0 pin.
 
 ### Sentry frame locals
 
@@ -378,6 +392,34 @@ if salt:
         sha256=lambda data=b"": hmac.new(salt, data, hashlib.sha256))
 sys.argv = [sys.argv[2], "382"]
 runpy.run_path(sys.argv[0], run_name="__main__")
+```
+
+### The rotation probe
+
+```python
+"""Counts only: what a salt rotation changes at a node's next renewal, every draw keyed."""
+import hashlib, hmac, sys, types
+sys.path.insert(0, ".")
+from multiverse.generator import generate_node_hierarchy
+from puzzles import generators as g, quality
+REAL = g.hashlib
+def walk(n, out):
+    out.append(n); [walk(c, out) for c in n.children]; return out
+nodes = walk(generate_node_hierarchy(seed=382, max_depth=11), [])
+def build(salt, epoch):
+    g.hashlib = types.SimpleNamespace(sha256=lambda d=b"": hmac.new(salt, d, hashlib.sha256))
+    try:
+        return [g.build_puzzle(n, epoch) for n in nodes]
+    finally:
+        g.hashlib = REAL
+a0, a1, b1 = build(b"adr038-test-salt-1", 0), build(b"adr038-test-salt-1", 1), build(b"adr038-test-salt-2", 1)
+aug = lambda p: quality.puzzle_family(p) == "causal_augury"
+print("same salt, epoch 0 -> 1: difficulty kept", sum(x.difficulty == y.difficulty for x, y in zip(a0, a1)),
+      "| Augury kept", sum(aug(x) and aug(y) for x, y in zip(a0, a1)), "of", sum(map(aug, a0)))
+print("rotated,   epoch 0 -> 1: difficulty kept", sum(x.difficulty == y.difficulty for x, y in zip(a0, b1)),
+      "| attempts changed", sum(x.max_attempts != y.max_attempts for x, y in zip(a0, b1)),
+      "| Augury kept", sum(aug(x) and aug(y) for x, y in zip(a0, b1)), "of", sum(map(aug, a0)),
+      "| Augury new", sum(aug(y) and not aug(x) for x, y in zip(a0, b1)), "| nodes", len(nodes))
 ```
 
 ### The Sentry capture probe
