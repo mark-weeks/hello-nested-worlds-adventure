@@ -11,7 +11,7 @@ GitHub starts `backup.yml` about once every five hours, not every 30 minutes:
 **187 runs for 1,831 scheduled ticks (10.2%)** since the cron went
 half-hourly on 2026-10-03, with no two runs within an hour of each other. At
 that cadence, once backups are activated, an independent `backup_health.py`
-check would read `stale` on **79.7%** of hourly checks, and the history lost
+check would read `stale` on **79.6%** of hourly checks, and the history lost
 with the volume would average **2.77 hours and reach 10.40**, against
 ADR-005's one hour. The cause is *inferred* to be GitHub's delivery of the
 `schedule` event and not this workflow, the runners or the repository's
@@ -226,7 +226,7 @@ later, after the tools are installed. The figures use the half-hourly era,
 | `scripts/backup_gate.sh`, including `ENFOLDED_BACKUP_REQUIRED=true` | Passes on every run that starts. It validates configuration for a run that exists; it cannot see a run that never started. |
 | The workflow's own steps | Each delivered run stores one validated object. About 4.9 objects a day: roughly 147 in 30 days, where the cost note in `backup-bucket.md` assumes 1,440. |
 | `backup_health.py` run right after a backup run, as runbook §7 and the rehearsal list invoke it, and as checklist P3 words its criterion | Exit 0 every time: the object is minutes old. **P3 would pass while the bound does not hold.** |
-| `backup_health.py` on an independent hourly schedule with the 60-minute default (checklist P5; runbook §8 "Independent bucket-freshness monitoring") | **`stale` on 727 of 912 checks, 79.7%** [276 of 333, 82.9%]. The repository's own `assess_objects` returns the same counts when given one object per run. Every one of the 186 gaps contains a stale stretch: mean 3.91 h, longest 9.40 h. An alert wired to exit 1 would be raised about five times a day and stand for about 19 hours in every 24. |
+| `backup_health.py` on an independent hourly schedule with the 60-minute default (checklist P5; runbook §8 "Independent bucket-freshness monitoring") | **`stale` on 727 of 913 checks, 79.6%** [276 of 333, 82.9%]. The repository's own `assess_objects` returns the same counts when given one object per run. Every one of the 186 gaps contains a stale stretch: mean 3.91 h, longest 9.40 h. An alert wired to exit 1 would be raised about five times a day and stand for about 19 hours in every 24. |
 | The smallest `--max-age-minutes` that would never have read `stale` | **624** (10.4 h). Over the hourly era it is 798 (13.3 h). |
 | ADR-005's one-hour bound | Not met. The newest snapshot is an hour old or less for **20.4%** of the time [17.1%]. Its age at a random instant, which is the history lost if the volume is lost then, has mean **2.77 h**, median 2.47 h, 95th percentile 6.30 h and maximum **10.40 h** [mean 3.18 h, 95th percentile 6.88 h]. |
 

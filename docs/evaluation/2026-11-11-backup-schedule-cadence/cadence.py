@@ -83,6 +83,12 @@ def age_quantile(gaps, q):
     return high
 
 
+def first_check(start):
+    """The first :05 at or after the window starts."""
+    check = start.replace(minute=5, second=0)
+    return check if check >= start else check + timedelta(hours=1)
+
+
 def report_window(label, starts):
     gaps = gaps_hours(starts)
     total = sum(gaps)
@@ -104,7 +110,7 @@ def report_window(label, starts):
     over = [gap - 1 for gap in gaps if gap > 1]
     print(f'   under 60 minutes: {len(over)} stale stretches, mean {statistics.mean(over):.2f} h, '
           f'longest {max(over):.2f} h')
-    check = starts[0].replace(minute=5, second=0) + timedelta(hours=1)
+    check = first_check(starts[0])
     index = fresh = checks = 0
     while check <= starts[-1]:
         while index + 1 < len(starts) and starts[index + 1] <= check:
@@ -127,7 +133,7 @@ def repository_check(starts, app='enfolded-beta'):
     page = {'Contents': [{'Key': object_key(app, start.strftime('%Y%m%dT%H%M%SZ')), 'Size': 1}
                          for start in starts]}
     outcomes = Counter()
-    check = starts[0].replace(minute=5, second=0) + timedelta(hours=1)
+    check = first_check(starts[0])
     while check <= starts[-1]:
         outcomes[assess_objects([page], app=app, max_age_minutes=60, now=check)['status']] += 1
         check += timedelta(hours=1)
