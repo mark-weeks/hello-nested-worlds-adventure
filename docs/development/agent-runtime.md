@@ -435,7 +435,26 @@ below and not verified live with any provider.
   carries `ai: false`. With AI on and a provider configured for
   the route's task (`node` for `/speak`, `inhabitant` for `/agent/voice`), the
   exchange is recorded as the same `PLAYER_SPEAK` / `AGENT_VOICE` row a model reply
-  makes, so the next model turn sees it. With the AI kill switch on, or with the flag
+  makes, and `/chronicle` and `/history` serve it unchanged, but the exchange
+  itself is never quoted to other voices (owner decision, 2026-11-10). The
+  history block every voice reads
+  (`consciousness._history_block`, for places and agents alike) leaves out a recorded
+  exchange, question and answer, whose stored reply is an authored answer
+  (`honesty.is_authored_answer`: the exact text, surrounding whitespace stripped,
+  of any line in `honesty.AUTHORED_ANSWERS`). A recorded row keeps the words it was
+  answered with, so a line never leaves that set once main has shipped it: when
+  the owner rewords an answer, the old line moves to `honesty._RETIRED_ANSWERS`,
+  and `tests/test_agent_honesty.py` pins every line main has shipped
+  (`ANSWERS_EVER_SHIPPED`). A place's answer stays only in the
+  asker's own transcript with that place (`persistence.get_player_exchanges`, keyed
+  by their invite credential, or by display name without one), so the place's next
+  turns with them (the transcript holds their last three exchanges there) see it as
+  an earlier exchange; an agent's answer reaches no later prompt. That retention
+  is itself a relay path: a reply on one of those turns that restates the answer, as
+  a model given the transcript may, is recorded as an ordinary `PLAYER_SPEAK` row,
+  and later voices at that node quote it, authored words and all. Neither it nor
+  any other model-written reply that says the same on the normal path is
+  filtered. With the AI kill switch on, or with the flag
   unset and no provider configured for the route (places then answer in per-scale
   silence), the answer is given and nothing is recorded: in those modes every other
   line gets authored silence and writes no row. With the kill switch on, a line the
@@ -448,8 +467,8 @@ below and not verified live with any provider.
   `voice_identity_answer surface=… recorded=yes|no` without the player's words.
 - **Model instruction.** Both bibles tell the voice to stay in character without
   narrating the machinery, never to claim or imply being human, and to say plainly
-  that it is an AI (a place: that its voice comes from an AI; the place bible's line
-  is part of the proposal above) when sincerely asked.
+  that it is an AI (a place: that it is a place, not a person, and that its voice
+  comes from an AI) when sincerely asked.
   The agent bible also forbids asking a traveler for personal details, contact
   outside the world, money or gifts, and romantic framing.
 
