@@ -1389,8 +1389,15 @@ not this restore.
       app-specific object. Over the rehearsal that follows, the newest validated
       object in the bucket is never more than 60 minutes old by its
       snapshot-start, read from the bucket listing and not from the Actions
-      badge. One fresh object does not show this: on GitHub's schedule alone,
-      runs started about five hours apart when measured on 2026-11-11
+      badge. Gaps of an hour between the stamps in the names are not enough: a
+      snapshot is not in the bucket until its upload ends, so each object has
+      to be in the bucket within 60 minutes of the snapshot-start of the one
+      before it. `backup_health.py` reports only the newest object at the
+      moment it runs, so one pass, or a pass after each run, does not show
+      this, and the repository has no command that lists every object with
+      the time it arrived; that evidence comes from the store's own listing.
+      On GitHub's schedule alone, runs started about five hours apart when
+      measured on 2026-11-11
       ([cadence record](../evaluation/2026-11-11-backup-schedule-cadence.md)),
       and what triggers the runs is an open owner decision. That record
       proposes seven consecutive days for the rehearsal; the length is not

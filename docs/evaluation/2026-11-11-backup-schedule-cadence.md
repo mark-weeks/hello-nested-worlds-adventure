@@ -459,9 +459,24 @@ days that would otherwise go to the M7 pilot gates.
 merged, and a follow-up batch made them the same day (see its entry in
 `docs/CHANGELOG.md`). The "What it says" column below quotes each text as it
 stood before that batch, and the line ranges are where it stood. The new
-wording holds to the one-hour bound ADR-005 sets today and treats the
-rehearsal length as a proposal, so it follows whichever option is chosen;
-relaxing the bound (option C) would change it again.
+wording holds to the one-hour bound ADR-005 sets today, measured as
+`backup_health.py` measures it, and treats the rehearsal length as a
+proposal. Its freshness test does not depend on what triggers the snapshots
+(options A and B). Relaxing the bound (option C) would change it again, and
+so would replication (option D), under which `backup_health.py` would not
+describe the replica.
+
+A review of that batch found that the queue below was not complete. These
+current texts also state the half-hourly cadence without the measurement, or
+accept one passing check, and were not changed, because the owner asked for
+the three queued edits: runbook §7 (its heading "every 30 minutes", "leaves
+30 minutes of nominal slack" and "Record several subsequent objects before
+calling automation proven"); the Q4 plan's step P1 "Done when"
+(`docs/roadmap/next-steps-2026-q4.md`); the off-host backup row of
+`docs/infrastructure/stack.md`; "`backup.yml` now runs every 30 minutes" in
+`docs/roadmap/phase-2-scale.md`; and the opening line and rehearsal checklist
+of `docs/infrastructure/backup-bucket.md`. Standing commitment 1.2 in the
+roadmap index still calls the no-op "inferred", which finding 2 confirms.
 
 Three texts on `main` say something this measurement contradicts or would
 let pass. This record changes none of them: the workflow and the runbook are
