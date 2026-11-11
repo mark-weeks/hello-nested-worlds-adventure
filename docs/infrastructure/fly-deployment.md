@@ -1385,8 +1385,18 @@ not this restore.
 **T-1 week:**
 
 - [ ] Private bucket, token, and variables configured ([backup-bucket.md](backup-bucket.md));
-      `ENFOLDED_BACKUP_REQUIRED=true`. Manual dispatch and subsequent scheduled runs
-      produce fresh app-specific objects. The job does not publish a GitHub artifact.
+      `ENFOLDED_BACKUP_REQUIRED=true`. A manual dispatch stores a validated
+      app-specific object. Over the rehearsal that follows, the newest validated
+      object in the bucket is never more than 60 minutes old by its
+      snapshot-start: each object is in the bucket within 60 minutes of the
+      snapshot-start of the one before it. Read this from the store's own
+      listing, not from the Actions badge or a `backup_health.py` pass, which
+      shows only the newest object at that moment. The
+      [cadence record](../evaluation/2026-11-11-backup-schedule-cadence.md)
+      gives the reasoning, the five-hour cadence measured on GitHub's schedule
+      alone, and a proposed seven-day rehearsal; its length and what triggers
+      the runs are open owner decisions. The job does not publish a GitHub
+      artifact.
 - [ ] Isolated restore rehearsed from a downloaded object of the intended app;
       before first production, use its staging twin, then verify production backup
       immediately after first deploy and before inviting participants.
