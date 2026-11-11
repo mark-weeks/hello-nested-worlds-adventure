@@ -836,7 +836,7 @@ def cmd_speak(args):
         return
 
     print(f"\n[{target.level}: {target.name}]")
-    history = persistence.get_node_history(args.seed, target.name)
+    history = consciousness.history_for_voice(args.seed, target.name)
     try:
         response = consciousness.speak(
             target, args.message, history=history,

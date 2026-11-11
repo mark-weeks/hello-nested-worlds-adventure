@@ -859,6 +859,31 @@ def _is_identity_exchange(entry: dict) -> bool:
     return isinstance(data, dict) and honesty.is_authored_answer(data.get("reply"))
 
 
+# How many history rows a voice reads, and how many are fetched to find them.
+# Recorded identity exchanges are left out of a voice's history, so they must
+# not use up its window: without the wider fetch, ten "are you human?" rows in
+# a row at a node left every later voice there with no history at all.
+VOICE_HISTORY_ROWS = 10
+_VOICE_HISTORY_FETCH = 50
+
+
+def history_for_voice(seed: int, node_name: str,
+                      limit: int = VOICE_HISTORY_ROWS) -> list[dict]:
+    """The newest `limit` history rows at a node that a voice may quote.
+
+    Newest first, like `persistence.get_node_history`, without the recorded
+    identity exchanges `_history_block` leaves out. It reads up to
+    `_VOICE_HISTORY_FETCH` rows to find them, so identity exchanges push no
+    ordinary row out of the window unless more than 40 of the newest 50 are
+    identity exchanges. With none among them, it returns exactly what
+    `get_node_history(seed, node_name, limit)` returns.
+    """
+    import persistence
+    rows = persistence.get_node_history(seed, node_name,
+                                        limit=max(limit, _VOICE_HISTORY_FETCH))
+    return [h for h in rows if not _is_identity_exchange(h)][:limit]
+
+
 def _history_block(history: list[dict]) -> str:
     from multiverse.history import narrate
     if not history:

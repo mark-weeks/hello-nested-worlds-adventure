@@ -453,8 +453,12 @@ below and not verified live with any provider.
   is itself a relay path: a reply on one of those turns that restates the answer, as
   a model given the transcript may, is recorded as an ordinary `PLAYER_SPEAK` row,
   and later voices at that node quote it, authored words and all. Neither it nor
-  any other model-written reply that says the same on the normal path is
-  filtered. With the AI kill switch on, or with the flag
+  any other model-written reply that says the same in other words on the normal
+  path is filtered. A later reply that is exactly an authored line, whitespace
+  aside, is left out with its question like the authored answer itself. Voices
+  read history through `consciousness.history_for_voice`, which fetches up to 50
+  rows and keeps the newest 10 that are not identity exchanges, so recorded
+  identity exchanges do not push ordinary rows out of a voice's window. With the AI kill switch on, or with the flag
   unset and no provider configured for the route (places then answer in per-scale
   silence), the answer is given and nothing is recorded: in those modes every other
   line gets authored silence and writes no row. With the kill switch on, a line the

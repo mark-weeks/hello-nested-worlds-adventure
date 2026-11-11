@@ -1288,7 +1288,7 @@ class Handler(BaseHTTPRequestHandler):
                     # that restates it is recorded as an ordinary row.
                     response = honesty.place_answer(node.level)
                 else:
-                    history = persistence.get_node_history(seed, node.name)
+                    history = consciousness.history_for_voice(seed, node.name)
                     transcript = persistence.get_player_exchanges(
                         seed, node.name, identity)
                     response = consciousness.speak(
@@ -1585,7 +1585,7 @@ class Handler(BaseHTTPRequestHandler):
                 # (consciousness._is_identity_exchange).
                 response = honesty.agent_answer(persona.name)
             else:
-                history = persistence.get_node_history(seed, node.name)
+                history = consciousness.history_for_voice(seed, node.name)
                 from persistence.situations import keeper_history
                 commitments = keeper_history(seed, agent_name, node.name)
                 commitment_ids = {event['id'] for event in commitments}

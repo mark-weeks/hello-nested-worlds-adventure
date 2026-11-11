@@ -1357,6 +1357,56 @@ def test_only_an_exact_authored_answer_is_left_out():
     assert consciousness._history_block(only) == consciousness._history_block([]) == ""
 
 
+def test_identity_exchanges_push_no_older_history_out_of_a_voice():
+    # Review on #166: the filter used to run after get_node_history's 10-row
+    # window, so ten recorded identity exchanges left a later voice with none.
+    import consciousness
+    seed, node = 4471, "The Mire"
+    persistence.record_mutation(seed, node, "PLAYER_SPEAK", "Ada",
+                                {"message": "Is the river deep?", "reply": "Deeper than it looks."})
+    for i in range(12):
+        persistence.record_mutation(seed, node, "PLAYER_SPEAK", f"P{i}",
+                                    {"message": "Are you human?", "reply": honesty.PLACE_ANSWER})
+    window = persistence.get_node_history(seed, node)
+    assert len(window) == 10 and all(consciousness._is_identity_exchange(h) for h in window)
+    history = consciousness.history_for_voice(seed, node)
+    assert [h["data"]["message"] for h in history] == ["Is the river deep?"]
+    block = consciousness._history_block(history)
+    assert '"Deeper than it looks."' in block and "Are you human?" not in block
+
+
+def test_a_voice_history_without_identity_exchanges_is_unchanged():
+    import consciousness
+    seed, node = 4472, "The Mire"
+    for i in range(15):
+        persistence.record_mutation(seed, node, "PLAYER_SPEAK", "Ada",
+                                    {"message": f"Line {i}?", "reply": f"Answer {i}."})
+    assert (consciousness.history_for_voice(seed, node)
+            == persistence.get_node_history(seed, node))
+    assert len(consciousness.history_for_voice(seed, node, limit=4)) == 4
+
+
+def test_a_flood_of_identity_exchanges_leaves_the_voice_its_history(srv, voice):
+    # The same through /speak and /agent/voice: both read history_for_voice.
+    seed = 1452
+    node = _place(seed)
+    persistence.record_mutation(seed, node.name, "PLAYER_SPEAK", "Ada",
+                                {"message": "Tell me about the lanterns.", "reply": VOICED})
+    for i in range(12):
+        persistence.record_mutation(seed, node.name, "PLAYER_SPEAK", f"P{i}",
+                                    {"message": "Are you human?",
+                                     "reply": honesty.place_answer(node.level)})
+    for path, extra in (("/speak", {}), ("/agent/voice", {"agent_name": "Tessera"})):
+        status, data = _post(srv, path, {"node_name": node.name, "seed": seed, "player_name": "Cy",
+                                         "message": "What has happened here?", **extra})
+        assert (status, data["ai"]) == (200, True), (path, data)
+    contexts = [call["system"][1].text for call in voice.stub.calls]
+    assert len(contexts) == 2
+    for context in contexts:
+        assert '"Tell me about the lanterns."' in context
+        assert "Are you human?" not in context
+
+
 # Every identity answer main has shipped, verbatim. A row recorded under a
 # line keeps it for good, so the history filter must keep knowing the line
 # after a rewording. When the owner rewords an answer, add the new line here
