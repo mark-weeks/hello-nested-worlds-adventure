@@ -72,7 +72,10 @@ it first.
   on or off, a line that `handlers._asks_identity` accepts (the whole line is the
   question) and the moderation screen passes, put to a place on `/speak` or to a known
   agent on `/agent/voice`; elsewhere only the voice bibles' instruction to the model
-  carries the rule, and with AI off other lines get the quiet line.
+  carries the rule, and with AI off other lines get the quiet line. Where that exchange
+  is recorded, the history fed to other voices leaves it out (owner decision,
+  2026-11-10); a later model reply that restates the answer in other words is not
+  left out.
 - **Agent solves don't count as human progress.** An ambient/FSM agent standing
   on a puzzle never claims a co-op session, opens a seal, or lights a
   constellation. `persistence/__init__.py` (`Agent solves (payload carries
