@@ -378,7 +378,8 @@ unchanged. This ADR edits neither `AGENTS.md` nor the README.
 - under a test salt, puzzles are deterministic and differ from the unsalted
   ones;
 - `peek_puzzle` agrees with `get_puzzle`;
-- difficulty and election are unchanged;
+- under a test salt, difficulty still spans 1–4 at every scale, and the
+  Augury still serves about 10% of the inhabited scales;
 - the secrecy, solvability and per-node difficulty suites
   (`tests/test_puzzles.py`) pass, parametrized over a test salt;
 - the ecology gate passes under the test salts;
@@ -386,8 +387,9 @@ unchanged. This ADR edits neither `AGENTS.md` nor the README.
 - rotation changes no pinned puzzle and no solve;
 - the salt is absent from every served payload, every log line and every
   error;
-- an exception raised inside a keyed draw, under a capturing Sentry
-  transport, sends no salt.
+- an exception raised inside a keyed draw, or in a frame holding a puzzle,
+  under a capturing Sentry transport, sends neither the salt nor the
+  answer.
 
 **B2 — operations, before `scripts/deploy.sh --first-deploy` on production:**
 1. Draw each salt and audit it.
