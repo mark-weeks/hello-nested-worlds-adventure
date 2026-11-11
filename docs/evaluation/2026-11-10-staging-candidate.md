@@ -185,7 +185,10 @@ and cached toolchain platform. Explicit setup still selects Python 3.11 and
 Node 20; the image's bundled Node 24 is not used for the project. A guard
 compares installed Playwright with the image's version marker before tests.
 Both workflows keep identical real-server setup, production build and the
-full browser suite. Release publishing depends on its separate browser job,
+full browser suite. The first container run pulled and started successfully and
+selected Python 3.11.18, then exposed that setup-python v5's optional pip
+cache calls `lsb_release`, absent from this image. Browser jobs now omit
+that cache setting; dependency installation and all checks remain required. Release publishing depends on its separate browser job,
 so a browser failure still prevents publication. No release was triggered.
 
 Verified: actionlint 1.7.12 passed on both workflows (release binary checksum
