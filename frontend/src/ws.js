@@ -47,8 +47,8 @@ export function attachWorldSocket({
       setConnected(false);
       if (!active) return;
       if (globalThis.EnfoldedParticipation) {
-        const acknowledged = await globalThis.EnfoldedParticipation.recheck();
-        if (!active || acknowledged || wsRef.current !== ws) return;
+        await globalThis.EnfoldedParticipation.recheck();
+        if (!active || wsRef.current !== ws) return;
       }
       attempts += 1;
       const backoff = Math.min(RECONNECT_MAX_MS,

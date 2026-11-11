@@ -196,7 +196,11 @@ async function loadWorld() {
     const { depth } = worldParams;
     // The server chooses the world. Its returned seed is carried only as the
     // identity needed by subsequent requests and deterministic senses.
-    const opened = await openWorld(url => fetch(url), withKey(`/world?depth=${depth}`), !!betaKey());
+    const opened = await openWorld(async url => {
+      let response = await fetch(url);
+      if (await globalThis.EnfoldedParticipation.recover(response)) response = await fetch(url);
+      return response;
+    }, withKey(`/world?depth=${depth}`), !!betaKey());
     if (opened.unopened) {
       keepDrawnDepth();
       setStatus(opened.unopened.line);
@@ -1206,8 +1210,8 @@ function wsConnect(seed) {
     wsKeepalive.stop();
     ws = null;
     if (globalThis.EnfoldedParticipation) {
-      const acknowledged = await globalThis.EnfoldedParticipation.recheck();
-      if (acknowledged || ws) return;
+      await globalThis.EnfoldedParticipation.recheck();
+      if (ws) return;
     }
     wsAttempts += 1;
     const backoff = Math.min(30000, 1000 * 2 ** Math.min(wsAttempts - 1, 5));

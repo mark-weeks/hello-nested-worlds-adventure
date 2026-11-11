@@ -197,7 +197,7 @@ describe("world socket subscription", () => {
     expect(sockets).toHaveLength(1);
     resolve(true);
     await Promise.resolve();
-    expect(vi.getTimerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(1);
     expect(sockets[0].sent).toEqual([]);
     cleanup();
   });

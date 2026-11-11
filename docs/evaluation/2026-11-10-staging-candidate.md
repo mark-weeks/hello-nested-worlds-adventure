@@ -1,6 +1,7 @@
 # Disposable staging candidate
 
-Date: 2026-11-10. Base: `main` at `7a7b632` (#163). Scope: the first
+Date: 2026-11-10; review follow-up: 2026-11-11. Original base: `main` at
+`7a7b632` (#163); review integrates `main` at `365dcdf`. Scope: the first
 implementation batch in the owner's requested staging sequence: temporary-world
 notice and consent, a current verifiable QA candidate, and hosted rehearsal
 tooling. This record does not authorize production history or select the held
@@ -42,10 +43,12 @@ The candidate version is `0.1.2rc1`, corresponding to the proposed
 - ADR-036 puzzle design, ADR-037 conversational parity and PR #164's salt
   proposal retain their unresolved choices. No salt is adopted and no
   production first boot is performed by this batch.
-- PRs #165 and #166 remain separate upstream fixes to integrate through review;
-  this batch does not merge those pull requests or duplicate their scope.
+- The review update integrates the already-merged #164, #165 and #166 from
+  `main`, preserving their CHANGELOG entries. #165 supplies the counter-test
+  fix and #166 the authored-identity prompt-history filter. ADR-038 from #164
+  remains Proposed; merging its document does not adopt or implement a salt.
 
-## Verification
+## Initial verification (2026-11-10)
 
 Verification completed on 2026-11-10 under Python **3.11.14**, Node
 **20.19.0** and system Chromium **154.0.8037.57**.
@@ -84,10 +87,84 @@ Verification completed on 2026-11-10 under Python **3.11.14**, Node
   **4 passed**. `git diff --check` is clean.
 
 Candidate: canonical seed **382**, default client **`/app`**, schema **31**.
-The exact tested browser assets are:
+The initial tested browser assets were:
 
 - `index-D8MmY_0x.js`: SHA-256 `a2683003ed918035df790fe7525705acd52804747ae64f3b8dcfa23e2b165b33`.
 - `index-B8LK5s95.css`: SHA-256 `3520be774534ff7a71aef6b9d026ef78aea4343fb070cf1441af62119f983e54`.
+
+
+## Review follow-up (2026-11-11)
+
+This update responds to the reviews on [PR #169](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/169),
+at original head `3ded9fe`. The user's request in the preparing Codex chat was
+"Proceed with implementation in the recommended sequence", followed by "See
+comments on the PR". That supplies implementation scope; it is not a merge,
+release, deployment or unresolved-policy approval.
+
+- Duplicate chat receipts now count as extra deliveries and fail the soak.
+  Every probe mode checks public participation metadata before `/world` or
+  sockets. Permanent worlds require an explicit `--permanent-world-ok`;
+  `--no-chat` still leaves joins/movement and does not bypass that guard.
+- Participation uses a native modal above Chronicle, including mouse and
+  keyboard acknowledgement. The open Chronicle and form drafts survive. Acceptance
+  resumes the view/socket without reloading or replaying a refused mutation.
+- Guide and registration retain the exact standing production permanence
+  wording by default. Only known temporary-world metadata selects test copy.
+  Unknown initial metadata errors do not block ordinary entry; an actual
+  staging refusal opens notice recovery. Known test-world notice failures
+  remain closed. Journal and Ideas have the same entry/revision recovery.
+- The fixed AI paragraph describes Enfolded's own AI travelers and the possible
+  authored silence; it no longer promises an answer to every question. The
+  already-authorized no-pretending rule and existing production introductions
+  are not weakened.
+- One server-authored agreement includes the configured age and participation
+  statement, is rendered verbatim, and is covered by `accepted: true`. Its exact
+  text is hashed and stored in the existing snapshot. This is self-attestation,
+  not independent age verification; it adds no migration or date of birth.
+- Conventional case-insensitive flag values work. Unknown values stay closed.
+  Ordinary revoked, rotated and sanctioned credentials are refused without a
+  false ERROR/Sentry alert. Staging socket checks avoid the redundant lookup.
+  Identity and consent share live-credential validation while known participant
+  reads stay free of writer-lock waits and acceptance rechecks under its lock.
+- Public APIs are listed separately from static assets, with method-specific
+  exemptions and unchanged rate policy. Nonfiction consent 428 and participation
+  configuration/check 503 are documented as operational notice decisions,
+  separately from invisible plumbing and authored gameplay failures, in
+  `AGENTS.md`, the matching irreversibility skill and PR template. This clarifies
+  the authorized consent surface; it grants no general gameplay 5xx exemption.
+- The age-parser simplification needed a correction to the review claim:
+  **5,000 ASCII decimal digits** pass both predicates but `int()` raises
+  `ValueError` under pinned Python 3.11. Input is now bounded before conversion,
+  with a regression for that case.
+- The roadmap names migration 0031 as the merged top, and the architecture
+  overview counts 31 migrations. F2 is Partial: version `0.1.2rc1` and local
+  wheel smoke are done; a tag, tagged workflow and published-artifact checks
+  remain. The checklist stays at 95 rows / 54 beta gates / 44 open, with status
+  counts 13 Done / 41 Partial / 39 Not started / 2 Unknown.
+- The optional status-order nit is deliberately retained: an anonymous POST to
+  `/participation` is refused as lacking a live personal credential, including
+  when test mode is off. Public metadata remains available without a key.
+
+Focused checks before the combined gate: **237 backend tests**, **42 soak
+tests**, **58 browser tests**, and **10 socket unit tests** passed. A short
+local 12-client temporary-world run delivered **24 chat lines / 288 receipts**
+and **24 moves / 264 receipts**, with zero extra, missing or out-of-order
+receipts and no missing pongs. It exited 0. No hosted run is claimed.
+
+The current combined `ENFOLDED_E2E=1 ./scripts/check.sh` completed on
+2026-11-11 with exit **0**: Ruff passed; **3,607 Python passed / 1 skipped**
+(the optional absent historical QA tag); **189 Vitest passed** in 19 files;
+production bundle byte-fresh; installed `enfolded-0.1.2rc1` wheel verified
+schema **31**; **177 Playwright passed** in 5.5 minutes. Backend and frontend
+source remained frozen during this run. The working-rule/checklist checks
+also pass after the documentation changes, and 97 relative file links have
+no missing targets. No new migration, golden re-pin or world-history writer
+was introduced by the review fixes.
+
+Current tested browser assets:
+
+- `index-Dm7ud2rm.js`: SHA-256 `01f69c92107f19297db7f3ceef4262e3a9ec0f10cba05cf2e3ff8873d623a7e3`.
+- `index-1EslDMRk.css`: SHA-256 `2d4038cec1d8e8e71eb8e21e1bffe3d9e912ea6b0e2f7f2a4791351aeea98b4b`.
 
 
 ## Hosted prerequisites

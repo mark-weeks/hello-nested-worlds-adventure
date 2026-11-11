@@ -10,6 +10,7 @@ import { serveBrowser } from './server.js';
 const KEY = 'nw_' + '9'.repeat(32);
 const NAME = 'Test traveler';
 const TOKEN = 'nwr_' + '8'.repeat(32);
+const AGREEMENT = 'I confirm I am at least 18 years old, have read this notice and agree to participate in this temporary test world.';
 // These are disposable fixture values, not an adopted player policy.
 const noticeEnv = {
   NESTED_WORLDS_TEST_WORLD: '1',
@@ -18,6 +19,11 @@ const noticeEnv = {
   NESTED_WORLDS_TEST_MIN_AGE: '18',
   NESTED_WORLDS_TEST_DATA_USE: 'No model provider receives fixture data.',
 };
+
+async function failMetadata(route, failure) {
+  if (failure === 'network') return route.abort('connectionreset');
+  return route.fulfill({ status: failure, contentType: 'text/html', body: 'metadata temporarily unavailable' });
+}
 
 async function returning(page) {
   await page.addInitScript(() => {
@@ -38,9 +44,8 @@ function countGameplay(page) {
 async function accept(page) {
   const submit = page.getByRole('button', { name: 'Agree and continue', exact: true });
   await expect(submit).toBeDisabled();
-  await page.getByLabel('I am at least 18 years old.', { exact: true }).check();
-  await expect(submit).toBeDisabled();
-  await page.getByLabel('I have read this notice and agree to take part in this temporary test.', { exact: true }).check();
+  await expect(page.locator('.participation-gate').getByRole('checkbox')).toHaveCount(1);
+  await page.getByRole('checkbox', { name: AGREEMENT, exact: true }).check();
   await submit.click();
 }
 
@@ -83,6 +88,84 @@ for (const route of ['/', '/app']) {
     }
   });
 }
+
+for (const route of ['/', '/app']) for (const failure of [429, 502, 'network']) {
+  test(`${route}: an unknown ordinary-world metadata ${failure} does not block entry`, async ({ page }) => {
+    const server = await serveBrowser({ preseed: 382 });
+    try {
+      await returning(page);
+      await page.addInitScript(() => localStorage.setItem('nw_player_name', 'Ordinary traveler'));
+      await page.route('**/participation', intercepted => failMetadata(intercepted, failure), { times: 1 });
+      await page.goto(server.url + route);
+      await expect(page.locator('#node-name')).toBeVisible();
+      await expect(page.locator('.participation-gate')).toHaveCount(0);
+      await expect(page.locator('body')).not.toContainText('test notice could not be reached');
+    } finally { await server.close(); }
+  });
+
+  test(`${route}: an unknown test-world metadata ${failure} recovers through its real world refusal`, async ({ page }) => {
+    const server = await serveBrowser({ preseed: 382, invite: KEY, player: NAME, env: noticeEnv });
+    try {
+      await returning(page);
+      const counts = countGameplay(page);
+      await page.route('**/participation', intercepted => failMetadata(intercepted, failure), { times: 1 });
+      await page.goto(`${server.url}${route}?key=${KEY}&name=${encodeURIComponent(NAME)}`);
+      await expect(page.getByRole('heading', { name: 'Temporary test world' })).toBeVisible();
+      expect(counts()).toEqual({ worlds: 1, sockets: 0 });
+      await accept(page);
+      await expect(page.locator('#node-name')).toBeVisible();
+      await expect.poll(() => counts().sockets).toBe(1);
+      expect(counts().worlds).toBe(2);
+    } finally { await server.close(); }
+  });
+}
+
+for (const route of ['/guide', `/register?invite=${TOKEN}`]) for (const failure of [429, 502, 'network']) {
+  test(`${route}: metadata ${failure} preserves ordinary copy and can reveal temporary copy on retry`, async ({ page }) => {
+    // Test each page against both operator modes: raw HTML always preserves
+    // the standing promise, and only a successful explicit test notice swaps it.
+    for (const temporary of [false, true]) {
+      const server = await serveBrowser({ env: temporary ? noticeEnv : {} });
+      try {
+        await page.route('**/participation', intercepted => failMetadata(intercepted, failure), { times: 1 });
+        await page.goto(server.url + route);
+        await expect(page.getByRole('button', { name: 'Load the notice again', exact: true })).toBeVisible();
+        if (route === '/guide') await expect(page.locator('body')).toContainText("world's permanent chronicle");
+        else await expect(page.locator('#register')).toContainText('recorded under it, permanently,');
+        await page.getByRole('button', { name: 'Load the notice again', exact: true }).click();
+        if (temporary) {
+          await expect(page.getByRole('heading', { name: 'Temporary test world', exact: true })).toBeVisible();
+          await expect(page.locator('body')).not.toContainText("world's permanent chronicle");
+          if (route !== '/guide') await expect(page.locator('#register')).not.toContainText('recorded under it, permanently,');
+        } else {
+          await expect(page.locator('[data-participation-notice]')).toBeHidden();
+          if (route === '/guide') await expect(page.getByRole('heading', { name: 'Nothing is lost', exact: true })).toBeVisible();
+          else await expect(page.locator('#register')).toContainText('recorded under it, permanently,');
+        }
+      } finally { await server.close(); }
+    }
+  });
+}
+
+test('a known test-world notice failure stays closed until an explicit retry', async ({ page }) => {
+  const server = await serveBrowser({ preseed: 382, invite: KEY, player: NAME, env: noticeEnv });
+  try {
+    await returning(page);
+    const counts = countGameplay(page);
+    await page.route('**/participation', async route => {
+      if (route.request().headers()['x-beta-key']) {
+        await route.fulfill({ status: 502, contentType: 'text/html', body: 'temporarily unavailable' });
+        await page.unroute('**/participation');
+      } else await route.continue();
+    });
+    await page.goto(`${server.url}/app?key=${KEY}&name=${encodeURIComponent(NAME)}`);
+    await expect(page.getByText('Participation information could not be reached. Try loading it again.', { exact: true })).toBeVisible();
+    expect(counts()).toEqual({ worlds: 0, sockets: 0 });
+    await page.getByRole('button', { name: 'Load the notice again', exact: true }).click();
+    await accept(page);
+    await expect(page.locator('#node-name')).toBeVisible();
+  } finally { await server.close(); }
+});
 
 test('registration shows the same notice and a newly minted key still needs an affirmative choice', async ({ page }) => {
   test.setTimeout(60_000);
@@ -130,21 +213,6 @@ test('an incomplete notice prevents gameplay and offers no acknowledgement', asy
   } finally { await server.close(); }
 });
 
-test('a failed notice read can be retried without opening gameplay first', async ({ page }) => {
-  const server = await serveBrowser({ preseed: 382, invite: KEY, player: NAME, env: noticeEnv });
-  try {
-    const counts = countGameplay(page);
-    await returning(page);
-    await page.route('**/participation', route => route.fulfill({ status: 502, contentType: 'text/html', body: 'upstream unavailable' }), { times: 1 });
-    await page.goto(`${server.url}/app?key=${KEY}&name=${encodeURIComponent(NAME)}`);
-    await expect(page.getByText('The test notice could not be reached. Try loading it again.', { exact: true })).toBeVisible();
-    expect(counts()).toEqual({ worlds: 0, sockets: 0 });
-    await page.getByRole('button', { name: 'Load the notice again', exact: true }).click();
-    await accept(page);
-    await expect(page.locator('#node-name')).toBeVisible();
-  } finally { await server.close(); }
-});
-
 test('public guide and registration render configured text without executing markup', async ({ page }) => {
   const injected = '<img src=x onerror="window.noticeExecuted=true">';
   const server = await serveBrowser({ env: { ...noticeEnv, NESTED_WORLDS_TEST_CONTACT: injected } });
@@ -159,7 +227,7 @@ test('public guide and registration render configured text without executing mar
   } finally { await server.close(); }
 });
 
-test('a changed-notice response reloads the notice and clears both acknowledgements', async ({ page }) => {
+test('a changed-notice response reloads the notice and clears its agreement', async ({ page }) => {
   const server = await serveBrowser({ invite: KEY, player: NAME, env: noticeEnv });
   try {
     const counts = countGameplay(page);
@@ -177,8 +245,7 @@ test('a changed-notice response reloads the notice and clears both acknowledgeme
     await page.goto(`${server.url}/app?key=${KEY}&name=${encodeURIComponent(NAME)}`);
     await accept(page);
     await expect.poll(() => reads).toBe(2);
-    await expect(page.getByLabel('I am at least 18 years old.', { exact: true })).not.toBeChecked();
-    await expect(page.getByLabel('I have read this notice and agree to take part in this temporary test.', { exact: true })).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: AGREEMENT, exact: true })).not.toBeChecked();
     await expect(page.getByRole('button', { name: 'Agree and continue', exact: true })).toBeDisabled();
     expect(counts()).toEqual({ worlds: 0, sockets: 0 });
     await accept(page);
@@ -196,15 +263,16 @@ test('a refused invite uses the existing return guidance rather than accepting c
   } finally { await server.close(); }
 });
 
-test('ordinary guide and registration copy does not point to an absent test notice', async ({ page }) => {
+test('ordinary guide and registration retain their standing permanence disclosure', async ({ page }) => {
   const server = await serveBrowser();
   try {
     for (const route of ['/guide', `/register?invite=${TOKEN}`]) {
       await page.goto(server.url + route);
       await expect(page.locator('[data-participation-notice]')).toBeHidden();
-      await expect(page.locator('body')).toContainText('Ask the person who invited you');
-      await expect(page.locator('body')).not.toContainText('Read the participation notice');
-      await expect(page.locator('body')).not.toContainText('The participation notice states');
+      if (route === '/guide') {
+        await expect(page.locator('body')).toContainText("world's permanent chronicle");
+        await expect(page.getByRole('heading', { name: 'Nothing is lost', exact: true })).toBeVisible();
+      } else await expect(page.locator('#register')).toContainText('recorded under it, permanently,');
     }
   } finally { await server.close(); }
 });
@@ -222,7 +290,7 @@ test('off-mode notice checks do not validate cached position-only credentials', 
     await page.goto(`${server.url}/guide`);
     await expect(page.locator('[data-participation-notice]')).toBeHidden();
     await page.evaluate(() => globalThis.EnfoldedParticipation.ensure());
-    expect(await page.evaluate(() => globalThis.EnfoldedParticipation.recheck())).toBe(false);
+    expect(await page.evaluate(() => globalThis.EnfoldedParticipation.recheck())).toBeUndefined();
     expect(noticeRequests).toHaveLength(3);
     expect(noticeRequests.every(headers => !headers['x-beta-key'])).toBe(true);
     expect(errors).toEqual([]);
@@ -279,7 +347,7 @@ for command in sys.stdin:
   };
 }
 
-for (const route of ['/', '/app']) test(`${route}: a live notice revision reopens consent and reloads without replaying refused speech`, async ({ page }) => {
+for (const route of ['/', '/app']) test(`${route}: a live notice revision resumes the current view without replaying refused speech`, async ({ page }) => {
   test.setTimeout(60_000);
   const server = await mutableNoticeServer();
   try {
@@ -302,11 +370,53 @@ for (const route of ['/', '/app']) test(`${route}: a live notice revision reopen
     await expect(page.getByText('Retention and deletion, including backups: Revised fixture retention: remove this world and backups tomorrow.', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Agree and continue', exact: true })).toBeDisabled();
     expect(speaks).toBe(1);
-    await Promise.all([page.waitForEvent('load'), accept(page)]);
+    await accept(page);
     await expect(page.locator('#node-name')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Agree and continue', exact: true })).toHaveCount(0);
     await expect.poll(() => counts().sockets).toBe(2);
     expect(speaks).toBe(1);
+  } finally { await server.close(); }
+});
+
+for (const method of ['click', 'keyboard']) test(`an open native Chronicle survives the ${method} acknowledgement of a changed notice`, async ({ page }) => {
+  const server = await mutableNoticeServer();
+  try {
+    await returning(page);
+    const counts = countGameplay(page);
+    await page.goto(`${server.url}/app?key=${KEY}&name=${encodeURIComponent(NAME)}`);
+    await accept(page);
+    await expect(page.locator('#node-name')).toBeVisible();
+    await expect.poll(() => counts().sockets).toBe(1);
+    await page.getByText('History & journal', { exact: true }).click();
+    await page.getByRole('button', { name: 'View full chronicle', exact: true }).click();
+    const chronicle = page.getByRole('dialog', { name: 'World Chronicle', exact: true });
+    await expect(chronicle).toBeVisible();
+    await expect(chronicle).toHaveJSProperty('open', true);
+    let navigations = 0;
+    page.on('framenavigated', frame => { if (frame === page.mainFrame()) navigations += 1; });
+    await server.command('revise');
+    await server.command('sweep');
+    const gate = page.getByRole('dialog', { name: 'Temporary test world', exact: true });
+    await expect(gate).toBeVisible();
+    expect(await gate.evaluate(node => node.matches(':modal'))).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(gate).toBeVisible();
+    await expect(chronicle).toHaveJSProperty('open', true);
+    if (method === 'click') await accept(page);
+    else {
+      await expect(page.getByRole('checkbox', { name: AGREEMENT, exact: true })).toBeFocused();
+      await page.keyboard.press('Space');
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('button', { name: 'Agree and continue', exact: true })).toBeFocused();
+      await page.keyboard.press('Enter');
+    }
+    await expect(gate).toHaveCount(0);
+    await expect(chronicle).toBeVisible();
+    await expect(chronicle).toHaveJSProperty('open', true);
+    await expect.poll(() => counts().sockets).toBe(2);
+    expect(navigations).toBe(0);
+    await chronicle.getByRole('button', { name: 'close', exact: true }).click();
+    await expect(chronicle).toHaveCount(0);
   } finally { await server.close(); }
 });
 
@@ -385,7 +495,7 @@ for (const route of ['/', '/app']) test(`${route}: a process restart with a new 
     expect(oldAcceptance.status()).toBe(428);
     await expect(page.getByText('Retention and deletion, including backups: Restarted fixture retention: remove the temporary world and backups next week.', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Agree and continue', exact: true })).toBeDisabled();
-    await Promise.all([page.waitForEvent('load'), accept(page)]);
+    await accept(page);
     await expect(page.locator('#node-name')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Agree and continue', exact: true })).toHaveCount(0);
     const currentAcceptance = await page.request.get(`${server.url}/world`, { headers: { 'X-Beta-Key': KEY } });

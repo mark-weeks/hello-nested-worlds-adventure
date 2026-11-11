@@ -36,6 +36,21 @@ _LIVE_INVITE = ("SELECT name FROM invite_keys WHERE key=? AND revoked_at IS NULL
                 f"AND {db._UNSANCTIONED}")
 
 
+def require_live_credential(conn, key: str) -> tuple[str, str]:
+    """Return digest and name for a live key on this connection, without enrolling.
+
+    Call within the caller's read connection or write transaction so consent
+    and identity use exactly the same revocation and sanction rules.
+    """
+    if not key:
+        raise Unauthorized("A current personal invite is required.")
+    digest = db._credential_digest(key)
+    row = conn.execute(_LIVE_INVITE, (digest,)).fetchone()
+    if not row:
+        raise Unauthorized("A current personal invite is required.")
+    return digest, row[0]
+
+
 def identify(key: str) -> dict:
     """Always require a live invite, including in otherwise ungated local mode.
 
@@ -44,26 +59,19 @@ def identify(key: str) -> dict:
     the single SQLite writer: a known credential is resolved on a plain
     connection, and the write transaction is entered only on first use.
     """
-    if not key:
-        raise Unauthorized("A current personal invite is required.")
-    digest = db._credential_digest(key)
     db.init_db()
     with db._connection() as conn:
-        row = conn.execute(_LIVE_INVITE, (digest,)).fetchone()
-        if not row:
-            raise Unauthorized("A current personal invite is required.")
+        digest, name = require_live_credential(conn, key)
         known = conn.execute(
             "SELECT participant_id FROM participant_credentials WHERE credential_digest=?",
             (digest,)).fetchone()
     if known:
-        return {"id": known[0], "name": row[0]}
+        return {"id": known[0], "name": name}
     with db.transaction() as conn:
         # Re-read under the write lock: a revocation may have landed between reads.
-        row = conn.execute(_LIVE_INVITE, (digest,)).fetchone()
-        if not row:
-            raise Unauthorized("A current personal invite is required.")
+        digest, name = require_live_credential(conn, key)
         participant = _ensure(conn, digest)
-    return {"id": participant, "name": row[0]}
+    return {"id": participant, "name": name}
 
 
 def rotate(credential: str, replacement: str) -> dict:

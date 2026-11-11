@@ -368,7 +368,16 @@ _RATE_LIMITED_PATHS = frozenset({
 # API reads are limited by default, including newly added routes. Static shells
 # and assets are exempt; these cheap control reads keep their existing policy.
 # WebSocket upgrades have a separate connection cap and message-rate guard.
-_READ_UNLIMITED_PATHS = frozenset({"/worlds", "/position", "/ws"})
+_READ_UNLIMITED_PATHS = frozenset({"/health", "/worlds", "/position", "/ws"})
+
+# These APIs are reachable before a gameplay credential or acknowledgement
+# exists. Their handlers validate their own submissions; their API rate policy
+# remains separate from the static-file exemption.
+_UNGATED_API_METHODS = {
+    "/health": frozenset({"GET"}),
+    "/participation": frozenset({"GET", "POST"}),
+    "/register": frozenset({"POST"}),
+}
 
 # The player-facing pace line (429). Rate limiting is a mechanical guard, but
 # the explorer renders this text verbatim in the speak/puzzle panels, so it
@@ -588,7 +597,7 @@ class Handler(BaseHTTPRequestHandler):
         `/wayback`, `/worlds`) stays gated.
         """
         path = urlparse(self.path).path
-        if self._is_public_asset(path):
+        if self._is_ungated_api(path, self.command) or (self.command == "GET" and self._is_public_asset(path)):
             return True
         if participation.required():
             return participation.authorize(self, qs)
@@ -603,22 +612,23 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     @staticmethod
+    def _is_ungated_api(path: str, method: str) -> bool:
+        """Explicit pre-entry APIs, separate from the static shell exemption."""
+        return method in _UNGATED_API_METHODS.get(path.rstrip("/"), ())
+
+    @staticmethod
     def _is_public_asset(path: str) -> bool:
         """True for the ungated static UI shell + assets (never data endpoints).
 
-        Data / paid endpoints do not live under these prefixes, so exempting
-        the shell can't accidentally open one up. `/register` is the one
-        deliberate exception with a write path: a registering player has no
-        play key YET, so the invite gate can't apply — the registration token
-        itself is the credential, verified in-handler, and nothing is minted
-        without a live token (ADR-004 §7, invite-gated self-service).
+        This exemption applies to GET only. The registration page is a static
+        shell; its token-authenticated POST is listed separately above.
         """
         stripped = path.rstrip("/")
-        if stripped in ("", "/health", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
+        if stripped in ("", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js",
                         "/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js", "/interface.css", "/map.css",
                         "/guide", "/register", "/register.js", "/favicon.ico",
-                        "/participation", "/participation.js", "/participation.css",
+                        "/participation.js", "/participation.css",
                         "/journal", "/journal.js", "/ideas", "/ideas.js"):
             return True
         if stripped == "/app" or path.startswith("/app/") or path.startswith("/media/"):
@@ -639,7 +649,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _read_rate_ok(self, path: str) -> bool:
         """Protect API reads unless their exemption is explicit; 429 on deny."""
-        if (self._is_public_asset(path) and path != "/participation") or path in _READ_UNLIMITED_PATHS:
+        if self._is_public_asset(path) or path in _READ_UNLIMITED_PATHS:
             return True
         ip = guard.client_ip(self.client_address, self.headers)
         if guard.READ_RATE_LIMITER.allow(ip):

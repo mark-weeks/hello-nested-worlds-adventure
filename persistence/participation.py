@@ -13,13 +13,9 @@ def accepted(key: str, revision: str) -> bool:
     A missing, revoked or sanctioned credential is refused even if it once
     accepted. Metadata reads do not create participant or consent rows.
     """
-    if not key:
-        raise participants.Unauthorized("A current personal invite is required.")
-    digest = db._credential_digest(key)
     db.init_db()
     with db._connection() as conn:
-        if not conn.execute(participants._LIVE_INVITE, (digest,)).fetchone():
-            raise participants.Unauthorized("A current personal invite is required.")
+        digest, _ = participants.require_live_credential(conn, key)
         return conn.execute("""SELECT 1 FROM participation_consents c
             JOIN participant_credentials k ON k.participant_id=c.participant_id
             WHERE k.credential_digest=? AND c.revision=?""", (digest, revision)).fetchone() is not None
@@ -27,16 +23,12 @@ def accepted(key: str, revision: str) -> bool:
 
 def accept(key: str, revision: str, notice_json: str) -> None:
     """Validate and acknowledge under the same write lock, idempotently."""
-    if not key:
-        raise participants.Unauthorized("A current personal invite is required.")
     if hashlib.sha256(notice_json.encode()).hexdigest() != revision:
         raise ValueError("The notice snapshot does not match its revision.")
-    digest = db._credential_digest(key)
     with db.transaction() as conn:
         # A revocation or rotation between an earlier metadata read and
         # this submission cannot acknowledge on the old credential.
-        if not conn.execute(participants._LIVE_INVITE, (digest,)).fetchone():
-            raise participants.Unauthorized("A current personal invite is required.")
+        digest, _ = participants.require_live_credential(conn, key)
         owner = participants._ensure(conn, digest)
         conn.execute("""INSERT INTO participation_consents(participant_id,revision,notice_json)
             VALUES (?,?,?) ON CONFLICT(participant_id,revision) DO NOTHING""", (owner, revision, notice_json))

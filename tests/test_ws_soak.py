@@ -13,21 +13,35 @@ import time
 import pytest
 
 import persistence
+from persistence import participation as consents
 from multiverse import store
 from scripts import ws_soak
-from server import _Handler, _ThreadedServer, guard, websocket
+from server import _Handler, _ThreadedServer, guard, participation, websocket
 
 
 @contextmanager
-def running_server(monkeypatch, *, clients=3, tls=None):
+def running_server(monkeypatch, *, clients=3, tls=None, temporary=True,
+                   accept=True, birth=True):
     monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "382")
-    monkeypatch.delenv("NESTED_WORLDS_TEST_WORLD", raising=False)
+    monkeypatch.setenv("NESTED_WORLDS_TEST_WORLD", "1" if temporary else "0")
+    for key, value in {
+        "TEST_CONTACT": "Fixture facilitator",
+        "TEST_RETENTION": "Remove this scratch database and its backups after the test.",
+        "TEST_MIN_AGE": "18",
+        "TEST_DATA_USE": "No model provider receives fixture data.",
+    }.items():
+        monkeypatch.setenv("NESTED_WORLDS_" + key, value)
     monkeypatch.delenv("NESTED_WORLDS_DISABLE_MODERATION", raising=False)
     keys = ["nw_" + f"{i + 1:032x}" for i in range(clients)]
     for i, key in enumerate(keys):
         persistence.mint_invite_key(key, "Check " + ws_soak._letters(i))
+    if temporary and accept:
+        current = participation.notice()
+        for key in keys:
+            consents.accept(key, current["revision"], participation.snapshot(current))
     # Birth is intentionally outside a short probe's measurement window.
-    store.ensure_born(382)
+    if birth:
+        store.ensure_born(382)
     requests = []
 
     class RecordedHandler(_Handler):
@@ -73,12 +87,15 @@ def test_authenticated_twelve_client_cohort_uses_world_root_and_measures_broadca
     assert summary["application_pongs_missing"] == 0
     assert summary["chat_lines_sent"] == 12
     assert summary["chat_deliveries"] == 144
+    assert summary["chat_deliveries_unique"] == 144
+    assert summary["chat_deliveries_extra"] == 0
+    assert summary["world_status"] == "temporary"
     assert summary["chat_deliveries_missing"] == 0
     assert summary["chat_broadcast_ms"]["p95"] >= 0
     assert summary["application_ping_rtt_ms"]["p95"] >= 0
-    assert requests[0] == ("/world?depth=2", True)
+    assert requests[:2] == [("/participation", False), ("/world?depth=2", True)]
     assert len([path for path, _ in requests if path.startswith("/ws?")]) == 12
-    assert all(authenticated for _, authenticated in requests)
+    assert all(authenticated for path, authenticated in requests if path != "/participation")
     assert all(key not in path for path, _ in requests for key in keys)
     root = store.root_name(382)
     rows = persistence.get_mutations(382, limit=1000)
@@ -125,12 +142,36 @@ def test_missing_chat_broadcasts_fail_even_when_all_connections_and_pongs_work(m
     assert summary["chat_broadcast_ms"] is None
 
 
+def test_duplicate_chat_broadcasts_fail_and_count_every_extra_receipt(monkeypatch):
+    broadcast = websocket.broadcast
+
+    def duplicate_chat(room, message, **kwargs):
+        broadcast(room, message, **kwargs)
+        if message.get("type") == "chat":
+            broadcast(room, message, **kwargs)
+
+    monkeypatch.setattr(websocket, "broadcast", duplicate_chat)
+    with running_server(monkeypatch, clients=2) as (url, keys, _):
+        summary = ws_soak.run_probe(quick_config(url, 2), keys)
+    assert summary["passed"] is False
+    assert summary["accepted"] == 2
+    assert summary["failures"] == []
+    assert summary["clients_without_pong"] == 0
+    assert summary["chat_deliveries_missing"] == 0
+    assert summary["chat_lines_sent"] == 2
+    assert summary["chat_deliveries_unique"] == 4
+    assert summary["chat_deliveries_extra"] == 4
+    assert summary["chat_deliveries"] == 8
+
+
 def test_no_chat_mode_needs_only_moves_and_pongs(monkeypatch):
     with running_server(monkeypatch, clients=2) as (url, keys, _):
         summary = ws_soak.run_probe(quick_config(url, 2, chat=False), keys)
     assert summary["passed"] is True
     assert summary["chat_lines_sent"] == 0
     assert summary["chat_deliveries"] == 0
+    assert summary["chat_deliveries_extra"] == 0
+    assert summary["world_status"] == "temporary"
     assert summary["chat_broadcast_ms"] is None
     assert summary["application_ping_rtt_ms"] is not None
 
@@ -206,6 +247,119 @@ def test_discovery_failure_and_cli_output_never_include_the_key(monkeypatch, cap
         "passed": False,
         "error": "World discovery: HTTP 403: an invite key was refused",
     }
+
+
+@pytest.mark.parametrize("chat", [False, True])
+def test_default_probe_refuses_a_permanent_world_before_discovery_or_any_mutation(monkeypatch, chat):
+    with running_server(monkeypatch, clients=1, temporary=False, birth=False) as (url, keys, requests):
+        with pytest.raises(ws_soak.ProbeError, match="declared temporary world"):
+            ws_soak.run_probe(quick_config(url, 1, chat=chat), keys)
+        assert requests == [("/participation", False)]
+        assert not persistence.world_is_born(382)
+        assert persistence.get_mutations(382) == []
+
+
+def test_explicit_permanent_world_override_allows_chat_and_is_reported(monkeypatch):
+    with running_server(monkeypatch, clients=2, temporary=False) as (url, keys, _):
+        summary = ws_soak.run_probe(ws_soak.Config(
+            url, clients=2, duration=0.2, timeout=3, permanent_world_ok=True), keys)
+    assert summary["passed"] is True
+    assert summary["world_status"] == "explicit permanent-world override"
+    assert summary["chat_lines_sent"] == 2
+
+
+def test_explicit_permanent_override_with_no_chat_still_checks_metadata(monkeypatch, capsys):
+    with running_server(monkeypatch, clients=2, temporary=False) as (url, keys, requests):
+        monkeypatch.setenv("ENFOLDED_SOAK_KEYS", json.dumps(keys))
+        code = ws_soak.main(["--url", url, "--clients", "2", "--duration", "0.2",
+                             "--timeout", "3", "--no-chat", "--permanent-world-ok"])
+    assert code == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["passed"] is True
+    assert summary["world_status"] == "explicit permanent-world override"
+    assert summary["chat_lines_sent"] == 0
+    assert requests[0] == ("/participation", False)
+    assert not any(row["type"] == "PLAYER_CHAT" for row in persistence.get_mutations(382))
+
+
+def test_ready_temporary_metadata_does_not_auto_accept_or_bypass_a_bad_key(monkeypatch):
+    with running_server(monkeypatch, clients=1, accept=False, birth=False) as (url, keys, requests):
+        with pytest.raises(ws_soak.ProbeError, match="HTTP 428"):
+            ws_soak.run_probe(quick_config(url, 1), keys)
+        assert requests == [("/participation", False), ("/world?depth=2", True)]
+        assert not consents.accepted(keys[0], participation.notice()["revision"])
+        assert not persistence.world_is_born(382)
+        assert persistence.get_mutations(382) == []
+        requests.clear()
+        with pytest.raises(ws_soak.ProbeError, match="HTTP 403"):
+            ws_soak.run_probe(quick_config(url, 1), ["invalid-key"])
+        assert requests == [("/participation", False), ("/world?depth=2", False)]
+        assert not persistence.world_is_born(382)
+        assert persistence.get_mutations(382) == []
+
+
+def test_incomplete_temporary_notice_refuses_chat_even_with_permanent_override(monkeypatch):
+    with running_server(monkeypatch, clients=1, accept=False, birth=False) as (url, keys, requests):
+        monkeypatch.delenv("NESTED_WORLDS_TEST_RETENTION")
+        with pytest.raises(ws_soak.ProbeError, match="notice is not ready"):
+            ws_soak.run_probe(ws_soak.Config(url, clients=1, permanent_world_ok=True), keys)
+        assert requests == [("/participation", False)]
+        assert not persistence.world_is_born(382)
+        assert persistence.get_mutations(382) == []
+
+
+@pytest.mark.parametrize("metadata", [None, [], {}, {"required": True},
+    {"required": 1, "ready": True}, {"required": "true", "ready": True},
+    {"required": True, "ready": "true"}, {"required": True, "ready": True},
+    {"required": True, "ready": True, "revision": ""}])
+@pytest.mark.parametrize("permanent_world_ok", [False, True])
+def test_invalid_participation_metadata_fails_closed_before_gameplay(metadata, permanent_world_ok):
+    requests = []
+
+    class Metadata(_Handler):
+        def do_GET(self):
+            requests.append((self.path, self.headers.get("X-Beta-Key")))
+            self._send_json(metadata)
+
+    server = _ThreadedServer(("127.0.0.1", 0), Metadata)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(ws_soak.ProbeError, match="invalid participation metadata"):
+            ws_soak.run_probe(ws_soak.Config(f"http://127.0.0.1:{server.server_port}",
+                               clients=1, permanent_world_ok=permanent_world_ok), ["secret"])
+        assert requests == [("/participation", None)]
+        assert not persistence.world_is_born(382)
+        assert persistence.get_mutations(382) == []
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(2)
+
+
+@pytest.mark.parametrize("permanent_world_ok", [False, True])
+def test_missing_participation_endpoint_refuses_probe_without_falling_back(permanent_world_ok):
+    requests = []
+
+    class Missing(_Handler):
+        def do_GET(self):
+            requests.append(self.path)
+            self._send_json({"error": "missing"}, 404)
+
+    server = _ThreadedServer(("127.0.0.1", 0), Missing)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with pytest.raises(ws_soak.ProbeError, match="World preflight: HTTP 404"):
+            ws_soak.run_probe(ws_soak.Config(f"http://127.0.0.1:{server.server_port}",
+                               clients=1, permanent_world_ok=permanent_world_ok), ["secret"])
+        assert requests == ["/participation"]
+        assert not persistence.world_is_born(382)
+        assert persistence.get_mutations(382) == []
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(2)
 
 
 @pytest.mark.parametrize("status, phrase", [(428, "participation notice"), (503, "participation configuration")])
@@ -294,7 +448,8 @@ def test_https_world_discovery_and_wss_use_verified_tls(monkeypatch, certificate
         summary = ws_soak.run_probe(quick_config(url, 2), keys)
     assert summary["passed"] is True
     assert summary["chat_deliveries"] == 4
-    assert all(authenticated for _, authenticated in requests)
+    assert requests[0] == ("/participation", False)
+    assert all(authenticated for path, authenticated in requests if path != "/participation")
 
 
 def test_an_untrusted_tls_certificate_is_refused(monkeypatch, certificate):

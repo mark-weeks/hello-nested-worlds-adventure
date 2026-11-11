@@ -56,6 +56,7 @@ def test_default_off_preserves_gameplay_and_has_no_consent_enrollment(http):
     assert status == 200 and metadata == {
         "required": False, "ready": True, "accepted": False,
         "revision": "", "title": "Enfolded", "paragraphs": [], "minimum_age": None,
+        "agreement": "",
     }
     assert headers["Cache-Control"] == "no-store"
     assert http("/world?depth=1")[0] == 200
@@ -80,7 +81,7 @@ def test_public_notice_does_not_enroll_an_account_or_reveal_another_acceptance(h
     assert http("/participation", "")[1]["accepted"] is False
     assert http("/participation", accounts[0])[1]["accepted"] is True
     assert set(http("/participation")[1]) == {
-        "required", "ready", "accepted", "revision", "title", "paragraphs", "minimum_age",
+        "required", "ready", "accepted", "revision", "title", "paragraphs", "minimum_age", "agreement",
     }
     assert len(_rows("participant_credentials")) == 1
 
@@ -101,19 +102,38 @@ def test_incomplete_notice_keeps_shells_available_but_gameplay_and_acceptance_cl
     assert not persistence.world_is_born(382)
 
 
-@pytest.mark.parametrize("age", ["", "0", "-1", "121", "18.0", "eighteen", "１８"])
+@pytest.mark.parametrize("age", ["", "0", "-1", "121", "18.0", "eighteen", "１８", "1" * 5000])
 def test_invalid_age_is_incomplete_not_a_default_policy(http, configured, monkeypatch, age):
     monkeypatch.setenv("NESTED_WORLDS_TEST_MIN_AGE", age)
     metadata = http("/participation", "")[1]
     assert metadata["minimum_age"] is None and not metadata["ready"]
+    assert metadata["agreement"] == ""
     assert http("/world")[0] == 503
 
 
-def test_misspelled_enable_flag_does_not_open_the_test_world(http, configured, monkeypatch):
-    monkeypatch.setenv("NESTED_WORLDS_TEST_WORLD", "true")
+@pytest.mark.parametrize("flag", ["enabled", "tru", "2", "falsee"])
+def test_misspelled_enable_flag_does_not_open_the_test_world(http, configured, monkeypatch, flag):
+    monkeypatch.setenv("NESTED_WORLDS_TEST_WORLD", flag)
     metadata = http("/participation", "")[1]
     assert metadata["required"] and not metadata["ready"]
     assert http("/world")[0] == 503
+
+
+@pytest.mark.parametrize("flag", ["", "0", "false", "off", "no", "FALSE", " Off ", "NO"])
+def test_conventional_off_flags_preserve_normal_gameplay(http, monkeypatch, flag):
+    monkeypatch.setenv("NESTED_WORLDS_TEST_WORLD", flag)
+    metadata = http("/participation", "")[1]
+    assert not metadata["required"] and metadata["ready"]
+    assert metadata["agreement"] == ""
+    assert http("/world?depth=1")[0] == 200
+
+
+@pytest.mark.parametrize("flag", ["1", "true", "on", "yes", "TRUE", " On ", "YES"])
+def test_conventional_on_flags_share_the_effective_notice_and_gate(http, configured, monkeypatch, flag):
+    monkeypatch.setenv("NESTED_WORLDS_TEST_WORLD", flag)
+    metadata = http("/participation", "")[1]
+    assert metadata == configured
+    assert http("/world?depth=1")[0] == 428
 
 
 def test_every_gameplay_dispatch_is_fenced_before_world_writes_or_provider_calls(http, configured, monkeypatch):
@@ -164,6 +184,24 @@ def test_accepted_notice_opens_only_that_person_and_repeats_idempotently(http, a
     assert persistence.get_mutations(382) == []
     assert http("/world?depth=1")[0] == 200
     assert http("/world?depth=1", accounts[1])[0] == 428
+
+
+def test_acceptance_records_the_combined_age_and_notice_agreement(http, configured, monkeypatch):
+    assert configured["agreement"] == (
+        "I confirm I am at least 18 years old, have read this notice and agree "
+        "to participate in this temporary test world.")
+    accepted = _accept(http)
+    original = _rows("participation_consents")[0]
+    document = json.loads(original[2])
+    assert document["agreement"] == accepted["agreement"]
+    assert document["minimum_age"] == 18
+    assert len(original[3]) > 0
+    monkeypatch.setenv("NESTED_WORLDS_TEST_MIN_AGE", "21")
+    changed = http("/participation")[1]
+    assert "at least 21 years old" in changed["agreement"]
+    assert changed["revision"] != original[1] and not changed["accepted"]
+    assert http("/participation", body={"accepted": True, "revision": original[1]})[0] == 409
+    assert _rows("participation_consents")[0] == original
 
 
 def test_concurrent_acknowledgements_keep_one_owner_and_one_snapshot(accounts, configured):
@@ -274,6 +312,61 @@ def test_revision_is_stable_and_operator_copy_is_plain_text(http, configured, mo
     metadata = http("/participation", "")[1]
     assert metadata["paragraphs"][-3] == "Questions or concerns: <script>operator copy</script>"
     assert metadata["revision"] != configured["revision"]
+
+
+@pytest.mark.parametrize("refusal", ["revoke", "rotate", "sanction"])
+def test_ordinary_socket_credential_refusals_are_quiet(accounts, configured, caplog, refusal):
+    from persistence import sanctions
+    consents.accept(accounts[0], configured["revision"], participation.snapshot(configured))
+    if refusal == "revoke":
+        persistence.revoke_invite_key(accounts[0])
+    elif refusal == "rotate":
+        participants.rotate(accounts[0], "nw_" + "c" * 32)
+    else:
+        sanctions.ban("Ada", "Operator-only reason")
+    caplog.clear()
+    assert guard.ws_session_authorized(accounts[0], True) is False
+    assert not [record for record in caplog.records if record.levelname in ("ERROR", "CRITICAL")]
+
+
+def test_test_world_socket_checks_do_not_repeat_the_invite_lookup(accounts, configured, monkeypatch):
+    consents.accept(accounts[0], configured["revision"], participation.snapshot(configured))
+    def forbidden(*args, **kwargs):
+        pytest.fail("Participation already verifies the live key; a second lookup is redundant")
+    monkeypatch.setattr(persistence, "lookup_invite_key", forbidden)
+    assert guard.ws_session_authorized(accounts[0], True) is True
+    assert guard.ws_session_authorized(accounts[1], True) is False
+    assert guard.ws_session_authorized(accounts[0], False) is False
+    assert guard.ws_session_authorized("", False) is False
+
+
+def test_unexpected_socket_database_failure_still_logs_safely(accounts, configured, monkeypatch, caplog):
+    import sqlite3
+    def unavailable(*args, **kwargs):
+        raise sqlite3.OperationalError("private database detail")
+    monkeypatch.setattr(consents, "accepted", unavailable)
+    caplog.clear()
+    assert guard.ws_session_authorized(accounts[0], True) is False
+    errors = [record.getMessage() for record in caplog.records if record.levelname == "ERROR"]
+    assert len(errors) == 1 and "OperationalError" in errors[0]
+    assert "private database detail" not in errors[0] and accounts[0] not in errors[0]
+
+
+def test_consent_and_identity_known_reads_do_not_wait_for_the_writer(accounts, configured):
+    import sqlite3
+    consents.accept(accounts[0], configured["revision"], participation.snapshot(configured))
+    owner = participants.identify(accounts[0])
+    writer = sqlite3.connect(persistence._DB_PATH, isolation_level=None)
+    writer.execute("BEGIN IMMEDIATE")
+    try:
+        with ThreadPoolExecutor(2) as pool:
+            acknowledged = pool.submit(consents.accepted, accounts[0], configured["revision"])
+            known = pool.submit(participants.identify, accounts[0])
+            assert acknowledged.result(timeout=2) is True
+            assert known.result(timeout=2) == owner
+    finally:
+        writer.execute("ROLLBACK")
+        writer.close()
 
 
 @pytest.fixture

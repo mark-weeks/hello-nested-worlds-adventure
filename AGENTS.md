@@ -52,7 +52,12 @@ it first.
   Transport-level refusals sit *outside* the fiction by scoped decision
   (2026-07-18 evaluation §4): the invite-gate 403, payload 413, malformed-body
   400, and WS-cap 503 are plumbing a browser client never surfaces — they may
-  stay mechanical, but must be clean JSON. What is never acceptable: a stack
+  stay mechanical, but must be clean JSON. Participation is a separate
+  operational entry decision: its consent-required 428 and participation
+  configuration/check 503 use plain product language to direct a player to
+  the notice, including when a notice revision interrupts play. They do not
+  speak as a place or agent, and this scope does not extend to model,
+  moderation or ordinary gameplay outcomes. What is never acceptable: a stack
   trace, or a 5xx for a client-shaped mistake (malformed bodies and non-string
   answers are the client's 400/200, guarded by
   `tests/test_guard.py::TestBodyShapeRobustness`).

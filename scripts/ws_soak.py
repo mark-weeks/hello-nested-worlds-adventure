@@ -6,6 +6,9 @@
 Accept the participation notice with each check identity first. Keys are one per
 line or a JSON array, also accepted via ENFOLDED_SOAK_KEYS. They travel only in
 X-Beta-Key headers. Use dedicated identities: joins, moves and chat are recorded.
+Every mode requires a ready temporary-world notice. --permanent-world-ok
+explicitly permits a rehearsal on a permanent world. --no-chat suppresses authored
+lines only: joins and moves are still recorded, and the world guard still applies.
 A single source needs a staging-only per-IP socket cap >= --clients (default 8).
 Run ./setup.sh for the pinned dev WebSocket client. TLS and proxies stay enabled.
 """
@@ -43,6 +46,7 @@ class Config:
     timeout: float = 10.0
     chat: bool = True
     server_pid: int | None = None
+    permanent_world_ok: bool = False
 
 
 @dataclass
@@ -58,6 +62,7 @@ class Measurements:
     sessions: dict[str, int] = field(default_factory=dict)
     chat_sent: dict[str, tuple[float, int]] = field(default_factory=dict)
     chat_seen: set[tuple[int, str]] = field(default_factory=set)
+    chat_extra: int = 0
     moves_seen: set[tuple[int, int]] = field(default_factory=set)
     moves_sent: int = 0
     move_deliveries: int = 0
@@ -128,14 +133,45 @@ def _http_diagnostic(status: int) -> str:
     return f"HTTP {status}"
 
 
-def discover_world(origin: str, key: str, timeout: float) -> tuple[int, tuple[str, str]]:
-    request = Request(origin + "/world?depth=2", headers={"X-Beta-Key": key} if key else {})
+def _get_json(origin: str, path: str, key: str, timeout: float, label: str):
+    request = Request(origin + path, headers={"X-Beta-Key": key} if key else {})
     try:
         with build_opener(_NoRedirect()).open(request, timeout=timeout) as response:
             raw = response.read(1024 * 1024 + 1)
         if len(raw) > 1024 * 1024:
-            raise ProbeError("The world response exceeded the probe's 1 MiB limit.")
-        world = json.loads(raw)
+            raise ProbeError(label + " response exceeded the probe's 1 MiB limit.")
+        return json.loads(raw)
+    except HTTPError as exc:
+        diagnostic = _http_diagnostic(exc.code)
+        exc.close()
+        raise ProbeError(label + ": " + diagnostic) from None
+    except (URLError, TimeoutError, OSError):
+        raise ProbeError(label + " failed; check the origin, TLS trust and connectivity.") from None
+    except (ValueError, UnicodeError):
+        raise ProbeError(label + " returned an invalid JSON document.") from None
+
+
+def _world_preflight(origin: str, timeout: float, permanent_world_ok: bool) -> str:
+    # This public read carries no credential and cannot accept on anyone's
+    # behalf. Fail before /world (which can birth a world) or a WS join.
+    metadata = _get_json(origin, "/participation", "", timeout, "World preflight")
+    if (not isinstance(metadata, dict) or type(metadata.get("required")) is not bool
+            or type(metadata.get("ready")) is not bool):
+        raise ProbeError("World preflight returned invalid participation metadata.")
+    if not metadata["ready"]:
+        raise ProbeError("World preflight: the participation notice is not ready.")
+    if metadata["required"]:
+        if not isinstance(metadata.get("revision"), str) or not metadata["revision"].strip():
+            raise ProbeError("World preflight returned invalid participation metadata.")
+        return "temporary"
+    if not permanent_world_ok:
+        raise ProbeError("The probe requires a declared temporary world; explicitly allow a permanent-world rehearsal with --permanent-world-ok.")
+    return "explicit permanent-world override"
+
+
+def discover_world(origin: str, key: str, timeout: float) -> tuple[int, tuple[str, str]]:
+    world = _get_json(origin, "/world?depth=2", key, timeout, "World discovery")
+    try:
         root = world["world"]
         seed, name = world["seed"], root["name"]
         child = next(child for child in root["children"] if child["level"] != "Room")
@@ -146,10 +182,6 @@ def discover_world(origin: str, key: str, timeout: float) -> tuple[int, tuple[st
                 or root["level"] == "Room"):
             raise ValueError
         return seed, (name, alternate)
-    except HTTPError as exc:
-        raise ProbeError("World discovery: " + _http_diagnostic(exc.code)) from None
-    except (URLError, TimeoutError, OSError):
-        raise ProbeError("World discovery failed; check the origin, TLS trust and connectivity.") from None
     except (KeyError, TypeError, ValueError, StopIteration):
         raise ProbeError("World discovery returned an invalid world document.") from None
 
@@ -243,7 +275,9 @@ def _client(index: int, key: str, config: Config, ws_origin: str,
                         if result.sessions.get(message.get("session_id")) != sender:
                             continue
                         receipt = (index, message["text"])
-                        if receipt not in result.chat_seen:
+                        if receipt in result.chat_seen:
+                            result.chat_extra += 1
+                        else:
                             result.chat_seen.add(receipt)
                             result.broadcast_ms.append((time.monotonic() - sent) * 1000)
                     elif kind == "move_denied":
@@ -304,6 +338,7 @@ def run_probe(config: Config, keys: list[str]) -> dict:
         raise ProbeError("Provide one distinct invite key per client.")
     if not keys and not local:
         raise ProbeError("Hosted soaks require one invite key per client in a key file or ENFOLDED_SOAK_KEYS.")
+    world_status = _world_preflight(origin, config.timeout, config.permanent_world_ok)
     seed, nodes = discover_world(origin, keys[0] if keys else "", config.timeout)
     result = Measurements()
     marker = "soak" + "".join("ab"[b % 2] for b in secrets.token_bytes(24))
@@ -351,7 +386,7 @@ def run_probe(config: Config, keys: list[str]) -> dict:
               and not result.shed and missing_moves == 0 and missing_chats == 0
               and missing_pongs == 0 and missing_move_deliveries == 0
               and missing_pong_deliveries == 0 and extra_move_deliveries == 0
-              and result.move_order_errors == 0)
+              and result.move_order_errors == 0 and result.chat_extra == 0)
     return {
         "passed": passed, "clients_attempted": config.clients,
         "accepted": len(result.accepted), "shed_503": len(result.shed),
@@ -363,7 +398,11 @@ def run_probe(config: Config, keys: list[str]) -> dict:
         "move_order_errors": result.move_order_errors,
         "clients_without_pong": missing_pongs,
         "application_pongs_missing": missing_pong_deliveries,
-        "chat_lines_sent": len(result.chat_sent), "chat_deliveries": len(result.chat_seen),
+        "world_status": world_status,
+        "chat_lines_sent": len(result.chat_sent),
+        "chat_deliveries": len(result.chat_seen) + result.chat_extra,
+        "chat_deliveries_unique": len(result.chat_seen),
+        "chat_deliveries_extra": result.chat_extra,
         "chat_deliveries_missing": missing_chats,
         "application_ping_rtt_ms": _percentiles(result.ping_ms),
         "chat_broadcast_ms": _percentiles(result.broadcast_ms),
@@ -384,11 +423,14 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=10)
     parser.add_argument("--keys-file", type=Path, help="Private file with one key per line or a JSON array")
     parser.add_argument("--no-chat", action="store_true", help="Measure moves and ping RTT without sending chat")
+    parser.add_argument("--permanent-world-ok", action="store_true",
+                        help="Explicitly permit recorded joins, moves and any enabled chat on a permanent world")
     parser.add_argument("--server-pid", type=int, help="Optional local server PID for Linux RSS sampling")
     args = parser.parse_args(argv)
     try:
         summary = run_probe(Config(args.url, args.clients, args.duration, args.interval,
-                                   args.timeout, not args.no_chat, args.server_pid),
+                                   args.timeout, not args.no_chat, args.server_pid,
+                                   args.permanent_world_ok),
                             load_keys(args.keys_file))
     except ProbeError as exc:
         print(json.dumps({"passed": False, "error": str(exc)}, sort_keys=True))

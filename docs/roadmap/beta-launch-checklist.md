@@ -59,8 +59,8 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Status | Count |
 |---|---|
 | Done | 13 |
-| Partial | 40 |
-| Not started | 40 |
+| Partial | 41 |
+| Not started | 39 |
 | Unknown | 2 |
 
 ### By category
@@ -79,7 +79,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | Model agnosticism | 6 | 1 | 3 | 2 | 0 |
 | Accessibility | 6 | 2 | 3 | 1 | 0 |
 | Legal and policy | 5 | 1 | 1 | 3 | 0 |
-| Deployment and ops | 6 | 1 | 1 | 4 | 0 |
+| Deployment and ops | 6 | 1 | 2 | 3 | 0 |
 | Community and beta cohort | 4 | 0 | 1 | 3 | 0 |
 | Community governance and self-policing | 12 | 1 | 2 | 9 | 0 |
 | Distinctiveness: why players return | 7 | 0 | 3 | 4 | 0 |
@@ -221,7 +221,7 @@ What must be true before 8 to 12 invited people play Enfolded. Each item has a t
 | ID | Item | Exit criterion | Status | Evidence | Gate |
 |---|---|---|---|---|---|
 | F1 | Fly staging twin | `/health` ok, invite gate closed, `/speak` returns ai true. | Not started | (Docs) Needs Mark's Fly account, billing, flyctl and token ([docs/infrastructure/fly-deployment.md](../infrastructure/fly-deployment.md)). | **Blocks beta** · Mark decides |
-| F2 | Release candidate | Version bumped from `0.1.1rc2`, tag cut, release workflow green, wheel smoke passes. | Not started | (Docs) The last tag, `v0.1.1-qa.2`, is far behind main. | **Blocks beta** |
+| F2 | Release candidate | Version bumped from `0.1.1rc2`, tag cut, release workflow green, wheel smoke passes. | Partial | (Code, ran) The candidate is `0.1.2rc1`; local installed-wheel smoke verifies schema 31. Cutting `v0.1.2-qa.1`, its tagged release workflow and published-artifact verification remain open. The last published QA tag is still `v0.1.1-qa.2`. | **Blocks beta** |
 | F3 | Secrets via a secure channel | Secrets set only with `fly secrets` and never in the repo. | Not started | (Docs) Runbook. Only after Mark confirms. | **Blocks beta** · Mark decides |
 | F4 | Rollback | A previous release is redeployed on staging in under 10 min. | Partial | (Code, docs) `scripts/deploy.sh --rollback <image>` backs up first, refuses a failed backup, compares the live `schema_version` with the image's migrations, and runs `fly deploy --image` only when they match. The procedure is [fly-deployment.md](../infrastructure/fly-deployment.md#same-schema-release-rollback) and [delivery-recovery.md](../infrastructure/delivery-recovery.md#same-schema-release-rollback). A cross-schema downgrade stays the disaster restore, which abandons later history. The live staging redeploy, timed under 10 min, has not been run; it waits on a Fly app (F1). | **Blocks beta** |
 | F5 | Incident response | One-page playbook: kill switches, redaction, who decides. | Done | (Docs) [incident-response.md](../infrastructure/incident-response.md) names the kill switches and caps in `server/guard.py`, how `fly secrets set` restarts the one machine, invite revocation and sanctions, moderation hold, `redact`, and when to roll back versus restore. Mark Weeks decides. Juries G3, G4, G6, G7 and G8 stay open owner decisions and are not active. No held policy (age, chat permanence, destinations, world status, backup retention) is decided here. | Can follow |

@@ -34,6 +34,24 @@
       const error = new Error(data.error || 'Ideas could not complete that request. Please retry.');
       error.status = response.status;
       error.held = data.held === true;
+      if (response.status === 428 || (response.status === 503 && data.participation_required)) {
+        error.participation = true;
+        // The participation fence ran before this submission. Record that
+        // definite refusal before opening a new agreement; the saved
+        // draft remains editable and is never automatically sent again.
+        let receiptFailure;
+        if (path === '/ideas/submit' && body) {
+          try {
+            await settleReceipt(body, 'rejected');
+            pending = null; freezeDraft(false); saveDraft();
+          } catch (failure) { receiptFailure = failure; }
+        }
+        message('Review the participation notice before trying this request again. Your draft is kept.', true);
+        if (await globalThis.EnfoldedParticipation.recover(response, data)) {
+          error.message = 'The participation notice is now accepted. Your previous request was not sent. Try that action again.';
+        }
+        if (receiptFailure) error.message += ' The retry receipt could not be updated; keep this tab open and restore browser storage.';
+      }
       if (response.status === 403) {
         // Never leave previously fetched private content visible after a rejected credential.
         $('results').replaceChildren(); $('detail').hidden = true; $('board').hidden = true; $('notice').hidden = false;
@@ -266,7 +284,7 @@
       // A moderation hold is finished: the board did not publish the draft.
       // Unfreeze it, drop the pending receipt, and leave the text editable.
       // A pending receipt would retry on reload and spend the screen again.
-      const settled = payload && (error.held || (error.status && error.status < 500 && error.status !== 403 && error.status !== 429));
+      const settled = payload && (error.participation || error.held || (error.status && error.status < 500 && error.status !== 403 && error.status !== 429));
       if (settled) {
         try { await settleReceipt(payload, 'rejected'); }
         catch { message('The retry receipt could not be updated. Keep this tab open and restore browser storage.', true); return; }
@@ -280,5 +298,6 @@
   const initial = validId(candidate) ? candidate : null;
   // Strip accidental credential query strings rather than retaining/copying them.
   history.replaceState(null, '', '/ideas' + (initial ? '?id=' + initial : ''));
-  load().then(() => { if (initial && !$('board').hidden) openDetail(initial); });
+  globalThis.EnfoldedParticipation.ensure().then(() =>
+    load().then(() => { if (initial && !$('board').hidden) openDetail(initial); }));
 })();

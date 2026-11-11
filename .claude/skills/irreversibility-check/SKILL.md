@@ -53,6 +53,11 @@ tripped one-way door whose decision has not already been ratified.
    covenants: invitations do not authorize another player's actions, and new powers
    extend or replace an existing experience. Preserve accepted historical receipts
    when closing an invalid new-action path; do not falsify their recorded actors.
+   Check the fiction boundary too: a temporary-world participation-required
+   428 or participation configuration/check 503 is an operational entry
+   decision, presented in plain product language with notice recovery. It
+   is separate from the authored place/agent voice; it does not relax the
+   in-fiction fallback rule for model, moderation or gameplay outcomes.
 
 3. Write the check in the house format used throughout `docs/CHANGELOG.md`
    — 2–3 lines, starting `**Irreversibility check:**`. For most PRs:
