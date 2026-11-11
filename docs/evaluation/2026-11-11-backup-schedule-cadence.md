@@ -11,8 +11,8 @@ GitHub starts `backup.yml` about once every five hours, not every 30 minutes:
 **187 runs for 1,831 scheduled ticks (10.2%)** since the cron went
 half-hourly on 2026-10-03, with no two runs within an hour of each other. At
 that cadence, once backups are activated, an independent `backup_health.py`
-check would read `stale` on **80%** of hourly checks, and the history lost
-with the volume would average **2.8 hours and reach 10.4**, against
+check would read `stale` on **79.7%** of hourly checks, and the history lost
+with the volume would average **2.77 hours and reach 10.40**, against
 ADR-005's one hour. The cause is GitHub's `schedule` event, not this
 workflow, the runners or the repository's activity, so the remedy is a
 different clock (an external dispatcher, or replication that needs none) or
@@ -35,7 +35,9 @@ options with their costs.
   (2026-07-06 09:53 UTC) to #1018 (2026-11-10 23:25 UTC). All 1,018 are
   `schedule` events; the workflow has never been dispatched by hand. **1,016
   succeeded and 2 failed.** No further run started between the last one and
-  the fetch, 3.2 hours later.
+  the fetch, 3.2 hours later. Two have started since, #1019 at 03:01 UTC and
+  #1020 at 10:53 UTC on 2026-11-11, 3.60 and 7.87 hours after the run before
+  each. They are not in the snapshot and change no figure here.
 - **Cron eras.** `git log --follow` on the workflow file gives the cron in
   force at each time, by committer timestamp on `main`:
 
@@ -229,7 +231,7 @@ except where a source is named.
 
 The workflow already declares `workflow_dispatch` (`backup.yml:29`) and is
 on the default branch, so nothing in it has to change for a dispatch to
-work. GitHub's schedule stays as a second, slower trigger.
+start a run. GitHub's schedule stays as a second, slower trigger.
 
 - **Contract (confirmed).** `POST
   /repos/{owner}/{repo}/actions/workflows/backup.yml/dispatches` with
@@ -237,6 +239,27 @@ work. GitHub's schedule stays as a second, slower trigger.
   "Actions: write"; a classic token needs `repo`; a GitHub App installation
   token is accepted. Standard GitHub-hosted runners are free in public
   repositories.
+- **Which credential (confirmed).** The classic token is the widest: `repo`
+  "Grants full access to public and private repositories", and a classic
+  token "will grant access to all repositories within the organizations
+  that you have access to, as well as all personal repositories". A
+  fine-grained token and a GitHub App can each be held to this repository
+  and to "Actions: write" alone. Of
+  those two the App is the narrower: its installation tokens "expire after 1
+  hour" and belong to no person's account, where a fine-grained token is
+  "tied to the user who generated" it and lives as long as its expiry
+  allows. The price is that the dispatcher holds the App's private key and
+  mints a token for each call. None of the three can be limited to one
+  workflow, so the independent freshness alert stays the backstop.
+- **One run waits at a time (confirmed).** The workflow's concurrency group
+  (`backup.yml:34-36`, `cancel-in-progress: false`) lets one run execute and
+  one wait: "any existing `pending` job or workflow in the same concurrency
+  group will be canceled and the new queued job or workflow will take its
+  place." A dispatch that arrives while a backup is running can therefore be
+  replaced before it runs, by a later dispatch or by a scheduled run. That
+  costs nothing in freshness, since the run that replaces it is newer. It
+  does mean the proof counts validated objects in the bucket, never
+  dispatch calls.
 - **Where the scheduler runs.** Two candidates were read:
   - *A Cloudflare Worker with a Cron Trigger.* Five-field cron in UTC, so
     `17,47 * * * *` is valid. The Free plan allows 5 Cron Triggers per
@@ -388,6 +411,27 @@ days that would otherwise go to the M7 pilot gates.
 3. Which service holds the dispatch credential? This couples to the pending
    bucket decision (Q4 decision I).
 
+## Follow-up edits this record queues (none made here)
+
+Three texts on `main` say something this measurement contradicts or would
+let pass. This record changes none of them: the workflow and the runbook are
+outside its scope, and the right wording for the second and third depends on
+the option chosen. They are listed so that the batch that acts on the
+decision, or a documentation-only correction before it, picks them up.
+Proposed by agent, not decided.
+
+| Where | What it says | What is wrong with it |
+|---|---|---|
+| `.github/workflows/backup.yml:14-18`, the header comment | "Half-hourly full copies leave slack within that one-hour limit." | Measured false for the schedule as GitHub delivers it: no two copies would have been within an hour of each other (finding 1). It holds again only once copies do arrive half-hourly, which is option A or B. Until then the comment can state what is measured, without waiting for the decision. |
+| Runbook §8, first T-1 week item (`docs/infrastructure/fly-deployment.md:1279-1281`) | "Manual dispatch and subsequent scheduled runs produce fresh app-specific objects." | Satisfied by a dispatched object and by any scheduled run on the day it lands (finding 4). It needs the gaps between validated objects, read from the bucket over days. |
+| Checklist P3's criterion (`docs/roadmap/beta-launch-checklist.md`) | "`backup_health.py` exits 0 on a real validated private-bucket object." | Passes right after any backup, whatever the cadence (finding 4). The criterion over time currently lives only in P5, which is not built. |
+
+Runbook §7 already hedges its own version of the first claim ("it does not
+guarantee timely scheduling"), and the cost note in `backup-bucket.md`
+(1,440 objects in 30 days) is right for any option that restores the
+half-hourly cadence and about ten times too high for the cadence measured
+here.
+
 ## What this record does not establish
 
 - How soon a dispatched run starts, and whether a dispatched run is ever
@@ -410,6 +454,10 @@ repository on 2026-11-11:
   (`schedule`, `workflow_dispatch`), `data/reusables/actions/schedule-delay.md`,
   `data/reusables/actions/branch-requirement.md`,
   `data/reusables/repositories/actions-scheduled-workflow-example.md`,
+  `data/reusables/actions/actions-group-concurrency.md`,
+  `data/reusables/apps/generate-installation-access-token.md`,
+  `content/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens.md`,
+  `content/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps.md`,
   `src/rest/data/fpt-2026-03-10/actions.json` ("Create a workflow dispatch
   event"), `src/github-apps/data/fpt-2026-03-10/fine-grained-pat-permissions.json`,
   `content/billing/concepts/product-billing/github-actions.md`. Rendered at
