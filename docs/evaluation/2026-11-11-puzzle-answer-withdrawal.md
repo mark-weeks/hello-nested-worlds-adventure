@@ -7,6 +7,9 @@ withdrawing puzzle answer disclosure. PR #170 interprets the request as
 preparation of ADR-036 D8 batch **1a alone**; the owner's approval of that PR
 confirms its bounded scope, wording and interim behavior. It does not ratify
 the larger Proposed temperament design or supply merge/deployment approval.
+The review update integrates `main` at `a5c6a19` (#167 and #168), retaining
+its roadmap refresh and backup-cadence evidence. Those merges change no
+application code.
 
 ## Scope and result
 
