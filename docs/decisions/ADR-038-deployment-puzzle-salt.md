@@ -225,6 +225,19 @@ salt keeps off a one-guess table from about 75% to about 84–85% (finding 4).
 difficulty and whether the node serves the Augury come from the node's
 epoch-0 pin, not from a fresh keyed draw. Only the renewal's content is
 drawn under the salt.
+- **What it reads from the pin:**
+  - the pin's `difficulty` field;
+  - whether the pin's family is the Causal Augury.
+
+  The pin stores the family served, not the election. An elected node whose
+  Augury declines at epoch 0 declines at every epoch, because form validity
+  does not depend on the epoch (`puzzles/generators.py:1022-1026`). So
+  "serves the Augury" is the trait that renews (executed, unsalted seed 382:
+  430 nodes elected, the same 396 serving at epochs 0 and 1).
+- **It applies with or without a salt,** so dropping the salt keeps every
+  renewed node's traits too. With no salt, the pin's traits equal today's
+  computed ones, so renewals are unchanged and "byte-identical" holds. B1
+  tests this.
 - **Why the pin, not the salt, carries them** (executed): under one salt the
   two agree. Rebuilding seed 382 at epoch 1 kept all 4,208 difficulties and
   all 391 Auguries. After a rotation they would not: only 1,073 difficulties
@@ -336,6 +349,11 @@ pinned under it.
   (`docs/infrastructure/fly-deployment.md:224`) before
   `scripts/deploy.sh --first-deploy` (`:244`). On an app that already runs,
   stage a change with `fly secrets set --stage` (`:1110-1113`).
+- **A new salt takes effect on restart.** The accessor reads the salt once at
+  start (D3), so a rotation applies when the machines restart. Each
+  `fly secrets set` restarts them, which the runbook notes as unverified
+  (`docs/infrastructure/fly-deployment.md:321`). A `--stage`d secret waits
+  for the next deploy.
 - **Removal, if the salt is ever dropped:** remove the D4 marker from
   `fly.toml` and deploy that first, then unset the secret. Unsetting it alone
   makes a marked server refuse to start.
@@ -431,6 +449,8 @@ unchanged. This ADR edits none of these files.
 - a marked process without a salt refuses to start;
 - rotation changes no pinned puzzle and no solve, and a renewal after a
   rotation keeps the node's epoch-0 difficulty and Augury family;
+- with no salt, a renewal built through the epoch-0 pin equals
+  `build_puzzle(node, epoch)` for every node of seed 382;
 - the salt is absent from every served payload, every log line and every
   error;
 - an exception raised inside a keyed draw, or in a frame holding a puzzle,
