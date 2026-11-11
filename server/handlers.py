@@ -36,7 +36,7 @@ from multiverse.verbs import (
 )
 from puzzles import gates
 from puzzles.engine import PuzzleEngine
-from server import guard, imageprompt, moderation, observability
+from server import guard, imageprompt, moderation, observability, participation
 from server.rooms import (
     agent_enter, agent_leave, agent_move, agent_persona, broadcast, get_room,
     puzzle_attempt, refresh_puzzle_session, will_store_guess,
@@ -362,13 +362,22 @@ def _accepts_gzip(value: str) -> bool:
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
     "/interventions/preview", "/interventions/commit",
-    "/client-error", "/register", "/journal/note", "/profile/save", "/profile/home", "/blocks", "/situation/discover", "/situation/choose", "/situation/follow-up",
+    "/client-error", "/register", "/participation", "/journal/note", "/profile/save", "/profile/home", "/blocks", "/situation/discover", "/situation/choose", "/situation/follow-up",
 })
 
 # API reads are limited by default, including newly added routes. Static shells
 # and assets are exempt; these cheap control reads keep their existing policy.
 # WebSocket upgrades have a separate connection cap and message-rate guard.
-_READ_UNLIMITED_PATHS = frozenset({"/worlds", "/position", "/ws"})
+_READ_UNLIMITED_PATHS = frozenset({"/health", "/worlds", "/position", "/ws"})
+
+# These APIs are reachable before a gameplay credential or acknowledgement
+# exists. Their handlers validate their own submissions; their API rate policy
+# remains separate from the static-file exemption.
+_UNGATED_API_METHODS = {
+    "/health": frozenset({"GET"}),
+    "/participation": frozenset({"GET", "POST"}),
+    "/register": frozenset({"POST"}),
+}
 
 # The player-facing pace line (429). Rate limiting is a mechanical guard, but
 # the explorer renders this text verbatim in the speak/puzzle panels, so it
@@ -587,12 +596,15 @@ class Handler(BaseHTTPRequestHandler):
         `/puzzle*`, `/speak`, `/image`, `/agent/voice`, `/history`,
         `/wayback`, `/worlds`) stays gated.
         """
-        if urlparse(self.path).path.rstrip('/').startswith('/ideas/'):
+        path = urlparse(self.path).path
+        if self._is_ungated_api(path, self.command) or (self.command == "GET" and self._is_public_asset(path)):
+            return True
+        if participation.required():
+            return participation.authorize(self, qs)
+        if path.rstrip('/').startswith('/ideas/'):
             self._private_response = True
             # The Ideas adapter authenticates every operation using active credentials.
             # Never fall back to the general (possibly open) gameplay gate.
-            return True
-        if self._is_public_asset(urlparse(self.path).path):
             return True
         if guard.check_invite_key(self.headers, qs):
             return True
@@ -600,21 +612,23 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     @staticmethod
+    def _is_ungated_api(path: str, method: str) -> bool:
+        """Explicit pre-entry APIs, separate from the static shell exemption."""
+        return method in _UNGATED_API_METHODS.get(path.rstrip("/"), ())
+
+    @staticmethod
     def _is_public_asset(path: str) -> bool:
         """True for the ungated static UI shell + assets (never data endpoints).
 
-        Data / paid endpoints do not live under these prefixes, so exempting
-        the shell can't accidentally open one up. `/register` is the one
-        deliberate exception with a write path: a registering player has no
-        play key YET, so the invite gate can't apply — the registration token
-        itself is the credential, verified in-handler, and nothing is minted
-        without a live token (ADR-004 §7, invite-gated self-service).
+        This exemption applies to GET only. The registration page is a static
+        shell; its token-authenticated POST is listed separately above.
         """
         stripped = path.rstrip("/")
-        if stripped in ("", "/health", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
+        if stripped in ("", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js",
                         "/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js", "/interface.css", "/map.css",
                         "/guide", "/register", "/register.js", "/favicon.ico",
+                        "/participation.js", "/participation.css",
                         "/journal", "/journal.js", "/ideas", "/ideas.js"):
             return True
         if stripped == "/app" or path.startswith("/app/") or path.startswith("/media/"):
@@ -887,6 +901,8 @@ class Handler(BaseHTTPRequestHandler):
             return vals[0] if vals else default
 
         from server import ideas_api, intervention_api, participant_api, situation_api
+        if participation.handle(self, path, qs):
+            return
         if intervention_api.handle(self, path, qs) or ideas_api.handle(self, path, qs) or participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
             return
 
@@ -898,9 +914,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_error("no such scene", 404)
             self._send_file(media_file, mimetypes.guess_type(media_file.name)[0] or "application/octet-stream",
                             immutable=True)
-        elif path in ("/interface.css", "/map.css"):
+        elif path in ("/interface.css", "/map.css", "/participation.css"):
             self._send_file(_STATIC_DIR / path.lstrip("/"), "text/css; charset=utf-8")
-        elif path in ("/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js"):
+        elif path in ("/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js", "/participation.js"):
             self._send_file(_STATIC_DIR / path.lstrip("/"), "application/javascript; charset=utf-8")
         elif path == "/ideas":
             self._send_file(_STATIC_DIR / "ideas.html")
@@ -1216,6 +1232,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error("request body must be a JSON object")
 
         from server import ideas_api, intervention_api, participant_api, situation_api
+        if participation.handle(self, path, qs, body):
+            return
         if intervention_api.handle(self, path, qs, body) or ideas_api.handle(self, path, qs, body) or participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
             return
 
@@ -1282,9 +1300,13 @@ class Handler(BaseHTTPRequestHandler):
                     # provenance row. With AI on and a provider configured
                     # it is recorded below like any other reply; with the
                     # kill switch on or no provider configured it is not.
+                    # Once recorded, no voice's history quotes this exchange
+                    # (consciousness._is_identity_exchange); the asker's own
+                    # transcript with this place keeps it, and a later reply
+                    # that restates it is recorded as an ordinary row.
                     response = honesty.place_answer(node.level)
                 else:
-                    history = persistence.get_node_history(seed, node.name)
+                    history = consciousness.history_for_voice(seed, node.name)
                     transcript = persistence.get_player_exchanges(
                         seed, node.name, identity)
                     response = consciousness.speak(
@@ -1576,10 +1598,12 @@ class Handler(BaseHTTPRequestHandler):
             import consciousness
             if honest:
                 # Authored, so no voice allowance, no voice call and no
-                # provenance row; recorded below only when `recorded`.
+                # provenance row; recorded below only when `recorded`, and
+                # left out of the history any voice reads
+                # (consciousness._is_identity_exchange).
                 response = honesty.agent_answer(persona.name)
             else:
-                history = persistence.get_node_history(seed, node.name)
+                history = consciousness.history_for_voice(seed, node.name)
                 from persistence.situations import keeper_history
                 commitments = keeper_history(seed, agent_name, node.name)
                 commitment_ids = {event['id'] for event in commitments}

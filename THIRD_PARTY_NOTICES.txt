@@ -96,7 +96,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ========================================================================
-Frontend production dependency inventory: @xmldom/xmldom 0.8.13 (MIT)
+Frontend production dependency inventory: @xmldom/xmldom 0.8.15 (MIT)
 ========================================================================
 
 Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors

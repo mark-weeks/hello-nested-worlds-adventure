@@ -42,10 +42,14 @@ export function attachWorldSocket({
       setConnected(true);
       keepalive.arm(ws);
     };
-    ws.onclose = () => {
+    ws.onclose = async () => {
       keepalive.stop();
       setConnected(false);
       if (!active) return;
+      if (globalThis.EnfoldedParticipation) {
+        await globalThis.EnfoldedParticipation.recheck();
+        if (!active || wsRef.current !== ws) return;
+      }
       attempts += 1;
       const backoff = Math.min(RECONNECT_MAX_MS,
         RECONNECT_BASE_MS * 2 ** Math.min(attempts - 1, 5));

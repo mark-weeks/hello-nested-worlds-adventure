@@ -52,7 +52,12 @@ it first.
   Transport-level refusals sit *outside* the fiction by scoped decision
   (2026-07-18 evaluation §4): the invite-gate 403, payload 413, malformed-body
   400, and WS-cap 503 are plumbing a browser client never surfaces — they may
-  stay mechanical, but must be clean JSON. What is never acceptable: a stack
+  stay mechanical, but must be clean JSON. Participation is a separate
+  operational entry decision: its consent-required 428 and participation
+  configuration/check 503 use plain product language to direct a player to
+  the notice, including when a notice revision interrupts play. They do not
+  speak as a place or agent, and this scope does not extend to model,
+  moderation or ordinary gameplay outcomes. What is never acceptable: a stack
   trace, or a 5xx for a client-shaped mistake (malformed bodies and non-string
   answers are the client's 400/200, guarded by
   `tests/test_guard.py::TestBodyShapeRobustness`).
@@ -72,7 +77,10 @@ it first.
   on or off, a line that `handlers._asks_identity` accepts (the whole line is the
   question) and the moderation screen passes, put to a place on `/speak` or to a known
   agent on `/agent/voice`; elsewhere only the voice bibles' instruction to the model
-  carries the rule, and with AI off other lines get the quiet line.
+  carries the rule, and with AI off other lines get the quiet line. Where that exchange
+  is recorded, the history fed to other voices leaves it out (owner decision,
+  2026-11-10); a later model reply that restates the answer in other words is not
+  left out.
 - **Agent solves don't count as human progress.** An ambient/FSM agent standing
   on a puzzle never claims a co-op session, opens a seal, or lights a
   constellation. `persistence/__init__.py` (`Agent solves (payload carries

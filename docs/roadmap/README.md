@@ -1,6 +1,6 @@
 # Roadmap index — what governs now
 
-*Verified on 2026-11-11 against `main` at #163 (`7a7b632`, 2026-11-10).
+*Verified on 2026-11-11 against `main` at #169 (`bd03148`, 2026-11-11).
 Repository facts were re-read at that commit. Hosted state was checked only
 through GitHub (releases and workflow runs); the Fly account and
 enfolded.world were not reachable from the verifying session, so "not
@@ -30,9 +30,11 @@ ships, a decision is ratified, or a document moves to
   observations, the seven-day return.
 - **Shipped on `main` since `0.1.0-beta`** (the `[Unreleased]` section of
   [`docs/CHANGELOG.md`](../CHANGELOG.md) holds the measured record). Since
-  the readiness record, #110–#163, by subject and newest first within each:
-  - *Play and players:* personal blocking of live speech and presence for
-    human and agent travelers in both clients, migration
+  the readiness record, #110–#166 and #169, by subject and newest first
+  within each:
+  - *Play and players:* a recorded identity exchange is left out of the
+    history fed to other voices (#166); personal blocking of live speech
+    and presence for human and agent travelers in both clients, migration
     `0030_participant_blocks` (#161); agents and places never claim to be
     human and answer a sincere identity question plainly, and players are
     told at entry (#158); a returning player with no invite key is told how
@@ -67,16 +69,21 @@ ships, a decision is ratified, or a document moves to
     model-written chronicle rows record provider and resolved model,
     migration `0028_model_provenance` (#123); provider and model optionality
     under ADR-034, with task-specific evaluations (#112, #113).
-  - *Operations and measurement:* beta metrics read the pilot as it happens
+  - *Operations and measurement:* disposable staging requires the current
+    participant notice before play, migration `0031_participation_consents`,
+    with a `0.1.2rc1` candidate (no tag published) and a hosted WebSocket
+    rehearsal probe (#169); beta metrics read the pilot as it happens
     and keep ambient agent traces out of human counts (#155, #162); a manual
     workflow redeploys only the staging twin (#157); same-schema release
     rollback, a binary that refuses a newer chronicle, and the incident
     playbook (#152); off-host backups go to a private bucket, not public
     GitHub artifacts (#136).
-  - *Records, plans and working rules (no runtime change):* the prospective
-    M8 cross-scale cooperative mystery (#163); Proposed ADR-036 and ADR-037
-    (#159, #160); the owner's 2026-11-06 and 2026-11-07 decisions (#156);
-    documentation corrections (#117, #145); the November decision packet,
+  - *Records, plans and working rules (no runtime change):* the
+    identity-answer counting tests no longer drop counts on a slow disk
+    (#165); Proposed ADR-038 (#164); the prospective M8 cross-scale
+    cooperative mystery (#163); Proposed ADR-036 and ADR-037 (#159, #160);
+    the owner's 2026-11-06 and 2026-11-07 decisions (#156); documentation
+    corrections (#117, #145); the November decision packet,
     the newcomer-watch kit and the week-plan audit (#140); the beta launch
     checklist (#135); the standing rule that review findings are posted to
     the reviewed pull request (#125); the merge-time migration numbering rule
@@ -112,7 +119,10 @@ ships, a decision is ratified, or a document moves to
   and changes no runtime behavior; the adapter merged for evaluation in
   #134; status still Proposed); ratification of
   [ADR-036](../decisions/ADR-036-puzzle-temperament.md), the Proposed puzzle
-  temperament design, and its eight open questions; the decision agenda below.
+  temperament design, and its eight open questions; ratification of
+  [ADR-038](../decisions/ADR-038-deployment-puzzle-salt.md), the Proposed
+  deployment puzzle salt, whose first open question must be answered before
+  the first production boot; the decision agenda below.
 
 ## Live documents
 
@@ -123,16 +133,17 @@ ships, a decision is ratified, or a document moves to
 | [Community Ideas board](community-ideas.md) | Player-submitted ideas, support votes, moderation, explicit GitHub promotion | Merged (#102–#104); not deployed |
 | [Expressive world: next steps](expressive-world-next-steps.md) | The boundary of the #105–#107 batches and their remaining gaps | Checkpoint; the gaps feed the decision agenda |
 | [Beta readiness record](../evaluation/2026-10-03-beta-readiness.md) | Beta scope and promise, the #109 evidence for the remaining launch gates and their owners, the October 31 conditional target (lapsed; the re-plan is packet decision 6, undecided) | Current (#109); not launch approval. The checklist governs exit criteria; the Q4 plan governs order |
-| [Beta launch checklist](beta-launch-checklist.md) | Exit criteria before 8 to 12 invited people play: 95 items, evidence, and the decisions held for the owner. The Q4 plan governs order | Living. Statuses are as of `main` at `23b8830` (2026-11-02), with later updates listed in the checklist header (among them M3 to Partial on 2026-11-05; E3, F5 and P6 to Done on 2026-11-06; A1's criterion for the owner's 2026-11-06 decisions; S2 to Partial and L4 to Not started for the owner's 2026-11-07 decisions; C7 and G1 to Partial on 2026-11-10 for personal blocking, #161). Thresholds marked as proposals are not decided |
+| [Beta launch checklist](beta-launch-checklist.md) | Exit criteria before 8 to 12 invited people play: 95 items, evidence, and the decisions held for the owner. The Q4 plan governs order | Living. Statuses are as of `main` at `23b8830` (2026-11-02), with later updates listed in the checklist header (among them M3 to Partial on 2026-11-05; E3, F5 and P6 to Done on 2026-11-06; A1's criterion for the owner's 2026-11-06 decisions; S2 to Partial and L4 to Not started for the owner's 2026-11-07 decisions; C7 and G1 to Partial on 2026-11-10 for personal blocking, #161). F2 went to Partial on 2026-11-11 for the `0.1.2rc1` candidate (#169); that change is in the F2 row and is not yet listed in the checklist header. Thresholds marked as proposals are not decided |
 | [Owner decision packet, November 2026](decision-packet-2026-11.md) | Twelve decisions with needed-by dates, what each blocks, and options with costs: S5 chat permanence, the newcomer-watch venue, puzzle failure semantics, world status, minimum tester age, the re-plan date, reserving Observer and Scout, the lapsed Q4 decisions A, C and H, S2, E2 and Q4 decision I | Prepared 2026-11-02 at `23b8830`. Decision 7 decided 2026-11-03; decision 2 decided (a) and decision 3's options superseded by owner direction on 2026-11-06; decision 10 decided as a policy, decision 2 updated (the Fly staging twin preferred) and three of decision 3's questions answered on 2026-11-07; decision 10's operating rules and the rest are proposed by agent, not decided |
 | [Newcomer watch facilitator kit](../evaluation/2026-11-02-newcomer-watch-kit.md) | Setup, script, capture and teardown for 2 to 3 protocol-2 newcomer sessions on the Fly staging twin, with a local, declared-disposable world as the fallback | Draft. Venue: the Fly staging twin, preferred by the owner on 2026-11-07, with the local world allowed on 2026-11-06 kept as the fallback; the 2026-11-07 provider policy may permit live voice (*inferred*), but the watch runs in per-scale silence, with no provider key, until the owner signs off the named provider's L4 data use note (proposed, packet decision 10); code citations re-verified at the branch head (`3200eed` code) on 2026-11-10, runbook citations by section. Recruits nobody and deploys nothing |
-| [2026-11-06 next-build evaluation](../evaluation/2026-11-06-next-build.md) | The evidence, plans and critique behind the owner's 2026-11-06 decisions on agent disclosure and structural parity, the watch venue and puzzle failure; the first production boot as the one-way door | Findings with the owner's 2026-11-06 decisions recorded, and an addendum listing the 2026-11-07 decisions on the venue, provider data and puzzles. Ratifies no ADR and authorizes no build |
+| [2026-11-06 next-build evaluation](../evaluation/2026-11-06-next-build.md) | The evidence, plans and critique behind the owner's 2026-11-06 decisions on agent disclosure and structural parity, the watch venue and puzzle failure; the first production boot as the one-way door | Findings with the owner's 2026-11-06 decisions recorded, and an addendum listing the 2026-11-07 decisions on the venue, provider data and puzzles and, as item 4, the owner's two 2026-11-10 decisions on place voices and identity answers (#166). Ratifies no ADR and authorizes no build |
 | [Pilot protocol 2](../evaluation/2026-09-12-pilot-protocol.md) | The M7 study: curiosity, attempted-action and observed-consequence understanding, unprompted and useful return | Ready to run; no cohort observed |
 | [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md) | The decision agenda and a proposed 90-day sequence | Findings for the owner; ratifies nothing |
 | [Next steps, Q4 2026](next-steps-2026-q4.md) | The dated critical path to the M7 pilot, the owner's decisions and their needed-by dates, the parallel maintenance track, and the November–January batch order for ADR-029 to ADR-033 as ratified | Plan (2026-10-04); ratifies nothing |
 | [ADR-037: agents as conversational players](../decisions/ADR-037-agents-as-conversational-players.md) | The owner's 2026-11-06 decisions on agent disclosure and structural parity and the owner's 2026-11-07 puzzle answers, designed against `f3ead74`: travelers (human or agent) are talked to in chat and places in Speak; no human-or-agent label on any player-facing surface, live notices and prompts included; the honesty, notice, no-solicitation and mute/report guardrails; triggers, caps and the AI-off floor; puzzle help only on a human's explicit request, never submitted, with its batch shared with ADR-036; five ordered batches | Proposed 2026-11-07, revised 2026-11-10; not ratified. Changes no code; approves no player-text destination or spend. S2: a policy is recorded in #156, and the destinations (L3) and the terms check (L4) are still open; S5 and E2 open. Five open questions for the owner |
 | [Incident response](../infrastructure/incident-response.md) | One-page operator playbook: kill switches, redaction, rollback versus restore, who decides | Operational. Records no policy decision |
 | [ADR-036: Puzzle temperament](../decisions/ADR-036-puzzle-temperament.md) | The owner's 2026-11-06 and 2026-11-07 puzzle decisions designed against the code: per-node temperaments, puzzle-wide grumpiness and per-player send-aways (always after a warning, within a proposed 24-hour cap of 12 misses) in place of the fixed pool and its answer release (F10), whole-answer warmer/colder bands measured per family over a day (the [band-searcher record](../evaluation/2026-11-07-puzzle-band-searchers.md)), no ambient agent attempts (superseding ADR-022's puzzle-eligibility paragraph in part), agents who help only on a human's proposal and never see the answer; four ordered batches, the first shipping its answer withdrawal alone as a rollback floor, and eight open questions | Proposed 2026-11-07, revised 2026-11-10, not ratified. Writes no code; authorizes no build |
+| [ADR-038: Deployment puzzle salt](../decisions/ADR-038-deployment-puzzle-salt.md) | Whether the hosted world gets a secret salt for puzzle content before its first boot: keep seed 382 (no puzzle draw reads the seed, and `/world` serves it); HMAC-key every draw in puzzle generation, difficulty and the Augury election included (amending ADR-010 in part), with a per-deployment salt, renewals keeping their epoch-0 difficulty and Augury family, birth unkeyed and the unsalted path byte-identical; a marked deployment refuses to run without it; separate staging and production salts; Sentry stops sending frame locals. Measured on seed 382 (the [salt-probe record](../evaluation/2026-11-11-puzzle-salt-probes.md)): an offline attacker using 400 salts of their own still guesses 15–16% of epoch-0 answers first time and 31–32% within today's 3–5 pooled attempts (every sealed lock and lineage), so the salt keeps at most about 84–85% off a one-guess table and 68–69% off such a list; every family stays mechanically solvable once its prompt is served, and the answer release (ADR-036 F10) stays until ADR-036 batch 1a | Proposed 2026-11-10, revised 2026-11-11; not ratified. Writes no code; sets no secret. Three open questions; the first must be answered before the first production boot |
 
 The owner's 2026-10-04 provider/model optionality direction is recorded in
 [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). It supersedes
@@ -177,9 +188,10 @@ not ratify the five drafts or approve map retirement.
 
 Migration numbers are assigned at merge time. The first batch to merge takes
 the next free number. Drafts must not reserve numbers. The current top
-migration on `main` is `0030_participant_blocks` (personal blocking, #161).
-ADR-029 through ADR-033 each describe a migration they would add; whichever
-of those batches merges first takes the next free number.
+migration on `main` is `0031_participation_consents` (participant notice
+acknowledgements, #169). ADR-029 through ADR-033 each describe a migration
+they would add; whichever of those batches merges first takes the next free
+number.
 
 ### Known open conflicts (unresolved; pending owner decision)
 
@@ -250,6 +262,13 @@ kept so the archived text can be cross-read.
 - **1.3** Run the ADR-005 staging rehearsal on the disposable twin (runbook §3a):
   2–3 observed newcomer sessions, WebSocket soak, live-voice and intention
   probes, and a restore of a downloaded hosted backup into isolated staging.
+  The tooling is on `main`: the manual twin redeploy workflow (#157), and
+  the participant notice gate, the `0.1.2rc1` candidate and the hosted soak
+  probe (#169; the
+  [staging candidate record](../evaluation/2026-11-10-staging-candidate.md)
+  holds the scope and the held operator settings). The twin has not been
+  deployed through that workflow: `deploy-staging.yml` had zero runs on
+  2026-11-11, and no `v0.1.2-qa.1` tag is published.
 - **3.3** Cohort rhythm: a recurring gathering and a weekly read of
   `scripts/beta_metrics.py`. The
   [pilot protocol](../evaluation/2026-09-12-pilot-protocol.md) defines the
@@ -270,8 +289,8 @@ kept so the archived text can be cross-read.
   approves no destination, and does not run the comparison. The adapter and
   an eval harness that can run it are on `main` (#134, #146); no live
   evaluation has been run (checklist M3).
-- **4.5** Routing extraction from `server/handlers.py` (2,229 lines at
-  `7a7b632`). The
+- **4.5** Routing extraction from `server/handlers.py` (2,253 lines at
+  `bd03148`). The
   sub-API modules (`server/intervention_api.py`, `ideas_api.py`,
   `participant_api.py`, `situation_api.py`) are the pattern to follow.
 - **4.6** Constellation-style arcs at a third scale pair, as evolution content

@@ -15,10 +15,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import verify_wheel  # noqa: E402
 
 
-def test_source_migrations_are_exactly_0001_through_0030_with_blocks():
+def test_source_migrations_are_exactly_0001_through_0031_with_blocks_and_consent():
     source = verify_wheel.source_migrations(verify_wheel.ROOT)
     verify_wheel.assert_source_schema_inventory(source)
     assert "persistence/migrations/0030_participant_blocks.sql" in source
+    assert "persistence/migrations/0031_participation_consents.sql" in source
     assert not any(name.endswith("0030_cost_budget_names.sql") for name in source)
 
 

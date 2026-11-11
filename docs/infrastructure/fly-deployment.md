@@ -302,6 +302,11 @@ fly tokens create deploy -a enfolded-staging
 # 4. First deploy, from this terminal on an up-to-date main checkout. The
 #    workflow has no first-deploy option, because a first deploy skips the
 #    backup and the schema check.
+#    Declare the disposable world BEFORE its first boot. Missing notice
+#    settings leave /health available but keep gameplay closed. No provider
+#    keys belong on this first build. Complete the notice below before
+#    sending any tester URLs.
+fly secrets set --stage -a enfolded-staging NESTED_WORLDS_TEST_WORLD=1 NESTED_WORLDS_DISABLE_AI=1 NESTED_WORLDS_DISABLE_IMAGES=1
 FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy
 
 # 5. Close the gate at once. First mint the check key, which step 7 uses
@@ -331,9 +336,16 @@ fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
 #    alone, not production's. Ideally it sits in a workspace of its own with
 #    a low spend limit, if the provider's console offers one. Leave out
 #    FAL_KEY until fal.ai's terms are checked against the same rule.
-fly secrets set -a enfolded-staging ANTHROPIC_API_KEY=sk-ant-...
+#    Approved-live path only: supplying a key does not clear step 4's
+#    kill switch. Clear it explicitly for this app once review and spend
+#    settings are complete. Skip this command for the no-provider watch.
+fly secrets set -a enfolded-staging ANTHROPIC_API_KEY=sk-ant-... NESTED_WORLDS_DISABLE_AI=0
 
-# 7. Check it with the check key from step 5, never a tester's: /health
+# 7. Complete the temporary-world notice (below), then open the check
+#    identity's /app invite URL yourself and acknowledge it. Do not accept
+#    on a tester's behalf. Without acknowledgement a keyed /world or /ws
+#    is refused with 428; an incomplete notice refuses gameplay with 503.
+#    Check it with the check key from step 5, never a tester's: /health
 #    ok, the gate closed, the voice live (§8 probe: a place name from
 #    /world, then /speak must answer "ai": true). A live answer writes a
 #    PLAYER_SPEAK row to the staging chronicle under the check key's name,
@@ -351,6 +363,66 @@ fly ssh console -a enfolded-staging -C "python main.py invite revoke <check key>
 #    channel or a CI log.
 ```
 
+#### Temporary-world notice and acknowledgement
+
+The explicit `NESTED_WORLDS_TEST_WORLD=1` setting enables the staging gate;
+the app name and Sentry environment do not enable it. Keep it set throughout
+the rehearsal. Before tester access, set these four operator-owned values on
+the staging app with `fly secrets set -a enfolded-staging`. Do not copy the
+placeholder descriptions as policy:
+
+| Setting | Required value |
+|---|---|
+| `NESTED_WORLDS_TEST_CONTACT` | The research owner or facilitator and a way to contact them. |
+| `NESTED_WORLDS_TEST_RETENTION` | The approved retention/deletion dates and treatment of the test database, consent records, research records and backups. This setting displays a statement; it does not schedule deletion. |
+| `NESTED_WORLDS_TEST_MIN_AGE` | The owner's minimum tester age, as an integer. No age is selected by the code. |
+| `NESTED_WORLDS_TEST_DATA_USE` | The approved explanation of who receives test data, which model providers are used, and why. A no-provider watch must have no provider credentials set. |
+
+The canonical setting is `1`. Case-insensitive `true`, `on` and `yes` also
+enable it; absent/empty, `0`, `false`, `off` and `no` disable it. An unknown
+value keeps participation required but not ready, so a typo cannot silently
+open staging.
+
+Fly's [secrets documentation](https://docs.fly.io/apps/secrets) documents
+`--stage` as deferring machine updates until a later deploy. That contract was
+checked on 2026-11-10 for step 4's ordering; this batch did not run a live Fly
+command. Ordinary `fly secrets set` updates the running machines, so complete
+notice changes may restart clients and require their new acknowledgement.
+
+`GET /participation` is public and serves the same notice used by both
+clients, registration and the guide. Verify that it reports `required: true`
+and `ready: true`; `/health` alone does not establish either. Registration
+does not count as consent. Every participant, including an operator-minted
+invite holder, must acknowledge the current notice before gameplay or a
+WebSocket connection is allowed. Acceptance is a private participant-owned
+record, separate from the chronicle, and follows invite rotation and other
+devices. A changed notice requires a new acknowledgement and closes sockets
+that have not accepted that revision.
+
+The server supplies one agreement sentence that includes the configured
+minimum age. The unchecked agreement control displays that sentence verbatim;
+`POST /participation` with `{ "accepted": true, "revision": "<current revision>" }`
+affirms that age and participation statement together. The exact agreement is
+hashed and retained in the private notice snapshot. This is self-attestation,
+not independent age verification; the operator still selects the minimum age
+and controls invitations. No date of birth is collected.
+
+The notice also covers direct Journal and Ideas entry. A changed notice can
+be reviewed during play or while another dialog is open. Acceptance resumes
+the existing view without replaying a refused mutation. Consent-required 428
+and participation configuration/check 503 are plain operational notice
+decisions, separate from authored world voices. Production keeps its existing
+permanent-history disclosure; temporary copy is selected only after metadata
+declares a test world.
+
+The default staging watch remains without provider keys. The step 6 provider
+setup and step 7 `ai: true` probe apply only after the provider-data review and
+the budget decision are complete; an authored-silence watch instead verifies
+`ai: false`. Keep the AI and image kill switches on until the corresponding
+live-provider path is approved and configured. These notices do not decide
+production chat permanence, replace research consent, or close the beta's
+terms, privacy, reporting and provider gates.
+
 **Before step 8.** Protocol 2's prerequisites apply on staging as they do
 anywhere ([pilot protocol](../evaluation/2026-09-12-pilot-protocol.md),
 "Scope and venue"): record the facilitator or research owner, the
@@ -364,6 +436,42 @@ and where" rules apply on staging too. On `main` its setup, pre-session and
 after-session commands are written for a local world and do not apply here;
 #156 adds staging-twin versions of them. This
 runbook does not settle the consent wording.
+
+#### Hosted WebSocket rehearsal
+
+Use the current probe against staging after its dedicated check participants
+have accepted the notice. Put one personal check key per line in a private
+file outside the checkout; never put keys on the command line or in an issue.
+Before world discovery or any socket, the probe checks public `/participation`
+metadata and requires a ready temporary world. It then uses authenticated
+`/world` discovery, the served canonical seed and real nodes to verify
+concurrent sockets, ordered movement and chat delivery:
+
+```bash
+.venv/bin/python scripts/ws_soak.py --url https://enfolded-staging.fly.dev --clients 12 --duration 60 --keys-file /private/staging-soak-keys.txt
+```
+
+A run from one IP also needs the staging operator to size
+`NESTED_WORLDS_MAX_WS_PER_IP` for those 12 sockets (the default is 8), or to
+distribute the clients across addresses. Use staging-only limits and respect
+the global cap; the probe does not weaken either limit. It reports refusals
+as failures and does not accept notices automatically. Chat-mode probes leave
+authored rehearsal lines in the disposable chronicle; `--no-chat` suppresses
+those lines but still records joins and movement. It is not read-only and
+does not bypass the temporary-world preflight. A deliberate rehearsal on a
+permanent world requires `--permanent-world-ok`, including with `--no-chat`;
+this does not override absent, malformed or incomplete notice metadata.
+Repeated chat receipts are reported as extra deliveries and fail the probe,
+as missing receipts do. Record the JSON result with the
+candidate commit and the staging configuration, and revoke the check keys
+after the rehearsal.
+
+Each client reads public notice metadata at entry and after a socket closes;
+when a test notice is required, it also reads that participant's acceptance.
+These reads share the normal per-IP read limiter. A cohort behind one NAT
+therefore shares the read allowance as well as the socket cap. Measure that
+staging burst, including reconnects and notice changes, rather than treating
+the per-IP socket setting as the only shared limit.
 
 **Sentry environment.** The committed `fly.toml` sets
 `SENTRY_ENVIRONMENT = "beta"` in `[env]`, and `scripts/deploy.sh` passes no
