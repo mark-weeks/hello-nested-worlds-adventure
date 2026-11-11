@@ -1386,6 +1386,57 @@ def test_a_voice_history_without_identity_exchanges_is_unchanged():
     assert len(consciousness.history_for_voice(seed, node, limit=4)) == 4
 
 
+def test_a_long_flood_reads_further_back():
+    # Independent check of the first window fix: a fixed 50-row read still
+    # emptied the window once 50 identity exchanges were recorded in a row.
+    import consciousness
+    seed, node = 4473, "The Mire"
+    for i in range(15):
+        persistence.record_mutation(seed, node, "PLAYER_SPEAK", "Ada",
+                                    {"message": f"Line {i}?", "reply": f"Answer {i}."})
+    for i in range(60):
+        persistence.record_mutation(seed, node, "PLAYER_SPEAK", f"P{i}",
+                                    {"message": "Are you human?", "reply": honesty.PLACE_ANSWER})
+    history = consciousness.history_for_voice(seed, node)
+    assert [h["data"]["message"] for h in history] == [f"Line {i}?" for i in range(14, 4, -1)]
+
+
+def test_a_voice_history_clamps_its_limit_like_the_raw_window():
+    import consciousness
+    seed, node = 4474, "The Mire"
+    for i in range(30):
+        persistence.record_mutation(seed, node, "PLAYER_SPEAK", "Ada",
+                                    {"message": f"Line {i}?", "reply": f"Answer {i}."})
+    for limit in (-5, -1, 0, 1, 10, 49, 50, 51, 1000, 5000):
+        assert (consciousness.history_for_voice(seed, node, limit=limit)
+                == persistence.get_node_history(seed, node, limit=limit)), limit
+
+
+@pytest.mark.parametrize("surface", ["command", "interactive"])
+def test_both_cli_speak_paths_read_the_voice_history(monkeypatch, surface):
+    import consciousness
+    import interface
+    import main
+    from multiverse.node import SpatialNode
+    seed, node = 4475, SpatialNode(name="Vault", level="Room", properties={})
+    persistence.record_mutation(seed, node.name, "PLAYER_SPEAK", "Ada",
+                                {"message": "Is the river deep?", "reply": "Deeper than it looks."})
+    for i in range(12):
+        persistence.record_mutation(seed, node.name, "PLAYER_SPEAK", f"P{i}",
+                                    {"message": "Are you human?", "reply": honesty.PLACE_ANSWER})
+    seen = []
+    monkeypatch.setattr(consciousness, "speak",
+                        lambda *a, history=None, **k: seen.append(history) or "A quiet answer.")
+    monkeypatch.setattr(main.store, "world_tree", lambda **kwargs: node)
+    monkeypatch.setattr(main.wrap, "is_hinge", lambda *args: False)
+    monkeypatch.setattr(interface.wrap, "is_hinge", lambda *args: False)
+    if surface == "command":
+        main.cmd_speak(SimpleNamespace(seed=seed, node=None, message="Hello"))
+    else:
+        interface._speak_to(node, "Hello", seed=seed)
+    assert [[h["data"]["message"] for h in history] for history in seen] == [["Is the river deep?"]]
+
+
 def test_a_flood_of_identity_exchanges_leaves_the_voice_its_history(srv, voice):
     # The same through /speak and /agent/voice: both read history_for_voice.
     seed = 1452

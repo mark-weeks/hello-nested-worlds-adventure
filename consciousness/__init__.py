@@ -859,12 +859,13 @@ def _is_identity_exchange(entry: dict) -> bool:
     return isinstance(data, dict) and honesty.is_authored_answer(data.get("reply"))
 
 
-# How many history rows a voice reads, and how many are fetched to find them.
+# How many history rows a voice reads, and how far back it looks for them.
 # Recorded identity exchanges are left out of a voice's history, so they must
-# not use up its window: without the wider fetch, ten "are you human?" rows in
-# a row at a node left every later voice there with no history at all.
+# not use up its window: read only the newest 10 rows, ten "are you human?"
+# rows in a row at a node left every later voice there with no history.
 VOICE_HISTORY_ROWS = 10
 _VOICE_HISTORY_FETCH = 50
+_VOICE_HISTORY_MAX = 1000  # persistence.get_node_history's own cap
 
 
 def history_for_voice(seed: int, node_name: str,
@@ -872,16 +873,23 @@ def history_for_voice(seed: int, node_name: str,
     """The newest `limit` history rows at a node that a voice may quote.
 
     Newest first, like `persistence.get_node_history`, without the recorded
-    identity exchanges `_history_block` leaves out. It reads up to
-    `_VOICE_HISTORY_FETCH` rows to find them, so identity exchanges push no
-    ordinary row out of the window unless more than 40 of the newest 50 are
-    identity exchanges. With none among them, it returns exactly what
-    `get_node_history(seed, node_name, limit)` returns.
+    identity exchanges `_history_block` leaves out. It reads 50 rows, and
+    reads further back (200, 800, then 1,000) only while identity exchanges
+    leave fewer than `limit` rows and older rows remain. So identity
+    exchanges push no ordinary row out of the window unless more than 990 of
+    the node's newest 1,000 rows are identity exchanges. With none among
+    them it returns exactly what `get_node_history(seed, node_name, limit)`
+    returns; `limit` is clamped to 1..1,000 the same way.
     """
     import persistence
-    rows = persistence.get_node_history(seed, node_name,
-                                        limit=max(limit, _VOICE_HISTORY_FETCH))
-    return [h for h in rows if not _is_identity_exchange(h)][:limit]
+    limit = max(1, min(int(limit), _VOICE_HISTORY_MAX))
+    fetch = max(limit, _VOICE_HISTORY_FETCH)
+    while True:
+        rows = persistence.get_node_history(seed, node_name, limit=fetch)
+        kept = [h for h in rows if not _is_identity_exchange(h)]
+        if len(kept) >= limit or len(rows) < fetch or fetch >= _VOICE_HISTORY_MAX:
+            return kept[:limit]
+        fetch = min(fetch * 4, _VOICE_HISTORY_MAX)
 
 
 def _history_block(history: list[dict]) -> str:
@@ -1080,7 +1088,8 @@ def speak(node: SpatialNode, message: str,
     accumulated causal pressure, the current visitor's name, and recent
     history.
 
-    Pass `history` (from persistence.get_node_history) to give the node
+    Pass `history` (from `history_for_voice`, never the raw
+    `persistence.get_node_history` window) to give the node
     memory of past visitors and events; pass `hinge=True` when this node
     is the world's pinned wrap hinge (`multiverse.wrap.is_hinge`) so its
     voice carries the hinge lore; pass `transcript` — a list of
