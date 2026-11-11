@@ -16,6 +16,11 @@
      Check that no parallel control duplicates it and no player can force another
      human or AI player's actions. Validate scale-native effects and presentation. -->
 
+<!-- For participation gates: verify that consent-required 428 and participation
+     configuration/check 503 are plain operational notice decisions, with a way
+     to review the notice. Keep them distinct from authored world voices and
+     preserve in-fiction fallbacks for model, moderation and gameplay outcomes. -->
+
 <!-- For provider/model changes: identify the task, provider and exact model/version;
      link comparative quality, capability, latency/reliability and total-cost evidence
      under ADR-034. State adapter/config compatibility, rollback and unverified live

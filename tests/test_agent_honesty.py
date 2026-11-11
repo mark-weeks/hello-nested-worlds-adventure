@@ -580,6 +580,26 @@ class Stub:
                           resolved_model=SERVED, provider=self.name)
 
 
+@pytest.fixture(autouse=True)
+def _counters_wait_for_a_busy_store(monkeypatch):
+    """Let every best-effort counter wait out a busy store in these tests.
+
+    In production the identity-answer, voice-outcome and moderation-outcome
+    counters (`server/observability.py`) wait at most
+    `_VOICE_COUNTER_WAIT_MS` (50 ms) for the store and drop the count rather
+    than hold the handler thread; tests/test_voice_outcomes.py pins that
+    bound for the voice-outcome and identity-answer counters. The tests here
+    send requests back to back and then count exactly. Each count is written
+    after its reply, so on a slow disk the previous
+    request's write can hold the lock past 50 ms and a count is dropped
+    (CI run 42922441921 on 2026-11-10 counted 3 of 6 `agent_voice` answers;
+    reproduced locally under CPU and fsync load). Here the counters wait as
+    long as an ordinary write does (`PRAGMA busy_timeout=5000`), so these
+    tests check what is counted, not the drop policy.
+    """
+    monkeypatch.setattr(observability, "_VOICE_COUNTER_WAIT_MS", 5000)
+
+
 @pytest.fixture()
 def srv():
     server = _ThreadedServer(("127.0.0.1", 0), _Handler)
@@ -638,11 +658,13 @@ def _today():
     return guard._utc_day()
 
 
-def _identity_counts(expected, timeout=3.0):
+def _identity_counts(expected, timeout=6.0):
     """The identity-answer counts once they reach ``expected`` (or the timeout).
 
     The counter is written after the reply is sent, so a test waits for it
-    before its next request, as tests/test_voice_outcomes.py does.
+    before its next request, as tests/test_voice_outcomes.py does. The
+    timeout outlasts the 5 s store wait `_counters_wait_for_a_busy_store`
+    allows, so a write that waited its full time is still counted.
     """
     import time
     deadline = time.monotonic() + timeout

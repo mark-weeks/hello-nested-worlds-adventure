@@ -23,8 +23,8 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@vitejs/plugin-react": "^6.0.1",
-    "vite": "^8.2.0",
-    "vitest": "^4.1.10"
+    "vite": "^8.2.4",
+    "vitest": "^4.1.12"
   },
   "license": "Apache-2.0"
 }

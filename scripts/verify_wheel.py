@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _MIGRATION_PREFIX = "persistence/migrations/"
-_SCHEMA_VERSIONS = list(range(1, 31))
+_SCHEMA_VERSIONS = list(range(1, 32))
 
 
 def _run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
@@ -49,17 +49,20 @@ def migration_versions(names: list[str]) -> list[int]:
 
 
 def assert_source_schema_inventory(source: dict[str, bytes]) -> None:
-    """Ship versions 0001 through 0030, with blocks as the only migration 0030."""
+    """Ship 0001 through 0031, retaining blocks and participation consent."""
     retired = f"{_MIGRATION_PREFIX}0030_cost_budget_names.sql"
     if retired in source:
         raise RuntimeError(f"source contains a deleted migration: {retired}")
     blocks = f"{_MIGRATION_PREFIX}0030_participant_blocks.sql"
     if blocks not in source:
         raise RuntimeError(f"schema 30 must include {blocks}")
+    consents = f"{_MIGRATION_PREFIX}0031_participation_consents.sql"
+    if consents not in source:
+        raise RuntimeError(f"schema 31 must include {consents}")
     versions = migration_versions(list(source))
     if sorted(versions) != _SCHEMA_VERSIONS or len(versions) != len(_SCHEMA_VERSIONS):
         raise RuntimeError(
-            "source migrations must be exactly versions 0001 through 0030, "
+            "source migrations must be exactly versions 0001 through 0031, "
             f"found {sorted(versions)}"
         )
 
