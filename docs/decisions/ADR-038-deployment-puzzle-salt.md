@@ -35,12 +35,16 @@ answers would follow from those names as they follow from 382's today. The
 seed itself is in the `/world` payload (`server/handlers.py:1079-1089`),
 which every client reads.
 
-**2. Every answer of the hosted world can be computed offline today**
+**2. Every answer of the world as born can be computed offline today**
 (read). The repository's own continuity test computes all 4,208 epoch-0
 answers of seed 382 from public code (`tests/test_continuity_freeze.py:206-212`,
 `_REF_SEED = 382` at `:67`), and the repository is public. Anyone can write
 a complete answer table without touching the server, publish it once, and
-everyone can use it.
+everyone can use it. The table describes the born world. A puzzle is pinned
+from the live node, overlays applied (`puzzles/instances.py:24-37`, `:50-57`),
+so a world-reading puzzle first opened after players change its evidence
+(a Region's terrain or weather, a Molecule's geometry) follows the changed
+properties instead. Every other puzzle matches the table.
 
 **3. Puzzles become permanent from the first heartbeat tick** (read).
 `puzzles/instances.py:46-68` (`get_puzzle`) pins a definition the first time
@@ -60,8 +64,9 @@ pin:
 - **Players.** `GET /puzzle` (`server/handlers.py:1929`), `POST
   /puzzle/attempt` (`:2097`) and the evidence page every puzzle panel links
   to (`:1887`).
-- **Sealed rooms and entangled twins on player moves.** `puzzles/gates.py:85`
-  and `server/world_mechanics.py:134`.
+- **Sealed rooms on player moves** (`puzzles/gates.py:85`) and **entangled
+  twins on a solve** (`server/world_mechanics.py:134`, called from
+  `server/handlers.py:2147`).
 - **The CLI.** `main.py:77`, `interface/__init__.py:174`.
 
 A pinned definition outlives any later change to the generator, a salt
@@ -97,7 +102,7 @@ scores an attacker who never sees a deployment salt.
   list holds the deployed answer for every sealed lock (140 of 140), every
   Augury (396 of 396) and every lineage, nearly every bond, 50–56% of keeper
   witnesses and 15–17% of numeric patterns. It holds almost no anagram,
-  cipher, compass or riddle answers: at most 9, 0, 6 and 1, of roughly 500,
+  cipher, compass or hand-written pool answers: at most 9, 0, 6 and 1, of roughly 500,
   430, 825 and 50 puzzles.
 
 **The salt therefore keeps about 61–63% of epoch-0 answers off any
@@ -115,8 +120,9 @@ code and the served world:
   of them, and living names, the node's own name, or the Augury's forecast.
 - **Anagrams.** All 496 anagram answers in seed 382 are words in the
   public word banks (executed).
-- **Riddles.** All 47 riddle answers are in the public pool,
-  `puzzles/data.py` (executed).
+- **The hand-written pool.** All 47 of its answers in seed 382 (24 riddles,
+  the rest anagrams, patterns, sequences, navigation and one cipher) are in
+  the public pools, `puzzles/data.py` (executed).
 - **Ciphers.** Caesar shifts of 1 to 9 (`puzzles/generators.py:390-397`).
 - **Sequences.** Rules a solver can infer from the public rule set
   (inferred).
@@ -125,7 +131,8 @@ code and the served world:
 pooled 3–5 attempts are spent, every later wrong guess returns the answer
 (`server/handlers.py:2173`, `:2228`). Both clients print it
 (`frontend/src/components/Interact.jsx:259`, `static/explorer.js:995`), and a
-correct guess after that still solves (`server/rooms.py:349-352`). ADR-036
+correct guess after that still solves: attempts keep counting with no cap,
+and a correct one claims the solve (`server/rooms.py:351-357`). ADR-036
 records this as F10 and removes it in its batch 1a. Until then it is the
 cheapest spoiler for any one puzzle, salt or no salt.
 
@@ -167,7 +174,9 @@ answered yes.
 ### D1. Keep seed 382
 
 The hosted world stays on seed 382, as `fly.toml:20` already sets and
-`server/guard.py:145-164` falls back to. 382 is the world the continuity pins
+`server/guard.py:145-164` falls back to. ADR-007 chose it as the top-scoring
+candidate of a 512-seed quality census
+(`docs/evaluation/2026-08-03-launch-world-census.md`). It is the world the continuity pins
 and the puzzle ecology gate certify (`tests/test_puzzle_quality.py:192-202`
 asserts 4,208 puzzles for it). It is also the staging twin's world, and the
 reference for ADR-036's band measurements and the runbooks. Another seed
@@ -222,9 +231,11 @@ error, chronicle row, evidence page, model prompt or Sentry event.
 SDK (2.66.1) defaults it to true. Under those options, a capture test sent
 the salt from an exception raised after a keyed draw. It also sent a
 `Puzzle`'s answer from an exception in a frame that held the puzzle, which
-is an exposure today, operator-side, to the operator's own Sentry. B1 sets
-`include_local_variables=False`, or scrubs the salt's names, which closes
-the first; `False` closes both.
+is an exposure today, operator-side, to the operator's own Sentry. With
+`include_local_variables=False` the same test sent neither. B1 sets it. (The
+SDK also sends the source lines around each frame by default, which matters
+only for a value written literally in the code; salts and generated answers
+are not.)
 
 ### D4. A marked deployment refuses to run without a salt
 
@@ -384,13 +395,16 @@ bring them into the canonical chronicle.
      heartbeat starts pinning at the first tick (finding 3).
    - **The cost is one small PR and one secret.**
    - **When declining is reasonable:** if the world will stay a private,
-     invite-only pilot with no standings. Pilot-era pins carry into the
-     launch only if the pilot world becomes the launch world: the pilot and
-     launch share one canonical world (ADR-007), and the continuity policy
-     never wipes the DB between cohorts (`docs/roadmap/phase-2-scale.md:226`).
-     Whether the pilot world is retained research or production is still a
-     held decision (decision packet 2026-11, item 4;
-     `docs/roadmap/beta-launch-checklist.md:279`).
+     invite-only pilot with no standings. Even then, pilot-era pins reach
+     the launch whenever the pilot world becomes the launch world. The
+     initial hosted release is one canonical world (ADR-007), and the
+     continuity policy never wipes the DB between cohorts
+     (`docs/roadmap/phase-2-scale.md:226`). Whether the pilot world is
+     production or retained research is still a held decision (decision
+     packet 2026-11, item 4; `docs/roadmap/beta-launch-checklist.md:279`),
+     and a research world "may be kept"
+     (`docs/roadmap/decision-packet-2026-11.md:262-263`). So the answer is
+     needed before the first production boot either way.
 2. **Different salts for staging and production?** *Recommended: different
    (D5).*
 3. **Approve the D8 wording** for `AGENTS.md`. This needs approval, not
@@ -455,9 +469,6 @@ B1 and B2 must also come before it.
   [salt probe](../evaluation/2026-11-11-puzzle-salt-probes.md) and D7. If
   ADR-036 is ratified, run its band searchers and pass bar under the test
   salts too.
-- **The owner declares the pilot world retained research.** Pilot-era pins
-  then never reach the launch world, and open question 1 can wait until the
-  launch world's first boot.
 - **Production is ever restored from a non-production backup.**
 
 ## Rejected alternatives
@@ -480,8 +491,9 @@ B1 and B2 must also come before it.
   one-answer table 16.9–17.5%. It moves which nodes serve the Augury,
   enlarging the change to ADR-010's gated share, for a gain of about four
   points.
-- **Moving word banks and riddle pools out of the public repository.** This
-  covers anagrams and riddles, about 13% of puzzles, which an offline list
+- **Moving word banks and the hand-written pools out of the public
+  repository.** This covers anagrams and the hand-written pool, about 13% of
+  puzzles, which an offline list
   barely reaches under a salt anyway. It does nothing for the world-reading
   66%. It cuts against ADR-023's open repository and the curation workflow.
 - **Salting by concatenating into the `sha256` input.** It works in practice
