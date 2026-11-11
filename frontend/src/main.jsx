@@ -7,6 +7,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import { withKey } from "./auth.js";
+import "../../static/participation.js";
+import "../../static/participation.css";
 
 // Browser crashes were invisible to operators (Sentry is server-side only);
 // forward them so a broken deploy shows up in the server logs.
@@ -24,8 +26,12 @@ window.addEventListener("error", e =>
 window.addEventListener("unhandledrejection", e =>
   reportClientError(`unhandled rejection: ${String(e.reason).slice(0, 480)}`, "app"));
 
-createRoot(document.getElementById("root")).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-);
+// Read the current server notice before mounting gameplay. An earlier intro
+// preference never substitutes for this participant's affirmative choice.
+globalThis.EnfoldedParticipation.ensure().then(() => {
+  createRoot(document.getElementById("root")).render(
+    <StrictMode>
+      <App />
+    </StrictMode>
+  );
+});

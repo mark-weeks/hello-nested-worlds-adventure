@@ -36,7 +36,7 @@ from multiverse.verbs import (
 )
 from puzzles import gates
 from puzzles.engine import PuzzleEngine
-from server import guard, imageprompt, moderation, observability
+from server import guard, imageprompt, moderation, observability, participation
 from server.rooms import (
     agent_enter, agent_leave, agent_move, agent_persona, broadcast, get_room,
     puzzle_attempt, refresh_puzzle_session, will_store_guess,
@@ -362,7 +362,7 @@ def _accepts_gzip(value: str) -> bool:
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
     "/interventions/preview", "/interventions/commit",
-    "/client-error", "/register", "/journal/note", "/profile/save", "/profile/home", "/blocks", "/situation/discover", "/situation/choose", "/situation/follow-up",
+    "/client-error", "/register", "/participation", "/journal/note", "/profile/save", "/profile/home", "/blocks", "/situation/discover", "/situation/choose", "/situation/follow-up",
 })
 
 # API reads are limited by default, including newly added routes. Static shells
@@ -587,12 +587,15 @@ class Handler(BaseHTTPRequestHandler):
         `/puzzle*`, `/speak`, `/image`, `/agent/voice`, `/history`,
         `/wayback`, `/worlds`) stays gated.
         """
-        if urlparse(self.path).path.rstrip('/').startswith('/ideas/'):
+        path = urlparse(self.path).path
+        if self._is_public_asset(path):
+            return True
+        if participation.required():
+            return participation.authorize(self, qs)
+        if path.rstrip('/').startswith('/ideas/'):
             self._private_response = True
             # The Ideas adapter authenticates every operation using active credentials.
             # Never fall back to the general (possibly open) gameplay gate.
-            return True
-        if self._is_public_asset(urlparse(self.path).path):
             return True
         if guard.check_invite_key(self.headers, qs):
             return True
@@ -615,6 +618,7 @@ class Handler(BaseHTTPRequestHandler):
                         "/nodeart.js", "/nodeart-global.js",
                         "/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js", "/interface.css", "/map.css",
                         "/guide", "/register", "/register.js", "/favicon.ico",
+                        "/participation", "/participation.js", "/participation.css",
                         "/journal", "/journal.js", "/ideas", "/ideas.js"):
             return True
         if stripped == "/app" or path.startswith("/app/") or path.startswith("/media/"):
@@ -635,7 +639,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _read_rate_ok(self, path: str) -> bool:
         """Protect API reads unless their exemption is explicit; 429 on deny."""
-        if self._is_public_asset(path) or path in _READ_UNLIMITED_PATHS:
+        if (self._is_public_asset(path) and path != "/participation") or path in _READ_UNLIMITED_PATHS:
             return True
         ip = guard.client_ip(self.client_address, self.headers)
         if guard.READ_RATE_LIMITER.allow(ip):
@@ -887,6 +891,8 @@ class Handler(BaseHTTPRequestHandler):
             return vals[0] if vals else default
 
         from server import ideas_api, intervention_api, participant_api, situation_api
+        if participation.handle(self, path, qs):
+            return
         if intervention_api.handle(self, path, qs) or ideas_api.handle(self, path, qs) or participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
             return
 
@@ -898,9 +904,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_error("no such scene", 404)
             self._send_file(media_file, mimetypes.guess_type(media_file.name)[0] or "application/octet-stream",
                             immutable=True)
-        elif path in ("/interface.css", "/map.css"):
+        elif path in ("/interface.css", "/map.css", "/participation.css"):
             self._send_file(_STATIC_DIR / path.lstrip("/"), "text/css; charset=utf-8")
-        elif path in ("/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js"):
+        elif path in ("/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js", "/participation.js"):
             self._send_file(_STATIC_DIR / path.lstrip("/"), "application/javascript; charset=utf-8")
         elif path == "/ideas":
             self._send_file(_STATIC_DIR / "ideas.html")
@@ -1216,6 +1222,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_error("request body must be a JSON object")
 
         from server import ideas_api, intervention_api, participant_api, situation_api
+        if participation.handle(self, path, qs, body):
+            return
         if intervention_api.handle(self, path, qs, body) or ideas_api.handle(self, path, qs, body) or participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
             return
 

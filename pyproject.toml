@@ -8,10 +8,10 @@ name = "enfolded"
 # can never be mistaken for (or shadow) the launch release. The hand-built
 # v0.1.0-qa.1 wheel already published as 0.1.0, and PEP 440 orders a
 # release candidate BEFORE its release (0.1.0rc1 < 0.1.0), so the line
-# advances to 0.1.1: QA build N ships 0.1.1rcN (tag v0.1.1-qa.N — the
-# release workflow enforces the one-to-one mapping), and the launch build
-# bumps to plain "0.1.1".
-version = "0.1.1rc2"
+# advanced to 0.1.1 for those QA builds. This candidate starts the next QA
+# series: 0.1.2rc1 maps to v0.1.2-qa.1. The release workflow enforces that
+# one-to-one mapping; changing this version does not publish a tag.
+version = "0.1.2rc1"
 description = "Enfolded: Nested World Adventure — a shared persistent multiverse inhabited by human players and AI agents"
 requires-python = ">=3.11,<3.12"
 license = "Apache-2.0"

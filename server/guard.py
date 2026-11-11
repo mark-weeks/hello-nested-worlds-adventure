@@ -415,6 +415,15 @@ def ws_session_authorized(ws_key: str, credentialed: bool) -> bool:
     Fails closed: a read error ends the session. Errors are logged by
     exception class only, never with the key.
     """
+    from server import participation
+    if participation.required():
+        try:
+            if not participation.session_authorized(ws_key):
+                return False
+        except Exception as exc:  # noqa: BLE001 — an unchecked notice closes the socket
+            _log.error("WebSocket participation re-check failed (%s); closing "
+                       "the session", type(exc).__name__)
+            return False
     if credentialed:
         try:
             return persistence.lookup_invite_key(ws_key) is not None

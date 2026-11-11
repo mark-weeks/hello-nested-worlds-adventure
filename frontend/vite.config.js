@@ -15,6 +15,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      "/participation": "http://localhost:8080",
       "/world":  "http://localhost:8080",
       "/node":   "http://localhost:8080",
       "/image":  "http://localhost:8080",

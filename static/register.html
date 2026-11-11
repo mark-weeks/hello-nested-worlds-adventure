@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Register — Enfolded</title>
+<link rel="stylesheet" href="/participation.css">
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -47,9 +48,10 @@
 
 <div id="register">
   <p>You have been invited. Before you enter, choose the name the worlds
-  will remember you by. It is yours alone — every word you speak, every
-  puzzle you solve, every trace you leave is recorded under it, permanently,
-  for every traveler who comes after.</p>
+  will remember you by. It is yours alone. Your words, solved puzzles and
+  actions are recorded under it in the shared world's history. Ask the
+  person who invited you how this world's records are kept.</p>
+  <section data-participation-notice aria-label="Participation notice"><p>Loading the participation notice…</p></section>
   <form id="form">
     <label for="name">Your name</label>
     <input type="text" id="name" maxlength="32" autocomplete="off"
@@ -61,6 +63,7 @@
 
 <!-- External on purpose: the page is served under CSP script-src 'self'
      (no unsafe-inline), which blocks inline scripts entirely. -->
+<script src="/participation.js" defer></script>
 <script src="/register.js" defer></script>
 </body>
 </html>

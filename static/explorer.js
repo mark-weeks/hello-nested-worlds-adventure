@@ -1202,9 +1202,13 @@ function wsConnect(seed) {
   ws.onmessage = e => { try { handleWsMsg(JSON.parse(e.data)); } catch (_) {} };
   // Unintentional drop (server deploy, flaky network): reconnect with
   // exponential backoff + jitter, resetting on success.
-  ws.onclose   = () => {
+  ws.onclose   = async () => {
     wsKeepalive.stop();
     ws = null;
+    if (globalThis.EnfoldedParticipation) {
+      const acknowledged = await globalThis.EnfoldedParticipation.recheck();
+      if (acknowledged || ws) return;
+    }
     wsAttempts += 1;
     const backoff = Math.min(30000, 1000 * 2 ** Math.min(wsAttempts - 1, 5));
     wsRetryTimer = setTimeout(() => wsConnect(seed),
@@ -1605,11 +1609,14 @@ function beginFromIntro() {
 
 document.getElementById('btn-begin').addEventListener('click', beginFromIntro);
 
-if (!localStorage.getItem(INTRO_SEEN)) {
-  document.getElementById('intro-modal').classList.add('visible');
-} else {
-  boot();
-}
+// A stored onboarding preference does not bypass a changed test notice.
+globalThis.EnfoldedParticipation.ensure().then(() => {
+  if (!localStorage.getItem(INTRO_SEEN)) {
+    document.getElementById('intro-modal').classList.add('visible');
+  } else {
+    boot();
+  }
+});
 
 (() => {
   const seq = [38,38,40,40,37,39,37,39,66,65];
