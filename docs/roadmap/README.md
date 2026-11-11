@@ -49,7 +49,7 @@ ratified, or a document moves to [`docs/archive/`](../archive/README.md).
 
 | Document | What it governs | Status |
 |---|---|---|
-| [Discovery, identity and return](discovery-and-return.md) | Product sequence M0–M8, pilot gates, identity stages, the puzzle and speech tracks | M1–M4 merged; bounded M0/M5/M6 merged (#100, #101); M7 and M8 open |
+| [Discovery, identity and return](discovery-and-return.md) | Product sequence M0–M8, pilot gates, identity stages, the puzzle and speech tracks; [prospective M8 cross-scale cooperative mystery](discovery-and-return.md#prospective-m8-item-one-cross-scale-cooperative-mystery) | M1–M4 merged; bounded M0/M5/M6 merged (#100, #101); M7 and M8 open. Mystery recorded 2026-11-06 as a candidate for U5's next situation; unassigned and contingent on player evidence |
 | [Phase 2 scale plan](phase-2-scale.md) | The standing continuity policy; capacity triggers at 100 users and beyond | Standing; edit in place as triggers fire |
 | [Community Ideas board](community-ideas.md) | Player-submitted ideas, support votes, moderation, explicit GitHub promotion | Merged (#102–#104); not deployed |
 | [Expressive world: next steps](expressive-world-next-steps.md) | The boundary of the #105–#107 batches and their remaining gaps | Checkpoint; the gaps feed the decision agenda |

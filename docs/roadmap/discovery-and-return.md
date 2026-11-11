@@ -259,6 +259,64 @@ For cohorts other than ten, use the corresponding proportions and report actual
 counts. Add lightweight research/operational measurement outside permanent world
 canon; do not add a chronicle row for every page view or journal read.
 
+## Prospective M8 item: one cross-scale cooperative mystery
+
+**Recorded 2026-11-06 at the owner's request. Status: prospective; no
+implementation or delivery date assigned.** This develops the cross-scale
+co-op candidate U2 in the [beta checklist](beta-launch-checklist.md), after
+M7 observations establish where discovery and consequence recognition work.
+It is a candidate for U5's next situation in familiar geography, using the
+[ADR-013 situation model](../decisions/ADR-013-versioned-situations-and-delivery.md)
+and the bounded [ADR-025 precedent](../decisions/ADR-025-first-situation.md),
+with an added cross-scale cooperation requirement. It adds no beta entry gate
+and authorizes no implementation or separate mystery mechanism.
+
+The player problem to test is whether the nested scales give people a reason
+to investigate together and return to a shared place. Two willing players at
+different scales would discover connected evidence and coordinate materially
+different actions through the existing Puzzle, Act and chat surfaces, with
+Speak for places. Their consequences would leave an aftermath that returning
+players and later arrivals can investigate. The specific places, clues, operations
+and timing remain design hypotheses; there is no new situation installed by this
+entry.
+
+Keep the first experiment to one mystery in existing geography, with real
+scale-specific effects and independently accepted actions. Each player decides
+whether to participate and accepts only their own actions. Solo exploration and
+unrelated puzzles remain available; do not make another person's presence a
+condition of entering or leaving a place, or add a parallel quest controller.
+
+Design for human–human play and the owner's suggested human–AI collaboration,
+where agents help humans solve rather than solve independently. The existing
+Proposed [ADR-036, puzzle temperament](../decisions/ADR-036-puzzle-temperament.md)
+and [ADR-037, agents as conversational players](../decisions/ADR-037-agents-as-conversational-players.md)
+own the puzzle and agent contracts. Both are merged Proposed records that remain
+unratified. The mystery inherits their eventual decisions on submissions,
+annoyance, renewal and near-miss feedback rather than maintaining a second list
+of answers or open questions.
+Their current proposals let agents reason from shared clues but never submit a
+puzzle answer; answer secrecy, per-node difficulty and the autonomy and
+human-progress covenants still apply.
+
+**Owner decision before designing human–AI completion:** may an independently
+accepted, non-solve action by an agent satisfy one scale's requirement for
+finishing the mystery, without counting as human puzzle progress? This entry
+does not approve that rule. Until it is settled, agent help covers clue-reading
+and suggestions only; completion requiring two accepted contributions needs two
+humans. Do not promise a lone human that an AI partner can finish it. Ordinary
+solo exploration remains available regardless. Any chat-based agent participation
+also depends on ADR-037's structural-parity contract, provider checks under the
+owner's 2026-11-07 model-provider data policy, and the budget decision recorded
+in the [decision packet](decision-packet-2026-11.md).
+
+Use the newcomer/pilot evidence to choose the problem, review the mystery's
+clues and aftermath, and settle any new puzzle-instance or delayed-action
+contract under the applicable ADRs before implementation. Acceptance evidence
+should show that participants infer the relationship between scales, coordinate
+without forced delegation, distinguish their attempts from observed consequences,
+and find something meaningful on return. Also exercise an absent or disconnected
+partner, retries, conflicting changes and late arrivals without rewriting history.
+
 ## Deferred scope and reopening triggers
 
 Defer additional scales, broad frontier growth, a universal quest engine, global
