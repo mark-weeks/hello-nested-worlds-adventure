@@ -455,6 +455,14 @@ days that would otherwise go to the M7 pilot gates.
 
 ## Follow-up edits this record queues (none made here)
 
+**Update, 2026-11-11:** the owner asked for all three after this record
+merged, and a follow-up batch made them the same day (see its entry in
+`docs/CHANGELOG.md`). The "What it says" column below quotes each text as it
+stood before that batch, and the line ranges are where it stood. The new
+wording holds to the one-hour bound ADR-005 sets today and treats the
+rehearsal length as a proposal, so it follows whichever option is chosen;
+relaxing the bound (option C) would change it again.
+
 Three texts on `main` say something this measurement contradicts or would
 let pass. This record changes none of them: the workflow and the runbook are
 outside its scope, and the right wording for the second and third depends on
