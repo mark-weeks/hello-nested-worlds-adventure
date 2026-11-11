@@ -199,7 +199,13 @@ of the chronicle or the owner decides it is not kept (open question 5).
 Whether a recorded answer reaches other players' voices through node history
 waits on the owner's pending question on #158 (recommended there: keep the
 exchange recorded and leave identity answers out of the history fed to other
-voices). A repeat from the same asker to the same agent within ten minutes
+voices). *Updated 2026-11-10:* the owner chose that recommendation when
+merging #158, and the follow-up batch leaves the recorded exchange, question
+and authored answer, out of the history fed to other voices
+(`consciousness._history_block`); `/chronicle` and `/history` still serve it,
+and a later model reply that restates the answer in other words is not left
+out ([2026-11-06 evaluation](../evaluation/2026-11-06-next-build.md), addendum
+item 4). A repeat from the same asker to the same agent within ten minutes
 gets the same answer and is stored nowhere: they already know.
 
 **A question to no one.** "Is anyone here an AI?", "is anyone here human?",
