@@ -13,10 +13,11 @@ half-hourly on 2026-10-03, with no two runs within an hour of each other. At
 that cadence, once backups are activated, an independent `backup_health.py`
 check would read `stale` on **79.7%** of hourly checks, and the history lost
 with the volume would average **2.77 hours and reach 10.40**, against
-ADR-005's one hour. The cause is GitHub's `schedule` event, not this
-workflow, the runners or the repository's activity, so the remedy is a
-different clock (an external dispatcher, or replication that needs none) or
-a different bound, and that choice is the owner's.
+ADR-005's one hour. The cause is *inferred* to be GitHub's delivery of the
+`schedule` event and not this workflow, the runners or the repository's
+activity (finding 3 gives the evidence and what it cannot show), so the
+remedy is a different clock (an external dispatcher, or replication that
+needs none) or a different bound, and that choice is the owner's.
 
 ## Question
 
@@ -94,8 +95,12 @@ Four things stand out.
 - **Asking twice as often did not produce more runs.** The last four whole
   weeks on the hourly cron delivered 43, 41, 41 and 38 runs. The first five
   whole weeks on the half-hourly cron delivered 31, 40, 42, 33 and 28.
-- **Delivery has decayed with no change on this side.** By ISO week, with
-  first-parent commits on `main` by committer date (UTC) beside it:
+- **Delivery has decayed.** From 161 runs in the week of 2026-08-17 to 28
+  in the week of 2026-11-02. The percentages below fall further than the
+  runs do, because #109 doubled the ticks on 2026-10-03: inside the hourly
+  era, where the workflow file did not change at all, delivery went from
+  95.8% to 22.6%. By ISO week, with first-parent commits on `main` by
+  committer date (UTC) beside it:
 
   | Week from | Ticks | Runs | Delivered | Commits on `main` |
   |---|---|---|---|---|
@@ -115,7 +120,7 @@ Four things stand out.
   | 10-19 | 336 | 42 | 12.5% | 9 |
   | 10-26 | 336 | 33 | 9.8% | 9 |
   | 11-02 | 336 | 28 | 8.3% | 21 |
-  | 11-09 (to 11-10 23:25) | 95 | 7 | 7.4% | 10 |
+  | 11-09 (to 11-10 23:25) | 95 | 7 | 7.4% | 7 |
 
   The schedule can run close to hourly: in the fortnight from 2026-08-10
   the median gap was 0.96 h. It has not done so since. Over the last 14
@@ -135,7 +140,7 @@ validate, store, both prunes) are `skipped`. The job ran from 23:25:19 to
 23:25:24 UTC. That confirms what the first observation could only infer
 from the run lengths.
 
-Run length, from run creation to the run's last update, has a median of 7
+Run length, from the run's start to its last update, has a median of 7
 to 9 seconds in every era; 15 of 1,018 runs exceed 20 seconds. The longest
 by that measure (#929, 3,782 s) is a later update to the run record: its job
 ran for 4 seconds.
@@ -145,15 +150,34 @@ after 17 minutes without ever being given a runner. #419 (2026-08-17) failed
 in "Set up job" on an HTTP 429 while downloading the then-unpinned flyctl
 action.
 
-### 3. The cause is the `schedule` event (measured, with one hypothesis)
+### 3. The cause is the `schedule` event (inferred from four measurements)
 
-**Not this workflow against others.** `backup.yml` is the only workflow in
+What follows rules causes out; it does not observe GitHub's scheduler. The
+conclusion is therefore *inferred*, and one question stays open: whether
+GitHub delivers this sparsely to every schedule, to this repository's, or to
+this workflow's.
+
+**No other schedule to compare with.** `backup.yml` is the only workflow in
 this repository that has ever had a `schedule` trigger. `ci.yml` runs on
 push and pull request, `release.yml` on tags, `deploy-staging.yml` on manual
 dispatch (it has no runs), and the other two are GitHub's own dynamic
 workflows. There is no second scheduled workflow to compare against, so
 "specific to this workflow" and "general to this repository's schedules"
 cannot be told apart from inside the repository.
+
+**Not the workflow's definition.** The workflow file did not change between
+#69 (2026-07-19) and #109 (2026-10-03). On that one file and one cron,
+delivery was 95.8% in the week of 2026-08-17 and 22.6% in the week of
+2026-09-21.
+
+**Not the workflow's own concurrency group.** `backup.yml:34-36` puts every
+run in one group, and GitHub cancels a waiting run when a newer one is
+queued behind a running one. That is a one-waiting-run rule inside this
+repository, and it never applied: the run numbers are 1 to 1,018 with none
+missing, no run has the conclusion `cancelled`, no run started before the
+run before it had finished, and the shortest gap between two starts is 41.3
+minutes against a longest run of 17 minutes. The group has never held a run
+back, so it did not thin the cadence.
 
 **Not the runners and not Actions capacity for this repository.** The 60
 most recent CI runs for pushes to `main` (2026-09-19 to 2026-11-11) were
@@ -162,9 +186,10 @@ job was given a runner 2 seconds after its run was created. Event-triggered
 runs start at once during the same weeks in which nine scheduled ticks in
 ten produce nothing.
 
-**Not repository activity.** The week with the best delivery (95.8%, from
-2026-08-17) had no commit on `main`. The week with the most commits (21,
-from 2026-11-02) delivered 8.3%.
+**Not repository activity, as far as commit counts show.** The week with
+the best delivery (95.8%, from 2026-08-17) had no commit on `main`. The week
+with the most commits (21, from 2026-11-02) delivered 8.3%. This is a
+correlation over 17 weeks, not a test.
 
 **What GitHub documents, and whether it applies here** (confirmed in the
 documentation source):
@@ -179,9 +204,10 @@ documentation source):
 GitHub documents no delivery rate, no per-repository limit and no rule for
 what happens to a tick that comes due while an earlier one is still waiting.
 
-**Hypothesis, not established:** the scheduler holds at most one waiting
-occurrence per workflow, so the delivered interval tracks the queue delay
-and not the cron. It fits two measurements: asking twice as often changed
+**Hypothesis, not established:** GitHub's scheduler, as distinct from the
+workflow's own group ruled out above, holds at most one waiting occurrence
+per workflow, so the delivered interval tracks the queue delay and not the
+cron. It fits two measurements: asking twice as often changed
 nothing, and the delay on a once-a-day cron (1.4 to 3.9 h) is the same order
 as the gaps on the faster crons. It cannot be tested from outside GitHub,
 and no option below depends on it.
@@ -259,7 +285,10 @@ start a run. GitHub's schedule stays as a second, slower trigger.
   replaced before it runs, by a later dispatch or by a scheduled run. That
   costs nothing in freshness, since the run that replaces it is newer. It
   does mean the proof counts validated objects in the bucket, never
-  dispatch calls.
+  dispatch calls, and that a `cancelled` run in the rehearsal is this rule
+  at work and not a dropped dispatch. No run has been cancelled so far only
+  because the no-op runs last seconds (finding 3); real backups take
+  minutes.
 - **Where the scheduler runs.** Two candidates were read:
   - *A Cloudflare Worker with a Cron Trigger.* Five-field cron in UTC, so
     `17,47 * * * *` is valid. The Free plan allows 5 Cron Triggers per
@@ -286,8 +315,16 @@ start a run. GitHub's schedule stays as a second, slower trigger.
   full use of the storage estimate in `backup-bucket.md`. Checklist P5
   already needs a scheduler outside GitHub's schedule and a notification
   destination: a freshness check on GitHub's schedule would run every five
-  hours and fail with the thing it watches. The same scheduler can serve
-  both.
+  hours and fail with the thing it watches.
+- **What it must not share.** The dispatcher and the freshness check can use
+  one service, but not one clock without a watcher. If a single scheduler
+  fires both and stops, the dispatches and the checks stop together, no
+  alert is sent, and GitHub's own schedule carries on at one run in five
+  hours. That is the failure runbook §7 names: a check "cannot detect its
+  own scheduler stopping". So A also needs one of two things, and each is a
+  cost: the freshness check on a second, separately hosted schedule, or a
+  missed-check alert held somewhere else, which raises the alarm when the
+  check has not reported in.
 
 ### B. A scheduler on the Fly machine takes and stores the backup itself
 
@@ -324,9 +361,9 @@ The app machine is always on (`fly.toml`: `auto_stop_machines = false`,
   lost; three hours is typical".
 - **What it risks.** ADR-005 moved off a 24-hour window because it
   "contradicts the covenant". This puts the window at half of that. The
-  number is also not the project's to hold: delivery fell from 95.8% of
-  ticks to 8.3% in eleven weeks with no change in this repository, and
-  GitHub documents no floor. A bound set from today's distribution can be
+  number is also not the project's to hold: delivery fell from 161 runs a
+  week to 28 in eleven weeks, most of it while the workflow file was
+  unchanged, and GitHub documents no floor. A bound set from today's distribution can be
   broken tomorrow without notice.
 - **A narrower use.** A relaxed limit declared only for the disposable
   staging twin puts no covenant at stake and would let the rehearsal proceed
@@ -386,9 +423,13 @@ ADR-005 as it stands.
 
 1. **A now.** It is the smallest change that restores the bound, it touches
    no world data path, and most of its scheduler is owed to P5 anyway. Prove
-   it on staging before it counts: seven consecutive days in which every gap
-   between validated objects is 60 minutes or less, read from the bucket
-   listing and not from the Actions badge.
+   it on staging before it counts: seven consecutive days in which the
+   newest validated object in the bucket is never more than 60 minutes old
+   by its snapshot-start, which is how `backup_health.py` measures age. That
+   is stricter than gaps of an hour between snapshots: a snapshot is not in
+   the bucket until its upload ends, so each object has to land within 60
+   minutes of the snapshot-start of the one before it. Read it from the
+   bucket listing, not from the Actions badge.
 2. **Ask D's timing again as its own decision.** With no launch date, "after
    launch" no longer says when. D is the only option that takes a
    third-party clock out of the continuity covenant.

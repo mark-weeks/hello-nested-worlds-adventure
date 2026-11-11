@@ -12,6 +12,7 @@ The cron eras are the committer times of the commits on main that changed the
 cron line in .github/workflows/backup.yml (git log --follow on that file).
 """
 import csv
+import math
 import statistics
 import sys
 from collections import Counter
@@ -98,7 +99,8 @@ def report_window(label, starts):
     print(f'   age of newest run at a random instant: mean {mean_age:.2f}  '
           f'median {age_quantile(gaps, 0.5):.2f}  p95 {age_quantile(gaps, 0.95):.2f}  '
           f'max {max(gaps):.2f} h')
-    print(f'   smallest --max-age-minutes that never reads stale: {max(gaps) * 60:.0f}')
+    widest_seconds = max((b - a).total_seconds() for a, b in zip(starts, starts[1:]))
+    print(f'   smallest --max-age-minutes that never reads stale: {math.ceil(widest_seconds / 60)}')
     over = [gap - 1 for gap in gaps if gap > 1]
     print(f'   under 60 minutes: {len(over)} stale stretches, mean {statistics.mean(over):.2f} h, '
           f'longest {max(over):.2f} h')
@@ -154,6 +156,15 @@ def main():
         if row['conclusion'] != 'success':
             print(f'   not success: #{row["run_number"]} run {row["run_id"]} '
                   f'{row["start"]:%Y-%m-%d %H:%M} {row["conclusion"]}')
+
+    print('\n-- did the workflow\'s concurrency group ever hold a run back?')
+    numbers = [int(row['run_number']) for row in sorted(runs, key=lambda row: int(row['run_number']))]
+    print(f'   run numbers 1 to {len(runs)} with none missing: {numbers == list(range(1, len(runs) + 1))}; '
+          f'cancelled runs: {sum(row["conclusion"] == "cancelled" for row in runs)}')
+    overlaps = sum(later['start'] < utc(earlier['updated_at']) for earlier, later in zip(runs, runs[1:]))
+    shortest = min((b - a).total_seconds() for a, b in zip(starts, starts[1:])) / 60
+    print(f'   runs that started before the run before them was last updated: {overlaps}; '
+          f'shortest gap between two starts: {shortest:.1f} min')
 
     print('\n-- scheduled ticks against runs started, by cron era')
     bounds = [era[3] for era in ERAS] + [last]
