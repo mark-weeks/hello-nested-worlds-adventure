@@ -19,7 +19,7 @@ on `claude/pilot-measurement`, read at `8f8e969`) and ADR-037 (#160, Proposed,
 **Implementation note (2026-11-11):** PR #170 prepares D8 batch **1a** from
 the owner's Codex working-session request, "Shall we proceed with remaining
 implementation in the recommended sequence?" Owner approval of that PR
-confirms this bounded scope, its authored line and the unchanged interim
+will confirm this bounded scope, its authored line and the unchanged interim
 post-exhaustion behavior; it does not accept the rest of this Proposed ADR.
 The [implementation record](../evaluation/2026-11-11-puzzle-answer-withdrawal.md)
 tracks the checks and limits. The intended order puts 1a in the first

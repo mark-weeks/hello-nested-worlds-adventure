@@ -5,7 +5,7 @@ working session, the owner asked: "Shall we proceed with remaining
 implementation in the recommended sequence?" That sequence included
 withdrawing puzzle answer disclosure. PR #170 interprets the request as
 preparation of ADR-036 D8 batch **1a alone**; the owner's approval of that PR
-confirms its bounded scope, wording and interim behavior. It does not ratify
+will confirm its bounded scope, wording and interim behavior. It does not ratify
 the larger Proposed temperament design or supply merge/deployment approval.
 The review update integrates `main` at `a5c6a19` (#167 and #168), retaining
 its roadmap refresh and backup-cadence evidence. Those merges change no
@@ -110,14 +110,30 @@ response injection or assert the reopened controls; the review correction
 above supersedes those coverage claims. The CLI regression uses a synthetic
 answer sentinel.
 
-Review verification: **156 focused Python tests** passed after the fixture
-reuse and CLI changes; Ruff and whitespace checks passed. Combined and
-corrected-browser verification will be recorded after execution.
+**Review verification (current code):** the combined
+`ENFOLDED_E2E=1 ./scripts/check.sh` gate exited **0** on 2026-11-11,
+18:46:02Z–19:03:55Z, after integrating `main` at `a5c6a19`: Ruff passed;
+**3,611 Python passed / 1 skipped** (the optional absent historical QA tag);
+**189 Vitest passed**; production bundle byte-fresh; installed
+`enfolded-0.1.2rc1` wheel verified schema **31**; **181 Playwright passed**
+in 5.6 minutes. All four answer-withdrawal cases passed, including actual
+legacy-field injection and the explicit reopened-control assertions.
 
-An independent read-only review found no blockers. All **61 relative file
-links** in this record, ADR-036 and the roadmap index resolve; whitespace
-checks passed. Production code and tests stayed frozen during the full gate;
-only verification documentation was filled in afterwards.
+Before that run, **156 focused Python tests** and **6 focused browser tests**
+passed. Restoring the old matcher with the stronger assertions failed both
+legacy negative controls under Playwright **1.61.1**. The final test uses the
+shared HTTP fixture and verifies room-state rehydration, not restart. The
+review correction retains every one of the **217 upstream CHANGELOG
+headlines** and the backup-cadence roadmap row. No application code or tests
+changed during the combined run; later edits fill in verification evidence
+and documentation only.
+
+The initial independent read-only review found no blockers. Its check of
+**61 relative file links** in the original record, ADR-036 and the original
+roadmap index passed. The review update, including ADR-038 and refreshed
+main, checks **72 relative file links**, with no missing targets; whitespace
+checks pass. Production code and tests stay frozen during each full gate;
+verification documentation is filled in afterwards.
 
 Verified browser assets:
 
