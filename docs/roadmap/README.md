@@ -61,8 +61,9 @@ ships, a decision is ratified, or a document moves to
     #147–#149); the eval harness runs any registered adapter (#146); the
     `openai_compatible` adapter is registered for evaluation, with ADR-035
     still Proposed (#133, #134); the text provider is selected from
-    configuration, startup refuses a model id the provider does not serve,
-    and each task can name its own model id (#120, #127, #130–#132);
+    configuration, startup refuses a model id its adapter rejects as
+    unusable, without calling the provider, and each task can name its own
+    model id (#120, #127, #130–#132);
     model-written chronicle rows record provider and resolved model,
     migration `0028_model_provenance` (#123); provider and model optionality
     under ADR-034, with task-specific evaluations (#112, #113).
@@ -107,9 +108,9 @@ ships, a decision is ratified, or a document moves to
   Proposed design for agents in chat, and its five open questions; ratification of
   the ADR-029 through ADR-033 drafts; ratification of
   [ADR-035](../decisions/ADR-035-openai-compatible-chat-completions.md), a
-  Proposed design for a second text adapter; the record registers nothing
-  and changes no runtime behavior, the adapter itself merged for evaluation
-  in #134, and the record's status is still Proposed; ratification of
+  Proposed design for a second text adapter (the record registers nothing
+  and changes no runtime behavior; the adapter merged for evaluation in
+  #134; status still Proposed); ratification of
   [ADR-036](../decisions/ADR-036-puzzle-temperament.md), the Proposed puzzle
   temperament design, and its eight open questions; the decision agenda below.
 
