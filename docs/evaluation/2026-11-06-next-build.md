@@ -370,7 +370,13 @@ Mark Weeks. Item 4, added later, records two decisions of 2026-11-10.
    the venue and provider rulings.)
 4. **2026-11-10: places included, and identity answers kept out of the
    history fed to other voices.** Decided by the owner on 2026-11-10, when
-   merging #158; this item records the two choices, not the owner's words.
+   merging #158; this item records the two choices. On 2026-11-11, asked on
+   #166 to confirm them, the owner stated the intent behind them:
+
+   > the idea here is that the boundary between human and AI agent players
+   > is intentionally blurred, but if a human asks an AI agent explicitly
+   > "are you human" or similar the AI agent will answer honestly.
+
    (a) Places, like agents, say plainly that they are an AI when sincerely
    asked: a place answers that it is a place, not a person, and that its
    voice comes from an AI. This settles the place-voice question left open
