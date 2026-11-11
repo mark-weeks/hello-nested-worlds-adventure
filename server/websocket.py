@@ -12,6 +12,7 @@ import uuid
 from collections.abc import Callable
 
 import persistence
+from persistence import blocks, participants
 from multiverse import store
 from puzzles import gates
 from server import guard, moderation
@@ -23,6 +24,7 @@ from server.protocol import (
     ws_recv,
 )
 from server.rooms import (
+    BLOCKS_LOCK,
     Player,
     agents_snapshot,
     broadcast,
@@ -368,6 +370,13 @@ def handle_websocket(
     # long as that credential does; any other session lives only while the
     # invite gate is open (guard.ws_session_authorized).
     credentialed = registered is not None
+    participant_id = None
+    if credentialed:
+        try:
+            participant_id = participants.identify(ws_key)['id']
+        except participants.Unauthorized:
+            request._send_error("forbidden", 403)
+            return
     if registered:
         name = registered
     else:
@@ -438,25 +447,31 @@ def handle_websocket(
             current_node=entry_node,
             session_id=session_id,
             sock=sock,
+            participant_id=participant_id,
         )
-        player.start_writer()
         room = get_room(seed)
-        with room.lock:
-            room.players[session_id] = player
-
-        player.send(
-            {
-                "type": "welcome",
-                "session_id": session_id,
-                "players": snapshot(room),
-                "agents": agents_snapshot(room),
-            }
-        )
-        broadcast(
-            room,
-            {"type": "player_join", "name": name, "session_id": session_id},
-            exclude=session_id,
-        )
+        with BLOCKS_LOCK:
+            if participant_id:
+                player.set_blocks(blocks.list_blocks(participant_id))
+            player.start_writer()
+            with room.lock:
+                room.players[session_id] = player
+                player.send(
+                    {
+                        "type": "welcome",
+                        "session_id": session_id,
+                        "participant_id": participant_id,
+                        "blocks": list(player.blocks),
+                        "players": snapshot(room, player),
+                        "agents": agents_snapshot(room, player),
+                    }
+                )
+                broadcast(
+                    room,
+                    {"type": "player_join", "name": name, "session_id": session_id,
+                     "participant_id": participant_id, "node": entry_node},
+                    exclude=session_id,
+                )
         persistence.record_mutation(
             seed,
             entry_node,
@@ -591,6 +606,7 @@ def handle_websocket(
                             "name": name,
                             "node": node_name,
                             "session_id": session_id,
+                            "participant_id": participant_id,
                         },
                         exclude=session_id,
                     )
@@ -637,6 +653,7 @@ def handle_websocket(
                                 "name": name,
                                 "text": text,
                                 "session_id": session_id,
+                                "participant_id": participant_id,
                             },
                         )
                         persistence.record_mutation(
@@ -671,7 +688,8 @@ def handle_websocket(
                 room.players.pop(session_id, None)
             broadcast(
                 room,
-                {"type": "player_leave", "name": name, "session_id": session_id},
+                {"type": "player_leave", "name": name, "session_id": session_id,
+                 "participant_id": participant_id},
             )
             try:
                 persistence.record_mutation(

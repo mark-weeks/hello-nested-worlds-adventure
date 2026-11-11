@@ -15,10 +15,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import verify_wheel  # noqa: E402
 
 
-def test_source_migrations_are_exactly_0001_through_0029():
+def test_source_migrations_are_exactly_0001_through_0030_with_blocks():
     source = verify_wheel.source_migrations(verify_wheel.ROOT)
-    verify_wheel.assert_schema29_inventory(source)
+    verify_wheel.assert_source_schema_inventory(source)
+    assert "persistence/migrations/0030_participant_blocks.sql" in source
     assert not any(name.endswith("0030_cost_budget_names.sql") for name in source)
+
+
+@pytest.mark.parametrize("replace_blocks", [False, True])
+def test_source_rejects_deleted_cost_rename_even_when_it_replaces_blocks(replace_blocks):
+    source = verify_wheel.source_migrations(verify_wheel.ROOT)
+    if replace_blocks:
+        source.pop("persistence/migrations/0030_participant_blocks.sql")
+    source["persistence/migrations/0030_cost_budget_names.sql"] = b"stale\n"
+    with pytest.raises(RuntimeError, match="0030_cost_budget_names.sql"):
+        verify_wheel.assert_source_schema_inventory(source)
 
 
 def test_a_stale_0030_and_modified_bytes_are_rejected(tmp_path):
