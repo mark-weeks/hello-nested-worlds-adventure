@@ -31,6 +31,7 @@ _log    = logging.getLogger("nested_worlds")
 _access = logging.getLogger("nested_worlds.access")
 
 _community = logging.getLogger("nested_worlds.community")
+_model_control = logging.getLogger("nested_worlds.model_control")
 
 _sentry_ready: bool = False
 
@@ -78,6 +79,14 @@ def capture_exception(exc: BaseException | None = None) -> None:
     _log.exception("unhandled request error", exc_info=exc)
 
 
+def model_control_stop(reason: str) -> None:
+    """A new incident is an ERROR even before a player attempts another call."""
+    known = {"billing_anomaly", "accounting_fault", "unsettled_startup",
+             "accounting_unavailable", "policy_invalid"}
+    safe = reason if isinstance(reason, str) and reason in known else "accounting_fault"
+    _model_control.error("model_control_stopped reason=%s", safe)
+
+
 # ── Voice outcomes ──────────────────────────────────────────────────────────
 # "Failure stays in fiction" governs what a player reads; it never meant the
 # operator should not know. Every player-facing voice surface reports each
@@ -110,7 +119,7 @@ VOICE_SURFACES = ("speak", "agent_voice", "intention")
 # provider then holds each slot for about 3 minutes (at most 5 if it answers
 # errors with a retry-after), and `busy` is the only outcome recorded until
 # those calls end and count `provider`.
-VOICE_FAILURES = ("provider", "db", "unconfigured", "screen", "busy")
+VOICE_FAILURES = ("provider", "db", "unconfigured", "screen", "busy", "control_stop")
 VOICE_LIMITS = ("budget", "action_cap", "disabled")
 VOICE_REASONS = ("ok",) + VOICE_LIMITS + VOICE_FAILURES
 
@@ -253,7 +262,7 @@ MODERATION_SURFACES = ("speak", "agent", "chat", "ideas", "profile", "puzzle",
 # The screen could not judge: the classifier raised (`error`), found no
 # provider slot within its timeout (`busy`), or gave no usable verdict
 # (`undecided`). The same meaning as the voice reason `screen`.
-MODERATION_FAILURES = ("undecided", "error", "busy")
+MODERATION_FAILURES = ("undecided", "error", "busy", "control_stop")
 # Deliberate stops working as designed: the disable switch, moderation's own
 # daily budget, and the per-user caps.
 MODERATION_LIMITS = ("disabled", "budget", "user_cap")

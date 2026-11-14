@@ -64,7 +64,16 @@ def controlled(monkeypatch):
     policy = SimpleNamespace(global_limit_microusd=1000, participant_limit_microusd=500,
                              snapshot_json='{"policy":"synthetic"}', retention_days=1)
     route = SimpleNamespace(task="node", adapter="openai_compatible", endpoint=_ENDPOINT,
-                            model="approved-model", resolved_models=("approved-model",))
+                            model="approved-model", resolved_models=("approved-model",),
+                            max_output_tokens=32)
+    policy.policy_id = "synthetic"
+    policy.routes = {task: SimpleNamespace(**{**vars(route), "task": task}) for task in runtime.TASKS}
+    policy.enabled_routes = runtime.TASKS
+    monkeypatch.setattr(model_spend, "check_unsettled_on_startup", lambda: False, raising=False)
+    monkeypatch.setattr(model_spend, "status", lambda: {
+        "latched": False, "storage_error": False, "unresolved_reservations": 0,
+        "stop_reason": None,
+    })
     reservations, settlements, requests = [], [], []
     monkeypatch.setattr(model_policy, "active", lambda: True)
     monkeypatch.setattr(model_policy, "current", lambda: policy)
@@ -99,7 +108,9 @@ def controlled(monkeypatch):
 
     monkeypatch.setattr(model_spend, "reserve", reserve)
     monkeypatch.setattr(model_spend, "settle", settle)
-    yield SimpleNamespace(adapter=OpenAICompatibleProvider(transport=transport),
+    adapter = OpenAICompatibleProvider(transport=transport)
+    monkeypatch.setattr(runtime, "provider_for", lambda task: adapter)
+    yield SimpleNamespace(adapter=adapter,
                           reservations=reservations, settlements=settlements,
                           requests=requests, policy=policy)
     model_dispatch.reset_for_tests()
@@ -303,7 +314,7 @@ def test_unexpected_model_is_settled_and_refused(controlled):
         with pytest.raises(model_dispatch.ModelPolicyDenied):
             _generate(controlled.adapter)
     assert controlled.settlements[0][1]["anomaly"] is True
-    assert controlled.settlements[0][1]["resolved_model"] is None
+    assert controlled.settlements[0][1]["resolved_model"] == "unexpected-model"
 
 
 def test_settlement_failure_stops_later_calls_without_another_reserve(controlled, monkeypatch):
@@ -422,8 +433,9 @@ def test_real_policy_all_runtime_tasks_account_to_one_stable_participant(real_co
     for task in runtime.TASKS:
         assert _runtime_call(real_controlled, task).text == "A quiet bell."
     with persistence._connection() as conn:
-        rows = conn.execute("""SELECT participant_id,task,status,accounted_microusd,policy_json
-            FROM model_spend_reservations ORDER BY task""").fetchall()
+        rows = conn.execute("""SELECT r.participant_id,r.task,r.status,r.accounted_microusd,p.policy_json
+            FROM model_spend_reservations r JOIN model_spend_policies p
+            ON p.digest=r.policy_digest ORDER BY r.task""").fetchall()
     assert len(real_controlled.requests) == len(rows) == 4
     assert len({row[0] for row in rows}) == 1
     assert {row[1] for row in rows} == set(runtime.TASKS)
@@ -479,11 +491,12 @@ def test_real_contradictory_output_usage_keeps_full_reservation(real_controlled)
         }
         return status, headers, json.dumps(body).encode()
     real_controlled.adapter._transport = contradictory_usage
-    assert _runtime_call(real_controlled).text == "A quiet bell."
+    with pytest.raises(model_dispatch.ModelPolicyDenied):
+        _runtime_call(real_controlled)
     with persistence._connection() as conn:
         row, = conn.execute("""SELECT status,reserved_microusd,accounted_microusd,usage_json
             FROM model_spend_reservations""").fetchall()
-    assert row[:3] == ("uncertain", 2064, 2064)
+    assert row[:3] == ("anomaly", 2064, 2064)
     assert json.loads(row[3])["output_tokens"] is None
 
 

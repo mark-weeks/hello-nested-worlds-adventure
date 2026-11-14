@@ -184,6 +184,23 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     if tier == "block":
         _moderation_log("block", surface)
         return _BLOCK_LOCAL
+    from consciousness import model_dispatch, runtime
+    if tier != "clean":
+        # An intentional route refusal or accounting stop sends no classify
+        # request and must not spend any of the legacy call allowances.
+        try:
+            model_dispatch.preflight(runtime.MODERATION_TASK, user_key, max_tokens=32)
+        except model_dispatch.ModelControlStopped:
+            _moderation_log("control_stop", surface)
+            return Verdict(False, "control_stop", "control_stop")
+        except runtime.VoiceBudgetLimited:
+            outcome = "disabled" if model_dispatch.task_disabled(runtime.MODERATION_TASK) else "budget"
+            _moderation_log(outcome, surface)
+            return Verdict(False, outcome, outcome)
+        except (Exception, SystemExit) as exc:
+            _log.warning("moderation model preflight unavailable (%s)", type(exc).__name__)
+            _moderation_log("error", surface)
+            return Verdict(False, "error", "error")
     if not guard.consume_moderation_action(user_key):
         _moderation_log("user_cap", surface)
         return Verdict(False, "user_cap", "user_cap")
@@ -194,7 +211,6 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     # raises the same error before its own charges. Any other failure while
     # resolving that id — a raising default_model, for example — holds too.
     # Letting it escape made /speak a 500 and closed the chat socket.
-    from consciousness import runtime
     try:
         runtime.require_model_id(runtime.model_for(runtime.MODERATION_TASK))
     except runtime.VoiceBudgetLimited:
@@ -234,6 +250,9 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     except runtime.ProviderBusy:
         _moderation_log("busy", surface, (_time.monotonic() - started) * 1000.0)
         return Verdict(False, "busy", "busy")
+    except model_dispatch.ModelControlStopped:
+        _moderation_log("control_stop", surface, (_time.monotonic() - started) * 1000.0)
+        return Verdict(False, "control_stop", "control_stop")
     except runtime.VoiceBudgetLimited:
         _moderation_log("budget", surface, (_time.monotonic() - started) * 1000.0)
         return Verdict(False, "budget", "budget")

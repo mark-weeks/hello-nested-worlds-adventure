@@ -5,9 +5,19 @@ No provider, endpoint, numeric spending limit, token price or ledger-retention
 period is selected by the checked-in configuration. The owner's earlier ceiling
 proposals remain proposals; they are not forecasts or approved settings.
 
+The first controlled adapter/vendor remains an open owner decision. The code
+currently supports only the built-in `openai_compatible` Chat Completions path;
+ADR-035 is still Proposed. Live voice on Fly, production included, is blocked
+until ADR-035 is accepted or a controlled Anthropic path exists, and the
+destination/account terms, models, prices, dollar amounts and retention have
+scoped approval. An implementation request in the working session is not
+independent ratification of ADR-039 or approval of those values. This batch does
+not implement chat retention.
+
 `NESTED_WORLDS_REQUIRE_MODEL_POLICY=1` requires controlled mode. A declared
 temporary test world also requires it (including a misspelled test-world flag,
-which fails closed). Fly commits the requirement and both external kill switches.
+which fails closed). Every app using the committed Fly configuration, production
+included, gets the requirement and both external kill switches set to `1`.
 An explicit `NESTED_WORLDS_MODEL_POLICY` path enables controlled mode locally.
 Without any of these, existing local development and fixture behavior remains.
 
@@ -19,6 +29,12 @@ unsetting the requirement, changing the file/environment or adding a key cannot
 grant permission. Restart to review and apply a new policy. Kill switches can
 still deny calls immediately.
 
+`NESTED_WORLDS_DISABLE_AI` remains the voice/intention switch; it does not disable
+moderation. In controlled mode the frozen policy also closes every unapproved
+route, so a classifier cannot send merely because a key appeared. Images are
+unsupported in this controlled slice and return the authored quiet line with
+`images: false` before cache, quota or provider access.
+
 Run the offline check in the intended process environment:
 
 ```sh
@@ -29,6 +45,23 @@ It parses and checks enabled routes against effective task/provider/model/option
 without API calls or a database. It does not prove provider availability, token
 bounds, current prices, account settings, retention terms or owner approval.
 No credentials belong in the policy. Use the existing separate credential env var.
+
+`python main.py models` and `python main.py voice-health` report controlled policy
+state when controlled mode is required or active, rather than presenting the
+legacy default provider as ready. Their `--probe` option is refused in controlled
+mode: it is a direct, keyless adapter call with no participant reservation. Use
+ordinary authenticated gameplay endpoints only after all live gates pass. The
+[Fly runbook](../infrastructure/fly-deployment.md#approved-live-controlled-text)
+describes the explicit `NESTED_WORLDS_DISABLE_AI=0` override and verification;
+unsetting that secret restores the committed `1`, not live voice.
+
+These commands freeze their own process's policy and environment; they do not
+query a running server's in-memory snapshot. If a file or environment changed,
+match the command result to the selected deployment and server restart evidence.
+The output includes all five route states, ledger availability, durable stop,
+unresolved reservations and process fault. Intentionally disabled routes are not
+an unconfigured-provider failure. A stopped or invalid control state exits
+nonzero, and `voice-health` also reports recorded control-stop failures.
 
 ## Enabled policy shape
 
@@ -44,6 +77,8 @@ Any enabled route requires `limits` with decimal-string `global_daily_usd` and
 ceiling includes every participant and task in this database, across policy
 changes. Per-participant means stable participant identity, not display name or
 the current credential. There is no implicit allowance for keyless calls.
+Retention also needs a storage estimate for the shared SQLite volume and its
+backups; a valid long duration is not evidence that the volume can hold it.
 
 Each enabled text route has all of these fields:
 
@@ -72,6 +107,10 @@ category for the reviewed request; use conservative maxima when a category has
 multiple possible rates. Unsupported billing features require another audited
 adapter contract. Files may disable individual tasks; a disabled moderation task
 holds text that needs classification.
+
+Enabled routes require positive input and output prices; cache prices may be
+zero when that is the reviewed rate. Policy validation rejects a zero-priced
+admission rather than allowing a typo to bypass the dollar ceiling.
 
 The offline check also requires the standard task timeout to fit the route:
 the adapter's configured/default timeout for voices and intention, and the
@@ -105,6 +144,10 @@ resolves participant identity, and checks both ceilings. The transaction ends
 before the one network attempt. The adapter captures URL, options, encoded body,
 key and timeout once; a later env change cannot redirect the approved request.
 There are no retries, redirects, environment proxies or alternate-provider fallback.
+Controlled dispatch assumes one server process per SQLite database. Before its
+first new call after startup, it checks unfinished prior reservations and, if
+any remain, records a durable reconciliation stop and abandoned markers. It
+does not infer those calls were free or resume merely because the process restarted.
 
 Consistent reported token counts can reduce the reservation. If cache writes are
 not split out, all known input is charged at the highest input/cache rate as a
@@ -121,16 +164,26 @@ the original full reservation remains durable. A database failure can prevent an
 anomaly latch from being persisted. Resolve the storage failure and reconcile
 before restarting; a restart is not an incident recovery procedure.
 
-Ledger rows contain opaque participant ids, route and frozen policy metadata,
-usage counts and money. They contain no player text, replies, keys, credential
-digests or IPs. Each row retains its selected deadline, so changing policy cannot
-shorten existing retention. Expired rows are pruned on reservation attempts and
-by an independent controlled-server worker every 60 seconds, after their original
-spending window has ended, including while the world is idle or dispatch is
-closed. The incident stop persists. While the server is stopped, removal and
-backup expiry remain operator responsibilities.
-Backup retention remains a separate decision; pruning the live ledger cannot
-delete its backup copies. Sentry local-variable capture is explicitly off.
+Ledger rows contain opaque participant ids, route metadata, usage counts and
+money, and reference shared frozen policy snapshots by digest. They contain no
+player text, replies, keys, credential digests or IPs. Each row retains its
+selected deadline, so changing policy cannot shorten existing retention.
+Terminal rows expire normally after their original spending window has ended.
+Unresolved reserved rows remain protected past nominal retention until startup
+reconciliation or `mark_settlement_fault` records a durable stop and an abandoned
+marker. Housekeeping must not delete an in-flight call or crash evidence, so
+`retain_until` is not a promise that every pending row physically disappears.
+Shared policy snapshots are collected when their last reservation expires.
+Pruning runs on reservation attempts and through an independent controlled-server
+worker every 60 seconds; the idle worker first reads without taking a writer
+lock and writes only when cleanup is needed. The incident stop persists. While
+the server is stopped, removal and backup expiry remain operator responsibilities.
+Whole-database backups retain ledger rows after live expiry. Backup retention is
+a separate decision, and the newest validated backup is protected from the
+ordinary prune even after that retention period. If no newer valid backup
+replaces it, the exception can last indefinitely; local and downloaded copies
+also require deletion. There is no finite erasure guarantee for all copies from
+`retain_until` alone. Sentry local-variable capture is explicitly off.
 
 This ledger bounds this installation's admitted calls under its declared prices
 and provider contract. It does not reconcile unrelated scripts/provider-console

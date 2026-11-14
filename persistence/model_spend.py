@@ -7,9 +7,12 @@ requests never acquire a refund by restarting the process.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from functools import wraps
+import hashlib
 import json
+from pathlib import Path
 import secrets
 import sqlite3
 from urllib.parse import urlsplit
@@ -19,7 +22,13 @@ from persistence import participants
 
 
 SQLITE_MAX = (1 << 63) - 1
+MAX_POLICY_JSON_CHARS = 65536
 _USAGE_FIELDS = frozenset({"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"})
+_STOP_REASONS = frozenset({"billing_anomaly", "accounting_fault", "unsettled_startup"})
+_TABLES = frozenset({"model_spend_reservations", "model_spend_policies", "model_spend_latch"})
+_EXPIRED = """day < ? AND retain_until < ? AND
+    (status <> 'reserved' OR (abandoned_at IS NOT NULL AND
+        EXISTS (SELECT 1 FROM model_spend_latch WHERE singleton=1)))"""
 
 
 class ModelSpendDenied(ValueError):
@@ -86,7 +95,7 @@ def _metadata(value, *, maximum: int = 2048) -> str:
 
 def _object_json(value, *, usage: bool = False) -> str:
     try:
-        if not isinstance(value, str) or len(value) > 65536:
+        if not isinstance(value, str) or len(value) > MAX_POLICY_JSON_CHARS:
             raise ValueError
         parsed = json.loads(value)
         if not isinstance(parsed, dict):
@@ -127,15 +136,87 @@ def _totals(conn, day: str, participant_id: str | None) -> tuple[int, int]:
 
 
 def _prune(conn, now: datetime) -> int:
-    return conn.execute("""DELETE FROM model_spend_reservations
-        WHERE day < ? AND retain_until < ?""",
-        (now.date().isoformat(), _stamp(now))).rowcount
+    removed = conn.execute("DELETE FROM model_spend_reservations WHERE " + _EXPIRED,
+                           (now.date().isoformat(), _stamp(now))).rowcount
+    conn.execute("""DELETE FROM model_spend_policies WHERE NOT EXISTS
+        (SELECT 1 FROM model_spend_reservations WHERE policy_digest=model_spend_policies.digest)""")
+    return removed
+
+
+@contextmanager
+def _readonly():
+    path = Path(db._DB_PATH)
+    if not path.is_file():
+        raise sqlite3.OperationalError("Accounting database is unavailable.")
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        conn.execute("BEGIN")
+        yield conn
+    finally:
+        conn.close()
+
+
+def _latch(conn, timestamp: str, reason: str) -> None:
+    conn.execute("""INSERT INTO model_spend_latch(singleton,latched_at,reason)
+        VALUES (1,?,?) ON CONFLICT(singleton) DO NOTHING""", (timestamp, reason))
+
+
+@_database_errors
+def check_unsettled_on_startup() -> bool:
+    """Run once before this controlled process reserves anything.
+
+    One controlled process per SQLite DB is supported. Pending rows from an
+    earlier process (or a second process sharing this DB) require operator
+    reconciliation; they are not mistaken for this process's concurrent calls.
+    """
+    _outside_transaction()
+    with db.transaction() as conn:
+        if conn.execute("SELECT 1 FROM model_spend_reservations WHERE status='reserved' LIMIT 1").fetchone():
+            timestamp = _stamp(_now())
+            _latch(conn, timestamp, "unsettled_startup")
+            conn.execute("""UPDATE model_spend_reservations SET abandoned_at=COALESCE(abandoned_at,?)
+                WHERE status='reserved'""", (timestamp,))
+        return conn.execute("SELECT 1 FROM model_spend_latch WHERE singleton=1").fetchone() is not None
+
+
+@_database_errors
+def mark_settlement_fault(reservation_id: str) -> None:
+    """Persist a stop after settlement fails; retain the original full charge.
+
+    If storage itself is unavailable this can fail too. The reservation stays
+    protected from pruning and the next process's startup scan refuses dispatch.
+    """
+    _outside_transaction()
+    _metadata(reservation_id, maximum=128)
+    with db.transaction() as conn:
+        timestamp = _stamp(_now())
+        _latch(conn, timestamp, "accounting_fault")
+        # A table-specific write fault must not roll back the independent stop.
+        # An unmarked row remains protected until startup can reconcile it.
+        conn.execute("SAVEPOINT model_spend_abandon")
+        try:
+            conn.execute("""UPDATE model_spend_reservations SET abandoned_at=COALESCE(abandoned_at,?)
+                WHERE id=? AND status='reserved'""", (timestamp, reservation_id))
+        except sqlite3.Error:
+            conn.execute("ROLLBACK TO model_spend_abandon")
+        conn.execute("RELEASE model_spend_abandon")
 
 
 @_database_errors
 def prune_expired() -> int:
     """Housekeeping needs no dispatch or live key; each row owns its deadline."""
     _outside_transaction()
+    if not Path(db._DB_PATH).is_file():
+        return 0
+    # Do not acquire the single writer every minute when there is no work.
+    now = _now()
+    with _readonly() as conn:
+        expired = conn.execute("SELECT 1 FROM model_spend_reservations WHERE " + _EXPIRED + " LIMIT 1",
+                               (now.date().isoformat(), _stamp(now))).fetchone()
+        orphan = conn.execute("""SELECT 1 FROM model_spend_policies WHERE NOT EXISTS
+            (SELECT 1 FROM model_spend_reservations WHERE policy_digest=model_spend_policies.digest) LIMIT 1""").fetchone()
+    if not expired and not orphan:
+        return 0
     with db.transaction() as conn:
         return _prune(conn, _now())
 
@@ -157,6 +238,7 @@ def reserve(*, user_key: str, reserved_microusd: int,
     participant_limit = _integer(participant_limit_microusd)
     retention = _integer(retention_days, minimum=2)
     policy = _object_json(policy_snapshot)
+    policy_digest = hashlib.sha256(policy.encode("utf-8")).hexdigest()
     task = _metadata(task)
     adapter = _metadata(adapter)
     endpoint = _metadata(endpoint)
@@ -194,12 +276,18 @@ def reserve(*, user_key: str, reserved_microusd: int,
             if refusal:
                 conn.execute("ROLLBACK TO model_spend_enrollment")
             else:
+                conn.execute("""INSERT INTO model_spend_policies(digest,policy_json,created_at)
+                    VALUES (?,?,?) ON CONFLICT(digest) DO NOTHING""", (policy_digest, policy, timestamp))
+                stored = conn.execute("SELECT policy_json FROM model_spend_policies WHERE digest=?",
+                                      (policy_digest,)).fetchone()[0]
+                if stored != policy:
+                    raise ModelSpendDenied("The model policy accounting record is inconsistent.")
                 conn.execute("""INSERT INTO model_spend_reservations
-                    (id,day,participant_id,task,adapter,endpoint,requested_model,policy_json,
+                    (id,day,participant_id,task,adapter,endpoint,requested_model,policy_digest,
                      reserved_microusd,accounted_microusd,status,created_at,retention_days,retain_until)
                     VALUES (?,?,?,?,?,?,?,?,?,?,'reserved',?,?,?)""",
                     (reservation_id, day, participant_id, task, adapter, endpoint, model,
-                     policy, amount, amount, timestamp, retention, retain_until))
+                     policy_digest, amount, amount, timestamp, retention, retain_until))
             conn.execute("RELEASE model_spend_enrollment")
     if refusal:
         raise refusal
@@ -220,19 +308,20 @@ def settle(reservation_id: str, *, actual_microusd: int | None,
     usage = _object_json(usage_json, usage=True) if usage_json is not None else None
     resolved = _metadata(resolved_model) if resolved_model is not None else None
     with db.transaction() as conn:
-        row = conn.execute("""SELECT reserved_microusd,status
+        row = conn.execute("""SELECT reserved_microusd,status,abandoned_at
             FROM model_spend_reservations WHERE id=?""", (reservation_id,)).fetchone()
         if row is None:
             raise ModelSpendDenied("The model reservation is unavailable.")
-        reserved, current_status = row
+        reserved, current_status, abandoned_at = row
         if current_status != "reserved":
             return
+        if abandoned_at is not None:
+            raise ModelSpendDenied("The model reservation requires accounting reconciliation.")
         timestamp = _stamp(_now())
         anomalous = anomaly or (actual_microusd is not None and actual_microusd > reserved)
         if anomalous:
             accounted, status = max(reserved, actual_microusd or 0), "anomaly"
-            conn.execute("""INSERT INTO model_spend_latch(singleton,latched_at,reason)
-                VALUES (1,?,'billing_anomaly') ON CONFLICT(singleton) DO NOTHING""", (timestamp,))
+            _latch(conn, timestamp, "billing_anomaly")
         elif actual_microusd is None:
             accounted, status = reserved, "uncertain"
         else:
@@ -242,20 +331,39 @@ def settle(reservation_id: str, *, actual_microusd: int | None,
             (accounted, status, usage, resolved, timestamp, reservation_id))
 
 
-@_database_errors
 def status(*, user_key: str | None = None) -> dict:
-    """Read totals without enrollment, reservations, settlement or expiry cleanup."""
-    db.init_db()
+    """Inspect committed accounting without creating, migrating or changing it."""
     day = _now().date().isoformat()
-    with db._connection() as conn:
-        participant_id = None
-        if user_key is not None:
-            digest = _live_digest(conn, user_key)
-            row = conn.execute("""SELECT participant_id FROM participant_credentials
-                WHERE credential_digest=?""", (digest,)).fetchone()
-            participant_id = row[0] if row else None
-        global_spent, participant_spent = _totals(conn, day, participant_id)
-        latched = conn.execute("SELECT 1 FROM model_spend_latch WHERE singleton=1").fetchone() is not None
-    return {"day": day, "global_accounted_microusd": global_spent,
-            "participant_accounted_microusd": participant_spent if user_key is not None else None,
-            "latched": latched}
+    result = {"day": day, "global_accounted_microusd": None,
+              "participant_accounted_microusd": None, "latched": None,
+              "stop_reason": None, "unresolved_reservations": None,
+              "abandoned_reservations": None, "storage_error": False, "ledger_state": "absent"}
+    try:
+        if not Path(db._DB_PATH).exists():
+            return result
+        with _readonly() as conn:
+            present = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not _TABLES <= present:
+                version = (conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
+                           if "schema_version" in present else None)
+                if not _TABLES & present and (version is None or version < 32):
+                    return {**result, "ledger_state": "uninitialized"}
+                raise sqlite3.OperationalError("Accounting schema is unavailable.")
+            participant_id = None
+            if user_key is not None:
+                digest = _live_digest(conn, user_key)
+                row = conn.execute("""SELECT participant_id FROM participant_credentials
+                    WHERE credential_digest=?""", (digest,)).fetchone()
+                participant_id = row[0] if row else None
+            global_spent, participant_spent = _totals(conn, day, participant_id)
+            latch = conn.execute("SELECT reason FROM model_spend_latch WHERE singleton=1").fetchone()
+            unresolved, abandoned = conn.execute("""SELECT COUNT(*),COUNT(abandoned_at)
+                FROM model_spend_reservations WHERE status='reserved'""").fetchone()
+            return {**result, "global_accounted_microusd": global_spent,
+                    "participant_accounted_microusd": participant_spent if user_key is not None else None,
+                    "latched": latch is not None,
+                    "stop_reason": (latch[0] if latch[0] in _STOP_REASONS else "accounting_fault") if latch else None,
+                    "unresolved_reservations": unresolved, "abandoned_reservations": abandoned,
+                    "ledger_state": "ready"}
+    except (OSError, sqlite3.Error):
+        return {**result, "ledger_state": "unavailable", "storage_error": True}

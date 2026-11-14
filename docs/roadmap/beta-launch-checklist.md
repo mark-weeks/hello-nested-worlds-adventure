@@ -19,12 +19,15 @@ S2, E2 and L4 go/no-go line), and on 2026-11-10 for review corrections
 (S2 and L4 evidence, and the held rows for destinations, puzzle failure and
 the watch venue; no status change); line numbers in other rows cite `23b8830`.
 The 2026-11-10 personal-block reconciliation updates C7/G1 and the P6 migration range.
-The 2026-11-11 control batch updates S2 evidence and moves E2 to Partial; all live decisions remain open.
 Thresholds marked as proposals are not decided.
 Decisions held for the owner are listed in this page and are not made by
 recording it. It ratifies no ADR and authorizes no deployment. The [Q4
 plan](next-steps-2026-q4.md) governs order; this checklist governs exit
 criteria.*
+
+The 2026-11-11 control batch updates S2 evidence and moves E2 to Partial; all live
+decisions remain open. This is separate from the pending backup-cadence changes
+in #171; recount against the merged base when either branch is integrated.
 
 What must be true before 8 to 12 invited people play Enfolded. Each item has a testable exit criterion and a status grounded in the repo at main `23b8830`.
 

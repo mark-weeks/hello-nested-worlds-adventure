@@ -1,10 +1,21 @@
 # ADR-039: Controlled staging model dispatch and dollar reservations
 
-**Status:** Proposed for this implementation's review, 2026-11-11. The owner
-authorized proceeding with the remaining staging controls. This record prepares
-the machinery; it approves no provider destination, account terms, dollar amount,
-retention period, or live deployment. Those values remain explicit operator
-decisions. ADR-034 and the existing world covenants still govern.
+**Status:** Proposed for this implementation's review, 2026-11-11.
+Implementation was requested in the working session; that request is unverified
+from the repository and does not independently ratify this ADR. This record
+prepares machinery and approves no provider destination, account terms, dollar
+amount, retention period, migration, or live deployment. ADR-034 and the existing
+world covenants still govern.
+
+**Open owner decision:** which adapter and vendor receive the first controlled
+live path. The implementation currently supports only the built-in
+`openai_compatible` Chat Completions adapter; ADR-035 remains Proposed.
+Every Fly app using the committed configuration, production included, requires
+controlled mode and starts with all external routes off. Live hosted voice is
+blocked until ADR-035 is accepted or a controlled Anthropic path exists, and the
+destination/account terms, model, prices, dollar amounts and retention are
+approved. This implementation does not settle that adapter/vendor choice or
+authorize changing the hosted all-off posture.
 
 ## Context
 
@@ -34,7 +45,7 @@ policies also supply global and per-participant daily USD ceilings and operation
 ledger retention. These declarations require review; a valid file does not prove
 remote behavior, pricing, account terms, or owner approval.
 
-The first controlled transport is the built-in OpenAI-compatible adapter, making
+The implemented controlled transport is the built-in OpenAI-compatible adapter, making
 one POST without retries, redirects or environment proxies. Validate the captured
 settings and request before transmission. Bind a single-use task/credential scope
 to the ordinary runtime; direct adapters, wrappers, probes and keyless calls
@@ -60,14 +71,23 @@ this batch supplies no automatic refund or unlatch.
 
 The ledger stores opaque participant ids, dispatch metadata, frozen policy/prices,
 usage counts and money only, never prompts, completions, credentials, credential
-digests or IPs. Each row carries its chosen retention deadline; a later policy
-cannot shorten it. Expired rows can be pruned only after their spending day has
-ended; an independent controlled-server worker applies their deadlines while
-idle or closed. An accounting write failure stops that process's later calls and
+digests or IPs. Reservations reference deduplicated policy snapshots by digest.
+Each row carries its chosen retention deadline; a later policy cannot shorten it.
+Terminal rows expire after their spending day has ended. Unresolved reserved rows
+remain protected beyond their deadline until startup reconciliation or
+`mark_settlement_fault` records both a durable stop and an abandoned marker.
+This preserves in-flight and crash evidence; housekeeping does not guarantee
+every pending row disappears at `retain_until`. A policy snapshot is collected
+when its last reservation expires. The independent retention worker first checks
+for eligible rows without a writer lock, including while idle or closed.
+An accounting write failure stops that process's later calls and
 retains its reservation, but cannot guarantee a stored anomaly latch while the
-database cannot commit. Sentry local-variable capture is disabled to keep prepared request state
-out of crash reports. This is separate from the owner's chat-log choice; chat
-retention is not implemented or decided here.
+database cannot commit. Whole-database backups retain ledger rows beyond their
+live expiry. The backup prune keeps the newest validated copy even when it is
+older than the chosen backup retention; without replacement or separate deletion,
+that exception can be indefinite. Live expiry therefore promises no finite erasure
+date for all copies. Sentry local-variable capture is disabled to keep prepared
+request state out of crash reports. This batch does not implement chat retention.
 
 ## Trade-offs accepted
 
@@ -76,6 +96,12 @@ retention is not implemented or decided here.
   not a characters-per-token guess. This must be assessed before live activation.
 - This initial controlled adapter coverage is deliberately limited. It is not
   evidence that either provider candidate has passed evaluation.
+- One server process owns a SQLite ledger. Its first dispatch after startup
+  checks prior unfinished reservations and latches reconciliation before any new
+  call; this is not coordination for multiple concurrent server processes.
+- Operator CLIs freeze policy in their own command process. Their output is not
+  proof of a running server's older in-memory policy after a file edit; match it
+  to deployment/restart evidence before diagnosing an active route.
 - The ceiling covers this installation and ledger. Other tools, provider-console
   activity, price changes, remote billing anomalies and restoration of an older
   database require separate reconciliation. Disable external calls before restore

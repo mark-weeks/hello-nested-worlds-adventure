@@ -17,8 +17,9 @@ Fly.io or the network.
 
 A third part runs runbook §3a's and §8's terminal commands as written: the
 staging mint and revoke lines through bash and the fly stub's `-C` split
-into `main.py`, and the live-voice probe's curl lines replayed against an
-in-process server with a stub provider.
+into `main.py`, and the all-off voice probe's curl lines replayed against an
+in-process server with provider lookup forbidden. Keys and a cleared text
+switch cannot grant routes absent from the frozen startup policy.
 
 PyYAML is not a dependency (requirements-dev.lock), so a small loader below
 reads the block-style subset this workflow uses and raises on anything
@@ -27,7 +28,6 @@ misread.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -1377,13 +1377,25 @@ def _replay_curl(command: str, base: str, *, check_key: str, other_key: str,
         return response.status, response.read().decode(), rest
 
 
-def test_runbook_voice_probes_default_quiet_and_live_check_key_only(live_server, monkeypatch):
+def test_runbook_voice_probes_remain_controlled_off_and_check_key_only(live_server, monkeypatch):
+    from consciousness import model_policy, runtime
     from server import guard
-    from tests.test_model_provenance import Stub, _enable
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("an all-off runbook probe resolved a model provider")
+
     check_key, tester_key = "nw_" + "c" * 32, "nw_" + "d" * 32
     persistence.mint_invite_key(check_key, _check_name())
     persistence.mint_invite_key(tester_key, "Jane Doe", note="disposable staging watch")
-    _enable(monkeypatch, Stub("A voice from the stub provider."))
+    monkeypatch.setenv(model_policy.REQUIRED_ENV, "1")
+    monkeypatch.setenv("NESTED_WORLDS_DISABLE_AI", "1")
+    monkeypatch.setenv("NESTED_WORLDS_DISABLE_IMAGES", "1")
+    monkeypatch.delenv(model_policy.POLICY_ENV, raising=False)
+    monkeypatch.delenv("NESTED_WORLDS_TEST_WORLD", raising=False)
+    monkeypatch.setattr(runtime, "provider_for", forbidden)
+    monkeypatch.setattr(runtime, "get_provider", forbidden)
+    frozen = model_policy.initialize()
+    assert frozen.enabled_routes == ()
     # The gate stamps last_used_at on a key's first use in a process; start
     # with no key remembered, so each key's first use here is recorded.
     monkeypatch.setattr(guard, "_touch_cache", {})
@@ -1409,31 +1421,59 @@ def test_runbook_voice_probes_default_quiet_and_live_check_key_only(live_server,
     # The probe itself, as §3a step 7 and §8 write it.
     probes = [c for c in commands if c.startswith("curl ") and "/speak" in c]
     assert len(probes) >= 2, probes
-    live_probes = 0
-    for command in probes:
-        # The initial watch is authored silence; §8's live check has its
-        # own approval/configuration prerequisites. Both use the check key.
-        pipe = shlex.split(command)
-        expected_live = pipe[-1] == '"ai": true'
-        monkeypatch.setenv("NESTED_WORLDS_DISABLE_AI", "0" if expected_live else "1")
-        status, raw, rest = _replay_curl(
-            command, live_server, place=place, **keys)
-        assert status == 200, raw
-        assert rest[:2] == ["grep", "-o"], rest
-        printed = subprocess.run(rest, input=raw, text=True, capture_output=True, check=True)
-        assert printed.stdout.strip() == rest[2]
-        assert json.loads(raw)["ai"] is expected_live
-        live_probes += expected_live
-    assert 0 < live_probes < len(probes)
+    # Replay the gated activation example's actual assignment and its
+    # remote printenv command locally; no Fly service is contacted.
+    activations = [shlex.split(c) for c in commands
+                   if c.startswith("fly secrets set ") and "NESTED_WORLDS_DISABLE_AI=0" in c]
+    assert activations == [["fly", "secrets", "set", "-a", _STAGING,
+                            "NESTED_WORLDS_DISABLE_AI=0"]]
+    verification = [c for c in commands if c.startswith(f"fly ssh console -a {_STAGING} -C ")
+                    and _remote_words(c) == ["printenv", "NESTED_WORLDS_DISABLE_AI"]]
+    assert len(verification) == 1, verification
+    for keys_appeared in (False, True):
+        if keys_appeared:
+            monkeypatch.setenv("ANTHROPIC_API_KEY", "fixture-key-added-after-startup")
+            monkeypatch.setenv("NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY", "fixture-compatible-key")
+            # Explicit 0 overrides fly.toml's switch, but grants no route.
+            name, value = activations[0][-1].split("=", 1)
+            monkeypatch.setenv(name, value)
+            printed = subprocess.run(_remote_words(verification[0]), text=True,
+                                     capture_output=True, check=True)
+            assert printed.stdout.strip() == "0"
+        for command in probes:
+            status, raw, rest = _replay_curl(
+                command, live_server, place=place, **keys)
+            assert status == 200, raw
+            assert rest == ["grep", "-o", '"ai": false'], rest
+            printed = subprocess.run(rest, input=raw, text=True, capture_output=True, check=True)
+            assert printed.stdout.strip() == '"ai": false'
+            assert json.loads(raw)["ai"] is False
+        assert model_policy.current() is frozen
 
-    identity = hashlib.sha256(check_key.encode()).hexdigest()[:16]
+    # A future live predicate cannot pass against the present all-off
+    # permission, even after credentials and DISABLE_AI=0 appear.
+    status, raw, rest = _replay_curl(probes[-1], live_server, place=place, **keys)
+    assert status == 200
+    live_predicate = subprocess.run([*rest[:2], '"ai": true'], input=raw,
+                                    text=True, capture_output=True, check=False)
+    assert live_predicate.returncode == 1 and live_predicate.stdout == ""
+
+    # The same documented requests with an invalid key must still be
+    # rejected, rather than confusing authored silence with public access.
+    for command in (*finders, *probes):
+        assert "X-Beta-Key: <check key>" in command
+        status, _raw, _rest = _replay_curl(
+            command.replace("X-Beta-Key: <check key>", "X-Beta-Key: invalid-fixture-key"),
+            live_server, place=place, **keys)
+        assert status == 403
+
     with persistence._connect() as conn:
         spoken = conn.execute(
             """SELECT node_name, player_name, actor_identity FROM world_mutations
                WHERE mutation_type = 'PLAYER_SPEAK'""").fetchall()
-    # Only the live check writes, under the check key's name and identity;
-    # the default quiet check and tester leave no spoken rows.
-    assert spoken == [(place, _check_name(), identity)] * live_probes
+    # An all-off rehearsal authors no model reply and writes no speech row.
+    # The tester's credential remains entirely unused.
+    assert spoken == []
     # And no documented line presented the tester's key at all: the gate
     # recorded the check key's use and never the tester's.
     used = {row["name"]: row["last_used_at"]

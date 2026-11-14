@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -37,7 +40,7 @@ def reserve(key, amount=10, **overrides):
     return spend.reserve(**reservation_options(key, amount, **overrides))
 
 
-def cold_reserve(options, clock):
+def cold_reserve(options, clock, *, startup=False):
     """A separate interpreter reads the same DB, with no inherited module state."""
     script = """
 from datetime import datetime
@@ -48,6 +51,8 @@ from persistence import model_spend as spend
 db._DB_PATH = Path(os.environ['ENFOLDED_LEDGER_TEST_DB'])
 spend.utc_now = lambda: datetime.fromisoformat(os.environ['ENFOLDED_LEDGER_TEST_NOW'])
 request = json.loads(os.environ['ENFOLDED_LEDGER_TEST_REQUEST'])
+if os.environ['ENFOLDED_LEDGER_TEST_STARTUP'] == '1':
+    spend.check_unsettled_on_startup()
 try:
     result = {'id': spend.reserve(**request)}
 except spend.ModelSpendDenied as exc:
@@ -57,6 +62,7 @@ print(json.dumps(result))
 """
     env = {**os.environ, "ENFOLDED_LEDGER_TEST_DB": str(db._DB_PATH),
            "ENFOLDED_LEDGER_TEST_NOW": clock.now.isoformat(),
+           "ENFOLDED_LEDGER_TEST_STARTUP": "1" if startup else "0",
            "ENFOLDED_LEDGER_TEST_REQUEST": json.dumps(options)}
     result = subprocess.run([sys.executable, "-c", script], env=env,
                             check=True, capture_output=True, text=True, timeout=10)
@@ -72,7 +78,8 @@ def settle(reservation, actual=None, **overrides):
 def rows():
     db.init_db()
     with db._connection() as conn:
-        cursor = conn.execute("SELECT * FROM model_spend_reservations ORDER BY created_at,id")
+        cursor = conn.execute("""SELECT r.*,p.policy_json FROM model_spend_reservations r
+            JOIN model_spend_policies p ON p.digest=r.policy_digest ORDER BY r.created_at,r.id""")
         names = [column[0] for column in cursor.description]
         return [dict(zip(names, row)) for row in cursor]
 
@@ -101,7 +108,9 @@ def test_complete_usage_releases_only_the_unused_reservation(accounts, clock):
     assert saved["resolved_model"] == "fixture resolved model"
     assert spend.status(user_key=accounts[0]) == {
         "day": "2026-01-01", "global_accounted_microusd": 7,
-        "participant_accounted_microusd": 7, "latched": False}
+        "participant_accounted_microusd": 7, "latched": False,
+        "stop_reason": None, "unresolved_reservations": 0, "abandoned_reservations": 0,
+        "storage_error": False, "ledger_state": "ready"}
     reserve(accounts[0], 43)  # The refund is reusable, without a second bucket.
     with pytest.raises(spend.ParticipantLimitExceeded):
         reserve(accounts[0], 1)
@@ -257,7 +266,10 @@ def test_anomaly_latches_all_routes_days_and_policies_persistently(accounts, clo
     # Denied live attempts still prune expired rows, never the independent latch.
     assert rows() == []
     assert spend.status() == {"day": "2026-01-05", "global_accounted_microusd": 0,
-                              "participant_accounted_microusd": None, "latched": True}
+                              "participant_accounted_microusd": None, "latched": True,
+                              "stop_reason": "billing_anomaly", "unresolved_reservations": 0,
+                              "abandoned_reservations": 0, "storage_error": False,
+                              "ledger_state": "ready"}
     assert enrolled() == (1, 1)
 
 
@@ -321,6 +333,7 @@ def test_clock_is_read_after_waiting_for_the_writer_lock(accounts, clock, monkey
 def test_retention_belongs_to_each_row_and_reads_settlement_do_not_prune(accounts, clock):
     long_lived = reserve(accounts[0], 3, retention_days=10)
     short_lived = reserve(accounts[0], 3, retention_days=2)
+    settle(short_lived, 3)
     clock.now += timedelta(days=3)
     assert spend.status()["global_accounted_microusd"] == 0
     settle(long_lived, 1)
@@ -342,7 +355,10 @@ def test_idle_housekeeping_needs_no_key_and_keeps_current_day_and_latch(accounts
     expired = reserve(accounts[0], 10)
     settle(expired, 12)
     clock.now += timedelta(days=3)
-    assert spend.prune_expired() == 2
+    assert spend.prune_expired() == 1
+    assert [item["id"] for item in rows()] == [today]  # A concurrent in-flight row stays protected.
+    assert spend.check_unsettled_on_startup() is True
+    assert spend.prune_expired() == 1
     assert rows() == [] and spend.status()["latched"] is True
     assert spend.prune_expired() == 0
 
@@ -447,3 +463,182 @@ def test_failed_insert_rolls_back_first_use_enrollment(accounts, clock):
     with pytest.raises(spend.ModelSpendDenied, match="accounting is unavailable"):
         reserve(accounts[0])
     assert rows() == [] and enrolled() == (0, 0)
+
+
+def test_startup_scan_precedes_live_reserves_and_does_not_stop_normal_concurrency(accounts, clock):
+    assert spend.check_unsettled_on_startup() is False
+    first = reserve(accounts[0], 10)
+    second = reserve(accounts[1], 10)
+    current = spend.status()
+    assert current["latched"] is False and current["unresolved_reservations"] == 2
+    assert current["abandoned_reservations"] == 0
+    settle(first, 4)
+    settle(second, None)
+    assert spend.status()["unresolved_reservations"] == 0
+    assert spend.status()["latched"] is False
+
+
+def test_failed_settlement_persists_stop_even_if_reservation_updates_fail(accounts, clock):
+    rid = reserve(accounts[0], 10)
+    with db.transaction() as conn:
+        conn.execute("""CREATE TRIGGER reject_settlement BEFORE UPDATE ON model_spend_reservations
+            BEGIN SELECT RAISE(ABORT, 'private injected storage detail'); END""")
+    with pytest.raises(spend.ModelSpendDenied):
+        settle(rid, 1)
+    spend.mark_settlement_fault(rid)
+    current = spend.status()
+    assert current["latched"] is True and current["stop_reason"] == "accounting_fault"
+    assert current["unresolved_reservations"] == 1 and current["abandoned_reservations"] == 0
+    assert row(rid)["accounted_microusd"] == 10
+    cold = cold_reserve(reservation_options(accounts[1], 0), clock)
+    assert cold["denied"] == "SpendLatched"
+    assert "private" not in json.dumps(cold)
+
+
+def test_unavailable_fault_storage_leaves_pending_row_for_a_durable_startup_stop(accounts, clock, monkeypatch):
+    rid = reserve(accounts[0], 10)
+
+    @contextmanager
+    def unavailable():
+        raise sqlite3.OperationalError("private storage detail")
+        yield  # pragma: no cover
+
+    with monkeypatch.context() as patch:
+        patch.setattr(db, "transaction", unavailable)
+        with pytest.raises(spend.ModelSpendDenied):
+            spend.mark_settlement_fault(rid)
+    assert spend.status()["latched"] is False
+    assert row(rid)["accounted_microusd"] == 10
+    clock.now += timedelta(days=4)
+    assert spend.prune_expired() == 0  # Expiry cannot erase the only crash evidence.
+    assert row(rid)["status"] == "reserved"
+    cold = cold_reserve(reservation_options(accounts[1], 0), clock, startup=True)
+    assert cold["denied"] == "SpendLatched"
+    assert cold["status"]["stop_reason"] == "unsettled_startup"
+    assert rows() == []  # Expired records may go only after the independent stop commits.
+    assert spend.status()["latched"] is True
+
+
+def test_startup_marks_previous_pending_rows_without_refund_or_silent_resumption(accounts, clock):
+    rid = reserve(accounts[0], 10)
+    cold = cold_reserve(reservation_options(accounts[1], 0), clock, startup=True)
+    assert cold["denied"] == "SpendLatched"
+    assert cold["status"]["unresolved_reservations"] == 1
+    assert cold["status"]["abandoned_reservations"] == 1
+    saved = row(rid)
+    assert saved["status"] == "reserved" and saved["accounted_microusd"] == 10
+    assert saved["abandoned_at"] is not None
+    with pytest.raises(spend.ModelSpendDenied, match="reconciliation"):
+        settle(rid, 0)
+    assert row(rid) == saved
+    assert spend.check_unsettled_on_startup() is True
+
+
+def test_canonical_policy_snapshots_are_deduplicated_and_not_repeated_in_reservations(accounts, clock):
+    policy = {"policy": "海の灯り", "nested": {"b": 2, "a": 1}}
+    first = reserve(accounts[0], 1, policy_snapshot=json.dumps(policy, ensure_ascii=True))
+    second = reserve(accounts[1], 1, policy_snapshot=json.dumps(policy, ensure_ascii=False, sort_keys=True, indent=2))
+    canonical = json.dumps(policy, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    assert row(first)["policy_digest"] == row(second)["policy_digest"] == digest
+    with db._connection() as conn:
+        assert conn.execute("SELECT digest,policy_json FROM model_spend_policies").fetchall() == [(digest, canonical)]
+        assert "policy_json" not in {column[1] for column in conn.execute("PRAGMA table_info(model_spend_reservations)")}
+    with pytest.raises(spend.GlobalLimitExceeded):
+        reserve(accounts[0], 1, policy_snapshot='{"policy":"refused"}', global_limit_microusd=0)
+    with db._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM model_spend_policies").fetchone()[0] == 1
+
+
+def test_shared_policy_survives_until_its_last_reservation_expires(accounts, clock):
+    short = reserve(accounts[0], 1, retention_days=2)
+    long = reserve(accounts[1], 1, retention_days=10)
+    settle(short, 1)
+    settle(long, 1)
+    clock.now += timedelta(days=3)
+    assert spend.prune_expired() == 1
+    assert [item["id"] for item in rows()] == [long]
+    with db._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM model_spend_policies").fetchone()[0] == 1
+    clock.now += timedelta(days=8)
+    assert spend.prune_expired() == 1 and rows() == []
+    with db._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM model_spend_policies").fetchone()[0] == 0
+
+
+def test_idle_prune_does_not_wait_for_the_writer_when_nothing_can_expire(accounts, clock):
+    reserve(accounts[0], 1)
+    writer = db._connect()
+    writer.execute("BEGIN IMMEDIATE")
+    outcome = {}
+
+    def prune():
+        try:
+            outcome["removed"] = spend.prune_expired()
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=prune)
+    worker.start()
+    try:
+        worker.join(1)
+        assert not worker.is_alive(), "An idle prune waited on the single writer."
+        assert outcome == {"removed": 0}
+    finally:
+        writer.rollback()
+        writer.close()
+        worker.join(5)
+
+
+def test_idle_prune_removes_orphan_policy_rows_without_any_reservation(accounts, clock):
+    rid = reserve(accounts[0], 1)
+    settle(rid, 1)
+    with db.transaction() as conn:
+        conn.execute("DELETE FROM model_spend_reservations WHERE id=?", (rid,))
+    assert spend.prune_expired() == 0
+    with db._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM model_spend_policies").fetchone()[0] == 0
+
+
+def test_status_of_absent_database_is_read_only_and_not_a_storage_outage(clock):
+    path = db._DB_PATH
+    assert not path.exists()
+    current = spend.status()
+    assert current["ledger_state"] == "absent" and current["storage_error"] is False
+    assert current["global_accounted_microusd"] is None and current["latched"] is None
+    assert not path.exists()
+
+
+def test_status_does_not_migrate_a_readable_older_database(clock):
+    with sqlite3.connect(db._DB_PATH) as conn:
+        conn.executescript("""CREATE TABLE schema_version(version INTEGER PRIMARY KEY);
+            INSERT INTO schema_version VALUES (31);
+            CREATE TABLE retained(value TEXT);
+            INSERT INTO retained VALUES ('leave this unchanged');""")
+    before = db._DB_PATH.read_bytes()
+    current = spend.status()
+    assert current["ledger_state"] == "uninitialized" and current["storage_error"] is False
+    assert current["global_accounted_microusd"] is None
+    assert db._DB_PATH.read_bytes() == before
+    with sqlite3.connect(db._DB_PATH) as conn:
+        assert conn.execute("SELECT version FROM schema_version").fetchall() == [(31,)]
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name LIKE 'model_spend%'").fetchall() == []
+
+
+def test_status_reports_corrupt_or_partial_accounting_without_private_error_text(clock):
+    db._DB_PATH.write_bytes(b"private corrupt database contents")
+    current = spend.status()
+    assert current["ledger_state"] == "unavailable" and current["storage_error"] is True
+    assert current["latched"] is None and "private" not in json.dumps(current)
+    db._DB_PATH.unlink()
+    with sqlite3.connect(db._DB_PATH) as conn:
+        conn.executescript("CREATE TABLE model_spend_latch(singleton INTEGER PRIMARY KEY, reason TEXT);")
+    current = spend.status()
+    assert current["ledger_state"] == "unavailable" and current["storage_error"] is True
+
+
+def test_status_reports_missing_tables_in_schema_32_as_storage_failure(clock):
+    with sqlite3.connect(db._DB_PATH) as conn:
+        conn.executescript("CREATE TABLE schema_version(version INTEGER); INSERT INTO schema_version VALUES(32);")
+    current = spend.status()
+    assert current["ledger_state"] == "unavailable" and current["storage_error"] is True

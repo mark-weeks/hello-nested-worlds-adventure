@@ -240,6 +240,9 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     except persistence.SchemaTooNewError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1)
+    if policy is not None:
+        from consciousness import model_dispatch
+        model_dispatch.initialize_accounting()
     server = _ThreadedServer((host, port), _Handler)
 
     # The world heartbeat: ambient agent life that runs whether or not

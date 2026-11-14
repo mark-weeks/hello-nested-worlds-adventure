@@ -242,6 +242,20 @@ class TokenUsage:
     cache_write_tokens: int | None = None
 
 
+@dataclass(frozen=True)
+class BillingEvidence:
+    """Known billing bounds independent of an incomplete priceable split.
+
+    A missing counter is unknown. Invalid or contradictory reported counters
+    make ``consistent`` false. These fields never contain provider payloads.
+    """
+
+    prompt_tokens: int | None = None
+    output_tokens_lower_bound: int | None = None
+    consistent: bool = True
+    total_tokens: int | None = None
+
+
 class NoTextError(ValueError):
     """Safe diagnostic containing only normalized completion metadata."""
 
@@ -254,6 +268,7 @@ class Completion:
     finish_reason: str = "unknown"
     resolved_model: str | None = None
     provider: str | None = None
+    billing_evidence: BillingEvidence | None = None
 
     def require_text(self) -> str:
         # Preserve voice behavior for partial text; only a missing block fails.
@@ -855,7 +870,10 @@ def configured(task: str | None = None) -> bool:
         except model_policy.ModelPolicyError:
             return False
         if (policy is None or task not in policy.routes
-                or os.getenv("NESTED_WORLDS_DISABLE_AI", "").strip() == "1"):
+                or (task != MODERATION_TASK
+                    and os.getenv("NESTED_WORLDS_DISABLE_AI", "").strip() == "1")
+                or (task == MODERATION_TASK
+                    and os.getenv("NESTED_WORLDS_DISABLE_MODERATION", "").strip() == "1")):
             return False
     provider = provider_for(task) if task else get_provider()
     return provider.configured()
@@ -982,11 +1000,7 @@ def generate(*, endpoint: str, model: str, system: tuple[SystemBlock, ...],
     one wall-clock deadline; its module says which. Nothing here retries.
     """
     from consciousness import model_dispatch
-    from consciousness import model_policy
-    if model_policy.active():
-        # A disabled task needs no adapter/SDK/model configuration, including
-        # after a key or invalid provider selector appears in the environment.
-        model_policy.route_for(task, model, max_tokens)
+    model_dispatch.preflight(task, user_key, max_tokens=max_tokens, model=model)
     require_model_id(model)
     provider = provider_for(task) if task else get_provider()
     model_dispatch.validate_runtime_call(provider, task, model, user_key, max_tokens)

@@ -7,13 +7,13 @@ the reporting/chat-retention batch.
 
 ## Decision boundary
 
-The owner asked us to proceed in the recommended sequence and asked for provider
-and spending-limit recommendations. The proposed $15/day global ceiling was
-questioned as an annual cost estimate. It is **not an approved setting**. The
+Implementation and provider/spending recommendations were requested in the working
+session; that session attribution is unverified from this repository. The proposed
+$15/day global ceiling is **not an approved setting**. The
 checked-in example therefore disables every route and chooses no endpoint,
-price, amount or retention period. The owner's separate choice of an operator-only
-chat log with a retention window does not select a window length and is not
-implemented by this accounting ledger.
+price, amount or retention period. This accounting ledger does not implement chat
+storage or decide its retention; a new player-data destination needs a separate
+scoped decision under ADR-034 §5.
 
 [ADR-039](../decisions/ADR-039-controlled-model-spend.md) records the bounded
 architecture. [The control guide](../development/model-policy.md) describes the
@@ -108,7 +108,8 @@ file links, 0 broken**.
 
 **Irreversibility check:** one additive migration, `0032_model_spend.sql`
 (number provisional until merge), introduces private operational accounting and
-the incident stop under the authorized staging-control implementation. No new
+the incident stop within the requested session scope, unverified from this
+repository. No new
 `world_mutations` writer, birth/golden re-pin, world-meta pin or era-bank edit.
 The tables cannot rewrite fictional history. The PR remains the concrete human
 review gate for this schema step; no live database is migrated here. Back up before
@@ -117,3 +118,38 @@ ordinary rollback after applying 0032; a matched older restore is the disaster
 procedure and also needs spend reconciliation. Runbook §8's backup/restore and
 in-fiction budget-degradation rehearsals apply. No tag or deployment is authorized
 by the tests, and this implementation leaves external calls off.
+
+## PR #172 review follow-up, 2026-11-14
+
+The owner requested addressing the PR comments. The review changes prepare the
+same all-off machinery; they select no live provider, spend amount, price or
+retention period. ADR-039 now marks the session request as unverified from the
+repository, records ADR-035 as Proposed and makes the first controlled adapter
+and the production all-off posture explicit owner decisions. The unrelated
+chat-choice attribution is removed from this record.
+
+| Review finding | Correction and evidence |
+| --- | --- |
+| Missing cache splits hide aggregate input overruns; contradictory completion/reasoning telemetry can release a reservation or hide an output overrun. | Immutable `BillingEvidence` preserves known prompt/total counts, independent output lower bounds and consistency separately from the four priceable counters. Contradictions hold the full reserve and stop dispatch; known violations remain anomalies even when a split is unknown. Authored transport cases cover prompt 1001 on a 1000-token route, reasoning 100 against derived output 2, completion 5000 with missing/contradictory total and total-only overrun. |
+| A stop is invisible to operators and a settlement fault can disappear on restart. | New stops emit one safe ERROR signal, refusals count as `control_stop` failures, and `models`/`voice-health` read policy and durable stop state. An unfinished prior reservation stops the next controlled process before it can reserve. Best-effort fault storage plus the protected original row covers unavailable storage. Safe unexpected model ids remain diagnostic metadata; credentials/payload-shaped values are omitted. |
+| Intentional disabled routes appear broken and refused moderation spends legacy caps. | Disabled routes use the existing intentional `disabled` outcome. Controlled preflight precedes legacy charges. The voice kill switch leaves an explicitly enabled moderation route running; moderation retains its own switch and fails closed. Partial-policy health and all three voice surfaces are exercised. |
+| Zero prices, slash model ids and Unicode snapshot limits disagree with safe/usable admission. | Enabled routes require positive input/output rates; explicit zero cache rates remain valid. Requested/resolved models share the transport-independent structural contract. Canonical UTF-8 snapshots are checked against the ledger limit offline; a CJK-note policy is also admitted through the real ledger. |
+| Every row duplicates its policy and idle cleanup repeatedly takes the writer. | The provisional unmerged migration stores one digest-keyed policy and references it from reservations. Last-reference cleanup removes the snapshot. Idle pruning first checks read-only. Live unresolved rows remain protected; abandoned rows require a durable stop before expiry cleanup. |
+| Operator instructions still describe the uncontrolled live path. | The production/staging prerequisites, activation, data-use notes, probes, health monitoring and incident commands now match controlled mode. Both executable gameplay probes assert `ai:false`; conditional future live checks require the open decisions. Fly's documented secret precedence is cited; explicit `DISABLE_AI=0` and remote `printenv` verification replace unsetting a committed default. Tests pin all three Fly safety settings and replay the documented commands. |
+| Retention omits backup copies and another PR conflicts with the checklist. | The guide/ADR state the whole-DB backup tail and potentially indefinite keep-newest exception. The control update note moved away from #171's insertion. Temporary three-way merges against #171's `be8454b` were clean for CHANGELOG, runbook and checklist; no other branch was merged. Recount at integration remains required. |
+
+**Focused verification:** **721 passed / 1 optional skip** across policy,
+preserved usage evidence, dispatch, activation, operator outcomes, ledger,
+moderation, deployment command replay, wheel inventory and checklist counts.
+Separate owner-area checks: **199 adapter/evidence/eval**, **172 operator and
+observability**, **64 ledger**, and **108 deployment / 1 optional skip** passed.
+An independent final review found no remaining P1/P2 issue in the corrections.
+The current verification ran **18:49:33–19:08:34 UTC** on Python 3.11.14 / Node 20.19.0. Ruff passed; the full Python run passed **3,974 / 1 optional skip**, Vitest passed **189**, and the production bundle was byte-fresh. A final UTF-8 serialization guard and its regression were checked separately with **191 policy cases passed**. The canonical runner then stopped at the wheel guard because `build/lib` still contained the earlier unmerged migration bytes. That ignored generated directory was preserved in `/tmp/pr172-stale-generated-build-novoail3/build`; no source was removed. The remaining gates were rerun: installed `enfolded-0.1.2rc1` wheel verified schema **32**, and **181 Playwright passed** in **5.8 minutes**. Local logs: `/tmp/pr172-review-final-check.log`, `/tmp/pr172-review-wheel.log`, `/tmp/pr172-review-browser.log`. No paid call or hosted deployment was used. Added relative-file links: **5 checked / 0 broken**.
+
+**Scope and release:** migration 0032 remains provisional and unmerged. Its
+normalized policy table, stop reasons and abandoned-row metadata are part of the
+same additive schema preparation, not an upgrade of a deployed schema. One
+controlled process per SQLite database is supported. Unresolved reservations can
+outlive nominal retention until reconciliation/abandonment makes cleanup safe;
+backup expiry remains separate. No writer to fictional history, continuity pin,
+live activation, tag or deployment is added by the review corrections.

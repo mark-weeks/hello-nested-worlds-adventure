@@ -20,7 +20,7 @@ import causality
 import persistence
 from causality import CausalityBus, EventKind
 from causality.delivery import accept_event, accept_verb
-from consciousness import honesty, runtime
+from consciousness import honesty, model_dispatch, runtime
 from agents import identities
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
@@ -216,6 +216,7 @@ _OBSERVE_STEP_SEC = 0.01
 _SCREEN_HOLD_REASONS = {
     "error": "screen", "undecided": "screen", "busy": "busy",
     "budget": "budget", "user_cap": "action_cap", "disabled": "disabled",
+    "control_stop": "control_stop",
 }
 
 
@@ -1292,7 +1293,8 @@ class Handler(BaseHTTPRequestHandler):
             # no row, so the identity answer is given but not recorded.
             recorded = not ai_off and runtime.configured(runtime.NODE_TASK)
             if not (honest or recorded):
-                observability.voice_outcome("speak", "unconfigured")
+                observability.voice_outcome(
+                    "speak", model_dispatch.unavailable_reason(runtime.NODE_TASK))
                 return self._send_json({"response": consciousness.fallback_voice(node), "ai": False})
             try:
                 if honest:
@@ -1336,6 +1338,10 @@ class Handler(BaseHTTPRequestHandler):
                         model_provider=getattr(response, "provider", None),
                         resolved_model=getattr(response, "resolved_model", None),
                     )
+            except model_dispatch.ModelControlStopped as exc:
+                observability.voice_outcome("speak", "control_stop", exc)
+                return self._send_json({"response": consciousness.fallback_voice(node),
+                                        "ai": False})
             except (runtime.ModelActionLimited, runtime.VoiceBudgetLimited) as exc:
                 observability.voice_outcome("speak", _limit_reason(exc))
                 return self._send_json({"response": guard.QUIET_RESPONSE,
@@ -1600,7 +1606,8 @@ class Handler(BaseHTTPRequestHandler):
         # configured for this route.
         recorded = not ai_off and runtime.configured(runtime.INHABITANT_TASK)
         if not (honest or recorded):
-            observability.voice_outcome("agent_voice", "unconfigured")
+            observability.voice_outcome(
+                "agent_voice", model_dispatch.unavailable_reason(runtime.INHABITANT_TASK))
             return self._agent_voice_quiet(agent_name, persona.name, node.name)
         try:
             import consciousness
@@ -1634,6 +1641,9 @@ class Handler(BaseHTTPRequestHandler):
                     model_provider=getattr(response, "provider", None),
                     resolved_model=getattr(response, "resolved_model", None),
                 )
+        except model_dispatch.ModelControlStopped as exc:
+            observability.voice_outcome("agent_voice", "control_stop", exc)
+            return self._agent_voice_quiet(agent_name, persona.name, node.name)
         except (runtime.ModelActionLimited, runtime.VoiceBudgetLimited) as exc:
             observability.voice_outcome("agent_voice", _limit_reason(exc))
             return self._send_json({"response": guard.QUIET_RESPONSE,

@@ -244,13 +244,16 @@ def test_limits_are_exact_integer_microdollars(tmp_path, field, value):
         policy.check_file(_write(tmp_path, document))
 
 
-def test_zero_prices_and_zero_limits_are_explicit_declarations_not_missing_values(tmp_path):
+def test_zero_limits_are_explicit_declarations_but_zero_token_prices_are_refused(tmp_path):
     document = _document("node")
     document["routes"]["node"]["prices"] = {key: "0" for key in _PRICES}
     document["limits"] = {key: "0" for key in document["limits"]}
+    with pytest.raises(policy.ModelPolicyError):
+        policy.check_file(_write(tmp_path, document))
+    document["routes"]["node"]["prices"] = dict(_PRICES)
     checked = policy.check_file(_write(tmp_path, document))
     assert checked.global_limit_microusd == checked.participant_limit_microusd == 0
-    assert policy.reserve_microusd(checked.routes["node"], 5) == 0
+    assert policy.reserve_microusd(checked.routes["node"], 5) > 0
 
 
 @pytest.mark.parametrize("value", [True, 0, 1, 2.0, 36501, 2**63])
@@ -374,7 +377,7 @@ def test_disabled_tasks_refuse_before_provider_model_or_call_cap_lookup(tmp_path
                              user_key="nw_" + "a" * 32)
 
 
-def test_disabled_moderation_holds_as_budget_without_provider_or_classifier_lookup(
+def test_disabled_moderation_is_intentional_without_provider_or_classifier_lookup(
         tmp_path, monkeypatch, accounts, caplog):
     import consciousness
     from server import moderation
@@ -385,7 +388,7 @@ def test_disabled_moderation_holds_as_budget_without_provider_or_classifier_look
     monkeypatch.setattr(consciousness, "classify_content", _forbidden)
     monkeypatch.setattr(runtime, "reserve_model_action", _forbidden)
     verdict = moderation.screen("fixturewatch", user_key=accounts[0], surface="speak")
-    assert (verdict.allowed, verdict.tier, verdict.outcome) == (False, "budget", "budget")
+    assert (verdict.allowed, verdict.tier, verdict.outcome) == (False, "disabled", "disabled")
     assert "model id unavailable" not in caplog.text
 
 
@@ -553,6 +556,7 @@ def test_large_decimal_reservations_and_settlements_never_round_below_exact_cost
     document["routes"]["node"]["prices"] = {
         key: "0.999999999999" if key == "input_per_million_usd" else "0"
         for key in _PRICES}
+    document["routes"]["node"]["prices"]["output_per_million_usd"] = "0.000000000001"
     route = policy.check_file(_write(tmp_path, document)).routes["node"]
     expected = 999_999_999_999_000_000  # ceil(999999999998999999.000000000001)
     assert policy.reserve_microusd(route, 1) == expected

@@ -31,9 +31,11 @@ def _quiet(line, *, ai=False, declined=False, clarification=False):
 
 
 def _propose(intention, key, name, node, props):
+    from consciousness import model_dispatch
     if guard.ai_disabled() or not runtime.configured(runtime.INTENT_TASK):
         observability.voice_outcome(
-            'intention', 'disabled' if guard.ai_disabled() else 'unconfigured')
+            'intention', 'disabled' if guard.ai_disabled()
+            else model_dispatch.unavailable_reason(runtime.INTENT_TASK))
         return None, _quiet(_UNSHAPED)
     # A schema the selected adapter refuses is raised inside
     # runtime.generate before either charge. Otherwise the model-action
@@ -44,6 +46,9 @@ def _propose(intention, key, name, node, props):
     try:
         proposal = propose(intention, {'name': name, 'level': node.level, 'properties': props},
                            user_key=key, voice_budget=True)
+    except model_dispatch.ModelControlStopped as exc:
+        observability.voice_outcome('intention', 'control_stop', exc)
+        return None, _quiet(_UNSETTLED)
     except (ModelActionLimited, VoiceBudgetLimited) as exc:
         observability.voice_outcome(
             'intention', 'action_cap' if isinstance(exc, ModelActionLimited) else 'budget')

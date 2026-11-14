@@ -100,6 +100,32 @@ def _identifier(value: object) -> str:
     return value
 
 
+def _model_id(value: object) -> str:
+    # The transport owns its model alphabet. Share the adapter-independent
+    # structural contract rather than imposing policy-id punctuation on it.
+    from consciousness.model_check import _structural
+    if not isinstance(value, str) or _structural(value) is not None:
+        raise ModelPolicyError()
+    try:
+        value.encode("utf-8")
+    except UnicodeError:
+        raise ModelPolicyError() from None
+    return value
+
+
+def safe_reported_model(value: object) -> str | None:
+    """Keep bounded model metadata, never a known credential or raw payload."""
+    from consciousness.model_check import _embeds_secret, _secret_values
+    try:
+        model = _model_id(value)
+    except ModelPolicyError:
+        return None
+    if (_embeds_secret(model, _secret_values())
+            or re.search(r"(?:^|/)(?:sk[-_]|nw_|Bearer)", model, re.IGNORECASE)):
+        return None
+    return model
+
+
 def _reference(value: object) -> str:
     if (not isinstance(value, str) or not 1 <= len(value) <= 1000
             or value != value.strip() or any(ord(x) < 32 for x in value)):
@@ -172,11 +198,11 @@ def _route(task: str, data: object) -> Route | None:
     if (data["enabled"] is not True or task == "images" or data["adapter"] != "openai_compatible"
             or data["input_bound_kind"] != "provider_context_maximum"):
         raise ModelPolicyError()
-    model = _identifier(data["model"])
+    model = _model_id(data["model"])
     resolved = data["resolved_models"]
     if not isinstance(resolved, list) or not resolved or len(resolved) > 32:
         raise ModelPolicyError()
-    resolved = tuple(_identifier(x) for x in resolved)
+    resolved = tuple(_model_id(x) for x in resolved)
     if len(resolved) != len(set(resolved)):
         raise ModelPolicyError()
     for key in ("input_bound_evidence", "data_use_note", "approval_reference"):
@@ -191,7 +217,11 @@ def _route(task: str, data: object) -> Route | None:
     if task in {runtime.INTENT_TASK, runtime.MODERATION_TASK} and not options["structured_outputs"]:
         raise ModelPolicyError()
     raw_prices = _keys(data["prices"], _PRICE_KEYS)
-    prices = MappingProxyType({key: _decimal(raw_prices[key]) for key in _PRICE_KEYS})
+    prices = MappingProxyType({
+        key: _decimal(raw_prices[key], positive=key in {
+            "input_per_million_usd", "output_per_million_usd"})
+        for key in _PRICE_KEYS
+    })
     route = Route(task, "openai_compatible", _endpoint(data["endpoint"]), model, resolved,
                   _integer(data["max_input_tokens"]), _integer(data["max_output_tokens"]),
                   _decimal(data["timeout_seconds"], positive=True),
@@ -234,8 +264,13 @@ def check_file(path: str | Path) -> Policy:
             retention = _integer(data.get("ledger_retention_days"), minimum=2)
             if retention > 36500:
                 raise ModelPolicyError()
+        from persistence.model_spend import MAX_POLICY_JSON_CHARS
+        snapshot = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        snapshot.encode("utf-8")  # Match the ledger's serialization contract offline.
+        if len(snapshot) > MAX_POLICY_JSON_CHARS:
+            raise ModelPolicyError()
         return Policy(_identifier(data["policy_id"]), MappingProxyType(routes), *limits,
-                      retention, json.dumps(data, sort_keys=True, separators=(",", ":")))
+                      retention, snapshot)
     except ModelPolicyError:
         raise
     except (OSError, UnicodeError, ValueError, TypeError, RecursionError, OverflowError):
@@ -302,7 +337,11 @@ def current() -> Policy | None:
 def route_for(task: str, model: str, max_output_tokens: int) -> Route:
     try:
         policy = current()
-        if policy is None or os.getenv("NESTED_WORLDS_DISABLE_AI", "").strip() == "1":
+        if (policy is None
+                or (task != runtime.MODERATION_TASK
+                    and os.getenv("NESTED_WORLDS_DISABLE_AI", "").strip() == "1")
+                or (task == runtime.MODERATION_TASK
+                    and os.getenv("NESTED_WORLDS_DISABLE_MODERATION", "").strip() == "1")):
             raise ModelPolicyDenied()
         route = policy.routes.get(task)
         if (route is None or route.model != model
@@ -348,7 +387,21 @@ def reserve_microusd(route: Route, max_output_tokens: int) -> int:
 
 def settlement(route: Route, result: runtime.Completion,
                max_output_tokens: int) -> tuple[int | None, bool, str | None]:
-    anomaly = result.resolved_model not in route.resolved_models or result.provider != route.adapter
+    unpriceable = result.resolved_model not in route.resolved_models or result.provider != route.adapter
+    anomaly = unpriceable
+    evidence = result.billing_evidence
+    if evidence is not None:
+        if type(evidence.consistent) is not bool or not evidence.consistent:
+            anomaly = True
+            unpriceable = True
+        for observed, limit in ((evidence.prompt_tokens, route.max_input_tokens),
+                                (evidence.output_tokens_lower_bound, max_output_tokens),
+                                (evidence.total_tokens, route.max_input_tokens + max_output_tokens)):
+            if observed is not None and (type(observed) is not int or observed < 0
+                                         or observed > limit):
+                anomaly = True
+                if type(observed) is not int or observed < 0:
+                    unpriceable = True
     usage = result.usage
     if usage is None:
         return None, anomaly, None
@@ -360,7 +413,7 @@ def settlement(route: Route, result: runtime.Completion,
     known_inputs = sum(v for k, v in counts.items() if k != "output_tokens" and v is not None)
     if known_inputs > route.max_input_tokens or (usage.output_tokens or 0) > max_output_tokens:
         anomaly = True
-    if any(counts[k] is None for k in ("input_tokens", "output_tokens", "cache_read_tokens")):
+    if unpriceable or any(counts[k] is None for k in ("input_tokens", "output_tokens", "cache_read_tokens")):
         return None, anomaly, encoded
     with localcontext() as context:
         context.prec = 64

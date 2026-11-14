@@ -51,7 +51,7 @@ def test_bad_policy_refuses_before_migrations_listener_and_observability(monkeyp
 
 
 def test_controlled_off_startup_needs_no_disabled_provider_or_legacy_banner(tmp_path, monkeypatch, capsys):
-    from consciousness import model_check, model_policy, runtime
+    from consciousness import model_check, model_dispatch, model_policy, runtime
     from server import heartbeat, websocket
     import consciousness
 
@@ -67,6 +67,7 @@ def test_controlled_off_startup_needs_no_disabled_provider_or_legacy_banner(tmp_
     monkeypatch.setattr(guard, "budget_configuration_warning_line", lambda: None)
     monkeypatch.setattr(guard, "budget_configuration_line", lambda: None)
     monkeypatch.setattr(persistence, "init_db", lambda: events.append("migrate"))
+    monkeypatch.setattr(model_dispatch, "initialize_accounting", lambda: events.append("accounting"))
     monkeypatch.setattr(persistence, "checkpoint", lambda: None)
     monkeypatch.setattr(heartbeat, "enabled", lambda: False)
     monkeypatch.setattr(heartbeat, "pump_enabled", lambda: False)
@@ -93,7 +94,7 @@ def test_controlled_off_startup_needs_no_disabled_provider_or_legacy_banner(tmp_
 
     monkeypatch.setattr(server, "_ThreadedServer", Listener)
     server.run(port=0)
-    assert events == ["migrate", "bind", "retention.start", "serve",
+    assert events == ["migrate", "accounting", "bind", "retention.start", "serve",
                       "retention.stop", "retention.join", "close"]
     assert "all external routes disabled" in capsys.readouterr().out
 
