@@ -19,16 +19,37 @@ In-flight cascades sit in `causal_queue` and resume. See
 
 ## Stop the bleeding
 
-Set these on the app (`-a enfolded-beta`, or `-a "$FLY_APP"`). Clear a
-switch with `fly secrets unset` of that name. That restarts again.
+Set these on the app (`-a enfolded-beta`, or `-a "$FLY_APP"`). Every app using
+the committed Fly configuration, production included, requires controlled mode
+and has `DISABLE_AI=1` and `DISABLE_IMAGES=1`. Unsetting one of those secrets
+restores the committed `1`; it does not enable the route. A later explicit
+`DISABLE_AI=0` override is allowed only after the
+[live gates and value check](fly-deployment.md#approved-live-controlled-text).
+Do not remove the policy requirement or change adapter/vendor during an incident.
 
 | Switch | Effect |
 |---|---|
 | `NESTED_WORLDS_DISABLE_AI=1` | `/speak` and `/agent/voice` return HTTP 200 `{"response":"The worlds are quiet today. Try again tomorrow.","ai":false}` before the screen, so that line is not classified. One exception: a line that is only a sincere question whether the speaker is human ("are you human?", "r u a bot") gets its authored truthful answer with `"ai":false` (`consciousness/honesty.py`) after the local screen, and no chronicle row is written; if the local screen would send that line to the classifier, it gets the quiet line instead. An Act intention the local parser can read still commits. One it cannot read is not sent; the player hears "That intention needs a clearer shape. Choose actions below, or name them in order, separated by commas." Chat, ideas, profiles, and puzzle guesses still go through moderation. |
-| `NESTED_WORLDS_DISABLE_IMAGES=1` | `/image` returns `{"url":null,"error":"image generation disabled"}`. |
+| `NESTED_WORLDS_DISABLE_IMAGES=1` | In controlled mode, `/image` returns HTTP 200 with the authored quiet line and `"images":false` before cache, quota or provider access. This build supports no controlled image adapter even if the switch is cleared. |
 | `NESTED_WORLDS_DISABLE_MODERATION=1` | Shared text is held before any classifier call. Nothing is published. |
 
 A hold is HTTP 200 with `"held":true` and "The worlds hold those words for now. They are not shared. Say it another way, or try again later." A block is `"declined":true` and "The worlds decline to carry those words. Say it another way." Chat sends that line only to the speaker (`chat_declined`); the client puts the line back in the empty input. No chronicle row and no broadcast. The same hold covers a moderation budget, a per-user cap, a timeout, a provider error, no free slot, the moderation kill switch, or an undecided verdict (`server/moderation.py`).
+
+`DISABLE_AI` controls voice and intention only; it does not stop moderation.
+Use `DISABLE_MODERATION=1` as well when classifier traffic must stop. Controlled
+policy permissions still apply to every route, regardless of available keys.
+The first controlled adapter/vendor remains an owner decision: live hosted voice
+waits for ADR-035 acceptance or a controlled Anthropic path, plus approved
+destinations, prices, amounts and retention. Plain `models` and `voice-health`
+show the controlled policy and accounting stop. Their `--probe` is refused in
+controlled mode; do not use it to test recovery.
+
+An accounting stop differs from a daily allowance refusal. Keep external routes
+off, inspect the status and ERROR/Sentry evidence, and reconcile provider spend
+before restarting or restoring. A persistent stop is not cleared by midnight or
+a policy change; this batch supplies no automatic refund or unlatch. Live ledger
+expiry does not erase whole-database backups, whose newest validated copy can
+remain indefinitely under the keep-newest exception.
 
 Defaults, if you need to tighten spend or pace for the rest of the UTC day (`server/guard.py`): text calls `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` 500 and `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` 150; images `NESTED_WORLDS_FAL_DAILY_CALLS` 200 and `NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER` 60; moderation classifies `NESTED_WORLDS_MODERATION_DAILY_CALLS` 2,000 and `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER` 60; moderation actions `NESTED_WORLDS_MODERATION_ACTIONS_PER_USER` 600; model actions `NESTED_WORLDS_MODEL_ACTIONS_PER_USER` 200; writes `NESTED_WORLDS_RATE_LIMIT_PER_MIN` 20; reads `NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN` 120. This binary also reads `NESTED_WORLDS_VOICE_*` and `NESTED_WORLDS_IMAGE_*` and enforces the lower integer when both names are set. An older binary reads only the legacy names. Setting those four legacy variables tightens both. A write over the limit is HTTP 429 with "the world asks for a quieter pace — a breath, then try again". Per-user moderation `0` refuses credentialed classify calls. These caps are not a dollar ceiling. No dollar amount is decided here.
 

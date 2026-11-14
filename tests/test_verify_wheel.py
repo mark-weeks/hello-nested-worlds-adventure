@@ -15,12 +15,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import verify_wheel  # noqa: E402
 
 
-def test_source_migrations_are_exactly_0001_through_0031_with_blocks_and_consent():
+def test_source_migrations_are_exactly_0001_through_0032_with_blocks_consent_and_spend():
     source = verify_wheel.source_migrations(verify_wheel.ROOT)
     verify_wheel.assert_source_schema_inventory(source)
     assert "persistence/migrations/0030_participant_blocks.sql" in source
     assert "persistence/migrations/0031_participation_consents.sql" in source
+    assert "persistence/migrations/0032_model_spend.sql" in source
     assert not any(name.endswith("0030_cost_budget_names.sql") for name in source)
+
+
+@pytest.mark.parametrize("missing", ["0030_participant_blocks.sql",
+                                     "0031_participation_consents.sql", "0032_model_spend.sql"])
+def test_required_operational_migrations_cannot_be_replaced_with_same_version(missing):
+    source = verify_wheel.source_migrations(verify_wheel.ROOT)
+    source.pop("persistence/migrations/" + missing)
+    source[f"persistence/migrations/{missing[:4]}_unrelated.sql"] = b"SELECT 1;\n"
+    with pytest.raises(RuntimeError, match=missing):
+        verify_wheel.assert_source_schema_inventory(source)
 
 
 @pytest.mark.parametrize("replace_blocks", [False, True])

@@ -1,8 +1,10 @@
 # Deploying to Fly.io
 
 This guide walks through standing up Enfolded on Fly.io for
-the initial beta. It assumes you have shell access to a clone of this
-repository and a key for the configured provider (currently Anthropic) in hand.
+the initial beta. It assumes shell access to a clone of this repository.
+Every app using the committed Fly configuration, production included, starts
+with controlled model dispatch required and all external routes disabled.
+No provider credential is needed for that initial quiet deployment.
 
 End state: one VM in one region, one shared canonical world, SQLite on a
 persistent volume, the React frontend baked into the image, Sentry wired in,
@@ -23,15 +25,15 @@ Same-schema rollback is [below](#same-schema-release-rollback). Incidents
   curl -L https://fly.io/install.sh | sh
   fly auth login
   ```
-- A key for the configured provider (currently Anthropic): `ANTHROPIC_API_KEY`.
-  The owner's provider data rule (§3a, "Provider data rule") applies to the
-  account that holds it: no training or data-sharing opt-in.
-- Optionally, a fal.ai API key (`FAL_KEY`). Scene imagery is an
-  enhancement wash over the built-in deterministic node art — without
-  the key, every node still renders its generative art; with it,
-  `/image` layers AI backgrounds on top. The same provider data rule
-  applies: image prompts carry world data, and fal.ai's data-use terms
-  have not been checked (§3a).
+- For a later approved live rehearsal, a reviewed controlled adapter and
+  provider account/key, model, endpoint, prices, dollar amounts and retention.
+  The first adapter/vendor is an open owner decision. This build supports
+  only the built-in Chat Completions transport, while ADR-035 remains Proposed;
+  live hosted voice is blocked until ADR-035 is accepted or a controlled
+  Anthropic path exists, plus the other live approvals. See
+  [approved live controlled text](#approved-live-controlled-text).
+- Leave `FAL_KEY` unset. Images are unsupported in controlled mode and answer
+  the authored quiet line with `images: false`; built-in node art still renders.
 - Optionally, a Sentry DSN (`SENTRY_DSN`). Sentry is already a default
   dependency — setting the DSN is sufficient to activate it.
 
@@ -221,21 +223,16 @@ fly apps create enfolded-beta
 # Provision the persistent volume in the same region as the app.
 fly volumes create enfolded_data --region iad --size 1
 
-# Set runtime secrets. These never appear in logs or the image.
-# FAL_KEY and SENTRY_DSN are optional — omit either line freely. Set
-# FAL_KEY only once fal.ai's terms are checked against the provider data
-# rule (§3a).
-fly secrets set \
-  ANTHROPIC_API_KEY=sk-ant-... \
-  FAL_KEY=... \
-  SENTRY_DSN=https://...ingest.sentry.io/...
+# Optional error reporting. Keep provider credentials absent and both
+# committed external kill switches at 1 for this first, all-off deploy.
+fly secrets set SENTRY_DSN=https://...ingest.sentry.io/...
 
 # REQUIRED for any public deployment: close the invite gate. There is no
 # shared key — the gate is the per-user `invite_keys` table and stays OPEN
 # until the first per-user key or registration invite is issued (§6);
 # from then on it stays closed, even if every key is later revoked. An ungated server is an open
-# proxy to the configured provider's budget (currently Anthropic). The daily
-# caps bound the damage; they don't prevent strangers spending it. Mint the
+# proxy if external routes are later enabled. The daily
+# caps are not an access gate. Mint the
 # first per-user key in §6 BEFORE you announce the URL, and do not share the
 # URL until then.
 
@@ -272,11 +269,12 @@ fallback only.
 
 #### One-time setup (owner)
 
-Run these from the repo root, in this order. The provider key goes in after
-the first invite key exists. The invite gate stays open until the first key
-is minted (§6), and the voice cannot spend in that window if the key is not
-yet set. Without it, places and inhabitants answer the authored quiet line
-(`"ai": false`). Name screening at mint is local and needs no provider
+Run these from the repo root, in this order. Keep the controlled all-off snapshot
+and provider credentials absent during setup. The invite gate stays open until
+the first key is minted (§6); close it before any later approved live activation.
+In this default state, places and inhabitants answer the authored quiet line
+(`"ai": false`). The frozen route policy is the dispatch boundary; merely adding
+a key cannot grant a route. Name screening at mint is local and needs no provider
 (`server/moderation.py`, `name_refusal`). Mint the keys early to close the
 gate, but send them only after step 7.
 
@@ -323,31 +321,34 @@ fly ssh console -a enfolded-staging -C "python main.py invite mint --name '<Name
 #    early and mints nothing. Put that name in escaped double quotes:
 #    fly ssh console -a enfolded-staging -C "python main.py invite mint --name \"<Name>\" --note 'disposable staging watch'"
 
-# 6. Secrets. Each `fly secrets set` restarts the machine (unverified,
-#    below); no tester has a URL yet. First Sentry's environment name,
+# 6. Secrets. Each ordinary `fly secrets set` restarts the machine;
+#    no tester has a URL yet. First Sentry's environment name,
 #    alone, then check it. Set SENTRY_DSN, which is optional, only if the
 #    check prints staging ("Sentry environment", below).
 fly secrets set -a enfolded-staging SENTRY_ENVIRONMENT=staging
 fly ssh console -a enfolded-staging -C "printenv SENTRY_ENVIRONMENT"
 fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
-#    Then the provider key. Before setting it, read the provider's
-#    data-use terms against the provider data rule (below): step 7's probe
-#    already sends the provider world data. Use a key made for staging
-#    alone, not production's. Ideally it sits in a workspace of its own with
-#    a low spend limit, if the provider's console offers one. Leave out
-#    FAL_KEY until fal.ai's terms are checked against the same rule.
-#    Approved-live path only: supplying a key does not clear step 4's
-#    kill switch. Clear it explicitly for this app once review and spend
-#    settings are complete. Skip this command for the no-provider watch.
-fly secrets set -a enfolded-staging ANTHROPIC_API_KEY=sk-ant-... NESTED_WORLDS_DISABLE_AI=0
+#    This build requires an immutable model policy on hosted/test worlds.
+#    Keep both external kill switches at 1 for the no-provider watch.
+#    A provider key alone cannot activate a route. The former Anthropic
+#    activation command is deliberately removed: this first controlled
+#    slice supports only the built-in Chat Completions transport and
+#    refuses Anthropic, direct probes, wrappers and images.
+#    Live staging and production voice is blocked until ADR-035 is
+#    accepted or a controlled Anthropic path exists, and the destination,
+#    prices, amounts and retention are approved. The first controlled
+#    adapter/vendor is an open owner decision. Follow "Approved live
+#    controlled text" below only after those gates; do not remove the
+#    requirement or assume installing a provider key completes them.
 
 # 7. Complete the temporary-world notice (below), then open the check
 #    identity's /app invite URL yourself and acknowledge it. Do not accept
 #    on a tester's behalf. Without acknowledgement a keyed /world or /ws
 #    is refused with 428; an incomplete notice refuses gameplay with 503.
 #    Check it with the check key from step 5, never a tester's: /health
-#    ok, the gate closed, the voice live (§8 probe: a place name from
-#    /world, then /speak must answer "ai": true). A live answer writes a
+#    ok, the gate closed, and the voice authored/quiet for the default
+#    no-provider watch. Only after separately approved live activation
+#    must /speak answer "ai": true. A live answer writes a
 #    PLAYER_SPEAK row to the staging chronicle under the check key's name,
 #    and the node's transcript is keyed on that key. Under a tester's key
 #    it would read as that tester speaking before they arrived. Then revoke
@@ -355,7 +356,7 @@ fly secrets set -a enfolded-staging ANTHROPIC_API_KEY=sk-ant-... NESTED_WORLDS_D
 curl https://enfolded-staging.fly.dev/health
 curl -i https://enfolded-staging.fly.dev/world        # 403 without a key
 curl -s -H 'X-Beta-Key: <check key>' 'https://enfolded-staging.fly.dev/world?depth=1' | python3 -c 'import json, sys; print(json.load(sys.stdin)["world"]["name"])'
-curl -s -X POST https://enfolded-staging.fly.dev/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<the place name printed above>"}' | grep -o '"ai": true'
+curl -s -X POST https://enfolded-staging.fly.dev/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<the place name printed above>"}' | grep -o '"ai": false'
 fly ssh console -a enfolded-staging -C "python main.py invite revoke <check key>"
 
 # 8. Only now, and only once protocol 2's prerequisites below are recorded,
@@ -364,6 +365,13 @@ fly ssh console -a enfolded-staging -C "python main.py invite revoke <check key>
 ```
 
 #### Temporary-world notice and acknowledgement
+
+The [controlled model policy guide](../development/model-policy.md) describes
+the required configuration, offline preflight and remaining live gates. Fly ships
+the requirement and both external kill switches; the checked-in policy example
+has every route disabled. A backup restore must keep external calls disabled
+until the day's provider spend is reconciled; restoring an older ledger does
+not restore the provider's bill.
 
 The explicit `NESTED_WORLDS_TEST_WORLD=1` setting enables the staging gate;
 the app name and Sentry environment do not enable it. Keep it set throughout
@@ -417,11 +425,63 @@ declares a test world.
 
 The default staging watch remains without provider keys. The step 6 provider
 setup and step 7 `ai: true` probe apply only after the provider-data review and
-the budget decision are complete; an authored-silence watch instead verifies
+the adapter/vendor, prices, amounts and retention decisions are complete,
+and ADR-035 is accepted or a controlled Anthropic path exists. An authored-silence watch instead verifies
 `ai: false`. Keep the AI and image kill switches on until the corresponding
 live-provider path is approved and configured. These notices do not decide
 production chat permanence, replace research consent, or close the beta's
 terms, privacy, reporting and provider gates.
+
+#### Approved live controlled text
+
+This procedure is blocked while the first controlled adapter/vendor decision
+remains open. ADR-035 is still Proposed; either accept it before choosing its
+Chat Completions path or implement and review a controlled Anthropic path.
+The restriction applies to production as well as staging. No command below is
+authorization to choose an endpoint, set prices or amounts, or activate a route.
+
+Before activation, record the selected destination/account data-use approval,
+model and resolved-model allowlist, verified input bound, reviewed prices,
+global/per-participant USD ceilings, ledger retention and backup treatment.
+Install the approved immutable policy file and task configuration; use a
+staging-only account/key for rehearsal. Run
+`python main.py model-policy --check --policy <approved file>` in the intended
+process environment. A few full-context
+reservations can exhaust a small allowance even on short prompts; check that
+admission is useful before activating. Keep the committed requirement and
+`NESTED_WORLDS_DISABLE_IMAGES=1`. A disabled moderation route holds text needing
+classification; enabling voice is not permission for its screen to call a model.
+
+Fly's [configuration reference](https://docs.fly.io/reference/configuration#the-env-variables-section)
+says a secret overrides an `[env]` value of the same name, and its
+[secrets guide](https://docs.fly.io/apps/secrets) says an ordinary set updates
+and restarts Machines. Checked against those official pages on 2026-11-14;
+no live Fly command was run for this documentation check. Once **all** the gates
+above are satisfied and the reviewed policy/configuration is ready, apply the
+explicit text override, then inspect only that nonsensitive value:
+
+```bash
+fly secrets set -a enfolded-staging NESTED_WORLDS_DISABLE_AI=0
+fly ssh console -a enfolded-staging -C "printenv NESTED_WORLDS_DISABLE_AI"
+fly ssh console -a enfolded-staging -C "python main.py models"
+fly ssh console -a enfolded-staging -C "python main.py voice-health"
+```
+
+`printenv` must print `0`. Confirm the controlled route policy in the plain CLI
+output and match it to the deployed release and restart evidence. The CLI freezes
+its own environment/file; it does not inspect the running server's earlier
+in-memory snapshot after a file edit. Then use step 7's authenticated gameplay probe under an acknowledged
+check identity and require `ai: true`. Never use `models --probe` or
+`voice-health --probe` in controlled mode: direct keyless probes are refused
+because they have no participant reservation. The same checks apply to any
+separately authorized production activation, naming that app explicitly.
+
+To restore the committed quiet posture, set the override to `1`, or unset it and
+check again. **Unsetting it restores the committed `1`; it does not enable AI.**
+Restart/redeployment reloads the frozen policy; do not edit a live file or remove
+`NESTED_WORLDS_REQUIRE_MODEL_POLICY` to bypass review. `DISABLE_AI` controls voice
+and intention only, so use the moderation kill switch as well when all classifier
+traffic must stop. Images remain unsupported regardless of their switch.
 
 **Before step 8.** Protocol 2's prerequisites apply on staging as they do
 anywhere ([pilot protocol](../evaluation/2026-09-12-pilot-protocol.md),
@@ -479,8 +539,8 @@ extra arguments to `fly deploy`. Step 6 sets `SENTRY_ENVIRONMENT=staging` as
 a staging secret once, by hand. The workflow could instead stage a
 staging-only secret (`flyctl secrets set --stage -a enfolded-staging
 SENTRY_ENVIRONMENT=staging`). It does not; the one-time secret in step 6
-is the documented route. Whether a Fly secret overrides an `[env]` value of
-the same name was not verified from the session that wrote this.
+is the documented route. Fly's current official configuration reference confirms
+that a secret overrides `[env]` (verified 2026-11-14; see the activation section).
 Step 6's `printenv` is the check, and it runs before any DSN is set, so
 staging sends Sentry nothing until the answer is known. If it prints `beta`,
 give staging its own Sentry project's DSN so its events never mix with
@@ -582,10 +642,9 @@ fly.io or github.com):
   reports success.
 - That the pinned `setup-flyctl` action puts `flyctl` on the path. The
   workflow sets `FLY_BIN=flyctl`, as `backup.yml` calls `flyctl`.
-- That a Fly secret overrides an `[env]` value (Sentry environment, above),
-  that `fly secrets set` restarts the running machine, and that `printenv`
-  in a `fly ssh console` session shows the same environment as the app's
-  own process.
+- The actual environment of this app's running process. Secret precedence and
+  the ordinary set/restart contract are confirmed by current official Fly docs
+  (2026-11-14); the `printenv` checks above remain required live observations.
 - That `fly apps destroy` revokes the tokens made for that app (teardown,
   below, revokes the token explicitly in case it does not).
 - GitHub's side: that an environment's deployment-branch rule withholds its
@@ -626,8 +685,8 @@ the owner signs off that provider's L4 data use note (proposed there as the
 scoped ADR-034 §5 decision), so a newcomer watch runs in per-scale silence
 until then.
 
-- Do not opt the provider account or organization that holds
-  `ANTHROPIC_API_KEY` into any training or data-sharing programme, a
+- Do not opt any selected provider account or organization into any training
+  or data-sharing programme, a
   development partner programme included. Do not submit feedback that
   contains Enfolded data, player content included.
 - Anthropic's help centre, as a web search returned it on 2026-11-07, says
@@ -635,26 +694,28 @@ until then.
   used to train its models by default. The exceptions are a customer who
   opts in, for example to a development partner programme, and feedback a
   customer submits. The page itself could not be opened from the session
-  that wrote this. Read it before step 6 sets the provider key: step 7's
-  probe already sends the provider world data, so the check comes before
-  any Enfolded data reaches it.
-- fal.ai receives Enfolded data when `FAL_KEY` is set. Image prompts carry
+  that wrote this. It is a lead for a provider-specific note, not approval
+  of a controlled Anthropic path; this build refuses that path. Any approved
+  live gameplay probe sends world data, so review precedes activation.
+- In legacy local mode, fal.ai receives Enfolded data when `FAL_KEY` is set. Image prompts carry
   no player messages, but they carry the node's level, its name, its aspect
   line and up to 32 of its properties (`server/imageprompt.py:120-141`).
   fal.ai's training and data-use terms were not checked from the session
   that wrote this. Leave `FAL_KEY` unset on staging until they are checked
-  against the rule. Without it every node still renders its built-in art.
+  against the rule. Controlled mode refuses images even with a key; leave it
+  unset. Every node still renders its built-in art.
 - Check any other destination against this rule before it receives
   Enfolded data. That includes an `openai_compatible` base URL (ADR-035,
   Proposed) and any second provider.
 
-This records the rule for operators. It does not build S2's allowlist in
-config or write L4's data-use note for each provider.
+The controlled policy enforces the exact approved route declarations supplied
+to it; it does not write L4's note or turn a policy string into scoped approval.
 
 #### Teardown before launch
 
 The staging chronicle must not linger as a second world that looks real.
-Rehearse against it first: the live-voice probe (§8), `scripts/ws_soak.py`,
+Rehearse against it first: the quiet probe (or, only after the live gates,
+the authenticated live-voice probe in §8), `scripts/ws_soak.py`,
 the newcomer watch, and a restore (§7) against its volume. Never on
 production. Each probe after step 7 needs a check key of its own: mint it
 with step 5's check-key line under a new one-word name each time, for
@@ -1395,6 +1456,10 @@ not this restore.
 - [ ] `SENTRY_DSN` set; `fly logs` shows `Sentry initialized` on boot.
 - [ ] External uptime ping pointed at `/guide` (ungated, exercises the
       full serving path). Any free checker works.
+- [ ] Complete the controlled live gates before any live cohort; all-off
+      production may boot but does not satisfy live-quality gates. Approve the
+      policy's dollar amounts and full-context admission behavior separately
+      from the call-count sizing below.
 - [ ] Size the day-one budgets deliberately: launch day is the highest-
       traffic day the app will ever see. Estimate
       `cohort size x expected exchanges x cost per exchange` and set
@@ -1419,112 +1484,65 @@ not this restore.
 
 - [ ] **Deploy freeze** — one machine means every deploy drops all live
       sessions. Nothing ships during the window short of a fire.
-- [ ] **Live-model probes** — verify both node conversation and intention
-      interpretation on disposable staging, including clarification/refusal and
-      an observed explicit-action equivalent. Keep credentials and private text out
-      of evidence. Optional audio is separate. Quiet degradation hides outages by design,
-      so verify the voice is LIVE, not just answering: a `/speak` reply
-      must carry `"ai": true`. `"ai": false` means the failure voice is
-      covering for a missing key or an exhausted budget (the probe spends
-      one budgeted call — that's the point). `/speak` needs a `node_name`
-      that names a place in the world; without one it answers 404 "no such
-      place in this world". The world's root place is `"world"` > `"name"`
-      in `/world`:
+- [ ] **Model-state and gameplay checks** — the default hosted configuration
+      is all-off, production included. On disposable staging, use the acknowledged
+      check key to discover the place and verify authored/quiet voice first:
       `curl -s -H 'X-Beta-Key: <check key>' 'https://<app>/world?depth=1' | python3 -c 'import json, sys; print(json.load(sys.stdin)["world"]["name"])'`
       Then send that name:
-      `curl -s -X POST https://<app>/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<a place name from /world>"}' | grep -o '"ai": true'`
-      A live answer writes a `PLAYER_SPEAK` row under the check key's
-      registered name, and the node's transcript is keyed on that key.
-      Mint a check key for each probe with the check-key line of
-      [§3a](#3a-staging-rehearsal--before-the-permanent-world-begins)
-      step 5, under a new one-word name each time, for example
-      `Stagingcheck2`. A revoked name stays taken, so that line as written
-      mints nothing once step 7 has revoked `Stagingcheck`. Never use a
-      player's key, and revoke the check key afterwards.
-- [ ] Watch spend as the cohort arrives: the `cost_budget` table carries
-      per-day counters — `fly ssh console -C "sqlite3 /data/.nested-worlds/worlds.db 'SELECT * FROM cost_budget ORDER BY day DESC LIMIT 20'"`.
-      Buckets that start `voice_outcome:` or `moderation_outcome:` are
-      outcome counts, not spend; `python main.py voice-health` prints the
-      day's voice and moderation budget use without them.
-- [ ] Watch the voice, not just the server. `fly ssh console -C "python main.py voice-health"`
-      prints answered and quiet lines per surface (`speak`, `agent_voice`,
-      `intention`) and reason (`provider`, `unconfigured`, `screen`, `busy`,
-      `db`, `budget`, `action_cap`, `disabled`) and the day's budget use.
-      `screen` means the moderation classifier failed or gave no usable
-      verdict, so shared text was held before the voice was asked; moderation's
-      own budget, per-user cap and disable switch count as `budget`,
-      `action_cap` and `disabled`, and a content decline is policy and is not
-      recorded. `busy` means every slot under the provider's concurrency limit
-      (`NESTED_WORLDS_ANTHROPIC_CONCURRENCY`, default 8) stayed taken for the
-      whole wait: the call's own timeout (3 s for the moderation classify that
-      screens a line), else `NESTED_WORLDS_ANTHROPIC_SLOT_WAIT_SECONDS`
-      (default 10 s). The provider was not called and the player got the same
-      authored silence, or hold line, as a provider failure. Either the
-      provider is slow or hung (a voice call passes no timeout of its own, so
-      the adapter's per-attempt `NESTED_WORLDS_ANTHROPIC_TIMEOUT_SECONDS`,
-      default 60 s, retried twice by the SDK, ends a hung call within about
-      3 minutes, at most 5 if the provider answers errors with a retry-after
-      of up to 60 s; that call then counts as `provider`) or
-      demand outran the limit: check the provider first, then raise the limit.
-      These counts cover the voice surfaces. The "Shared-text screens"
-      section that follows covers every screened surface (`speak`, `agent`,
-      `chat`, `ideas`, `profile`, `puzzle`, `name`, `cli`): per day and
-      surface, the screens that logged a `moderation_call` line, then each
-      outcome other than `allow`, then the day's moderation budget use. A
-      locally clean line is not logged or counted, so `allow` counts
-      classifier allows only. Three outcomes are screen failures and make it
-      exit 1, because the text was held without being judged. `busy`: no
-      provider slot opened within the classify's 3 s; check the provider,
-      then raise the concurrency limit, as for the voice. `error`: the
-      classify raised (provider error, timeout, or no usable moderation
-      model id). A classify is one provider attempt with no retries inside
-      its 3 s, so a single transient 429, 5xx or dropped connection is one
-      `error` and fails the check; the player can send the text again. The
-      `ms=` on the `moderation_call outcome=error` lines separates a slow
-      provider from an immediate refusal, and `voice-health --probe` makes
-      one tiny live call per distinct model id, the moderation model's
-      included (also one attempt, so re-run it after a transient error).
-      `undecided`: the classify
-      finished without the one-word ALLOW or BLOCK it asks for (other text,
-      a length stop or a refusal); a steady share suggests the configured
-      `NESTED_WORLDS_MODERATION_MODEL` does not keep to that reply, so check
-      it with the [evaluation harness](../../evals/README.md) before keeping
-      it. `block` is a content decline, and `budget`,
-      `user_cap` and `disabled` are limits: reported, never a failure. A
-      failed screen on `/speak` or `/agent/voice` is counted in both
-      sections, as the voice reason `screen` or `busy` and as the screen
-      outcome; the two counts are reported separately. A screen counter
-      that cannot get the store within 50 ms is dropped and logged on
-      `nested_worlds.moderation`, so these counts are a lower bound too.
-      It exits 1 when the window holds a voice provider, screen or
-      busy failure, a shared-text screen failure on any surface, the voice
-      is not configured, or the model configuration
-      has a hard problem (the check `models` and the boot run); add `--probe`
-      for the tiny live call `models --probe` makes. A counted failure lasts
-      for its UTC day, as a voice failure already does: once one is counted,
-      `voice-health` keeps exiting 1 until 00:00 UTC, or until the day leaves
-      the `--days` window. Nothing clears it, and a passing `--probe` does
-      not. So whatever schedules it (checklist B3) should alert at most once
-      per UTC day, with the full `voice-health` output in the alert, not on
-      every exit 1 (decided 2026-11-05 under the owner's delegation; no
-      threshold, no separate exit code). The cost of that rule: a second
-      failure later the same day does not alert again, so read the printed
-      counts and the ERROR log or Sentry for anything newer. A player can
-      provoke `undecided`: escalated text goes to the classifier as is, and
-      text that knocks it off its one-word reply is undecided. A red result
-      with only `undecided` counts may be model drift or injection; the
-      per-user `moderation:u:` rows in `cost_budget` count each key's
-      classify calls (at most 60 a day each). Revisit if more than
-      3 of the first 14 scheduled days alert on screen failures alone, if
-      `undecided` reaches 1% of classifier screens on a day, or at the first
-      key traced to 5 or more `undecided` in one day.
-      Every quiet line also logs `voice_fallback surface=... reason=...` on
-      `nested_worlds.voice`, at ERROR (a Sentry event) for failures and WARNING
-      for limits. Store errors are logged, not counted, and a counter write
-      that cannot get the store within 50 ms is dropped (and logged), so the
-      counts are a lower bound under heavy write contention. Where the scheduled
-      check runs, and who it pages, is the P5 monitoring decision; `/health`
-      and the `/guide` ping cannot see a quiet voice.
+      `curl -s -X POST https://<app>/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<a place name from /world>"}' | grep -o '"ai": false'`
+      Record all-off results as all-off evidence, not a live-model pass.
+      Live quality gates remain blocked until
+      [approved live controlled text](#approved-live-controlled-text) is complete.
+      Only then repeat the authenticated gameplay request and require `ai: true`,
+      and check intention success, clarification/refusal and an explicit-action
+      equivalent. Authored identity answers still have `ai: false` even when
+      voice is live, so use an ordinary place greeting for this check.
+      Never add `--probe` to a controlled CLI command; it is refused rather than
+      bypassing participant reservations. Keep credentials and private text out
+      of evidence. Mint a fresh check key for each rehearsal under a new one-word
+      name, following [§3a](#3a-staging-rehearsal--before-the-permanent-world-begins)
+      step 5. A revoked name stays taken. Never use a tester's key, and revoke the
+      check key afterwards as step 7 does. Optional audio is separate.
+- [ ] Watch spend and control state as the cohort arrives. Run the plain
+      `fly ssh console -C "python main.py models"` and
+      `fly ssh console -C "python main.py voice-health"` commands. In controlled
+      mode they report the frozen policy, route states and accounting stop state;
+      the legacy `anthropic` default must not read as a configured hosted route.
+      Policy state belongs to that CLI process, not an IPC query of the running
+      server; compare it with the release and restart evidence.
+      An all-off policy is an intentional quiet deployment, not evidence that
+      live voice has passed. Do not use `--probe` here. After approved activation,
+      ordinary keyed gameplay is the reserved live path.
+- [ ] Read voice and moderation outcome counts separately from dollars.
+      `cost_budget` retains daily call counts and outcome counters for both modes;
+      buckets starting `voice_outcome:` or `moderation_outcome:` are not spend.
+      The controlled ledger holds reserved/settled microUSD and incident stops.
+      A normal daily cap refusal differs from an accounting stop: the latter
+      requires reconciliation and does not reset by changing policy or waiting
+      for midnight. Keep external routes off during that incident and after a
+      backup restore until the day's external spend is reconciled. This batch
+      supplies no automatic refund or unlatch.
+- [ ] Watch the voice, not only `/health` or the `/guide` ping. Plain
+      `voice-health` reads configuration, the controlled stop and the recorded
+      voice/shared-text outcomes without a provider call. Provider, screen,
+      busy and accounting failures need operator attention; locally clean text
+      is not a classifier call, and content declines are policy, not outages.
+      A per-day counted failure remains visible for its UTC day (or its
+      `--days` window), and a persistent controlled stop survives that window.
+      The existing once-per-UTC-day notification rule for counted failures
+      remains; inspect new ERROR/Sentry events and the full status output for
+      later failures rather than treating one alert as recovery. Where this
+      check runs and who it notifies remain the P5 monitoring decision.
+      Counter writes dropped under contention are logged, so counts can be a
+      lower bound. The existing revisit triggers for shared-text screening
+      remain: more than 3 of the first 14 scheduled days alert on screen failures
+      alone, `undecided` reaches 1% of classifier screens in a day, or a key is
+      traced to 5 or more `undecided` in one day. An undecided reply can reflect
+      model drift or submitted text that derails its verdict; it is not evidence
+      of a content-policy violation by itself. In legacy local mode only, the older SDK timing and direct
+      probe behavior is described in
+      [agent runtime](../development/agent-runtime.md#current-implementation-and-its-limits).
+      Those retries and probes are not a hosted controlled activation path.
 - [ ] Mint **one key per person** (`python main.py invite mint --name ...`).
       This is the only way in — there is no shared key (it was removed
       because one credential merges transcript identities, budget buckets,
@@ -1590,18 +1608,16 @@ The phase-2 scale plan in `docs/roadmap/phase-2-scale.md` names the
 triggers for moving past this single-VM setup. The relevant ones for
 Fly:
 
-- **The configured provider's request-rate headroom shrinks (currently Anthropic)** → set
-  `NESTED_WORLDS_VOICE_DAILY_CALLS` and `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS`
-  to the same new integer in one `fly secrets set`, and raise
-  `NESTED_WORLDS_ANTHROPIC_CONCURRENCY`; no infra change needed. Leaving a
-  lower legacy secret set keeps that lower integer. Removing the legacy
-  name is `fly secrets unset`, staged and then `fly secrets deploy` when it
-  should share the restart. `busy` in
-  `python main.py voice-health`, in the voice section or the shared-text
-  screens, while the provider answers normally is the concurrency signal:
-  calls waited out the slot bound and were not made.
-- **`/image` requests dominate egress** → put Cloudflare in front and
-  cache `/image` responses; the URL stays the same.
+- **The selected provider's request-rate headroom shrinks** → inspect
+  controlled policy state and the provider's own limits first. Call caps and
+  provider-specific slot limits remain additional bounds, not dollar allowances
+  or permission to change the frozen policy. A controlled policy change requires
+  review and restart; keep routes off while changing an approved configuration.
+  Legacy local provider tuning is in the runtime guidance. Do not remove the
+  hosted requirement or enable Anthropic to evade the controlled refusal.
+- **`/image` requests dominate egress** → this applies to legacy local or a
+  future approved image path; this controlled build refuses generated images
+  before cache access. Do not treat a CDN as approval of an image destination.
 - **SQLite write contention shows up in latency p99** → execute ADR-003
   (Postgres switchover). Fly + Neon Postgres is a one-day migration;
   the volume drops away.
@@ -1614,6 +1630,9 @@ Fly:
 ## Cost expectation
 
 A `shared-cpu-1x` / 1 GB machine plus a 1 GB volume runs roughly
-$2-5/month at the 20-user beta scale. Usage of the configured provider
-(currently Anthropic) and fal.ai is separate and bounded by the daily call
-caps you set in env.
+$2-5/month at the 20-user beta scale. Model usage is separate. This build starts
+with hosted external routes off;
+after any approved live activation, controlled reservations bound admitted
+dollars under the declared provider contract. Daily call caps remain additional
+limits, not dollar forecasts. No provider, price, allowance or retention is
+selected by this cost illustration.

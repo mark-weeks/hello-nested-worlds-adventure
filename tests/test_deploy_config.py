@@ -36,6 +36,43 @@ def test_deploy_files_exist():
 
 
 class TestFlyToml:
+    def test_external_routes_start_controlled_and_off(self, cfg, monkeypatch):
+        from consciousness import model_policy, runtime
+
+        # These are deploy defaults, not optional operator overrides. In
+        # particular, the kill switches alone would not activate the durable
+        # permission boundary if REQUIRE_MODEL_POLICY disappeared.
+        safety = (model_policy.REQUIRED_ENV, "NESTED_WORLDS_DISABLE_AI",
+                  "NESTED_WORLDS_DISABLE_IMAGES")
+        assert {name: cfg["env"].get(name) for name in safety} == {
+            name: "1" for name in safety}
+        monkeypatch.delenv(model_policy.POLICY_ENV, raising=False)
+        monkeypatch.delenv("NESTED_WORLDS_TEST_WORLD", raising=False)
+        for name in safety:
+            monkeypatch.setenv(name, cfg["env"][name])
+        monkeypatch.setenv(runtime.PROVIDER_ENV, "unregistered_deploy_fixture")
+        monkeypatch.setenv(runtime.SHARED_MODEL_ENV, " ")
+
+        def forbidden(*_args, **_kwargs):
+            pytest.fail("all-off production defaults resolved a provider")
+
+        monkeypatch.setattr(runtime, "provider_for", forbidden)
+        monkeypatch.setattr(runtime, "get_provider", forbidden)
+        snapshot = model_policy.initialize()
+        assert model_policy.active() and snapshot.enabled_routes == ()
+        # A provider key or a switch changed after startup cannot grant a
+        # route missing from the immutable production startup snapshot.
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "fixture-key-added-after-startup")
+        monkeypatch.setenv("NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY", "fixture-compatible-key")
+        monkeypatch.setenv("NESTED_WORLDS_DISABLE_AI", "0")
+        monkeypatch.setenv("NESTED_WORLDS_DISABLE_IMAGES", "0")
+        assert model_policy.current() is snapshot
+        assert runtime.configured() is False
+        for task in runtime.TASKS:
+            assert runtime.configured(task) is False
+            with pytest.raises(model_policy.ModelPolicyDenied):
+                runtime.model_for(task)
+
     def test_single_always_on_machine(self, cfg):
         svc = cfg["http_service"]
         # Auto-stop would suspend the app when idle, dropping WS sessions and

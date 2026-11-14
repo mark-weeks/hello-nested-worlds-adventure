@@ -410,7 +410,7 @@ class TestClosedSets:
         groups = (observability.MODERATION_VERDICTS, observability.MODERATION_FAILURES,
                   observability.MODERATION_LIMITS)
         assert sorted(o for g in groups for o in g) == sorted(observability.MODERATION_OUTCOMES)
-        assert set(observability.MODERATION_FAILURES) == {"error", "busy", "undecided"}
+        assert set(observability.MODERATION_FAILURES) == {"error", "busy", "undecided", "control_stop"}
         assert set(observability.MODERATION_LIMITS) == {"budget", "user_cap", "disabled"}
 
     def test_the_new_rows_inflate_no_spend_or_voice_figure(self, capsys, monkeypatch):

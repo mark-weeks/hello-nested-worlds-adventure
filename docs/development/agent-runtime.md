@@ -7,7 +7,13 @@ and versions are replaceable choices that require evidence.
 
 ## Current implementation and its limits
 
-Text generation uses registered adapters. `NESTED_WORLDS_PROVIDER` selects
+The adapter, timeout and probe descriptions in this section apply to legacy local
+mode unless stated otherwise. Every app using committed `fly.toml`, production
+included, requires [controlled mode](#controlled-staging-policy), starts with all
+external routes off, and cannot use the default Anthropic live path in this
+implementation. This does not select a replacement vendor.
+
+Outside controlled mode, text generation uses registered adapters. `NESTED_WORLDS_PROVIDER` selects
 the process default. Unset means `anthropic`, so an existing deployment
 that sets nothing new does not change and does not enable another
 destination. Each text task may override that choice with
@@ -536,7 +542,7 @@ whitespace that was stripped, a Claude-shaped alias, and any usable id while
 prints a credential or the base URL. `/health` stays a liveness check and
 does not report model ids.
 
-`python main.py models --probe` makes one tiny live call per distinct
+Outside controlled mode, `python main.py models --probe` makes one tiny live call per distinct
 provider and model id (`max_tokens` 1). It is off unless that flag is
 passed. Server startup, `./scripts/check.sh`, tests, and CI do not pass
 it, and there is no environment variable that turns it on. It checks that
@@ -560,3 +566,36 @@ submitted text. The CLI still prints the authored in-fiction fallback. Providers
 normalize completion reasons at the boundary; voice extraction preserves partial
 text but raises a shared no-text error for missing output, distinguishing refusal
 from an unknown or anomalous finish.
+
+## Controlled staging policy
+
+Hosted and declared temporary test worlds require the
+[controlled model policy](model-policy.md). It adds exact destination/model/options
+permission and durable global/per-participant USD reservations before transmission.
+This first controlled slice supports the built-in Chat Completions adapter only;
+other adapters, direct probes, live wrappers, keyless calls and images refuse.
+The all-off example selects no destination, price, cap or retention period.
+Existing local/fixture behavior outside controlled mode and the call-count caps
+remain. A valid policy is not provider evaluation or live activation approval.
+
+The first controlled adapter/vendor is an open owner decision. ADR-035 remains
+Proposed, so live hosted voice is blocked until that ADR is accepted or a
+controlled Anthropic path exists, and the chosen destination/account terms,
+models, prices, dollar amounts and retention are approved. The all-off defaults
+apply to production as well as staging. Do not remove the hosted policy
+requirement to recover the legacy Anthropic path.
+
+`models` and `voice-health` report the controlled route policy rather than
+legacy adapter readiness. They refuse `--probe` in controlled mode, including
+when all routes are disabled. Their plain forms make no provider calls; a later
+approved live rehearsal uses authenticated gameplay endpoints with reservations.
+`NESTED_WORLDS_DISABLE_AI` still controls voice and intention, not moderation;
+moderation must have its own approved policy route and remains subject to its
+existing disable switch. Controlled images return authored silence with
+`images: false` and do not reach the image provider.
+
+CLI policy output belongs to that command process's frozen environment and file;
+it is not an IPC read of a running server's earlier snapshot. Match it to the
+selected release and restart evidence. Controlled dispatch assumes one server
+process per SQLite database and stops for reconciliation when the first dispatch
+after startup finds unfinished reservations from the prior process.
