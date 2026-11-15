@@ -1527,8 +1527,10 @@ function updatePresenceRings() {
   }
 }
 
+// Escapes text for HTML text and for double- or single-quoted attribute values.
 function escHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // ── Wire up event listeners (replaces inline onclick/onkeydown handlers) ───

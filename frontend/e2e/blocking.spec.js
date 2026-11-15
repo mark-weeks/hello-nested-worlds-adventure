@@ -12,7 +12,7 @@ const repo = path.resolve(import.meta.dirname, '../..');
 const key = 'nw_' + 'a'.repeat(32);
 const otherKey = 'nw_' + 'b'.repeat(32);
 
-async function start() {
+async function start(otherName='Bea') {
   const directory = await mkdtemp(path.join(tmpdir(), 'enfolded-blocking-'));
   const database = path.join(directory, 'worlds.db');
   const seeded = spawnSync(process.env.ENFOLDED_PYTHON || 'python', ['-c', `
@@ -21,10 +21,10 @@ import sys
 import persistence
 persistence._DB_PATH=Path(sys.argv[1])
 persistence.mint_invite_key('nw_'+'a'*32,'Ada')
-persistence.mint_invite_key('nw_'+'b'*32,'Bea')
+persistence.mint_invite_key('nw_'+'b'*32,sys.argv[2])
 from multiverse import store
 store.ensure_born(382)
-`, database], {cwd:repo, encoding:'utf8'});
+`, database, otherName], {cwd:repo, encoding:'utf8'});
   if (seeded.status !== 0) throw new Error(seeded.stderr);
   const server = await serveBrowser({database});
   return {...server, close:async()=>{await server.close(); await rm(directory,{recursive:true,force:true});}};
@@ -109,6 +109,55 @@ for (const route of ['/', '/app']) test(`${route}: block chat and presence acros
     await page.getByRole('button',{name:'Block Bea',exact:true}).click();
     await expect(page.getByText('Your choice could not be saved. Try again.',{exact:true})).toBeVisible();
     await expect(page.getByRole('button',{name:'Block Bea',exact:true})).toBeEnabled();
+  } finally {
+    await owner.close(); await other.close(); await server.close();
+  }
+});
+
+// Traveler names may contain quotes. Every control that carries a name in an
+// attribute must keep it as that attribute's text and add no other attribute.
+const quotedName=`Bea "Q" O'Hara`;
+const nameAttributes=new Set(['class','title','aria-label','data-node','data-block','data-unblock','disabled']);
+// Reads every button in the page, including those inside closed sections.
+async function namedControls(page, verb) {
+  return page.locator('button').evaluateAll((nodes, verb)=>nodes
+    .filter(node=>(node.getAttribute('aria-label') || '').startsWith(verb+' Bea'))
+    .map(node=>({label:node.getAttribute('aria-label'), extra:node.getAttributeNames()})), verb);
+}
+function expectNamed(controls, verb) {
+  for (const control of controls) {
+    expect(control.label).toBe(`${verb} ${quotedName}`);
+    expect(control.extra.filter(name=>!nameAttributes.has(name))).toEqual([]);
+  }
+}
+
+for (const route of ['/', '/app']) test(`${route}: a quoted traveler name stays text in roster, feed and blocked-list controls`, async ({browser})=>{
+  test.setTimeout(60_000);
+  const server=await start(quotedName);
+  const owner=await browser.newContext();
+  const other=await browser.newContext();
+  try {
+    const page=await owner.newPage();
+    const bea=await other.newPage();
+    await enter(page,server,route);
+    await enter(bea,server,'/app',otherKey,quotedName);
+    await bea.getByLabel('Message to travelers').fill('A line from a quoted name');
+    await bea.getByRole('button',{name:'Send',exact:true}).click();
+    await expect(page.getByLabel('Recent events')).toContainText('A line from a quoted name');
+    // One control in the traveler list and one beside the chat line.
+    await expect.poll(async()=>(await namedControls(page,'Block')).length).toBe(2);
+    expectNamed(await namedControls(page,'Block'),'Block');
+    const traveler=await page.locator('button').evaluateAll(nodes=>nodes
+      .map(node=>node.getAttribute('title')).filter(title=>(title || '').startsWith('go to Bea')));
+    for (const title of traveler) expect(title).toBe(`go to ${quotedName}`);
+    const block=page.getByRole('button',{name:`Block ${quotedName}`,exact:true});
+    await block.first().click();
+    await expect.poll(async()=>(await namedControls(page,'Block')).length).toBe(0);
+    await page.getByText('Blocked travelers (1)',{exact:true}).click();
+    await expect(page.getByRole('button',{name:`Unblock ${quotedName}`,exact:true})).toBeVisible();
+    const unblock=await namedControls(page,'Unblock');
+    expect(unblock).toHaveLength(1);
+    expectNamed(unblock,'Unblock');
   } finally {
     await owner.close(); await other.close(); await server.close();
   }
