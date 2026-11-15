@@ -26,6 +26,7 @@
     outline: none;
   }
   input[type=text]:focus { border-color: #3a8eff; }
+  .age-confirmation { margin-top: 16px; color: #8aaccc; font-size: 14px; letter-spacing: 0; text-transform: none; }
   button {
     margin-top: 14px; padding: 10px 22px; font: inherit; cursor: pointer;
     color: #07080f; background: #3a8eff; border: none; border-radius: 3px;
@@ -48,14 +49,17 @@
 
 <div id="register">
   <p data-participation-copy="register-intro">You have been invited. Before you enter, choose the name the worlds
-  will remember you by. It is yours alone — every word you speak, every
-  puzzle you solve, every trace you leave is recorded under it, permanently,
-  for every traveler who comes after.</p>
+  will remember you by. It is yours alone — your solved puzzles, actions and
+  exchanges with places and inhabitants are recorded under it, permanently,
+  for travelers who come after. When available, live chat and private reports
+  follow their own retention notices.</p>
   <section data-participation-notice aria-label="Participation notice" hidden></section>
   <form id="form">
     <label for="name">Your name</label>
     <input type="text" id="name" maxlength="32" autocomplete="off"
            spellcheck="false" autofocus>
+    <label class="age-confirmation"><input type="checkbox" id="register-age" required>
+      I confirm I am 18 years old or older.</label>
     <button id="go" type="submit">Enter the worlds</button>
     <div id="error" class="error"></div>
   </form>

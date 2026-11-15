@@ -2,9 +2,9 @@
 
 Closes ADR-002 §2 — Structured prompt assembly. Each of the 11 hierarchy
 scales now has a baseline aesthetic register from `docs/design/game-design.md`,
-and the node's accumulated interaction history (from `world_mutations`,
-populated by every interaction surface as of the previous change) layers
-property-driven style modifiers on top.
+and the node's legacy activity metadata layers property-driven style modifiers
+on top. The caller preserves the existing mixed-event window without loading
+its recorded words; private operational chat never contributes.
 
 The prompt is fully deterministic given (level, properties, history); a
 short signature of the same inputs is folded into the cache key so visuals
@@ -52,7 +52,7 @@ RIPPLE_UNSTABLE_THRESHOLD: float = 0.5
 
 def derive_modifiers(properties: dict, history: list[dict],
                      ripple_score: float = 0.0) -> list[str]:
-    """Return style modifier tags from the node's properties + mutation history.
+    """Return style tags from properties and legacy type/speaker metadata only.
 
     Mirrors the property→signal matrix in `docs/design/game-design.md`.
     Order is stable so callers can hash the result for cache keying.

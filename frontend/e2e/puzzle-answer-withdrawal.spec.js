@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {promisify} from 'node:util';
 import {serveBrowser} from './server.js';
+import {acknowledgeCurrentStudy} from './study-fixture.js';
 
 const execute = promisify(execFile);
 const repo = path.resolve(import.meta.dirname, '../..');
@@ -40,6 +41,7 @@ print(json.dumps({'node':root.name}))
 `, database, key, player, fixtureAnswer], {cwd: repo});
     const {node} = JSON.parse(stdout);
     server = await serveBrowser({database});
+    await acknowledgeCurrentStudy(server.url, key);
     return {...server, node, async close() {
       await server.close();
       await rm(directory, {recursive: true, force: true});

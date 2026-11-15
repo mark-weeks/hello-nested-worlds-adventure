@@ -86,6 +86,9 @@ export default function App() {
   const [participantId, setParticipantId] = useState(null);
   const [blockBusy, setBlockBusy] = useState(false);
   const [blockStatus, setBlockStatus] = useState('');
+  const [community, setCommunity] = useState(null);
+  const [reporting] = useState(() => globalThis.EnfoldedReporting.createController({withKey, onPolicy: setCommunity}));
+  useEffect(() => { reporting.load(); }, [reporting]);
   const blockIds = useRef(new Set());
   const blockRevision = useRef(0);
   const mySessionId = useRef(null);
@@ -318,6 +321,8 @@ export default function App() {
       liveViewerId.current = viewer;
       mySessionId.current = msg.session_id;
       setParticipantId(viewer);
+      reporting.setViewer(viewer);
+      reporting.load();
       applyBlocks(msg.blocks || []);
       const others = (msg.players || [])
         .filter(p => p.session_id !== msg.session_id && !blockIds.current.has(p.participant_id));
@@ -375,7 +380,7 @@ export default function App() {
         ? p.map(x => x.session_id === msg.session_id ? { ...x, node: msg.node } : x)
         : [...p, msg]),
     onChat: (msg) => {
-      if (!blockIds.current.has(msg.participant_id)) pushEvent({ type: "chat", name: msg.name, text: msg.text, liveParticipant: msg.participant_id });
+      if (!blockIds.current.has(msg.participant_id)) pushEvent({ type: "chat", name: msg.name, text: msg.text, liveParticipant: msg.participant_id, evidenceRef: msg.evidence_ref });
     },
     // Moderation hold or decline restores only the sender's own draft.
     onChatDeclined: (msg) => {
@@ -440,7 +445,7 @@ export default function App() {
       // closing stage direction as ambience.
       for (const l of msg.lines || []) {
         if (l.speaker) {
-          if (!blockIds.current.has(l.participant_id)) pushEvent({ type: "chat", name: l.speaker, text: l.line, liveParticipant: l.participant_id });
+          if (!blockIds.current.has(l.participant_id)) pushEvent({ type: "chat", name: l.speaker, text: l.line, liveParticipant: l.participant_id, evidenceRef: l.evidence_ref });
         } else if (!(msg.participant_ids || []).some(id => blockIds.current.has(id))) {
           pushEvent({ type: "system", text: l.line, liveParticipants: msg.participant_ids });
         }
@@ -569,8 +574,8 @@ export default function App() {
   }, [currentNodeName, horizonChildren, loadWorld, passageRetry, worldDepth]);
 
   const sendChat = useCallback(
-    (text) => sendMessage({ type: "chat", text, ref: chatDraft.sent(text) }),
-    [chatDraft, sendMessage]);
+    (text) => community?.chat.enabled && sendMessage({ type: "chat", text, ref: chatDraft.sent(text) }),
+    [chatDraft, sendMessage, community?.chat.enabled]);
 
   // Cross the wrap: the loop's landing is a real node, so the crossing IS
   // a jump to it (jumpTo rebuilds the true ancestry stack, deepening the
@@ -713,6 +718,7 @@ export default function App() {
         node={currentNode}
         players={players}
         blocks={blocks} participantId={participantId} onBlock={changeBlock} blockBusy={blockBusy} blockStatus={blockStatus}
+        onReport={target => reporting.open(target)} community={community}
         agents={agents}
         connected={connected}
         events={events}

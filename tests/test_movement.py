@@ -291,6 +291,15 @@ class TestAgentPresence:
 
 # ── Reconnect resume (the ledger position survives a dropped session) ───────
 
+def _acknowledge_study(key):
+    """Saved-position journeys use an enrolled adult test participant."""
+    from persistence import participation as consents
+    from server import participation
+    current = participation.notice()
+    assert current["required"] and current["ready"]
+    consents.accept(key, current["revision"], participation.snapshot(current))
+
+
 def _post_position(port, key, node, seed):
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/position",
@@ -315,6 +324,7 @@ class TestReconnectResume:
         seed = 42
         key = "nw_resume_key"
         persistence.mint_invite_key(key, "Resa")
+        _acknowledge_study(key)
         mid = generate_node_hierarchy(seed=seed, max_depth=2).children[0]
         assert _post_position(srv, key, mid.name, seed)["saved"] is True
 
@@ -324,8 +334,19 @@ class TestReconnectResume:
         assert joins and joins[0]["player"] == "Resa"
         # Chat before any move is attributed to the RESUMED node, not root.
         _ws_send_json(s, {"type": "chat", "text": "back where I stood"})
-        chats = _wait_for_rows(seed, mid.name, "PLAYER_CHAT")
-        assert chats and chats[0]["data"]["text"] == "back where I stood"
+        frames = _recv_frames(s, lambda received: any(frame.get("type") == "chat" for frame in received))
+        chat = next(frame for frame in frames if frame.get("type") == "chat")
+        assert chat["name"] == "Resa" and chat["text"] == "back where I stood"
+        welcome = next(frame for frame in frames if frame.get("type") == "welcome")
+        assert next(player["node"] for player in welcome["players"]
+                    if player["session_id"] == welcome["session_id"]) == mid.name
+        from persistence import participants
+        participant = participants.identify(key)["id"]
+        with persistence._connection() as conn:
+            assert conn.execute("""SELECT world_seed,node_name,participant_id,name,text
+                FROM private_chat_messages WHERE evidence_ref=?""", (chat["evidence_ref"],)).fetchone() == (
+                    seed, mid.name, participant, "Resa", "back where I stood")
+            assert conn.execute("SELECT COUNT(*) FROM world_mutations WHERE mutation_type='PLAYER_CHAT'").fetchone()[0] == 0
         s.close()
 
     def test_keyless_or_unsaved_joins_still_enter_at_root(self, srv):
@@ -339,6 +360,7 @@ class TestReconnectResume:
         # A position saved in world 42 must not resolve inside world 4342.
         key = "nw_crossworld"
         persistence.mint_invite_key(key, "Cross")
+        _acknowledge_study(key)
         mid = generate_node_hierarchy(seed=42, max_depth=2).children[0]
         assert _post_position(srv, key, mid.name, 42)["saved"] is True
         other = 4342
@@ -353,6 +375,7 @@ class TestReconnectResume:
         seed = 42
         key = "nw_mallory"
         persistence.mint_invite_key(key, "Mallory1")
+        _acknowledge_study(key)
         room = _rooms_by_lock(seed, locked=True)[0]
         assert _post_position(srv, key, room.name, seed)["saved"] is False
         assert persistence.get_player_position(key) is None
@@ -369,6 +392,7 @@ class TestReconnectResume:
         seed = 42
         key = "nw_inside"
         persistence.mint_invite_key(key, "Indra")
+        _acknowledge_study(key)
         room = next(r for r in _rooms_by_lock(seed, locked=True) if r.children)
         inner = room.children[0]
         _human_solve(seed, room)  # the way opens

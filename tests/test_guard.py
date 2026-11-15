@@ -63,6 +63,15 @@ def _get_json(url: str) -> dict:
         return json.loads(resp.read())
 
 
+def _acknowledge_study(key):
+    """Successful keyed journeys represent adults enrolled in this study."""
+    from persistence import participation as consents
+    from server import participation
+    current = participation.notice()
+    assert current["required"] and current["ready"]
+    consents.accept(key, current["revision"], participation.snapshot(current))
+
+
 # ── Invite gate ─────────────────────────────────────────────────────────────
 
 class TestInviteGate:
@@ -100,11 +109,13 @@ class TestInviteGate:
 
     def test_key_via_query_param_accepted(self, srv):
         self._gate_on()
+        _acknowledge_study("nw_letmein")
         base, _ = srv
         assert _get_status(f"{base}/worlds?key=nw_letmein") == 200
 
     def test_key_via_header_accepted(self, srv):
         self._gate_on()
+        _acknowledge_study("nw_letmein")
         base, _ = srv
         status = _get_status(f"{base}/worlds",
                               headers={guard.BETA_KEY_HEADER: "nw_letmein"})
@@ -126,6 +137,7 @@ class TestPerUserInviteKeys:
 
     def test_active_per_user_key_accepted(self, srv):
         persistence.mint_invite_key("k_alice", "Alice")
+        _acknowledge_study("k_alice")
         base, _ = srv
         assert _get_status(f"{base}/worlds?key=k_alice") == 200
 
@@ -133,6 +145,7 @@ class TestPerUserInviteKeys:
         persistence.mint_invite_key("k_alice", "Alice")
         persistence.mint_invite_key("k_bob", "Bob")
         persistence.revoke_invite_key("k_alice")
+        _acknowledge_study("k_bob")
         base, _ = srv
         assert _get_status(f"{base}/worlds?key=k_alice") == 403
         assert _get_status(f"{base}/worlds?key=k_bob") == 200
@@ -186,6 +199,7 @@ class TestPerUserInviteKeys:
 
     def test_per_user_key_via_header_accepted(self, srv):
         persistence.mint_invite_key("k_alice", "Alice")
+        _acknowledge_study("k_alice")
         base, _ = srv
         status = _get_status(f"{base}/worlds",
                               headers={guard.BETA_KEY_HEADER: "k_alice"})
@@ -765,6 +779,7 @@ class TestStaticAssetGate:
 
     def test_app_shell_ungated_but_world_gated(self, srv):
         persistence.mint_invite_key("nw_gate", "Gatekeeper")
+        _acknowledge_study("nw_gate")
         base, _ = srv
         # Shell loads with no key (browser can't send one on the <script> tag).
         assert _get_status(f"{base}/app") == 200
@@ -825,6 +840,7 @@ class TestWebSocketGate:
 
     def test_ws_accepts_forwarded_key(self, srv):
         persistence.mint_invite_key("nw_gate", "Gatekeeper")
+        _acknowledge_study("nw_gate")
         _, port = srv
         code, sock = _ws_upgrade(port, "/ws?seed=42&name=A&key=nw_gate", hold=True)
         assert code == 101

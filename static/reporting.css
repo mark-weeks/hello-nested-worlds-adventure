@@ -1,0 +1,14 @@
+.report-dialog { margin:auto;width:min(540px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:24px;background:var(--surface,#12202b);color:var(--text,#edf2ed);border:1px solid var(--line,#66776e);border-radius:var(--contour,8px);font:16px/1.5 system-ui,sans-serif; }
+.report-dialog::backdrop { background:#000b; }
+.report-dialog h2 { margin:0 0 16px;font:500 26px/1.2 Georgia,serif; }
+.report-dialog p { margin:12px 0;overflow-wrap:anywhere; }
+.report-dialog label { display:block;margin:16px 0 8px; }
+.report-dialog select,.report-dialog textarea { box-sizing:border-box;width:100%;padding:10px;font:inherit;color:inherit;background:var(--canvas,#0b171e);border:1px solid var(--line,#66776e);border-radius:var(--contour,4px); }
+.report-dialog textarea { resize:vertical; }
+.report-dialog button { min-height:44px;padding:10px 16px;font:inherit;color:inherit;background:var(--surface,#12202b);border:1px solid var(--line,#66776e);border-radius:var(--contour,4px);cursor:pointer; }
+.report-dialog :focus-visible { outline:3px solid var(--accent,#e5c27b);outline-offset:3px; }
+.report-dialog :disabled { opacity:.65;cursor:default; }
+.report-actions { display:flex;flex-wrap:wrap;gap:12px;margin-top:16px; }
+.report-status { min-height:24px; }
+.community-notice { font-size:.875rem;line-height:1.5;overflow-wrap:anywhere; }
+.report-control { margin-inline-start:8px; }

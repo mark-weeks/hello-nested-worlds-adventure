@@ -32,7 +32,8 @@ from consciousness import honesty, runtime
 from consciousness.runtime import Completion
 from evals.harness import ROOT, admits_ai, claims_human, denies_ai, discloses_ai, grade, load_corpus
 from multiverse.generator import generate_node_hierarchy
-from server import _Handler, _ThreadedServer, guard, moderation, observability
+from persistence import participation as participation_records
+from server import _Handler, _ThreadedServer, guard, moderation, observability, participation
 from server.handlers import _PACE_LINE
 from tests.test_moderation import _SLUR
 
@@ -1229,6 +1230,10 @@ def test_a_spent_voice_allowance_keeps_a_line_that_asks_more_quiet(srv, voice, m
 def test_the_answer_is_recorded_like_a_voice_reply_and_joins_the_conversation(srv, voice):
     key = "nw_" + "f" * 32
     persistence.mint_invite_key(key, "Ada")
+    # Ada is an adult tester who has acknowledged this study's current notice.
+    current = participation.notice()
+    assert current["required"] and current["ready"]
+    participation_records.accept(key, current["revision"], participation.snapshot(current))
     seed = 1341
     node = _place(seed)
     for message in ("Hello, old light.", "Are you a real person?", "What did you just tell me?"):

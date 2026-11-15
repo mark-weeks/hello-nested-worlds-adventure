@@ -1380,6 +1380,7 @@ def _replay_curl(command: str, base: str, *, check_key: str, other_key: str,
 def test_runbook_voice_probes_remain_controlled_off_and_check_key_only(live_server, monkeypatch):
     from consciousness import model_policy, runtime
     from server import guard
+    from tests.study_fixture import acknowledge_current_study
 
     def forbidden(*_args, **_kwargs):
         pytest.fail("an all-off runbook probe resolved a model provider")
@@ -1396,6 +1397,8 @@ def test_runbook_voice_probes_remain_controlled_off_and_check_key_only(live_serv
     monkeypatch.setattr(runtime, "get_provider", forbidden)
     frozen = model_policy.initialize()
     assert frozen.enabled_routes == ()
+    acknowledge_current_study(check_key)
+    acknowledge_current_study(tester_key)
     # The gate stamps last_used_at on a key's first use in a process; start
     # with no key remembered, so each key's first use here is recorded.
     monkeypatch.setattr(guard, "_touch_cache", {})

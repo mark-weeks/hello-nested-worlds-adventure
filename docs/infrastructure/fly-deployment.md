@@ -209,6 +209,16 @@ commit the change. That file is the deployment contract
 (`tests/test_deploy_config.py` guards it); the commands below must match
 what it says.
 
+**Before the next deployment, the owner must choose the chat/report rollout.**
+Without a community policy, this release disables new human traveler chat and
+reports in **all modes, including production**. For a chat-enabled watch, the
+owner supplies explicit retention for each enabled capability, contact and
+backup wording in the policy before tester access. Alternatively, the owner may explicitly choose to
+deploy or run the watch with chat/report collection off. This runbook chooses
+neither and supplies no retention values. Follow the
+[community preflight](#private-traveler-chat-and-reports) for the selected state;
+the default is a behavior change, not implicit approval of a chat-off watch.
+
 > **The first deploy starts the permanent world.** Under the continuity
 > policy the database is never wiped between cohorts — whatever your
 > first testers do becomes history the project carries forward, forever.
@@ -304,6 +314,10 @@ fly tokens create deploy -a enfolded-staging
 #    settings leave /health available but keep gameplay closed. No provider
 #    keys belong on this first build. Complete the notice below before
 #    sending any tester URLs.
+#    Before this or any later deploy, record the owner's chat/report
+#    rollout choice and check the selected community policy offline.
+#    After boot, complete the metadata/notice checks below before tester
+#    access. Missing policy disables chat and reports on production too.
 fly secrets set --stage -a enfolded-staging NESTED_WORLDS_TEST_WORLD=1 NESTED_WORLDS_DISABLE_AI=1 NESTED_WORLDS_DISABLE_IMAGES=1
 FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy
 
@@ -341,7 +355,11 @@ fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
 #    controlled text" below only after those gates; do not remove the
 #    requirement or assume installing a provider key completes them.
 
-# 7. Complete the temporary-world notice (below), then open the check
+# 7. Verify GET /community matches the selected enabled/off state and
+#    GET /participation serves the revised, ready test-world notice.
+#    Existing testers must re-acknowledge it; do not replay a refused
+#    submission automatically. Complete the temporary-world notice
+#    (below), then open the check
 #    identity's /app invite URL yourself and acknowledge it. Do not accept
 #    on a tester's behalf. Without acknowledgement a keyed /world or /ws
 #    is refused with 428; an incomplete notice refuses gameplay with 503.
@@ -364,7 +382,53 @@ fly ssh console -a enfolded-staging -C "python main.py invite revoke <check key>
 #    channel or a CI log.
 ```
 
-#### Temporary-world notice and acknowledgement
+#### Private traveler chat and reports
+
+The [community retention and reporting guide](../development/community-reporting.md)
+governs the separate community policy. All new human WebSocket traveler chat uses
+the private operator log in hosted and local modes, production included; no configured policy means
+chat and reports are disabled, with no permanent fallback. Other gameplay keeps
+its existing gates. No retention or backup duration is supplied by the code.
+Before the next deploy, record the owner's selected rollout: an enabled policy
+with explicit retention for each enabled capability, contact and backup wording
+for a chat-enabled watch, or an explicit decision to deploy/watch with collection off. Neither is
+selected here. Validate the exact file selected for that release offline before
+configuring the server to load it:
+
+```sh
+python main.py community-policy --check --policy /private/community-policy.json
+```
+
+The checked-in disabled file is available for an explicitly chosen off state;
+it is not an enabled policy with implicit durations. After the selected policy
+is loaded by deployment/restart, inspect `GET /community`: its `revision`,
+`chat.enabled`, `reports.enabled`, declared retention, contact and backup notice
+must match the selected release state. An off deployment must report both
+capabilities disabled. A chat-enabled watch must report the intended capabilities
+enabled with the supplied wording. `/health` and an offline check alone do not
+establish that the running server loaded the intended policy.
+
+On an existing disposable test world, this release changes the participation
+notice even when collection is off; a later community-policy wording change
+changes it again. Inspect `GET /participation` for the current notice, its changed revision,
+and `required: true`, `ready: true`. Existing testers must read and acknowledge
+that revision themselves before continuing. Do not reuse their old acceptance
+or accept on their behalf. A refused or interrupted chat/report/action is not
+automatically replayed after reconsent; preserve the draft and let the tester
+choose whether to submit it anew.
+
+Existing chronicle rows are not rewritten. Legacy chat is hidden from normal
+public/model history while its established aggregate art contribution remains.
+Place and inhabitant exchanges and authored ambient cast conversations still
+follow their recorded-history rules; the notice must not promise all speech is
+private. Configure the approved retention statements before participants accept
+the revised notice. Poll the private operator queue with `report list`; the goal
+is attention within 24 hours, not a claim of active staffing or notifications.
+`community-status` and `community-prune` support operator checks and cleanup.
+The provisional additive schema step requires human review at merge; a quiet
+model policy does not approve community retention or its backup treatment.
+
+#### Participation notice and adult confirmation
 
 The [controlled model policy guide](../development/model-policy.md) describes
 the required configuration, offline preflight and remaining live gates. Fly ships
@@ -373,23 +437,32 @@ has every route disabled. A backup restore must keep external calls disabled
 until the day's provider spend is reconciled; restoring an older ledger does
 not restore the provider's bill.
 
-The explicit `NESTED_WORLDS_TEST_WORLD=1` setting enables the staging gate;
-the app name and Sentry environment do not enable it. Keep it set throughout
-the rehearsal. Before tester access, set these four operator-owned values on
-the staging app with `fly secrets set -a enfolded-staging`. Do not copy the
+The explicit `NESTED_WORLDS_TEST_WORLD=1` setting enables the temporary-world
+gate; the app name and Sentry environment do not enable it. Keep it set
+throughout the watch. A continuing invited study also requires the notice
+when its frozen community policy configures chat or report collection and
+the invite gate has ever closed. Issuing an operator key or registration
+invite latches that boundary permanently: revoking the last key or temporarily
+disabling chat or reports cannot remove the notice requirement. An uninvited
+local development world without `TEST_WORLD` remains outside this study gate.
+
+Before tester access, set these operator-owned notice values on the relevant
+app with `fly secrets set`. The existing `TEST_` names serve both temporary
+watches and continuing studies. Use wording appropriate to that world; do not
+promise a continuing world will be removed after a newcomer watch or copy
 placeholder descriptions as policy:
 
 | Setting | Required value |
 |---|---|
 | `NESTED_WORLDS_TEST_CONTACT` | The research owner or facilitator and a way to contact them. |
-| `NESTED_WORLDS_TEST_RETENTION` | The approved retention/deletion dates and treatment of the test database, consent records, research records and backups. This setting displays a statement; it does not schedule deletion. |
-| `NESTED_WORLDS_TEST_MIN_AGE` | The owner's minimum tester age, as an integer. No age is selected by the code. |
-| `NESTED_WORLDS_TEST_DATA_USE` | The approved explanation of who receives test data, which model providers are used, and why. A no-provider watch must have no provider credentials set. |
+| `NESTED_WORLDS_TEST_RETENTION` | The approved retention/deletion treatment of the world database, consent records, research records and backups. State how to request deletion or leave the study and that backup copies are removed when those backups are deleted. This setting displays a statement; it does not schedule deletion. |
+| `NESTED_WORLDS_TEST_MIN_AGE` | Optional compatibility setting: `18` only. The owner-set minimum is 18; an absent value keeps 18, and any conflicting value leaves the notice not ready. |
+| `NESTED_WORLDS_TEST_DATA_USE` | The approved explanation of who receives study data, which model providers are used, and why. A no-provider watch must have no provider credentials set. |
 
 The canonical setting is `1`. Case-insensitive `true`, `on` and `yes` also
-enable it; absent/empty, `0`, `false`, `off` and `no` disable it. An unknown
-value keeps participation required but not ready, so a typo cannot silently
-open staging.
+enable it; absent/empty, `0`, `false`, `off` and `no` turn temporary mode off.
+The continuing-study condition above still applies. An unknown value keeps
+participation required but not ready, so a typo cannot silently open staging.
 
 Fly's [secrets documentation](https://docs.fly.io/apps/secrets) documents
 `--stage` as deferring machine updates until a later deploy. That contract was
@@ -399,29 +472,31 @@ notice changes may restart clients and require their new acknowledgement.
 
 `GET /participation` is public and serves the same notice used by both
 clients, registration and the guide. Verify that it reports `required: true`
-and `ready: true`; `/health` alone does not establish either. Registration
-does not count as consent. Every participant, including an operator-minted
+and `ready: true`, and the correct `temporary` value; `/health` alone does not
+establish any of these. Registration requires its own affirmative 18-or-older
+confirmation before minting a key and does not count as notice consent. Every participant, including an operator-minted
 invite holder, must acknowledge the current notice before gameplay or a
 WebSocket connection is allowed. Acceptance is a private participant-owned
 record, separate from the chronicle, and follows invite rotation and other
 devices. A changed notice requires a new acknowledgement and closes sockets
 that have not accepted that revision.
 
-The server supplies one agreement sentence that includes the configured
-minimum age. The unchecked agreement control displays that sentence verbatim;
-`POST /participation` with `{ "accepted": true, "revision": "<current revision>" }`
-affirms that age and participation statement together. The exact agreement is
-hashed and retained in the private notice snapshot. This is self-attestation,
-not independent age verification; the operator still selects the minimum age
-and controls invitations. No date of birth is collected.
+The shared notice supplies separate unchecked age and participation controls,
+including the plain statement "I confirm I am 18 years old or older."
+`POST /participation` requires
+`{ "accepted": true, "age_confirmed": true, "revision": "<current revision>" }`.
+Both statements are hashed and retained in the same private notice snapshot.
+Self-registration and operator-issued invitations must accept that same current
+revision before play. This is self-attestation, not independent age verification;
+the operator controls invitations. No date of birth is collected.
 
 The notice also covers direct Journal and Ideas entry. A changed notice can
 be reviewed during play or while another dialog is open. Acceptance resumes
 the existing view without replaying a refused mutation. Consent-required 428
 and participation configuration/check 503 are plain operational notice
-decisions, separate from authored world voices. Production keeps its existing
-permanent-history disclosure; temporary copy is selected only after metadata
-declares a test world.
+decisions, separate from authored world voices. Continuing worlds keep their
+standing shared-history disclosure alongside any required study notice;
+temporary copy is selected only when metadata reports `temporary: true`.
 
 The default staging watch remains without provider keys. The step 6 provider
 setup and step 7 `ai: true` probe apply only after the provider-data review and
@@ -503,21 +578,26 @@ Use the current probe against staging after its dedicated check participants
 have accepted the notice. Put one personal check key per line in a private
 file outside the checkout; never put keys on the command line or in an issue.
 Before world discovery or any socket, the probe checks public `/participation`
-metadata and requires a ready temporary world. It then uses authenticated
+metadata and requires a ready temporary world, then checks public `/community`
+capabilities. Chat-off rehearsals require `--no-chat`; a chat-mode probe refuses
+disabled chat before creating a world or opening a socket. It then uses authenticated
 `/world` discovery, the served canonical seed and real nodes to verify
 concurrent sockets, ordered movement and chat delivery:
 
 ```bash
-.venv/bin/python scripts/ws_soak.py --url https://enfolded-staging.fly.dev --clients 12 --duration 60 --keys-file /private/staging-soak-keys.txt
+.venv/bin/python scripts/ws_soak.py --url https://enfolded-staging.fly.dev --clients 12 --duration 60 --no-chat --keys-file /private/staging-soak-keys.txt
 ```
 
 A run from one IP also needs the staging operator to size
 `NESTED_WORLDS_MAX_WS_PER_IP` for those 12 sockets (the default is 8), or to
 distribute the clients across addresses. Use staging-only limits and respect
 the global cap; the probe does not weaken either limit. It reports refusals
-as failures and does not accept notices automatically. Chat-mode probes leave
-authored rehearsal lines in the disposable chronicle; `--no-chat` suppresses
-those lines but still records joins and movement. It is not read-only and
+as failures and does not accept notices automatically. Remove `--no-chat` only
+for a deliberately chat-enabled rehearsal under the selected collection policy.
+Chat-mode probes leave authored rehearsal lines in the private operator chat log,
+under that policy's retention and deletion rules. Traveler messages leave no
+chat event in world history. `--no-chat` suppresses those lines but still records
+joins and movement. The probe is not read-only and
 does not bypass the temporary-world preflight. A deliberate rehearsal on a
 permanent world requires `--permanent-world-ok`, including with `--no-chat`;
 this does not override absent, malformed or incomplete notice metadata.
@@ -931,9 +1011,11 @@ When the suspension expires or the sanction is lifted,
 the same key resolves to the same participant again. Journal, profile, home
 and saved position are untouched throughout.
 
-What the player sees: the same `403 {"error": "forbidden"}` as a revoked key
-(Ideas, which authenticates on its own, answers its usual 403 "Open your
-current personal game invite to participate in Ideas."). No reason, kind or
+What the player sees: the same `403 {"error": "forbidden"}` as a revoked key.
+Ideas authenticates through its own failure limiter first and answers its
+usual 403 "Open your current personal game invite to participate in Ideas."
+An admitted key must still acknowledge the current study notice before Ideas
+can read or change content. No reason, kind or
 end time is shown. Telling the player what was decided and why, and any
 appeal, is checklist G8, a held owner decision. Neither client yet tells the
 player their invite stopped working.

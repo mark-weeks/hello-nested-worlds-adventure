@@ -90,6 +90,19 @@ const {
 // The player's most recent chat line, kept until its verdict. A line the
 // screen holds or declines goes back into an empty chat input.
 const chatDraft = createChatDraft();
+let community = EnfoldedReporting.normalizeMetadata(null);
+const reporting = EnfoldedReporting.createController({withKey, onPolicy(metadata) {
+  community = metadata;
+  const input = document.getElementById('chat-input');
+  const send = document.getElementById('chat-btn');
+  document.getElementById('chat-availability').hidden = metadata.chat.enabled;
+  document.getElementById('chat-recording-notice').textContent =
+    metadata.chat.notice;
+  input.disabled = !metadata.chat.enabled;
+  send.disabled = !metadata.chat.enabled;
+  input.placeholder = metadata.chat.enabled ? 'Say something…' : 'Chat unavailable';
+}});
+reporting.load();
 
 // The wrap passage's landings and authored lines — server-owned, arriving
 // with /world (ADR-008).
@@ -1236,6 +1249,8 @@ function handleWsMsg(msg) {
       }
       mySessionId = msg.session_id;
       myParticipantId = viewer;
+      reporting.setViewer(viewer);
+      reporting.load();
       applyBlocks(msg.blocks || []);
       replacePlayerRoster(msg.players);
       replaceAgentRoster(msg.agents);
@@ -1322,7 +1337,7 @@ function handleWsMsg(msg) {
     case 'chat': {
       if (blockedIds.has(msg.participant_id)) break;
       const nameHtml = `<span class="chat-name">${escHtml(msg.name)}</span>`;
-      pushFeed(`${nameHtml} ${escHtml(msg.text)}`, { cls: 'chat-msg', html: true, liveParticipant: msg.participant_id, chatName: msg.name });
+      pushFeed(`${nameHtml} ${escHtml(msg.text)}`, { cls: 'chat-msg', html: true, liveParticipant: msg.participant_id, chatName: msg.name, evidenceRef: msg.evidence_ref });
       break;
     }
     case 'chat_declined': {
@@ -1372,7 +1387,7 @@ function handleWsMsg(msg) {
         if (l.speaker) {
           if (blockedIds.has(l.participant_id)) continue;
           pushFeed(`<span class="chat-name">${escHtml(l.speaker)}</span> ${escHtml(l.line)}`,
-                   { cls: 'chat-msg', html: true, liveParticipant: l.participant_id, chatName: l.speaker });
+                   { cls: 'chat-msg', html: true, liveParticipant: l.participant_id, chatName: l.speaker, evidenceRef: l.evidence_ref });
         } else if (!(msg.participant_ids || []).some(id => blockedIds.has(id))) {
           pushFeed(escHtml(l.line), {liveParticipants: msg.participant_ids});
         }
@@ -1428,7 +1443,7 @@ function renderPlayers() {
       `<span class="player-dot" style="color:${p.color}" aria-label="Player">◆</span>` +
       `<span class="player-name">${escHtml(p.name)}</span>` +
       `<span class="player-node" title="${escHtml(p.node || '')}">${escHtml(p.node ? displayName(p.node) : '—')}</span>` +
-      `</button>` + (myParticipantId && p.participant_id && p.participant_id !== myParticipantId ? `<button data-block="${escHtml(p.participant_id)}" aria-label="Block ${escHtml(p.name)}"${blockBusy ? ' disabled' : ''}>Block</button>` : '') + `</div>`);
+      `</button>` + (myParticipantId && p.participant_id && p.participant_id !== myParticipantId ? `<button data-block="${escHtml(p.participant_id)}" aria-label="Block ${escHtml(p.name)}"${blockBusy ? ' disabled' : ''}>Block</button>${reportButton(p.participant_id, null, p.name)}` : '') + `</div>`);
   }
   for (const [name, a] of cast) {
     rows.push(
@@ -1439,7 +1454,7 @@ function renderPlayers() {
       (a.persona ? ` <span style="color:var(--muted)">· ${escHtml(a.persona)}</span>` : '') +
       `</span>` +
       `<span class="player-node" title="${escHtml(a.node || '')}">${escHtml(a.node ? displayName(a.node) : '…arriving')}</span>` +
-      `</button>` + (myParticipantId && a.participant_id ? `<button data-block="${escHtml(a.participant_id)}" aria-label="Block ${escHtml(name)}"${blockBusy ? ' disabled' : ''}>Block</button>` : '') + `</div>`);
+      `</button>` + (myParticipantId && a.participant_id ? `<button data-block="${escHtml(a.participant_id)}" aria-label="Block ${escHtml(name)}"${blockBusy ? ' disabled' : ''}>Block</button>${reportButton(a.participant_id, null, name)}` : '') + `</div>`);
   }
   el.innerHTML = rows.join('');
 }
@@ -1447,6 +1462,7 @@ function renderPlayers() {
 // One delegated listener: traveler rows carry their node in data-node
 // (inline handlers are barred by the production CSP).
 document.getElementById('players-list').addEventListener('click', (e) => {
+  if (openReportControl(e.target)) return;
   const block = e.target.closest('[data-block]');
   if (block) { changeBlock(block.dataset.block, true); return; }
   const row = e.target.closest('[data-node]');
@@ -1458,14 +1474,28 @@ document.getElementById('blocked-list').addEventListener('click', e => {
   if (button) changeBlock(button.dataset.unblock, false);
 });
 document.getElementById('event-feed').addEventListener('click', e => {
+  if (openReportControl(e.target)) return;
   const button = e.target.closest('[data-block]');
   if (button) changeBlock(button.dataset.block, true);
 });
 
-function pushFeed(text, { cls = '', html = false, liveParticipant, liveParticipants, chatName } = {}) {
+function reportButton(participant, evidence, name) {
+  const attr = value => escHtml(value || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return `<button class="report-control" data-report data-participant="${attr(participant)}" data-evidence="${attr(evidence)}" data-name="${attr(name)}" aria-label="Report ${attr(name || 'this message')}">Report</button>`;
+}
+
+function openReportControl(target) {
+  const button = target.closest('[data-report]');
+  if (!button) return false;
+  reporting.open({participant: button.dataset.participant || null,
+    evidence_ref: button.dataset.evidence || null, name: button.dataset.name || ''});
+  return true;
+}
+
+function pushFeed(text, { cls = '', html = false, liveParticipant, liveParticipants, chatName, evidenceRef } = {}) {
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const content = html ? text : escHtml(text);
-  eventFeed.unshift({ content, time, cls, liveParticipant, liveParticipants, chatName });
+  eventFeed.unshift({ content, time, cls, liveParticipant, liveParticipants, chatName, evidenceRef });
   if (eventFeed.length > 20) eventFeed.pop();
   renderFeed();
 }
@@ -1474,7 +1504,8 @@ function renderFeed() {
   const el = document.getElementById('event-feed');
   el.innerHTML = eventFeed.map(e =>
     `<div class="feed-item ${escHtml(e.cls || '')}"><span class="feed-time">${e.time}</span>${e.content}` +
-    (e.chatName && myParticipantId && e.liveParticipant && e.liveParticipant !== myParticipantId ? `<button class="block-control" data-block="${escHtml(e.liveParticipant)}" aria-label="Block ${escHtml(e.chatName)}"${blockBusy ? ' disabled' : ''}>Block</button>` : '') + `</div>`
+    (e.chatName && myParticipantId && e.liveParticipant && e.liveParticipant !== myParticipantId ? `<button class="block-control" data-block="${escHtml(e.liveParticipant)}" aria-label="Block ${escHtml(e.chatName)}"${blockBusy ? ' disabled' : ''}>Block</button>` : '') +
+    (e.chatName && myParticipantId && e.liveParticipant !== myParticipantId && (e.liveParticipant || e.evidenceRef) ? reportButton(e.liveParticipant, e.evidenceRef, e.chatName) : '') + `</div>`
   ).join('');
 }
 
@@ -1482,7 +1513,7 @@ function sendChat() {
   const input = document.getElementById('chat-input');
   if (!input) return;
   const text = input.value.trim();
-  if (!text) return;
+  if (!text || !community.chat.enabled) return;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     pushFeed('Not connected to the shared world.');
     return;

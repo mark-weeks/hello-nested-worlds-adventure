@@ -1,4 +1,4 @@
-"""A disposable-world notice is acknowledged by its actual participant."""
+"""The current study notice and adult confirmation belong to the participant."""
 from __future__ import annotations
 
 import threading
@@ -9,7 +9,7 @@ import pytest
 
 import persistence
 from persistence import participation as consents, participants
-from server import _Handler, _ThreadedServer, guard, participation
+from server import _Handler, _ThreadedServer, community_policy, guard, participation
 from tests.test_day_one_recording import _ws_connect, _ws_send_json
 from tests.test_moderation import _read_ws_json_until
 from tests.test_ws_credential_lifetime import _until_close, _wait_rows
@@ -25,9 +25,13 @@ _CONFIG = {
 
 
 @pytest.fixture(autouse=True)
-def clean_test_world_configuration(monkeypatch):
+def clean_test_world_configuration(monkeypatch, _community_test_policy):
     for key in _CONFIG:
         monkeypatch.delenv("NESTED_WORLDS_" + key, raising=False)
+    # This suite explicitly chooses study mode. Do not enroll its synthetic
+    # accounts via the broader behavior suite's collection policy.
+    monkeypatch.delenv(community_policy.POLICY_ENV, raising=False)
+    community_policy.reset_for_tests()
 
 
 @pytest.fixture
@@ -45,7 +49,7 @@ def _rows(table):
 def _accept(http, key=None):
     status, notice, _ = http("/participation", key) if key is not None else http("/participation")
     assert status == 200
-    body = {"accepted": True, "revision": notice["revision"]}
+    body = {"accepted": True, "age_confirmed": True, "revision": notice["revision"]}
     status, notice, _ = http("/participation", key, body) if key is not None else http("/participation", body=body)
     assert status == 200 and notice["accepted"]
     return notice
@@ -56,7 +60,7 @@ def test_default_off_preserves_gameplay_and_has_no_consent_enrollment(http):
     assert status == 200 and metadata == {
         "required": False, "ready": True, "accepted": False,
         "revision": "", "title": "Enfolded", "paragraphs": [], "minimum_age": None,
-        "agreement": "",
+        "temporary": False, "age_confirmation": "", "agreement": "",
     }
     assert headers["Cache-Control"] == "no-store"
     assert http("/world?depth=1")[0] == 200
@@ -82,11 +86,12 @@ def test_public_notice_does_not_enroll_an_account_or_reveal_another_acceptance(h
     assert http("/participation", accounts[0])[1]["accepted"] is True
     assert set(http("/participation")[1]) == {
         "required", "ready", "accepted", "revision", "title", "paragraphs", "minimum_age", "agreement",
+        "temporary", "age_confirmation",
     }
     assert len(_rows("participant_credentials")) == 1
 
 
-@pytest.mark.parametrize("missing", ["TEST_CONTACT", "TEST_RETENTION", "TEST_MIN_AGE", "TEST_DATA_USE"])
+@pytest.mark.parametrize("missing", ["TEST_CONTACT", "TEST_RETENTION", "TEST_DATA_USE"])
 def test_incomplete_notice_keeps_shells_available_but_gameplay_and_acceptance_closed(http, configured, monkeypatch, missing):
     monkeypatch.delenv("NESTED_WORLDS_" + missing)
     status, metadata, _ = http("/participation", "")
@@ -102,13 +107,18 @@ def test_incomplete_notice_keeps_shells_available_but_gameplay_and_acceptance_cl
     assert not persistence.world_is_born(382)
 
 
-@pytest.mark.parametrize("age", ["", "0", "-1", "121", "18.0", "eighteen", "１８", "1" * 5000])
+@pytest.mark.parametrize("age", ["0", "-1", "17", "21", "121", "18.0", "eighteen", "１８", "1" * 5000])
 def test_invalid_age_is_incomplete_not_a_default_policy(http, configured, monkeypatch, age):
     monkeypatch.setenv("NESTED_WORLDS_TEST_MIN_AGE", age)
     metadata = http("/participation", "")[1]
     assert metadata["minimum_age"] is None and not metadata["ready"]
     assert metadata["agreement"] == ""
     assert http("/world")[0] == 503
+
+
+def test_owner_set_adult_minimum_needs_no_environment_override(http, configured, monkeypatch):
+    monkeypatch.delenv("NESTED_WORLDS_TEST_MIN_AGE")
+    assert http("/participation", "")[1] == configured
 
 
 @pytest.mark.parametrize("flag", ["enabled", "tru", "2", "falsee"])
@@ -161,12 +171,16 @@ def test_every_gameplay_dispatch_is_fenced_before_world_writes_or_provider_calls
 
 @pytest.mark.parametrize("body,code", [
     ({}, 400),
-    ({"accepted": False, "revision": "current"}, 400),
-    ({"accepted": 1, "revision": "current"}, 400),
-    ({"accepted": "true", "revision": "current"}, 400),
-    ({"accepted": True, "revision": "current", "participant": "someone-else"}, 400),
-    ({"accepted": True, "revision": None}, 409),
-    ({"accepted": True, "revision": "outdated"}, 409),
+    ({"accepted": False, "age_confirmed": True, "revision": "current"}, 400),
+    ({"accepted": 1, "age_confirmed": True, "revision": "current"}, 400),
+    ({"accepted": "true", "age_confirmed": True, "revision": "current"}, 400),
+    ({"accepted": True, "age_confirmed": True, "revision": "current", "participant": "someone-else"}, 400),
+    ({"accepted": True, "revision": "current"}, 400),
+    ({"accepted": True, "age_confirmed": False, "revision": "current"}, 400),
+    ({"accepted": True, "age_confirmed": 1, "revision": "current"}, 400),
+    ({"accepted": True, "age_confirmed": "true", "revision": "current"}, 400),
+    ({"accepted": True, "age_confirmed": True, "revision": None}, 409),
+    ({"accepted": True, "age_confirmed": True, "revision": "outdated"}, 409),
 ])
 def test_acceptance_requires_an_affirmative_current_submission(http, configured, body, code):
     if body.get("revision") == "current":
@@ -186,22 +200,17 @@ def test_accepted_notice_opens_only_that_person_and_repeats_idempotently(http, a
     assert http("/world?depth=1", accounts[1])[0] == 428
 
 
-def test_acceptance_records_the_combined_age_and_notice_agreement(http, configured, monkeypatch):
+def test_acceptance_records_both_explicit_age_and_notice_statements(http, configured):
+    assert configured["age_confirmation"] == "I confirm I am 18 years old or older."
     assert configured["agreement"] == (
-        "I confirm I am at least 18 years old, have read this notice and agree "
-        "to participate in this temporary test world.")
+        "I have read this notice and agree to participate in this temporary test world.")
     accepted = _accept(http)
     original = _rows("participation_consents")[0]
     document = json.loads(original[2])
     assert document["agreement"] == accepted["agreement"]
+    assert document["age_confirmation"] == accepted["age_confirmation"]
     assert document["minimum_age"] == 18
     assert len(original[3]) > 0
-    monkeypatch.setenv("NESTED_WORLDS_TEST_MIN_AGE", "21")
-    changed = http("/participation")[1]
-    assert "at least 21 years old" in changed["agreement"]
-    assert changed["revision"] != original[1] and not changed["accepted"]
-    assert http("/participation", body={"accepted": True, "revision": original[1]})[0] == 409
-    assert _rows("participation_consents")[0] == original
 
 
 def test_concurrent_acknowledgements_keep_one_owner_and_one_snapshot(accounts, configured):
@@ -227,16 +236,16 @@ def test_acceptance_survives_restart_and_rotation_but_refuses_the_old_key(http, 
     assert _rows("participation_consents") == before
 
 
-@pytest.mark.parametrize("field", ["TEST_CONTACT", "TEST_RETENTION", "TEST_DATA_USE", "TEST_MIN_AGE"])
+@pytest.mark.parametrize("field", ["TEST_CONTACT", "TEST_RETENTION", "TEST_DATA_USE"])
 def test_every_effective_notice_change_requires_its_own_acknowledgement(http, configured, monkeypatch, field):
     _accept(http)
-    value = "21" if field == "TEST_MIN_AGE" else _CONFIG[field] + " Updated."
+    value = _CONFIG[field] + " Updated."
     monkeypatch.setenv("NESTED_WORLDS_" + field, value)
     current = http("/participation")[1]
     assert current["ready"] and not current["accepted"]
     assert current["revision"] != configured["revision"]
     assert http("/world")[0] == 428
-    assert http("/participation", body={"accepted": True, "revision": configured["revision"]})[0] == 409
+    assert http("/participation", body={"accepted": True, "age_confirmed": True, "revision": configured["revision"]})[0] == 409
     _accept(http)
     assert len(_rows("participation_consents")) == 2
     saved = {row[1]: json.loads(row[2]) for row in _rows("participation_consents")}
@@ -271,7 +280,7 @@ def test_sanction_refuses_consented_key_without_disclosing_private_reason(http, 
 
 def test_self_service_registration_mints_no_implicit_acknowledgement(http, configured):
     persistence.create_registration_token("nwr_participation_test")
-    status, response, _ = http("/register", "", {"invite": "nwr_participation_test", "name": "Cara"})
+    status, response, _ = http("/register", "", {"invite": "nwr_participation_test", "name": "Cara", "age_confirmed": True})
     assert status == 200
     key = response["key"]
     assert _rows("participation_consents") == []
@@ -279,6 +288,77 @@ def test_self_service_registration_mints_no_implicit_acknowledgement(http, confi
     assert http("/world", key)[0] == 428
     _accept(http, key)
     assert http("/world?depth=1", key)[0] == 200
+
+
+@pytest.mark.parametrize("age", [None, False, 1, "true"])
+def test_registration_requires_explicit_adult_confirmation_without_consuming_invite(http, age):
+    persistence.create_registration_token("nwr_adult_registration")
+    body = {"invite": "nwr_adult_registration", "name": "Cara"}
+    if age is not None:
+        body["age_confirmed"] = age
+    status, response, _ = http("/register", "", body)
+    assert status == 400 and "18 years old" in response["error"]
+    assert http("/register", "", {**body, "age_confirmed": True})[0] == 200
+
+
+@pytest.fixture
+def continuing_study(monkeypatch, tmp_path):
+    for key, value in _CONFIG.items():
+        monkeypatch.setenv("NESTED_WORLDS_" + key, "0" if key == "TEST_WORLD" else value)
+    monkeypatch.setenv("NESTED_WORLDS_TEST_RETENTION", "Study records are reviewed when the study ends. Contact the operator for deletion or to leave the study; backup copies are removed when backups are deleted.")
+    path = tmp_path / "study-community.json"
+    path.write_text(json.dumps({
+        "schema_version": 1, "policy_id": "continuing-study-fixture",
+        "chat": {"enabled": True, "retention_mode": "until_deleted"},
+        "reports": {"enabled": True, "retention_days": 180},
+        "contact": "Fixture study operator",
+        "backup_notice": "Copies are removed when study backups are deleted.",
+    }))
+    monkeypatch.setenv(community_policy.POLICY_ENV, str(path))
+    community_policy.reset_for_tests()
+
+
+def test_collection_without_issued_invites_keeps_local_development_ungated(continuing_study):
+    assert not guard.invite_gate_active()
+    assert not participation.notice()["required"]
+
+
+def test_continuing_study_operator_invite_requires_current_notice_and_age(http, accounts, continuing_study):
+    current = http("/participation", "")[1]
+    assert current["required"] and current["ready"] and not current["temporary"]
+    assert current["minimum_age"] == 18
+    assert "continuing world" in current["paragraphs"][0]
+    assert http("/world")[0] == 428
+    assert http("/participation", body={"accepted": True, "revision": current["revision"]})[0] == 400
+    _accept(http)
+    assert http("/world?depth=1")[0] == 200
+    assert http("/world?depth=1", accounts[1])[0] == 428
+
+
+def test_both_registration_and_operator_invite_accept_the_same_study_revision(http, accounts, continuing_study):
+    operator_notice = _accept(http)
+    persistence.create_registration_token("nwr_study_registration")
+    status, registered, _ = http("/register", "", {
+        "invite": "nwr_study_registration", "name": "Cara", "age_confirmed": True})
+    assert status == 200
+    assert http("/world", registered["key"])[0] == 428
+    registered_notice = _accept(http, registered["key"])
+    assert registered_notice["revision"] == operator_notice["revision"]
+    assert registered_notice["age_confirmation"] == operator_notice["age_confirmation"]
+
+
+def test_collection_kill_switches_and_last_key_revocation_never_remove_study_notice(http, accounts, continuing_study, monkeypatch):
+    current = http("/participation", "")[1]
+    monkeypatch.setenv(community_policy.DISABLE_CHAT_ENV, "1")
+    monkeypatch.setenv(community_policy.DISABLE_REPORTS_ENV, "1")
+    assert not community_policy.chat_enabled() and not community_policy.reports_enabled()
+    assert http("/participation", "")[1] == current
+    assert http("/world")[0] == 428
+    for key in accounts:
+        persistence.revoke_invite_key(key)
+    assert guard.invite_gate_active()
+    assert http("/participation", "")[1] == current
+    assert http("/world", "")[0] == 403
 
 
 def test_database_check_failure_fails_closed_without_a_stack_or_internal_error(http, configured, monkeypatch):

@@ -9,6 +9,8 @@ import App from "./App.jsx";
 import { withKey } from "./auth.js";
 import "../../static/participation.js";
 import "../../static/participation.css";
+import "../../static/reporting.js";
+import "../../static/reporting.css";
 
 // Browser crashes were invisible to operators (Sentry is server-side only);
 // forward them so a broken deploy shows up in the server logs.

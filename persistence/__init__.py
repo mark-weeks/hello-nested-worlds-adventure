@@ -715,17 +715,37 @@ def list_worlds() -> list[dict[str, Any]]:
 @_with_db
 def get_node_history(world_seed: int, node_name: str, limit: int = 10, *,
                      include_narration: bool = True) -> list[dict[str, Any]]:
-    """Recent rows; count/style consumers can omit provenance and prose."""
-    from persistence.history import FIELDS, decode, project
+    """Recent public rows; legacy traveler chat never consumes this window."""
+    from persistence.history import FIELDS, PUBLIC_HISTORY, decode, project
     with _connect() as conn:
         rows = conn.execute(
             f"""SELECT {FIELDS}
                FROM world_mutations WHERE world_seed = ? AND node_name = ?
+                 AND {PUBLIC_HISTORY}
                ORDER BY recorded_at DESC, id DESC LIMIT ?""",
             (world_seed, node_name, max(1, min(int(limit), 1000))),
         ).fetchall()
         entries = [decode(r) for r in rows]
         return project(conn, world_seed, entries) if include_narration else entries
+
+
+@_with_db
+def get_node_activity_history(world_seed: int, node_name: str,
+                              limit: int = 1000) -> list[dict[str, Any]]:
+    """Legacy activity metadata for established art and authored meeting windows.
+
+    Preserve the old mixed-event ordering/window, including legacy chat, while
+    never loading any recorded words. Private operational chat is not consulted.
+    This is an internal style/count reader, not a public history projection.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT id, mutation_type, player_name, recorded_at
+               FROM world_mutations WHERE world_seed = ? AND node_name = ?
+               ORDER BY recorded_at DESC, id DESC LIMIT ?""",
+            (world_seed, node_name, max(1, min(int(limit), 1000))),
+        ).fetchall()
+    return [{"id": row[0], "type": row[1], "player": row[2], "at": row[3]} for row in rows]
 
 
 @_with_db
@@ -877,11 +897,12 @@ def provenance_of(mutation_id: int) -> dict[str, str | None] | None:
 
 @_with_db
 def get_mutations(world_seed: int, limit: int = 50) -> list[dict[str, Any]]:
-    from persistence.history import FIELDS, decode, project
+    from persistence.history import FIELDS, PUBLIC_HISTORY, decode, project
     with _connect() as conn:
         rows = conn.execute(
             f"""SELECT {FIELDS}
                FROM world_mutations WHERE world_seed = ?
+                 AND {PUBLIC_HISTORY}
                ORDER BY recorded_at DESC, id DESC LIMIT ?""",
             (world_seed, max(1, min(int(limit), 1000))),
         ).fetchall()
@@ -891,15 +912,23 @@ def get_mutations(world_seed: int, limit: int = 50) -> list[dict[str, Any]]:
 @_with_db
 def presented_mutations(world_seed: int, event_ids: list[int]) -> list[dict]:
     """Read committed events for a bounded live notification batch."""
-    from persistence.history import FIELDS, decode, positive_id, project
-    ids = list(dict.fromkeys(i for i in event_ids if positive_id(i)))[:200]
+    from persistence.history import FIELDS, PUBLIC_HISTORY, decode, positive_id, project
+    ids = sorted(set(i for i in event_ids if positive_id(i)))
     if not ids:
         return []
     with _connect() as conn:
-        placeholders = ",".join("?" for _ in ids)
-        rows = conn.execute(
-            f"SELECT {FIELDS} FROM world_mutations WHERE world_seed=? "
-            f"AND id IN ({placeholders}) ORDER BY id", (world_seed, *ids)).fetchall()
+        rows = []
+        # Bound each statement and the visible batch, after hidden rows have
+        # been excluded. A chat id cannot displace a notification that follows.
+        for offset in range(0, len(ids), 200):
+            chunk = ids[offset:offset + 200]
+            placeholders = ",".join("?" for _ in chunk)
+            rows.extend(conn.execute(
+                f"SELECT {FIELDS} FROM world_mutations WHERE world_seed=? "
+                f"AND {PUBLIC_HISTORY} AND id IN ({placeholders}) ORDER BY id LIMIT ?",
+                (world_seed, *chunk, 200 - len(rows))).fetchall())
+            if len(rows) == 200:
+                break
         return project(conn, world_seed, [decode(r) for r in rows])
 
 
@@ -1065,44 +1094,46 @@ def get_puzzle_attempt_state(world_seed: int, node_name: str,
 @_with_db
 def get_chronicle(world_seed: int, limit: int = 50,
                   before_id: int | None = None) -> dict[str, Any]:
-    """A page of the world's full history, newest first, cursor-paginated.
+    """A page of the world's public history, newest first, cursor-paginated.
 
     `before_id` walks backward in time (fetch entries with id < before_id).
     Returns {entries, next_before, total, began}: `next_before` is the
     cursor for the next-older page (None when exhausted), `total` the
-    world's full event count, `began` the timestamp of its first recorded
+    world's public event count, `began` the timestamp of its first public
     event — the world's birth in lived history.
     """
-    from persistence.history import FIELDS, decode, project
+    from persistence.history import FIELDS, PUBLIC_HISTORY, decode, project
     limit = max(1, min(int(limit), 200))
     with _connect() as conn:
         if before_id is not None:
             rows = conn.execute(
                 f"""SELECT {FIELDS}, actor_identity
                    FROM world_mutations WHERE world_seed = ? AND id < ?
+                     AND {PUBLIC_HISTORY}
                    ORDER BY id DESC LIMIT ?""",
-                (world_seed, before_id, limit),
+                (world_seed, before_id, limit + 1),
             ).fetchall()
         else:
             rows = conn.execute(
                 f"""SELECT {FIELDS}, actor_identity
                    FROM world_mutations WHERE world_seed = ?
+                     AND {PUBLIC_HISTORY}
                    ORDER BY id DESC LIMIT ?""",
-                (world_seed, limit),
+                (world_seed, limit + 1),
             ).fetchall()
         total = conn.execute(
-            "SELECT COUNT(*) FROM world_mutations WHERE world_seed = ?",
+            f"SELECT COUNT(*) FROM world_mutations WHERE world_seed = ? AND {PUBLIC_HISTORY}",
             (world_seed,),
         ).fetchone()[0]
         began = conn.execute(
-            "SELECT MIN(recorded_at) FROM world_mutations WHERE world_seed = ?",
+            f"SELECT MIN(recorded_at) FROM world_mutations WHERE world_seed = ? AND {PUBLIC_HISTORY}",
             (world_seed,),
         ).fetchone()[0]
-        entries = project(conn, world_seed, [dict(decode(r), actor=r[8]) for r in rows])
-    exhausted = len(rows) < limit
+        has_more = len(rows) > limit
+        entries = project(conn, world_seed, [dict(decode(r), actor=r[8]) for r in rows[:limit]])
     return {
         "entries": entries,
-        "next_before": None if exhausted else entries[-1]["id"],
+        "next_before": entries[-1]["id"] if has_more else None,
         "total": total,
         "began": began,
     }

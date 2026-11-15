@@ -6,6 +6,7 @@
 import { expect, test } from "@playwright/test";
 import { serveBrowser } from "./server.js";
 import { disclose } from "./disclosures.js";
+import { acknowledgeCurrentStudy } from "./study-fixture.js";
 
 const KEY = "nw_" + "e".repeat(32);
 const UNKNOWN_KEY = "nw_" + "f".repeat(32);
@@ -22,7 +23,16 @@ const PACE = "the world asks for a quieter pace — a breath, then try again";
 const inviteLink = route => `${route}?key=${KEY}&name=${encodeURIComponent(NAME)}`;
 
 // Minting a key latches the gate: every data read now needs a live key.
-const serve = () => serveBrowser({ preseed: 382, invite: KEY, player: NAME });
+const serve = async () => {
+  const server = await serveBrowser({ preseed: 382, invite: KEY, player: NAME });
+  try {
+    await acknowledgeCurrentStudy(server.url, KEY);
+    return server;
+  } catch (error) {
+    await server.close();
+    throw error;
+  }
+};
 
 function watchErrors(page) {
   const errors = [];

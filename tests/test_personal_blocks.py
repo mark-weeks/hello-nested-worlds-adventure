@@ -14,8 +14,8 @@ import pytest
 
 import persistence
 from multiverse import store
-from persistence import blocks, participants, sanctions
-from server import _Handler, _ThreadedServer
+from persistence import blocks, participants, participation as consents, sanctions
+from server import _Handler, _ThreadedServer, participation
 from server.block_targets import handle
 from server.rooms import (Player, agent_enter, agent_leave, agent_move, agents_snapshot,
                           broadcast, clear_rooms, get_room, snapshot)
@@ -27,8 +27,17 @@ from tests.test_ws_credential_lifetime import _until_type
 KEY_C = 'nw_' + 'c' * 32
 
 
+def _acknowledge_study(key):
+    """These block journeys start with an enrolled adult test participant."""
+    current = participation.notice()
+    assert current['required'] and current['ready']
+    consents.accept(key, current['revision'], participation.snapshot(current))
+
+
 @pytest.fixture
 def server(accounts):
+    for key in accounts:
+        _acknowledge_study(key)
     srv = _ThreadedServer(('127.0.0.1', 0), _Handler)
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
@@ -46,6 +55,7 @@ def server(accounts):
             return response.status, json.load(response), dict(response.headers)
 
     def join(key):
+        _acknowledge_study(key)
         sock, status = _ws_connect(srv.server_port, 382, 'ignored', invite_key=key)
         assert b'101' in status
         sockets.append(sock)
@@ -200,15 +210,16 @@ def test_real_sockets_one_way_all_tabs_reconnect_unblock_and_history(server, acc
     for sock in (ada, ada2):
         assert not any(m.get('participant_id') == target for m in _through_pong(sock))
 
-    # Blocking a person never suppresses world changes or records.
+    # Blocking a person never suppresses world changes or the private log.
     broadcast(get_room(382), {'type': 'causal_event', 'participant_id': b,
                              'kind': 'RIPPLE', 'node': target_node})
     for sock in (ada, ada2):
         assert _until_type(sock, 'causal_event')[0]['participant_id'] == target
-    assert _wait_for(lambda: any(r['type'] == 'PLAYER_CHAT' and r['player'] == 'Bea'
-                                for r in persistence.get_mutations(382)))
-    row = next(r for r in persistence.get_mutations(382) if r['type'] == 'PLAYER_CHAT')
-    assert row['data']['text'] == 'The signal reaches Cleo.'
+    with persistence._connection() as conn:
+        row = conn.execute("""SELECT participant_id,name,text FROM private_chat_messages
+            WHERE evidence_ref=?""", (chat['evidence_ref'],)).fetchone()
+        assert conn.execute("SELECT COUNT(*) FROM world_mutations WHERE mutation_type='PLAYER_CHAT'").fetchone()[0] == 0
+    assert row == (b, 'Bea', 'The signal reaches Cleo.')
 
     _ws_send_json(ada, {'type': 'chat', 'text': 'Bea still hears me.'})
     assert _until_type(bea, 'chat')[0]['name'] == 'Ada'

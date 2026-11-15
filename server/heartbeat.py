@@ -263,8 +263,7 @@ def _hold_conversation(seed: int, room, node: SpatialNode,
     """
     from agents.banter import compose_exchange
 
-    prior = [h for h in persistence.get_node_history(seed, node.name, limit=50,
-                                                  include_narration=False)
+    prior = [h for h in persistence.get_node_activity_history(seed, node.name, limit=50)
              if h["type"] == "AGENT_TALK"]
     lines = compose_exchange(seed, node, agent_a, persona_a,
                              agent_b, persona_b, ordinal=len(prior))

@@ -25,8 +25,8 @@ import pytest
 
 import main
 import persistence
-from persistence import participants, sanctions
-from server import guard
+from persistence import participants, sanctions, participation as consents
+from server import guard, participation
 from tests.test_day_one_recording import _ws_connect, _ws_send_json
 from tests.test_ws_credential_lifetime import (
     _join,
@@ -108,6 +108,14 @@ def _seconds_between(a, b):
 def _mint_two():
     persistence.mint_invite_key(KEY_A, "Ada")
     persistence.mint_invite_key(KEY_B, "Bea")
+
+
+def _acknowledge_study(*keys):
+    """Known synthetic adults accepted this fixture's current study notice."""
+    current = participation.notice()
+    assert current["required"] and current["ready"]
+    for key in keys:
+        consents.accept(key, current["revision"], participation.snapshot(current))
 
 
 # ── Schema: the CHECK constraints are the backstop ──────────────────────────
@@ -564,6 +572,7 @@ class TestInsertOnly:
 class TestHttpGate:
     def test_a_suspended_key_gets_exactly_the_revoked_key_403(self, srv):
         _mint_two()
+        _acknowledge_study(KEY_A, KEY_B)
         persistence.mint_invite_key(KEY_C, "Cy")
         persistence.revoke_invite_key(KEY_C)
         sanctions.suspend("Ada", HOUR, "spam in the commons")
@@ -576,6 +585,7 @@ class TestHttpGate:
 
     def test_a_lifted_key_is_admitted_again(self, srv):
         persistence.mint_invite_key(KEY_A, "Ada")
+        _acknowledge_study(KEY_A)
         b = sanctions.ban("Ada", "threats")
         assert _get(srv, "/worlds", KEY_A)[0] == 403
         sanctions.lift(b["id"], "appeal upheld")
@@ -583,12 +593,14 @@ class TestHttpGate:
 
     def test_an_expired_suspension_is_admitted(self, srv):
         persistence.mint_invite_key(KEY_A, "Ada")
+        _acknowledge_study(KEY_A)
         owner = sanctions.resolve("Ada")["id"]
         _insert_suspension(owner, "-3 hours", "-1 second")
         assert _get(srv, "/worlds", KEY_A)[0] == 200
 
     def test_sanctioning_every_live_player_never_reopens_the_gate(self, srv):
         _mint_two()
+        _acknowledge_study(KEY_A, KEY_B)
         sanctions.suspend("Ada", HOUR, "spam")
         sanctions.ban("Bea", "threats")
         assert persistence.list_invite_keys() != []  # both keys are still unrevoked
@@ -608,13 +620,12 @@ class TestHttpGate:
         persistence.revoke_invite_key(KEY_C)
         s = sanctions.suspend("Ada", HOUR, "spam")
 
-        # Ideas authenticates through participants.identify, outside the gate.
+        # Ideas applies its dedicated credential-failure path before the
+        # study acknowledgement gate, without revealing sanction details.
         refused = http("/ideas/list", key=ada)
         assert refused[:2] == http("/ideas/list", key=KEY_C)[:2]
         assert refused[0] == 403 and "spam" not in json.dumps(refused[1])
-        # Ideas' own refusal, word for word as the runbook quotes it.
-        assert refused[1] == {
-            "error": "Open your current personal game invite to participate in Ideas."}
+        assert refused[1] == {"error": "Open your current personal game invite to participate in Ideas."}
         assert http("/me", key=ada)[:2] == (403, {"error": "forbidden"})
         assert http("/me", key=bea)[0] == 200
 

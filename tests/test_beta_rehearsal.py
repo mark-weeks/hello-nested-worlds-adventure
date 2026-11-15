@@ -29,6 +29,15 @@ def test_cold_restore_keeps_identity_privacy_puzzles_and_one_pending_attempt(acc
     snapshot = tmp_path / 'online.db'
     with server(db._DB_PATH) as request:
         assert request('/world')[0] == 403
+        # Enroll these synthetic adults in the child server's current notice;
+        # both acknowledgements must survive backup, rotation and cold restore.
+        for key in accounts:
+            status, notice = request('/participation', key)
+            assert status == 200 and notice['ready']
+            assert request('/participation', key, {
+                'accepted': True, 'age_confirmed': True,
+                'revision': notice['revision'],
+            })[0] == 200
         owner = request('/me', original)[1]['participant']['id']
         assert request('/position', original, {'node': galaxy.name, 'seed': 382, 'depth': 3})[0] == 200
         assert request('/journal/note', original, {'id': 'private-restore-note',
@@ -62,6 +71,8 @@ def test_cold_restore_keeps_identity_privacy_puzzles_and_one_pending_attempt(acc
     with server(restored) as request:
         assert request('/world')[0] == 403
         assert request('/me', original)[0] == 403
+        assert request('/participation', replacement)[1]['accepted'] is True
+        assert request('/participation', other)[1]['accepted'] is True
         assert request('/me', replacement)[1]['participant']['id'] == owner
         assert db.get_player_position(replacement)['node'] == galaxy.name
         assert request('/journal/data', replacement)[1]['notes'][0]['text'] == 'Private rehearsal question'

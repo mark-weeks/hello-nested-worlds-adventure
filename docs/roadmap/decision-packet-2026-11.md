@@ -6,7 +6,7 @@ except decision 7, which the owner settled on 2026-11-03 and which ADR-004
 records, and decisions 2 and 3, on which the owner ruled in a working session
 on 2026-11-06: decision 2 is decided as recommended, and decision 3's options
 are superseded by an owner direction whose details wait on a Proposed ADR.
-Decision 1 (S5) stays open; the owner asked on 2026-11-06 whether chat must be
+Decision 1 (S5) initially stayed open; the owner asked on 2026-11-06 whether chat must be
 kept because it shapes the world's state, history and progress. The
 [2026-11-06 evaluation](../evaluation/2026-11-06-next-build.md) records these
 rulings and the evidence behind them; the sections below keep the 2026-11-02
@@ -20,19 +20,49 @@ implementation, deployment, recruitment, tag or merge. The evidence behind it
 is in the [2026-11-02 week-plan audit](../evaluation/2026-11-02-week-plan.md).
 The [beta launch checklist](beta-launch-checklist.md) governs exit criteria;
 the [Q4 plan](next-steps-2026-q4.md) governs order until it is re-planned
-(decision 6). The [roadmap index](README.md) carries this page.*
+(decision 6). The [roadmap index](README.md) carries this page. The Version 4
+prepared updates below record the later private-chat and adult-participation
+selections for decisions 1 and 5; the earlier analysis remains historical.*
+
+**Prepared update, revised 2026-11-15 (S5):** implementation follows option (c)
+for new human WebSocket traveler chat and adds the private report queue described
+in [Proposed ADR-040](../decisions/ADR-040-private-chat-and-reporting.md).
+The owner's [Version 4 direction on PR #174](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/174#issuecomment-6896201907)
+selects private chat retained until deletion, with complaint holds and operator
+deletion commands. Reports use 90 days for the disposable watch and 180 days for
+the retained cohort as documented decisions only. Preparing the authorized
+schema and writer change does not ratify the ADR or its prospective ADR-004
+amendment, apply a migration, merge or deploy. Rollout configuration, contact,
+backup treatment and operator workflow remain to be supplied. The default policy collects
+neither chat nor reports, in hosted and local modes. Earlier analysis and
+accepted decisions below remain historical records, not descriptions of that
+prepared code. No deployment or 24-hour response commitment is claimed.
+
+**Before-next-deploy decision still needed (S5 rollout):** a missing community
+policy disables new human traveler chat and reports in all modes, including
+production. For a chat-enabled watch, the operator configures the selected
+until-deleted chat policy, the applicable documented report window, contact and
+backup wording before tester access. The alternative is an
+explicit owner choice to deploy or watch with collection off. The prepared
+default does not choose either rollout or authorize
+a deployment. The runbook's
+[community preflight](../infrastructure/fly-deployment.md#private-traveler-chat-and-reports)
+checks the selected file offline, then the running `GET /community` state and
+revised study notice. Existing testers must acknowledge that changed notice and
+affirm they are 18 or older, including those using operator-minted keys;
+interrupted submissions are not automatically replayed.
 
 ## Summary
 
-All recommendations in this table are proposed by agent; not decided, except decision 7 (decided 2026-11-03), decision 2 (decided 2026-11-06, updated 2026-11-07), decision 3 (options superseded by owner direction on 2026-11-06; three of its open questions answered on 2026-11-07) and decision 10 (decided as a policy on 2026-11-07; its operating rules are proposed by agent, not decided).
+All recommendations in this table are proposed by agent; not decided, except decisions 1 and 5's Version 4 study policies (selected 2026-11-15; rollout and final terms remain separate), decision 7 (decided 2026-11-03), decision 2 (decided 2026-11-06, updated 2026-11-07), decision 3 (options superseded by owner direction on 2026-11-06; three of its open questions answered on 2026-11-07) and decision 10 (decided as a policy on 2026-11-07; its operating rules are proposed by agent, not decided).
 
 | # | Decision | Needed by | Blocks | Recommendation |
 |---|---|---|---|---|
-| 1 | [S5: is chat kept in the never-wipe chronicle?](#1-s5-chat-permanence) | Hard: the first production chat line. Practical: before the report queue is built (next week) | The S5 go/no-go line; report evidence (S3, G2); the privacy notice's chat sentence (L3); consent wording | (c) an operator-only chat log with a short retention window, kept out of the chronicle and out of prompts |
+| 1 | [S5: is chat kept in the never-wipe chronicle?](#1-s5-chat-permanence) | Before the next deploy: configure selected until-deleted chat and the applicable documented report window, contact and backup wording, or explicitly choose deploy/watch with collection off; scoped review at merge | S5; report evidence (S3, G2); privacy/consent wording; operator workflow | The owner's Version 4 direction selects option (c), until-deleted private chat, complaint holds and deletion commands. Report windows are 90 days for the watch and 180 days for the cohort, documented only. Missing policy disables collection in every mode. ADR-040 and the prospective ADR-004 amendment remain unratified; rollout configuration, backup treatment and live operations remain separate |
 | 2 | [Newcomer-watch venue](#2-newcomer-watch-venue) | Decided 2026-11-06; updated 2026-11-07 | O1 to O4 observations; C2c ratings; Q4 steps P6 and P7 | **Updated 2026-11-07:** "Let's expedite the test build, preferably in a staging environment rather than local." The owner prefers the Fly staging twin and an expedited test build; the local, declared-disposable world remains only as a fallback. The twin waits on the Fly account (F1). **Decided 2026-11-06: (a), as recommended.** A local, declared-disposable world for the onboarding watch only; the Fly twin stays mandatory for P4 and production. The watch's voice mode was not decided on 2026-11-06. Decision 10's 2026-11-07 policy may permit live voice (*inferred*), but it is a test a provider must pass, not an allowlist: live voice with testers waits for the owner's sign-off on the named provider's L4 data use note (proposed, decision 10), and the watch runs in per-scale silence, with no provider key, until then |
 | 3 | [Puzzle failure semantics](#3-puzzle-failure-semantics) | Direction set 2026-11-06; three questions answered 2026-11-07; the rest need a Proposed ADR before the release-candidate scope freeze | The fix; honest C2a and C2c counts | **Superseded 2026-11-06 by owner direction:** puzzles can have personalities, attempts and lock periods can be dynamic, and the owner suggested that agents help humans solve rather than solve on their own. **Answered 2026-11-07** (quoted in section 3): an annoyed puzzle grows grumpier toward all players, most toward whoever annoys it (the answer says "player", read as the puzzle); agents may suggest answers when a human engages them and proposes collaboration, and do not submit answers; puzzles may give subtle hints in their own voice. Still open: how much a hint may reveal, renewal, and the questions Proposed ADR-036 (#159) puts to the owner. *As prepared:* refuse attempts after a failure, and re-arm failed puzzles through decay with the condition "current epoch resolved (solved or failed)"; the 2026-11-06 evaluation found that this re-arm stops renewing a failed Room once decay has disturbed and fractured it, unless an earlier solve left it stabilized |
 | 4 | [World status (Q4 B)](#4-world-status-q4-decision-b) | Before any copy goes to recruits, and before the first invited outside player | R3, K2, "World status declared"; the permanence copy on `/register` and in the guide; L3 | Production for the cohort world if P4's restore and freshness checks pass; any staging or local watch declared disposable |
-| 5 | [Minimum tester age (S4)](#5-minimum-tester-age-s4) | Before recruitment (Q4 P5) and before any terms or invite text | S4; the terms text (L2); the invite template | 18 or older |
+| 5 | [Minimum tester age (S4)](#5-minimum-tester-age-s4) | Version 4 selects age 18 or older; final invite and terms still need publication before recruitment | S4; the terms text (L2); the invite template | Affirmative age 18 or older at registration and before operator-invited play, under the same current notice revision |
 | 6 | [Re-plan date (Q4 A, lapsed Oct 10)](#6-re-plan-date-q4-decision-a) | Now | Every dated step | Do not adopt the mechanical November 29 date. Plan an early-to-mid January cohort and set the exact date after the watch, once Fly timing is known |
 | 7 | [Reserve Observer and Scout](#7-reserve-observer-and-scout) | Decided 2026-11-03 | Nothing now | Reserved, as recommended; recorded in ADR-004's 2026-11-03 reserved-names amendment |
 | 8 | [D6 timing (Q4 C, lapsed Oct 10)](#8-d6-timing-q4-decision-c) | Before the first production deploy; a migration-first answer needs about two more weeks before it | ADR-029 batch 1 ordering; how urgent the consumer inventory is | The Q4 recommendation stands: before the first structural operation, not before the pilot |
@@ -42,6 +72,31 @@ All recommendations in this table are proposed by agent; not decided, except dec
 | 12 | [Off-host backup destination and retention (Q4 I)](#12-off-host-backup-destination-and-retention-q4-decision-i) | Before `ENFOLDED_BACKUP_REQUIRED=true` (Q4 P1) | P3 to P5; the backup-retention sentence in L3; the retention tail in decision 1 | Choose a destination and a retention period deliberately; the 30 days in the runbook is an example, not a decision |
 
 ## 1. S5 chat permanence
+
+**Current prepared scope, revised 2026-11-15:** all new human traveler messages use a
+private operator log only under an explicit policy; absent policy disables
+collection, with no permanent fallback. Existing chronicle chat remains intact
+but is excluded from normal public/model history. Its legacy aggregate art
+contribution is preserved. Recorded place/inhabitant exchanges and authored
+ambient cast conversations remain distinct. Chat uses until-deleted retention
+without a permanent event, even a wordless trace. Operators delete messages on
+request or study departure and review retention at study end; a watch log is
+deleted with its disposable world. Open and acknowledged complaints hold their
+case, actions and referenced messages until closure. Deletion removes eligible
+rows and reports held counts/reasons; closure releases a hold without resetting
+the original deadline. Reports reference original chat without copying a quote;
+reporter detail is separately retained. The owner selected report windows of
+90 days for the watch and 180 days for the cohort as documented operating
+decisions, not checked-in deployment configuration. The immutable policy,
+deletion/hold behavior and operator commands are documented in
+[community reporting](../development/community-reporting.md). The migration is a
+provisional additive step after schema 32, not a reserved number. Operator
+configuration, accurate backup wording, scoped storage review and the response
+arrangement remain release work. Backup copies disappear when their backups are
+deleted; no finite all-copies erasure time is established here.
+
+**Historical analysis prepared 2026-11-02 follows.** Its “Today” and effort
+estimates describe that base; the update above describes the prepared batch.
 
 *Proposed by agent; not decided.*
 
@@ -277,6 +332,14 @@ recommendation). Declare staging and any local watch disposable, with
 different copy.
 
 ## 5. Minimum tester age (S4)
+
+**Prepared update, 2026-11-15:** Version 4 selects age 18 or older. Registration
+requires affirmative confirmation before key creation, and operator-invited
+testers confirm their age and acknowledge the same current notice before play.
+The study gate uses the frozen collection policy and permanently latched invite
+gate, so emergency collection switches or revoking the final key cannot remove
+it. Final invite/terms publication remains release work. The analysis below is
+the historical recommendation, superseded by that selection.
 
 *Proposed by agent; not decided.*
 

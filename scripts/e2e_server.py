@@ -22,6 +22,8 @@ if __name__ == '__main__':
     with ExitStack() as stack:
         persistence._DB_PATH = args.database or Path(stack.enter_context(
             tempfile.TemporaryDirectory(prefix='enfolded-browser-world-'))) / 'worlds.db'
+        from scripts.community_fixture import configure
+        configure(persistence._DB_PATH.parent)
         if args.invite:
             persistence.mint_invite_key(args.invite, args.player)
         if args.preseed is not None:

@@ -6,9 +6,9 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 
-export async function serveBrowser({database,preseed,invite,player,pump=false,env={}}={}) {
+export async function serveBrowser({database,preseed,invite,player,pump=false,env={},port=0}={}) {
   const directory=database ? null : await mkdtemp(path.join(tmpdir(),'enfolded-browser-'));
-  const args=['-u','scripts/e2e_server.py','0','--database',database || path.join(directory,'worlds.db')];
+  const args=['-u','scripts/e2e_server.py',String(port),'--database',database || path.join(directory,'worlds.db')];
   if(preseed!=null)args.push('--preseed',String(preseed));
   if(invite)args.push('--invite',invite,'--player',player || 'Browser traveler');
   if(pump)args.push('--pump');

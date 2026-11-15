@@ -24,6 +24,7 @@ from consciousness.runtime import Completion
 from multiverse.generator import generate_node_hierarchy
 from multiverse.situation import KEEPER
 from server import _Handler, _ThreadedServer, guard, moderation
+from tests.study_fixture import acknowledge_current_study
 from tests.test_day_one_recording import _ws_connect
 from tests.test_moderation import _recv_exact
 
@@ -37,6 +38,8 @@ def srv():
     # Minting closes the invite gate: every request below is a named player.
     persistence.mint_invite_key(ADA_KEY, "Ada")
     persistence.mint_invite_key(BEA_KEY, "Bea")
+    acknowledge_current_study(ADA_KEY)
+    acknowledge_current_study(BEA_KEY)
     server = _ThreadedServer(("127.0.0.1", 0), _Handler)
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -473,14 +476,14 @@ def open_srv():
 def test_registration_refuses_an_agent_name_and_keeps_the_token(open_srv, name):
     persistence.create_registration_token("nwr_live")
     status, data = _request(open_srv, "/register", key="",
-                            body={"invite": "nwr_live", "name": name})
+                            body={"invite": "nwr_live", "name": name, "age_confirmed": True})
     assert status == 403 and data["error"] == (
         f"'{name.strip()}' belongs to the world — choose another name")
     assert persistence.lookup_registration_token("nwr_live") is not None
     assert persistence.list_invite_keys() == []
     # Not over-broad: a name that merely contains one is a player's.
     status, data = _request(open_srv, "/register", key="",
-                            body={"invite": "nwr_live", "name": "Scoutmaster"})
+                            body={"invite": "nwr_live", "name": "Scoutmaster", "age_confirmed": True})
     assert status == 200, data
     assert [row["name"] for row in persistence.list_invite_keys()] == ["Scoutmaster"]
 

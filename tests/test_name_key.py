@@ -83,7 +83,8 @@ def _mint_cli(name):
 
 
 def _register(port, token, name):
-    return _request(port, "/register", key="", body={"invite": token, "name": name})
+    return _request(port, "/register", key="", body={
+        "invite": token, "name": name, "age_confirmed": True})
 
 
 def _stored_names():
@@ -362,8 +363,14 @@ def test_a_seeded_legacy_duplicate_crashes_nothing(open_srv, capsys):
     status, data = _register(open_srv, "nwr_one", ELODIE)
     assert status == 409, data
     # Each credential still authenticates as its own exact spelling.
+    from server import participation
+    current = participation.notice()
     for key, name in ((KEY_A, ELODIE), (KEY_B, ELODIE_LOWER), (KEY_C, ELODIE_NFD)):
         assert guard.registered_name(key) == name
+        assert _request(open_srv, "/participation", key=key, body={
+            "accepted": True, "age_confirmed": True,
+            "revision": current["revision"],
+        })[0] == 200
         status, data = _request(open_srv, "/me", key=key)
         assert status == 200 and data["participant"]["name"] == name, data
     assert len({participants.identify(k)["id"] for k in (KEY_A, KEY_B, KEY_C)}) == 3

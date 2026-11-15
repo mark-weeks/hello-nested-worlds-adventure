@@ -886,7 +886,7 @@ def history_for_voice(seed: int, node_name: str,
     fetch = max(limit, _VOICE_HISTORY_FETCH)
     while True:
         rows = persistence.get_node_history(seed, node_name, limit=fetch)
-        kept = [h for h in rows if not _is_identity_exchange(h)]
+        kept = [h for h in rows if h.get("type") != "PLAYER_CHAT" and not _is_identity_exchange(h)]
         if len(kept) >= limit or len(rows) < fetch or fetch >= _VOICE_HISTORY_MAX:
             return kept[:limit]
         fetch = min(fetch * 4, _VOICE_HISTORY_MAX)
@@ -898,7 +898,7 @@ def _history_block(history: list[dict]) -> str:
         return ""
     lines = []
     for h in history:
-        if _is_identity_exchange(h):
+        if h.get("type") == "PLAYER_CHAT" or _is_identity_exchange(h):
             continue
         # The same read projection that players see distinguishes traveling
         # effects from local actions. No new memory or actor taxonomy.

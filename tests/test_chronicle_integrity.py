@@ -13,6 +13,7 @@ import urllib.request
 import pytest
 
 import persistence
+from tests.study_fixture import acknowledge_current_study
 from multiverse.generator import generate_node_hierarchy
 
 
@@ -97,6 +98,7 @@ class TestActorIdentity:
         # sha256(key)[:16], not just the mutable display name.
         key = "nw_integrity_test_key"
         persistence.mint_invite_key(key, "Ada", note="test")
+        acknowledge_current_study(key)
         expected = hashlib.sha256(key.encode()).hexdigest()[:16]
         root = generate_node_hierarchy(seed=144, max_depth=6)
         _post(srv, "/act",

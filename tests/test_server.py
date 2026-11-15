@@ -11,6 +11,7 @@ import urllib.request
 import pytest
 
 import persistence
+from tests.study_fixture import acknowledge_current_study
 from multiverse.generator import generate_node_hierarchy
 from puzzles.engine import build_puzzle
 from server import _Handler, _ThreadedServer
@@ -328,6 +329,7 @@ class TestPositionResume:
     def test_round_trip_keyed_by_invite_key(self, srv):
         base, _ = srv
         persistence.mint_invite_key("k_pos", "Pat")
+        acknowledge_current_study("k_pos")
         node = self._real_node(42)
         saved, status = _post(
             f"{base}/position?key=k_pos",
@@ -346,6 +348,8 @@ class TestPositionResume:
         base, _ = srv
         persistence.mint_invite_key("k_a", "A")
         persistence.mint_invite_key("k_b", "B")
+        acknowledge_current_study("k_a")
+        acknowledge_current_study("k_b")
         node1, node2 = self._real_node(1), self._real_node(2)
         _post(f"{base}/position?key=k_a", {"node": node1.name, "seed": 1})
         _post(f"{base}/position?key=k_b", {"node": node2.name, "seed": 2})
@@ -359,6 +363,7 @@ class TestPositionResume:
         # a name the world never generated cannot become a resume point.
         base, _ = srv
         persistence.mint_invite_key("k_forge", "Forge")
+        acknowledge_current_study("k_forge")
         saved, status = _post(
             f"{base}/position?key=k_forge", {"node": "Fake-11", "seed": 42})
         assert status == 200 and saved["saved"] is False

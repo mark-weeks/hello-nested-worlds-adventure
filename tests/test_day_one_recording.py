@@ -21,6 +21,7 @@ from consciousness import WANDERER_CAST
 from multiverse.generator import generate_node_hierarchy
 from server.rooms import clear_rooms
 from tests.test_server_protocol import _client_frame
+from tests.study_fixture import acknowledge_current_study
 
 
 @pytest.fixture(autouse=True)
@@ -109,7 +110,7 @@ def _wait_for_rows(seed, node, mtype, n=1, timeout=3.0):
 
 
 class TestPresenceLifecycle:
-    def test_join_move_chat_leave_all_persist(self, srv):
+    def test_presence_persists_and_chat_is_private_before_first_move(self, srv):
         seed = 251
         root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
         s, status = _ws_connect(srv, seed, "Ada")
@@ -117,8 +118,14 @@ class TestPresenceLifecycle:
 
         # Chat BEFORE any move — previously silently dropped.
         _ws_send_json(s, {"type": "chat", "text": "first words"})
-        chats = _wait_for_rows(seed, root_name, "PLAYER_CHAT")
-        assert chats and chats[0]["data"]["text"] == "first words"
+        from tests.test_moderation import _read_ws_json_until
+        chat = _read_ws_json_until(s, "chat")
+        assert chat["text"] == "first words"
+        with persistence._connection() as conn:
+            row = conn.execute("""SELECT world_seed,node_name,name,text FROM private_chat_messages
+                WHERE evidence_ref=?""", (chat["evidence_ref"],)).fetchone()
+            assert conn.execute("SELECT COUNT(*) FROM world_mutations WHERE mutation_type='PLAYER_CHAT'").fetchone()[0] == 0
+        assert row == (seed, root_name, "Ada", "first words")
 
         # Join was recorded at the root, attributed.
         joins = _wait_for_rows(seed, root_name, "PLAYER_JOIN")
@@ -235,6 +242,7 @@ class TestNoAnonymousGameplay:
     def test_keyed_ws_join_records_registered_name_over_client_name(self, srv):
         seed = 262
         persistence.mint_invite_key("nw_real", "Aurelia")
+        acknowledge_current_study("nw_real")
         root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
         # Client sends "Zorg" AND a valid key: the registered name wins.
         s, status = _ws_connect(srv, seed, "Zorg", invite_key="nw_real")
@@ -307,9 +315,10 @@ class TestSelfServiceRegistration:
         persistence.mint_invite_key("nw_named", "Named")  # gate up
         persistence.create_registration_token("nwr_live")
         status, data = _post_register(
-            srv, {"invite": "nwr_live", "name": "Priya"})
+            srv, {"invite": "nwr_live", "name": "Priya", "age_confirmed": True})
         assert status == 200
         key = data["key"]
+        acknowledge_current_study(key)
         from urllib.parse import parse_qs, urlsplit
         import main
 
@@ -331,21 +340,21 @@ class TestSelfServiceRegistration:
         persistence.mint_invite_key("nw_ada", "Ada")
         persistence.create_registration_token("nwr_live")
         status, data = _post_register(
-            srv, {"invite": "nwr_live", "name": "  ada "})
+            srv, {"invite": "nwr_live", "name": "  ada ", "age_confirmed": True})
         assert status == 409
         assert "choose another" in data["error"]
         # Same invite, different name → in.
         status, _ = _post_register(
-            srv, {"invite": "nwr_live", "name": "Adjacent"})
+            srv, {"invite": "nwr_live", "name": "Adjacent", "age_confirmed": True})
         assert status == 200
 
     def test_invalid_and_spent_tokens_refused_alike(self, srv):
         persistence.create_registration_token("nwr_live")
         assert _post_register(
-            srv, {"invite": "nwr_live", "name": "Aster"})[0] == 200
+            srv, {"invite": "nwr_live", "name": "Aster", "age_confirmed": True})[0] == 200
         # Spent and never-existed read identically (no oracle).
-        s1, d1 = _post_register(srv, {"invite": "nwr_live", "name": "Briar"})
-        s2, d2 = _post_register(srv, {"invite": "nwr_fake", "name": "Briar"})
+        s1, d1 = _post_register(srv, {"invite": "nwr_live", "name": "Briar", "age_confirmed": True})
+        s2, d2 = _post_register(srv, {"invite": "nwr_fake", "name": "Briar", "age_confirmed": True})
         assert (s1, d1["error"]) == (s2, d2["error"]) == (403, "this invite is not valid")
         # Nothing was minted for the refused attempts.
         assert persistence.lookup_invite_key("k_b") is None

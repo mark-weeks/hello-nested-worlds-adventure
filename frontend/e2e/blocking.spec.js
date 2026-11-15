@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {serveBrowser} from './server.js';
 import {disclose} from './disclosures.js';
+import {acknowledgeCurrentStudy} from './study-fixture.js';
 
 const repo = path.resolve(import.meta.dirname, '../..');
 const key = 'nw_' + 'a'.repeat(32);
@@ -31,6 +32,7 @@ store.ensure_born(382)
 }
 
 async function enter(page, server, route, credential=key, name='Ada') {
+  await acknowledgeCurrentStudy(server.url, credential);
   await page.addInitScript(({credential,name})=>{
     localStorage.setItem('nw_beta_key',credential);
     localStorage.setItem('nw_player_name',name);
