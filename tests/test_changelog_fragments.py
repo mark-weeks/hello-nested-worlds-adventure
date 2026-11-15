@@ -298,11 +298,12 @@ def test_repository_fragments_are_valid_and_the_real_changelog_accepts_a_fold(ca
     """Runs in the Python gate, so a malformed fragment fails its own pull request."""
     assert fc.main(["--check"]) == 0, capsys.readouterr().err
     real = (ROOT / "docs/CHANGELOG.md").read_text(encoding="utf-8")
-    start = real.index("## [Unreleased]")
+    # Headings are matched as whole lines: entry prose may quote a heading mid-line.
+    start = real.index("\n## [Unreleased]\n") + 1
     for section in fc.SECTIONS:
         folded = fc.fold(real, [parsed("Probe entry", section=section)])
         assert folded[:start] == real[:start], "the QA bullets above Unreleased must not move"
-        heading = folded.index(f"### {section}", start)
+        heading = folded.index(f"\n### {section}\n", start) + 1
         assert folded[heading:].startswith(f"### {section}\n\n- **Probe entry**")
         # Nothing else moved: taking the probe back out restores the file exactly.
         probe = parsed("Probe entry", section=section).body + "\n\n"
