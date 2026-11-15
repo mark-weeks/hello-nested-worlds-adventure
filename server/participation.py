@@ -1,8 +1,8 @@
 """One age and participation notice for study registration and personal invites.
 
-The owner-set minimum is 18. Explicit test-world mode or an invited study with
-configured community collection requires acknowledgement. Revoking invitations
-or a temporary collection kill switch never removes that requirement.
+The owner-set minimum is 18. Explicit test-world mode or any invited world
+requires acknowledgement. Collection settings, revocation and cancellation
+cannot remove the permanently latched invitation requirement.
 """
 from __future__ import annotations
 
@@ -28,16 +28,11 @@ def _test_world_flag() -> str:
 
 
 def required() -> bool:
-    """Use the frozen collection declaration, not mutable emergency switches."""
+    """Every invited world requires entry consent, independently of collection."""
     if _test_world_flag() not in _OFF:
         return True
-    from server import community_policy, guard
-    try:
-        policy = community_policy.current()
-        configured = policy.chat_retention_mode is not None or policy.report_days is not None
-        return configured and guard.invite_gate_active()
-    except community_policy.CommunityPolicyError:
-        return True
+    from server import guard
+    return guard.invite_gate_active()
 
 
 def snapshot(current: dict) -> str:
@@ -111,9 +106,7 @@ def notice() -> dict:
 
 
 def session_authorized(key: str) -> bool:
-    """The existing credential sweep and before-write checks use this fence."""
-    if not required():
-        return True
+    """Revalidate the live credential and notice for a credentialed socket."""
     current = notice()
     return current["ready"] and consents.accepted(key, current["revision"])
 

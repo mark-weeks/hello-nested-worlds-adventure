@@ -13,6 +13,9 @@ from persistence import blocks, community, participants, participation as consen
 from server import block_targets, community_policy, moderation, participation
 
 
+pytestmark = pytest.mark.usefixtures("community_collection")
+
+
 def report(**changes):
     return {"request_id": str(uuid.uuid4()), "participant": None, "evidence_ref": None,
             "reason": "harassment", "detail": "private report detail", **changes}
@@ -23,7 +26,8 @@ def evidence(key=None):
     return community.append_chat(
         user_key=key, session_id=uuid.uuid4().hex, world_seed=382,
         node_name="fixture place", text="private chat evidence", display_name="Local traveler",
-        retention_days=policy.chat_days, policy_snapshot=policy.snapshot_json)
+        retention_days=policy.chat_days, retention_mode=policy.chat_retention_mode,
+        policy_snapshot=policy.snapshot_json)
 
 
 @pytest.fixture
@@ -154,12 +158,12 @@ def test_unknown_evidence_is_a_fixed_refusal_and_retained_retry_keeps_receipt(ht
     assert status == 422 and set(error) == {"error"}
 
 
-def test_expired_evidence_refuses_before_physical_cleanup(http, accounts, monkeypatch):
+def test_until_deleted_evidence_remains_reportable_after_a_long_interval(http, accounts, monkeypatch):
     now = community.utc_now()
     stored = evidence(accounts[1])
-    monkeypatch.setattr(community, "utc_now", lambda: now + timedelta(days=2))
-    status, error, _ = http("/reports", body=report(evidence_ref=stored["evidence_ref"]))
-    assert status == 422 and set(error) == {"error"}
+    monkeypatch.setattr(community, "utc_now", lambda: now + timedelta(days=365))
+    status, receipt, _ = http("/reports", body=report(evidence_ref=stored["evidence_ref"]))
+    assert status == 200 and receipt["status"] == "received"
 
 
 def test_reporter_revoked_during_target_resolution_cannot_collect_a_report(http, accounts, monkeypatch):

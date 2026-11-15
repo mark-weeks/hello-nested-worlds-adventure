@@ -26,7 +26,7 @@ import pytest
 
 import main
 import persistence
-from persistence import participants
+from persistence import participants, participation as consents
 from multiverse import store
 from persistence import sanctions
 from persistence.participants import rotate
@@ -207,6 +207,7 @@ def _until(condition, what, timeout=CLOSE_WITHIN):
 
 
 class TestListenOnlySocketIsClosed:
+    @pytest.mark.usefixtures("community_collection")
     def test_a_revoked_key_closes_a_socket_that_sends_nothing(self, srv, sweep):
         seed = 2801
         ada, ada_sid, bea = _two_players(srv, seed)
@@ -229,6 +230,7 @@ class TestListenOnlySocketIsClosed:
         assert [r["name"] for r in _chat_rows(seed)] == ["Bea"]
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_no_broadcast_reaches_the_socket_once_its_check_failed(
             self, srv, sweep):
         seed = 2802
@@ -303,17 +305,20 @@ class TestListenOnlySocketIsClosed:
         assert _chat_rows(seed) == []
         bea.close()
 
+    @pytest.mark.parametrize("read", ["credential", "consent"])
     def test_a_failing_read_closes_the_socket_and_logs_no_key(
-            self, srv, sweep, monkeypatch, caplog):
+            self, srv, sweep, monkeypatch, caplog, read):
         caplog.set_level(logging.INFO)
         seed = 2807
         persistence.mint_invite_key(KEY_A, "Ada")
         ada, _ = _join(srv, seed, "x", KEY_A)
 
-        def broken(_conn, _key):
+        def broken(*_args):
             raise persistence.sqlite3.OperationalError("database is locked")
 
-        monkeypatch.setattr(participants, "require_live_credential", broken)
+        target, name = ((participants, "require_live_credential") if read == "credential"
+                        else (consents, "accepted"))
+        monkeypatch.setattr(target, name, broken)
         code, _ = _closed_once(_frames_until_eof(ada))
         assert code == protocol.CLOSE_POLICY_VIOLATION
         assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
@@ -359,6 +364,7 @@ class TestKeylessSocket:
 
 
 class TestLiveKeyAndCost:
+    @pytest.mark.usefixtures("community_collection")
     def test_a_live_key_stays_open_at_one_read_per_interval(
             self, srv, sweep, monkeypatch):
         seed = 2821
@@ -538,6 +544,7 @@ class TestSweepVerdictEndsTheSession:
         assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     @pytest.mark.parametrize("action,refusal", [
         ("move", "revoked"), ("chat", "revoked"), ("move", "read_error")])
     def test_a_refusal_during_the_actions_own_check_wins(

@@ -15,6 +15,9 @@ from tests.test_day_one_recording import _ws_connect, _ws_send_json
 from tests.test_ws_credential_lifetime import _until_close, _until_type
 
 
+pytestmark = pytest.mark.usefixtures("community_collection")
+
+
 @contextmanager
 def running(*keys):
     from persistence import participation as consents

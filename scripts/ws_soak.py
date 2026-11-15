@@ -297,6 +297,8 @@ def _client(index: int, key: str, config: Config, ws_origin: str,
                     elif kind == "chat_declined":
                         if message.get("text") == "Chat is unavailable in this world.":
                             raise ProbeError("Chat was disabled by community policy during the rehearsal")
+                        if message.get("text") == "Your message could not be delivered. Please try again later.":
+                            raise ProbeError("Private chat log storage was unavailable during the rehearsal")
                         raise ProbeError("The moderation screen held or declined a probe line")
     except InvalidStatus as exc:
         with result.lock:

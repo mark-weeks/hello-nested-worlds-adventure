@@ -548,6 +548,7 @@ def _retained_chat_texts(seed):
             WHERE world_seed=? ORDER BY id""", (seed,))]
 
 
+@pytest.mark.usefixtures("community_collection")
 class TestChatScreening:
     def test_classifier_decline_is_private_and_unrecorded(
             self, srv, uncovered_input, monkeypatch):

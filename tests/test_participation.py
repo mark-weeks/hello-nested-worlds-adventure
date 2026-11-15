@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import json
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -55,15 +56,22 @@ def _accept(http, key=None):
     return notice
 
 
-def test_default_off_preserves_gameplay_and_has_no_consent_enrollment(http):
-    status, metadata, headers = http("/participation", "")
+def _uninvited_get(port, path):
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=10) as response:
+        return response.status, json.load(response), dict(response.headers)
+
+
+def test_default_uninvited_world_preserves_gameplay_without_enrollment(port):
+    assert not guard.invite_gate_active()
+    assert not community_policy.chat_enabled() and not community_policy.reports_enabled()
+    status, metadata, headers = _uninvited_get(port, "/participation")
     assert status == 200 and metadata == {
         "required": False, "ready": True, "accepted": False,
         "revision": "", "title": "Enfolded", "paragraphs": [], "minimum_age": None,
         "temporary": False, "age_confirmation": "", "agreement": "",
     }
     assert headers["Cache-Control"] == "no-store"
-    assert http("/world?depth=1")[0] == 200
+    assert _uninvited_get(port, "/world?depth=1")[0] == 200
     assert _rows("participation_consents") == []
 
 
@@ -130,11 +138,13 @@ def test_misspelled_enable_flag_does_not_open_the_test_world(http, configured, m
 
 
 @pytest.mark.parametrize("flag", ["", "0", "false", "off", "no", "FALSE", " Off ", "NO"])
-def test_conventional_off_flags_preserve_normal_gameplay(http, monkeypatch, flag):
+def test_conventional_off_flags_cannot_remove_invited_world_notice(http, configured, monkeypatch, flag):
     monkeypatch.setenv("NESTED_WORLDS_TEST_WORLD", flag)
     metadata = http("/participation", "")[1]
-    assert not metadata["required"] and metadata["ready"]
-    assert metadata["agreement"] == ""
+    assert metadata["required"] and metadata["ready"] and not metadata["temporary"]
+    assert metadata["minimum_age"] == 18
+    assert http("/world?depth=1")[0] == 428
+    _accept(http)
     assert http("/world?depth=1")[0] == 200
 
 
@@ -301,24 +311,28 @@ def test_registration_requires_explicit_adult_confirmation_without_consuming_inv
     assert http("/register", "", {**body, "age_confirmed": True})[0] == 200
 
 
-@pytest.fixture
-def continuing_study(monkeypatch, tmp_path):
+@pytest.fixture(params=["missing", "disabled", "enabled"])
+def continuing_study(monkeypatch, tmp_path, request):
     for key, value in _CONFIG.items():
         monkeypatch.setenv("NESTED_WORLDS_" + key, "0" if key == "TEST_WORLD" else value)
     monkeypatch.setenv("NESTED_WORLDS_TEST_RETENTION", "Study records are reviewed when the study ends. Contact the operator for deletion or to leave the study; backup copies are removed when backups are deleted.")
-    path = tmp_path / "study-community.json"
-    path.write_text(json.dumps({
-        "schema_version": 1, "policy_id": "continuing-study-fixture",
-        "chat": {"enabled": True, "retention_mode": "until_deleted"},
-        "reports": {"enabled": True, "retention_days": 180},
-        "contact": "Fixture study operator",
-        "backup_notice": "Copies are removed when study backups are deleted.",
-    }))
-    monkeypatch.setenv(community_policy.POLICY_ENV, str(path))
+    if request.param != "missing":
+        path = tmp_path / "study-community.json"
+        path.write_text(json.dumps({
+            "schema_version": 1, "policy_id": "continuing-study-fixture",
+            "chat": ({"enabled": True, "retention_mode": "until_deleted"}
+                     if request.param == "enabled" else {"enabled": False}),
+            "reports": ({"enabled": True, "retention_days": 180}
+                        if request.param == "enabled" else {"enabled": False}),
+            "contact": "Fixture study operator",
+            "backup_notice": "Copies are removed when study backups are deleted.",
+        }))
+        monkeypatch.setenv(community_policy.POLICY_ENV, str(path))
     community_policy.reset_for_tests()
+    return request.param
 
 
-def test_collection_without_issued_invites_keeps_local_development_ungated(continuing_study):
+def test_uninvited_development_is_ungated_under_every_collection_mode(continuing_study):
     assert not guard.invite_gate_active()
     assert not participation.notice()["required"]
 
@@ -333,6 +347,17 @@ def test_continuing_study_operator_invite_requires_current_notice_and_age(http, 
     _accept(http)
     assert http("/world?depth=1")[0] == 200
     assert http("/world?depth=1", accounts[1])[0] == 428
+
+
+@pytest.mark.parametrize("missing", ["TEST_CONTACT", "TEST_RETENTION", "TEST_DATA_USE"])
+def test_invited_world_requires_complete_notice_under_every_collection_mode(
+        http, continuing_study, monkeypatch, missing):
+    monkeypatch.delenv("NESTED_WORLDS_" + missing)
+    current = http("/participation", "")[1]
+    assert current["required"] and not current["ready"]
+    assert http("/world")[0] == 503
+    assert _rows("participation_consents") == []
+    assert not persistence.world_is_born(382)
 
 
 def test_both_registration_and_operator_invite_accept_the_same_study_revision(http, accounts, continuing_study):

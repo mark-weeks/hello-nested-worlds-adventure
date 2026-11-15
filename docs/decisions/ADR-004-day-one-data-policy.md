@@ -628,8 +628,9 @@ copying a quotation. Reporter-typed quotations are separate report content under
 that report's retention. No report text is sent
 to a model, made public or disclosed to the target as coming from a named person.
 There is no automatic sanction, jury or external notification. Queue polling
-toward the 24-hour beta goal still needs an assigned operator/workflow and a
-rehearsal; no live response commitment is established here.
+toward the 24-hour beta goal needs at least twice-daily checks, an assigned
+operator/workflow and a rehearsal; a second operator is required before the
+cohort starts. No live staffing or response is established by this record.
 
 No legacy `world_mutations` row is deleted or rewritten. Normal public/model
 projections exclude legacy `PLAYER_CHAT` before limits, counts and cursors, while
@@ -648,6 +649,16 @@ deletes other eligible messages and reports the held count and reason. Review
 deletion requests, departures and outstanding holds at the end of each study;
 deleting a disposable watch world also deletes its private log.
 
+Completed erasures atomically record only opaque evidence references and UTC
+timestamps, without message or name text. Startup replays that ledger before
+listening; restore carries its current records into the candidate database and
+replays them before replacing live data. A backup's stale complaint state cannot
+undo completed erasure. Export the ledger after each completed deletion to
+private durable storage outside the restored database/snapshot. Lost-store
+recovery requires that external record rather than trusting an older backup's
+ledger. Stop writers before restoring and reconcile before restarting play.
+Held messages get no erasure record and later messages are unaffected.
+
 Operational reads include chat without an expiry and preserve pending complaints
 and evidence holds. A lifecycle-managed worker and operator prune command remove
 eligible expired records independently of gameplay; stopped-server cleanup remains
@@ -659,3 +670,8 @@ deletion and backup boundaries. Registration and operator-invited access require
 affirmative confirmation of age 18 or older under that same current notice
 revision. Acknowledgement neither ratifies this proposal nor approves model
 destinations or deployment.
+
+The notice gate is required whenever test-world mode is on or the permanent
+invite gate has latched, even with chat and report collection off; those
+deployments still need the TEST_* notice values. The first deployment carrying
+schema33 goes only to the throwaway staging twin.

@@ -152,7 +152,7 @@ def test_classify_timeout_logs_error_without_the_exception_body(caplog, monkeypa
     assert "go kill yourself" not in caplog.text
 
 
-def test_raising_default_model_holds_speech_and_keeps_the_socket(srv, monkeypatch, caplog):
+def test_raising_default_model_holds_speech_and_keeps_the_socket(srv, monkeypatch, caplog, community_collection):
     """A bug in default_model is a hold, not a 500 or a closed chat socket.
 
     The screen used to catch only UnusableModelId. A raising method escaped
@@ -325,7 +325,7 @@ def test_allow_publishes_and_block_declines_without_a_voice_charge(srv, monkeypa
 
 
 @pytest.mark.parametrize("mode", ["timeout", "error", "undecided", "budget", "disabled", "user_cap"])
-def test_each_failure_holds_speak_chat_and_agent_voice(srv, mode, monkeypatch):
+def test_each_failure_holds_speak_chat_and_agent_voice(srv, mode, monkeypatch, community_collection):
     import consciousness
     charged = []
     _voice_ready(monkeypatch)
@@ -1008,8 +1008,10 @@ def _compat_body(*, content, finish="stop", refusal=None, model="echo-model"):
     "allow", "block", "refusal", "length", "http", "timeout", "unconfigured",
 ])
 def test_openai_compatible_holds_shared_routes_unless_moderation_stops(
-        srv, mode, monkeypatch, caplog):
+        srv, mode, monkeypatch, caplog, request):
     """HTTP speech through the real adapter. A fake transport, never a provider host."""
+    if mode == "timeout":
+        request.getfixturevalue("community_collection")
     from consciousness import runtime
     from consciousness.openai_compat_provider import (
         API_KEY_ENV, BASE_URL_ENV, provider as compat,

@@ -37,8 +37,8 @@ Require an immutable operator community policy in hosted and local modes.
 Missing policy disables chat and reports; other gameplay keeps its existing
 gates. The selected chat policy is `{"enabled": true, "retention_mode":
 "until_deleted"}`. Its rows have no expiry and remain readable until deletion.
-Legacy policies with explicit numeric chat days remain readable under their
-recorded terms. Enabled reports require explicit integer retention days. The
+Numeric chat TTL policies are refused; schema33 has not been deployed and has
+no legacy timed-chat contract to preserve. Enabled reports require explicit integer retention days. The
 owner selected 90 days for the disposable watch and 180 days for the retained
 cohort; these are documented operating decisions, not deployment defaults or
 checked-in policy selections. Enabled collection also requires contact and
@@ -96,8 +96,9 @@ The study notice explains operator-only access, both purposes, retention until a
 deletion request or departure, complaint holds, contact and backup copies. All
 studies use personal invites. Both registration and operator-invited play require
 affirmative confirmation of age 18 or older and acknowledgement of the same
-current notice revision. The notice gate applies to disposable test worlds and
-to a configured collection policy with the permanently latched invite gate. An
+current notice revision. The notice gate applies whenever test-world mode is on
+or the permanent invite gate has latched, independently of collection policy. A
+collection-off deployment still supplies the operator's TEST_* notice values. An
 emergency collection switch or revoking the last key cannot remove that gate;
 ungated non-study local development remains outside the study condition.
 
@@ -105,11 +106,29 @@ Operator commands list/show/acknowledge/close the private queue with escaped
 terminal output and notes through stdin. No automatic sanction, jury,
 notification or external messaging service is introduced. Existing sanctions and
 redaction stay explicit operator actions. The 24-hour handling goal still needs
-an assigned reviewer/workflow and staging rehearsal.
+an assigned reviewer/workflow and staging rehearsal. Check the queue at least
+twice daily; a second operator must be in place before the cohort starts. The
+first deployment carrying schema33 goes only to the throwaway staging twin.
 
 Reads include chat with no expiry and pending complaint holds. A
 lifecycle-managed worker and operator prune command remove eligible expired rows
 independently of gameplay and the heartbeat, including after startup/restore.
+Every completed erasure atomically records only its opaque evidence reference
+and UTC time in a deletion ledger. Held lines are omitted; future lines by the
+same person are never selected. Startup replays these records before listening.
+Restore carries current records into a candidate database and replays them
+before replacing live data, including when restoring schema32. Completed erasure
+proof overrides an old backup's stale open-case state. Stop writers before
+restore and restart only after reconciliation.
+
+Export the text-free ledger after each completed deletion to private durable
+storage outside the restored snapshot and database volume. If the current DB is
+lost, a private-chat restore requires that external record; the backup's older
+ledger is not accepted as the latest proof. Invalid records abort without
+changing live data. Keep deletion records while a backup containing those lines
+can still be restored. An explicit empty export is appropriate only when the
+operator has verified that no deletion requests are outstanding.
+
 Whole-DB backups retain copies beyond live deletion or expiry; newest-validated
 and local/downloaded copies can survive until separately deleted. Their treatment
 must be recorded accurately without promising a finite all-copies erasure time.

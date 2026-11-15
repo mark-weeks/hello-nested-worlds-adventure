@@ -22,7 +22,7 @@ import urllib.request
 import pytest
 
 import persistence
-from persistence import participants
+from persistence import participants, participation as consents
 from multiverse.generator import generate_node_hierarchy
 from server import guard, protocol
 from server.rooms import get_room
@@ -158,6 +158,7 @@ def _two_players(port, seed):
 
 
 class TestRevokedCredentialLosesItsSocket:
+    @pytest.mark.usefixtures("community_collection")
     def test_revoked_chat_closes_1008_writes_nothing_and_reaches_nobody(self, srv):
         seed = 2601
         ada, ada_sid, bea = _two_players(srv, seed)
@@ -264,6 +265,7 @@ class TestRevokedCredentialLosesItsSocket:
         "empty-text": _client_frame(b""),
     }
 
+    @pytest.mark.usefixtures("community_collection")
     @pytest.mark.parametrize("kind", sorted(_SILENT_FRAMES))
     def test_a_revoked_socket_cannot_stay_subscribed_on_frames_that_write_nothing(
             self, srv, kind):
@@ -286,6 +288,7 @@ class TestRevokedCredentialLosesItsSocket:
         _until_type(bea, "chat")
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_a_revoked_socket_with_a_spent_chat_bucket_still_closes(
             self, srv, monkeypatch):
         # A dropped (rate-limited) frame writes nothing, but it must not be a
@@ -309,20 +312,24 @@ class TestRevokedCredentialLosesItsSocket:
         assert len(_chat_rows(seed, "Ada")) == guard.WS_CHAT_BURST
         bea.close()
 
-    def test_a_failing_credential_lookup_closes_the_socket(self, srv, monkeypatch):
+    @pytest.mark.parametrize("read", ["credential", "consent"])
+    def test_a_failing_authorization_read_closes_the_socket(self, srv, monkeypatch, read):
         seed = 2606
         persistence.mint_invite_key(KEY_A, "Ada")
         ada, _ = _join(srv, seed, "x", KEY_A)
 
-        def broken(_conn, _key):
+        def broken(*_args):
             raise persistence.sqlite3.OperationalError("database is locked")
-        monkeypatch.setattr(participants, "require_live_credential", broken)
+        target, name = ((participants, "require_live_credential") if read == "credential"
+                        else (consents, "accepted"))
+        monkeypatch.setattr(target, name, broken)
         _ws_send_json(ada, {"type": "chat", "text": "during an outage"})
         assert _until_close(ada)[0] == 1008
         assert _chat_rows(seed) == []
 
 
 class TestKeylessSocketClosesWhenTheGateCloses:
+    @pytest.mark.usefixtures("community_collection")
     def test_keyless_socket_closes_on_its_next_frame_after_the_first_mint(self, srv):
         seed = 2611
         loner, _ = _join(srv, seed, "Loner")
@@ -346,6 +353,7 @@ class TestKeylessSocketClosesWhenTheGateCloses:
         assert code == 1008
         assert not [m for m in seen if m.get("type") == "pong"]
 
+    @pytest.mark.usefixtures("community_collection")
     def test_keyless_socket_keeps_playing_while_nothing_was_ever_issued(self, srv):
         seed = 2613
         loner, _ = _join(srv, seed, "Loner")
@@ -357,6 +365,7 @@ class TestKeylessSocketClosesWhenTheGateCloses:
         loner.close()
 
 
+@pytest.mark.usefixtures("community_collection")
 class TestPerCredentialRateLimits:
     def test_two_sockets_on_one_key_share_one_chat_burst(self, srv):
         seed = 2621
@@ -547,6 +556,7 @@ class TestRevocationMidMessage:
         assert leave["session_id"] == ada_sid
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_a_live_key_still_assembles_a_fragmented_chat_across_pings(self, srv):
         seed = 2653
         ada, _, bea = _two_players(srv, seed)
@@ -560,6 +570,7 @@ class TestRevocationMidMessage:
         ada.close()
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_a_key_revoked_while_its_chat_is_screened_publishes_nothing(
             self, srv, monkeypatch):
         from server import moderation
@@ -852,6 +863,7 @@ class TestFrameDeadline:
             pass
         return None, seen
 
+    @pytest.mark.usefixtures("community_collection")
     def test_a_revoked_client_trickling_one_frame_is_closed_at_the_deadline(
             self, srv, monkeypatch):
         monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 0.5)
@@ -900,6 +912,7 @@ class TestFrameDeadline:
         assert _chat_rows(seed, "Ada") == []
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_a_frame_sent_in_quick_chunks_still_arrives(self, srv, monkeypatch):
         monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 1.0)
         seed = 2692
@@ -917,6 +930,7 @@ class TestFrameDeadline:
         ada.close()
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_the_deadline_is_per_frame_not_per_fragmented_message(
             self, srv, monkeypatch):
         monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 0.5)

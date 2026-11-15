@@ -336,9 +336,10 @@ different copy.
 **Prepared update, 2026-11-15:** Version 4 selects age 18 or older. Registration
 requires affirmative confirmation before key creation, and operator-invited
 testers confirm their age and acknowledge the same current notice before play.
-The study gate uses the frozen collection policy and permanently latched invite
-gate, so emergency collection switches or revoking the final key cannot remove
-it. Final invite/terms publication remains release work. The analysis below is
+The study gate uses test-world mode or the permanent invite latch independently
+of collection, so a missing/off policy, emergency switches or revoking the final
+key cannot remove it. Collection-off deployments still supply the TEST_* notice
+values. Final invite/terms publication remains release work. The analysis below is
 the historical recommendation, superseded by that selection.
 
 *Proposed by agent; not decided.*

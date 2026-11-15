@@ -11,7 +11,7 @@ See `docs/decisions/ADR-003-persistence-backend.md` before a backend change.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import functools
 import hashlib
 import json
@@ -19,6 +19,7 @@ import logging
 import os
 import sqlite3
 import stat
+import tempfile
 import threading
 import unicodedata
 from pathlib import Path
@@ -3053,26 +3054,28 @@ def backup_to(target: Path) -> None:
     target.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
-@_with_db
-def restore_from(source: Path) -> dict[str, Any]:
+def restore_from(source: Path, *, deletions: Path | None = None) -> dict[str, Any]:
     """Restore the live DB from a backup file — `backup_to` in reverse.
 
     The continuity policy's promise is "a bad migration is a restore, not
-    a lost epoch"; this is the restore. Uses the same sqlite backup API,
-    which takes the proper locks, so it is safe against a live server's
-    per-operation connections (rehearsed against a running instance in the
-    pre-deployment review). In-memory state (rooms, puzzle sessions, rate
-    buckets) still reflects the pre-restore world — restart the process
-    after restoring (`fly machine restart` in production).
+    a lost epoch"; this is the restore. Stop the study server and private-log
+    writers first. A candidate copy carries forward completed chat deletions
+    and replays them before replacing live data through SQLite's backup API.
+    In-memory state still reflects the old world: restart before serving play.
 
     Refuses anything that is not a readable SQLite database containing a
     `world_mutations` table, so a typo'd path can't blank the chronicle.
+    A missing live DB cannot prove which requests followed a private-chat
+    snapshot, so it requires a separately preserved deletion export. Invalid
+    exports or candidate reconciliation leave the live database unchanged.
     Returns {events_before, events_after} for the operator's sanity check.
     """
     source = Path(source)
     if not source.is_file():
         raise FileNotFoundError(f"backup not found: {source}")
-    src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    from persistence import community_deletions
+    exported = community_deletions.read_export(deletions) if deletions is not None else []
+    src = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         try:
             tables = {r[0] for r in src.execute(
@@ -3083,12 +3086,33 @@ def restore_from(source: Path) -> dict[str, Any]:
             raise ValueError(
                 f"{source} is a SQLite database but not a worlds backup "
                 "(no world_mutations table) — refusing to restore it")
-        with _connect() as live:
-            before = live.execute(
-                "SELECT COUNT(*) FROM world_mutations").fetchone()[0]
-            src.backup(live)
-            after = live.execute(
-                "SELECT COUNT(*) FROM world_mutations").fetchone()[0]
+        live_path = Path(_DB_PATH)
+        current = []
+        before = 0
+        if live_path.is_file():
+            with closing(sqlite3.connect(live_path.resolve().as_uri() + "?mode=ro", uri=True)) as prior:
+                before = prior.execute("SELECT COUNT(*) FROM world_mutations").fetchone()[0]
+                current = community_deletions.records_on(prior)
+        elif "private_chat_messages" in tables and deletions is None:
+            raise ValueError("A missing private-chat store requires a separately preserved deletion export (--deletions).")
+        live_path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".world-restore-", dir=live_path.parent) as directory:
+            candidate = sqlite3.connect(Path(directory) / "candidate.db")
+            try:
+                src.backup(candidate)
+                with candidate:
+                    community_deletions.records_on(candidate)
+                    community_deletions.merge_on(candidate, [*current, *exported])
+                    community_deletions.replay_on(candidate)
+                after = candidate.execute("SELECT COUNT(*) FROM world_mutations").fetchone()[0]
+                if not live_path.exists():
+                    descriptor = os.open(live_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    os.close(descriptor)
+                with closing(_connect()) as live:
+                    candidate.backup(live)
+                live_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+            finally:
+                candidate.close()
     finally:
         src.close()
     return {"events_before": before, "events_after": after}

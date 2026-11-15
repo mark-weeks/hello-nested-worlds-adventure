@@ -25,7 +25,8 @@ def _chat(seed, node, player, text, identity):
 def _private_chat(seed, node, player, text):
     community.append_chat(user_key=None, session_id=str(uuid.uuid4()), world_seed=seed,
                           node_name=node, text=text, display_name=player,
-                          retention_days=2, policy_snapshot='{"fixture":"synthetic"}')
+                          retention_days=None, retention_mode="until_deleted",
+                          policy_snapshot='{"chat":{"enabled":true,"retention_mode":"until_deleted"}}')
 
 
 class TestRedaction:

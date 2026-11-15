@@ -260,6 +260,7 @@ def _assert_held(surface, seen):
 SURFACES = ["chat", "ideas", "profile", "puzzle"]
 
 
+@pytest.mark.usefixtures("community_collection")
 class TestBusyScreensOnSharedSurfaces:
     @pytest.mark.parametrize("surface", SURFACES)
     def test_a_busy_screen_is_counted_under_its_surface(
@@ -331,7 +332,7 @@ class TestCounterFailuresAreInvisibleToPlayers:
         assert len(broken_counter) == 1
 
     def test_a_failing_store_keeps_the_players_response(
-            self, site, accounts, provider, quick_screen, broken_counter):
+            self, community_collection, site, accounts, provider, quick_screen, broken_counter):
         with _saturated():
             seen = _busy_surface(site, accounts[0], "chat")
             ideas = _busy_surface(site, accounts[0], "ideas")

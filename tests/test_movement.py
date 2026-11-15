@@ -320,7 +320,7 @@ class TestReconnectResume:
     and seal-checked when POSTed (write time); the join trusts the table.
     """
 
-    def test_join_resumes_saved_position_and_chat_lands_there(self, srv):
+    def test_join_resumes_saved_position_and_chat_lands_there(self, srv, community_collection):
         seed = 42
         key = "nw_resume_key"
         persistence.mint_invite_key(key, "Resa")

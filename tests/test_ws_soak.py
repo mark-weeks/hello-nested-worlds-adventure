@@ -13,10 +13,12 @@ import time
 import pytest
 
 import persistence
-from persistence import participation as consents
+from persistence import community, participation as consents
 from multiverse import store
 from scripts import ws_soak
 from server import _Handler, _ThreadedServer, community_policy, guard, participation, websocket
+
+pytestmark = pytest.mark.usefixtures("community_collection")
 
 
 @contextmanager
@@ -207,6 +209,28 @@ def test_chat_killed_after_preflight_is_diagnosed_as_policy_not_moderation(monke
         summary = ws_soak.run_probe(quick_config(url, 1), keys)
     assert summary["passed"] is False
     assert summary["failures"] == [{"client": 1, "reason": "Chat was disabled by community policy during the rehearsal"}]
+
+
+def test_private_chat_log_failure_is_diagnosed_separately_from_moderation_and_policy(monkeypatch):
+    def unavailable(**_kwargs):
+        error = community.CommunityUnavailable()
+        error.args = ("private storage detail that must not reach probe output",)
+        raise error
+
+    monkeypatch.setattr(community, "append_chat", unavailable)
+    with running_server(monkeypatch, clients=1) as (url, keys, _):
+        summary = ws_soak.run_probe(quick_config(url, 1), keys)
+    assert summary["passed"] is False
+    assert summary["accepted"] == 1
+    assert summary["failures"] == [{
+        "client": 1,
+        "reason": "Private chat log storage was unavailable during the rehearsal",
+    }]
+    assert "private storage detail" not in json.dumps(summary)
+    assert keys[0] not in json.dumps(summary)
+    with persistence._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM private_chat_messages").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM world_mutations WHERE mutation_type='PLAYER_CHAT'").fetchone()[0] == 0
 
 
 def test_later_missing_move_and_pong_fail_after_a_successful_first_round(monkeypatch):

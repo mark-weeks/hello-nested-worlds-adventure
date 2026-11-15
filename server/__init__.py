@@ -270,10 +270,12 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     if policy is not None:
         from consciousness import model_dispatch
         model_dispatch.initialize_accounting()
-    # Hide/read expiry is immediate too; startup cleanup prevents an old
-    # backup from restoring expired operational text into the live store.
+    # Replay completed erasure before a listener can expose restored text.
+    # Lost-store recovery must supply the separately preserved operator ledger.
+    from persistence.community_deletions import replay_pending
     from persistence.community import prune_expired
     try:
+        replay_pending()
         prune_expired()
     except Exception:
         print("error: community retention is unavailable", file=sys.stderr)

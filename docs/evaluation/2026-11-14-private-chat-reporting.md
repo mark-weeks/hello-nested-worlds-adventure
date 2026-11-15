@@ -6,7 +6,76 @@ on 2026-11-15. [ADR-040](../decisions/ADR-040-private-chat-and-reporting.md) rem
 Proposed. The documented study choices do not deploy a policy, establish a live
 reviewer commitment or ratify the broader conversational-agent design.
 
-## Version 4 candidate
+## 15 November review follow-up
+
+The follow-up addresses [review5912009287](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/174#pullrequestreview-5912009287)
+on published `a47e88e`. That head is preserved locally; the candidate is rebased
+onto merged `main` at `def0f541` (#177) before the fixes, with its escaping changes
+preserved. The checks below ran before publication of these fixes.
+
+Admission now requires the current notice and affirmative 18+ whenever test-world
+mode is on **or** the permanent invite latch is active, independently of chat or
+report collection. Collection-off deployments still need the TEST_* notice
+values. Tests default to the real no-policy configuration; actual collection
+tests opt in. The unreachable legacy credential branch is removed in favor of
+one live-credential/notice check, with real default-off and collection-on
+revocation, rotation, sanction, read-failure and sweep behavior covered.
+
+Completed chat deletion and its text-free proof commit atomically. Only actually
+deleted opaque references and UTC timestamps enter the new ledger; held rows and
+future messages are excluded. Restore reconciles current and explicitly exported
+records in a candidate before copying live, including over a backup's stale
+open-case state and into schema32. Startup replays before listening. Lost-store
+private-chat recovery requires a separately preserved export, and malformed
+records leave live data unchanged. Operators stop writers and reconcile before
+restart; exported records remain private and independent of the restored snapshot.
+
+The undeployed chat contract accepts only disabled or until-deleted policy;
+numeric chat TTL is rejected. Delete commands neither create nor migrate a
+missing store, resolve normalized names, distinguish unknown and ambiguous
+names, and report zero retained messages for a known unused invite. All new
+community command bodies now live outside `main.py`. Missing report evidence has
+the neutral status `unavailable`. The probe distinguishes storage failures from
+moderation. Both clients construct accessible chat descriptions from current
+state, avoiding hidden or duplicate unavailability announcements.
+
+The runbooks require the first schema33 deployment to go only to the throwaway
+staging twin, report-queue checks at least twice daily and a second operator
+before the cohort. Report windows remain documented 90/180-day choices, not
+deployed policy. Focused verification passed 17 ledger/startup cases, four prior
+restore cases, 80 persistence cases, 168 policy/CLI/metrics/projection/startup
+cases, 783 admission/auth integration cases, 45 soak cases, 52 reporting unit and
+28 reporting browser cases.
+
+### Review follow-up verification
+
+The final-source check began on 2026-11-15 at **19:19:19 UTC**, with Python
+**3.11.14**, Node **20.19.0**, a dedicated pytest temporary directory and the
+shared browser lock. Ruff passed; **4,318 Python tests passed / one existing
+historical release-tag check skipped** in **868.70 seconds**; **241 Vitest tests**
+passed in **20 files**; and the rebuilt `index-CxUBmRb2.js` bundle was byte-fresh.
+
+That `check.sh` invocation **did not exit 0**: installed-wheel preflight found
+the earlier `a47e88e` migration 0033 bytes in ignored `build/lib`. The generated
+build was preserved at
+`/tmp/enfolded-pr174-generated-build-before-ledger-39d70b8e`; no live database or
+product source was changed for this cleanup. Fresh
+`.venv/bin/python scripts/verify_wheel.py` then exited **0**, verifying the
+installed `enfolded-0.1.2rc1` wheel with schema **33**. The remaining full browser
+gate ran separately under the same mutex and exited **0**: **212 Playwright
+tests passed** in **6.4 minutes**, observed complete at **19:41:57 UTC**. Thus all
+canonical components passed, with package/browser checks resumed after generated
+cache cleanup; this is not reported as one uninterrupted successful script run.
+
+The initial full Python inventory had seven failures: an unnecessary restore
+initialization-cache invalidation broke five older-schema fallback cases, and
+two fixtures needed a real startup store or the strict chat policy. Removing
+that extra invalidation and updating those fixtures preserved existing fallback
+behavior; the affected suites passed **37** and **34** checks before the final
+full Python run above. No affected feature check was skipped, and no paid call,
+live database operation, deployment or release was performed.
+
+## Historical Version 4 candidate (`a47e88e`)
 
 The revised candidate starts from merged `main` at `4b3d8c4` and retains the old
 PR #174 work for comparison. Its private human-chat policy is `until_deleted`,

@@ -26,7 +26,8 @@ _REASONS = frozenset(("harassment", "harmful_content", "spam", "other"))
 _STATES = frozenset(("open", "acknowledged", "closed"))
 _HEX32 = re.compile(r"[0-9a-f]{32}")
 _HEX64 = re.compile(r"[0-9a-f]{64}")
-_TABLES = frozenset(("community_policies", "private_chat_messages", "private_reports", "report_actions"))
+_TABLES = frozenset(("community_policies", "private_chat_messages", "private_reports", "report_actions",
+                     "private_chat_deletions"))
 _SUMMARY = ("id", "reporter_participant_id", "world_seed", "target_id", "reason", "status",
             "created_at", "expires_at")
 _OPEN_REPORT_HOLD = ("EXISTS (SELECT 1 FROM private_reports r WHERE "
@@ -38,6 +39,16 @@ _REPORT_RETAINED = "(expires_at>? OR status IN ('open','acknowledged'))"
 
 class CommunityError(ValueError):
     pass
+
+
+class UnknownTester(CommunityError):
+    def __init__(self):
+        super().__init__("That tester is not registered.")
+
+
+class AmbiguousTester(CommunityError):
+    def __init__(self):
+        super().__init__("That tester name is ambiguous; no messages were deleted.")
 
 
 class EvidenceUnavailable(CommunityError):
@@ -191,7 +202,7 @@ def _ready(conn) -> bool:
 @_database_errors
 def append_chat(*, user_key: str | None, session_id: str, world_seed: int, node_name: str,
                 text: str, display_name: str, retention_days: int | None, policy_snapshot: str,
-                retention_mode: str = "days") -> dict:
+                retention_mode: str = "until_deleted") -> dict:
     """Atomically authenticate and commit an operational line before publication."""
     _outside_transaction()
     session = normalize_uuid(session_id)
@@ -199,15 +210,14 @@ def append_chat(*, user_key: str | None, session_id: str, world_seed: int, node_
     node = _text(node_name, maximum=1000)
     content = _text(text, maximum=256)
     name = _text(display_name, maximum=1000)
-    if (not isinstance(retention_mode, str) or retention_mode not in {"days", "until_deleted"}
-            or (retention_mode == "until_deleted" and retention_days is not None)):
+    if retention_mode != "until_deleted" or retention_days is not None:
         raise CommunityError("An explicit chat retention mode is required.")
     reference = secrets.token_hex(16)
     with db.transaction() as conn:
         now = _now()
         at = _stamp(now)
         digest, snapshot, expires = _policy(policy_snapshot, retention_days, now,
-                                           until_deleted=retention_mode == "until_deleted")
+                                           until_deleted=True)
         if user_key is not None:
             credential, name = participants.require_live_credential(conn, user_key)
             name = _text(name, maximum=1000)
@@ -368,7 +378,7 @@ def show_report(report_id: str) -> dict | None:
             try:
                 evidence = _evidence(conn, result["evidence_ref"], result["world_seed"], at)
             except EvidenceUnavailable:
-                result["evidence"] = {"status": "expired"}
+                result["evidence"] = {"status": "unavailable"}
             else:
                 result["evidence"] = {"status": "retained", **evidence}
     return result
@@ -410,6 +420,10 @@ def _delete_chat(conn, predicate: str, values: tuple) -> dict:
                             values).fetchone()[0]
     held = conn.execute("SELECT COUNT(*) FROM private_chat_messages WHERE " + predicate
                         + " AND " + _OPEN_REPORT_HOLD, values).fetchone()[0]
+    conn.execute("INSERT INTO private_chat_deletions(evidence_ref,deleted_at) "
+                 "SELECT evidence_ref,? FROM private_chat_messages WHERE " + predicate
+                 + " AND NOT " + _OPEN_REPORT_HOLD
+                 + " ON CONFLICT(evidence_ref) DO NOTHING", (_stamp(_now()), *values))
     deleted = conn.execute("DELETE FROM private_chat_messages WHERE " + predicate
                            + " AND NOT " + _OPEN_REPORT_HOLD, values).rowcount
     return {"matched": selected, "deleted": deleted, "held": held,
@@ -417,11 +431,19 @@ def _delete_chat(conn, predicate: str, values: tuple) -> dict:
             "backup_copies": "Removed when those backups are deleted."}
 
 
+def _require_deletion_store() -> None:
+    # Unlike db.transaction(), this preflight neither creates nor migrates.
+    with _readonly() as conn:
+        if not _ready(conn):
+            raise CommunityUnavailable()
+
+
 @_database_errors
 def delete_chat_message(evidence_ref: str) -> dict:
     """Operator-only erasure of one line; no history write or forced case closure."""
     _outside_transaction()
     reference = _id(evidence_ref)
+    _require_deletion_store()
     with db.transaction() as conn:
         return _delete_chat(conn, "evidence_ref=?", (reference,))
 
@@ -431,13 +453,19 @@ def delete_tester_chat(tester: str) -> dict:
     """Erase one tester's eligible lines across credential rotation and worlds."""
     _outside_transaction()
     name = _text(tester, maximum=1000)
+    _require_deletion_store()
     with db.transaction() as conn:
-        matches = conn.execute("""SELECT DISTINCT c.participant_id
-            FROM participant_credentials c JOIN invite_keys i ON i.key=c.credential_digest
-            WHERE i.name=?""", (name,)).fetchall()
+        matches = [digest for digest, registered in conn.execute("SELECT key,name FROM invite_keys")
+                   if db.name_key(registered) == db.name_key(name)]
+        if not matches:
+            raise UnknownTester()
         if len(matches) != 1:
-            raise CommunityError("Choose a tester with one retained participant identity.")
-        return _delete_chat(conn, "participant_id=?", (matches[0][0],))
+            raise AmbiguousTester()
+        owner = conn.execute("SELECT participant_id FROM participant_credentials WHERE credential_digest=?",
+                             (matches[0],)).fetchone()
+        if owner is None:
+            return {**_delete_chat(conn, "0", ()), "note": "No retained messages for this tester."}
+        return _delete_chat(conn, "participant_id=?", (owner[0],))
 
 
 def _prune(conn, at: str) -> dict:

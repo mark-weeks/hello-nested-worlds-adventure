@@ -4,11 +4,11 @@
   'use strict';
   if (root.EnfoldedReporting) return;
 
-  const CHAT_UNAVAILABLE = 'Chat recording information could not be reached.';
+  const CHAT_UNAVAILABLE = 'Chat is unavailable. Its recording information could not be reached.';
   const REPORT_UNAVAILABLE = 'Reporting is unavailable. Ask the person who invited you for help.';
   const UNCERTAIN = 'The report may have arrived. Retry to confirm it. Your details are kept here.';
   const unavailable = () => ({
-    chat: {enabled: false, retention_days: null, notice: CHAT_UNAVAILABLE},
+    chat: {enabled: false, retention_mode: null, retention_days: null, notice: CHAT_UNAVAILABLE},
     reports: {enabled: false, retention_days: null, notice: REPORT_UNAVAILABLE,
       reasons: [], max_detail_length: null}, contact: '', backup_notice: '', revision: '',
   });
@@ -23,19 +23,18 @@
         !text(data.contact) || !text(data.backup_notice) || !text(data.revision) ||
         !Array.isArray(data.reports.reasons)) return null;
     const reasons = data.reports.reasons;
-    const chatUntilDeleted = data.chat.retention_mode === 'until_deleted' && data.chat.retention_days === null;
-    const chatTimed = duration(data.chat.retention_days) &&
-      (data.chat.retention_mode === undefined || data.chat.retention_mode === 'days');
+    const chatPolicy = data.chat.retention_days === null &&
+      (data.chat.retention_mode === 'until_deleted' ||
+        (!data.chat.enabled && data.chat.retention_mode === null));
     if (reasons.some(reason => !reason || !text(reason.value) || !reason.value.trim() ||
         !text(reason.label) || !reason.label.trim()) ||
         new Set(reasons.map(reason => reason.value)).size !== reasons.length ||
-        (data.chat.enabled && !chatUntilDeleted && !chatTimed) ||
+        !chatPolicy ||
         (data.reports.enabled && (!duration(data.reports.retention_days) || !reasons.length ||
           !Number.isInteger(data.reports.max_detail_length) ||
           data.reports.max_detail_length < 1 || data.reports.max_detail_length > 2000))) return null;
     return {
-      chat: {enabled: data.chat.enabled, retention_days: duration(data.chat.retention_days) ? data.chat.retention_days : null,
-        ...(data.chat.retention_mode ? {retention_mode: data.chat.retention_mode} : {}),
+      chat: {enabled: data.chat.enabled, retention_days: null, retention_mode: data.chat.retention_mode,
         notice: data.chat.notice},
       reports: {enabled: data.reports.enabled,
         retention_days: duration(data.reports.retention_days) ? data.reports.retention_days : null,
@@ -47,6 +46,15 @@
 
   function normalizeMetadata(data) {
     return readMetadata(data) || unavailable();
+  }
+
+  function chatAccessibility(metadata) {
+    // A configured policy can be paused without changing its retention
+    // disclosure. Other unavailable notices already explain why chat is off.
+    const chat = metadata?.chat;
+    const showUnavailable = chat?.enabled === false && chat.retention_mode === 'until_deleted';
+    return {showUnavailable,
+      describedBy: (showUnavailable ? 'chat-availability ' : '') + 'chat-recording-notice'};
   }
 
   async function submitReport(url, payload, request = root.fetch.bind(root)) {
@@ -255,5 +263,5 @@
       destroy() { generation += 1; if (dialog?.open) dialog.close(); dialog?.remove(); dialog = null; elements = null; },
     };
   }
-  root.EnfoldedReporting = {normalizeMetadata, submitReport, createController};
+  root.EnfoldedReporting = {normalizeMetadata, chatAccessibility, submitReport, createController};
 })(globalThis);

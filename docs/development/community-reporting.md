@@ -8,6 +8,11 @@ does not ratify ADR-040, select a data destination or deploy a policy. The addit
 migration `0033_private_chat_reports` follows schema 32 provisionally; its number
 is assigned at merge and needs human review there.
 
+The first schema-33 deployment is restricted to the throwaway
+`enfolded-staging` world. Rehearse private storage, reporting, deletion and restore
+there before any later cohort rollout. This preparation does not authorize a
+deployment or migration of a retained or production world.
+
 ## Activation and data boundaries
 
 All new human WebSocket traveler chat uses a private operational log in hosted
@@ -40,9 +45,9 @@ Set `NESTED_WORLDS_COMMUNITY_POLICY` to the approved file path. A policy has
 capability is exactly `{"enabled": false}`. Selected chat retention is exactly
 `{"enabled": true, "retention_mode": "until_deleted"}`; its expiry and retention-day
 columns are null. Enabled reports use `{"enabled": true, "retention_days": ...}`
-with the operator's explicit integer duration. Existing numeric chat policies
-remain supported under their recorded terms. Enabled collection also requires
-top-level `contact` and `backup_notice`. The checked-in
+with the operator's explicit integer duration. A numeric chat TTL is not an
+accepted policy form: chat is either disabled or explicitly `until_deleted`.
+Enabled collection also requires top-level `contact` and `backup_notice`. The checked-in
 `config/community-policy.disabled.json` supplies neither durations nor contacts.
 Unknown or duplicate fields and invalid configured files refuse startup. Optional
 `NESTED_WORLDS_DISABLE_CHAT=1` and `NESTED_WORLDS_DISABLE_REPORTS=1` can deny an
@@ -126,12 +131,18 @@ python main.py report acknowledge REPORT_ID --operator OPERATOR_LABEL --note -
 python main.py report close REPORT_ID --operator OPERATOR_LABEL --note -
 python main.py chat-log delete EVIDENCE_REF
 python main.py chat-log delete-tester TESTER_INVITE_LABEL
+python main.py chat-log export-deletions /private/chat-deletions.json
+python main.py chat-log replay-deletions /private/chat-deletions.json
 python main.py community-status
 python main.py community-prune
 ```
 
-Assign an operator to poll `report list`, which defaults to open reports so older
-closed records cannot fill the polling result. Each list shows the oldest retained
+Assign an operator to check the private queue at least twice daily. Check both
+`report list` and `report list --state acknowledged` so pending follow-up remains
+visible. A second operator must be in place before the cohort begins; record
+the assigned operators and coverage arrangement before tester access.
+`report list` defaults to open reports so older closed records cannot fill the
+polling result. Each list shows the oldest retained
 matching reports, up to 50 by default; acknowledge or close reviewed reports and
 poll again to drain a longer open queue. Use `--state acknowledged` or `--state
 closed` for those queues, and `--state all` for a combined inspection; `--limit`
@@ -158,6 +169,15 @@ Use `chat-log delete` for one line's opaque evidence reference, or
 `chat-log delete-tester` for all chat belonging to the participant resolved by an
 unambiguous tester invite label, including chat written under rotated keys.
 These commands operate on the configured live database, not backup copies.
+Keep the separately exported deletion ledger for as long as a backup containing
+those lines may be restored; its entries contain no message or name text.
+After every completed deletion, export the current deletion record and keep a
+private durable copy outside the database snapshot and the app's volume. The
+record contains only actually deleted evidence references and UTC timestamps,
+without message text, names or participant identities. Export writes an atomic
+file with mode `0600`; protect transferred copies to the same standard. Held
+messages are not recorded as deleted. Deleting one tester's current messages
+does not target messages they send later.
 
 Deletion skips messages cited by an open or acknowledged report, deletes other
 eligible messages and returns matched, deleted and held counts with the hold
@@ -185,6 +205,45 @@ exception can be indefinite. Machine-local, downloaded and volume-snapshot copie
 also need their own treatment. There is no finite erasure guarantee for all
 copies from deleting live rows alone. No backup duration is chosen here.
 
+### Deletion records during restore
+
+Stop the server and all private-log writers before exporting, restoring or
+replaying deletions. Export from the ready current store before overwriting it:
+
+```sh
+python main.py chat-log export-deletions /private/chat-deletions.json
+python main.py restore --from /private/worlds-backup.db --deletions /private/chat-deletions.json --yes
+```
+
+Keep the export in private durable storage outside the database snapshot and
+app volume after every deletion, not only when a restore is planned. Copy the
+latest record into the maintenance environment before recovery. A normal restore
+of the same database automatically carries its current deletion ledger forward,
+including when the backup predates schema 33. The explicit `--deletions` file
+also supplies the external record. A missing or corrupt supplied export aborts
+before the live database is overwritten.
+
+If the live database is lost or missing, restoring a private-chat snapshot
+requires `--deletions` with the latest external export. Never treat an older
+ledger inside that backup as the latest record. A valid empty export made before
+the first deletion is usable only when the operator confirms that no deletion
+requests are outstanding. Without that evidence, keep service closed and resolve
+the deletion record before restoring access.
+
+If recovery replaces the database outside `main.py restore`, validate, merge and
+replay the external record on the restored store before starting any writer:
+
+```sh
+python main.py chat-log replay-deletions /private/chat-deletions.json
+```
+
+Replay validates the entire file before an atomic merge/deletion. It preserves
+only references proven to have been deleted: an old backup's stale open-report
+state cannot resurrect those lines. Messages that were held when deletion was
+requested have no deletion proof, so their complaint hold remains. Later
+messages have different references and are unaffected. Complete deletion replay
+and the other restore reconciliation before restarting or admitting traffic.
+
 The participation notice must distinguish live chat, operator access, separately
 retained report detail, both purposes, until-deleted retention, complaint holds,
 the contact, the still-recorded exchanges and backup treatment. A changed notice
@@ -194,9 +253,13 @@ Registration asks before redeeming its first key; an operator-minted key must
 acknowledge that same current notice revision before play. Neither acceptance
 path replaces research consent or approves external destinations or deployment.
 
-The notice is required when `NESTED_WORLDS_TEST_WORLD` is on, or when the frozen
-community policy configures chat or reporting and the personal-invite gate has
-ever been activated. The invite gate is permanently latched: revoking the last
+The notice is required when `NESTED_WORLDS_TEST_WORLD` is on or the personal-invite
+gate has ever been activated. This condition is independent of community
+collection policy: a collection-off watch or invited study still requires
+`NESTED_WORLDS_TEST_CONTACT`, `NESTED_WORLDS_TEST_RETENTION` and
+`NESTED_WORLDS_TEST_DATA_USE` with the approved notice wording. The optional
+`NESTED_WORLDS_TEST_MIN_AGE` accepts only `18`; it is not needed to select the
+owner's minimum age. The invite gate is permanently latched: revoking the last
 key does not reopen public access. Emergency chat/report switches affect
 collection availability, not this required notice or its revision. Ungated
 non-study local development is outside that study condition; an unrecognized

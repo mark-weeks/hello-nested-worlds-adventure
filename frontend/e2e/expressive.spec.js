@@ -1,4 +1,5 @@
 import { disclose } from "./disclosures.js";
+import {acknowledgeCurrentStudy, studyEnvironment} from './study-fixture.js';
 import { expect, test } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -67,7 +68,7 @@ heartbeat._PUMP_INTERVAL=0.2  # Accelerate only this disposable browser fixture.
 heartbeat.start_pump()
 print(server.server_address[1],flush=True)
 server.serve_forever()
-`, dir, intentions ? '1' : '0', partial ? '1' : '0'], {cwd: repo, env: {...process.env, NESTED_WORLDS_CANONICAL_SEED: '382', NESTED_WORLDS_DISABLE_AI: '1', NESTED_WORLDS_DISABLE_IMAGES: '1'}, stdio: ['ignore','pipe','pipe']});
+`, dir, intentions ? '1' : '0', partial ? '1' : '0'], {cwd: repo, env: {...process.env, ...studyEnvironment, NESTED_WORLDS_CANONICAL_SEED: '382', NESTED_WORLDS_DISABLE_AI: '1', NESTED_WORLDS_DISABLE_IMAGES: '1'}, stdio: ['ignore','pipe','pipe']});
   let stderr = '';
   child.stderr.on('data', chunk => { stderr += chunk; });
   const port = await new Promise((resolve, reject) => {
@@ -76,10 +77,18 @@ server.serve_forever()
     lines.once('line',line=>{clearTimeout(timer);lines.close();resolve(Number(line.trim()));});
     child.once('exit', () => { clearTimeout(timer); reject(new Error(stderr)); });
   }).catch(async error => { child.kill('SIGKILL'); throw error; });
-  return {url: `http://127.0.0.1:${port}`, async close() {
+  const server = {url: `http://127.0.0.1:${port}`, async close() {
     const end = once(child, 'exit'); child.kill('SIGKILL'); await end;
     await rm(dir, {recursive: true, force: true});
   }};
+  try {
+    for (const credential of [key, 'nw_' + 'b'.repeat(32)])
+      await acknowledgeCurrentStudy(server.url, credential);
+    return server;
+  } catch (error) {
+    await server.close();
+    throw error;
+  }
 }
 async function enter(page, server, route = '/app', node = '') {
   await page.addInitScript(({key, node}) => {

@@ -425,7 +425,7 @@ class TestVoiceSurfaces:
         assert _count("intention", "busy") == 1 and _count("intention", "provider") == 0
         assert _free_slots() == LIMIT
 
-    def test_a_chat_is_held_and_the_reader_is_free_again(self, base, provider, quick_screen):
+    def test_a_chat_is_held_and_the_reader_is_free_again(self, base, provider, quick_screen, community_collection):
         sender, status = _ws_connect(base, SEED, "Ada")
         try:
             assert b"101" in status

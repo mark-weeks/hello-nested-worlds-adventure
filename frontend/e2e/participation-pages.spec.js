@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import {acknowledgeCurrentStudy} from './study-fixture.js';
 
 const KEY = 'nw_' + '6'.repeat(32);
 const AGREEMENT = 'I have read this notice and agree to participate in this temporary test world.';
@@ -49,7 +50,7 @@ for command in sys.stdin:
     return value;
   };
   const port = Number(await read());
-  return {
+  const server = {
     url: `http://127.0.0.1:${port}`,
     command: async command => { child.stdin.write(command + '\n'); return JSON.parse(await read()); },
     close: async () => {
@@ -57,6 +58,15 @@ for command in sys.stdin:
       reader.close(); await rm(directory, { recursive: true, force: true });
     },
   };
+  try {
+    // Ordinary page recovery uses an already enrolled adult. Temporary entry
+    // journeys below keep their unacknowledged state and exercise the gate.
+    if (!testWorld) await acknowledgeCurrentStudy(server.url, KEY);
+    return server;
+  } catch (error) {
+    await server.close();
+    throw error;
+  }
 }
 
 async function holdKey(page) {

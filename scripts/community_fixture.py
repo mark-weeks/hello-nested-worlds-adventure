@@ -15,7 +15,7 @@ def configure(directory: str | Path, *, chat: bool = True, reports: bool = True)
     data = {"schema_version": 1, "policy_id": "browser-fixture-only",
             "chat": {"enabled": chat}, "reports": {"enabled": reports}}
     if chat:
-        data["chat"]["retention_days"] = 1
+        data["chat"]["retention_mode"] = "until_deleted"
     if reports:
         data["reports"]["retention_days"] = 1
     if chat or reports:

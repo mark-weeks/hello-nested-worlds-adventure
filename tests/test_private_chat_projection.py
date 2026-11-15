@@ -221,25 +221,21 @@ def test_legacy_chat_no_longer_creates_per_person_action_metrics():
     assert _SECRET not in json.dumps(result) and _raw_rows() == before
 
 
-def test_private_chat_and_its_expiry_never_change_art_or_model_history():
+def test_private_chat_and_its_deletion_never_change_art_or_model_history():
     _event("PLAYER_SPEAK", {"message": "A public place exchange."})
     activity = persistence.get_node_activity_history(_SEED, _NODE)
     signature = imageprompt.style_signature("Room", {}, activity)
     before = _raw_rows()
     private = community.append_chat(
         user_key=None, session_id=str(uuid.uuid4()), world_seed=_SEED, node_name=_NODE,
-        text=_SECRET, display_name="Bea", retention_days=2,
-        policy_snapshot='{"fixture":"synthetic private projection"}',
+        text=_SECRET, display_name="Bea", retention_days=None, retention_mode="until_deleted",
+        policy_snapshot='{"chat":{"enabled":true,"retention_mode":"until_deleted"}}',
     )
     assert beta_metrics.compute_metrics(persistence._DB_PATH, days=7)["chat_lines"] == 1
     assert persistence.get_node_activity_history(_SEED, _NODE) == activity
     assert _SECRET not in consciousness._history_block(consciousness.history_for_voice(_SEED, _NODE))
     assert _SECRET not in imageprompt.assemble_prompt("Room", _NODE, {}, activity)
-    now = datetime.now(timezone.utc)
-    with persistence._connection() as conn:
-        conn.execute("UPDATE private_chat_messages SET created_at=?,expires_at=? WHERE evidence_ref=?",
-                     ((now - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                      (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"), private["evidence_ref"]))
+    assert community.delete_chat_message(private["evidence_ref"])["deleted"] == 1
     assert beta_metrics.compute_metrics(persistence._DB_PATH, days=7)["chat_lines"] == 0
     assert imageprompt.style_signature("Room", {}, persistence.get_node_activity_history(_SEED, _NODE)) == signature
     assert persistence.count_mutations_by_node(_SEED) == {_NODE: 1}

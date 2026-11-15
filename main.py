@@ -206,99 +206,6 @@ def cmd_model_policy(args):
     }, sort_keys=True))
 
 
-def _community_output(value: dict, *, error: bool = False) -> None:
-    """Private operator JSON: escape every terminal control and non-ASCII byte."""
-    import json
-    print(json.dumps(value, ensure_ascii=True, sort_keys=True),
-          file=sys.stderr if error else sys.stdout)
-
-
-def cmd_community_policy(args):
-    """Parse explicit community policy without activation, database or network."""
-    from server import community_policy
-    try:
-        policy = community_policy.check_file(args.policy)
-    except community_policy.CommunityPolicyError:
-        _community_output({"error": "Community collection policy is invalid."}, error=True)
-        raise SystemExit(1) from None
-    _community_output({"configuration": community_policy.summary(policy),
-                       "activated": False, "database_opened": False,
-                       "live_calls": False})
-
-
-def _community_note(value: str) -> str:
-    """Read private triage text without shell history or unbounded stdin reads."""
-    if value == "-":
-        if sys.stdin.isatty():
-            print("Note, then Enter and Ctrl-D:", file=sys.stderr, flush=True)
-        # The ledger accepts at most 2,000 characters; allow a trailing CRLF.
-        value = sys.stdin.read(2003)
-        for ending in ("\r\n", "\n"):
-            if value.endswith(ending):
-                value = value[:-len(ending)]
-                break
-    try:
-        value.encode("utf-8")
-    except UnicodeError:
-        raise ValueError from None
-    if len(value) > 2000:
-        raise ValueError
-    return value
-
-
-def cmd_report(args):
-    """Operator-only queue actions, with no model calls or notifications."""
-    from persistence import community
-    try:
-        if args.report_action == "list":
-            state = None if args.state == "all" else args.state
-            result = {"reports": community.list_reports(state=state, limit=args.limit)}
-        elif args.report_action == "show":
-            report = community.show_report(args.report_id)
-            if report is None:
-                raise community.CommunityError()
-            result = {"report": report}
-        else:
-            note = _community_note(args.note)
-            operation = (community.acknowledge_report if args.report_action == "acknowledge"
-                         else community.close_report)
-            result = operation(args.report_id, operator=args.operator, note=note)
-    except community.CommunityUnavailable:
-        _community_output({"error": "Community records are unavailable."}, error=True)
-        raise SystemExit(1) from None
-    except (community.CommunityError, ValueError):
-        _community_output({"error": "The report operation was refused."}, error=True)
-        raise SystemExit(1) from None
-    _community_output(result)
-
-
-def cmd_community_status(_args):
-    from persistence import community
-    from server import community_policy
-    try:
-        policy = community_policy.current()
-        state = community.status()
-    except community_policy.CommunityPolicyError:
-        _community_output({"error": "Community collection policy is invalid."}, error=True)
-        raise SystemExit(1) from None
-    except community.CommunityUnavailable:
-        _community_output({"error": "Community records are unavailable."}, error=True)
-        raise SystemExit(1) from None
-    _community_output({"configuration": community_policy.summary(policy), "storage": state})
-    if state.get("storage_error") or not state.get("available"):
-        raise SystemExit(1)
-
-
-def cmd_community_prune(_args):
-    from persistence import community
-    try:
-        result = community.prune_expired()
-    except community.CommunityUnavailable:
-        _community_output({"error": "Community records are unavailable."}, error=True)
-        raise SystemExit(1) from None
-    _community_output({"pruned": result})
-
-
 def cmd_models(args):
     """Print the resolved provider and model for each text task.
 
@@ -657,7 +564,8 @@ def cmd_restore(args):
         if answer != "restore":
             print("Aborted — nothing was changed.")
             return
-    counts = persistence.restore_from(source)
+    deletion_record = getattr(args, "deletions", None)
+    counts = persistence.restore_from(source, deletions=Path(deletion_record).expanduser() if deletion_record else None)
     print(f"Restored from {source}")
     print(f"  chronicle events: {counts['events_before']} -> "
           f"{counts['events_after']}")
@@ -1098,13 +1006,15 @@ def build_parser() -> argparse.ArgumentParser:
                                 help="Operator policy file to validate locally")
     p_model_policy.set_defaults(func=cmd_model_policy)
 
+    from persistence import community_cli
+
     p_community_policy = sub.add_parser(
         "community-policy", help="Check private chat/report policy offline")
     p_community_policy.add_argument("--check", action="store_true", required=True,
                                   help="Validate without activating collection")
     p_community_policy.add_argument("--policy", required=True, metavar="PATH",
                                   help="Operator community policy file")
-    p_community_policy.set_defaults(func=cmd_community_policy)
+    p_community_policy.set_defaults(func=community_cli.cmd_community_policy)
 
     p_reports = sub.add_parser("report", help="Operator-only private report queue")
     report_sub = p_reports.add_subparsers(dest="report_action", required=True)
@@ -1113,25 +1023,24 @@ def build_parser() -> argparse.ArgumentParser:
                                default="open", help="Report state to show (default open)")
     p_report_list.add_argument("--limit", type=_positive_int, default=50,
                                help="Maximum summaries to show (default 50)")
-    p_report_list.set_defaults(func=cmd_report)
+    p_report_list.set_defaults(func=community_cli.cmd_report)
     p_report_show = report_sub.add_parser("show", help="Inspect one retained private report")
     p_report_show.add_argument("report_id", help="Opaque report receipt")
-    p_report_show.set_defaults(func=cmd_report)
+    p_report_show.set_defaults(func=community_cli.cmd_report)
     for action in ("acknowledge", "close"):
         triage = report_sub.add_parser(action, help=f"{action.capitalize()} a retained report")
         triage.add_argument("report_id", help="Opaque report receipt")
         triage.add_argument("--operator", required=True, help="Operator label for the private action log")
         triage.add_argument("--note", default="",
                             help="Private note; '-' reads standard input to avoid shell history")
-        triage.set_defaults(func=cmd_report)
+        triage.set_defaults(func=community_cli.cmd_report)
     p_community_status = sub.add_parser(
         "community-status", help="Show private collection policy and retained queue counts")
-    p_community_status.set_defaults(func=cmd_community_status)
+    p_community_status.set_defaults(func=community_cli.cmd_community_status)
     p_community_prune = sub.add_parser(
         "community-prune", help="Delete expired private community records")
-    p_community_prune.set_defaults(func=cmd_community_prune)
+    p_community_prune.set_defaults(func=community_cli.cmd_community_prune)
 
-    from persistence import community_cli
     p_chat_log = sub.add_parser("chat-log", help="Operator-only private chat deletion")
     chat_sub = p_chat_log.add_subparsers(dest="chat_action", required=True)
     p_chat_delete = chat_sub.add_parser("delete", help="Delete a line unless an open report holds it")
@@ -1140,6 +1049,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_chat_tester = chat_sub.add_parser("delete-tester", help="Delete one tester's eligible private messages")
     p_chat_tester.add_argument("tester", help="The tester's registered name")
     p_chat_tester.set_defaults(func=community_cli.delete_chat)
+    for action in ("export-deletions", "replay-deletions"):
+        ledger = chat_sub.add_parser(action, help=f"{action.split('-')[0].capitalize()} text-free deletion records")
+        ledger.add_argument("path", metavar="PATH", help="Operator-held deletion ledger file")
+        ledger.set_defaults(func=community_cli.deletion_ledger)
 
     p_models = sub.add_parser(
         "models",
@@ -1187,6 +1100,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Backup file to restore (made by `backup`)")
     p_restore.add_argument("--yes", action="store_true",
                            help="Skip the interactive confirmation")
+    p_restore.add_argument("--deletions", metavar="PATH",
+                           help="Required deletion export when the current database was lost")
     p_restore.set_defaults(func=cmd_restore)
 
     p_redact = sub.add_parser(

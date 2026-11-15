@@ -110,7 +110,7 @@ def _wait_for_rows(seed, node, mtype, n=1, timeout=3.0):
 
 
 class TestPresenceLifecycle:
-    def test_presence_persists_and_chat_is_private_before_first_move(self, srv):
+    def test_presence_persists_and_chat_is_private_before_first_move(self, srv, community_collection):
         seed = 251
         root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
         s, status = _ws_connect(srv, seed, "Ada")

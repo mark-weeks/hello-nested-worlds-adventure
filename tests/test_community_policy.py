@@ -30,7 +30,7 @@ def isolated_policy(monkeypatch, _community_test_policy):
 def _document():
     return {
         "schema_version": 1, "policy_id": "synthetic-community-test",
-        "chat": {"enabled": True, "retention_days": 2},
+        "chat": {"enabled": True, "retention_mode": "until_deleted"},
         "reports": {"enabled": True, "retention_days": 3},
         "contact": "Synthetic fixture operator",
         "backup_notice": "Synthetic fixture backup statement; no production approval.",
@@ -61,7 +61,8 @@ def test_offline_check_neither_activates_nor_touches_database_or_network(tmp_pat
     monkeypatch.setattr(socket, "getaddrinfo", _forbidden)
     monkeypatch.setattr(urllib.request, "urlopen", _forbidden)
     checked = policy.check_file(_file(tmp_path))
-    assert checked.chat_days == 2 and checked.report_days == 3
+    assert checked.chat_days is None and checked.chat_retention_mode == "until_deleted"
+    assert checked.report_days == 3
     assert policy.current().chat_days is None
     assert not policy.chat_enabled() and not persistence._DB_PATH.exists()
 
@@ -89,6 +90,8 @@ def test_until_deleted_is_explicit_chat_only_and_disclosed_without_a_deadline(tm
     {"enabled": True, "retention_mode": "forever"},
     {"enabled": True, "retention_mode": "until_deleted", "retention_days": 1},
     {"enabled": False, "retention_mode": "until_deleted"},
+    {"enabled": True, "retention_days": 1},
+    {"enabled": True, "retention_days": 30},
 ])
 def test_invalid_until_deleted_declaration_is_refused(tmp_path, route):
     data = _document()
@@ -103,8 +106,12 @@ def test_enabling_one_route_requires_only_its_explicit_retention(tmp_path, route
     other = "reports" if route == "chat" else "chat"
     data[other] = {"enabled": False}
     result = policy.check_file(_file(tmp_path, data))
-    assert getattr(result, "chat_days" if route == "chat" else "report_days") in (2, 3)
-    assert getattr(result, "report_days" if route == "chat" else "chat_days") is None
+    if route == "chat":
+        assert result.chat_retention_mode == "until_deleted" and result.chat_days is None
+        assert result.report_days is None
+    else:
+        assert result.chat_retention_mode is None and result.chat_days is None
+        assert result.report_days == 3
 
 
 @pytest.mark.parametrize("field,value", [

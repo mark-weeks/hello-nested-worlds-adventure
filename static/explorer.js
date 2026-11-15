@@ -95,7 +95,9 @@ const reporting = EnfoldedReporting.createController({withKey, onPolicy(metadata
   community = metadata;
   const input = document.getElementById('chat-input');
   const send = document.getElementById('chat-btn');
-  document.getElementById('chat-availability').hidden = metadata.chat.enabled;
+  const chatAccessibility = EnfoldedReporting.chatAccessibility(metadata);
+  document.getElementById('chat-availability').hidden = !chatAccessibility.showUnavailable;
+  input.setAttribute('aria-describedby', chatAccessibility.describedBy);
   document.getElementById('chat-recording-notice').textContent =
     metadata.chat.notice;
   input.disabled = !metadata.chat.enabled;

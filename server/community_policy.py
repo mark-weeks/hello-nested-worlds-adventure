@@ -84,9 +84,11 @@ def _retention(route: object, *, until_deleted: bool = False) -> int | str | Non
         raise CommunityPolicyError()
     if set(route) == {"enabled"} and route["enabled"] is False:
         return None
-    if (until_deleted and set(route) == {"enabled", "retention_mode"}
-            and route["enabled"] is True and route["retention_mode"] == "until_deleted"):
-        return "until_deleted"
+    if until_deleted:
+        if (set(route) == {"enabled", "retention_mode"}
+                and route["enabled"] is True and route["retention_mode"] == "until_deleted"):
+            return "until_deleted"
+        raise CommunityPolicyError()
     if set(route) != {"enabled", "retention_days"} or route["enabled"] is not True:
         raise CommunityPolicyError()
     days = route["retention_days"]
@@ -104,15 +106,13 @@ def _parse(data: object) -> CommunityPolicy:
     if not isinstance(data["policy_id"], str) or not _SAFE_ID.fullmatch(data["policy_id"]):
         raise CommunityPolicyError()
     chat, reports = _retention(data["chat"], until_deleted=True), _retention(data["reports"])
-    chat_mode = None if chat is None else "until_deleted" if chat == "until_deleted" else "days"
-    chat_days = chat if type(chat) is int else None
     contact = backup = ""
     if chat is not None or reports is not None or "contact" in data:
         contact = _text(data.get("contact"))
         backup = _text(data.get("backup_notice"))
     encoded = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     encoded.encode("utf-8")
-    return CommunityPolicy(data["policy_id"], chat_days, chat_mode, reports, contact, backup, encoded)
+    return CommunityPolicy(data["policy_id"], None, chat, reports, contact, backup, encoded)
 
 
 def check_file(path: str | Path) -> CommunityPolicy:
@@ -160,15 +160,12 @@ def reports_enabled() -> bool:
 def disclosure(policy: CommunityPolicy | None = None) -> list[str]:
     """Stable collection wording; temporary kill switches do not grant consent."""
     policy = policy or current()
-    chat_period = f"{policy.chat_days} day" + ("" if policy.chat_days == 1 else "s")
     report_period = f"{policy.report_days} day" + ("" if policy.report_days == 1 else "s")
     chat = ("Live traveler messages are delivered to everyone connected to this world. "
             "They are kept in a private log that only operators can read, to look into complaints "
             "and understand how testers played together. They are not added to permanent world "
-            "history or model memory. "
-            + ("They are kept until you ask for deletion or leave the study; a message needed "
-               "for an open report is held until that report closes."
-               if policy.chat_retention_mode == "until_deleted" else f"They are kept for {chat_period}.")
+            "history or model memory. They are kept until you ask for deletion or leave the study; "
+            "a message needed for an open report is held until that report closes."
             if policy.chat_retention_mode is not None else "Live traveler chat collection is unavailable in this world.")
     reports = (f"Reports and your optional explanation are private to the operator and kept for {report_period}. A cited message is held until its report closes."
                if policy.report_days is not None else "Private reporting is unavailable. Please contact the facilitator if you need help.")

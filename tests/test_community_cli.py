@@ -6,12 +6,15 @@ import hashlib
 import io
 import json
 import socket
+import subprocess
+import sys
 import uuid
 
 import pytest
 
 import main
 import persistence
+from persistence import community_cli
 from server import community_policy
 
 
@@ -70,7 +73,7 @@ def test_preflight_requires_explicit_check_and_path(args):
 
 
 def test_operator_json_escapes_controls_and_non_ascii(capsys):
-    main._community_output({"name": "\x1b[31mÉlodie", "note": "line one\nline two\u202e"})
+    community_cli._community_output({"name": "\x1b[31mÉlodie", "note": "line one\nline two\u202e"})
     raw = capsys.readouterr().out
     assert "\x1b" not in raw and "É" not in raw and "\u202e" not in raw
     assert "\\u001b" in raw and "\\u00c9" in raw and "\\u202e" in raw
@@ -84,16 +87,16 @@ def _report_fixture(monkeypatch):
     sender, reporter = "nw_" + "a" * 32, "nw_" + "b" * 32
     persistence.mint_invite_key(sender, "Ada")
     persistence.mint_invite_key(reporter, "Bea")
-    # Explicit test windows, not production defaults or selected owner values.
+    # Synthetic until-deleted chat and report window, never deployment defaults.
     snapshot = json.dumps({"schema_version": 1, "policy_id": "cli-fixture",
-                           "chat": {"enabled": True, "retention_days": 1},
+                           "chat": {"enabled": True, "retention_mode": "until_deleted"},
                            "reports": {"enabled": True, "retention_days": 3},
                            "contact": "Test facilitator", "backup_notice": "Test-only copies"})
     text = "Private line \x1b[31mÉlodie"
     message = community.append_chat(
         user_key=sender, session_id=uuid.uuid4().hex, world_seed=382,
-        node_name="Test room", text=text, display_name="Ada", retention_days=1,
-        policy_snapshot=snapshot)
+        node_name="Test room", text=text, display_name="Ada", retention_days=None,
+        retention_mode="until_deleted", policy_snapshot=snapshot)
     report = community.submit_report(
         user_key=reporter, request_id=uuid.uuid4().hex,
         fingerprint=hashlib.sha256(b"CLI fixture submission").hexdigest(),
@@ -165,17 +168,22 @@ def test_polling_defaults_to_open_after_a_full_page_of_older_closed_reports(monk
     assert all_reports[-1]["id"] == new_open
 
 
-def test_closed_case_uses_recorded_expiry_and_prune_is_operational(monkeypatch, capsys):
+def test_closed_case_uses_recorded_report_expiry_and_chat_requires_deletion(monkeypatch, capsys):
     community, clock, report_id, text = _report_fixture(monkeypatch)
     community.close_report(report_id, operator="Fixture")
     clock[0] += timedelta(days=2)
     main.main(["report", "show", report_id])
     raw = capsys.readouterr().out
-    assert json.loads(raw)["report"]["evidence"] == {"status": "expired"}
-    assert text not in raw and "Private explanation" in raw
+    shown = json.loads(raw)["report"]
+    assert shown["evidence"]["status"] == "retained" and shown["evidence"]["text"] == text
+    assert shown["detail"] == "Private explanation"
     main.main(["community-status"])
     status = json.loads(capsys.readouterr().out)["storage"]
-    assert status["retained_chat"] == 0 and status["closed_reports"] == 1
+    assert status["retained_chat"] == 1 and status["closed_reports"] == 1
+    main.main(["chat-log", "delete", shown["evidence_ref"]])
+    assert json.loads(capsys.readouterr().out)["deleted"] == 1
+    main.main(["report", "show", report_id])
+    assert json.loads(capsys.readouterr().out)["report"]["evidence"] == {"status": "unavailable"}
     clock[0] += timedelta(days=2)
     with pytest.raises(SystemExit) as caught:
         main.main(["report", "show", report_id])
@@ -183,7 +191,7 @@ def test_closed_case_uses_recorded_expiry_and_prune_is_operational(monkeypatch, 
     assert json.loads(capsys.readouterr().err) == {"error": "The report operation was refused."}
     main.main(["community-prune"])
     removed = json.loads(capsys.readouterr().out)["pruned"]
-    assert removed["chat_messages"] == 1 and removed["reports"] == 1
+    assert removed["chat_messages"] == 0 and removed["reports"] == 1
     main.main(["community-status"])
     assert json.loads(capsys.readouterr().out)["storage"]["open_reports"] == 0
 
@@ -216,13 +224,74 @@ def test_real_chat_delete_commands_report_holds_and_delete_eligible_tester_lines
         assert conn.execute("SELECT count(*) FROM world_mutations").fetchone()[0] == 0
 
 
-@pytest.mark.parametrize("command", [["delete", "invalid"], ["delete-tester", "Unknown tester"]])
-def test_chat_delete_errors_are_safe_operator_json(monkeypatch, capsys, command):
+def test_chat_delete_errors_are_safe_operator_json(monkeypatch, capsys):
     _report_fixture(monkeypatch)
+    with pytest.raises(SystemExit) as caught:
+        main.main(["chat-log", "delete", "invalid"])
+    assert caught.value.code == 1
+    assert json.loads(capsys.readouterr().err) == {"error": "The private chat deletion was refused."}
+
+
+@pytest.mark.parametrize("command", [["delete", "a" * 32], ["delete-tester", "Ada"]])
+def test_chat_delete_never_creates_a_missing_database(capsys, command):
+    assert not persistence._DB_PATH.exists()
     with pytest.raises(SystemExit) as caught:
         main.main(["chat-log", *command])
     assert caught.value.code == 1
-    assert json.loads(capsys.readouterr().err) == {"error": "The private chat deletion was refused."}
+    assert json.loads(capsys.readouterr().err) == {"error": "Private chat records are unavailable."}
+    assert not persistence._DB_PATH.exists()
+
+
+def test_delete_tester_distinguishes_unknown_from_known_without_messages(capsys):
+    persistence.mint_invite_key("nw_" + "c" * 32, "Cy")
+    main.main(["chat-log", "delete-tester", " cy "])
+    empty = json.loads(capsys.readouterr().out)
+    assert (empty["matched"], empty["deleted"], empty["held"]) == (0, 0, 0)
+    assert empty["note"] == "No retained messages for this tester."
+    with pytest.raises(SystemExit) as caught:
+        main.main(["chat-log", "delete-tester", "Unknown tester"])
+    assert caught.value.code == 1
+    assert json.loads(capsys.readouterr().err) == {"error": "That tester is not registered."}
+
+
+@pytest.mark.parametrize("typed", ["ada", " Ada", "ADA"])
+def test_real_delete_tester_command_normalizes_registered_name(monkeypatch, capsys, typed):
+    community, _clock, report_id, _text = _report_fixture(monkeypatch)
+    community.close_report(report_id, operator="Fixture")
+    main.main(["chat-log", "delete-tester", typed])
+    result = json.loads(capsys.readouterr().out)
+    assert (result["matched"], result["deleted"], result["held"]) == (1, 1, 0)
+
+
+def test_real_deletion_export_and_replay_keep_text_out_of_operator_record(tmp_path, monkeypatch, capsys):
+    community, _clock, report_id, text = _report_fixture(monkeypatch)
+    reference = community.show_report(report_id)["evidence_ref"]
+    community.close_report(report_id, operator="Fixture")
+    main.main(["chat-log", "delete", reference])
+    assert json.loads(capsys.readouterr().out)["deleted"] == 1
+    path = tmp_path / "operator-deletions.json"
+    main.main(["chat-log", "export-deletions", str(path)])
+    exported = json.loads(capsys.readouterr().out)
+    assert exported["exported"] >= 1 and exported["path"] == str(path)
+    assert reference in path.read_text() and text not in path.read_text()
+    assert "Private explanation" not in path.read_text() and "Ada" not in path.read_text()
+    main.main(["chat-log", "replay-deletions", str(path)])
+    replayed = json.loads(capsys.readouterr().out)
+    assert replayed["recorded"] >= 0 and replayed["deleted"] == 0
+    assert community.show_report(report_id)["evidence"] == {"status": "unavailable"}
+
+
+def test_invalid_deletion_export_is_safe_operator_json(tmp_path, capsys):
+    persistence.init_db()
+    path = tmp_path / "invalid-deletions.json"
+    private = "private fixture payload must not be printed"
+    path.write_text(private)
+    with pytest.raises(SystemExit) as caught:
+        main.main(["chat-log", "replay-deletions", str(path)])
+    assert caught.value.code == 1
+    result = capsys.readouterr()
+    assert json.loads(result.err) == {"error": "The deletion ledger operation was refused."}
+    assert private not in result.out + result.err
 
 
 def test_unavailable_status_never_creates_a_world_database(capsys):
@@ -243,3 +312,41 @@ def test_invalid_stdin_note_is_refused_without_a_triage_write(monkeypatch, capsy
     assert caught.value.code == 1
     assert json.loads(capsys.readouterr().err) == {"error": "The report operation was refused."}
     assert community.show_report(report_id)["actions"] == []
+
+
+def test_unreleased_numeric_chat_policy_is_refused_by_real_offline_command(tmp_path, capsys):
+    path = tmp_path / "numeric-chat.json"
+    path.write_text(json.dumps({
+        "schema_version": 1, "policy_id": "numeric-chat-fixture",
+        "chat": {"enabled": True, "retention_days": 30}, "reports": {"enabled": False},
+        "contact": "Fixture operator", "backup_notice": "Synthetic copies.",
+    }))
+    with pytest.raises(SystemExit) as caught:
+        main.main(["community-policy", "--check", "--policy", str(path)])
+    assert caught.value.code == 1
+    assert json.loads(capsys.readouterr().err) == {"error": "Community collection policy is invalid."}
+    assert not persistence._DB_PATH.exists()
+
+
+def test_community_parser_wiring_does_not_import_http_runtime():
+    script = '''
+import importlib.abc, sys
+class RefuseServer(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == 'server' or fullname.startswith('server.'):
+            raise AssertionError('HTTP runtime imported during command registration')
+sys.meta_path.insert(0, RefuseServer())
+import main
+parser = main.build_parser()
+for args in (['community-policy', '--check', '--policy', 'fixture.json'],
+             ['report', 'list'], ['report', 'show', 'a' * 32],
+             ['report', 'close', 'a' * 32, '--operator', 'Fixture'],
+             ['community-status'], ['community-prune'],
+             ['chat-log', 'delete', 'a' * 32], ['chat-log', 'delete-tester', 'Ada'],
+             ['chat-log', 'export-deletions', 'fixture.json'],
+             ['chat-log', 'replay-deletions', 'fixture.json']):
+    assert parser.parse_args(args).func.__module__ == 'persistence.community_cli'
+assert parser.parse_args(['restore', '--from', 'backup.db', '--deletions', 'fixture.json']).deletions == 'fixture.json'
+assert 'server' not in sys.modules
+'''
+    subprocess.run([sys.executable, "-c", script], check=True, capture_output=True)

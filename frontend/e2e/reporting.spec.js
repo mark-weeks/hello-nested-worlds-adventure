@@ -87,6 +87,18 @@ async function fill(dialog, detail = 'Private fixture concern.') {
   await dialog.getByLabel('Details (optional)', {exact: true}).fill(detail);
 }
 
+async function expectChatDescription(page, paused = false) {
+  const input = page.getByLabel('Message to travelers');
+  const notice = await page.locator('#chat-recording-notice').textContent();
+  const availability = page.locator('#chat-availability');
+  await expect(input).toHaveAttribute('aria-describedby',
+    (paused ? 'chat-availability ' : '') + 'chat-recording-notice');
+  await expect(input).toHaveAccessibleDescription(
+    (paused ? 'Traveler chat is currently unavailable. ' : '') + notice);
+  if (paused) await expect(availability).toBeVisible();
+  else await expect(availability).toBeHidden();
+}
+
 for (const route of ['/', '/app']) {
   test(`${route}: roster and chat reports use private server receipts and opaque evidence`, async ({browser}) => {
     const server = await fixture();
@@ -94,6 +106,8 @@ for (const route of ['/', '/app']) {
     try {
       people = await twoTravelers(browser, server, route);
       const {page, bea} = people, bodies = [], replies = [];
+      await expect(page.getByLabel('Message to travelers')).toBeEnabled();
+      await expectChatDescription(page);
       await page.route(url => url.pathname === '/reports', async intercepted => {
         bodies.push(intercepted.request().postDataJSON());
         const response = await intercepted.fetch(); replies.push(await response.json());
@@ -407,10 +421,32 @@ for (const route of ['/', '/app']) {
       await expect(page.getByRole('button', {name: 'Send', exact: true})).toBeDisabled();
       await expect(page.locator('#chat-availability')).toHaveText('Traveler chat is currently unavailable.');
       await expect(page.locator('#chat-recording-notice')).toContainText('private log');
+      await expectChatDescription(page, true);
       await page.getByRole('button', {name: 'Report Bea', exact: true}).click();
       await expect(reportDialog(page)).toBeVisible();
       await page.keyboard.press('Escape');
     } finally { await people?.close(); await server.close(); }
+  });
+
+  test(`${route}: no collection policy announces its own unavailable notice once`, async ({browser}) => {
+    const server = await fixture(); const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      // Isolate the policy presentation from the server's collection dispatch.
+      // Its configured participation notice is still acknowledged normally.
+      await page.route(url => url.pathname === '/community', intercepted => intercepted.fulfill({json: {
+        chat: {enabled: false, retention_mode: null, retention_days: null,
+          notice: 'Live traveler chat collection is unavailable in this world.'},
+        reports: {enabled: false, retention_days: null, notice: 'Private reporting is unavailable.',
+          reasons: [], max_detail_length: null},
+        contact: '', backup_notice: '', revision: 'synthetic-collection-disabled',
+      }}));
+      await enter(page, server, route);
+      await expect(page.getByLabel('Message to travelers')).toBeDisabled();
+      await expect(page.locator('#chat-recording-notice')).toHaveText(
+        'Live traveler chat collection is unavailable in this world.');
+      await expectChatDescription(page);
+    } finally { await context.close(); await server.close(); }
   });
 
   test(`${route}: cancelled report details stay with their person`, async ({browser}) => {
@@ -442,6 +478,7 @@ for (const route of ['/', '/app']) {
       people = await twoTravelers(browser, server, route);
       const {page} = people;
       await expect(page.getByLabel('Message to travelers')).toBeEnabled();
+      await expectChatDescription(page);
       await page.route(url => url.pathname === '/community', intercepted =>
         intercepted.fulfill({status: 429, json: {error: 'Try again later.'}}));
       await page.getByRole('button', {name: 'Report Bea', exact: true}).click();
@@ -465,6 +502,7 @@ for (const route of ['/', '/app']) {
       await expect(page.locator('#chat-availability')).toBeHidden();
       await expect(page.locator('#chat-recording-notice')).toHaveText('Loading chat recording information…');
       await expect(page.getByLabel('Message to travelers')).toBeDisabled();
+      await expectChatDescription(page);
       release();
       await expect(page.getByLabel('Message to travelers')).toBeEnabled();
       await expect(page.locator('#chat-recording-notice')).not.toContainText('Chat is currently unavailable.');

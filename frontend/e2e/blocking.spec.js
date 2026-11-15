@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {serveBrowser} from './server.js';
 import {disclose} from './disclosures.js';
-import {acknowledgeCurrentStudy} from './study-fixture.js';
+import {acknowledgeCurrentStudy, studyEnvironment} from './study-fixture.js';
 
 const repo = path.resolve(import.meta.dirname, '../..');
 const key = 'nw_' + 'a'.repeat(32);
@@ -204,7 +204,7 @@ for command in sys.stdin:
         broadcast(room,{'type':'agent_done','name':'Tessera','node':root.name,'nodes_visited':int(command)})
         broadcast(room,{'type':'intervention_changed','node':root.name,'flavor':'A shared change remains visible '+command})
     print(json.dumps({'ok':True}),flush=True)
-`,directory],{cwd:repo,env:{...process.env,NESTED_WORLDS_CANONICAL_SEED:'382',NESTED_WORLDS_DISABLE_AI:'1',NESTED_WORLDS_DISABLE_IMAGES:'1'},stdio:['pipe','pipe','pipe']});
+`,directory],{cwd:repo,env:{...process.env,...studyEnvironment,NESTED_WORLDS_CANONICAL_SEED:'382',NESTED_WORLDS_DISABLE_AI:'1',NESTED_WORLDS_DISABLE_IMAGES:'1'},stdio:['pipe','pipe','pipe']});
   let errors='';
   child.stderr.on('data',chunk=>{errors+=chunk;});
   const reader=createInterface({input:child.stdout});

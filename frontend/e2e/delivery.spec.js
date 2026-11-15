@@ -1,4 +1,5 @@
 import { disclose } from "./disclosures.js";
+import {acknowledgeCurrentStudy, studyEnvironment} from './study-fixture.js';
 // Real browser actions, durable pending work, server process death/restart,
 // missed notification and authoritative reload in both shipped clients.
 import { expect, test } from "@playwright/test";
@@ -32,7 +33,7 @@ server.serve_forever()
 `;
   const child = spawn(python, ["-u", "-c", source, db, String(port), pump ? "1" : "0"], {
     cwd: repo,
-    env: { ...process.env, NESTED_WORLDS_CANONICAL_SEED: "382",
+    env: { ...process.env, ...studyEnvironment, NESTED_WORLDS_CANONICAL_SEED: "382",
       NESTED_WORLDS_DISABLE_AI: "1", NESTED_WORLDS_DISABLE_IMAGES: "1",
       NESTED_WORLDS_HOP_DELAY: "0", NESTED_WORLDS_MATURATION_SCALE: maturationScale },
     stdio: ["ignore", "pipe", "pipe"],
@@ -52,7 +53,15 @@ server.serve_forever()
     await kill({ child });
     throw error;
   }
-  return { child, port: boundPort, url: `http://127.0.0.1:${boundPort}` };
+  const server = { child, port: boundPort, url: `http://127.0.0.1:${boundPort}` };
+  try {
+    for (const credential of Object.values(credentials))
+      await acknowledgeCurrentStudy(server.url, credential);
+    return server;
+  } catch (error) {
+    await kill(server);
+    throw error;
+  }
 }
 
 async function kill(server) {

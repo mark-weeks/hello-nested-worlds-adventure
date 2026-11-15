@@ -272,7 +272,7 @@ def world(monkeypatch, tmp_path):
     declaration = tmp_path / "community-policy.json"
     declaration.write_text(json.dumps({
         "schema_version": 1, "policy_id": "synthetic-pilot-test",
-        "chat": {"enabled": True, "retention_days": 2}, "reports": {"enabled": False},
+        "chat": {"enabled": True, "retention_mode": "until_deleted"}, "reports": {"enabled": False},
         "contact": "Synthetic fixture operator", "backup_notice": "Synthetic fixture; no production approval.",
     }))
     community_policy.reset_for_tests()
@@ -311,25 +311,28 @@ def test_private_counts_include_until_deleted_and_pending_evidence_then_follow_d
     persistence.mint_invite_key(reporter, "Other tester")
     options = dict(user_key=sender, session_id=uuid.uuid4().hex, world_seed=SEED,
                    node_name="Synthetic room", text="Private text is never needed by metrics.",
-                   display_name="Counted tester", retention_days=1, policy_snapshot='{"fixture":true}')
-    expired = community.append_chat(**options)
+                   display_name="Counted tester", retention_days=None, retention_mode="until_deleted",
+                   policy_snapshot='{"chat":{"enabled":true,"retention_mode":"until_deleted"}}')
+    eligible = community.append_chat(**options)
     held = community.append_chat(**options)
-    retained = community.append_chat(**{**options, "retention_days": None,
-        "retention_mode": "until_deleted",
-        "policy_snapshot": '{"chat":{"enabled":true,"retention_mode":"until_deleted"}}'})
+    retained = community.append_chat(**options)
     case = community.submit_report(user_key=reporter, request_id=uuid.uuid4().hex,
         fingerprint="a" * 64, world_seed=SEED, target_id=None,
         evidence_ref=held["evidence_ref"], reason="other", detail="Fixture complaint",
         retention_days=3, policy_snapshot='{"fixture":true}')
     monkeypatch.setattr(community, "utc_now", lambda: now)
+    assert _metrics(days=30)["chat_lines"] == 3
+    community.delete_chat_message(eligible["evidence_ref"])
+    assert _metrics(days=30)["chat_lines"] == 2
+    assert community.delete_chat_message(held["evidence_ref"])["held"] == 1
     assert _metrics(days=30)["chat_lines"] == 2
     community.close_report(case["report_id"], operator="Fixture")
+    community.delete_chat_message(held["evidence_ref"])
     assert _metrics(days=30)["chat_lines"] == 1
     community.delete_chat_message(retained["evidence_ref"])
     assert _metrics(days=30)["chat_lines"] == 0
     with persistence._connection() as conn:
-        assert conn.execute("SELECT evidence_ref FROM private_chat_messages WHERE evidence_ref=?",
-                            (expired["evidence_ref"],)).fetchone()
+        assert conn.execute("SELECT count(*) FROM private_chat_messages").fetchone()[0] == 0
 
 
 def _chronicle(identity: str, rows: list[tuple[str, str, str]]) -> None:

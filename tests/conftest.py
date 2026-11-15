@@ -53,17 +53,9 @@ def _isolate_rooms():
 
 @pytest.fixture(autouse=True)
 def _community_test_policy(tmp_path, monkeypatch):
-    """Explicit synthetic collection policy, never an application default."""
+    """Default to no collection policy while isolating study notice text."""
     from server import community_policy
-    path = tmp_path / "community-policy.json"
-    path.write_text(json.dumps({
-        "schema_version": 1, "policy_id": "test-fixture-only",
-        "chat": {"enabled": True, "retention_days": 1},
-        "reports": {"enabled": True, "retention_days": 1},
-        "contact": "Test facilitator",
-        "backup_notice": "Synthetic test backup handling; not deployment policy.",
-    }))
-    monkeypatch.setenv(community_policy.POLICY_ENV, str(path))
+    monkeypatch.delenv(community_policy.POLICY_ENV, raising=False)
     for name, value in {
         "TEST_CONTACT": "Test facilitator",
         "TEST_RETENTION": "Synthetic study records are deleted after this disposable test.",
@@ -75,6 +67,23 @@ def _community_test_policy(tmp_path, monkeypatch):
     community_policy.reset_for_tests()
     yield
     community_policy.reset_for_tests()
+
+
+@pytest.fixture
+def community_collection(tmp_path, monkeypatch, _community_test_policy):
+    """Opt in only tests that exercise actual private chat/report collection."""
+    from server import community_policy
+    path = tmp_path / "community-policy.json"
+    path.write_text(json.dumps({
+        "schema_version": 1, "policy_id": "test-fixture-only",
+        "chat": {"enabled": True, "retention_mode": "until_deleted"},
+        "reports": {"enabled": True, "retention_days": 1},
+        "contact": "Test facilitator",
+        "backup_notice": "Synthetic test backup handling; not deployment policy.",
+    }))
+    monkeypatch.setenv(community_policy.POLICY_ENV, str(path))
+    community_policy.reset_for_tests()
+    return community_policy.current()
 
 
 @pytest.fixture(autouse=True)

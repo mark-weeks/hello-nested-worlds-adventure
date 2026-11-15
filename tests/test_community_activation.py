@@ -49,14 +49,24 @@ def _quiet_dependencies(monkeypatch, events):
     monkeypatch.setattr(persistence, "checkpoint", lambda: events.append("checkpoint"))
 
 
-def _expired_chat(monkeypatch):
+def _expired_closed_report(monkeypatch):
     clock = SimpleNamespace(now=datetime(2026, 1, 1, 12, tzinfo=timezone.utc))
     monkeypatch.setattr(community, "utc_now", lambda: clock.now)
-    community.append_chat(
+    snapshot = ('{"chat":{"enabled":true,"retention_mode":"until_deleted"},'
+                '"reports":{"enabled":true,"retention_days":1}}')
+    line = community.append_chat(
         user_key=None, session_id=uuid.uuid4().hex, world_seed=382,
         node_name="Synthetic place", text="Private fixture line.", display_name="Fixture traveler",
-        retention_days=1, policy_snapshot='{"fixture":"explicit retention only"}',
+        retention_days=None, retention_mode="until_deleted", policy_snapshot=snapshot,
     )
+    reporter = "nw_" + "a" * 32
+    persistence.mint_invite_key(reporter, "Fixture reporter")
+    report = community.submit_report(user_key=reporter, request_id=uuid.uuid4().hex,
+        fingerprint="a" * 64, world_seed=382, target_id=None, evidence_ref=line["evidence_ref"],
+        reason="other", detail="Expired private reporter statement", retention_days=1,
+        policy_snapshot=snapshot)
+    community.close_report(report["report_id"], operator="Fixture")
+    community.delete_chat_message(line["evidence_ref"])
     clock.now += timedelta(days=2)
     return clock
 
@@ -89,7 +99,7 @@ def test_invalid_community_policy_precedes_migration_observability_and_listener(
 
 
 def test_all_off_startup_prunes_before_binding_and_owns_worker_shutdown(monkeypatch):
-    _expired_chat(monkeypatch)
+    _expired_closed_report(monkeypatch)
     assert not community_policy.chat_enabled() and not community_policy.reports_enabled()
     events = []
     _quiet_dependencies(monkeypatch, events)
@@ -103,7 +113,8 @@ def test_all_off_startup_prunes_before_binding_and_owns_worker_shutdown(monkeypa
     def prune():
         events.append("prune")
         result = original_prune()
-        assert result["chat_messages"] == 1 and result["policies"] == 1
+        assert result["chat_messages"] == 0 and result["reports"] == 1
+        assert result["actions"] == 1 and result["policies"] == 1
         return result
 
     def retention():
@@ -152,8 +163,8 @@ def test_startup_prune_failure_refuses_listener_with_safe_error(monkeypatch, cap
     assert _PRIVATE not in captured.err
 
 
-def test_idle_worker_prunes_real_expired_text_even_when_collection_is_off(monkeypatch):
-    _expired_chat(monkeypatch)
+def test_idle_worker_prunes_expired_closed_report_text_when_collection_is_off(monkeypatch):
+    _expired_closed_report(monkeypatch)
     assert not community_policy.chat_enabled() and not community_policy.reports_enabled()
     completed = threading.Event()
     removed = []
@@ -169,9 +180,11 @@ def test_idle_worker_prunes_real_expired_text_even_when_collection_is_off(monkey
         stopped.set()
         worker.join(timeout=1)
     assert not worker.is_alive() and worker.name == "community-retention"
-    assert sum(row["chat_messages"] for row in removed) == 1
+    assert sum(row["chat_messages"] for row in removed) == 0
+    assert sum(row["reports"] for row in removed) == 1
     with persistence._connection() as conn:
         assert conn.execute("SELECT COUNT(*) FROM private_chat_messages").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM private_reports").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM world_mutations").fetchone()[0] == 0
 
 

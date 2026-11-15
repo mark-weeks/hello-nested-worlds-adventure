@@ -289,7 +289,8 @@ def main() -> None:
             "assert persistence._connect().execute(\"SELECT count(*) FROM community_policies\").fetchone()[0] == 0; "
             "assert persistence._connect().execute(\"SELECT count(*) FROM private_chat_messages\").fetchone()[0] == 0; "
             "assert persistence._connect().execute(\"SELECT count(*) FROM private_reports\").fetchone()[0] == 0; "
-            "assert persistence._connect().execute(\"SELECT count(*) FROM report_actions\").fetchone()[0] == 0"
+            "assert persistence._connect().execute(\"SELECT count(*) FROM report_actions\").fetchone()[0] == 0; "
+            "assert persistence._connect().execute(\"SELECT count(*) FROM private_chat_deletions\").fetchone()[0] == 0"
         )
         _run(str(python), "-c", smoke, cwd=tmp, env=smoke_env)
         _run(str(cli), "--help", cwd=tmp, env=smoke_env)

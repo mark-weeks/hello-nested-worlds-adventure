@@ -173,7 +173,7 @@ def _through_pong(sock):
     return _until_type(sock, 'pong')[1]
 
 
-def test_real_sockets_one_way_all_tabs_reconnect_unblock_and_history(server, accounts):
+def test_real_sockets_one_way_all_tabs_reconnect_unblock_and_history(server, accounts, community_collection):
     request, join = server
     persistence.mint_invite_key(KEY_C, 'Cleo')
     bea, bw = join(accounts[1])

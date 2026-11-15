@@ -1,4 +1,5 @@
 import {disclose} from "./disclosures.js";
+import {acknowledgeCurrentStudy, studyEnvironment} from './study-fixture.js';
 import { expect, test } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -40,7 +41,7 @@ from server import _Handler,_ThreadedServer
 server=_ThreadedServer(('127.0.0.1',0),_Handler)
 print(server.server_port,flush=True)
 server.serve_forever()
-`, directory, promoted ? 'promoted' : 'empty'], {cwd: repo, env: {...process.env, NESTED_WORLDS_CANONICAL_SEED:'382',
+`, directory, promoted ? 'promoted' : 'empty'], {cwd: repo, env: {...process.env, ...studyEnvironment, NESTED_WORLDS_CANONICAL_SEED:'382',
     NESTED_WORLDS_DISABLE_AI:'1', NESTED_WORLDS_DISABLE_IMAGES:'1'}, stdio:['ignore','pipe','pipe']});
   let stderr = ''; child.stderr.on('data', chunk => { stderr += chunk; });
   const port = await new Promise((resolve,reject) => {
@@ -48,9 +49,17 @@ server.serve_forever()
     child.stdout.once('data', chunk => { clearTimeout(timer); resolve(Number(String(chunk).trim())); });
     child.once('exit', () => { clearTimeout(timer); reject(new Error(stderr)); });
   }).catch(error => { child.kill('SIGKILL'); throw error; });
-  return {url:`http://127.0.0.1:${port}`, async close() {
+  const server = {url:`http://127.0.0.1:${port}`, async close() {
     const ended = once(child,'exit'); child.kill('SIGKILL'); await ended; await rm(directory,{recursive:true,force:true});
   }};
+  try {
+    for (const credential of [key, 'nw_' + 'b'.repeat(32)])
+      await acknowledgeCurrentStudy(server.url, credential);
+    return server;
+  } catch (error) {
+    await server.close();
+    throw error;
+  }
 }
 async function enter(page, server, route='/ideas') {
   await page.addInitScript(key => {

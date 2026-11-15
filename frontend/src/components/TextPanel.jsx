@@ -9,6 +9,7 @@ export default function TextPanel({ node, players, blocks = [], participantId, o
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
   const [waybackOpen, setWaybackOpen] = useState(false);
+  const chatAccessibility = globalThis.EnfoldedReporting.chatAccessibility(community);
   // A held or declined line comes back only into an empty input.
   useEffect(() => chatRestore?.attach(
     (line) => setChatInput(current => restoreChatInput(current, line))), [chatRestore]);
@@ -52,10 +53,10 @@ export default function TextPanel({ node, players, blocks = [], participantId, o
         {!!blocks.length && <details className="blocked-travelers"><summary>Blocked travelers ({blocks.length})</summary>{blocks.map(b=><div className="traveler-controls" key={b.id}><span>{b.name}</span><button disabled={blockBusy} onClick={()=>onBlock(b.id,false)} aria-label={`Unblock ${b.name}`}>Unblock</button></div>)}</details>}
         <p className="quiet" role="status">{blockStatus}</p>
       </>}
-      <p id="chat-availability" className="community-notice" role="status" hidden={!community || community.chat.enabled}>Traveler chat is currently unavailable.</p>
+      <p id="chat-availability" className="community-notice" role="status" hidden={!chatAccessibility.showUnavailable}>Traveler chat is currently unavailable.</p>
       <p id="chat-recording-notice" className="community-notice" role="status">{community?.chat.notice || 'Loading chat recording information…'}</p>
       <div className="chat-row">
-        <input aria-label="Message to travelers" aria-describedby="chat-availability chat-recording-notice" maxLength={256} placeholder={!community ? "Loading chat…" : !community.chat.enabled ? "Chat unavailable" : connected ? "Say something…" : "Not connected"} value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && handleChat()} disabled={!connected || !community?.chat.enabled} />
+        <input aria-label="Message to travelers" aria-describedby={chatAccessibility.describedBy} maxLength={256} placeholder={!community ? "Loading chat…" : !community.chat.enabled ? "Chat unavailable" : connected ? "Say something…" : "Not connected"} value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && handleChat()} disabled={!connected || !community?.chat.enabled} />
         <button onClick={handleChat} disabled={!connected || !community?.chat.enabled || !chatInput.trim()}>Send</button>
       </div>
     </details>

@@ -11,6 +11,6 @@ def acknowledge_current_study(key: str) -> None:
     validated acknowledgement does.
     """
     current = participation.notice()
-    if current["required"]:
-        assert current["ready"]
-        consents.accept(key, current["revision"], participation.snapshot(current))
+    assert current["required"], "Issue the synthetic participant's invite before enrolling it."
+    assert current["ready"]
+    consents.accept(key, current["revision"], participation.snapshot(current))

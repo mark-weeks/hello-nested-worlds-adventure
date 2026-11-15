@@ -1,9 +1,9 @@
 import {describe, expect, it, vi} from 'vitest';
 import '../../../static/reporting.js';
 
-const {normalizeMetadata, submitReport, createController} = globalThis.EnfoldedReporting;
+const {normalizeMetadata, chatAccessibility, submitReport, createController} = globalThis.EnfoldedReporting;
 const metadata = () => ({
-  chat: {enabled: true, retention_days: 1, notice: 'Fixture chat notice.'},
+  chat: {enabled: true, retention_mode: 'until_deleted', retention_days: null, notice: 'Fixture chat notice.'},
   reports: {enabled: true, retention_days: 1, notice: 'Fixture report notice.',
     reasons: [{value: 'harassment', label: 'Harassment or bullying'}], max_detail_length: 2000},
   contact: 'Fixture operator', backup_notice: 'Fixture backup notice.', revision: 'fixture-revision',
@@ -11,11 +11,26 @@ const metadata = () => ({
 const payload = Object.freeze({request_id: 'fixture-request', participant: null,
   evidence_ref: 'opaque-fixture-evidence', reason: 'harassment', detail: 'Private fixture details.'});
 
+describe('chat accessible descriptions', () => {
+  it.each([null, normalizeMetadata(null),
+    {chat: {enabled: true, retention_mode: 'until_deleted', retention_days: null}},
+    {chat: {enabled: false, retention_mode: null, retention_days: null}},
+  ])('omits hidden unavailable text for loading, enabled, and unconfigured chat: %j', data => {
+    expect(chatAccessibility(data)).toEqual({showUnavailable: false, describedBy: 'chat-recording-notice'});
+  });
+
+  it('includes the visible status only when a configured chat policy is paused', () => {
+    expect(chatAccessibility({chat: {enabled: false, retention_mode: 'until_deleted', retention_days: null}}))
+      .toEqual({showUnavailable: true, describedBy: 'chat-availability chat-recording-notice'});
+  });
+});
+
 describe('community policy metadata', () => {
-  it('keeps only the server notice and operator-supplied durations', () => {
+  it('keeps the server recording mode, notice, and operator-supplied report duration', () => {
     expect(normalizeMetadata(metadata())).toEqual(metadata());
     const off = metadata();
     off.chat.enabled = off.reports.enabled = false;
+    off.chat.retention_mode = null;
     off.chat.retention_days = off.reports.retention_days = null;
     expect(normalizeMetadata(off).chat).toEqual(off.chat);
     expect(normalizeMetadata(off).reports.retention_days).toBeNull();
@@ -24,12 +39,19 @@ describe('community policy metadata', () => {
 
   it('accepts the explicit until-deleted chat policy without inventing an expiry', () => {
     const data = metadata();
-    data.chat.retention_mode = 'until_deleted';
-    data.chat.retention_days = null;
     expect(normalizeMetadata(data).chat).toEqual(data.chat);
     const contradictory = metadata();
-    contradictory.chat.retention_mode = 'until_deleted';
+    contradictory.chat.retention_days = 1;
     expect(normalizeMetadata(contradictory).chat.enabled).toBe(false);
+  });
+
+  it('keeps a paused configured policy but rejects timed chat metadata even while disabled', () => {
+    const paused = metadata();
+    paused.chat.enabled = false;
+    expect(normalizeMetadata(paused).chat).toEqual(paused.chat);
+    paused.chat.retention_mode = 'days';
+    paused.chat.retention_days = 1;
+    expect(normalizeMetadata(paused).revision).toBe('');
   });
 
   it.each([null, {}, {required: false}, {chat: {enabled: true}}])('fails unavailable metadata closed: %j', data => {
@@ -42,7 +64,9 @@ describe('community policy metadata', () => {
 
   it.each([
     ['chat', 'enabled', 1], ['chat', 'retention_days', true], ['chat', 'retention_days', 0],
-    ['chat', 'retention_days', undefined], ['chat', 'notice', ''],
+    ['chat', 'retention_days', 1], ['chat', 'retention_days', undefined],
+    ['chat', 'retention_mode', 'days'], ['chat', 'retention_mode', null],
+    ['chat', 'retention_mode', undefined], ['chat', 'notice', ''],
     ['reports', 'enabled', 'true'], ['reports', 'retention_days', -1],
     ['reports', 'max_detail_length', 2001], ['reports', 'max_detail_length', true],
     ['reports', 'reasons', []], ['reports', 'reasons', [{value: 'x', label: ''}]],
@@ -100,6 +124,7 @@ describe('community policy metadata', () => {
   it('replaces cached availability only after a valid disabled-policy response', async () => {
     const off = metadata();
     off.chat.enabled = false;
+    off.chat.retention_mode = null;
     off.chat.retention_days = null;
     off.chat.notice = 'Chat is unavailable in this world.';
     const request = vi.fn()

@@ -18,9 +18,7 @@ CREATE TABLE IF NOT EXISTS private_chat_messages (
     expires_at TEXT,
     retention_days INTEGER,
     policy_digest TEXT NOT NULL REFERENCES community_policies(digest),
-    CHECK ((expires_at IS NULL AND retention_days IS NULL) OR
-           (expires_at IS NOT NULL AND retention_days IS NOT NULL
-            AND expires_at > created_at AND typeof(retention_days) = 'integer' AND retention_days >= 1))
+    CHECK (expires_at IS NULL AND retention_days IS NULL)
 );
 CREATE INDEX IF NOT EXISTS idx_private_chat_expiry ON private_chat_messages(expires_at);
 CREATE INDEX IF NOT EXISTS idx_private_chat_world_time ON private_chat_messages(world_seed,created_at);
@@ -65,3 +63,9 @@ CREATE TABLE IF NOT EXISTS report_actions (
 );
 CREATE INDEX IF NOT EXISTS idx_report_actions_case ON report_actions(report_id,created_at,id);
 CREATE INDEX IF NOT EXISTS idx_report_actions_expiry ON report_actions(expires_at);
+
+-- Opaque proof of completed erasure. No message, name or participant text.
+CREATE TABLE IF NOT EXISTS private_chat_deletions (
+    evidence_ref TEXT PRIMARY KEY NOT NULL CHECK (length(evidence_ref) = 32),
+    deleted_at TEXT NOT NULL
+);

@@ -1,4 +1,4 @@
-"""Private logs respect deletion, fixed windows and open-report evidence holds."""
+"""Chat lasts until deletion; report windows and complaint holds stay separate."""
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -27,10 +27,15 @@ def clock(monkeypatch):
     return result
 
 
+def _snapshot(report_days=3):
+    return json.dumps({"chat": {"enabled": True, "retention_mode": "until_deleted"},
+                       "reports": {"enabled": True, "retention_days": report_days}})
+
+
 def chat(key=None, **overrides):
     options = dict(user_key=key, session_id=uuid.uuid4().hex, world_seed=382,
                    node_name="Fixture place", text="A private line.", display_name="Local traveler",
-                   retention_days=1, policy_snapshot='{"policy":"fixture-community"}')
+                   retention_days=None, retention_mode="until_deleted", policy_snapshot=_snapshot())
     options.update(overrides)
     return community.append_chat(**options)
 
@@ -39,7 +44,7 @@ def report_options(key, evidence=None, **overrides):
     options = dict(user_key=key, request_id=str(uuid.uuid4()), fingerprint=hashlib.sha256(b"fixture").hexdigest(),
                    world_seed=382, target_id=None, evidence_ref=evidence,
                    reason="other", detail="A reporter statement.", retention_days=3,
-                   policy_snapshot='{"policy":"fixture-community"}')
+                   policy_snapshot=_snapshot(overrides.get("retention_days", 3)))
     options.update(overrides)
     return options
 
@@ -64,12 +69,12 @@ def test_keyed_chat_commits_authoritative_identity_without_chronicle_or_secrets(
     saved = rows("private_chat_messages")[0]
     assert message == {"evidence_ref": saved["evidence_ref"], "participant_id": saved["participant_id"],
                        "name": "Ada", "at": "2026-11-14T12:00:00.000000Z",
-                       "expires_at": "2026-11-15T12:00:00.000000Z"}
+                       "expires_at": None}
     assert saved["name"] == "Ada" and saved["text"] == "A private line."
     assert saved["id"] != saved["evidence_ref"]
     assert saved["participant_id"] == participants.identify(accounts[0])["id"]
     assert saved["world_seed"] == 382 and saved["node_name"] == "Fixture place"
-    assert saved["retention_days"] == 1
+    assert saved["retention_days"] is saved["expires_at"] is None
     assert counts("world_mutations") == (0,)
     serialized = json.dumps(rows("private_chat_messages") + rows("community_policies"))
     assert accounts[0] not in serialized and db._credential_digest(accounts[0]) not in serialized
@@ -168,10 +173,12 @@ def test_evidence_author_survives_disconnect_and_key_rotation_but_hides_text(acc
         with pytest.raises(community.EvidenceUnavailable) as error:
             community.evidence_author(evidence_ref=reference, world_seed=seed)
         assert "Bea" not in str(error.value)
-    clock.now += timedelta(days=1)
+    clock.now += timedelta(days=3650)
+    assert community.evidence_author(evidence_ref=item["evidence_ref"], world_seed=382) == found
+    assert community.delete_chat_message(item["evidence_ref"])["deleted"] == 1
     with pytest.raises(community.EvidenceUnavailable):
         community.evidence_author(evidence_ref=item["evidence_ref"], world_seed=382)
-    assert counts("private_chat_messages") == (1,)  # Read hiding precedes cleanup.
+    assert counts("private_chat_messages") == (0,)
 
 
 def test_report_receipt_has_no_target_kind_private_payload_or_quotation(accounts, clock):
@@ -213,13 +220,13 @@ def test_roster_report_uses_trusted_stable_target_without_chat(accounts, clock, 
     assert saved["evidence"] == {"status": "none"}
 
 
-def test_new_report_rejects_expired_unknown_wrong_world_and_mismatched_evidence(accounts, clock):
+def test_new_report_rejects_deleted_unknown_wrong_world_and_mismatched_evidence(accounts, clock):
     item = chat(accounts[1])
     target = participants.identify(accounts[0])["id"]
     for overrides in ({"world_seed": 383}, {"evidence_ref": "f" * 32}, {"target_id": target}):
         with pytest.raises(community.EvidenceUnavailable):
             report(accounts[0], item["evidence_ref"], **overrides)
-    clock.now += timedelta(days=1)
+    community.delete_chat_message(item["evidence_ref"])
     with pytest.raises(community.EvidenceUnavailable):
         report(accounts[0], item["evidence_ref"])
     assert counts("private_reports") == (0,)
@@ -232,20 +239,28 @@ def test_invalid_evidence_rolls_back_new_reporter_enrollment(accounts, clock):
     assert counts("participants", "participant_credentials", "private_reports", "community_policies") == (0, 0, 0, 0)
 
 
-def test_report_evidence_expiry_is_rechecked_after_acquiring_writer(accounts, clock, monkeypatch):
+def test_report_evidence_deletion_is_rechecked_after_acquiring_writer(accounts, clock, monkeypatch):
     item = chat(accounts[1])
+    # A surface may have resolved this reference before its write transaction.
+    assert community.evidence_author(evidence_ref=item["evidence_ref"], world_seed=382)
     original = db.transaction
+    waiting = True
 
     @contextmanager
     def delayed_writer():
+        nonlocal waiting
+        if waiting:
+            waiting = False
+            # Commit a real operator deletion before the report gets its writer.
+            assert community.delete_chat_message(item["evidence_ref"])["deleted"] == 1
         with original() as conn:
-            clock.now += timedelta(days=1)
             yield conn
 
     monkeypatch.setattr(db, "transaction", delayed_writer)
     with pytest.raises(community.EvidenceUnavailable):
         report(accounts[0], item["evidence_ref"])
     assert counts("private_reports", "participants", "participant_credentials") == (0, 1, 1)
+    assert counts("private_chat_messages") == (0,)
 
 
 def test_report_insert_fault_rolls_back_enrollment_and_new_policy(accounts, clock):
@@ -263,9 +278,11 @@ def test_retry_recovers_exact_receipt_after_rotation_and_in_new_process(accounts
     options = report_options(accounts[0], item["evidence_ref"])
     first = community.submit_report(**options)
     deadline = rows("private_reports")[0]["expires_at"]
+    community.close_report(first["report_id"], operator="Fixture")
+    community.delete_chat_message(item["evidence_ref"])
     replacement = "nw_" + "c" * 32
     participants.rotate(accounts[0], replacement)
-    clock.now += timedelta(days=2)  # Source chat has expired; receipt has not.
+    clock.now += timedelta(days=2)  # Source chat was deleted; receipt is still retained.
     options["user_key"] = replacement
     assert community.lookup_report_retry(replacement, options["request_id"], options["fingerprint"]) == first
     # The persistence retry itself runs before stale/invalid target and evidence.
@@ -361,24 +378,25 @@ def test_receipt_idempotency_expires_without_permanent_tombstone(accounts, clock
     assert first != second and counts("private_reports", "report_actions") == (1, 0)
 
 
-def test_closed_report_does_not_extend_timed_evidence(accounts, clock):
-    item = chat(accounts[1], text="Short-lived evidence")
+def test_closed_report_evidence_remains_until_operator_deletes_it(accounts, clock):
+    item = chat(accounts[1], text="Deletable evidence")
     receipt = report(accounts[0], item["evidence_ref"])
     community.close_report(receipt["report_id"], operator="Fixture reviewer")
     clock.now += timedelta(days=1)
     shown = community.show_report(receipt["report_id"])
-    assert shown["evidence"] == {"status": "expired"}
-    assert "Short-lived evidence" not in json.dumps(shown)
+    assert shown["evidence"]["text"] == "Deletable evidence"
     assert counts("private_chat_messages", "private_reports") == (1, 1)
-    assert community.status()["retained_chat"] == 0
+    assert community.status()["retained_chat"] == 1
     removed = community.prune_expired()
-    assert removed == {"chat_messages": 1, "reports": 0, "actions": 0, "policies": 0}
-    assert community.show_report(receipt["report_id"])["evidence"] == {"status": "expired"}
+    assert removed == {"chat_messages": 0, "reports": 0, "actions": 0, "policies": 0}
+    assert community.delete_chat_message(item["evidence_ref"])["deleted"] == 1
+    shown = community.show_report(receipt["report_id"])
+    assert shown["evidence"] == {"status": "unavailable"}
+    assert "Deletable evidence" not in json.dumps(shown)
 
 
 def until_deleted_chat(key=None, **changes):
-    return chat(key, retention_days=None, retention_mode="until_deleted",
-                policy_snapshot='{"chat":{"enabled":true,"retention_mode":"until_deleted"}}', **changes)
+    return chat(key, **changes)
 
 
 def test_until_deleted_chat_has_no_expiry_and_survives_housekeeping(accounts, clock):
@@ -413,8 +431,12 @@ def test_pending_complaint_holds_case_actions_and_evidence_past_deadlines(accoun
     community.close_report(receipt["report_id"], operator="Fixture")
     assert community.show_report(receipt["report_id"]) is None
     removed = community.prune_expired()
-    assert removed["chat_messages"] == removed["reports"] == 1
+    assert removed["chat_messages"] == 0 and removed["reports"] == 1
     assert removed["actions"] == 1 + (state == "acknowledged")
+    assert community.status()["retained_chat"] == 1
+    assert community.evidence_author(evidence_ref=item["evidence_ref"], world_seed=382)
+    # Closing releases the hold but does not auto-complete the deletion request.
+    assert community.delete_chat_message(item["evidence_ref"])["deleted"] == 1
 
 
 def test_delete_tester_skips_held_lines_and_covers_rotated_keys_and_worlds(accounts, clock):
@@ -468,8 +490,11 @@ def test_operator_actions_are_private_append_only_and_share_case_deadline(accoun
     with pytest.raises(community.CommunityError):
         community.close_report(report_id, operator="Reviewer")
     removed = community.prune_expired()
-    assert removed == {"chat_messages": 1, "reports": 1, "actions": 2, "policies": 1}
-    assert counts("private_chat_messages", "private_reports", "report_actions", "community_policies") == (0, 0, 0, 0)
+    assert removed == {"chat_messages": 0, "reports": 1, "actions": 2, "policies": 0}
+    assert counts("private_chat_messages", "private_reports", "report_actions", "community_policies") == (1, 0, 0, 1)
+    assert community.evidence_author(evidence_ref=item["evidence_ref"], world_seed=382)["expires_at"] is None
+    community.delete_chat_message(item["evidence_ref"])
+    assert community.prune_expired()["policies"] == 1
 
 
 def test_operator_action_and_state_change_rollback_together(accounts, clock):
@@ -484,17 +509,23 @@ def test_operator_action_and_state_change_rollback_together(accounts, clock):
     assert community.show_report(receipt["report_id"])["status"] == "open"
 
 
-def test_policy_snapshots_deduplicate_and_new_shorter_policy_does_not_shorten_old_rows(accounts, clock):
-    old = chat(accounts[1], retention_days=3, policy_snapshot='{"a":1,"z":"☃"}')
-    same = chat(accounts[1], retention_days=3, policy_snapshot=' { "z": "☃", "a": 1 } ')
-    assert old["expires_at"] == same["expires_at"] and counts("community_policies") == (1,)
-    short = chat(accounts[1], retention_days=1, policy_snapshot='{"a":2}')
-    assert old["expires_at"] != short["expires_at"] and counts("community_policies") == (2,)
-    clock.now += timedelta(days=1)
-    assert community.prune_expired() == {"chat_messages": 1, "reports": 0, "actions": 0, "policies": 1}
-    assert {item["evidence_ref"] for item in rows("private_chat_messages")} == {old["evidence_ref"], same["evidence_ref"]}
+def test_policy_snapshots_deduplicate_and_policy_changes_never_expire_existing_chat(accounts, clock):
+    document = {"chat": {"enabled": True, "retention_mode": "until_deleted"}, "a": 1, "z": "☃"}
+    old = chat(accounts[1], policy_snapshot=json.dumps(document))
+    same = chat(accounts[1], policy_snapshot=json.dumps(dict(reversed(list(document.items()))), indent=3))
+    assert old["expires_at"] is same["expires_at"] is None and counts("community_policies") == (1,)
+    changed = chat(accounts[1], policy_snapshot=json.dumps({**document, "a": 2}))
+    assert changed["expires_at"] is None and counts("community_policies") == (2,)
+    with pytest.raises(community.CommunityError):
+        chat(accounts[1], retention_days=1, retention_mode="days")
+    clock.now += timedelta(days=3650)
+    assert community.prune_expired() == {"chat_messages": 0, "reports": 0, "actions": 0, "policies": 0}
+    assert {item["evidence_ref"] for item in rows("private_chat_messages")} == {
+        old["evidence_ref"], same["evidence_ref"], changed["evidence_ref"]}
+    community.delete_chat_message(changed["evidence_ref"])
+    assert community.prune_expired() == {"chat_messages": 0, "reports": 0, "actions": 0, "policies": 1}
     policy = rows("community_policies")[0]
-    assert policy["snapshot_json"] == '{"a":1,"z":"☃"}'
+    assert json.loads(policy["snapshot_json"]) == document
     assert policy["digest"] == hashlib.sha256(policy["snapshot_json"].encode()).hexdigest()
 
 
@@ -528,14 +559,15 @@ def test_status_does_not_create_or_migrate_absent_uninitialized_or_corrupt_stora
 
 
 @pytest.mark.parametrize("override", [
-    {"retention_days": None}, {"retention_days": 0}, {"retention_days": True}, {"retention_days": 36501},
+    {"retention_days": 1}, {"retention_days": 30}, {"retention_days": 0},
+    {"retention_days": True}, {"retention_days": 36501},
     {"policy_snapshot": "[]"}, {"policy_snapshot": '{"a":1,"a":2}'}, {"policy_snapshot": '{"a":NaN}'},
     {"policy_snapshot": '{"a":"' + "x" * 65536 + '"}'}, {"session_id": "short-session"},
     {"world_seed": True}, {"world_seed": 2**63}, {"text": ""}, {"text": "x" * 257},
     {"text": "\ud800"}, {"text": "text\x00text"}, {"node_name": ""}, {"display_name": ""},
     {"retention_mode": []}, {"retention_mode": "forever"},
-    {"retention_mode": "until_deleted"},
-    {"retention_mode": "until_deleted", "retention_days": None},
+    {"retention_mode": "days"},
+    {"policy_snapshot": '{"chat":{"enabled":true,"retention_days":1}}'},
 ])
 def test_invalid_chat_input_never_collects_or_enrolls(accounts, clock, override):
     with pytest.raises(community.CommunityError):
