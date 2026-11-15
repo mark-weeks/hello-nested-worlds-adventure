@@ -9,8 +9,8 @@ request runs this script to move the fragments in.
     python scripts/fold_changelog.py --check   # validate, change nothing
     python scripts/fold_changelog.py           # fold, delete fragments, print status lines
 
-The fold orders entries by when each fragment reached this branch, read from git,
-so it needs a checkout with full history (git fetch --unshallow origin main).
+The fold orders entries by where each fragment entered this branch's history, read
+from git, so it needs a checkout with full history (git fetch --unshallow origin main).
 
 Fragment format (docs/changelog.d/README.md):
 
@@ -160,12 +160,14 @@ def _git(directory: Path, *args: str) -> str | None:
 
 
 def merge_order(paths: list[Path]) -> dict[Path, float]:
-    """When each fragment reached this branch: the first-parent commit that added it.
+    """Where each fragment entered this branch: the rank of the first-parent commit
+    that added it, counted from the root.
 
-    A fragment merged by a true merge commit takes the merge's time, not the time
-    of the commit that wrote it on its branch. A fragment not yet committed sorts
-    last. History that cannot be read is an error: ordering by file name would
-    silently put entries in the wrong order.
+    A fragment merged by a true merge commit takes the merge's place, not that of
+    the commit that wrote it on its branch. The rank is a position in history, so
+    two commits made in the same second still order correctly. A fragment not yet
+    committed sorts last. History that cannot be read is an error: ordering by file
+    name would silently put entries in the wrong order.
     """
     directory = paths[0].parent
     if _git(directory, "rev-parse", "--is-inside-work-tree") != "true":
@@ -176,11 +178,17 @@ def merge_order(paths: list[Path]) -> dict[Path, float]:
                             "cannot be read; run 'git fetch --unshallow origin main' first")
     order = {}
     for path in paths:
-        out = _git(directory, "log", "-1", "--first-parent", "-m", "--diff-filter=A",
-                   "--format=%ct", "--", path.name)
-        if out is None:
+        commit = _git(directory, "log", "-1", "--first-parent", "-m", "--diff-filter=A",
+                      "--format=%H", "--", path.name)
+        if commit is None:
             raise FragmentError(f"{path.name}: could not read its git history")
-        order[path] = float(out) if out.isdigit() else float("inf")
+        if not commit:
+            order[path] = float("inf")
+            continue
+        rank = _git(directory, "rev-list", "--first-parent", "--count", commit)
+        if rank is None or not rank.isdigit():
+            raise FragmentError(f"{path.name}: could not place {commit[:12]} in history")
+        order[path] = float(rank)
     return order
 
 

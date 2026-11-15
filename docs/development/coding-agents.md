@@ -127,9 +127,13 @@ evidence, not a covenant.*
 measured.
 
 `.claude/settings.json` pins the default (`"model": "claude-opus-5-5"`,
-`"effortLevel": "high"`). Change either for one session with `/model` and `/effort`.
-A session started with an explicit model or effort keeps it: the command line, the
-environment and an in-session choice all take precedence over the settings file.
+`"effortLevel": "high"`) and starts sessions with ultracode off
+(`"ultracode": false`), whatever a developer's own settings say. To change the model
+or effort for one session only, launch with `--model` or `--effort`, or open the
+`/model` picker or the `/effort` slider and press `s`. Typing `/model <name>` or
+`/effort <level>` is different: it saves the choice as your own default for later
+sessions, in other projects too. `/effort ultracode` turns ultracode on for one
+session.
 
 The evidence, and its limits:
 

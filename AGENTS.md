@@ -246,8 +246,10 @@ measurements behind them.
 - **Review comes in tiers.** GitHub Copilot reviews every pull request when it opens
   and again on the final commit; the authoring agent requests that second review when
   it marks the pull request ready. A pull request that changes code also gets one
-  executing review by a different agent under the review rule below: Claude Code
-  reviews Codex and Grok Bot, and Codex reviews Claude Code. That assignment is the
+  executing review by a different agent under the review rule below. When it crosses
+  two concerns, the reviewer is the other concern's agent, in place of the default;
+  otherwise Claude Code reviews Codex and Grok Bot, and Codex reviews Claude Code. If
+  it crosses all three, the owner names the reviewer. That assignment is the
   owner's standing request, so it needs no further prompt; a second agent review needs
   the owner to ask. A review with no footer naming its agent does not count. A pull
   request that trips a one-way door, or touches spend limits, moderation,

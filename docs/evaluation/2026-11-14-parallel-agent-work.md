@@ -199,7 +199,7 @@ that cap is what exhausted the limit.
 | Four single-writer resources, and no new endpoint logic in `server/handlers.py` or `main.py` | `AGENTS.md`; procedure in the parallel-work guide |
 | Changelog fragments and the status pull request | `AGENTS.md`, the `changelog-entry` skill, `docs/changelog.d/README.md`, `scripts/fold_changelog.py` |
 | Review tiers, the standing cross-agent review, and what an authoring agent may do on its own pull request | `AGENTS.md`, "Working in parallel" |
-| Claude Code on Opus 5.5 at high effort by default, Fable 5.2 for one-way-door work, ultracode off | `coding-agents.md`, `.claude/settings.json` |
+| Claude Code on Opus 5.5 at high effort by default, Fable 5.2 for one-way-door work, ultracode off | `coding-agents.md`; `.claude/settings.json` sets `model`, `effortLevel` and `ultracode` |
 
 ## What this record does not establish
 

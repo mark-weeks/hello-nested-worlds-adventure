@@ -48,8 +48,9 @@ checkout with full history (`git fetch --unshallow origin main` in a cloud sessi
 python scripts/fold_changelog.py
 ```
 
-The order of entries comes from git: the time each fragment reached `main`, so a
-fragment merged later lands above one merged earlier whatever their file names. The
+The order of entries comes from git: the place where each fragment entered `main`'s
+history, so a fragment merged later lands above one merged earlier whatever their
+file names or commit times. The
 script stops if it cannot read that history. It moves each fragment under the first
 `## [Unreleased]` heading of the changelog, newest first within its section, deletes
 the fragment, and prints the `Status:` lines.

@@ -27,8 +27,10 @@ the split would have given their author.
 - A feature stays one pull request owned by one agent, even when it needs a client
   change, an endpoint and a table.
 - Where two concerns meet, the agent whose concern owns the server-side rule owns the
-  pull request, and the other reviews it. A report button backed by a moderation rule
-  is Claude Code's pull request with Codex's review.
+  pull request, and the other concern's agent is its one reviewer, in place of the
+  default in the review tiers. A report button backed by a moderation rule is Claude
+  Code's pull request with Codex's review; a model-runtime change with a retry control
+  in `/app` is Grok Bot's pull request with Codex's review.
 - An explicit assignment from the owner wins over the defaults.
 
 ## Four single-writer resources and one placement rule
@@ -89,7 +91,7 @@ several merged pull requests.
 | Pull request | Review |
 |---|---|
 | Every pull request | Copilot when it opens, and Copilot again on the final commit |
-| Changes code | Plus one executing review by a different agent: Claude Code reviews Codex and Grok Bot; Codex reviews Claude Code |
+| Changes code | Plus one executing review by a different agent. A pull request that crosses two concerns is reviewed by the other concern's agent, in place of the default. Otherwise Claude Code reviews Codex and Grok Bot, and Codex reviews Claude Code. If it crosses all three, the owner names the reviewer |
 | Trips a one-way door, or touches spend limits, moderation, authentication or deployment | The final Copilot review at Max effort, the agent review, and the owner reads the irreversibility check |
 | Changes the working rules | The same cross-agent review, and the owner's read. Copilot's review is not a check here, because it reads `AGENTS.md` from the pull request's own branch |
 

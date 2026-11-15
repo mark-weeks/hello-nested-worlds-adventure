@@ -204,6 +204,19 @@ def test_cli_folds_in_commit_order_deletes_fragments_and_reports_status(repo, ca
     assert "status: checklist F4: Partial to Done" in out
 
 
+def test_commits_made_in_the_same_second_keep_their_order(repo):
+    # Commit time has one-second resolution; only the place in history separates these.
+    _commit_fragment(repo, "zeta-first.md", "Same second, first", when=2)
+    _commit_fragment(repo, "alpha-second.md", "Same second, second", when=2)
+    _commit_fragment(repo, "mid-third.md", "Same second, third", when=2)
+
+    assert _fold(repo) == 0
+
+    folded = (repo / "docs/CHANGELOG.md").read_text(encoding="utf-8")
+    assert (folded.index("second, third**") < folded.index("second, second**")
+            < folded.index("second, first**"))
+
+
 def test_a_true_merge_orders_by_when_it_merged_not_when_it_was_written(repo):
     _git(repo, "checkout", "-q", "-b", "a")
     _commit_fragment(repo, "a.md", "Written first, merged last", when=2)
