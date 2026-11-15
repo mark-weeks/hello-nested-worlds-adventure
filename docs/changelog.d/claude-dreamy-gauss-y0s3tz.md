@@ -10,6 +10,9 @@ Section: Fixed
   new browser case runs on both clients. The map page is kept (owner decision, 2026-11-15)
   and frozen to privacy, safety and correctness fixes until the planned Map view replaces it.
   **Verified:** the new Playwright case fails on `/` without the fix ("Block Bea ") and passes
-  on `/` and `/app` with it; the full gate result is recorded in the pull request.
+  on `/` and `/app` with it. `ENFOLDED_E2E=1 ./scripts/check.sh` exited 0 under Python 3.11
+  and Node 22 (not the pinned 20.19): Ruff clean, 4,007 Python passed and 1 skipped, 189
+  Vitest passed, bundle unchanged by the rebuild, installed `enfolded-0.1.2rc1` wheel
+  verified, 183 Playwright passed.
   **Irreversibility check:** none — one client helper and one browser test; no migration,
   birth or golden change, chronicle writer, world-meta pin or era-bank edit.
