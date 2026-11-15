@@ -82,7 +82,8 @@ relevant to your change.
 
 Link the agreed issue and describe the problem, resulting behavior, and evidence.
 Include appropriate regression coverage for behavior changes, documentation,
-one measured [CHANGELOG](docs/CHANGELOG.md) entry, and the diff-based
+one measured [CHANGELOG](docs/CHANGELOG.md) entry written as a fragment file in
+[`docs/changelog.d/`](docs/changelog.d/README.md), and the diff-based
 irreversibility check described in the PR template. Documentation-only drafts
 can report document validation; the canonical check still applies before merge.
 

@@ -46,7 +46,7 @@ limits the conclusion; an authentication failure is blocked, not a failed answer
 
 | Case | Required decision or routing |
 | --- | --- |
-| A | Select/read `changelog-entry` and `irreversibility-check`; one entry in the first Unreleased section, document validation and diff-based irreversibility result. The hypothetical diff permits “none”; do not pretend to have inspected a real diff. Drafting does not authorize publication or require a full application suite. |
+| A | Select/read `changelog-entry` and `irreversibility-check`; one entry written as a `docs/changelog.d/` fragment named after the branch, with no edit to `docs/CHANGELOG.md`, document validation and diff-based irreversibility result. The hypothetical diff permits “none”; do not pretend to have inspected a real diff. Drafting does not authorize publication or require a full application suite. |
 | B | Read visual-language and relevant game-design guidance; extend the existing Act surface, keep scene text/controls in their intended places, use state-derived semantic token values rather than a universal palette. Assessment does not authorize implementation. |
 | C | Read beta-scene-art strategy and its status; distinguish the proposed reviewed entry coverage plus bounded expansion from a shipped/approved production service. Preserve budget, quality, state correspondence, and player freedom. No production authorization is implied. |
 | D | Investigate the unexpected birth change; fix the cause or establish that the failure is unrelated. Do not re-pin incidental changes. The existence of a skill or a failing test is not permission. |

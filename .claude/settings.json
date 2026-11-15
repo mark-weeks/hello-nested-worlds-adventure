@@ -1,4 +1,7 @@
 {
+  "model": "claude-opus-5-5",
+  "effortLevel": "high",
+  "ultracode": false,
   "hooks": {
     "SessionStart": [
       {

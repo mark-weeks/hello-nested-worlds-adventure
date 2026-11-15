@@ -12,12 +12,36 @@ describe outcomes.
 
 ## House format
 
-Add each batch under the first `## [Unreleased]` in `docs/CHANGELOG.md`, newest
-first within `### Added` for new capabilities or `### Fixed` for corrections to
-existing behavior or guidance. The bullets above `[Unreleased]` record the
+Write each batch as one fragment file, `docs/changelog.d/<branch>.md`, with the
+branch name lowercased and its slashes as hyphens (`codex/report-flow` writes
+`codex-report-flow.md`). Do not edit `docs/CHANGELOG.md` in a feature pull request:
+pull requests open at the same time collided there (AGENTS.md, "Working in
+parallel"). A fragment is a short header, a blank line, then the entry:
+
+```text
+Section: Added
+Status: checklist S3: Not started to Partial (report endpoint merged, UI pending)
+
+- **Bold headline** (`files`). Narrative.
+  **Verified:** checks run.
+  **Irreversibility check:** none — why.
+```
+
+`Section` is `Added` for new capabilities or `Fixed` for corrections to existing
+behavior or guidance. Each optional `Status:` line names one change the batch calls
+for in a status document (the roadmap index, the launch checklist, a standing count
+in the README or runbook) and leaves that change to the status pull request. The
+Python gate validates every fragment (`tests/test_changelog_fragments.py`);
+`python scripts/fold_changelog.py --check` runs the same validation alone.
+
+The status pull request runs `python scripts/fold_changelog.py`, which moves each
+fragment under the first `## [Unreleased]` in `docs/CHANGELOG.md`, newest first
+within its section, and prints the `Status:` lines to apply. It is the fold itself
+and writes no entry of its own. The bullets above `[Unreleased]` record the
 `v0.1.1-qa.1` (2026-08-30) and `v0.1.1-qa.2` (2026-08-31) QA prereleases (the layout note under the title
 explains them); leave them in place and never use them as the insertion point.
-Keep the release-section scheme. Each batch is one bullet:
+Keep the release-section scheme. Each batch is one bullet, its continuation lines
+indented two spaces:
 
 1. **Bold headline** — a sentence naming what changed and why it matters,
    followed by a parenthesized list of the load-bearing files touched.
