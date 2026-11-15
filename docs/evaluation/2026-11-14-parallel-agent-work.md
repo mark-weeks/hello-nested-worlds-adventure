@@ -221,3 +221,6 @@ that cap is what exhausted the limit.
   changelog entries.
 - The first status pull request will be the first real run of
   `scripts/fold_changelog.py`.
+- Copilot's review of the pull request that carries this record did not run. Its check
+  failed on 2026-11-15 with HTTP 402, monthly quota exceeded. The adopted tiers assume
+  Copilot runs and do not yet say what a pull request does when it cannot.
