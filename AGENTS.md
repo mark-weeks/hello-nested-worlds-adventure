@@ -1,6 +1,6 @@
 # Working in Enfolded
 
-This file is the shared engineering contract for Codex, GitHub Copilot, and Claude Code.
+This file is the shared engineering contract for Codex, Grok Bot, GitHub Copilot, and Claude Code.
 `CLAUDE.md` imports it for compatibility. Maintain shared rules here and in the
 matching skill. Use an already-loaded copy; follow task-specific pointers as needed.
 Supporting procedures are not required startup reading.
@@ -201,6 +201,61 @@ facts, not standing endorsements. Follow
 compatibility and evaluation. Do not claim multi-provider support from neutral
 wording or a model-name override. Existing release and deployment gates still apply.
 
+## Working in parallel
+
+Three coding agents open pull requests here under the owner's login: Claude Code
+(`claude/` branches), Codex (`codex/`) and Grok Bot (`cursor/`). GitHub Copilot code
+review reads this file and reviews them. The owner (Mark Weeks) adopted the rules in
+this section on 2026-11-14. [The guide](docs/development/parallel-work.md) holds the
+procedure and [the record](docs/evaluation/2026-11-14-parallel-agent-work.md) the
+measurements behind them.
+
+- **Work is assigned by concern, not by directory.** A feature stays one pull request
+  owned by one agent even when it crosses directories. By default Codex takes the
+  player journey in the `/app` client, Grok Bot takes model runtime and operations,
+  and Claude Code takes integrity, safety and records. Where two concerns meet, the
+  agent whose concern owns the server-side rule owns the pull request and the other
+  reviews. An explicit assignment from the owner always wins.
+- **Five things have one writer at a time.** A pull request names the ones it holds.
+  1. *Status documents.* Feature pull requests do not edit `docs/CHANGELOG.md`,
+     `docs/roadmap/README.md` or `docs/roadmap/beta-launch-checklist.md` (with
+     `tests/test_beta_checklist_counts.py`). They add a changelog fragment (see
+     "Verification and completion"). The status pull request, prepared by Claude Code
+     when the owner asks, folds the fragments in and applies their `Status:` lines. In
+     `README.md` and the runbook a feature changes only what it makes untrue or newly
+     necessary; standing counts and what-has-shipped lines belong to the status pull
+     request.
+  2. *The client bundle.* One open pull request at a time changes `frontend/` and
+     `static/app/`, Codex's by default. Whoever changes `frontend/` commits the rebuild.
+  3. *Migrations.* One open pull request at a time adds a migration. It also updates
+     the migration set pinned in `scripts/verify_wheel.py` and its test, and renumbers
+     on rebase.
+  4. *Working rules.* This file, `.claude/skills/` and the PR template change only in
+     a pull request of their own that the owner asked for, never inside a feature.
+  5. *`server/handlers.py` and `main.py`.* No new endpoint or command logic goes here:
+     a new endpoint lives in a `server/*_api.py` module and is only registered in the
+     dispatch. Fixes to existing handlers are fine.
+- **Review comes in tiers.** GitHub Copilot reviews every pull request when it opens
+  and again on the final commit; the authoring agent requests that second review when
+  it marks the pull request ready. A pull request that changes code also gets one
+  executing review by a different agent under the review rule below: Claude Code
+  reviews Codex and Grok Bot, and Codex reviews Claude Code. That assignment is the
+  owner's standing request, so it needs no further prompt; a second agent review needs
+  the owner to ask. A review with no footer naming its agent does not count. A pull
+  request that trips a one-way door, or touches spend limits, moderation,
+  authentication or deployment, has its final Copilot review requested at Max effort
+  and waits for the owner to read the irreversibility check. A working-rules pull
+  request is checked by an agent review and the owner: Copilot reads this file from
+  the pull request's own branch, so it would review such a change under the rules the
+  change proposes. Copilot approvals stay off and never count toward merging.
+- **The authoring agent drives its own pull request.** On a pull request it opened, an
+  agent may without a further prompt: answer each review finding in its thread (fixed
+  in a named commit, or declined with the reason), push fixes to its own branch, mark
+  the pull request ready once the canonical gate has passed, and request the Copilot
+  review above. Each reply ends with the agent's footer. This is a publication
+  authorization for those acts only: not thread resolution, approval, merging, or
+  pushing to a branch another agent opened.
+
 ## Verification and completion
 
 - Complete the requested deliverable: advice or a plan ends with findings or decisions;
@@ -221,10 +276,15 @@ wording or a model-name override. Existing release and deployment gates still ap
 - Finish requested implementation and relevant verification, inspect user-visible
   behavior when applicable, and fix failures introduced by the change. Re-run affected
   checks after fixes; do not repeat a passed full suite without a changed basis.
-- Each change batch needs one measured `docs/CHANGELOG.md` entry. Record actual checks
+- Each change batch needs one measured CHANGELOG entry, written as a fragment file in
+  `docs/changelog.d/` named after the branch (the `changelog-entry` skill gives the
+  format), with a `Status:` line for each status-document change the batch calls for.
+  It does not edit `docs/CHANGELOG.md`: the status pull request folds fragments in with
+  `scripts/fold_changelog.py` and writes no entry of its own. A pull request opened
+  before this rule merged keeps the direct entry it already has. Record actual checks
   and unavailable verification honestly. Documentation-only work can finish with document
   validation; the canonical gate still applies before proposing merge.
-- Produce the diff-based irreversibility check for the CHANGELOG and any PR. A tripped
+- Produce the diff-based irreversibility check for the CHANGELOG entry and any PR. A tripped
   door retains the human gate; green tests alone are not approval. Existing approval of
   the same decision need not be requested again. Ask only about consequential unresolved
   scope, architecture, ownership, security, or irreversible decisions; block only dependent work.
@@ -268,6 +328,10 @@ wording or a model-name override. Existing release and deployment gates still ap
   `.claude/skills/irreversibility-check/SKILL.md`. The latter defines every one-way-door
   check and the scoped human questions. Use the actual diff; ordinary edits do not require
   repeatedly running the merge procedure.
+- **Parallel work, the status pull request, review tiers, Copilot, or Claude Code model
+  and effort:** `docs/development/parallel-work.md` and
+  `docs/development/coding-agents.md`. The model and effort defaults there are dated,
+  provisional guidance for Claude Code, not a covenant.
 - **Intentional generator re-pin:** `.claude/skills/repin-goldens/SKILL.md`. Human
   ratification, both-depth coverage, and frozen era names remain required.
 - **Architecture or continuity decision:** the applicable `docs/decisions/` ADR and its

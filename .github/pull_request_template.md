@@ -26,6 +26,14 @@
      under ADR-034. State adapter/config compatibility, rollback and unverified live
      behavior. Neutral wording or mocked calls do not establish provider portability. -->
 
+## Parallel work
+
+<!-- AGENTS.md "Working in parallel". Name any single-writer resource this batch holds:
+     the client bundle (frontend/ and static/app/), a migration, or the working rules.
+     Confirm it leaves docs/CHANGELOG.md, docs/roadmap/README.md and
+     docs/roadmap/beta-launch-checklist.md alone, or say that it is the status pull
+     request. Name the agent asked to review it and the review tier it falls in. -->
+
 ## Verification
 
 <!-- Report checks actually run and their outcomes. For documentation-only work,
@@ -46,5 +54,6 @@
 
 ## CHANGELOG
 
-<!-- Name the docs/CHANGELOG.md entry this PR adds (one entry per change),
-     plus any docs/evaluation/ or docs/decisions/ file landing with it. -->
+<!-- Name the docs/changelog.d/ fragment this PR adds (one entry per change, with a
+     Status: line for each status-document change it calls for), plus any
+     docs/evaluation/ or docs/decisions/ file landing with it. -->
