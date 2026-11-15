@@ -2,7 +2,7 @@ name: Off-host backup
 
 # The volume holding worlds.db is the only live copy of the permanent
 # chronicle; Fly's automatic snapshots retain just 5 days and live on the
-# same platform. This schedule pulls an application-level backup off-host
+# same platform. This schedule asks for an application-level backup off-host
 # every 30 minutes into a private S3-compatible bucket. Cloudflare R2 is an
 # example of that store, and 30 days is the example retention when
 # ENFOLDED_BACKUP_RETENTION_DAYS is unset. Mark has not recorded either
@@ -14,8 +14,8 @@ name: Off-host backup
 # Scheduling can be delayed or dropped; object freshness and a restore
 # rehearsal establish readiness, not a green workflow badge. ADR-005's
 # one-hour recovery target still applies. Litestream-style continuous
-# replication remains the post-launch follow-up. Half-hourly full copies
-# leave slack within that one-hour limit.
+# replication remains the post-launch follow-up. This cron alone does not
+# meet that limit: the measured cadence is in the note that ends this file.
 #
 # Until FLY_API_TOKEN and the ENFOLDED_BACKUP_S3_* values are set, the gate
 # leaves the job as an inactive no-op and uploads nothing. Before launch set
@@ -159,3 +159,9 @@ jobs:
 
       # Check freshness independently after run completion. This run cannot certify
       # its own successful conclusion; doing so would make first activation fail.
+      #
+      # Measured on 2026-11-11: on the half-hourly cron above, GitHub started
+      # about one run in five hours and no two runs within an hour of each
+      # other (docs/evaluation/2026-11-11-backup-schedule-cadence.md). The cron
+      # is a request, not a cadence, so this schedule alone does not meet
+      # ADR-005's one-hour target.

@@ -188,8 +188,30 @@ def cmd_serve(args):
     server.run(host=args.host, port=args.port)
 
 
+def cmd_model_policy(args):
+    """Validate operator policy locally, without activating or probing it."""
+    import json
+    from consciousness import model_policy
+
+    try:
+        policy = model_policy.check_file(args.policy)
+        model_policy.validate_configuration(policy)
+    except model_policy.ModelPolicyError:
+        print("error: model policy configuration is invalid", file=sys.stderr)
+        raise SystemExit(1) from None
+    print(json.dumps({
+        "configuration": model_policy.summary(policy),
+        "remote_verified": False,
+        "live_calls": False,
+    }, sort_keys=True))
+
+
 def cmd_models(args):
     """Print the resolved provider and model for each text task.
+
+    Controlled mode reports this process's frozen route policy and the
+    durable accounting stop instead; disabled routes resolve no adapter,
+    and direct probes are refused. The rules below describe legacy mode.
 
     Each task names its provider (``NESTED_WORLDS_<TASK>_PROVIDER``, else
     ``NESTED_WORLDS_PROVIDER``, else ``anthropic``) and its model. ``--probe``
@@ -215,6 +237,16 @@ def cmd_models(args):
         check_model_configuration, format_report, probe_distinct_models,
     )
     from server import guard
+    from consciousness import model_dispatch, model_policy
+
+    if model_policy.active():
+        status = model_dispatch.operator_status()
+        _print_model_control_status(status)
+        if args.probe:
+            raise SystemExit("models: controlled direct probes are unavailable")
+        if status.get("stopped") or not status.get("policy_valid"):
+            raise SystemExit("models: controlled model dispatch is stopped")
+        return
 
     report = check_model_configuration()
     print(_with_schema_note(format_report(report)))
@@ -240,6 +272,11 @@ def cmd_models(args):
 
 def cmd_voice_health(args):
     """Report how the world's voice and its shared-text screens have answered.
+
+    Controlled mode also reports this process's frozen route policy and
+    durable stop. An intentionally disabled route is not unconfigured;
+    a control incident is a failure even without recent voice requests.
+    Direct probes are refused in this mode.
 
     Reads the daily voice-outcome counters every player-facing voice surface
     writes (`server.observability.voice_outcome`): answered lines and each
@@ -269,7 +306,7 @@ def cmd_voice_health(args):
     the host (`fly ssh console -C "python main.py voice-health"`) from
     whatever scheduler alerts the operator.
     """
-    from consciousness import runtime
+    from consciousness import model_dispatch, model_policy, runtime
     from server import guard, observability
 
     summary = observability.voice_outcome_summary(days=args.days)
@@ -305,31 +342,50 @@ def cmd_voice_health(args):
     if guard.ai_disabled():
         print(f"kill switch: {guard.DISABLE_AI_ENV}=1 (the world is quiet on purpose)")
     from server import moderation
-    voice_tasks = (runtime.NODE_TASK, runtime.INHABITANT_TASK, runtime.INTENT_TASK)
-    ready = all(runtime.configured(task) for task in voice_tasks)
-    print("voice provider: configured" if ready else "voice provider: NOT configured")
-    moderation_ready = runtime.configured(runtime.MODERATION_TASK)
-    print("moderation provider: configured" if moderation_ready
-          else "moderation provider: NOT configured")
     screen_failures = _report_screens(args.days)
     problems = []
     if failures:
         problems.append(f"{failures} voice failure(s) in the window")
     if screen_failures:
         problems.append(f"{screen_failures} screen failure(s) in the window")
-    if not ready and not guard.ai_disabled():
-        problems.append("no usable voice provider")
-    if not moderation_ready and not moderation.moderation_disabled():
-        problems.append("no usable moderation provider")
+    controlled = model_policy.active()
+    if controlled:
+        status = model_dispatch.operator_status()
+        _print_model_control_status(status)
+        if status.get("stopped") or not status.get("policy_valid"):
+            problems.append("controlled model dispatch is stopped")
+        for task, state in status.get("routes", {}).items():
+            if state != "enabled":
+                continue
+            try:
+                ready = runtime.configured(task)
+            except (Exception, SystemExit):
+                ready = False
+            print(f"{task} provider: configured" if ready else f"{task} provider: NOT configured")
+            if not ready:
+                problems.append(f"no usable {task} provider")
+    else:
+        voice_tasks = (runtime.NODE_TASK, runtime.INHABITANT_TASK, runtime.INTENT_TASK)
+        ready = all(runtime.configured(task) for task in voice_tasks)
+        print("voice provider: configured" if ready else "voice provider: NOT configured")
+        moderation_ready = runtime.configured(runtime.MODERATION_TASK)
+        print("moderation provider: configured" if moderation_ready
+              else "moderation provider: NOT configured")
+        if not ready and not guard.ai_disabled():
+            problems.append("no usable voice provider")
+        if not moderation_ready and not moderation.moderation_disabled():
+            problems.append("no usable moderation provider")
     # Credentials are not enough: the same model-id check `models` and the
     # server boot run. A task without a usable model id cannot answer.
     from consciousness.model_check import (
         check_model_configuration, probe_distinct_models,
     )
-    report = check_model_configuration()
-    if report.hard and not guard.ai_disabled():
-        print(report.failure_line())
-        problems.append("unusable model configuration")
+    report = None
+    if not controlled:
+        report = check_model_configuration()
+        if report.hard and not guard.ai_disabled():
+            print(report.failure_line())
+            problems.append("unusable model configuration")
     budget_warning = guard.budget_configuration_warning_line()
     if budget_warning:
         print(budget_warning)
@@ -338,13 +394,37 @@ def cmd_voice_health(args):
         print(budget_line)
         problems.append("budget configuration")
     if args.probe:
-        for result in probe_distinct_models(report):
-            print(result.line())
-            if not result.accepted:
-                problems.append("live probe failed")
+        if controlled:
+            problems.append("controlled direct probes are unavailable")
+        else:
+            for result in probe_distinct_models(report):
+                print(result.line())
+                if not result.accepted:
+                    problems.append("live probe failed")
     if problems:
         raise SystemExit("voice-health: " + "; ".join(dict.fromkeys(problems)))
     print("voice-health: ok")
+
+
+def _print_model_control_status(status):
+    """Closed-set operator status, without resolving disabled adapters."""
+    print("model policy: controlled" +
+          (f" ({status['policy_id']})" if status.get("policy_id") else ""))
+    for task, state in status.get("routes", {}).items():
+        print(f"  {task}: {state}" + (" (intentional)" if state == "disabled" else ""))
+    ledger = status.get("ledger") or {}
+    print(f"model accounting state: {ledger.get('ledger_state') or 'unknown'}")
+    latched = ledger.get("latched")
+    print("model accounting durable stop: " +
+          ("unknown" if latched is None else "yes" if latched else "no"))
+    unresolved = ledger.get("unresolved_reservations")
+    print("model accounting unresolved reservations: " +
+          (str(unresolved) if unresolved is not None else "unknown"))
+    print("model accounting process fault: " + ("yes" if status.get("process_fault") else "no"))
+    if status.get("stopped"):
+        print(f"model controls: STOPPED ({status.get('stop_reason') or 'accounting_fault'})")
+    else:
+        print("model controls: no recorded stop")
 
 
 def _report_screens(days):
@@ -916,6 +996,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--host", type=str, default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     p_serve.add_argument("--port", type=int, default=8080, help="Bind port (default: 8080)")
     p_serve.set_defaults(func=cmd_serve)
+
+    p_model_policy = sub.add_parser(
+        "model-policy", help="Check operator model policy without live calls")
+    p_model_policy.add_argument("--check", action="store_true", required=True,
+                                help="Validate without activating the policy")
+    p_model_policy.add_argument("--policy", required=True, metavar="PATH",
+                                help="Operator policy file to validate locally")
+    p_model_policy.set_defaults(func=cmd_model_policy)
 
     p_models = sub.add_parser(
         "models",

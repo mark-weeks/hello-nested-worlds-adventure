@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "policy_id": "external-calls-disabled",
+  "currency": "USD",
+  "reset": "UTC",
+  "routes": {
+    "node": {"enabled": false},
+    "inhabitant": {"enabled": false},
+    "intent": {"enabled": false},
+    "moderation": {"enabled": false},
+    "images": {"enabled": false}
+  }
+}

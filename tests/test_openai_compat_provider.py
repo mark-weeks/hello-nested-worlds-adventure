@@ -52,7 +52,7 @@ from consciousness.openai_compat_provider import (
     parse_response,
     provider as compat_provider,
 )
-from consciousness.runtime import Completion, SystemBlock, TokenUsage, failure_summary
+from consciousness.runtime import BillingEvidence, Completion, SystemBlock, TokenUsage, failure_summary
 from multiverse import store
 from server import guard
 
@@ -487,6 +487,7 @@ class TestResponseMapping:
             input_tokens=50, output_tokens=20,
             cache_read_tokens=40, cache_write_tokens=10,
         )
+        assert parsed.billing_evidence == BillingEvidence(100, 20, True, 120)
         xai = {
             "model": "latest",
             "choices": [{"finish_reason": "stop", "message": {
@@ -505,6 +506,35 @@ class TestResponseMapping:
             input_tokens=24, output_tokens=119,
             cache_read_tokens=8, cache_write_tokens=None,
         )
+        assert parsed.billing_evidence == BillingEvidence(32, 119, True, 151)
+
+    @pytest.mark.parametrize("completion", [None, True, -1, "2", 2.0, {}, []])
+    def test_invalid_present_completion_count_leaves_output_unknown(self, completion):
+        parsed = parse_response({
+            "choices": [{"finish_reason": "stop", "message": {"content": "ok"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": completion, "total_tokens": 12,
+                      "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0}},
+        })
+        assert parsed.usage == TokenUsage(10, None, 0, 0)
+        assert parsed.billing_evidence == BillingEvidence(10, 2, False, 12)
+
+    @pytest.mark.parametrize("completion,total", [(32, 10), (3, 12)])
+    def test_completion_count_cannot_exceed_derived_output(self, completion, total):
+        parsed = parse_response({
+            "choices": [{"finish_reason": "stop", "message": {"content": "ok"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": completion, "total_tokens": total,
+                      "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0}},
+        })
+        assert parsed.usage == TokenUsage(10, None, 0, 0)
+        assert parsed.billing_evidence == BillingEvidence(10, completion, False, total)
+
+    def test_absent_completion_count_still_uses_reported_total(self):
+        parsed = parse_response({
+            "choices": [{"finish_reason": "stop", "message": {"content": "ok"}}],
+            "usage": {"prompt_tokens": 10, "total_tokens": 12,
+                      "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0}},
+        })
+        assert parsed.usage == TokenUsage(10, 2, 0, 0)
 
     def test_missing_and_negative_usage_stay_unknown(self):
         missing = parse_response({

@@ -48,7 +48,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
-from consciousness.runtime import Completion, SystemBlock, TokenUsage
+from consciousness.runtime import BillingEvidence, Completion, SystemBlock, TokenUsage
 
 
 # Operator settings. None of these names is OPENAI_* or XAI_*.
@@ -374,7 +374,7 @@ def _nonneg_int(value: object) -> int | None:
     return value
 
 
-def _usage(raw: object) -> TokenUsage | None:
+def _usage_and_evidence(raw: object) -> tuple[TokenUsage | None, BillingEvidence | None]:
     """Ordinary input excludes reported cache reads and writes.
 
     ``cache_write_tokens`` absent counts as zero in that subtraction and
@@ -386,38 +386,80 @@ def _usage(raw: object) -> TokenUsage | None:
     that one server folds into ``completion_tokens`` and another leaves
     outside it are both billed. Without both of those fields, output is
     unknown. ``completion_tokens`` is not a substitute: it can omit
-    reasoning. A negative result is unknown.
+    reasoning. A negative result, or a present ``completion_tokens`` that is
+    invalid or greater than that result, leaves output unknown too. Reasoning
+    may be inside or outside the completion count; each is a lower bound, not
+    an amount to add to an unknown total. Evidence preserves known aggregate
+    bounds even when the priceable split is incomplete or contradictory.
     """
+    if raw is None:
+        return None, None
     if not isinstance(raw, dict):
-        return None
-    prompt = _nonneg_int(raw.get("prompt_tokens"))
-    total = _nonneg_int(raw.get("total_tokens"))
-    details = raw.get("prompt_tokens_details")
-    cached: int | None = None
-    cached_known = False
-    cache_write: int | None = None
-    write_blocked = False
-    if isinstance(details, dict):
-        if "cached_tokens" in details and details.get("cached_tokens") is not None:
-            cached = _nonneg_int(details.get("cached_tokens"))
-            cached_known = cached is not None
-        if "cache_write_tokens" in details and details.get("cache_write_tokens") is not None:
-            cache_write = _nonneg_int(details.get("cache_write_tokens"))
-            write_blocked = cache_write is None
+        return None, BillingEvidence(consistent=False)
+    consistent = True
+
+    def counter(source: dict, name: str) -> int | None:
+        nonlocal consistent
+        if name not in source:
+            return None
+        value = _nonneg_int(source[name])
+        if value is None:
+            consistent = False
+        return value
+
+    def details(name: str) -> dict:
+        nonlocal consistent
+        value = raw.get(name)
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            consistent = False
+            return {}
+        return value
+
+    prompt = counter(raw, "prompt_tokens")
+    total = counter(raw, "total_tokens")
+    completion = counter(raw, "completion_tokens")
+    prompt_details = details("prompt_tokens_details")
+    output_details = details("completion_tokens_details")
+    cached = counter(prompt_details, "cached_tokens")
+    cache_write = counter(prompt_details, "cache_write_tokens")
+    reasoning = counter(output_details, "reasoning_tokens")
+    write_blocked = "cache_write_tokens" in prompt_details and cache_write is None
+    if prompt is not None and (cached or 0) + (cache_write or 0) > prompt:
+        consistent = False
     input_tokens: int | None = None
-    if prompt is not None and cached_known and not write_blocked:
+    if prompt is not None and cached is not None and not write_blocked:
         ordinary = prompt - cached - (cache_write or 0)
         input_tokens = ordinary if ordinary >= 0 else None
-    output_tokens: int | None = None
+    derived_output: int | None = None
+    output_blocked = (("completion_tokens" in raw and completion is None)
+                      or ("reasoning_tokens" in output_details and reasoning is None))
     if prompt is not None and total is not None:
-        output = total - prompt
-        output_tokens = output if output >= 0 else None
+        if total >= prompt:
+            derived_output = total - prompt
+        else:
+            consistent = False
+    for count in (completion, reasoning):
+        if count is not None and ((derived_output is not None and count > derived_output)
+                                  or (total is not None and count > total)):
+            consistent = False
+            output_blocked = True
+    output_tokens: int | None = None
+    if derived_output is not None and not output_blocked:
+        output_tokens = derived_output
+    lower_bounds = [value for value in (derived_output, completion, reasoning) if value is not None]
+    if total is not None:
+        input_lower_bound = max(prompt or 0, (cached or 0) + (cache_write or 0))
+        output_lower_bound = max(lower_bounds) if lower_bounds else 0
+        if input_lower_bound + output_lower_bound > total:
+            consistent = False
     return TokenUsage(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
-        cache_read_tokens=cached if cached_known else None,
+        cache_read_tokens=cached,
         cache_write_tokens=cache_write,
-    )
+    ), BillingEvidence(prompt, max(lower_bounds) if lower_bounds else None, consistent, total)
 
 
 def parse_response(body: dict) -> Completion:
@@ -432,7 +474,7 @@ def parse_response(body: dict) -> Completion:
     """
     if not isinstance(body, dict) or body.get("error") is not None:
         raise MalformedProviderResponse()
-    usage = _usage(body.get("usage"))
+    usage, billing_evidence = _usage_and_evidence(body.get("usage"))
     echoed = body.get("model")
     resolved = echoed if isinstance(echoed, str) else None
     choices = body.get("choices")
@@ -442,6 +484,7 @@ def parse_response(body: dict) -> Completion:
         return Completion(
             text=None, complete=False, usage=usage, finish_reason="unknown",
             resolved_model=resolved, provider=OpenAICompatibleProvider.name,
+            billing_evidence=billing_evidence,
         )
     choice = choices[0]
     message = choice.get("message")
@@ -462,16 +505,19 @@ def parse_response(body: dict) -> Completion:
         return Completion(
             text=None, complete=False, usage=usage, finish_reason="refusal",
             resolved_model=resolved, provider=OpenAICompatibleProvider.name,
+            billing_evidence=billing_evidence,
         )
     if finish == "stop" and isinstance(content, str):
         return Completion(
             text=content, complete=True, usage=usage, finish_reason="complete",
             resolved_model=resolved, provider=OpenAICompatibleProvider.name,
+            billing_evidence=billing_evidence,
         )
     if finish == "length":
         return Completion(
             text=text, complete=False, usage=usage, finish_reason="length",
             resolved_model=resolved, provider=OpenAICompatibleProvider.name,
+            billing_evidence=billing_evidence,
         )
     if finish == "content_filter":
         mapped = "filtered"
@@ -483,6 +529,7 @@ def parse_response(body: dict) -> Completion:
     return Completion(
         text=None, complete=False, usage=usage, finish_reason=mapped,
         resolved_model=resolved, provider=OpenAICompatibleProvider.name,
+        billing_evidence=billing_evidence,
     )
 
 
@@ -903,6 +950,8 @@ class OpenAICompatibleProvider:
                  messages: list[dict[str, str]], max_tokens: int,
                  json_schema: dict | None = None,
                  timeout: float | None = None) -> Completion:
+        from consciousness import model_dispatch
+        model_dispatch.validate_adapter_call(self)
         settings = _settings()
         if (settings.base is None or settings.key_invalid
                 or (settings.api_key is None and not settings.base.loopback)):
@@ -926,13 +975,29 @@ class OpenAICompatibleProvider:
         except (TypeError, ValueError):
             raise MalformedProviderResponse() from None
         transport = self._transport or urllib_transport
-        status, _ignored, raw = _post(
-            settings, encoded, _call_timeout(timeout), transport,
+        endpoint = chat_completions_url(settings.base.url)
+        effective_timeout = _call_timeout(timeout)
+        options = {
+            "max_tokens_param": settings.max_tokens_param,
+            "structured_outputs": settings.structured_outputs,
+            "send_store_false": settings.send_store_false,
+            "reasoning_effort": settings.reasoning_effort,
+        }
+
+        def send_once():
+            status, _ignored, raw = _post(
+                settings, encoded, effective_timeout, transport, endpoint=endpoint,
+            )
+            return decode_response(status, raw)
+
+        return model_dispatch.execute_prepared(
+            adapter=self, endpoint=endpoint, model=model, max_output_tokens=max_tokens,
+            timeout_seconds=effective_timeout, options=options, send_once=send_once,
+            retries=0, redirects=False,
         )
-        return decode_response(status, raw)
 
 
-def _post(settings, encoded: bytes, timeout: float, transport):
+def _post(settings, encoded: bytes, timeout: float, transport, *, endpoint: str):
     """Send one request. The header list does not outlive this call.
 
     ``generate`` must not keep a ``Bearer`` list in its own frame: a
@@ -948,7 +1013,7 @@ def _post(settings, encoded: bytes, timeout: float, transport):
         headers.append(("Authorization", f"Bearer {settings.api_key}"))
     prepared = TransportRequest(
         method="POST",
-        url=chat_completions_url(settings.base.url),
+        url=endpoint,
         headers=tuple(headers),
         body=encoded,
         timeout=timeout,
