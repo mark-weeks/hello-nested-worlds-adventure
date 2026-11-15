@@ -88,16 +88,31 @@ def test_fold_leaves_everything_outside_the_target_heading_untouched():
 
 
 def test_fold_never_reaches_into_a_released_or_a_later_unreleased_section():
-    # Unreleased has no "### Fixed" here, and the released section below it does.
+    # Unreleased has no "### Fixed" here, and the released section below it does:
+    # the heading is created under Unreleased instead of the entry landing there.
     no_fixed = CHANGELOG.replace("### Fixed\n\n- **Older fix**", "- **Older fix**")
-    with pytest.raises(fc.FragmentError, match="### Fixed"):
-        fc.fold(no_fixed, [parsed("Fix", section="Fixed")])
+    released = "## [0.1.0-beta]"
+    folded = fc.fold(no_fixed, [parsed("Fix", section="Fixed")])
+    assert "## [Unreleased]\n\n### Fixed\n\n- **Fix**" in folded
+    assert folded[folded.index(released):] == no_fixed[no_fixed.index(released):]
     with pytest.raises(fc.FragmentError, match="Unreleased"):
         fc.fold("# Changelog\n\n## [0.1.0]\n\n### Added\n", [parsed("New")])
     lower = "\n## [Unreleased]\n\n### Added\n\n- **A stale lower section**\n"
     folded = fc.fold(CHANGELOG + lower, [parsed("New")])
-    released = "## [0.1.0-beta]"
     assert folded[folded.index(released):] == (CHANGELOG + lower)[CHANGELOG.index(released):]
+
+
+def test_a_missing_section_heading_is_created_directly_under_unreleased():
+    # After a release is cut, Unreleased is empty; "Changed" is not there before one.
+    fresh = "# Changelog\n\n## [Unreleased]\n\n## [0.2.0] — 2027-01-01\n\n### Added\n\n- **Released**\n"
+    folded = fc.fold(fresh, [parsed("First"), parsed("Second"), parsed("Tweak", section="Changed")])
+    assert folded.startswith("# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- **Tweak**")
+    added = folded.index("### Added")
+    assert added < folded.index("**Second**") < folded.index("**First**") < folded.index("## [0.2.0]")
+    assert folded.count("### Added") == 2 and folded.endswith("### Added\n\n- **Released**\n")
+    changed = fc.fold(CHANGELOG, [parsed("Tweak", section="Changed")])
+    assert "## [Unreleased]\n\n### Changed\n\n- **Tweak**" in changed
+    assert changed.replace("### Changed\n\n" + parsed("Tweak", section="Changed").body + "\n\n", "", 1) == CHANGELOG
 
 
 def test_fold_tolerates_trailing_spaces_on_headings_and_keeps_them():
@@ -118,7 +133,7 @@ def test_fold_refuses_an_entry_that_is_already_in_the_changelog():
     (fragment_text("x").replace("**Irreversibility check:**", "Check:"), "Irreversibility"),
     (fragment_text("x") + "- **A second bullet** for the same pull request.\n", "one bullet"),
     (fragment_text("x").replace("  **Verified:**", "**Verified:**"), "one bullet"),
-    (fragment_text("x", section="Changed"), "Section must be"),
+    (fragment_text("x", section="Removed"), "Section must be"),
     (fragment_text("x").replace("Section: Added\n", ""), "Section must be"),
     ("Section: Added\nSection: Fixed\n" + fragment_text("x").split("\n", 1)[1], "more than one"),
     ("Owner: someone\n" + fragment_text("x"), "unknown header"),
@@ -232,6 +247,25 @@ def test_a_true_merge_orders_by_when_it_merged_not_when_it_was_written(repo):
     assert folded.index("merged last**") < folded.index("merged first**")
 
 
+def test_entries_keep_the_main_branch_order_when_the_status_branch_merged_it_in(repo):
+    _git(repo, "checkout", "-q", "-b", "status")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "status work", when=2)
+    _git(repo, "checkout", "-q", "trunk")
+    _commit_fragment(repo, "d.md", "Reached main first", when=3)
+    _commit_fragment(repo, "e.md", "Reached main second", when=4)
+    _commit_fragment(repo, "0aa.md", "Reached main third", when=5)
+    _git(repo, "checkout", "-q", "status")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "update branch", "trunk", when=6)
+
+    # Ranked on the status branch alone, all three arrive with one merge and tie.
+    assert _fold(repo, "--base", "missing-branch") == 1
+    assert _fold(repo, "--base", "trunk") == 0
+
+    folded = (repo / "docs/CHANGELOG.md").read_text(encoding="utf-8")
+    assert (folded.index("main third**") < folded.index("main second**")
+            < folded.index("main first**"))
+
+
 def test_the_fold_stops_when_history_cannot_give_the_order(repo, tmp_path, capsys):
     _commit_fragment(repo, "zeta-earlier.md", "Landed first", when=2)
     _commit_fragment(repo, "alpha-later.md", "Landed second", when=3)
@@ -268,8 +302,8 @@ def test_check_and_fold_change_nothing_when_anything_is_wrong(tmp_path, capsys):
         assert good.exists()
 
     # --check proves the fold would be accepted, not only that fragments parse.
-    changelog.write_text(CHANGELOG.replace("### Added", "### New"), encoding="utf-8")
-    refused([*args, "--check"], "### Added")
+    changelog.write_text(CHANGELOG.replace("## [Unreleased]", "## [Next]"), encoding="utf-8")
+    refused([*args, "--check"], "Unreleased")
     changelog.write_bytes(CHANGELOG.replace("\n", "\r\n").encode("utf-8"))
     refused([*args, "--check"], "CRLF")
     assert b"\r\n" in changelog.read_bytes()
@@ -313,11 +347,17 @@ def test_repository_fragments_are_valid_and_the_real_changelog_accepts_a_fold(ca
     real = (ROOT / "docs/CHANGELOG.md").read_text(encoding="utf-8")
     # Headings are matched as whole lines: entry prose may quote a heading mid-line.
     start = real.index("\n## [Unreleased]\n") + 1
+    unreleased = real[start:real.index("\n## ", start + 1)]
     for section in fc.SECTIONS:
         folded = fc.fold(real, [parsed("Probe entry", section=section)])
         assert folded[:start] == real[:start], "the QA bullets above Unreleased must not move"
-        heading = folded.index(f"\n### {section}\n", start) + 1
-        assert folded[heading:].startswith(f"### {section}\n\n- **Probe entry**")
-        # Nothing else moved: taking the probe back out restores the file exactly.
+        heading = f"### {section}\n\n"
         probe = parsed("Probe entry", section=section).body + "\n\n"
-        assert folded.replace(probe, "", 1) == real
+        # Nothing else moved: taking the probe back out restores the file exactly.
+        if f"\n### {section}\n" in unreleased:
+            at = folded.index(f"\n### {section}\n", start) + 1
+            assert folded[at:].startswith(heading + "- **Probe entry**")
+            assert folded.replace(probe, "", 1) == real
+        else:
+            assert folded[start:].startswith("## [Unreleased]\n\n" + heading + "- **Probe entry**")
+            assert folded.replace(heading + probe, "", 1) == real

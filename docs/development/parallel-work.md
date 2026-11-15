@@ -1,6 +1,7 @@
 # Working in parallel
 
-*Adopted by the owner (Mark Weeks) on 2026-11-14. The binding rules are in
+*The owner (Mark Weeks) directed the adoption of these rules on 2026-11-14; they take
+effect with the owner's merge of the pull request that added them. The binding rules are in
 [AGENTS.md](../../AGENTS.md) ("Working in parallel"); this page is the procedure
 behind them. The measurements are in
 [the 2026-11-14 record](../evaluation/2026-11-14-parallel-agent-work.md).*
@@ -27,10 +28,8 @@ the split would have given their author.
 - A feature stays one pull request owned by one agent, even when it needs a client
   change, an endpoint and a table.
 - Where two concerns meet, the agent whose concern owns the server-side rule owns the
-  pull request, and the other concern's agent is its one reviewer, in place of the
-  default in the review tiers. A report button backed by a moderation rule is Claude
-  Code's pull request with Codex's review; a model-runtime change with a retry control
-  in `/app` is Grok Bot's pull request with Codex's review.
+  pull request. A report button backed by a moderation rule is Claude Code's pull
+  request.
 - An explicit assignment from the owner wins over the defaults.
 
 ## Four single-writer resources and one placement rule
@@ -75,8 +74,9 @@ Claude Code prepares it when the owner asks, and does not open one unprompted. T
 owner normally asks within a working day of a merge. One status pull request may cover
 several merged pull requests.
 
-1. In a checkout with full history (`git fetch --unshallow origin main` in a cloud
-   session), run `python scripts/fold_changelog.py`. It moves every fragment into
+1. Cut the status branch from an up-to-date `main`, in a checkout with full history
+   (`git fetch --unshallow origin main` in a cloud session), and run
+   `python scripts/fold_changelog.py`. It moves every fragment into
    `docs/CHANGELOG.md`, newest first, deletes the fragments and prints their `Status:`
    lines.
 2. Apply each `Status:` line to the document it names. When a checklist status that
@@ -90,21 +90,28 @@ several merged pull requests.
 
 | Pull request | Review |
 |---|---|
-| Every pull request | Copilot when it opens, and Copilot again on the final commit |
-| Changes code | Plus one executing review by a different agent. A pull request that crosses two concerns is reviewed by the other concern's agent, in place of the default. Otherwise Claude Code reviews Codex and Grok Bot, and Codex reviews Claude Code. If it crosses all three, the owner names the reviewer |
-| Trips a one-way door, or touches spend limits, moderation, authentication or deployment | The final Copilot review at Max effort, the agent review, and the owner reads the irreversibility check |
+| Every pull request | Copilot when it opens, and once more on the final commit at the repository's default effort |
+| Changes code | Plus one executing review by a different agent: Claude Code reviews Codex and Grok Bot; Codex reviews Claude Code |
+| Trips a one-way door, or touches spend limits, moderation, authentication or deployment | The agent review, and the owner reads the irreversibility check |
 | Changes the working rules | The same cross-agent review, and the owner's read. Copilot's review is not a check here, because it reads `AGENTS.md` from the pull request's own branch |
 
 - **Request the second Copilot review when marking the pull request ready.** Copilot
   reviews once unless asked again. In a 22-pull-request sample its one review covered
-  an earlier commit than the last on 16.
+  an earlier commit than the last on 16. That request is the only Copilot review an
+  agent asks for: any other, a Max-effort one included, is the owner's to request.
+- **When Copilot cannot run,** for example because its budget is spent, say so in the
+  pull request and go on with the agent review. Its review of the pull request that
+  added these rules failed that way, with HTTP 402.
 - **Answer every finding in its thread:** fixed in a named commit, or declined with
   the reason. Copilot does not read replies; the reply is for the owner and for
   measuring reviewers.
-- **Sign every review** with a footer naming the agent. In the sample 17 of 22 pull
-  requests carried a review with no footer, so its author could not be identified.
-- **One agent review per pull request.** Twelve of the 22 sampled pull requests had
-  three or four reviewers. A second agent review needs the owner to ask.
+- **Sign every review** with a footer naming the agent, as the review rule in
+  `AGENTS.md` requires. In the sample 17 of 22 pull requests carried a review with no
+  footer, so its author could not be identified.
+- **A review the owner asked for always counts,** whichever agent wrote it. The owner
+  may ask any agent to review any pull request.
+- **One standing agent review per pull request.** Twelve of the 22 sampled pull
+  requests had three or four reviewers. A further agent review needs the owner to ask.
 - Findings that disclose an exploitable vulnerability in deployed code, a secret,
   player data or puzzle answers still go to the owner privately. Copilot cannot do
   that; keep such fixes out of a public pull request until the owner decides.
@@ -112,10 +119,10 @@ several merged pull requests.
 ## What the owner holds
 
 - Merging, and assigning a batch to an agent other than the default.
-- The repository's Copilot settings: approvals off, Balanced as the default effort,
+- The repository's Copilot settings and budget: approvals off, the default effort,
   and "Review new pushes" off in favour of the requested second review.
-- Requesting a Max-effort Copilot review where an agent's tools cannot choose the
-  effort level.
+- Any Copilot review beyond the two above, a Max-effort one included.
+- Asking for a further agent review, from any agent.
 
 ## Revisit when
 

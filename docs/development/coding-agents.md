@@ -111,7 +111,8 @@ where it has none, the owner requests it.
 
 ## Claude Code: model, effort and orchestration
 
-*Provisional defaults, adopted by the owner on 2026-11-14. They apply to Claude Code
+*Provisional defaults. The owner directed their adoption on 2026-11-14 and they take
+effect with the owner's merge of the pull request that added them. They apply to Claude Code
 only; Codex and Grok Bot choose their own models. This is dated guidance with its
 evidence, not a covenant.*
 
@@ -126,14 +127,20 @@ evidence, not a covenant.*
 `max` is not used, and Fable 5.2 runs above `high` only where a gain has been
 measured.
 
-`.claude/settings.json` pins the default (`"model": "claude-opus-5-5"`,
-`"effortLevel": "high"`) and starts sessions with ultracode off
-(`"ultracode": false`), whatever a developer's own settings say. To change the model
-or effort for one session only, launch with `--model` or `--effort`, or open the
-`/model` picker or the `/effort` slider and press `s`. Typing `/model <name>` or
-`/effort <level>` is different: it saves the choice as your own default for later
-sessions, in other projects too. `/effort ultracode` turns ultracode on for one
-session.
+`.claude/settings.json` pins the default for every Claude Code session in this
+repository (`"model": "claude-opus-5-5"`, `"effortLevel": "high"`) and starts
+sessions with ultracode off (`"ultracode": false`). The project file outranks a
+developer's own user settings, and it applies again at every launch.
+
+- **For one session:** launch with `--model` or `--effort`, or open the `/model`
+  picker or the `/effort` slider and press `s`. `/effort ultracode` turns ultracode on
+  for one session.
+- **Typing `/model <name>` or `/effort <level>`** saves the choice in your user
+  settings. That changes your default in other projects, and here it is outranked at
+  the next launch.
+- **For a lasting personal override here,** set the keys in
+  `.claude/settings.local.json`, which outranks the shared project file and is not
+  committed.
 
 The evidence, and its limits:
 
@@ -141,8 +148,12 @@ The evidence, and its limits:
   tokens; Fable 5.2 is $8 and $40. Subagents and workflows draw on the same
   subscription limits as the session.
 - **Positioning.** Anthropic describes Opus 5.5 as the model for everyday coding and
-  Fable 5.2 as the one for ambitious open-ended work, and advises starting Fable 5.2
-  at `high`. Both default to `medium` in Claude Code.
+  Fable 5.2 as the one for ambitious open-ended work. Both default to `medium` in
+  Claude Code, and its model configuration page suggests starting Opus 5.5 at
+  `medium`. `high` here is a choice above that starting point, made because every
+  batch waits on one human reviewer and rework costs more than tokens. Anthropic's API
+  guidance for Fable 5.2 is to start at `high` and go above it only where a gain is
+  measured.
 - **This repository's record.** Twenty-one Claude Code pull requests from #137 to
   #166 are credited to Opus 5.5 alone in their commit trailers. The five of them in
   the review sample (#147 to #149, #158, #166) drew no High-severity finding. That is

@@ -9,8 +9,9 @@ request runs this script to move the fragments in.
     python scripts/fold_changelog.py --check   # validate, change nothing
     python scripts/fold_changelog.py           # fold, delete fragments, print status lines
 
-The fold orders entries by where each fragment entered this branch's history, read
-from git, so it needs a checkout with full history (git fetch --unshallow origin main).
+The fold orders entries by where each fragment entered the history of the main
+branch, read from git, so it needs a checkout with full history
+(git fetch --unshallow origin main).
 
 Fragment format (docs/changelog.d/README.md):
 
@@ -29,12 +30,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SECTIONS = ("Added", "Fixed")
+SECTIONS = ("Added", "Changed", "Fixed")
 UNRELEASED = "## [Unreleased]"
 REQUIRED_MARKERS = ("**Verified:**", "**Irreversibility check:**")
 NAME = re.compile(r"[a-z0-9][a-z0-9._-]*\.md")
 NAME_RULE = ("name the fragment after the branch, lowercased, in letters, digits, dots, "
              "hyphens and underscores, ending in .md, directly in the fragment directory")
+DEFAULT_BASE = "origin/main"
 
 
 class FragmentError(ValueError):
@@ -104,7 +106,8 @@ def fold(changelog: str, fragments: list[Fragment]) -> str:
     ``fragments`` are given oldest first. Each goes directly under its section
     heading in the first ``## [Unreleased]``, so the newest ends on top. Nothing
     past the next ``## `` heading is searched, so a released section never
-    receives an entry.
+    receives an entry. A section heading that the first ``## [Unreleased]`` lacks,
+    as after a release is cut, is created directly under it.
     """
     lines = changelog.split("\n")
     stripped = [line.rstrip() for line in lines]
@@ -122,12 +125,14 @@ def fold(changelog: str, fragments: list[Fragment]) -> str:
             if lines[index].rstrip() == heading:
                 at = index
                 break
-        if at is None:
-            raise FragmentError(f"no {heading!r} under the first {UNRELEASED}")
+        new_heading = at is None
+        if new_heading:
+            at = start
         first_entry = at + 1
         while first_entry < len(lines) and not lines[first_entry].strip():
             first_entry += 1
-        lines[at + 1:first_entry] = ["", *fragment.body.split("\n"), ""]
+        block = ["", *fragment.body.split("\n"), ""]
+        lines[at + 1:first_entry] = ["", heading, *block] if new_heading else block
     return "\n".join(lines)
 
 
@@ -150,24 +155,33 @@ def load(directory: Path) -> list[tuple[Path, Fragment]]:
 
 
 def _git(directory: Path, *args: str) -> str | None:
-    """Output of a git command run in ``directory``; None when it cannot run or fails."""
+    """Output of a git command run in ``directory``; None when it cannot run or fails.
+
+    The two log settings are fixed so the order does not depend on the caller's
+    git configuration.
+    """
     try:
-        done = subprocess.run(["git", *args], cwd=directory, capture_output=True,
-                              text=True, check=False)
+        done = subprocess.run(
+            ["git", "-c", "log.follow=false", "-c", "log.showRoot=true", *args],
+            cwd=directory, capture_output=True, text=True, check=False)
     except OSError:
         return None
     return done.stdout.strip() if done.returncode == 0 else None
 
 
-def merge_order(paths: list[Path]) -> dict[Path, float]:
-    """Where each fragment entered this branch: the rank of the first-parent commit
-    that added it, counted from the root.
+def merge_order(paths: list[Path], base: str | None = None) -> dict[Path, float]:
+    """Where each fragment entered ``base``: the rank, counted from the root, of the
+    first-parent commit on ``base`` that added it.
 
-    A fragment merged by a true merge commit takes the merge's place, not that of
-    the commit that wrote it on its branch. The rank is a position in history, so
-    two commits made in the same second still order correctly. A fragment not yet
-    committed sorts last. History that cannot be read is an error: ordering by file
-    name would silently put entries in the wrong order.
+    ``base`` defaults to origin/main, or to the checked-out branch where there is
+    no origin/main. Ranking on the main branch keeps its merge order even when the
+    status branch has taken main in by a merge of its own. A fragment merged by a
+    true merge commit takes the merge's place, not that of the commit that wrote
+    it; one deleted and added again takes its latest add. The rank is a position
+    in history, so commits made in the same second still order correctly.
+    Fragments added by the same commit, and fragments not on ``base`` at all, tie
+    and are ordered by file name; the latter sort last. History that cannot be
+    read is an error: ordering by file name alone would silently misplace entries.
     """
     directory = paths[0].parent
     if _git(directory, "rev-parse", "--is-inside-work-tree") != "true":
@@ -176,10 +190,16 @@ def merge_order(paths: list[Path]) -> dict[Path, float]:
     if _git(directory, "rev-parse", "--is-shallow-repository") != "false":
         raise FragmentError("this checkout has shallow history, so the order of entries "
                             "cannot be read; run 'git fetch --unshallow origin main' first")
+    if base is None:
+        found = _git(directory, "rev-parse", "--verify", "--quiet", f"{DEFAULT_BASE}^{{commit}}")
+        base = DEFAULT_BASE if found else "HEAD"
+    elif _git(directory, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}") is None:
+        raise FragmentError(f"--base {base}: no such branch or commit")
     order = {}
     for path in paths:
+        # -m is implied by --first-parent since git 2.31; it stays for older git.
         commit = _git(directory, "log", "-1", "--first-parent", "-m", "--diff-filter=A",
-                      "--format=%H", "--", path.name)
+                      "--format=%H", base, "--", path.name)
         if commit is None:
             raise FragmentError(f"{path.name}: could not read its git history")
         if not commit:
@@ -200,6 +220,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="fragment directory")
     parser.add_argument("--changelog", type=Path, default=ROOT / "docs/CHANGELOG.md",
                         help="changelog to fold into")
+    parser.add_argument("--base", default=None,
+                        help="branch whose history orders the entries "
+                             f"(default: {DEFAULT_BASE}, else the checked-out branch)")
     args = parser.parse_args(argv)
     try:
         loaded = load(args.dir)
@@ -214,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         if not loaded:
             print("No changelog fragments to fold.")
             return 0
-        order = merge_order([path for path, _ in loaded])
+        order = merge_order([path for path, _ in loaded], args.base)
         loaded.sort(key=lambda item: (order[item[0]], item[0].name))
         text = fold(changelog, [fragment for _, fragment in loaded])
         args.changelog.write_bytes(text.encode("utf-8"))

@@ -29,7 +29,8 @@ Status: roadmap index: add under "Safety, moderation and integrity"
   **Irreversibility check:** none — why, from the diff.
 ```
 
-- `Section` is `Added` for a new capability or `Fixed` for a correction.
+- `Section` is `Added` for a new capability, `Fixed` for a correction, or `Changed`
+  for a change to existing behaviour that is neither.
 - Each `Status:` line is optional and names one change the batch calls for in a status
   document: the roadmap index, the launch checklist, or a standing count in the README
   or runbook. The pull request does not make that change itself.
@@ -48,10 +49,14 @@ checkout with full history (`git fetch --unshallow origin main` in a cloud sessi
 python scripts/fold_changelog.py
 ```
 
-The order of entries comes from git: the place where each fragment entered `main`'s
-history, so a fragment merged later lands above one merged earlier whatever their
-file names or commit times. The
-script stops if it cannot read that history. It moves each fragment under the first
+The order of entries comes from git: the place where each fragment entered the
+history of `origin/main`, so a fragment merged later lands above one merged earlier
+whatever their file names or commit times. Fetch `main` first. Fragments that arrived
+in the same commit are ordered by file name. Where there is no `origin/main` the
+checked-out branch is used, and `--base` names another. The script stops if it cannot
+read that history. The order assumes `main` advances by squash, rebase or merge
+commits made on `main`, as GitHub's merge buttons do. A section heading the first
+`[Unreleased]` lacks, as after a release is cut, is created directly under it. It moves each fragment under the first
 `## [Unreleased]` heading of the changelog, newest first within its section, deletes
 the fragment, and prints the `Status:` lines.
 The status pull request then applies those lines by hand, updates
@@ -59,4 +64,5 @@ The status pull request then applies those lines by hand, updates
 the roadmap index's verification line, and runs `./scripts/check.sh`. It writes no
 fragment of its own.
 
-A pull request opened before this rule merged keeps the direct entry it already has.
+A pull request opened before this rule merged keeps the direct entry and the
+status-document edits it already has.

@@ -205,8 +205,9 @@ wording or a model-name override. Existing release and deployment gates still ap
 
 Three coding agents open pull requests here under the owner's login: Claude Code
 (`claude/` branches), Codex (`codex/`) and Grok Bot (`cursor/`). GitHub Copilot code
-review reads this file and reviews them. The owner (Mark Weeks) adopted the rules in
-this section on 2026-11-14. [The guide](docs/development/parallel-work.md) holds the
+review reads this file and reviews them. The owner (Mark Weeks) directed the adoption
+of the rules in this section on 2026-11-14; they take effect with the owner's merge of
+the pull request that added them. [The guide](docs/development/parallel-work.md) holds the
 procedure and [the record](docs/evaluation/2026-11-14-parallel-agent-work.md) the
 measurements behind them.
 
@@ -214,8 +215,8 @@ measurements behind them.
   owned by one agent even when it crosses directories. By default Codex takes the
   player journey in the `/app` client, Grok Bot takes model runtime and operations,
   and Claude Code takes integrity, safety and records. Where two concerns meet, the
-  agent whose concern owns the server-side rule owns the pull request and the other
-  reviews. An explicit assignment from the owner always wins.
+  agent whose concern owns the server-side rule owns the pull request. An explicit
+  assignment from the owner always wins.
 - **Four things have one writer at a time, and two files take no new logic.** A pull
   request names the ones it holds. The earliest-opened pull request that names one
   holds it, drafts included; a later one waits or asks the owner.
@@ -244,25 +245,27 @@ measurements behind them.
   `server/*_api.py` module and is only registered in the dispatch. Fixes to existing
   handlers are fine.
 - **Review comes in tiers.** GitHub Copilot reviews every pull request when it opens
-  and again on the final commit; the authoring agent requests that second review when
-  it marks the pull request ready. A pull request that changes code also gets one
-  executing review by a different agent under the review rule below. When it crosses
-  two concerns, the reviewer is the other concern's agent, in place of the default;
-  otherwise Claude Code reviews Codex and Grok Bot, and Codex reviews Claude Code. If
-  it crosses all three, the owner names the reviewer. That assignment is the
-  owner's standing request, so it needs no further prompt; a second agent review needs
-  the owner to ask. A review with no footer naming its agent does not count. A pull
-  request that trips a one-way door, or touches spend limits, moderation,
-  authentication or deployment, has its final Copilot review requested at Max effort
-  and waits for the owner to read the irreversibility check. A working-rules pull
-  request gets the same cross-agent review and the owner's read: Copilot reads this file from
-  the pull request's own branch, so it would review such a change under the rules the
-  change proposes. Copilot approvals stay off and never count toward merging.
+  and once more on the final commit; the authoring agent requests that second review,
+  at the repository's default effort, when it marks the pull request ready. Any other
+  Copilot review, a Max-effort one included, is the owner's to request. When Copilot
+  cannot run, for example because its budget is spent, the pull request says so and
+  goes on with the reviews below. A pull request that changes code also gets one
+  executing review by a different agent under the review rule below: Claude Code
+  reviews Codex and Grok Bot, and Codex reviews Claude Code. That assignment is the
+  owner's standing request, so it needs no further prompt. The owner may ask any agent
+  to review any pull request: a review the owner asked for always counts, and a
+  further agent review needs the owner to ask. Every review ends with the footer the
+  review rule requires. A pull request that trips a one-way door, or touches spend
+  limits, moderation, authentication or deployment, waits for the owner to read the
+  irreversibility check. A working-rules pull request gets the same cross-agent review
+  and the owner's read: Copilot reads this file from the pull request's own branch, so
+  it would review such a change under the rules the change proposes. Copilot approvals
+  stay off and never count toward merging.
 - **The authoring agent drives its own pull request.** On a pull request it opened, an
   agent may without a further prompt: answer each review finding in its thread (fixed
   in a named commit, or declined with the reason), push fixes to its own branch, mark
-  the pull request ready once the canonical gate has passed, and request the Copilot
-  review above. Each reply ends with the agent's footer. This is a publication
+  the pull request ready once the canonical gate has passed, and request the one
+  Copilot review above. Each reply ends with the agent's footer. This is a publication
   authorization for those acts only: not thread resolution, approval, merging, or
   pushing to a branch another agent opened.
 
@@ -291,7 +294,8 @@ measurements behind them.
   format), with a `Status:` line for each status-document change the batch calls for.
   It does not edit `docs/CHANGELOG.md`: the status pull request folds fragments in with
   `scripts/fold_changelog.py` and writes no entry of its own. A pull request opened
-  before this rule merged keeps the direct entry it already has. Record actual checks
+  before this rule merged keeps the direct entry and the status-document edits it
+  already has. Record actual checks
   and unavailable verification honestly. Documentation-only work can finish with document
   validation; the canonical gate still applies before proposing merge.
 - Produce the diff-based irreversibility check for the CHANGELOG entry and any PR. A tripped

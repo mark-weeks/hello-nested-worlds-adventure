@@ -1,8 +1,9 @@
 # Parallel work across three coding agents, Copilot review and Claude Code defaults
 
 *2026-11-14. Measured on `main` at `09c529b` (#170) with #171, #172 and #173 open.
-Findings, with the rules the owner (Mark Weeks) adopted from them on 2026-11-14. The
-binding text is in [AGENTS.md](../../AGENTS.md) ("Working in parallel"), the procedure
+Findings, with the rules the owner (Mark Weeks) directed be adopted from them on
+2026-11-14; they take effect with the owner's merge of the pull request that carries
+this record. The binding text is in [AGENTS.md](../../AGENTS.md) ("Working in parallel"), the procedure
 in [the parallel-work guide](../development/parallel-work.md), and the Claude Code
 defaults in [coding-agents.md](../development/coding-agents.md).*
 
@@ -191,7 +192,7 @@ stopped the rest. After the limit reset, a redesigned pass read 14 pull requests
 each workflow at two agents at a time. Splitting one run into three to get around
 that cap is what exhausted the limit.
 
-## What the owner adopted
+## What is adopted at the owner's direction
 
 | Rule | Where it lives |
 |---|---|
@@ -201,12 +202,51 @@ that cap is what exhausted the limit.
 | Review tiers, the standing cross-agent review, and what an authoring agent may do on its own pull request | `AGENTS.md`, "Working in parallel" |
 | Claude Code on Opus 5.5 at high effort by default, Fable 5.2 for one-way-door work, ultracode off | `coding-agents.md`; `.claude/settings.json` sets `model`, `effortLevel` and `ultracode` |
 
+## Review corrections
+
+Four review passes on the pull request that carries this record returned 43 findings.
+
+| Pass | Findings | Outcome |
+|---|---|---|
+| Two subagent reviews before the first push | 18 | 17 taken, 1 already met |
+| Codex, at `8fd79f1` | 4 (2 P2, 2 P3) | All taken; one later simplified, below |
+| Two subagent checks of the Codex fixes | 11 | 10 taken, 1 made moot |
+| An owner-requested review at `95e8b79`, posted from the owner's account with no footer | 10 (4 Medium, 4 Low, 2 Nit) | 5 taken, 3 taken in part, 2 left to the owner |
+
+What they changed in the fold. Entries are ordered by the place a fragment entered the
+first-parent history of `origin/main`, not by commit time or file name. The fold stops
+in a shallow clone or outside a checkout, refuses stray entries in `docs/changelog.d/`,
+accepts `Changed`, creates a section heading the first `[Unreleased]` lacks, and proves
+itself against the changelog in `--check`. Its git calls fix two log settings so the
+order does not depend on the caller's configuration. The tests grew from 24 to 32 and
+now pin the Unreleased boundary, true merges, commits made in the same second and a
+status branch that merged `main` in.
+
+What they changed in the rules. The earliest-opened pull request that names a resource
+holds it. `server/handlers.py` and `main.py` left the single-writer list. Each pull
+request has one reviewer, from the default assignment alone: a first fix that made the
+other concern's agent the reviewer could name the author, or an agent whose loading of
+`AGENTS.md` is unverified, and was withdrawn. A review the owner asked for always
+counts. An agent requests one Copilot review, at the default effort; any further one is
+the owner's. A pull request goes on with the agent review when Copilot cannot run. Open
+pull requests keep their direct entries and status-document edits. `.claude/settings.json`
+also sets `ultracode` to false, and the guide names the session-only controls.
+
+Left to the owner by the last review: whether to adopt these rules at all, confirmed on
+the pull request or by merging it; whether the reviewer that posts from the owner's
+account stays in the loop, and under what name and footer; a monthly Copilot budget;
+the standing permission for an authoring agent to reply, push to its own branch, mark
+ready and request the one Copilot review; and whether to pin Claude Code's model and
+effort in the repository.
+
 ## What this record does not establish
 
 - That the rules work. They have not yet governed a single pull request.
 - That Grok Bot loads `AGENTS.md`. Its sessions were not observed.
 - The repository's Copilot settings. They are the owner's and were not inspected.
-- Which agent writes the reviews that carry no footer.
+- Which agent writes the reviews that carry no footer. An owner-requested review of
+  this pull request, posted that way, says such reviews are what the owner currently
+  asks for.
 - Any ranking of the agents or of the two Claude models. The sample is 22 pull
   requests, chosen rather than drawn, with different scopes and reviewers.
 - Copilot's behaviour as GitHub documents it today, beyond the two points the
@@ -222,5 +262,5 @@ that cap is what exhausted the limit.
 - The first status pull request will be the first real run of
   `scripts/fold_changelog.py`.
 - Copilot's review of the pull request that carries this record did not run. Its check
-  failed on 2026-11-15 with HTTP 402, monthly quota exceeded. The adopted tiers assume
-  Copilot runs and do not yet say what a pull request does when it cannot.
+  failed on 2026-11-15 with HTTP 402, monthly quota exceeded. The rules now say such a
+  pull request notes it and goes on with the agent review.
