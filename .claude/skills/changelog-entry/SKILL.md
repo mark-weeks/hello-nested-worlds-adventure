@@ -13,7 +13,7 @@ describe outcomes.
 ## House format
 
 Write each batch as one fragment file, `docs/changelog.d/<branch>.md`, with the
-branch name's slashes as hyphens (`codex/report-flow` writes
+branch name lowercased and its slashes as hyphens (`codex/report-flow` writes
 `codex-report-flow.md`). Do not edit `docs/CHANGELOG.md` in a feature pull request:
 pull requests open at the same time collided there (AGENTS.md, "Working in
 parallel"). A fragment is a short header, a blank line, then the entry:

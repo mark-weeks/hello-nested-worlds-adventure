@@ -31,41 +31,50 @@ the split would have given their author.
   is Claude Code's pull request with Codex's review.
 - An explicit assignment from the owner wins over the defaults.
 
-## The five single-writer resources
+## Four single-writer resources and one placement rule
 
-Before starting a batch, check the open pull requests for any of these it needs. Each
-pull request names the ones it holds under "Parallel work" in its description.
+Before starting a batch, check the open pull requests for any of the four resources it
+needs. Each pull request names the ones it holds under "Parallel work" in its
+description. The earliest-opened pull request that names a resource holds it, drafts
+included; a later one waits or asks the owner.
 
 1. **Status documents.** `docs/CHANGELOG.md`, `docs/roadmap/README.md` and
    `docs/roadmap/beta-launch-checklist.md` (with `tests/test_beta_checklist_counts.py`)
    are written only by the status pull request. A feature writes a
    [changelog fragment](../changelog.d/README.md) with a `Status:` line for each
    change it calls for. In `README.md` and the runbook, a feature changes only the
-   text it makes untrue or newly necessary; counts and what-has-shipped lines wait for
-   the status pull request.
+   text it makes untrue or newly necessary. Standing counts and what-has-shipped lines
+   are the exception: the feature records them as a `Status:` line even when it makes
+   them untrue.
 2. **The client bundle.** `static/app/assets/` holds a build whose file name carries a
    content hash, and `./scripts/check.sh` fails on a stale one, so two open pull
-   requests that change `frontend/` cannot both be current. One at a time, Codex's by
-   default. Whoever changes `frontend/` commits the rebuild.
+   requests that change `frontend/` cannot both be current. One at a time, whichever
+   agent's concern the change falls under. Whoever changes `frontend/` commits the
+   rebuild.
 3. **Migrations.** Numbers are assigned at merge, so two open migrations claim the
    same number. One at a time. The pull request also updates the migration set pinned
    in `scripts/verify_wheel.py` and `tests/test_verify_wheel.py`, and renumbers if
    another migration merges first.
-4. **Working rules.** `AGENTS.md`, `.claude/skills/` and
-   `.github/pull_request_template.md` change only in a pull request of their own that
-   the owner asked for. A feature that needs a rule changed says so and waits.
-5. **`server/handlers.py` and `main.py`.** All three agents write these files. Keep
-   new endpoint or command logic out of them: put it in a `server/*_api.py` module
-   (the pattern of `intervention_api.py`, `ideas_api.py`, `participant_api.py` and
-   `situation_api.py`) and register it in the dispatch. Fixes to existing handlers are
-   fine.
+4. **Working rules.** `AGENTS.md`, `.claude/skills/`,
+   `.github/pull_request_template.md`, `.claude/settings.json` and the guides that
+   state these rules (this page, [coding-agents.md](coding-agents.md) and the
+   [fragment README](../changelog.d/README.md)) change only in a pull request of their
+   own that the owner asked for. A feature that needs a rule changed says so and waits.
+
+The placement rule covers `server/handlers.py` and `main.py`. All three agents write
+these files, so nobody can hold them. Keep new endpoint or command logic out of them:
+put it in a `server/*_api.py` module (the pattern of `intervention_api.py`,
+`ideas_api.py`, `participant_api.py` and `situation_api.py`) and register it in the
+dispatch. Fixes to existing handlers are fine.
 
 ## The status pull request
 
-Claude Code prepares it when the owner asks, normally within a working day of a merge.
-One status pull request may cover several merged pull requests.
+Claude Code prepares it when the owner asks, and does not open one unprompted. The
+owner normally asks within a working day of a merge. One status pull request may cover
+several merged pull requests.
 
-1. Run `python scripts/fold_changelog.py`. It moves every fragment into
+1. In a checkout with full history (`git fetch --unshallow origin main` in a cloud
+   session), run `python scripts/fold_changelog.py`. It moves every fragment into
    `docs/CHANGELOG.md`, newest first, deletes the fragments and prints their `Status:`
    lines.
 2. Apply each `Status:` line to the document it names. When a checklist status that
@@ -82,7 +91,7 @@ One status pull request may cover several merged pull requests.
 | Every pull request | Copilot when it opens, and Copilot again on the final commit |
 | Changes code | Plus one executing review by a different agent: Claude Code reviews Codex and Grok Bot; Codex reviews Claude Code |
 | Trips a one-way door, or touches spend limits, moderation, authentication or deployment | The final Copilot review at Max effort, the agent review, and the owner reads the irreversibility check |
-| Changes the working rules | An agent review and the owner. Copilot's review is not a check here, because it reads `AGENTS.md` from the pull request's own branch |
+| Changes the working rules | The same cross-agent review, and the owner's read. Copilot's review is not a check here, because it reads `AGENTS.md` from the pull request's own branch |
 
 - **Request the second Copilot review when marking the pull request ready.** Copilot
   reviews once unless asked again. In a 22-pull-request sample its one review covered
@@ -110,7 +119,7 @@ One status pull request may cover several merged pull requests.
 
 - Two open pull requests conflict in a file that is not on the list above, twice in a
   month. Add the file or split it.
-- The status pull request falls more than a week behind `main`.
+- The owner finds the status documents more than a week behind `main`.
 - Grok Bot's discovery of `AGENTS.md` fails the checks in
   [coding-agents.md](coding-agents.md).
 - GitHub changes how Copilot code review re-reviews, reads instructions or is priced.

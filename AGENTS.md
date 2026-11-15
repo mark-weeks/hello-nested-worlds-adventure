@@ -216,25 +216,33 @@ measurements behind them.
   and Claude Code takes integrity, safety and records. Where two concerns meet, the
   agent whose concern owns the server-side rule owns the pull request and the other
   reviews. An explicit assignment from the owner always wins.
-- **Five things have one writer at a time.** A pull request names the ones it holds.
+- **Four things have one writer at a time, and two files take no new logic.** A pull
+  request names the ones it holds. The earliest-opened pull request that names one
+  holds it, drafts included; a later one waits or asks the owner.
   1. *Status documents.* Feature pull requests do not edit `docs/CHANGELOG.md`,
      `docs/roadmap/README.md` or `docs/roadmap/beta-launch-checklist.md` (with
      `tests/test_beta_checklist_counts.py`). They add a changelog fragment (see
      "Verification and completion"). The status pull request, prepared by Claude Code
      when the owner asks, folds the fragments in and applies their `Status:` lines. In
-     `README.md` and the runbook a feature changes only what it makes untrue or newly
-     necessary; standing counts and what-has-shipped lines belong to the status pull
-     request.
+     `README.md` and the runbook a feature changes only the text it makes untrue or newly
+     necessary, except standing counts and what-has-shipped lines: those it records as
+     a `Status:` line even when it makes them untrue.
   2. *The client bundle.* One open pull request at a time changes `frontend/` and
-     `static/app/`, Codex's by default. Whoever changes `frontend/` commits the rebuild.
+     `static/app/`, whichever agent's concern it falls under. Whoever changes `frontend/`
+     commits the rebuild.
   3. *Migrations.* One open pull request at a time adds a migration. It also updates
      the migration set pinned in `scripts/verify_wheel.py` and its test, and renumbers
      on rebase.
-  4. *Working rules.* This file, `.claude/skills/` and the PR template change only in
-     a pull request of their own that the owner asked for, never inside a feature.
-  5. *`server/handlers.py` and `main.py`.* No new endpoint or command logic goes here:
-     a new endpoint lives in a `server/*_api.py` module and is only registered in the
-     dispatch. Fixes to existing handlers are fine.
+  4. *Working rules.* This file, `.claude/skills/`, the PR template,
+     `.claude/settings.json` and the guides that state these rules
+     (`docs/development/parallel-work.md`, `docs/development/coding-agents.md`,
+     `docs/changelog.d/README.md`) change only in a pull request of their own that the
+     owner asked for, never inside a feature.
+
+  `server/handlers.py` and `main.py` are written by all three agents and cannot be
+  held. They take no new endpoint or command logic: a new endpoint lives in a
+  `server/*_api.py` module and is only registered in the dispatch. Fixes to existing
+  handlers are fine.
 - **Review comes in tiers.** GitHub Copilot reviews every pull request when it opens
   and again on the final commit; the authoring agent requests that second review when
   it marks the pull request ready. A pull request that changes code also gets one
@@ -245,7 +253,7 @@ measurements behind them.
   request that trips a one-way door, or touches spend limits, moderation,
   authentication or deployment, has its final Copilot review requested at Max effort
   and waits for the owner to read the irreversibility check. A working-rules pull
-  request is checked by an agent review and the owner: Copilot reads this file from
+  request gets the same cross-agent review and the owner's read: Copilot reads this file from
   the pull request's own branch, so it would review such a change under the rules the
   change proposes. Copilot approvals stay off and never count toward merging.
 - **The authoring agent drives its own pull request.** On a pull request it opened, an
@@ -277,7 +285,7 @@ measurements behind them.
   behavior when applicable, and fix failures introduced by the change. Re-run affected
   checks after fixes; do not repeat a passed full suite without a changed basis.
 - Each change batch needs one measured CHANGELOG entry, written as a fragment file in
-  `docs/changelog.d/` named after the branch (the `changelog-entry` skill gives the
+  `docs/changelog.d/` named after the lowercased branch (the `changelog-entry` skill gives the
   format), with a `Status:` line for each status-document change the batch calls for.
   It does not edit `docs/CHANGELOG.md`: the status pull request folds fragments in with
   `scripts/fold_changelog.py` and writes no entry of its own. A pull request opened

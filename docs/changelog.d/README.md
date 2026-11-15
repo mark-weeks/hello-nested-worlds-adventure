@@ -13,8 +13,10 @@ and completion"); the entry format is the
 
 ## Writing a fragment
 
-Name the file after the branch, with slashes as hyphens: branch `codex/report-flow`
-writes `docs/changelog.d/codex-report-flow.md`.
+Name the file after the branch, lowercased, with slashes as hyphens: branch
+`codex/report-flow` writes `docs/changelog.d/codex-report-flow.md`. It goes directly
+in this directory, not in a subdirectory. If your branch has a generic name such as
+`patch-1`, put your GitHub login in front.
 
 ```text
 Section: Added
@@ -39,14 +41,18 @@ fragment fails its own pull request.
 
 ## Folding
 
-The status pull request, prepared by Claude Code when the owner asks, runs:
+The status pull request, prepared by Claude Code when the owner asks, runs this in a
+checkout with full history (`git fetch --unshallow origin main` in a cloud session):
 
 ```bash
 python scripts/fold_changelog.py
 ```
 
-It moves each fragment under the first `## [Unreleased]` heading of the changelog,
-newest first within its section, deletes the fragment, and prints the `Status:` lines.
+The order of entries comes from git: the time each fragment reached `main`, so a
+fragment merged later lands above one merged earlier whatever their file names. The
+script stops if it cannot read that history. It moves each fragment under the first
+`## [Unreleased]` heading of the changelog, newest first within its section, deletes
+the fragment, and prints the `Status:` lines.
 The status pull request then applies those lines by hand, updates
 `tests/test_beta_checklist_counts.py` when a pinned checklist status changes, restamps
 the roadmap index's verification line, and runs `./scripts/check.sh`. It writes no

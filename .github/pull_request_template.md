@@ -32,7 +32,8 @@
      the client bundle (frontend/ and static/app/), a migration, or the working rules.
      Confirm it leaves docs/CHANGELOG.md, docs/roadmap/README.md and
      docs/roadmap/beta-launch-checklist.md alone, or say that it is the status pull
-     request. Name the agent asked to review it and the review tier it falls in. -->
+     request. Name the review tier it falls in and the agent that reviews it under
+     the standing assignment. -->
 
 ## Verification
 

@@ -73,7 +73,7 @@ def main():
     print("\n== share of the merged pull requests that changed each file ==")
     touched = collections.Counter(path for pr in merged.values() for path in pr["files"])
     for path, count in touched.most_common(8):
-        print(f"  {count:3d} of {len(merged)}  {100 * count // len(merged):3d}%  {path}")
+        print(f"  {count:3d} of {len(merged)}  {round(100 * count / len(merged)):3d}%  {path}")
 
     print("\n== writers of selected files (merged pull requests) ==")
     for path in ("server/handlers.py", "main.py", "consciousness/runtime.py",
@@ -90,7 +90,7 @@ def main():
         layers.pop(None, None)
         total = sum(layers.values())
         print(f"  {agent:7s} " + "  ".join(
-            f"{name} {100 * layers[name] // total}%" for name in ("client", "runtime", "integrity")))
+            f"{name} {round(100 * layers[name] / total)}%" for name in ("client", "runtime", "integrity")))
 
     print("\n== layer replay: client / runtime / integrity, all 63 ==")
     code = own = single = 0

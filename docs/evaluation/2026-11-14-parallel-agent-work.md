@@ -11,8 +11,9 @@ defaults in [coding-agents.md](../development/coding-agents.md).*
 Pull requests from different agents collide in the status documents, not in the code.
 Of 60 pairs of pull requests from different agents that were open at the same time,
 all 60 changed `docs/CHANGELOG.md` and 9 shared any code or test file. A split by
-layer does not fit how the work is shaped, so the adopted rules assign work by concern
-and give five resources one writer at a time. Copilot already reviews nearly every
+layer does not fit how the work is shaped, so the adopted rules assign work by concern,
+give four resources one writer at a time, and keep new logic out of the two files all
+three agents write. Copilot already reviews nearly every
 pull request, precisely but once, and usually not the last commit.
 
 ## What was asked
@@ -23,8 +24,11 @@ Claude Code should run Opus or Fable, at what effort, and with ultracode on or o
 
 ## Data and method
 
-[`overlap.py`](2026-11-14-parallel-agent-work/overlap.py) recomputes every count in
-sections 1 to 4 from two snapshots and needs neither network nor git history:
+[`overlap.py`](2026-11-14-parallel-agent-work/overlap.py) recomputes the tables and the
+pair, replay and sample statistics of sections 1 to 4 from two snapshots, and needs
+neither network nor git history. The trial merges, the migration #172 holds, Copilot's
+presence on 62 of 63 pull requests and the Max-effort details were read from git and
+GitHub directly and are not in the snapshots:
 
 ```bash
 python docs/evaluation/2026-11-14-parallel-agent-work/overlap.py
@@ -55,11 +59,11 @@ Share of the 60 merged pull requests that changed each file:
 | File | Pull requests | Share |
 |---|---|---|
 | `docs/CHANGELOG.md` | 60 | 100% |
-| `README.md` | 25 | 41% |
-| `docs/roadmap/README.md` | 22 | 36% |
+| `README.md` | 25 | 42% |
+| `docs/roadmap/README.md` | 22 | 37% |
 | `server/handlers.py` | 21 | 35% |
 | `docs/infrastructure/fly-deployment.md` | 20 | 33% |
-| `docs/roadmap/beta-launch-checklist.md` | 19 | 31% |
+| `docs/roadmap/beta-launch-checklist.md` | 19 | 32% |
 | `main.py` | 18 | 30% |
 
 Sixty pairs of pull requests from different agents were open at the same time. All 60
@@ -103,7 +107,7 @@ Each agent has a centre of gravity, by concern more than by directory.
 | `consciousness/honesty.py` | 2 | 0 | 0 |
 | `persistence/sanctions.py` | 2 | 0 | 0 |
 
-By layered file changes, Codex is 60% client, Grok Bot 67% runtime and Claude Code 41%
+By layered file changes, Codex is 61% client, Grok Bot 67% runtime and Claude Code 42%
 integrity and 38% client. Grok Bot has opened no pull request since #153 merged on
 2026-11-07; #172, on model spend, is Codex's.
 
@@ -192,7 +196,7 @@ that cap is what exhausted the limit.
 | Rule | Where it lives |
 |---|---|
 | Work is assigned by concern; a feature stays one pull request | `AGENTS.md`, "Working in parallel" |
-| Five single-writer resources | `AGENTS.md`; procedure in the parallel-work guide |
+| Four single-writer resources, and no new endpoint logic in `server/handlers.py` or `main.py` | `AGENTS.md`; procedure in the parallel-work guide |
 | Changelog fragments and the status pull request | `AGENTS.md`, the `changelog-entry` skill, `docs/changelog.d/README.md`, `scripts/fold_changelog.py` |
 | Review tiers, the standing cross-agent review, and what an authoring agent may do on its own pull request | `AGENTS.md`, "Working in parallel" |
 | Claude Code on Opus 5.5 at high effort by default, Fable 5.2 for one-way-door work, ultracode off | `coding-agents.md`, `.claude/settings.json` |
