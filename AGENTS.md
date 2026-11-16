@@ -10,6 +10,34 @@ covenants below define correctness across agents and models. Use the referenced 
 and decisions for the area being changed; unrelated work does not require a full
 roadmap, CHANGELOG, or ADR review.
 
+## Current delivery priority
+
+The [PR #175 owner comment](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/175#issuecomment-6896203516)
+records this priority's scope and end condition. The closed reason list and the
+deferral of new features and abstractions come from the owner's separate
+2026-11-15 decision record (Version 4), not published in the repository.
+It guides only work an agent chooses for itself. An owner request
+in the current task is always sufficient reason for that work and is not subject
+to this selection filter.
+
+Until the first cohort has entered, choose autonomous work that serves an
+applicable entry requirement ([checklist](docs/roadmap/beta-launch-checklist.md#admission-gate),
+Watch or Cohort column for the selected scope), a problem seen with real players,
+a concrete security defect, or owner direction. This rule adopts no new entry gate.
+New features and abstractions wait until the first cohort has entered unless the
+owner directs them.
+When an operator decision or account input is missing, prepare the smallest
+reviewable handoff with its exact missing input and finish independent work.
+
+This priority neither overrides recorded owner decisions nor authorizes actions
+those decisions reserve. Map/scene consolidation remains owner-directed; this
+section does not choose or retire a client.
+
+The priority ends only when the owner records in `docs/roadmap/README.md` that
+the 8–12 person cohort has started. The disposable newcomer watch does not end it.
+After that record, normal task scope and the owner's recorded priorities govern
+agent-chosen work.
+
 ## World covenants (the rules that never made it into a spec)
 
 These are house taste, encoded once at a point of use and easy to break by a

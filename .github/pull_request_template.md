@@ -4,6 +4,10 @@
 ## Summary
 
 <!-- What changed and why, with measured evidence — quantify surprises. -->
+<!-- Until the first cohort has entered (AGENTS.md, "Current delivery priority"),
+     name the entry requirement, problem seen with real players, security
+     defect or owner direction served by work the agent chose for itself. An owner
+     request in the current task is always sufficient reason. -->
 
 ## Agreed scope and contribution
 

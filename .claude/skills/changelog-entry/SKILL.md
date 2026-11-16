@@ -62,6 +62,10 @@ indented two spaces:
 
 - One entry per change batch — never several small bullets for one PR,
   never one bullet spanning two PRs.
+- Until the first cohort has entered (AGENTS.md, "Current delivery priority"),
+  name the entry requirement, problem seen with real players, security
+  defect or owner direction that work chosen by the agent serves. An owner request
+  in the current task is sufficient reason; this is not a new approval condition.
 - A substantial audit or pre-mortem that drives the batch lands as
   `docs/evaluation/YYYY-MM-DD-<name>.md` in the same PR, and the entry
   points at it.
