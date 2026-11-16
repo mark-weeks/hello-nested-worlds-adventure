@@ -1,5 +1,45 @@
 # ADR-005: Launch-Window Operations Policy
 
+**2026-11-15 study-entry amendment (owner-decided):** The owner
+[adopted eight entry requirements for the newcomer watch](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/173#issuecomment-6896202913)
+and directed #173 to contain study-admission work only. This amendment is limited
+to entry requirements; it does not retire the explorer, redirect `/`, replace the
+accepted client posture, or approve deployment/recruitment. Both clients remain.
+
+**Context:** Study outcomes such as curiosity, puzzle interest and seven-day return
+cannot be prerequisites to admit the participants needed to measure them. A short,
+facilitated disposable watch has a narrower operating scope than the continuing
+8–12 person cohort.
+
+**Decision:** Use the [Watch column of the eight entry requirements](../roadmap/beta-launch-checklist.md#admission-gate)
+for the 2–3 person newcomer watch, preserving applicable consent, access, safe shared
+play, provider/spend and data-retention controls. Participants are **18 or older**,
+asked affirmatively at sign-up. An AI-off watch disables external routes through
+its frozen model policy, never through the moderation off-switch; unknown shared
+text must retain the existing safe hold. A silent watch establishes no model-quality
+result. The cohort starts only after the watch and its outcomes/fixes are recorded,
+and must additionally meet its cohort-specific requirements and continuing-world
+recovery/operation proof. The owner's version-4 decision page, supplied in the
+working chat on 2026-11-15, requires a report to reach a person within 24 hours,
+a same-day path for threats or doxxing, and someone named on duty each day; an
+exact, labelled cohort release that passed every automated test; and every
+full-checklist item to apply unless the owner excuses it in writing. Stage labels
+and the narrower watch scope do not supply such an exception.
+
+**Trade-offs accepted:** Historical inventory statuses remain evidence, not a blanket
+watch veto or a claim that entry checks passed. Measurement and later-improvement
+rows remain visible. No continuing-world recovery obligation is waived by a
+successful disposable watch, and no temporary-world reset promise is silently
+converted into permanence.
+
+**Revisit when:** The admitted venue, devices, audience, enabled providers or world
+status changes, or observed play identifies a safety/usability defect that prevents
+the next session. Existing one-way-door decisions retain their separate approvals.
+
+**Rejected alternatives:** Require study outcomes before study entry; treat a passing
+local test as hosted recovery proof; use `NESTED_WORLDS_DISABLE_MODERATION` as an
+AI-off switch; bundle client consolidation or agent-rule changes with this amendment.
+
 **2026-11-04 pilot client revision (owner-approved):** The recommendation in
 the preceding message was: "I’d build one coherent first-visit-and-return
 experience next, using `/app` as the pilot client." Its bounded scope was

@@ -10,6 +10,28 @@ decisions are open, and which plans are archived. Update it whenever a plan
 ships, a decision is ratified, or a document moves to
 [`docs/archive/`](../archive/README.md).
 
+## Study admission — owner decision, 2026-11-15
+
+The [PR #173 owner decision](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/173#issuecomment-6896202913)
+adopts the [eight Watch entry requirements](beta-launch-checklist.md#admission-gate).
+Study measurements and later improvements remain distinct. The 8–12 person cohort
+starts only after a recorded newcomer watch and its additional entry requirements;
+a watch is not itself a cohort start or continuing-world recovery clearance.
+S4 is decided as 18 or older, asked at sign-up. AI-off is controlled by model-policy
+route permissions, preserving moderation's safe holds.
+
+The owner supplied the three cohort tightenings in version 4 of the decision page
+in the working chat: a report reaches a person within 24 hours, a same-day path
+for threats or doxxing and named daily duty coverage; an exact labelled release
+that passed every automated test; and every full-checklist item applying unless
+the owner excuses it in writing. The narrower watch and the inventory stage labels
+do not supply cohort exceptions.
+
+This records admission direction, not completion of a watch or the start of a
+cohort. No deployment, recruitment or hosted verification is established here.
+The owner rejected explorer retirement in #173; the current map and scene client
+posture remains, and any consolidation belongs to a later owner-directed batch.
+
 ## Where the project stands
 
 - **Not deployed.** The hosted world at enfolded.world has never run, the
