@@ -564,7 +564,12 @@ def cmd_restore(args):
         if answer != "restore":
             print("Aborted — nothing was changed.")
             return
-    counts = persistence.restore_from(source)
+    deletion_record = getattr(args, "deletions", None)
+    try:
+        counts = persistence.restore_from(source, deletions=Path(deletion_record).expanduser() if deletion_record else None)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     print(f"Restored from {source}")
     print(f"  chronicle events: {counts['events_before']} -> "
           f"{counts['events_after']}")
@@ -1005,6 +1010,54 @@ def build_parser() -> argparse.ArgumentParser:
                                 help="Operator policy file to validate locally")
     p_model_policy.set_defaults(func=cmd_model_policy)
 
+    from persistence import community_cli
+
+    p_community_policy = sub.add_parser(
+        "community-policy", help="Check private chat/report policy offline")
+    p_community_policy.add_argument("--check", action="store_true", required=True,
+                                  help="Validate without activating collection")
+    p_community_policy.add_argument("--policy", required=True, metavar="PATH",
+                                  help="Operator community policy file")
+    p_community_policy.set_defaults(func=community_cli.cmd_community_policy)
+
+    p_reports = sub.add_parser("report", help="Operator-only private report queue")
+    report_sub = p_reports.add_subparsers(dest="report_action", required=True)
+    p_report_list = report_sub.add_parser("list", help="List retained report summaries")
+    p_report_list.add_argument("--state", choices=("open", "acknowledged", "closed", "all"),
+                               default="open", help="Report state to show (default open)")
+    p_report_list.add_argument("--limit", type=_positive_int, default=50,
+                               help="Maximum summaries to show (default 50)")
+    p_report_list.set_defaults(func=community_cli.cmd_report)
+    p_report_show = report_sub.add_parser("show", help="Inspect one retained private report")
+    p_report_show.add_argument("report_id", help="Opaque report receipt")
+    p_report_show.set_defaults(func=community_cli.cmd_report)
+    for action in ("acknowledge", "close"):
+        triage = report_sub.add_parser(action, help=f"{action.capitalize()} a retained report")
+        triage.add_argument("report_id", help="Opaque report receipt")
+        triage.add_argument("--operator", required=True, help="Operator label for the private action log")
+        triage.add_argument("--note", default="",
+                            help="Private note; '-' reads standard input to avoid shell history")
+        triage.set_defaults(func=community_cli.cmd_report)
+    p_community_status = sub.add_parser(
+        "community-status", help="Show private collection policy and retained queue counts")
+    p_community_status.set_defaults(func=community_cli.cmd_community_status)
+    p_community_prune = sub.add_parser(
+        "community-prune", help="Delete expired private community records")
+    p_community_prune.set_defaults(func=community_cli.cmd_community_prune)
+
+    p_chat_log = sub.add_parser("chat-log", help="Operator-only private chat deletion")
+    chat_sub = p_chat_log.add_subparsers(dest="chat_action", required=True)
+    p_chat_delete = chat_sub.add_parser("delete", help="Delete a line unless an open report holds it")
+    p_chat_delete.add_argument("evidence_ref", help="Opaque chat evidence reference")
+    p_chat_delete.set_defaults(func=community_cli.delete_chat)
+    p_chat_tester = chat_sub.add_parser("delete-tester", help="Delete one tester's eligible private messages")
+    p_chat_tester.add_argument("tester", help="The tester's registered name")
+    p_chat_tester.set_defaults(func=community_cli.delete_chat)
+    for action in ("export-deletions", "replay-deletions"):
+        ledger = chat_sub.add_parser(action, help=f"{action.split('-')[0].capitalize()} text-free deletion records")
+        ledger.add_argument("path", metavar="PATH", help="Operator-held deletion ledger file")
+        ledger.set_defaults(func=community_cli.deletion_ledger)
+
     p_models = sub.add_parser(
         "models",
         help="Show the resolved text provider and model id for each task",
@@ -1051,6 +1104,8 @@ def build_parser() -> argparse.ArgumentParser:
                            help="Backup file to restore (made by `backup`)")
     p_restore.add_argument("--yes", action="store_true",
                            help="Skip the interactive confirmation")
+    p_restore.add_argument("--deletions", metavar="PATH",
+                           help="Required deletion export for every private-chat backup")
     p_restore.set_defaults(func=cmd_restore)
 
     p_redact = sub.add_parser(

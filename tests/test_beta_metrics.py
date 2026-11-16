@@ -46,6 +46,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 
 import pytest
@@ -54,9 +55,9 @@ import persistence
 from causality import EventKind
 from multiverse import store
 from multiverse.situation import NODES
-from persistence import participants
+from persistence import community, participants
 from puzzles.engine import PuzzleEngine
-from server import heartbeat, observability
+from server import community_policy, heartbeat, observability
 from tests.test_server_protocol import _client_frame
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -131,6 +132,12 @@ class _World:
         """A per-user key as `main.py invite mint` makes one."""
         key = "nw_" + secrets.token_hex(16)
         persistence.mint_invite_key(key, name)
+        status, notice = self.request("/participation", key)
+        assert status == 200
+        if notice["required"]:
+            assert self.request("/participation", key, {
+                "accepted": True, "age_confirmed": True, "revision": notice["revision"],
+            })[0] == 200
         return key
 
     def request(self, path: str, key: str, body: dict | None = None):
@@ -261,7 +268,15 @@ def _identity(key: str) -> str:
 
 
 @pytest.fixture
-def world(monkeypatch):
+def world(monkeypatch, tmp_path):
+    declaration = tmp_path / "community-policy.json"
+    declaration.write_text(json.dumps({
+        "schema_version": 1, "policy_id": "synthetic-pilot-test",
+        "chat": {"enabled": True, "retention_mode": "until_deleted"}, "reports": {"enabled": False},
+        "contact": "Synthetic fixture operator", "backup_notice": "Synthetic fixture; no production approval.",
+    }))
+    community_policy.reset_for_tests()
+    monkeypatch.setenv(community_policy.POLICY_ENV, str(declaration))
     monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", str(SEED))
     monkeypatch.setenv("NESTED_WORLDS_DISABLE_AI", "1")
     monkeypatch.setenv("NESTED_WORLDS_DISABLE_IMAGES", "1")
@@ -279,10 +294,45 @@ def world(monkeypatch):
             client.close()
         server.shutdown()
         server.server_close()
+        community_policy.reset_for_tests()
 
 
 def _metrics(**kwargs) -> dict:
     return beta_metrics.compute_metrics(persistence._DB_PATH, **kwargs)
+
+
+def test_private_counts_include_until_deleted_and_pending_evidence_then_follow_deletion(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(community, "utc_now", lambda: now - timedelta(days=10))
+    sender, reporter = "nw_" + "a" * 32, "nw_" + "b" * 32
+    persistence.mint_invite_key(sender, "Counted tester")
+    persistence.mint_invite_key(reporter, "Other tester")
+    options = dict(user_key=sender, session_id=uuid.uuid4().hex, world_seed=SEED,
+                   node_name="Synthetic room", text="Private text is never needed by metrics.",
+                   display_name="Counted tester", retention_days=None, retention_mode="until_deleted",
+                   policy_snapshot='{"chat":{"enabled":true,"retention_mode":"until_deleted"}}')
+    eligible = community.append_chat(**options)
+    held = community.append_chat(**options)
+    retained = community.append_chat(**options)
+    case = community.submit_report(user_key=reporter, request_id=uuid.uuid4().hex,
+        fingerprint="a" * 64, world_seed=SEED, target_id=None,
+        evidence_ref=held["evidence_ref"], reason="other", detail="Fixture complaint",
+        retention_days=3, policy_snapshot='{"fixture":true}')
+    monkeypatch.setattr(community, "utc_now", lambda: now)
+    assert _metrics(days=30)["chat_lines"] == 3
+    community.delete_chat_message(eligible["evidence_ref"])
+    assert _metrics(days=30)["chat_lines"] == 2
+    assert community.delete_chat_message(held["evidence_ref"])["held"] == 1
+    assert _metrics(days=30)["chat_lines"] == 2
+    community.close_report(case["report_id"], operator="Fixture")
+    community.delete_chat_message(held["evidence_ref"])
+    assert _metrics(days=30)["chat_lines"] == 1
+    community.delete_chat_message(retained["evidence_ref"])
+    assert _metrics(days=30)["chat_lines"] == 0
+    with persistence._connection() as conn:
+        assert conn.execute("SELECT count(*) FROM private_chat_messages").fetchone()[0] == 0
 
 
 def _chronicle(identity: str, rows: list[tuple[str, str, str]]) -> None:
@@ -763,6 +813,7 @@ class TestBetaMetrics:
         first.wait_for(lambda f: f["type"] == "welcome")
         first.send({"type": "chat", "text": "before the rotation"})
         first.wait_for(lambda f: f["type"] == "chat")
+        world.act(old, NODES["instrument"], "rotation-real-action")
         _settle(world)
 
         new = "nw_" + secrets.token_hex(16)
@@ -784,11 +835,11 @@ class TestBetaMetrics:
 
     def test_a_rotated_key_returning_the_next_day_is_one_returning_visitor(self, world):
         old = world.mint("Quorra")
-        # Yesterday's visit under the first key, a join and one line of
-        # chat: a return needs an action on each day (the clock cannot be
-        # moved, so the rows are written with yesterday's time).
+        # Yesterday's visit and place exchange under the first key. Private
+        # chat is not a permanent action/day counter. Historical fixture rows
+        # stand in for yesterday because the live clock cannot be moved.
         with persistence._connect() as conn:
-            for kind in ("PLAYER_JOIN", "PLAYER_CHAT"):
+            for kind in ("PLAYER_JOIN", "PLAYER_SPEAK"):
                 conn.execute(
                     """INSERT INTO world_mutations
                        (world_seed, node_name, mutation_type, player_name, data,
@@ -802,6 +853,7 @@ class TestBetaMetrics:
         today.wait_for(lambda f: f["type"] == "welcome")
         today.send({"type": "chat", "text": "back again"})
         today.wait_for(lambda f: f["type"] == "chat")
+        world.act(new, NODES["instrument"], "return-real-action")
         _settle(world)
 
         m = _metrics(days=7)

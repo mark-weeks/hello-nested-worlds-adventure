@@ -7,9 +7,11 @@ go, everything load-bearing stays.
 from __future__ import annotations
 
 import sys
+import uuid
 from pathlib import Path
 
 import persistence
+from persistence import community, history
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import beta_metrics  # noqa: E402
@@ -18,6 +20,13 @@ import beta_metrics  # noqa: E402
 def _chat(seed, node, player, text, identity):
     persistence.record_mutation(seed, node, "PLAYER_CHAT", player,
                                 {"text": text}, actor_identity=identity)
+
+
+def _private_chat(seed, node, player, text):
+    community.append_chat(user_key=None, session_id=str(uuid.uuid4()), world_seed=seed,
+                          node_name=node, text=text, display_name=player,
+                          retention_days=None, retention_mode="until_deleted",
+                          policy_snapshot='{"chat":{"enabled":true,"retention_mode":"until_deleted"}}')
 
 
 class TestRedaction:
@@ -33,7 +42,12 @@ class TestRedaction:
         assert summary["fields"] == ["text"]
         assert summary["name_scrubbed"] is False
 
-        rows = persistence.get_mutations(42, limit=10)
+        # Operator redaction still sees the original legacy rows; normal
+        # projections continue to hide them even after their words are scrubbed.
+        with persistence._connection() as conn:
+            rows = [history.decode(row) for row in conn.execute(
+                f"SELECT {history.FIELDS} FROM world_mutations WHERE world_seed=42 ORDER BY id DESC")]
+        assert persistence.get_mutations(42, limit=10) == []
         bad = [r for r in rows if r["player"] == "Mallory"][0]
         # The words are gone; the event survives with full shape.
         assert bad["data"]["text"] == "[redacted]"
@@ -94,6 +108,7 @@ class TestRedaction:
 class TestBetaMetrics:
     def test_counts_humans_and_excludes_the_cast(self):
         _chat(42, "Vault-11", "Ada", "hello", "bbbb2222")
+        _private_chat(42, "Vault-11", "Ada", "retained private hello")
         persistence.record_mutation(
             42, "Vault-11", "PLAYER_SPEAK", "Ada",
             {"message": "who are you", "reply": "a room"},
@@ -113,7 +128,8 @@ class TestBetaMetrics:
         assert m["chronicle_total_rows"] == 4  # ...but the chronicle has it
 
     def test_returning_visitor_needs_two_distinct_days(self):
-        _chat(42, "Vault-11", "Ada", "day two", "bbbb2222")
+        persistence.record_mutation(42, "Vault-11", "PLAYER_SPEAK", "Ada",
+                                    {"message": "day two"}, actor_identity="bbbb2222")
         m = beta_metrics.compute_metrics(persistence._DB_PATH, days=7)
         assert m["returning_visitors"] == 0
 
@@ -131,8 +147,10 @@ class TestBetaMetrics:
         assert m["return_rate"] == 1.0
 
     def test_seed_scoping_and_render(self):
-        _chat(42, "Vault-11", "Ada", "here", "bbbb2222")
-        _chat(7, "Elsewhere-1", "Ben", "there", "dddd4444")
+        persistence.record_mutation(42, "Vault-11", "PLAYER_SPEAK", "Ada",
+                                    {"message": "here"}, actor_identity="bbbb2222")
+        persistence.record_mutation(7, "Elsewhere-1", "PLAYER_SPEAK", "Ben",
+                                    {"message": "there"}, actor_identity="dddd4444")
         m42 = beta_metrics.compute_metrics(persistence._DB_PATH, days=7,
                                            seed=42)
         assert m42["visitors"] == 1

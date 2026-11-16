@@ -96,7 +96,7 @@ def test_real_websockets_client_completes_the_opening_handshake(srv):
         assert any(p["name"] == "Ada" for p in welcome["players"])
 
 
-def test_masked_client_text_frame_round_trips_as_a_broadcast(srv):
+def test_masked_client_text_frame_round_trips_as_a_broadcast(srv, community_collection):
     """A masked client frame is accepted and the message round-trips.
 
     ``websockets`` masks client frames per §5.1; the server rejects UNmasked

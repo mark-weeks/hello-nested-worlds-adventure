@@ -52,6 +52,8 @@ _CLOSE_GRACE_SEC = 1.0
 # in the input. The ref is never broadcast or stored. It must be a short
 # string; any other value is not echoed.
 _CHAT_REF_MAX = 64
+_CHAT_DISABLED = "Chat is unavailable in this world."
+_CHAT_UNAVAILABLE = "Your message could not be delivered. Please try again later."
 
 
 def _chat_declined(text: str, message: dict) -> dict:
@@ -426,7 +428,7 @@ def handle_websocket(
         # Once a frame starts, protocol._FRAME_DEADLINE_SEC bounds the rest
         # of it; a frame past that is a ProtocolError (close 1002).
         sock.settimeout(60)
-        session_id = uuid.uuid4().hex[:8]
+        session_id = uuid.uuid4().hex
         ws_identity = actor_identity(ws_key, name)
 
         # A reconnect resumes at its validated stored position. Do not re-check
@@ -621,7 +623,7 @@ def handle_websocket(
                 elif message_type == "chat":
                     if not chat_bucket.allow():
                         continue
-                    # Fresh: a chat writes a chronicle row and broadcasts.
+                    # Fresh: a chat writes the private operator log and broadcasts.
                     if not still_authorized(fresh=True):
                         break
                     # Same rule as /speak: a non-string is not a line. Do not
@@ -633,7 +635,27 @@ def handle_websocket(
                             "A message is required.", message))
                         continue
                     text = raw_text.strip()[:256]
+                    try:
+                        text.encode("utf-8")
+                    except UnicodeError:
+                        player.send(_chat_declined("A valid message is required.", message))
+                        continue
+                    if "\x00" in text:
+                        player.send(_chat_declined("A valid message is required.", message))
+                        continue
                     if text:
+                        from persistence import community
+                        from server import community_policy
+                        try:
+                            # A disabled collection surface must not send a
+                            # draft to a classifier, even when models are live.
+                            available = community_policy.chat_enabled()
+                        except Exception as exc:
+                            logger.error("Private chat unavailable (%s)", type(exc).__name__)
+                            available = False
+                        if not available:
+                            player.send(_chat_declined(_CHAT_DISABLED, message))
+                            continue
                         verdict = moderation.screen(
                             text, user_key=ws_key or None, surface="chat")
                         if not verdict.allowed:
@@ -646,23 +668,49 @@ def handle_websocket(
                         if not still_authorized(fresh=True):
                             break
                     if text:
+                        try:
+                            if not community_policy.chat_enabled():
+                                player.send(_chat_declined(_CHAT_DISABLED, message))
+                                continue
+                            declared = community_policy.current()
+                        except Exception as exc:
+                            logger.error("Private chat unavailable (%s)", type(exc).__name__)
+                            player.send(_chat_declined(_CHAT_DISABLED, message))
+                            continue
+                        try:
+                            stored = community.append_chat(
+                                user_key=ws_key if credentialed else None,
+                                session_id=session_id, world_seed=seed,
+                                node_name=player.current_node or root_name,
+                                text=text, display_name=name,
+                                retention_days=declared.chat_days,
+                                retention_mode=declared.chat_retention_mode,
+                                policy_snapshot=declared.snapshot_json,
+                            )
+                        except participants.Unauthorized:
+                            session.close(CLOSE_POLICY_VIOLATION)
+                            break
+                        except community.CommunityError:
+                            player.send(_chat_declined("A valid message is required.", message))
+                            continue
+                        except Exception as exc:
+                            # A failed commit never becomes an ephemeral line
+                            # or a permanent-history fallback. The caller keeps
+                            # its own draft through its private correlation ref.
+                            logger.error("Private chat unavailable (%s)", type(exc).__name__)
+                            player.send(_chat_declined(_CHAT_UNAVAILABLE, message))
+                            continue
                         broadcast(
                             room,
                             {
                                 "type": "chat",
-                                "name": name,
+                                "name": stored["name"],
                                 "text": text,
                                 "session_id": session_id,
-                                "participant_id": participant_id,
+                                "participant_id": stored["participant_id"],
+                                "evidence_ref": stored["evidence_ref"],
+                                "at": stored["at"],
                             },
-                        )
-                        persistence.record_mutation(
-                            seed,
-                            player.current_node or root_name,
-                            "PLAYER_CHAT",
-                            name,
-                            {"text": text},
-                            actor_identity=ws_identity,
                         )
                 elif message_type == "ping":
                     player.send({"type": "pong"})

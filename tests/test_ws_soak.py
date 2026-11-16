@@ -13,10 +13,12 @@ import time
 import pytest
 
 import persistence
-from persistence import participation as consents
+from persistence import community, participation as consents
 from multiverse import store
 from scripts import ws_soak
-from server import _Handler, _ThreadedServer, guard, participation, websocket
+from server import _Handler, _ThreadedServer, community_policy, guard, participation, websocket
+
+pytestmark = pytest.mark.usefixtures("community_collection")
 
 
 @contextmanager
@@ -35,7 +37,7 @@ def running_server(monkeypatch, *, clients=3, tls=None, temporary=True,
     keys = ["nw_" + f"{i + 1:032x}" for i in range(clients)]
     for i, key in enumerate(keys):
         persistence.mint_invite_key(key, "Check " + ws_soak._letters(i))
-    if temporary and accept:
+    if participation.required() and accept:
         current = participation.notice()
         for key in keys:
             consents.accept(key, current["revision"], participation.snapshot(current))
@@ -93,14 +95,17 @@ def test_authenticated_twelve_client_cohort_uses_world_root_and_measures_broadca
     assert summary["chat_deliveries_missing"] == 0
     assert summary["chat_broadcast_ms"]["p95"] >= 0
     assert summary["application_ping_rtt_ms"]["p95"] >= 0
-    assert requests[:2] == [("/participation", False), ("/world?depth=2", True)]
+    assert requests[:3] == [("/participation", False), ("/community", False), ("/world?depth=2", True)]
     assert len([path for path, _ in requests if path.startswith("/ws?")]) == 12
-    assert all(authenticated for path, authenticated in requests if path != "/participation")
+    assert all(authenticated for path, authenticated in requests if path not in ("/participation", "/community"))
     assert all(key not in path for path, _ in requests for key in keys)
     root = store.root_name(382)
     rows = persistence.get_mutations(382, limit=1000)
     assert sum(row["type"] == "PLAYER_JOIN" for row in rows) == 12
-    assert sum(row["type"] == "PLAYER_CHAT" for row in rows) == 12
+    with persistence._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM world_mutations WHERE mutation_type='PLAYER_CHAT'").fetchone()[0] == 0
+        assert conn.execute("""SELECT COUNT(*),COUNT(DISTINCT evidence_ref),COUNT(DISTINCT participant_id)
+            FROM private_chat_messages WHERE world_seed=382""").fetchone() == (12, 12, 12)
     assert {row["node"] for row in rows if row["type"] == "PLAYER_MOVE"} == {root}
 
 
@@ -174,6 +179,58 @@ def test_no_chat_mode_needs_only_moves_and_pongs(monkeypatch):
     assert summary["world_status"] == "temporary"
     assert summary["chat_broadcast_ms"] is None
     assert summary["application_ping_rtt_ms"] is not None
+
+
+def test_missing_community_policy_requires_no_chat_before_world_or_socket(monkeypatch):
+    monkeypatch.delenv(community_policy.POLICY_ENV)
+    community_policy.reset_for_tests()
+    with running_server(monkeypatch, clients=2, birth=False) as (url, keys, requests):
+        with pytest.raises(ws_soak.ProbeError, match="Chat is disabled by community policy.*--no-chat"):
+            ws_soak.run_probe(quick_config(url, 2), keys)
+        assert requests == [("/participation", False), ("/community", False)]
+        assert not persistence.world_is_born(382)
+        assert persistence.get_mutations(382) == []
+        summary = ws_soak.run_probe(quick_config(url, 2, chat=False), keys)
+    assert summary["passed"] is True
+    assert summary["chat_lines_sent"] == 0
+    with persistence._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM private_chat_messages").fetchone()[0] == 0
+
+
+def test_chat_killed_after_preflight_is_diagnosed_as_policy_not_moderation(monkeypatch):
+    preflight = ws_soak._community_preflight
+
+    def kill_after_preflight(origin, timeout, chat):
+        preflight(origin, timeout, chat)
+        monkeypatch.setenv(community_policy.DISABLE_CHAT_ENV, "1")
+
+    monkeypatch.setattr(ws_soak, "_community_preflight", kill_after_preflight)
+    with running_server(monkeypatch, clients=1) as (url, keys, _):
+        summary = ws_soak.run_probe(quick_config(url, 1), keys)
+    assert summary["passed"] is False
+    assert summary["failures"] == [{"client": 1, "reason": "Chat was disabled by community policy during the rehearsal"}]
+
+
+def test_private_chat_log_failure_is_diagnosed_separately_from_moderation_and_policy(monkeypatch):
+    def unavailable(**_kwargs):
+        error = community.CommunityUnavailable()
+        error.args = ("private storage detail that must not reach probe output",)
+        raise error
+
+    monkeypatch.setattr(community, "append_chat", unavailable)
+    with running_server(monkeypatch, clients=1) as (url, keys, _):
+        summary = ws_soak.run_probe(quick_config(url, 1), keys)
+    assert summary["passed"] is False
+    assert summary["accepted"] == 1
+    assert summary["failures"] == [{
+        "client": 1,
+        "reason": "Private chat log storage was unavailable during the rehearsal",
+    }]
+    assert "private storage detail" not in json.dumps(summary)
+    assert keys[0] not in json.dumps(summary)
+    with persistence._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM private_chat_messages").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM world_mutations WHERE mutation_type='PLAYER_CHAT'").fetchone()[0] == 0
 
 
 def test_later_missing_move_and_pong_fail_after_a_successful_first_round(monkeypatch):
@@ -280,20 +337,22 @@ def test_explicit_permanent_override_with_no_chat_still_checks_metadata(monkeypa
     assert summary["chat_lines_sent"] == 0
     assert requests[0] == ("/participation", False)
     assert not any(row["type"] == "PLAYER_CHAT" for row in persistence.get_mutations(382))
+    with persistence._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM private_chat_messages").fetchone()[0] == 0
 
 
 def test_ready_temporary_metadata_does_not_auto_accept_or_bypass_a_bad_key(monkeypatch):
     with running_server(monkeypatch, clients=1, accept=False, birth=False) as (url, keys, requests):
         with pytest.raises(ws_soak.ProbeError, match="HTTP 428"):
             ws_soak.run_probe(quick_config(url, 1), keys)
-        assert requests == [("/participation", False), ("/world?depth=2", True)]
+        assert requests == [("/participation", False), ("/community", False), ("/world?depth=2", True)]
         assert not consents.accepted(keys[0], participation.notice()["revision"])
         assert not persistence.world_is_born(382)
         assert persistence.get_mutations(382) == []
         requests.clear()
         with pytest.raises(ws_soak.ProbeError, match="HTTP 403"):
             ws_soak.run_probe(quick_config(url, 1), ["invalid-key"])
-        assert requests == [("/participation", False), ("/world?depth=2", False)]
+        assert requests == [("/participation", False), ("/community", False), ("/world?depth=2", False)]
         assert not persistence.world_is_born(382)
         assert persistence.get_mutations(382) == []
 
@@ -449,7 +508,7 @@ def test_https_world_discovery_and_wss_use_verified_tls(monkeypatch, certificate
     assert summary["passed"] is True
     assert summary["chat_deliveries"] == 4
     assert requests[0] == ("/participation", False)
-    assert all(authenticated for path, authenticated in requests if path != "/participation")
+    assert all(authenticated for path, authenticated in requests if path not in ("/participation", "/community"))
 
 
 def test_an_untrusted_tls_certificate_is_refused(monkeypatch, certificate):

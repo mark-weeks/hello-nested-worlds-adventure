@@ -5,6 +5,7 @@ from multiverse.history import data_of, narrate
 
 
 FIELDS = "id, node_name, mutation_type, player_name, data, recorded_at, delta, node_version"
+PUBLIC_HISTORY = "mutation_type <> 'PLAYER_CHAT'"
 
 
 def decode(row):
@@ -18,6 +19,9 @@ def positive_id(value):
 
 
 def project(conn, seed, entries):
+    # Callers filter in SQL before their limits. Also keep direct internal
+    # projections from presenting an old chat row supplied by a caller.
+    entries = [entry for entry in entries if entry.get("type") != "PLAYER_CHAT"]
     # Public endpoints page at <=200. Chunk larger internal reads rather than
     # exceeding SQLite's parameter limit. Count/style consumers skip projection.
     for offset in range(0, len(entries), 200):
@@ -74,7 +78,7 @@ def _project_page(conn, seed, entries):
         placeholders = ",".join("?" for _ in source_ids)
         rows = conn.execute(
             f"SELECT {FIELDS} FROM world_mutations WHERE world_seed=? "
-            f"AND id IN ({placeholders})", (seed, *source_ids)).fetchall()
+            f"AND {PUBLIC_HISTORY} AND id IN ({placeholders})", (seed, *source_ids)).fetchall()
         sources = {r[0]: decode(r) for r in rows}
     for entry, source_id in candidates:
         source = sources.get(source_id)

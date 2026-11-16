@@ -363,7 +363,7 @@ def _accepts_gzip(value: str) -> bool:
 _RATE_LIMITED_PATHS = frozenset({
     "/speak", "/agent/voice", "/image", "/puzzle/attempt", "/act",
     "/interventions/preview", "/interventions/commit",
-    "/client-error", "/register", "/participation", "/journal/note", "/profile/save", "/profile/home", "/blocks", "/situation/discover", "/situation/choose", "/situation/follow-up",
+    "/client-error", "/register", "/participation", "/reports", "/journal/note", "/profile/save", "/profile/home", "/blocks", "/situation/discover", "/situation/choose", "/situation/follow-up",
 })
 
 # API reads are limited by default, including newly added routes. Static shells
@@ -376,6 +376,7 @@ _READ_UNLIMITED_PATHS = frozenset({"/health", "/worlds", "/position", "/ws"})
 # remains separate from the static-file exemption.
 _UNGATED_API_METHODS = {
     "/health": frozenset({"GET"}),
+    "/community": frozenset({"GET"}),
     "/participation": frozenset({"GET", "POST"}),
     "/register": frozenset({"POST"}),
 }
@@ -600,13 +601,14 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if self._is_ungated_api(path, self.command) or (self.command == "GET" and self._is_public_asset(path)):
             return True
-        if participation.required():
-            return participation.authorize(self, qs)
         if path.rstrip('/').startswith('/ideas/'):
             self._private_response = True
             # The Ideas adapter authenticates every operation using active credentials.
-            # Never fall back to the general (possibly open) gameplay gate.
+            # It also applies participation after its own credential-failure
+            # limiter, before reading or changing any participant content.
             return True
+        if participation.required():
+            return participation.authorize(self, qs)
         if guard.check_invite_key(self.headers, qs):
             return True
         self._send_error("forbidden", 403)
@@ -629,7 +631,7 @@ class Handler(BaseHTTPRequestHandler):
                         "/nodeart.js", "/nodeart-global.js",
                         "/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js", "/interface.css", "/map.css",
                         "/guide", "/register", "/register.js", "/favicon.ico",
-                        "/participation.js", "/participation.css",
+                        "/participation.js", "/participation.css", "/reporting.js", "/reporting.css",
                         "/journal", "/journal.js", "/ideas", "/ideas.js"):
             return True
         if stripped == "/app" or path.startswith("/app/") or path.startswith("/media/"):
@@ -901,8 +903,10 @@ class Handler(BaseHTTPRequestHandler):
             vals = qs.get(key)
             return vals[0] if vals else default
 
-        from server import ideas_api, intervention_api, participant_api, situation_api
+        from server import community_api, ideas_api, intervention_api, participant_api, situation_api
         if participation.handle(self, path, qs):
+            return
+        if community_api.handle(self, path, qs):
             return
         if intervention_api.handle(self, path, qs) or ideas_api.handle(self, path, qs) or participant_api.handle(self, path, qs) or situation_api.handle(self, path, qs):
             return
@@ -915,9 +919,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_error("no such scene", 404)
             self._send_file(media_file, mimetypes.guess_type(media_file.name)[0] or "application/octet-stream",
                             immutable=True)
-        elif path in ("/interface.css", "/map.css", "/participation.css"):
+        elif path in ("/interface.css", "/map.css", "/participation.css", "/reporting.css"):
             self._send_file(_STATIC_DIR / path.lstrip("/"), "text/css; charset=utf-8")
-        elif path in ("/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js", "/participation.js"):
+        elif path in ("/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js", "/participation.js", "/reporting.js"):
             self._send_file(_STATIC_DIR / path.lstrip("/"), "application/javascript; charset=utf-8")
         elif path == "/ideas":
             self._send_file(_STATIC_DIR / "ideas.html")
@@ -1220,7 +1224,9 @@ class Handler(BaseHTTPRequestHandler):
         # max(0, …): a negative Content-Length would pass the size cap and
         # turn rfile.read(length) into read-to-EOF on a held-open socket.
         length = max(0, length)
-        if length > (8192 if path.startswith('/ideas/') else _MAX_BODY):
+        body_limit = (8192 if path.startswith('/ideas/') else
+                      32768 if path == '/reports' else _MAX_BODY)
+        if length > body_limit:
             return self._send_error("payload too large", 413)
         try:
             body = json.loads(self.rfile.read(length)) if length else {}
@@ -1232,8 +1238,10 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._send_error("request body must be a JSON object")
 
-        from server import ideas_api, intervention_api, participant_api, situation_api
+        from server import community_api, ideas_api, intervention_api, participant_api, situation_api
         if participation.handle(self, path, qs, body):
+            return
+        if community_api.handle(self, path, qs, body):
             return
         if intervention_api.handle(self, path, qs, body) or ideas_api.handle(self, path, qs, body) or participant_api.handle(self, path, qs, body) or situation_api.handle(self, path, qs, body):
             return
@@ -1460,8 +1468,7 @@ class Handler(BaseHTTPRequestHandler):
         if node is None:
             return self._send_error("no such place in this world", 404)
 
-        history = persistence.get_node_history(seed_int, node.name, limit=1000,
-                                               include_narration=False)
+        history = persistence.get_node_activity_history(seed_int, node.name, limit=1000)
         ripple_score = node.ripple_score
 
         # Media revisions follow material state, not the number of interactions.
@@ -1716,6 +1723,8 @@ class Handler(BaseHTTPRequestHandler):
             # agent names are world canon and unimpersonatable.
             return self._send_error(
                 f"'{name}' belongs to the world — choose another name", 403)
+        if body.get("age_confirmed") is not True:
+            return self._send_error("Please confirm that you are 18 years old or older.", 400)
         # The invite token is not authenticated until redemption below, so
         # it is not a per-user cap key. The local screen does not call the
         # model. The write rate limit is what bounds repeated attempts.

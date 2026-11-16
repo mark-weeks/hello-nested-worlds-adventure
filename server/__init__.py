@@ -182,6 +182,27 @@ def _start_model_spend_retention(*, interval_seconds: float = 60.0,
     return stopped, worker
 
 
+def _start_community_retention(*, interval_seconds: float = 60.0,
+                               prune=None) -> tuple[threading.Event, threading.Thread]:
+    """Apply pinned operational deadlines, even while collection is off."""
+    if prune is None:
+        from persistence.community import prune_expired
+        prune = prune_expired
+    stopped = threading.Event()
+
+    def cleanup():
+        while not stopped.wait(interval_seconds):
+            try:
+                prune()
+            except Exception as exc:
+                logging.getLogger("nested_worlds.community_retention").error(
+                    "community retention unavailable (%s)", type(exc).__name__)
+
+    worker = threading.Thread(target=cleanup, name="community-retention", daemon=True)
+    worker.start()
+    return stopped, worker
+
+
 def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     # Schema and configuration before any migration. A release that ships
     # the next migration and a bad seed or model id must exit with the
@@ -199,6 +220,12 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
         policy = model_policy.initialize()
     except model_policy.ModelPolicyError:
         print("error: model policy configuration is invalid", file=sys.stderr)
+        raise SystemExit(1) from None
+    from server import community_policy
+    try:
+        community = community_policy.initialize()
+    except community_policy.CommunityPolicyError:
+        print("error: community collection policy is invalid", file=sys.stderr)
         raise SystemExit(1) from None
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
@@ -243,6 +270,16 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     if policy is not None:
         from consciousness import model_dispatch
         model_dispatch.initialize_accounting()
+    # Replay completed erasure before a listener can expose restored text.
+    # Lost-store recovery must supply the separately preserved operator ledger.
+    from persistence.community_deletions import replay_pending
+    from persistence.community import prune_expired
+    try:
+        replay_pending()
+        prune_expired()
+    except Exception:
+        print("error: community retention is unavailable", file=sys.stderr)
+        raise SystemExit(1) from None
     server = _ThreadedServer((host, port), _Handler)
 
     # The world heartbeat: ambient agent life that runs whether or not
@@ -281,19 +318,31 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
         status = "configured" if policy.enabled_routes else "all external routes disabled"
         print(f"Model policy             →  {status}")
     print(f"Multiplayer WebSocket   →  ws://localhost:{port}/ws")
+    enabled = [name for name, configured in (("chat", community.chat_retention_mode is not None),
+                                            ("reports", community.report_days is not None)) if configured]
+    print("Community collection    →  " + (", ".join(enabled) if enabled else "disabled"))
     if host == "127.0.0.1":
         print("For network access: restart with --host 0.0.0.0")
     else:
         print(f"Share this URL with beta testers: {display}")
     print("Press Ctrl+C to stop.")
     retention = None
+    community_retention = None
     try:
         if policy is not None:
             retention = _start_model_spend_retention()
+        community_retention = _start_community_retention()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if community_retention is not None:
+            community_stop, community_worker = community_retention
+            community_stop.set()
+            community_worker.join(timeout=6.0)
+            if community_worker.is_alive():
+                logging.getLogger("nested_worlds.community_retention").warning(
+                    "community retention worker is still stopping")
         if retention is not None:
             stopped, worker = retention
             stopped.set()

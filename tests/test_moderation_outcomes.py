@@ -28,7 +28,8 @@ import pytest
 
 import persistence
 from multiverse import store
-from server import _Handler, _ThreadedServer, guard, moderation, observability
+from persistence import participation as participation_records
+from server import _Handler, _ThreadedServer, guard, moderation, observability, participation
 from tests.test_day_one_recording import _ws_connect, _ws_send_json
 from tests.test_moderation import _SLUR, _read_ws_json_until
 from tests.test_provider_slot_wait import (  # noqa: F401 - shared fixtures
@@ -176,6 +177,11 @@ class TestEachScreenOutcomeCountsOnce:
 @pytest.fixture
 def site(accounts, monkeypatch):
     monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", str(SEED))
+    # These keyed moderation journeys begin after adult study acknowledgement.
+    current = participation.notice()
+    assert current["required"] and current["ready"]
+    for key in accounts:
+        participation_records.accept(key, current["revision"], participation.snapshot(current))
     server = _ThreadedServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -254,6 +260,7 @@ def _assert_held(surface, seen):
 SURFACES = ["chat", "ideas", "profile", "puzzle"]
 
 
+@pytest.mark.usefixtures("community_collection")
 class TestBusyScreensOnSharedSurfaces:
     @pytest.mark.parametrize("surface", SURFACES)
     def test_a_busy_screen_is_counted_under_its_surface(
@@ -325,7 +332,7 @@ class TestCounterFailuresAreInvisibleToPlayers:
         assert len(broken_counter) == 1
 
     def test_a_failing_store_keeps_the_players_response(
-            self, site, accounts, provider, quick_screen, broken_counter):
+            self, community_collection, site, accounts, provider, quick_screen, broken_counter):
         with _saturated():
             seen = _busy_surface(site, accounts[0], "chat")
             ideas = _busy_surface(site, accounts[0], "ideas")

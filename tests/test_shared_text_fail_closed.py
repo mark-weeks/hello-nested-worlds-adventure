@@ -14,11 +14,12 @@ from consciousness.runtime import Completion
 from interface import _speak_to
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
-from persistence import ideas
+from persistence import ideas, participation as participation_records
 from puzzles.engine import build_puzzle
-from server import _Handler, _ThreadedServer, guard, moderation
-from tests.test_day_one_recording import _wait_for_rows, _ws_connect, _ws_send_json
+from server import _Handler, _ThreadedServer, guard, moderation, participation
+from tests.test_day_one_recording import _ws_connect, _ws_send_json
 from tests.test_moderation import _SLUR, _read_ws_json_until
+from tests.test_ws_credential_lifetime import _chat_rows, _wait_chat_rows
 
 # Fixed per mode. hash() is randomized per process (PYTHONHASHSEED).
 _HOLD_SEEDS = {
@@ -67,6 +68,14 @@ def _post(port, path, payload, key=None):
 def _rows(seed, node, kind):
     return [row for row in persistence.get_node_history(seed, node, 50)
             if row["type"] == kind]
+
+
+def _acknowledge_notice(*keys):
+    """These normal-journey fixtures are adults accepting the current study notice."""
+    current = participation.notice()
+    assert current["required"] and current["ready"]
+    for key in keys:
+        participation_records.accept(key, current["revision"], participation.snapshot(current))
 
 
 # ── Verdict parsing (normalized Completion only) ────────────────────────────
@@ -143,7 +152,7 @@ def test_classify_timeout_logs_error_without_the_exception_body(caplog, monkeypa
     assert "go kill yourself" not in caplog.text
 
 
-def test_raising_default_model_holds_speech_and_keeps_the_socket(srv, monkeypatch, caplog):
+def test_raising_default_model_holds_speech_and_keeps_the_socket(srv, monkeypatch, caplog, community_collection):
     """A bug in default_model is a hold, not a 500 or a closed chat socket.
 
     The screen used to catch only UnusableModelId. A raising method escaped
@@ -196,7 +205,7 @@ def test_raising_default_model_holds_speech_and_keeps_the_socket(srv, monkeypatc
         assert _read_ws_json_until(sender, "pong") == {"type": "pong"}
     finally:
         sender.close()
-    assert _rows(seed, node.name, "PLAYER_CHAT") == []
+    assert _chat_rows(seed) == []
 
 
 def test_exception_outside_classify_logs_one_error(caplog, monkeypatch):
@@ -316,7 +325,7 @@ def test_allow_publishes_and_block_declines_without_a_voice_charge(srv, monkeypa
 
 
 @pytest.mark.parametrize("mode", ["timeout", "error", "undecided", "budget", "disabled", "user_cap"])
-def test_each_failure_holds_speak_chat_and_agent_voice(srv, mode, monkeypatch):
+def test_each_failure_holds_speak_chat_and_agent_voice(srv, mode, monkeypatch, community_collection):
     import consciousness
     charged = []
     _voice_ready(monkeypatch)
@@ -349,6 +358,7 @@ def test_each_failure_holds_speak_chat_and_agent_voice(srv, mode, monkeypatch):
         bea_key = "nw_" + "e" * 32
         persistence.mint_invite_key(key, "Ada")
         persistence.mint_invite_key(bea_key, "Bea")
+        _acknowledge_notice(key, bea_key)
     message = "hello, old light" if mode in {"disabled", "user_cap"} else "go kill yourself"
     for route, kind in (("/speak", "PLAYER_SPEAK"), ("/agent/voice", "AGENT_VOICE")):
         status, data = _post(srv, route, {
@@ -371,11 +381,11 @@ def test_each_failure_holds_speak_chat_and_agent_voice(srv, mode, monkeypatch):
         if mode in {"disabled", "user_cap"}:
             # The cap or the disabled screen holds the follow-up too.
             assert _read_ws_json_until(sender, "chat_declined")["text"] == moderation.HOLD_LINE
-            assert _rows(seed, node.name, "PLAYER_CHAT") == []
+            assert _chat_rows(seed) == []
         else:
             assert _read_ws_json_until(other, "chat")["text"] == "clean words"
-            chats = _wait_for_rows(seed, node.name, "PLAYER_CHAT")
-            assert [row["data"]["text"] for row in chats] == ["clean words"]
+            chats = _wait_chat_rows(seed, None, 1)
+            assert [row["text"] for row in chats] == ["clean words"]
     finally:
         sender.close()
         other.close()
@@ -445,6 +455,7 @@ def test_puzzle_attempt_counts_without_unjudged_text(srv, mode, monkeypatch):
     import consciousness
     key = "nw_" + "d" * 32
     persistence.mint_invite_key(key, "Ada")
+    _acknowledge_notice(key)
     if mode == "disabled":
         monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
     elif mode == "budget":
@@ -600,7 +611,8 @@ def test_failed_puzzle_omits_unjudged_answer_given(srv, monkeypatch):
 def test_name_check_does_not_charge_an_unvalidated_token(srv, monkeypatch):
     monkeypatch.setenv(guard.MODERATION_ACTIONS_PER_USER_ENV, "0")
     persistence.create_registration_token("nwr_capped")
-    status, data = _post(srv, "/register", {"invite": "nwr_capped", "name": "Priya"})
+    status, data = _post(srv, "/register", {
+        "invite": "nwr_capped", "name": "Priya", "age_confirmed": True})
     assert status == 200 and data["name"] == "Priya"
     day = guard._utc_day()
     with persistence._connect() as conn:
@@ -612,11 +624,13 @@ def test_name_check_does_not_charge_an_unvalidated_token(srv, monkeypatch):
 def test_names_refuse_when_the_screen_is_off_and_keep_the_token(srv, monkeypatch):
     monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
     persistence.create_registration_token("nwr_held")
-    status, data = _post(srv, "/register", {"invite": "nwr_held", "name": "Priya"})
+    status, data = _post(srv, "/register", {
+        "invite": "nwr_held", "name": "Priya", "age_confirmed": True})
     assert status == 403 and "choose another" in data["error"]
     assert persistence.lookup_registration_token("nwr_held") is not None
     monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "0")
-    status, data = _post(srv, "/register", {"invite": "nwr_held", "name": "Priya"})
+    status, data = _post(srv, "/register", {
+        "invite": "nwr_held", "name": "Priya", "age_confirmed": True})
     assert status == 200 and data["name"] == "Priya"
 
 
@@ -752,6 +766,7 @@ def test_unknown_place_is_404_before_the_screen(srv, monkeypatch):
     monkeypatch.setenv(guard.MODEL_ACTIONS_PER_USER_ENV, "0")
     key = "nw_" + "d" * 32
     persistence.mint_invite_key(key, "Ada")
+    _acknowledge_notice(key)
     seed = 994
     for path, extra in (("/speak", {}), ("/agent/voice", {"agent_name": "Scout"})):
         status, data = _post(srv, path, {
@@ -993,8 +1008,10 @@ def _compat_body(*, content, finish="stop", refusal=None, model="echo-model"):
     "allow", "block", "refusal", "length", "http", "timeout", "unconfigured",
 ])
 def test_openai_compatible_holds_shared_routes_unless_moderation_stops(
-        srv, mode, monkeypatch, caplog):
+        srv, mode, monkeypatch, caplog, request):
     """HTTP speech through the real adapter. A fake transport, never a provider host."""
+    if mode == "timeout":
+        request.getfixturevalue("community_collection")
     from consciousness import runtime
     from consciousness.openai_compat_provider import (
         API_KEY_ENV, BASE_URL_ENV, provider as compat,
@@ -1069,7 +1086,7 @@ def test_openai_compatible_holds_shared_routes_unless_moderation_stops(
                 _read_ws_json_until(sender, "welcome")
                 _ws_send_json(sender, {"type": "chat", "text": _COMPAT_LINE})
                 assert _read_ws_json_until(sender, "chat_declined")["text"] == moderation.HOLD_LINE
-                assert _rows(seed, node.name, "PLAYER_CHAT") == []
+                assert _chat_rows(seed) == []
             finally:
                 sender.close()
     if mode == "unconfigured":

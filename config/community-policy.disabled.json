@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "policy_id": "community-collection-disabled",
+  "chat": {"enabled": false},
+  "reports": {"enabled": false}
+}

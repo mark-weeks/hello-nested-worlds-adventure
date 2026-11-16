@@ -393,7 +393,7 @@ def test_disabled_moderation_is_intentional_without_provider_or_classifier_looku
 
 
 def test_all_off_speak_returns_authored_http_200_after_keys_appear(
-        tmp_path, monkeypatch, http, _isolated_policy):
+        tmp_path, monkeypatch, request, _isolated_policy):
     import consciousness
     import persistence
     from multiverse import store
@@ -418,6 +418,9 @@ def test_all_off_speak_returns_authored_http_200_after_keys_appear(
     monkeypatch.setattr(socket, "create_connection", connect)
     monkeypatch.setattr(socket, "getaddrinfo", resolve)
     monkeypatch.setattr(urllib.request, "urlopen", local_open)
+    # The invited-study fixture acknowledges its current notice over HTTP.
+    # Create it only after loopback traffic is allowed; remote I/O stays off.
+    http = request.getfixturevalue("http")
     node = store.world_tree(382)
     for appeared_key in (False, True):
         if appeared_key:

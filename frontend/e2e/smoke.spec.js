@@ -125,6 +125,7 @@ test("/register runs its logic under the production CSP", async ({ page }) => {
   await page.goto("/register?invite=nwr_not_a_real_token");
   await expect(page.locator("#register")).toBeVisible();
   await page.fill("#name", "SmokeRegistrant");
+  await page.locator('#register-age').check();
   await page.click("#go");
   await expect(page.locator("#error")).not.toHaveText("", { timeout: 10_000 });
 

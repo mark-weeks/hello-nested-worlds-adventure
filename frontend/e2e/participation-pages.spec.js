@@ -5,9 +5,10 @@ import { createInterface } from 'node:readline';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import {acknowledgeCurrentStudy} from './study-fixture.js';
 
 const KEY = 'nw_' + '6'.repeat(32);
-const AGREEMENT = 'I confirm I am at least 18 years old, have read this notice and agree to participate in this temporary test world.';
+const AGREEMENT = 'I have read this notice and agree to participate in this temporary test world.';
 // Disposable fixture values, not an adopted participant policy.
 const fixtureNotice = {
   NESTED_WORLDS_TEST_WORLD: '1', NESTED_WORLDS_TEST_CONTACT: 'Page fixture facilitator',
@@ -23,6 +24,9 @@ import json, os, sys, threading
 import persistence
 from server import _Handler, _ThreadedServer
 persistence._DB_PATH=Path(sys.argv[1])/'worlds.db'
+from scripts.community_fixture import configure
+temporary = os.environ['NESTED_WORLDS_TEST_WORLD'] == '1'
+configure(Path(sys.argv[1]), chat=temporary, reports=temporary)
 persistence.mint_invite_key(sys.argv[2], 'Page traveler')
 server=_ThreadedServer(('127.0.0.1',0),_Handler)
 threading.Thread(target=server.serve_forever,daemon=True).start()
@@ -46,7 +50,7 @@ for command in sys.stdin:
     return value;
   };
   const port = Number(await read());
-  return {
+  const server = {
     url: `http://127.0.0.1:${port}`,
     command: async command => { child.stdin.write(command + '\n'); return JSON.parse(await read()); },
     close: async () => {
@@ -54,6 +58,15 @@ for command in sys.stdin:
       reader.close(); await rm(directory, { recursive: true, force: true });
     },
   };
+  try {
+    // Ordinary page recovery uses an already enrolled adult. Temporary entry
+    // journeys below keep their unacknowledged state and exercise the gate.
+    if (!testWorld) await acknowledgeCurrentStudy(server.url, KEY);
+    return server;
+  } catch (error) {
+    await server.close();
+    throw error;
+  }
 }
 
 async function holdKey(page) {
@@ -62,6 +75,8 @@ async function holdKey(page) {
 
 async function agree(page) {
   const button = page.getByRole('button', { name: 'Agree and continue', exact: true });
+  await expect(button).toBeDisabled();
+  await page.getByRole('checkbox', { name: 'I confirm I am 18 years old or older.', exact: true }).check();
   await expect(button).toBeDisabled();
   await page.getByRole('checkbox', { name: AGREEMENT, exact: true }).check();
   await button.click();

@@ -10,7 +10,7 @@ import signal
 import pytest
 
 import persistence
-from persistence import participants, situations
+from persistence import community_deletions, participants, situations
 from multiverse.situation import NODES
 
 START = datetime(2026, 9, 12, 12)
@@ -148,7 +148,9 @@ def test_process_death_and_backup_restore_preserve_pending_promise(experience, t
     backup = tmp_path / 'backup.db'
     persistence.backup_to(backup)
     assert situations.advance(382, now=START + timedelta(seconds=200)) == 3
-    persistence.restore_from(backup)
+    deletions = tmp_path / 'latest-deletions.json'
+    community_deletions.export_to(deletions)
+    persistence.restore_from(backup, deletions=deletions)
     assert situations.view(382)['phase'] == 'pending'
     assert situations.advance(382, now=START + timedelta(seconds=200)) == 3
     assert len([r for r in history() if r['type'] == 'SITUATION_CONSEQUENCE']) == 3

@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 import persistence
+from persistence import community_deletions
 from multiverse import store, wrap
 from multiverse.verbs import VERBS
 from server import _Handler, _ThreadedServer, heartbeat
@@ -355,7 +356,9 @@ def test_m1_to_m2_migration_pending_backup_restore_and_dedup(http, tmp_path, mon
     persistence.backup_to(backup)
     assert heartbeat.drain_matured_verbs() == 3
     expected = snapshot()
-    persistence.restore_from(backup)
+    deletions = tmp_path / "latest-deletions.json"
+    community_deletions.export_to(deletions)
+    persistence.restore_from(backup, deletions=deletions)
     join(start_worker("verb_maturation", "recover"))
     join(start_worker("verb_maturation", "recover"))
     join(start_worker("verb_maturation", "recover"))

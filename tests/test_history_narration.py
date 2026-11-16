@@ -198,7 +198,9 @@ def test_broken_source_references_do_not_borrow_attribution(defect):
     seed = 999 if defect == "other_world" else SEED
     persistence.record_mutation(seed, "Source-11", "PLAYER_CHAT" if defect == "wrong_kind" else "SCALE_ACT",
                                 "WrongPerson", {"verb": "seed", "matures_in": 5})
-    source = persistence.get_mutations(seed)[0]["id"]
+    # The deliberately invalid chat source is hidden from normal history.
+    with persistence._connection() as conn:
+        source = conn.execute("SELECT MAX(id) FROM world_mutations WHERE world_seed=?", (seed,)).fetchone()[0]
     work_id = persistence.enqueue_causal_hop(
         SEED, "Wrong-13" if defect == "wrong_node" else "Receiver-12", "SCALE_ACT", .5, "up", {}, 0,
         source_event_id=99999 if defect == "missing" else source)
@@ -347,7 +349,7 @@ def test_image_and_banter_keep_style_and_ordinal_without_projection(client, monk
     for index in range(55):
         persistence.record_mutation(SEED, node.name, "AGENT_TALK" if index % 10 == 0 else "PLAYER_CHAT",
                                     "Ada" if index % 2 else "Bea", {})
-    history = persistence.get_node_history(SEED, node.name, 1000)
+    history = persistence.get_node_activity_history(SEED, node.name, 1000)
     expected_key = f"{SEED}:{node.name}:sensory-v1:{imageprompt.style_signature(node.level, node.properties, history)}"
     ordinal = sum(h["type"] == "AGENT_TALK" for h in history[:50])
     with patch("persistence.history.project", side_effect=AssertionError("unused narration")), \

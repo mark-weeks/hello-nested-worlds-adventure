@@ -411,7 +411,7 @@ def base(monkeypatch):
         thread.join(5)
 
 
-def test_a_held_chat_frees_the_reader_within_seconds(base, anthropic_screen):
+def test_a_held_chat_frees_the_reader_within_seconds(base, anthropic_screen, community_collection):
     """The G5 case: a chat being screened holds the socket's reader."""
     sender, status = _ws_connect(base, SEED, "Ada")
     try:

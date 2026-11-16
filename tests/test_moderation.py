@@ -31,7 +31,7 @@ from evals.harness import ROOT, load_corpus
 from server import guard, moderation
 from multiverse.generator import generate_node_hierarchy
 from tests.test_day_one_recording import (
-    _client_frame, _ws_connect, _ws_send_json, _wait_for_rows,
+    _client_frame, _ws_connect, _ws_send_json,
 )
 
 
@@ -538,6 +538,17 @@ class TestSpeakScreening:
         assert rows == []
 
 
+def _retained_chat_texts(seed):
+    # Delivery follows the committed private log. No new chat belongs in
+    # permanent world history, whether the screen allows or refuses it.
+    with persistence._connection() as conn:
+        assert conn.execute("""SELECT count(*) FROM world_mutations
+            WHERE world_seed=? AND mutation_type='PLAYER_CHAT'""", (seed,)).fetchone()[0] == 0
+        return [row[0] for row in conn.execute("""SELECT text FROM private_chat_messages
+            WHERE world_seed=? ORDER BY id""", (seed,))]
+
+
+@pytest.mark.usefixtures("community_collection")
 class TestChatScreening:
     def test_classifier_decline_is_private_and_unrecorded(
             self, srv, uncovered_input, monkeypatch):
@@ -545,7 +556,6 @@ class TestChatScreening:
         monkeypatch.setattr("consciousness.classify_content",
                             lambda text, **_k: calls.append(text) or "block")
         seed = 274
-        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
         sender, s_status = _ws_connect(srv, seed, "Ada")
         other, o_status = _ws_connect(srv, seed, "Bee")
         try:
@@ -556,8 +566,7 @@ class TestChatScreening:
             assert _read_ws_json_until(sender, "chat_declined")["text"] == moderation.DECLINE_LINE
             _ws_send_json(sender, {"type": "chat", "text": "clean words"})
             assert _read_ws_json_until(other, "chat")["text"] == "clean words"
-            chats = _wait_for_rows(seed, root_name, "PLAYER_CHAT")
-            assert [row["data"]["text"] for row in chats] == ["clean words"]
+            assert _retained_chat_texts(seed) == ["clean words"]
             assert calls == [uncovered_input]
         finally:
             sender.close()
@@ -565,7 +574,6 @@ class TestChatScreening:
 
     def test_declined_chat_reaches_nobody_and_is_stored_nowhere(self, srv):
         seed = 274
-        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
         sender, s_status = _ws_connect(srv, seed, "Ada")
         other, o_status = _ws_connect(srv, seed, "Bee")
         assert b"101" in s_status and b"101" in o_status
@@ -586,9 +594,8 @@ class TestChatScreening:
         first_chat = _read_ws_json_until(other, "chat")
         assert first_chat["text"] == "clean words"
 
-        # Only the clean line entered the chronicle.
-        chats = _wait_for_rows(seed, root_name, "PLAYER_CHAT")
-        assert [c["data"]["text"] for c in chats] == ["clean words"]
+        # Only the clean line entered the private log.
+        assert _retained_chat_texts(seed) == ["clean words"]
         sender.close()
         other.close()
 
@@ -603,7 +610,6 @@ class TestChatScreening:
         monkeypatch.setattr(moderation, "screen", recording)
         monkeypatch.setattr(guard, "WS_CHAT_BURST", 20)
         seed = 275
-        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
         sender, s_status = _ws_connect(srv, seed, "Ada")
         other, o_status = _ws_connect(srv, seed, "Bee")
         try:
@@ -617,8 +623,7 @@ class TestChatScreening:
             assert calls == []
             _ws_send_json(sender, {"type": "chat", "text": "clean words"})
             assert _read_ws_json_until(other, "chat")["text"] == "clean words"
-            chats = _wait_for_rows(seed, root_name, "PLAYER_CHAT")
-            assert [row["data"]["text"] for row in chats] == ["clean words"]
+            assert _retained_chat_texts(seed) == ["clean words"]
         finally:
             sender.close()
             other.close()
@@ -629,7 +634,7 @@ class TestChatScreening:
         # It can tell which line came back only by the ref on its own frame,
         # so the sender's private chat_declined echoes it, for a block and
         # a hold alike. Nobody else hears either line or sees the ref, and
-        # the ref is not part of the chronicle row of a published line.
+        # the ref is not part of the private log of a published line.
         def provider_error(text, **_k):
             raise RuntimeError("transient provider error")
 
@@ -637,7 +642,6 @@ class TestChatScreening:
         escalated = "meet me at 5551234567"
         assert moderation._local_tier(escalated) == "escalate"
         seed = 277
-        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
         sender, s_status = _ws_connect(srv, seed, "Ada")
         other, o_status = _ws_connect(srv, seed, "Bee")
         try:
@@ -654,8 +658,7 @@ class TestChatScreening:
             heard = _read_ws_frames_until(other, "chat")
             assert [m["type"] for m in heard if m["type"].startswith("chat")] == ["chat"]
             assert heard[-1]["text"] == "clean words" and "ref" not in heard[-1]
-            chats = _wait_for_rows(seed, root_name, "PLAYER_CHAT")
-            assert [row["data"] for row in chats] == [{"text": "clean words"}]
+            assert _retained_chat_texts(seed) == ["clean words"]
         finally:
             sender.close()
             other.close()
@@ -694,7 +697,6 @@ class TestChatScreening:
                             lambda exc: captured.append(repr(exc)))
         monkeypatch.setattr(guard, "WS_CHAT_BURST", 20)
         seed = 276
-        root_name = generate_node_hierarchy(seed=seed, max_depth=1).name
         sender, s_status = _ws_connect(srv, seed, "Ada")
         other, o_status = _ws_connect(srv, seed, "Bee")
         try:
@@ -706,8 +708,7 @@ class TestChatScreening:
             # The session is still open and still speaks.
             _ws_send_json(sender, {"type": "chat", "text": "still here"})
             assert _read_ws_json_until(other, "chat")["text"] == "still here"
-            chats = _wait_for_rows(seed, root_name, "PLAYER_CHAT")
-            assert [row["data"]["text"] for row in chats] == ["still here"]
+            assert _retained_chat_texts(seed) == ["still here"]
         finally:
             sender.close()
             other.close()
@@ -731,12 +732,12 @@ class TestNameScreening:
     def test_register_rejects_screened_name_and_keeps_the_token(self, srv):
         persistence.create_registration_token("nwr_live")
         status, data = _post(srv, "/register",
-                             {"invite": "nwr_live", "name": "N1gger"})
+                             {"invite": "nwr_live", "name": "N1gger", "age_confirmed": True})
         assert status == 403 and "choose another" in data["error"]
         assert persistence.lookup_registration_token("nwr_live") is not None
         # The token still works with an acceptable name.
         assert _post(srv, "/register",
-                     {"invite": "nwr_live", "name": "Wren"})[0] == 200
+                     {"invite": "nwr_live", "name": "Wren", "age_confirmed": True})[0] == 200
 
     def test_mint_cli_rejects_screened_name(self):
         import main

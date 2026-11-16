@@ -16,11 +16,15 @@ document.getElementById('form').addEventListener('submit', function (e) {
   var btn = document.getElementById('go');
   errEl.textContent = '';
   if (!name) { errEl.textContent = 'A name is required.'; return; }
+  if (!document.getElementById('register-age').checked) {
+    errEl.textContent = 'Please confirm that you are 18 years old or older.';
+    return;
+  }
   btn.disabled = true;
   fetch('/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ invite: invite, name: name }),
+    body: JSON.stringify({ invite: invite, name: name, age_confirmed: true }),
   }).then(function (res) {
     return res.json().then(function (data) {
       if (res.ok && data.url) {

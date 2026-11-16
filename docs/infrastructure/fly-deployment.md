@@ -203,13 +203,32 @@ primary_region = "iad"              # pick the region closest to your testers
 
 ## 3. First deploy
 
+**PR #174's first schema-33 deployment is restricted to the throwaway
+`enfolded-staging` world (§3a).** Rehearse private chat/report storage, deletion
+and restore there first. The production commands in this section describe later
+release work; preparing this candidate does not authorize a real migration or
+deployment, and a retained/cohort rollout needs its separate owner instruction.
+
 Before running anything: **edit the committed `fly.toml`** — set a
 unique `app` name and the `primary_region` closest to your testers, and
 commit the change. That file is the deployment contract
 (`tests/test_deploy_config.py` guards it); the commands below must match
 what it says.
 
-> **The first deploy starts the permanent world.** Under the continuity
+**Before the next deployment, the owner must choose the chat/report rollout.**
+Without a community policy, this release disables new human traveler chat and
+reports in **all modes, including production**. For a chat-enabled watch, the
+operator configures until-deleted chat and the applicable documented report
+window, contact and backup wording in the policy before tester access.
+Alternatively, the owner may explicitly choose to
+deploy or run the watch with chat/report collection off. This runbook chooses
+neither rollout. Report windows of 90 days for the watch and 180 days for the
+cohort are documented decisions only, not checked-in deployment selections. Follow
+the
+[community preflight](#private-traveler-chat-and-reports) for the selected state;
+the default is a behavior change, not implicit approval of a chat-off watch.
+
+> **The first production deploy starts the permanent world.** Under the continuity
 > policy the database is never wiped between cohorts — whatever your
 > first testers do becomes history the project carries forward, forever.
 > Deploy when you mean it.
@@ -260,6 +279,10 @@ world, chronicle and invite keys are rehearsal data, never production canon.
 They are destroyed with the app before launch. Tell every tester that its
 history is temporary (pilot protocol 2).
 
+The first schema-33 deployment must use this throwaway `enfolded-staging` app
+and its own disposable volume. Keep its private chat log with that world and
+delete it when the world is disposed of, after resolving complaint holds.
+
 **Venue for the newcomer watch (owner, 2026-11-07):** "Let's expedite the
 test build, preferably in a staging environment rather than local." The
 owner prefers this staging twin for the 2-3 newcomer watch. The local,
@@ -304,6 +327,10 @@ fly tokens create deploy -a enfolded-staging
 #    settings leave /health available but keep gameplay closed. No provider
 #    keys belong on this first build. Complete the notice below before
 #    sending any tester URLs.
+#    Before this or any later deploy, record the owner's chat/report
+#    rollout choice and check the selected community policy offline.
+#    After boot, complete the metadata/notice checks below before tester
+#    access. Missing policy disables chat and reports on production too.
 fly secrets set --stage -a enfolded-staging NESTED_WORLDS_TEST_WORLD=1 NESTED_WORLDS_DISABLE_AI=1 NESTED_WORLDS_DISABLE_IMAGES=1
 FLY_APP=enfolded-staging scripts/deploy.sh --first-deploy
 
@@ -341,7 +368,11 @@ fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
 #    controlled text" below only after those gates; do not remove the
 #    requirement or assume installing a provider key completes them.
 
-# 7. Complete the temporary-world notice (below), then open the check
+# 7. Verify GET /community matches the selected enabled/off state and
+#    GET /participation serves the revised, ready test-world notice.
+#    Existing testers must re-acknowledge it; do not replay a refused
+#    submission automatically. Complete the temporary-world notice
+#    (below), then open the check
 #    identity's /app invite URL yourself and acknowledge it. Do not accept
 #    on a tester's behalf. Without acknowledgement a keyed /world or /ws
 #    is refused with 428; an incomplete notice refuses gameplay with 503.
@@ -364,7 +395,63 @@ fly ssh console -a enfolded-staging -C "python main.py invite revoke <check key>
 #    channel or a CI log.
 ```
 
-#### Temporary-world notice and acknowledgement
+#### Private traveler chat and reports
+
+The [community retention and reporting guide](../development/community-reporting.md)
+governs the separate community policy. All new human WebSocket traveler chat uses
+the private operator log in hosted and local modes, production included; no configured policy means
+chat and reports are disabled, with no permanent fallback. Other gameplay keeps
+its existing gates. No retention or backup duration is supplied by the code.
+Before the next deploy, record the owner's selected rollout: an enabled policy
+with until-deleted chat, the applicable documented report window, contact and
+backup wording for a chat-enabled watch, or an explicit decision to deploy/watch
+with collection off. Neither rollout is selected here. Validate the exact file
+selected for that release offline before
+configuring the server to load it:
+
+```sh
+python main.py community-policy --check --policy /private/community-policy.json
+```
+
+The checked-in disabled file is available for an explicitly chosen off state;
+it is not an enabled policy with implicit durations. After the selected policy
+is loaded by deployment/restart, inspect `GET /community`: its `revision`,
+`chat.enabled`, `reports.enabled`, declared retention, contact and backup notice
+must match the selected release state. An off deployment must report both
+capabilities disabled. A chat-enabled watch must report the intended capabilities
+enabled with the supplied wording. `/health` and an offline check alone do not
+establish that the running server loaded the intended policy.
+
+Chat accepts only `{"enabled": false}` or
+`{"enabled": true, "retention_mode": "until_deleted"}`. A numeric chat TTL is
+invalid. Enabled reports require explicit integer `retention_days`: the owner
+selected 90 days for the watch and 180 days for the cohort as documented
+operating decisions only. Configure the chosen file separately for the rollout.
+
+On an existing disposable test world, this release changes the participation
+notice even when collection is off; a later community-policy wording change
+changes it again. Inspect `GET /participation` for the current notice, its changed revision,
+and `required: true`, `ready: true`. Existing testers must read and acknowledge
+that revision themselves before continuing. Do not reuse their old acceptance
+or accept on their behalf. A refused or interrupted chat/report/action is not
+automatically replayed after reconsent; preserve the draft and let the tester
+choose whether to submit it anew.
+
+Existing chronicle rows are not rewritten. Legacy chat is hidden from normal
+public/model history while its established aggregate art contribution remains.
+Place and inhabitant exchanges and authored ambient cast conversations still
+follow their recorded-history rules; the notice must not promise all speech is
+private. Configure the approved retention statements before participants accept
+the revised notice. Assign an operator to check both `report list` and
+`report list --state acknowledged` at least twice daily. Have a second operator
+in place before the cohort and record coverage before tester access. The goal
+is attention within 24 hours; this runbook does not establish that staffing is
+already active or add notifications.
+`community-status` and `community-prune` support operator checks and cleanup.
+The provisional additive schema step requires human review at merge; a quiet
+model policy does not approve community retention or its backup treatment.
+
+#### Participation notice and adult confirmation
 
 The [controlled model policy guide](../development/model-policy.md) describes
 the required configuration, offline preflight and remaining live gates. Fly ships
@@ -373,23 +460,34 @@ has every route disabled. A backup restore must keep external calls disabled
 until the day's provider spend is reconciled; restoring an older ledger does
 not restore the provider's bill.
 
-The explicit `NESTED_WORLDS_TEST_WORLD=1` setting enables the staging gate;
-the app name and Sentry environment do not enable it. Keep it set throughout
-the rehearsal. Before tester access, set these four operator-owned values on
-the staging app with `fly secrets set -a enfolded-staging`. Do not copy the
+The explicit `NESTED_WORLDS_TEST_WORLD=1` setting enables the temporary-world
+gate; the app name and Sentry environment do not enable it. Keep it set
+throughout the watch. Any world whose invite gate has ever closed also requires
+the notice, independently of whether community collection is configured or
+enabled. Issuing an operator key or registration invite latches that boundary
+permanently: revoking the last key or temporarily
+disabling chat or reports cannot remove the notice requirement. An uninvited
+local development world without `TEST_WORLD` remains outside this study gate.
+
+Before tester access, set these operator-owned notice values on the relevant
+app with `fly secrets set`. The existing `TEST_` names serve both temporary
+watches and continuing studies. Collection off does not waive these values:
+configure `TEST_CONTACT`, `TEST_RETENTION` and `TEST_DATA_USE` even for a chat-off
+watch or invited world. Use wording appropriate to that world; do not
+promise a continuing world will be removed after a newcomer watch or copy
 placeholder descriptions as policy:
 
 | Setting | Required value |
 |---|---|
 | `NESTED_WORLDS_TEST_CONTACT` | The research owner or facilitator and a way to contact them. |
-| `NESTED_WORLDS_TEST_RETENTION` | The approved retention/deletion dates and treatment of the test database, consent records, research records and backups. This setting displays a statement; it does not schedule deletion. |
-| `NESTED_WORLDS_TEST_MIN_AGE` | The owner's minimum tester age, as an integer. No age is selected by the code. |
-| `NESTED_WORLDS_TEST_DATA_USE` | The approved explanation of who receives test data, which model providers are used, and why. A no-provider watch must have no provider credentials set. |
+| `NESTED_WORLDS_TEST_RETENTION` | The approved retention/deletion treatment of the world database, consent records, research records and backups. State how to request deletion or leave the study and that backup copies are removed when those backups are deleted. This setting displays a statement; it does not schedule deletion. |
+| `NESTED_WORLDS_TEST_MIN_AGE` | Optional compatibility setting: `18` only. The owner-set minimum is 18; an absent value keeps 18, and any conflicting value leaves the notice not ready. |
+| `NESTED_WORLDS_TEST_DATA_USE` | The approved explanation of who receives study data, which model providers are used, and why. A no-provider watch must have no provider credentials set. |
 
 The canonical setting is `1`. Case-insensitive `true`, `on` and `yes` also
-enable it; absent/empty, `0`, `false`, `off` and `no` disable it. An unknown
-value keeps participation required but not ready, so a typo cannot silently
-open staging.
+enable it; absent/empty, `0`, `false`, `off` and `no` turn temporary mode off.
+The continuing-study condition above still applies. An unknown value keeps
+participation required but not ready, so a typo cannot silently open staging.
 
 Fly's [secrets documentation](https://docs.fly.io/apps/secrets) documents
 `--stage` as deferring machine updates until a later deploy. That contract was
@@ -399,29 +497,31 @@ notice changes may restart clients and require their new acknowledgement.
 
 `GET /participation` is public and serves the same notice used by both
 clients, registration and the guide. Verify that it reports `required: true`
-and `ready: true`; `/health` alone does not establish either. Registration
-does not count as consent. Every participant, including an operator-minted
+and `ready: true`, and the correct `temporary` value; `/health` alone does not
+establish any of these. Registration requires its own affirmative 18-or-older
+confirmation before minting a key and does not count as notice consent. Every participant, including an operator-minted
 invite holder, must acknowledge the current notice before gameplay or a
 WebSocket connection is allowed. Acceptance is a private participant-owned
 record, separate from the chronicle, and follows invite rotation and other
 devices. A changed notice requires a new acknowledgement and closes sockets
 that have not accepted that revision.
 
-The server supplies one agreement sentence that includes the configured
-minimum age. The unchecked agreement control displays that sentence verbatim;
-`POST /participation` with `{ "accepted": true, "revision": "<current revision>" }`
-affirms that age and participation statement together. The exact agreement is
-hashed and retained in the private notice snapshot. This is self-attestation,
-not independent age verification; the operator still selects the minimum age
-and controls invitations. No date of birth is collected.
+The shared notice supplies separate unchecked age and participation controls,
+including the plain statement "I confirm I am 18 years old or older."
+`POST /participation` requires
+`{ "accepted": true, "age_confirmed": true, "revision": "<current revision>" }`.
+Both statements are hashed and retained in the same private notice snapshot.
+Self-registration and operator-issued invitations must accept that same current
+revision before play. This is self-attestation, not independent age verification;
+the operator controls invitations. No date of birth is collected.
 
 The notice also covers direct Journal and Ideas entry. A changed notice can
 be reviewed during play or while another dialog is open. Acceptance resumes
 the existing view without replaying a refused mutation. Consent-required 428
 and participation configuration/check 503 are plain operational notice
-decisions, separate from authored world voices. Production keeps its existing
-permanent-history disclosure; temporary copy is selected only after metadata
-declares a test world.
+decisions, separate from authored world voices. Continuing worlds keep their
+standing shared-history disclosure alongside any required study notice;
+temporary copy is selected only when metadata reports `temporary: true`.
 
 The default staging watch remains without provider keys. The step 6 provider
 setup and step 7 `ai: true` probe apply only after the provider-data review and
@@ -503,26 +603,34 @@ Use the current probe against staging after its dedicated check participants
 have accepted the notice. Put one personal check key per line in a private
 file outside the checkout; never put keys on the command line or in an issue.
 Before world discovery or any socket, the probe checks public `/participation`
-metadata and requires a ready temporary world. It then uses authenticated
+metadata and requires a ready temporary world, then checks public `/community`
+capabilities. Chat-off rehearsals require `--no-chat`; a chat-mode probe refuses
+disabled chat before creating a world or opening a socket. It then uses authenticated
 `/world` discovery, the served canonical seed and real nodes to verify
 concurrent sockets, ordered movement and chat delivery:
 
 ```bash
-.venv/bin/python scripts/ws_soak.py --url https://enfolded-staging.fly.dev --clients 12 --duration 60 --keys-file /private/staging-soak-keys.txt
+.venv/bin/python scripts/ws_soak.py --url https://enfolded-staging.fly.dev --clients 12 --duration 60 --no-chat --keys-file /private/staging-soak-keys.txt
 ```
 
 A run from one IP also needs the staging operator to size
 `NESTED_WORLDS_MAX_WS_PER_IP` for those 12 sockets (the default is 8), or to
 distribute the clients across addresses. Use staging-only limits and respect
 the global cap; the probe does not weaken either limit. It reports refusals
-as failures and does not accept notices automatically. Chat-mode probes leave
-authored rehearsal lines in the disposable chronicle; `--no-chat` suppresses
-those lines but still records joins and movement. It is not read-only and
+as failures and does not accept notices automatically. Remove `--no-chat` only
+for a deliberately chat-enabled rehearsal under the selected collection policy.
+Chat-mode probes leave authored rehearsal lines in the private operator chat log,
+under that policy's retention and deletion rules. Traveler messages leave no
+chat event in world history. `--no-chat` suppresses those lines but still records
+joins and movement. The probe is not read-only and
 does not bypass the temporary-world preflight. A deliberate rehearsal on a
 permanent world requires `--permanent-world-ok`, including with `--no-chat`;
 this does not override absent, malformed or incomplete notice metadata.
 Repeated chat receipts are reported as extra deliveries and fail the probe,
-as missing receipts do. Record the JSON result with the
+as missing receipts do. A chat-policy shutdown during the rehearsal, a private
+chat-log storage failure and a moderation hold have separate failure reasons.
+For a storage failure, inspect private-log availability before retrying; no probe
+line is broadcast without its private commit. Record the JSON result with the
 candidate commit and the staging configuration, and revoke the check keys
 after the rehearsal.
 
@@ -741,8 +849,8 @@ fly apps destroy enfolded-staging --yes
 4. Revoke the staging provider key (step 6) in the provider's console, and
    archive any workspace made for staging.
 
-Fix what the rehearsal surfaces, then run §3 against the production app
-— deliberately.
+Fix what the rehearsal surfaces and prepare the retained/cohort rollout for
+separate owner instruction before running §3 against a production app.
 
 ---
 
@@ -931,9 +1039,11 @@ When the suspension expires or the sanction is lifted,
 the same key resolves to the same participant again. Journal, profile, home
 and saved position are untouched throughout.
 
-What the player sees: the same `403 {"error": "forbidden"}` as a revoked key
-(Ideas, which authenticates on its own, answers its usual 403 "Open your
-current personal game invite to participate in Ideas."). No reason, kind or
+What the player sees: the same `403 {"error": "forbidden"}` as a revoked key.
+Ideas authenticates through its own failure limiter first and answers its
+usual 403 "Open your current personal game invite to participate in Ideas."
+An admitted key must still acknowledge the current study notice before Ideas
+can read or change content. No reason, kind or
 end time is shown. Telling the player what was decided and why, and any
 appeal, is checklist G8, a held owner decision. Neither client yet tells the
 player their invite stopped working.
@@ -1339,20 +1449,77 @@ epoch" — this is the restore. It overwrites the live database with the
 backup; everything recorded since that backup is lost, so read the
 event counts it prints.
 
+Private chat deletion must survive an older backup. After every completed
+deletion, run `chat-log export-deletions PATH` against the ready current store
+and keep that atomic `0600` JSON export in private durable storage outside the
+database snapshot and app volume. It contains only actually deleted evidence
+references and UTC timestamps, not messages or identities. Copy the latest
+external record into the maintenance environment before recovery; never trust
+an older ledger in the backup as the latest record.
+
+Every backup containing the `private_chat_messages` table requires an explicit
+`--deletions PATH` record on restore, even if the current database exists or the
+private-chat table is empty. The restore also carries the current deletion
+ledger forward; it cannot substitute for the required file.
+
+For routine recovery with the intact current database, export its latest ledger,
+preserve an independent durable copy, and pass that export to restore. For a
+lost or recreated database, retrieve the latest independently preserved operator
+record instead. A replacement volume that has already run `init_db` is still
+lost-store recovery: do not overwrite the preserved record with its fresh empty
+export. An explicit empty record is usable only after the operator verifies
+that no outstanding deletions need to be applied for this restore. A fresh or
+locally empty ledger does not establish that fact.
+
+A pre-33 backup with no private-chat table can restore without the file, while
+current ledger records are still carried forward. Restoring that older backup or
+initializing a replacement database does not waive `--deletions` for a later
+private-chat backup. An omitted required file or a missing/corrupt supplied
+export aborts before overwriting the live database. Keep service closed until
+the record is resolved.
+
 ```bash
-# 1. Stop all application/heartbeat writers while retaining maintenance access.
-#    Restore uses SQLite backup in reverse; --yes skips the confirmation prompt.
-#    A machine-local deploy copy is worlds-YYYYMMDD.db.
-fly ssh console -C "python main.py restore --from /data/backups/worlds-YYYYMMDD.db --yes"
+# The first schema-33 rehearsal is restricted to throwaway enfolded-staging.
+ENFOLDED_RESTORE_APP=enfolded-staging
+
+# 1. Stop the server and all application/heartbeat/private-log writers while
+#    retaining maintenance access. Choose the applicable recovery path below.
+
+# 2a. Routine recovery, intact current database only: export its latest ledger
+#     before overwriting it. Transfer this file to private durable storage
+#     outside the database snapshot and app volume as well.
+fly ssh console -a "$ENFOLDED_RESTORE_APP" -C "python main.py chat-log export-deletions /tmp/chat-deletions.json"
+
+# 2b. Lost/recreated database: SKIP 2a, even if init_db has already initialized
+#     a replacement volume. Retrieve the latest independently preserved operator
+#     record and copy it to /tmp/chat-deletions.json. Never replace that record
+#     with an export from a fresh empty database or the older backup.
+
+# 3. Restore uses SQLite backup in reverse; --yes skips confirmation.
+#    --deletions is mandatory for every backup containing private_chat_messages,
+#    regardless of the current database. A machine-local copy is worlds-YYYYMMDD.db.
+fly ssh console -a "$ENFOLDED_RESTORE_APP" -C "python main.py restore --from /data/backups/worlds-YYYYMMDD.db --deletions /tmp/chat-deletions.json --yes"
 
 #    An off-host object is downloaded as ./worlds-backup.db and uploaded to
 #    the same name. Use that path, not the dated deploy-backup name:
-fly ssh console -C "python main.py restore --from /data/backups/worlds-backup.db --yes"
+fly ssh console -a "$ENFOLDED_RESTORE_APP" -C "python main.py restore --from /data/backups/worlds-backup.db --deletions /tmp/chat-deletions.json --yes"
 
-# 2. Restart so in-memory state (rooms, puzzle sessions, rate buckets)
-#    matches the restored world.
-fly machine restart <machine-id>
+# 4. The restore command already merges/replays deletion records. If instead
+#    a maintenance recovery replaced the database outside main.py restore,
+#    replay the external record before any writer starts:
+fly ssh console -a "$ENFOLDED_RESTORE_APP" -C "python main.py chat-log replay-deletions /tmp/chat-deletions.json"
+
+# 5. Complete deletion replay and the other restore reconciliation, then restart
+#    so in-memory state (rooms, puzzle sessions, rate buckets) matches the file.
+fly machine restart <machine-id> -a "$ENFOLDED_RESTORE_APP"
 ```
+
+Replay validates the whole export before atomically merging and deleting its
+references. Executed-deletion proof overrides an older backup's stale open-case
+state so that restoring cannot resurrect a deleted line. Held rows were never
+recorded as deleted and keep their complaint hold; later messages have different
+references and are unaffected. Restart or admit traffic only after replay and
+the remaining restore reconciliation are complete.
 
 If the backup only exists off-host, download it with `scripts/backup_store.py get`
 to `./worlds-backup.db`, run `scripts/validate_backup.py ./worlds-backup.db`,
@@ -1591,7 +1758,7 @@ not this restore.
 | See current machine status | `fly status` |
 | Restart the machine | `fly machine restart <id>` |
 | Inspect the volume | `fly volumes list` |
-| Restore from a backup | `python main.py restore --from <file>` then restart (§7) |
+| Restore from a backup | Stop server/private-log writers; for an intact store export its latest ledger, or for a lost/recreated store retrieve the independently preserved record without replacing it with a fresh empty export. `python main.py restore --from <file> --deletions <latest-export>` requires the file for every backup containing private_chat_messages; only a backup without that table can omit it. Replay if the file was replaced outside that command; complete reconciliation, then restart (§7) |
 | Adjust a runtime cap | Set the neutral name and the legacy name to the same integer in one `fly secrets set` (it accepts multiple `NAME=VALUE` pairs and restarts once). Example: `fly secrets set NESTED_WORLDS_VOICE_DAILY_CALLS=1000 NESTED_WORLDS_ANTHROPIC_DAILY_CALLS=1000`. Do the same for the image pair and for both `_PER_USER` pairs. A leftover lower legacy value is a warning, not a crash, and requests enforce that lower integer. Removing the legacy name is a separate `fly secrets unset NAME`. To apply the set and the unset in one restart, pass `--stage` on each and then run `fly secrets deploy`. There is no command that sets and unsets together. |
 | Bound slow HTTP reads, response writes, or handler threads | `fly secrets set NESTED_WORLDS_HTTP_READ_TIMEOUT=30 NESTED_WORLDS_HTTP_WRITE_TIMEOUT=30 NESTED_WORLDS_MAX_HANDLER_THREADS=160` |
 | Kill switch AI without redeploy | `fly secrets set NESTED_WORLDS_DISABLE_AI=1` |

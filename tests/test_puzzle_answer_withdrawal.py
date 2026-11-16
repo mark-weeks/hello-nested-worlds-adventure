@@ -80,6 +80,12 @@ def test_stored_multiplayer_pool_rehydrates_without_releasing_answer(http, accou
     rooms.clear_rooms()
     newcomer = "nw_" + "c" * 32
     persistence.mint_invite_key(newcomer, "Carol")
+    status, notice, _ = http("/participation", newcomer)
+    assert status == 200 and notice["ready"]
+    assert http("/participation", newcomer, {
+        "accepted": True, "age_confirmed": True,
+        "revision": notice["revision"],
+    })[0] == 200
 
     status, opened, _ = http("/puzzle?depth=1", newcomer)
     assert status == 200 and opened["attempt"] == puzzle.max_attempts

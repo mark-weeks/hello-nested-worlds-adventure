@@ -56,6 +56,9 @@ def test_controlled_off_startup_needs_no_disabled_provider_or_legacy_banner(tmp_
     import consciousness
 
     events = []
+    # Startup reconciliation requires a real initialized store; only the
+    # repeated startup call is instrumented below for model-policy ordering.
+    persistence.init_db()
     monkeypatch.setenv(model_policy.POLICY_ENV, str(_off_file(tmp_path)))
     monkeypatch.setenv(runtime.NODE_PROVIDER_ENV, "not_a_registered_adapter")
     monkeypatch.setenv(runtime.NODE_MODEL_ENV, "")

@@ -286,7 +286,7 @@ Do this on the staging app before any production history.
 - [ ] Secrets and variables are set. `ENFOLDED_BACKUP_REQUIRED` is still unset.
 - [ ] Manual dispatch of `backup.yml` stores a validated snapshot. The job summary does not print the object key, the bucket, or the account id, and the log has no artifact upload.
 - [ ] `python scripts/backup_health.py --app <staging-app>` exits 0. `--max-age-minutes 1` against an old stamp exits 1.
-- [ ] Download, `validate_backup.py`, checksum, and `python main.py restore` on the isolated staging machine. Record the checksum, snapshot time, app, release SHA, and elapsed time.
+- [ ] Download, `validate_backup.py`, checksum, and `python main.py restore` on the isolated staging machine. Every backup containing `private_chat_messages` requires `--deletions <latest-export>` with the latest independently preserved operator deletion record, even when a current database exists; a fresh-boot empty export is not authoritative. Follow the [restore procedure](fly-deployment.md#restoring-from-a-backup), then record the checksum, snapshot time, app, release SHA, and elapsed time.
 - [ ] A deliberately invalid snapshot (or a failed validation) is stored only under `offhost/unvalidated-worlds-backup-...` and the run is red. The health check does not count it.
 - [ ] With `ENFOLDED_BACKUP_REQUIRED=true` and one required value removed, a dispatch fails and uploads nothing. Restore the value afterward.
 - [ ] Delete the rehearsal objects if they are no longer needed (`delete` or `delete-before`).

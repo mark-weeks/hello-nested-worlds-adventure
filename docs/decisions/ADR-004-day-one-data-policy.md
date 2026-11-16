@@ -1,5 +1,11 @@
 # ADR-004: Day-One Data Policy
 
+**Prepared implementation, revised 2026-11-15:** the private-chat/reporting batch is
+described in [Proposed ADR-040](ADR-040-private-chat-and-reporting.md) and the
+[prospective amendment below](#proposed-2026-11-14-amendment-private-traveler-chat-and-reports).
+The earlier accepted decisions remain historical records; this note does not
+ratify that new storage scope or deploy its selected study policy.
+
 **2026-09-12 identity revision:** [ADR-024](ADR-024-participants-and-active-content.md)
 implements the key-rotation revisit trigger. A participant ID owns new profiles,
 notes and receipts; explicit credential aliases retain continuity through
@@ -575,3 +581,108 @@ their puzzle-solving rules; those are separate contracts in the owner's record.
   identity, so it silently reintroduces exactly the anonymous, name-colliding
   play §7 exists to prevent. There is no throwaway pre-launch data and no key
   had been issued, so removing it costs nothing and the policy becomes absolute.
+
+## Proposed 2026-11-14 amendment: private traveler chat and reports
+
+**Status: Proposed for scoped implementation review, not ratified.** The owner's
+[Version 4 direction on PR #174](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/174#issuecomment-6896201907)
+selects an operator-only human-chat log retained until deletion, with a hold for
+messages cited by an open complaint. [ADR-040](ADR-040-private-chat-and-reporting.md)
+records that implementation scope. The merge remains the human gate under
+ADR-034 section 5 for these private operational tables and this prospective
+amendment to sections 4 and 6. This record does not deploy a policy, approve an
+external destination or change the accepted historical decisions above.
+
+The prepared code replaces every new human WebSocket `PLAYER_CHAT` append with a
+private operational log, committed before live broadcast, in hosted and local
+modes. Existing moderation, invite authorization and participation gates still
+apply. A keyed message resolves a current personal credential to its participant;
+explicitly enabled unkeyed local chat uses the authorized server session and
+displayed name while the invite gate is open. No credential, credential digest or
+IP belongs in the private log. A missing immutable community policy disables new
+chat and report collection; it never falls back to permanent recording or silent
+ephemeral delivery. Other gameplay keeps its existing gates. Enabled collection
+requires an explicit retention policy, contact and backup wording, with no
+numeric defaults. The selected chat policy is `until_deleted`, not a rolling
+expiry. The owner selected report windows of 90 days for the disposable watch
+and 180 days for the retained cohort; those are documented operating decisions,
+not checked-in deployment selections.
+
+The merge also adopts a one-way loss of future permanent chat participation,
+separate from adding migration 0033. After deployment of the merged writer
+removal, new human chat permanently leaves the never-wipe chronicle. Rows never
+written during that period cannot later be restored as original chronicle
+history by rolling back code. The private log is not shared world history or
+model memory; it creates no permanent chat event, even a wordless trace. Live
+room-wide delivery is unchanged, and players receive no chat-history scrollback.
+This consequence is part of the scoped merge decision, not an erasure of old rows.
+
+Reports use live personal authentication and opaque target/evidence handles.
+They retain reason, optional reporter detail and an operator-only receipt;
+acknowledgement/closure notes share the report's original expiry. Pending and
+acknowledged complaints, their actions and cited original messages remain
+available until the complaint closes, including beyond that deadline. Closing a
+complaint releases its evidence hold; it does not restart a retention window or
+automatically erase an otherwise retained line. Evidence is referenced without
+copying a quotation. Reporter-typed quotations are separate report content under
+that report's retention. No report text is sent
+to a model, made public or disclosed to the target as coming from a named person.
+There is no automatic sanction, jury or external notification. Queue polling
+toward the 24-hour beta goal needs at least twice-daily checks, an assigned
+operator/workflow and a rehearsal; a second operator is required before the
+cohort starts. No live staffing or response is established by this record.
+
+No legacy `world_mutations` row is deleted or rewritten. Normal public/model
+projections exclude legacy `PLAYER_CHAT` before limits, counts and cursors, while
+operator tooling and backups may retain the original words. Historical aggregate
+art wear and metadata-only legacy image-style windows stay stable; the private
+log feeds neither art nor prompts. Place exchanges (`PLAYER_SPEAK`), addressed
+inhabitant exchanges (`AGENT_VOICE`) and authored ambient `AGENT_TALK` remain
+recorded speech under their existing rules. The proposal does not make all speech
+private or implement ADR-037's future agents answering players in chat.
+
+Only operators can read the private log, to investigate complaints and understand
+how testers played together. Chat stays until a tester asks for deletion or leaves
+the study. Operators can delete one message by its evidence reference or all chat
+for a tester. Deletion skips messages held by an open or acknowledged complaint,
+deletes other eligible messages and reports the held count and reason. Review
+deletion requests, departures and outstanding holds at the end of each study;
+deleting a disposable watch world also deletes its private log.
+
+Completed erasures atomically record only opaque evidence references and UTC
+timestamps, without message or name text. Startup replays that ledger before
+listening; restore carries its current records into the candidate database and
+replays them before replacing live data. A backup's stale complaint state cannot
+undo completed erasure. Export the ledger after each completed deletion to
+private durable storage outside the restored database/snapshot. Every backup
+containing `private_chat_messages` requires an explicit `--deletions` record on
+restore, even with an existing database or an empty private-chat table; current
+ledger records are still merged. For an intact current store, export its latest
+ledger before restore. For a lost or recreated store, retrieve the latest
+independently preserved operator record. Running `init_db` on a replacement
+volume does not make its new empty ledger or export a substitute, and an older
+backup's ledger cannot supply the latest proof. An explicit empty record needs
+operator verification that no outstanding deletions apply to the restore, not
+an inference from a fresh or locally empty ledger. A pre-33 backup without the
+private-chat table can restore without the file; any subsequent private-chat
+restore still requires it. Omitted required files or invalid supplied records
+abort before live overwrite. Stop writers before restoring and reconcile before
+restarting play. Held messages get no erasure record and later messages are
+unaffected.
+
+Operational reads include chat without an expiry and preserve pending complaints
+and evidence holds. A lifecycle-managed worker and operator prune command remove
+eligible expired records independently of gameplay; stopped-server cleanup remains
+an operator responsibility. Backup copies disappear when those backups are
+deleted. Whole-DB backups, local/downloaded copies and the newest-validated backup
+exception need their own deletion treatment; deleting live rows does not erase
+them. The revised study notice states the purpose, operator access, contact,
+deletion and backup boundaries. Registration and operator-invited access require
+affirmative confirmation of age 18 or older under that same current notice
+revision. Acknowledgement neither ratifies this proposal nor approves model
+destinations or deployment.
+
+The notice gate is required whenever test-world mode is on or the permanent
+invite gate has latched, even with chat and report collection off; those
+deployments still need the TEST_* notice values. The first deployment carrying
+schema33 goes only to the throwaway staging twin.

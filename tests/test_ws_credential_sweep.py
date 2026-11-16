@@ -26,17 +26,20 @@ import pytest
 
 import main
 import persistence
+from persistence import participants, participation as consents
 from multiverse import store
 from persistence import sanctions
 from persistence.participants import rotate
 from server import guard, protocol, websocket
 from server.rooms import Player, broadcast, get_room
+from tests.study_fixture import acknowledge_current_study
 from tests.test_day_one_recording import _ws_send_json
 from tests.test_moderation import _read_ws_json_until
 from tests.test_server_protocol import _client_frame
 from tests.test_ws_credential_lifetime import (
     KEY_A,
     KEY_B,
+    _chat_rows,
     _join,
     _read_frame,
     _rows,
@@ -172,13 +175,13 @@ def _watching(sweep, n, timeout=CLOSE_WITHIN):
 def _lookups(monkeypatch):
     """Record (thread name, key, monotonic time) for every credential read."""
     calls = []
-    real = persistence.lookup_invite_key
+    real = participants.require_live_credential
 
-    def counting(key):
+    def counting(conn, key):
         calls.append((threading.current_thread().name, key, time.monotonic()))
-        return real(key)
+        return real(conn, key)
 
-    monkeypatch.setattr(persistence, "lookup_invite_key", counting)
+    monkeypatch.setattr(participants, "require_live_credential", counting)
     return calls
 
 
@@ -204,6 +207,7 @@ def _until(condition, what, timeout=CLOSE_WITHIN):
 
 
 class TestListenOnlySocketIsClosed:
+    @pytest.mark.usefixtures("community_collection")
     def test_a_revoked_key_closes_a_socket_that_sends_nothing(self, srv, sweep):
         seed = 2801
         ada, ada_sid, bea = _two_players(srv, seed)
@@ -222,10 +226,11 @@ class TestListenOnlySocketIsClosed:
                 if m.get("type") == "player_leave"] == [ada_sid]
         assert _leaves_heard(bea, ada_sid) == []
         assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
-        assert _rows(seed, "PLAYER_CHAT", "Ada") == []
-        assert [r["player"] for r in _rows(seed, "PLAYER_CHAT")] == ["Bea"]
+        assert _chat_rows(seed, "Ada") == []
+        assert [r["name"] for r in _chat_rows(seed)] == ["Bea"]
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_no_broadcast_reaches_the_socket_once_its_check_failed(
             self, srv, sweep):
         seed = 2802
@@ -297,20 +302,23 @@ class TestListenOnlySocketIsClosed:
         assert code == protocol.CLOSE_POLICY_VIOLATION  # not the deadline's 1002
         leave, _ = _until_type(bea, "player_leave")
         assert leave["session_id"] == ada_sid
-        assert _rows(seed, "PLAYER_CHAT") == []
+        assert _chat_rows(seed) == []
         bea.close()
 
+    @pytest.mark.parametrize("read", ["credential", "consent"])
     def test_a_failing_read_closes_the_socket_and_logs_no_key(
-            self, srv, sweep, monkeypatch, caplog):
+            self, srv, sweep, monkeypatch, caplog, read):
         caplog.set_level(logging.INFO)
         seed = 2807
         persistence.mint_invite_key(KEY_A, "Ada")
         ada, _ = _join(srv, seed, "x", KEY_A)
 
-        def broken(_key):
+        def broken(*_args):
             raise persistence.sqlite3.OperationalError("database is locked")
 
-        monkeypatch.setattr(persistence, "lookup_invite_key", broken)
+        target, name = ((participants, "require_live_credential") if read == "credential"
+                        else (consents, "accepted"))
+        monkeypatch.setattr(target, name, broken)
         code, _ = _closed_once(_frames_until_eof(ada))
         assert code == protocol.CLOSE_POLICY_VIOLATION
         assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
@@ -356,6 +364,7 @@ class TestKeylessSocket:
 
 
 class TestLiveKeyAndCost:
+    @pytest.mark.usefixtures("community_collection")
     def test_a_live_key_stays_open_at_one_read_per_interval(
             self, srv, sweep, monkeypatch):
         seed = 2821
@@ -502,9 +511,9 @@ class TestSweepVerdictEndsTheSession:
         session = _session_of(sweep, ada_sid)
         reader_held, release_reader = threading.Event(), threading.Event()
         sweep_fails = threading.Event()
-        real = persistence.lookup_invite_key
+        real = participants.require_live_credential
 
-        def lookup(key):
+        def lookup(conn, key):
             if key == KEY_A:
                 if threading.current_thread().name == SWEEP_THREAD:
                     if sweep_fails.is_set():
@@ -512,9 +521,9 @@ class TestSweepVerdictEndsTheSession:
                 elif not release_reader.is_set():
                     reader_held.set()
                     assert release_reader.wait(5.0)
-            return real(key)
+            return real(conn, key)
 
-        monkeypatch.setattr(persistence, "lookup_invite_key", lookup)
+        monkeypatch.setattr(participants, "require_live_credential", lookup)
         _ws_send_json(ada, {"type": "ping"})
         assert reader_held.wait(CLOSE_WITHIN), "the reader never checked the ping"
         if queued == "move":
@@ -535,6 +544,7 @@ class TestSweepVerdictEndsTheSession:
         assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     @pytest.mark.parametrize("action,refusal", [
         ("move", "revoked"), ("chat", "revoked"), ("move", "read_error")])
     def test_a_refusal_during_the_actions_own_check_wins(
@@ -558,24 +568,24 @@ class TestSweepVerdictEndsTheSession:
         release_reader, sweep_refuses = threading.Event(), threading.Event()
         hold_read = 1 if action == "move" else 2  # chat: before and after screening
         reader_reads = []
-        real = persistence.lookup_invite_key
+        real = participants.require_live_credential
 
-        def lookup(key):
+        def lookup(conn, key):
             if key == KEY_A:
                 if threading.current_thread().name == SWEEP_THREAD:
                     if sweep_refuses.is_set():
                         if refusal == "read_error":
                             raise persistence.sqlite3.OperationalError(
                                 "disk I/O error")
-                        return None  # the sweep's read sees it revoked
+                        raise participants.Unauthorized("The sweep sees a revoked credential.")
                 elif armed.is_set():
                     reader_reads.append(key)
                     if len(reader_reads) == hold_read:
                         reader_held.set()
                         assert release_reader.wait(5.0)
-            return real(key)
+            return real(conn, key)
 
-        monkeypatch.setattr(persistence, "lookup_invite_key", lookup)
+        monkeypatch.setattr(participants, "require_live_credential", lookup)
         armed.set()
         if action == "move":
             _ws_send_json(ada, {"type": "move", "node": store.root_name(seed)})
@@ -593,7 +603,7 @@ class TestSweepVerdictEndsTheSession:
         assert not [m for m in before
                     if m.get("type") in ("player_move", "chat")]
         assert _rows(seed, "PLAYER_MOVE", "Ada") == []
-        assert _rows(seed, "PLAYER_CHAT", "Ada") == []
+        assert _chat_rows(seed, "Ada") == []
         assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
         bea.close()
 
@@ -853,6 +863,7 @@ def _join_small_window(port, seed, key):
     """Join on `key` with a client that can stop reading: its receive buffer
     is shrunk before it connects, so the window it advertises stays small.
     Returns (socket, session id) once the welcome has been read."""
+    acknowledge_current_study(key)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
     sock.settimeout(5)

@@ -161,12 +161,24 @@ def _world_preflight(origin: str, timeout: float, permanent_world_ok: bool) -> s
     if not metadata["ready"]:
         raise ProbeError("World preflight: the participation notice is not ready.")
     if metadata["required"]:
-        if not isinstance(metadata.get("revision"), str) or not metadata["revision"].strip():
+        if (not isinstance(metadata.get("revision"), str) or not metadata["revision"].strip()
+                or type(metadata.get("temporary")) is not bool):
             raise ProbeError("World preflight returned invalid participation metadata.")
-        return "temporary"
+        if metadata["temporary"]:
+            return "temporary"
     if not permanent_world_ok:
         raise ProbeError("The probe requires a declared temporary world; explicitly allow a permanent-world rehearsal with --permanent-world-ok.")
     return "explicit permanent-world override"
+
+
+def _community_preflight(origin: str, timeout: float, chat: bool) -> None:
+    """Check declared chat availability before joining or writing any probe line."""
+    metadata = _get_json(origin, "/community", "", timeout, "Community preflight")
+    if (not isinstance(metadata, dict) or not isinstance(metadata.get("chat"), dict)
+            or type(metadata["chat"].get("enabled")) is not bool):
+        raise ProbeError("Community preflight returned invalid chat policy metadata.")
+    if chat and not metadata["chat"]["enabled"]:
+        raise ProbeError("Chat is disabled by community policy. Use --no-chat for this rehearsal.")
 
 
 def discover_world(origin: str, key: str, timeout: float) -> tuple[int, tuple[str, str]]:
@@ -283,6 +295,10 @@ def _client(index: int, key: str, config: Config, ws_origin: str,
                     elif kind == "move_denied":
                         raise ProbeError("Movement between the discovered places was refused")
                     elif kind == "chat_declined":
+                        if message.get("text") == "Chat is unavailable in this world.":
+                            raise ProbeError("Chat was disabled by community policy during the rehearsal")
+                        if message.get("text") == "Your message could not be delivered. Please try again later.":
+                            raise ProbeError("Private chat log storage was unavailable during the rehearsal")
                         raise ProbeError("The moderation screen held or declined a probe line")
     except InvalidStatus as exc:
         with result.lock:
@@ -339,6 +355,7 @@ def run_probe(config: Config, keys: list[str]) -> dict:
     if not keys and not local:
         raise ProbeError("Hosted soaks require one invite key per client in a key file or ENFOLDED_SOAK_KEYS.")
     world_status = _world_preflight(origin, config.timeout, config.permanent_world_ok)
+    _community_preflight(origin, config.timeout, config.chat)
     seed, nodes = discover_world(origin, keys[0] if keys else "", config.timeout)
     result = Measurements()
     marker = "soak" + "".join("ab"[b % 2] for b in secrets.token_bytes(24))

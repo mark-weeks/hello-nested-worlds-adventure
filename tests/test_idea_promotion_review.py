@@ -245,7 +245,14 @@ def test_promotion_upgrade_preserves_main_and_board_data(monkeypatch, base_versi
     with db._connection() as conn:
         assert {name: conn.execute(f'SELECT * FROM "{name}"').fetchall() for name in names} == before
         assert conn.execute('SELECT version FROM schema_version WHERE version>=24 ORDER BY version').fetchall() == [(v,) for v, _ in migrations if v >= 24]
-        assert conn.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name LIKE 'community_%'").fetchone()[0] == 8
+        # The private operational store adds its policy table alongside the
+        # existing Ideas tables; every pre-upgrade row above stays untouched.
+        assert {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'community_%'")} == {
+                'community_ideas', 'community_votes', 'community_vote_events', 'community_ip_writes',
+                'community_settings', 'community_decisions', 'community_promotions',
+                'community_promotion_events', 'community_policies',
+            }
         assert conn.execute("SELECT count(*) FROM sqlite_master WHERE name IN ('idx_world_mutations_material_node','idx_world_mutations_rearms')").fetchone()[0] == 2
     if idea_id is None:
         idea_id = ideas.submit(key, {'title': 'A new idea after upgrading', 'description': 'Board content after main upgrade.',

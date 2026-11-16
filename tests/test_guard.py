@@ -63,6 +63,15 @@ def _get_json(url: str) -> dict:
         return json.loads(resp.read())
 
 
+def _acknowledge_study(key):
+    """Successful keyed journeys represent adults enrolled in this study."""
+    from persistence import participation as consents
+    from server import participation
+    current = participation.notice()
+    assert current["required"] and current["ready"]
+    consents.accept(key, current["revision"], participation.snapshot(current))
+
+
 # ── Invite gate ─────────────────────────────────────────────────────────────
 
 class TestInviteGate:
@@ -100,11 +109,13 @@ class TestInviteGate:
 
     def test_key_via_query_param_accepted(self, srv):
         self._gate_on()
+        _acknowledge_study("nw_letmein")
         base, _ = srv
         assert _get_status(f"{base}/worlds?key=nw_letmein") == 200
 
     def test_key_via_header_accepted(self, srv):
         self._gate_on()
+        _acknowledge_study("nw_letmein")
         base, _ = srv
         status = _get_status(f"{base}/worlds",
                               headers={guard.BETA_KEY_HEADER: "nw_letmein"})
@@ -126,6 +137,7 @@ class TestPerUserInviteKeys:
 
     def test_active_per_user_key_accepted(self, srv):
         persistence.mint_invite_key("k_alice", "Alice")
+        _acknowledge_study("k_alice")
         base, _ = srv
         assert _get_status(f"{base}/worlds?key=k_alice") == 200
 
@@ -133,6 +145,7 @@ class TestPerUserInviteKeys:
         persistence.mint_invite_key("k_alice", "Alice")
         persistence.mint_invite_key("k_bob", "Bob")
         persistence.revoke_invite_key("k_alice")
+        _acknowledge_study("k_bob")
         base, _ = srv
         assert _get_status(f"{base}/worlds?key=k_alice") == 403
         assert _get_status(f"{base}/worlds?key=k_bob") == 200
@@ -186,6 +199,7 @@ class TestPerUserInviteKeys:
 
     def test_per_user_key_via_header_accepted(self, srv):
         persistence.mint_invite_key("k_alice", "Alice")
+        _acknowledge_study("k_alice")
         base, _ = srv
         status = _get_status(f"{base}/worlds",
                               headers={guard.BETA_KEY_HEADER: "k_alice"})
@@ -211,6 +225,86 @@ class TestPerUserInviteKeys:
         # Revoking every key leaves it active: the gate latches.
         persistence.revoke_invite_key("k_alice")
         assert guard.invite_gate_active() is True
+
+
+class TestStudySocketAuthorization:
+    """Invitations require adult study consent even without collection policy."""
+
+    def test_fresh_development_never_trusts_an_unknown_credentialed_session(self):
+        from server import community_policy, participation
+
+        assert os.getenv(community_policy.POLICY_ENV) is None
+        assert not participation.required()
+        assert guard.ws_session_authorized("", False)
+        assert guard.ws_session_authorized("never-issued", False)
+        assert not guard.ws_session_authorized("never-issued", True)
+
+    @pytest.mark.parametrize("state,allowed", [
+        ("unacknowledged", False), ("accepted", True), ("unknown", False),
+        ("revoked", False), ("rotated", False), ("sanctioned", False),
+        ("notice_changed", False),
+    ])
+    def test_collection_off_keeps_live_credential_and_notice_checks(
+            self, monkeypatch, caplog, state, allowed):
+        from persistence import participants, sanctions
+        from server import community_policy, participation
+
+        assert os.getenv(community_policy.POLICY_ENV) is None
+        assert not community_policy.chat_enabled() and not community_policy.reports_enabled()
+        key = "nw_" + "e" * 32
+        persistence.mint_invite_key(key, "Enrolled adult")
+        current = participation.notice()
+        assert current["required"] and current["ready"] and current["minimum_age"] == 18
+        if state != "unacknowledged":
+            _acknowledge_study(key)
+        if state == "unknown":
+            key = "never-issued"
+        elif state == "revoked":
+            persistence.revoke_invite_key(key)
+        elif state == "rotated":
+            participants.rotate(key, "nw_" + "f" * 32)
+        elif state == "sanctioned":
+            sanctions.ban("Enrolled adult", "Synthetic operator-only reason")
+        elif state == "notice_changed":
+            monkeypatch.setenv("NESTED_WORLDS_TEST_RETENTION", "Revised synthetic study retention.")
+        caplog.clear()
+        assert not guard.ws_session_authorized(key, False)
+        assert guard.ws_session_authorized(key, True) is allowed
+        assert not [record for record in caplog.records if record.levelname in ("ERROR", "CRITICAL")]
+
+    @pytest.mark.parametrize("read", ["credential", "consent"])
+    def test_collection_off_read_errors_close_without_private_log_details(
+            self, monkeypatch, caplog, read):
+        from persistence import participants, participation as consents
+        from server import community_policy
+
+        assert os.getenv(community_policy.POLICY_ENV) is None
+        key = "nw_" + "e" * 32
+        persistence.mint_invite_key(key, "Enrolled adult")
+        _acknowledge_study(key)
+
+        def broken(*_args):
+            raise persistence.sqlite3.OperationalError("private database diagnostic")
+
+        target, name = ((participants, "require_live_credential") if read == "credential"
+                        else (consents, "accepted"))
+        monkeypatch.setattr(target, name, broken)
+        caplog.clear()
+        assert not guard.ws_session_authorized(key, True)
+        errors = [record.getMessage() for record in caplog.records if record.levelname == "ERROR"]
+        assert len(errors) == 1 and "OperationalError" in errors[0]
+        assert "private database diagnostic" not in errors[0] and key not in errors[0]
+
+    def test_keyless_socket_closes_when_the_invite_latch_cannot_be_read(self, monkeypatch, caplog):
+        def broken():
+            raise persistence.sqlite3.OperationalError("private latch diagnostic")
+
+        monkeypatch.setattr(persistence, "credentials_ever_issued", broken)
+        caplog.clear()
+        assert not guard.ws_session_authorized("", False)
+        errors = [record.getMessage() for record in caplog.records if record.levelname == "ERROR"]
+        assert errors and all("OperationalError" in line for line in errors)
+        assert all("private latch diagnostic" not in line for line in errors)
 
 
 # ── World-parameter bounds ──────────────────────────────────────────────────
@@ -765,6 +859,7 @@ class TestStaticAssetGate:
 
     def test_app_shell_ungated_but_world_gated(self, srv):
         persistence.mint_invite_key("nw_gate", "Gatekeeper")
+        _acknowledge_study("nw_gate")
         base, _ = srv
         # Shell loads with no key (browser can't send one on the <script> tag).
         assert _get_status(f"{base}/app") == 200
@@ -825,6 +920,7 @@ class TestWebSocketGate:
 
     def test_ws_accepts_forwarded_key(self, srv):
         persistence.mint_invite_key("nw_gate", "Gatekeeper")
+        _acknowledge_study("nw_gate")
         _, port = srv
         code, sock = _ws_upgrade(port, "/ws?seed=42&name=A&key=nw_gate", hold=True)
         assert code == 101

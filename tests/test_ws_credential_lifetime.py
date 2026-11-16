@@ -22,9 +22,11 @@ import urllib.request
 import pytest
 
 import persistence
+from persistence import participants, participation as consents
 from multiverse.generator import generate_node_hierarchy
 from server import guard, protocol
 from server.rooms import get_room
+from tests.study_fixture import acknowledge_current_study
 from tests.test_day_one_recording import _ws_connect, _ws_send_json
 from tests.test_moderation import _read_ws_json_until, _recv_exact
 from tests.test_server_protocol import _client_frame
@@ -100,6 +102,8 @@ def _until_type(sock, msg_type, timeout=4.0):
 
 
 def _join(port, seed, name, key=None):
+    if key is not None:
+        acknowledge_current_study(key)
     sock, status = _ws_connect(port, seed, name, invite_key=key)
     assert b"101" in status, status
     welcome = _read_ws_json_until(sock, "welcome")
@@ -109,6 +113,28 @@ def _join(port, seed, name, key=None):
 def _rows(seed, kind, player=None):
     return [r for r in persistence.get_mutations(seed, limit=1000)
             if r["type"] == kind and (player is None or r["player"] == player)]
+
+
+def _chat_rows(seed, player=None):
+    """Inspect the actual operator log, separately from immutable history."""
+    with persistence._connection() as conn:
+        assert conn.execute("""SELECT count(*) FROM world_mutations
+            WHERE world_seed=? AND mutation_type='PLAYER_CHAT'""", (seed,)).fetchone()[0] == 0
+        cursor = conn.execute("""SELECT name,text,node_name,session_id,evidence_ref
+            FROM private_chat_messages WHERE world_seed=? ORDER BY id""", (seed,))
+        columns = [item[0] for item in cursor.description]
+        rows = [dict(zip(columns, row)) for row in cursor]
+    return [row for row in rows if player is None or row["name"] == player]
+
+
+def _wait_chat_rows(seed, player, n, timeout=4.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        rows = _chat_rows(seed, player)
+        if len(rows) >= n:
+            return rows
+        time.sleep(0.02)
+    return _chat_rows(seed, player)
 
 
 def _wait_rows(seed, kind, player, n, timeout=4.0):
@@ -132,6 +158,7 @@ def _two_players(port, seed):
 
 
 class TestRevokedCredentialLosesItsSocket:
+    @pytest.mark.usefixtures("community_collection")
     def test_revoked_chat_closes_1008_writes_nothing_and_reaches_nobody(self, srv):
         seed = 2601
         ada, ada_sid, bea = _two_players(srv, seed)
@@ -146,7 +173,7 @@ class TestRevokedCredentialLosesItsSocket:
         leave, before = _until_type(bea, "player_leave")
         assert leave["session_id"] == ada_sid
         assert not [m for m in before if m.get("type") == "chat"]
-        assert _rows(seed, "PLAYER_CHAT") == []
+        assert _chat_rows(seed) == []
         # The normal disconnect path ran exactly once.
         assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
 
@@ -155,7 +182,7 @@ class TestRevokedCredentialLosesItsSocket:
         _ws_send_json(bea, {"type": "chat", "text": "hello"})
         echoed, _ = _until_type(bea, "chat")
         assert echoed["name"] == "Bea" and echoed["text"] == "hello"
-        assert [r["player"] for r in _wait_rows(seed, "PLAYER_CHAT", None, 1)] == ["Bea"]
+        assert [r["name"] for r in _wait_chat_rows(seed, None, 1)] == ["Bea"]
         assert len(_rows(seed, "PLAYER_LEAVE", "Ada")) == 1
         bea.close()
 
@@ -194,7 +221,7 @@ class TestRevokedCredentialLosesItsSocket:
         code, _ = _until_close(ada)
         assert code == 1008
         _until_eof(ada)
-        assert _rows(seed, "PLAYER_CHAT") == []
+        assert _chat_rows(seed) == []
         # The world did not reopen: neither the old key nor no key gets back.
         for key in (KEY_A, None):
             sock, status = _ws_connect(srv, seed, "Ada", invite_key=key)
@@ -224,7 +251,7 @@ class TestRevokedCredentialLosesItsSocket:
 
         _ws_send_json(ada, {"type": "chat", "text": "old key"})
         assert _until_close(ada)[0] == 1008
-        assert _rows(seed, "PLAYER_CHAT") == []
+        assert _chat_rows(seed) == []
 
     # Frames that write nothing still reset the 60 s idle timer, so a client
     # that sends only these after revocation would otherwise stay subscribed
@@ -238,6 +265,7 @@ class TestRevokedCredentialLosesItsSocket:
         "empty-text": _client_frame(b""),
     }
 
+    @pytest.mark.usefixtures("community_collection")
     @pytest.mark.parametrize("kind", sorted(_SILENT_FRAMES))
     def test_a_revoked_socket_cannot_stay_subscribed_on_frames_that_write_nothing(
             self, srv, kind):
@@ -260,6 +288,7 @@ class TestRevokedCredentialLosesItsSocket:
         _until_type(bea, "chat")
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_a_revoked_socket_with_a_spent_chat_bucket_still_closes(
             self, srv, monkeypatch):
         # A dropped (rate-limited) frame writes nothing, but it must not be a
@@ -273,42 +302,46 @@ class TestRevokedCredentialLosesItsSocket:
             _ws_send_json(ada, {"type": "chat", "text": f"line {i}"})
         _ws_send_json(ada, {"type": "ping"})
         _until_type(ada, "pong")
-        assert len(_wait_rows(seed, "PLAYER_CHAT", "Ada", guard.WS_CHAT_BURST)) \
+        assert len(_wait_chat_rows(seed, "Ada", guard.WS_CHAT_BURST)) \
             == guard.WS_CHAT_BURST
 
         persistence.revoke_invite_key(KEY_A)
         _ws_send_json(ada, {"type": "chat", "text": "over the limit"})
         assert _until_close(ada)[0] == 1008
         _until_eof(ada)
-        assert len(_rows(seed, "PLAYER_CHAT", "Ada")) == guard.WS_CHAT_BURST
+        assert len(_chat_rows(seed, "Ada")) == guard.WS_CHAT_BURST
         bea.close()
 
-    def test_a_failing_credential_lookup_closes_the_socket(self, srv, monkeypatch):
+    @pytest.mark.parametrize("read", ["credential", "consent"])
+    def test_a_failing_authorization_read_closes_the_socket(self, srv, monkeypatch, read):
         seed = 2606
         persistence.mint_invite_key(KEY_A, "Ada")
         ada, _ = _join(srv, seed, "x", KEY_A)
 
-        def broken(_key):
+        def broken(*_args):
             raise persistence.sqlite3.OperationalError("database is locked")
-        monkeypatch.setattr(persistence, "lookup_invite_key", broken)
+        target, name = ((participants, "require_live_credential") if read == "credential"
+                        else (consents, "accepted"))
+        monkeypatch.setattr(target, name, broken)
         _ws_send_json(ada, {"type": "chat", "text": "during an outage"})
         assert _until_close(ada)[0] == 1008
-        assert _rows(seed, "PLAYER_CHAT") == []
+        assert _chat_rows(seed) == []
 
 
 class TestKeylessSocketClosesWhenTheGateCloses:
+    @pytest.mark.usefixtures("community_collection")
     def test_keyless_socket_closes_on_its_next_frame_after_the_first_mint(self, srv):
         seed = 2611
         loner, _ = _join(srv, seed, "Loner")
         _ws_send_json(loner, {"type": "chat", "text": "open world"})
-        assert len(_wait_rows(seed, "PLAYER_CHAT", "Loner", 1)) == 1
+        assert len(_wait_chat_rows(seed, "Loner", 1)) == 1
 
         persistence.mint_invite_key(KEY_A, "Ada")
         _ws_send_json(loner, {"type": "chat", "text": "still open?"})
         code, _ = _until_close(loner)
         assert code == 1008
         _until_eof(loner)
-        assert [r["data"]["text"] for r in _rows(seed, "PLAYER_CHAT")] == ["open world"]
+        assert [r["text"] for r in _chat_rows(seed)] == ["open world"]
         assert len(_wait_rows(seed, "PLAYER_LEAVE", "Loner", 1)) == 1
 
     def test_keyless_socket_closes_after_the_first_registration_invite(self, srv):
@@ -320,6 +353,7 @@ class TestKeylessSocketClosesWhenTheGateCloses:
         assert code == 1008
         assert not [m for m in seen if m.get("type") == "pong"]
 
+    @pytest.mark.usefixtures("community_collection")
     def test_keyless_socket_keeps_playing_while_nothing_was_ever_issued(self, srv):
         seed = 2613
         loner, _ = _join(srv, seed, "Loner")
@@ -327,10 +361,11 @@ class TestKeylessSocketClosesWhenTheGateCloses:
             _ws_send_json(loner, {"type": "chat", "text": text})
         _ws_send_json(loner, {"type": "ping"})
         _until_type(loner, "pong")
-        assert len(_wait_rows(seed, "PLAYER_CHAT", "Loner", 2)) == 2
+        assert len(_wait_chat_rows(seed, "Loner", 2)) == 2
         loner.close()
 
 
+@pytest.mark.usefixtures("community_collection")
 class TestPerCredentialRateLimits:
     def test_two_sockets_on_one_key_share_one_chat_burst(self, srv):
         seed = 2621
@@ -354,7 +389,7 @@ class TestPerCredentialRateLimits:
         # The bucket refills at WS_CHAT_RATE; allow what a slow run earned.
         ceiling = burst + int(elapsed * guard.WS_CHAT_RATE)
 
-        ada_rows = _rows(seed, "PLAYER_CHAT", "Ada")
+        ada_rows = _chat_rows(seed, "Ada")
         assert burst <= len(ada_rows) <= ceiling, (len(ada_rows), elapsed)
 
         # Another key's allowance is untouched by Ada's flood.
@@ -362,7 +397,7 @@ class TestPerCredentialRateLimits:
             _ws_send_json(bea, {"type": "chat", "text": f"bea {i}"})
         _ws_send_json(bea, {"type": "ping"})
         _, heard = _until_type(bea, "pong")
-        assert len(_wait_rows(seed, "PLAYER_CHAT", "Bea", burst)) == burst
+        assert len(_wait_chat_rows(seed, "Bea", burst)) == burst
         # Bea's queue is FIFO: every chat broadcast from Ada precedes her pong.
         ada_heard = [m for m in heard if m.get("type") == "chat" and m["name"] == "Ada"]
         assert len(ada_heard) == len(ada_rows)
@@ -380,8 +415,8 @@ class TestPerCredentialRateLimits:
         for sock in (one, two):
             _ws_send_json(sock, {"type": "ping"})
             _until_type(sock, "pong")
-        assert len(_rows(seed, "PLAYER_CHAT", "Uno")) == burst
-        assert len(_rows(seed, "PLAYER_CHAT", "Dos")) == burst
+        assert len(_chat_rows(seed, "Uno")) == burst
+        assert len(_chat_rows(seed, "Dos")) == burst
         assert len(guard.WS_CHAT_BUCKETS) == 0
         one.close()
         two.close()
@@ -502,7 +537,7 @@ class TestRevocationMidMessage:
         leave, before = _until_type(bea, "player_leave")
         assert leave["session_id"] == ada_sid
         assert not [m for m in before if m.get("type") == "chat"]
-        assert _rows(seed, "PLAYER_CHAT") == []
+        assert _chat_rows(seed) == []
         bea.close()
 
     def test_the_frame_that_opens_a_fragmented_message_is_checked(self, srv):
@@ -521,6 +556,7 @@ class TestRevocationMidMessage:
         assert leave["session_id"] == ada_sid
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_a_live_key_still_assembles_a_fragmented_chat_across_pings(self, srv):
         seed = 2653
         ada, _, bea = _two_players(srv, seed)
@@ -529,11 +565,12 @@ class TestRevocationMidMessage:
                     + _client_frame(b'"text": "in pieces"}', opcode=0x0))
         line, _ = _until_type(bea, "chat")
         assert line["name"] == "Ada" and line["text"] == "in pieces"
-        assert [r["player"] for r in _wait_rows(seed, "PLAYER_CHAT", None, 1)] \
+        assert [r["name"] for r in _wait_chat_rows(seed, None, 1)] \
             == ["Ada"]
         ada.close()
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_a_key_revoked_while_its_chat_is_screened_publishes_nothing(
             self, srv, monkeypatch):
         from server import moderation
@@ -560,7 +597,7 @@ class TestRevocationMidMessage:
         leave, before = _until_type(bea, "player_leave")
         assert leave["session_id"] == ada_sid
         assert not [m for m in before if m.get("type") == "chat"]
-        assert _rows(seed, "PLAYER_CHAT") == []
+        assert _chat_rows(seed) == []
         bea.close()
 
 
@@ -576,13 +613,13 @@ class TestReauthorizationThrottle:
     @staticmethod
     def _count_lookups(monkeypatch):
         calls = []
-        real = persistence.lookup_invite_key
+        real = participants.require_live_credential
 
-        def counting(key):
+        def counting(conn, key):
             calls.append(key)
-            return real(key)
+            return real(conn, key)
 
-        monkeypatch.setattr(persistence, "lookup_invite_key", counting)
+        monkeypatch.setattr(participants, "require_live_credential", counting)
         return calls
 
     def test_a_frame_flood_costs_one_read_per_interval(self, srv, monkeypatch):
@@ -619,7 +656,7 @@ class TestReauthorizationThrottle:
         leave, before = _until_type(bea, "player_leave")
         assert leave["session_id"] == ada_sid
         assert not [m for m in before if m.get("type") == "chat"]
-        assert _rows(seed, "PLAYER_CHAT") == []
+        assert _chat_rows(seed) == []
         bea.close()
 
     def test_a_move_inside_the_interval_is_still_checked_fresh(
@@ -725,6 +762,7 @@ class TestUpgradeRace:
         persistence.mint_invite_key(KEY_A, "Ada")
         persistence.mint_invite_key(KEY_B, "Bea")
         bea, _ = _join(srv, seed, "x", KEY_B)
+        acknowledge_current_study(KEY_A)
         real = guard.registered_name
 
         def revoked_meanwhile(supplied):
@@ -825,6 +863,7 @@ class TestFrameDeadline:
             pass
         return None, seen
 
+    @pytest.mark.usefixtures("community_collection")
     def test_a_revoked_client_trickling_one_frame_is_closed_at_the_deadline(
             self, srv, monkeypatch):
         monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 0.5)
@@ -870,9 +909,10 @@ class TestFrameDeadline:
         assert [m["session_id"] for m in before
                 if m.get("type") == "player_leave"] == [ada_sid]
         assert len(_wait_rows(seed, "PLAYER_LEAVE", "Ada", 1)) == 1
-        assert _rows(seed, "PLAYER_CHAT", "Ada") == []
+        assert _chat_rows(seed, "Ada") == []
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_a_frame_sent_in_quick_chunks_still_arrives(self, srv, monkeypatch):
         monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 1.0)
         seed = 2692
@@ -885,11 +925,12 @@ class TestFrameDeadline:
             time.sleep(0.05)
         line, _ = _until_type(bea, "chat")
         assert line["name"] == "Ada" and line["text"] == "in chunks"
-        assert [r["player"] for r in _wait_rows(seed, "PLAYER_CHAT", None, 1)] \
+        assert [r["name"] for r in _wait_chat_rows(seed, None, 1)] \
             == ["Ada"]
         ada.close()
         bea.close()
 
+    @pytest.mark.usefixtures("community_collection")
     def test_the_deadline_is_per_frame_not_per_fragmented_message(
             self, srv, monkeypatch):
         monkeypatch.setattr(protocol, "_FRAME_DEADLINE_SEC", 0.5)

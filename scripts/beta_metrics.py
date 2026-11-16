@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Beta health metrics, read straight from the chronicle.
+"""Beta health metrics from the chronicle and retained private-chat counts.
 
 The pre-mortem's cheapest prevention: make "did the beta work?" a number
 instead of a feeling. The chronicle already records durable actor_identity
@@ -30,7 +30,7 @@ from the world's own memory:
     solve or a second action), failed puzzles (each failed
     pool once, in the window that holds its first non-agent failure row
     and only when that row's actor counts, however many
-    wrong guesses followed it), scale verbs, chat
+    wrong guesses followed it), scale verbs, and retained private chat lines
   * where they went (top nodes by human activity)
   * whether the world itself is alive (total chronicle size, first event)
   * whether the world could answer: voice lines answered vs. quiet, by
@@ -61,6 +61,11 @@ credential their participant has held (the facilitator, a disclosed second
 traveler), from the visitor counts and from the model-written rows. It
 cannot reach the daily voice and moderation counters, which carry no
 identity.
+
+Chat counts cover only unexpired private-log rows. Expired or uncollected chat
+history is unavailable, including in archived reporting windows. Chat never
+contributes to permanent per-person action, return-day or timeline counts;
+legacy chronicle chat is omitted from those projections too.
 """
 from __future__ import annotations
 
@@ -79,7 +84,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # rows too; their identities and agent-tagged actions must stay out of the
 # human counts. AGENT_VOICE is different: its actor is the asking player.
 _HUMAN_TYPES = (
-    "PLAYER_JOIN", "PLAYER_MOVE", "PLAYER_LEAVE", "PLAYER_CHAT",
+    "PLAYER_JOIN", "PLAYER_MOVE", "PLAYER_LEAVE",
     "PLAYER_SPEAK", "AGENT_VOICE", "PUZZLE_ATTEMPT", "PUZZLE_SOLVED",
     "PUZZLE_FAILED", "SCALE_ACT", "INTERVENTION_COMMITTED",
 )
@@ -225,8 +230,8 @@ class _Window:
 
     ``--days N`` keeps the original behaviour: rows recorded in the last N
     days before now, counters for the last N UTC days including today.
-    ``--since`` / ``--until`` fix the window in absolute UTC time, so an
-    archived database reads the same whenever it is read.
+    ``--since`` / ``--until`` fix the chronicle window in absolute UTC time.
+    Private chat counts still obey live expiry when an archive is read.
     """
 
     def __init__(self, days: int | None, since: datetime | None,
@@ -363,6 +368,39 @@ def _has_table(conn: sqlite3.Connection, name: str) -> bool:
         (name,)).fetchone() is not None
 
 
+def _retained_chat_counts(conn: sqlite3.Connection, window: _Window, *,
+                          seed: int | None, excluded_participants: tuple[str, ...]) -> dict:
+    """Count only still-readable private rows; never reconstruct expired chat.
+
+    This works on a caller-owned read-only backup connection, without policy
+    imports, migrations, text reads or durable per-person counters. Absolute
+    reporting windows do not make expired private records readable again.
+    """
+    result = {"available": _has_table(conn, "private_chat_messages"),
+              "scope": "retained_only", "retained_lines": None,
+              "expired_or_uncollected": "unavailable"}
+    if not result["available"]:
+        return result
+    where, args = window.rows("datetime(created_at)")
+    where += " AND (expires_at IS NULL OR expires_at > ?"
+    if _has_table(conn, "private_reports"):
+        where += (" OR EXISTS (SELECT 1 FROM private_reports r WHERE "
+                  "r.evidence_ref=private_chat_messages.evidence_ref "
+                  "AND r.status IN ('open','acknowledged'))")
+    where += ")"
+    args.append(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
+    if seed is not None:
+        where += " AND world_seed = ?"
+        args.append(seed)
+    if excluded_participants:
+        placeholders = ",".join("?" for _ in excluded_participants)
+        where += f" AND (participant_id IS NULL OR participant_id NOT IN ({placeholders}))"
+        args.extend(excluded_participants)
+    result["retained_lines"] = conn.execute(
+        f"SELECT COUNT(*) FROM private_chat_messages WHERE {where}", args).fetchone()[0]
+    return result
+
+
 def _identity_owners(conn: sqlite3.Connection) -> dict[str, str]:
     """actor_identity → participant id, where exactly one participant owns it.
 
@@ -454,6 +492,10 @@ def compute_metrics(db_path: Path, days: int | None = None,
     try:
         excluded = sorted(resolve_excluded(conn, exclude))
         owners = _identity_owners(conn)
+        chat_log = _retained_chat_counts(
+            conn, window, seed=seed,
+            excluded_participants=tuple(sorted({owners[i] for i in excluded if i in owners})),
+        )
         type_ph = ",".join("?" for _ in _HUMAN_TYPES)
         skip = (*cast, *excluded)
         skip_ph = ",".join("?" for _ in skip)
@@ -604,7 +646,8 @@ def compute_metrics(db_path: Path, days: int | None = None,
             "puzzle_failures": failed_pools,
             "puzzle_failed_rows": by_type.get("PUZZLE_FAILED", 0),
             "scale_acts": by_type.get("SCALE_ACT", 0),
-            "chat_lines": by_type.get("PLAYER_CHAT", 0),
+            "chat_lines": chat_log["retained_lines"],
+            "chat_log": chat_log,
             "events_by_type": by_type,
             "top_nodes": [{"node": n, "events": c} for n, c in top_nodes],
             "chronicle_total_rows": total_rows,
@@ -709,7 +752,8 @@ def render(m: dict) -> str:
         f"puzzle attempts:     {m['puzzle_attempts']}"
         f"  (solved {m['puzzle_solves']}, failed {m['puzzle_failures']})",
         f"scale verbs:         {m['scale_acts']}",
-        f"chat lines:          {m['chat_lines']}",
+        (f"chat lines:          {m['chat_lines']}  (retained only; expired/uncollected unavailable)"
+         if m["chat_lines"] is not None else "chat lines:          unavailable (private log absent)"),
     ]
     if m["puzzle_failed_rows"] != m["puzzle_failures"]:
         lines.append(f"  (failed counts each puzzle once, where it first "

@@ -52,6 +52,41 @@ def _isolate_rooms():
 
 
 @pytest.fixture(autouse=True)
+def _community_test_policy(tmp_path, monkeypatch):
+    """Default to no collection policy while isolating study notice text."""
+    from server import community_policy
+    monkeypatch.delenv(community_policy.POLICY_ENV, raising=False)
+    for name, value in {
+        "TEST_CONTACT": "Test facilitator",
+        "TEST_RETENTION": "Synthetic study records are deleted after this disposable test.",
+        "TEST_DATA_USE": "No remote model receives synthetic fixture data.",
+    }.items():
+        monkeypatch.setenv("NESTED_WORLDS_" + name, value)
+    monkeypatch.delenv(community_policy.DISABLE_CHAT_ENV, raising=False)
+    monkeypatch.delenv(community_policy.DISABLE_REPORTS_ENV, raising=False)
+    community_policy.reset_for_tests()
+    yield
+    community_policy.reset_for_tests()
+
+
+@pytest.fixture
+def community_collection(tmp_path, monkeypatch, _community_test_policy):
+    """Opt in only tests that exercise actual private chat/report collection."""
+    from server import community_policy
+    path = tmp_path / "community-policy.json"
+    path.write_text(json.dumps({
+        "schema_version": 1, "policy_id": "test-fixture-only",
+        "chat": {"enabled": True, "retention_mode": "until_deleted"},
+        "reports": {"enabled": True, "retention_days": 1},
+        "contact": "Test facilitator",
+        "backup_notice": "Synthetic test backup handling; not deployment policy.",
+    }))
+    monkeypatch.setenv(community_policy.POLICY_ENV, str(path))
+    community_policy.reset_for_tests()
+    return community_policy.current()
+
+
+@pytest.fixture(autouse=True)
 def _reset_text_provider(monkeypatch):
     """Selection is cached for the process. Each test starts unset.
 
@@ -116,12 +151,12 @@ def accounts():
 
 
 @pytest.fixture
-def http(accounts, monkeypatch):
+def http(accounts, monkeypatch, request):
     monkeypatch.setenv('NESTED_WORLDS_CANONICAL_SEED', '382')
     server = _ThreadedServer(('127.0.0.1', 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    def request(path, key=accounts[0], body=None):
+    def send(path, key=accounts[0], body=None):
         req = urllib.request.Request(f'http://127.0.0.1:{server.server_port}{path}',
             data=json.dumps(body).encode() if body is not None else None,
             headers={'X-Beta-Key': key, 'Content-Type': 'application/json'})
@@ -133,7 +168,18 @@ def http(accounts, monkeypatch):
             data = json.load(response) if response.headers.get_content_type() == 'application/json' else response.read().decode()
             return response.status, data, dict(response.headers)
     try:
-        yield request
+        # These server journeys stand for already enrolled adults. The notice
+        # suite drives entry itself and must start with no acknowledgements.
+        if not request.module.__name__.endswith("test_participation"):
+            from server import participation
+            current = participation.notice()
+            if current["required"]:
+                for key in accounts:
+                    assert send("/participation", key, {
+                        "accepted": True, "age_confirmed": True,
+                        "revision": current["revision"],
+                    })[0] == 200
+        yield send
     finally:
         server.shutdown()
         server.server_close()

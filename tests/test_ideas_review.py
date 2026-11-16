@@ -73,6 +73,8 @@ def raw_client():
 
 
 def test_nested_json_stays_a_400_without_exception_capture(accounts, monkeypatch):
+    from tests.study_fixture import acknowledge_current_study
+    acknowledge_current_study(accounts[0])
     captures = []
     monkeypatch.setattr(observability, 'capture_exception', captures.append)
     with raw_client() as client:
@@ -310,6 +312,17 @@ def test_valid_ideas_credentials_neither_spend_nor_obey_the_failure_budget(http,
     assert http('/ideas/list')[0] == 200
     assert http('/ideas/search', body={})[0] == 200
     assert http('/ideas/vote', body={'id': idea_id, 'supported': True})[0] == 200
+
+
+def test_invited_study_still_requires_current_notice_before_ideas_reads_or_writes(http, monkeypatch):
+    monkeypatch.setenv('NESTED_WORLDS_TEST_RETENTION', 'Revised synthetic study retention statement.')
+    for path, body in [('/ideas/list', None), ('/ideas/search', {}), ('/ideas/submit', submission())]:
+        status, data, headers = http(path, body=body)
+        assert status == 428 and data['participation_required'] is True
+        assert headers['Cache-Control'] == 'no-store'
+    with db._connection() as conn:
+        assert conn.execute('SELECT count(*) FROM community_ideas').fetchone()[0] == 0
+        assert conn.execute('SELECT count(*) FROM community_ip_writes').fetchone()[0] == 0
 
 
 def test_ideas_failure_budget_is_per_trusted_client_ip(accounts, monkeypatch):

@@ -1,6 +1,6 @@
 """Ideas is an authenticated, non-fictional surface; it never invokes agents."""
 from persistence import ideas, participants
-from server import guard, moderation, observability
+from server import guard, moderation, observability, participation
 
 READS = {'/ideas/list', '/ideas/detail'}
 WRITES = {'/ideas/submit', '/ideas/vote', '/ideas/withdraw'}
@@ -15,6 +15,11 @@ def handle(handler, path, qs, body=None):
         # Resolve active credentials before spending the shared read budget. The
         # private read helpers reuse this server identity; no body/query identity
         # can reach them. Writes still recheck the credential in their transaction.
+        # Ideas accepts credentials only in headers. An invalid credential
+        # belongs to its own failure limiter; an unacknowledged live invite
+        # must not create a participant merely by opening this surface.
+        if not participation.authorize(handler, {}, raise_unauthorized=True):
+            return True
         me = participants.identify(key)
         if (body is None or path == '/ideas/search') and not handler._read_rate_ok(path):
             return True

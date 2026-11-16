@@ -10,7 +10,8 @@ import { serveBrowser } from './server.js';
 const KEY = 'nw_' + '9'.repeat(32);
 const NAME = 'Test traveler';
 const TOKEN = 'nwr_' + '8'.repeat(32);
-const AGREEMENT = 'I confirm I am at least 18 years old, have read this notice and agree to participate in this temporary test world.';
+const AGREEMENT = 'I have read this notice and agree to participate in this temporary test world.';
+const AGE = 'I confirm I am 18 years old or older.';
 // These are disposable fixture values, not an adopted player policy.
 const noticeEnv = {
   NESTED_WORLDS_TEST_WORLD: '1',
@@ -44,7 +45,9 @@ function countGameplay(page) {
 async function accept(page) {
   const submit = page.getByRole('button', { name: 'Agree and continue', exact: true });
   await expect(submit).toBeDisabled();
-  await expect(page.locator('.participation-gate').getByRole('checkbox')).toHaveCount(1);
+  await expect(page.locator('.participation-gate').getByRole('checkbox')).toHaveCount(2);
+  await page.getByRole('checkbox', { name: AGE, exact: true }).check();
+  await expect(submit).toBeDisabled();
   await page.getByRole('checkbox', { name: AGREEMENT, exact: true }).check();
   await submit.click();
 }
@@ -187,6 +190,7 @@ persistence.create_registration_token(sys.argv[2])
     await expect(page.getByRole('heading', { name: 'Temporary test world' })).toBeVisible();
     await expect(page.locator('#register')).not.toContainText('permanently');
     await page.getByLabel('Your name', { exact: true }).fill(NAME);
+    await page.locator('#register-age').check();
     await page.getByRole('button', { name: 'Enter the worlds', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Agree and continue', exact: true })).toBeVisible();
     expect(counts()).toEqual({ worlds: 0, sockets: 0 });
@@ -200,13 +204,32 @@ persistence.create_registration_token(sys.argv[2])
   }
 });
 
+test('an operator invitation to a continuing study asks age and shows continuing-world wording', async ({ page }) => {
+  const server = await serveBrowser({ invite: KEY, player: NAME, env: { ...noticeEnv, NESTED_WORLDS_TEST_WORLD: '0' } });
+  try {
+    await returning(page);
+    const counts = countGameplay(page);
+    await page.goto(`${server.url}/app?key=${KEY}&name=${encodeURIComponent(NAME)}`);
+    await expect(page.getByRole('heading', { name: 'Before you join this study', exact: true })).toBeVisible();
+    await expect(page.getByText('This Enfolded study uses a continuing world.', { exact: false })).toBeVisible();
+    expect(counts()).toEqual({ worlds: 0, sockets: 0 });
+    await page.getByRole('checkbox', { name: AGE, exact: true }).check();
+    const submit = page.getByRole('button', { name: 'Agree and continue', exact: true });
+    await expect(submit).toBeDisabled();
+    await page.getByRole('checkbox', { name: 'I have read this notice and agree to participate in this Enfolded study.', exact: true }).check();
+    await submit.click();
+    await expect(page.locator('#node-name')).toBeVisible();
+    await expect.poll(() => counts().sockets).toBe(1);
+  } finally { await server.close(); }
+});
+
 test('an incomplete notice prevents gameplay and offers no acknowledgement', async ({ page }) => {
   const server = await serveBrowser({ invite: KEY, player: NAME, env: { ...noticeEnv, NESTED_WORLDS_TEST_RETENTION: '' } });
   try {
     const counts = countGameplay(page);
     await returning(page);
     await page.goto(`${server.url}/app?key=${KEY}&name=${encodeURIComponent(NAME)}`);
-    await expect(page.getByText('This test is not ready for visitors. Ask the person who invited you to finish its participation notice.', { exact: true })).toBeVisible();
+    await expect(page.getByText('This study is not ready for visitors. Ask the person who invited you to finish its participation notice.', { exact: true })).toBeVisible();
     await expect(page.getByRole('checkbox')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Load the notice again', exact: true })).toBeVisible();
     expect(counts()).toEqual({ worlds: 0, sockets: 0 });
@@ -246,6 +269,7 @@ test('a changed-notice response reloads the notice and clears its agreement', as
     await accept(page);
     await expect.poll(() => reads).toBe(2);
     await expect(page.getByRole('checkbox', { name: AGREEMENT, exact: true })).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: AGE, exact: true })).not.toBeChecked();
     await expect(page.getByRole('button', { name: 'Agree and continue', exact: true })).toBeDisabled();
     expect(counts()).toEqual({ worlds: 0, sockets: 0 });
     await accept(page);
@@ -264,17 +288,35 @@ test('a refused invite uses the existing return guidance rather than accepting c
 });
 
 test('ordinary guide and registration retain their standing permanence disclosure', async ({ page }) => {
-  const server = await serveBrowser();
-  try {
-    for (const route of ['/guide', `/register?invite=${TOKEN}`]) {
-      await page.goto(server.url + route);
-      await expect(page.locator('[data-participation-notice]')).toBeHidden();
-      if (route === '/guide') {
-        await expect(page.locator('body')).toContainText("world's permanent chronicle");
-        await expect(page.getByRole('heading', { name: 'Nothing is lost', exact: true })).toBeVisible();
-      } else await expect(page.locator('#register')).toContainText('recorded under it, permanently,');
-    }
-  } finally { await server.close(); }
+  // The shared server supplies explicit synthetic collection settings.
+  // Exercise their enabled and disabled states without inventing a
+  // production retention duration or adding a page metadata request.
+  for (const collectionEnabled of [false, true]) {
+    const server = await serveBrowser({env: collectionEnabled ? {} : {
+      NESTED_WORLDS_DISABLE_CHAT: '1', NESTED_WORLDS_DISABLE_REPORTS: '1',
+    }});
+    try {
+      const response = await page.request.get(server.url + '/community');
+      expect(response.ok()).toBe(true);
+      const metadata = await response.json();
+      expect(metadata.chat.enabled).toBe(collectionEnabled);
+      expect(metadata.reports.enabled).toBe(collectionEnabled);
+      for (const route of ['/guide', `/register?invite=${TOKEN}`]) {
+        await page.goto(server.url + route);
+        await expect(page.locator('[data-participation-notice]')).toBeHidden();
+        if (route === '/guide') {
+          await expect(page.locator('body')).toContainText("world's permanent chronicle");
+          await expect(page.getByRole('heading', { name: 'Nothing is lost', exact: true })).toBeVisible();
+          await expect(page.locator('[data-participation-copy="guide-intro"]'))
+            .toContainText('When available, live traveler chat is kept separately');
+        } else {
+          await expect(page.locator('#register')).toContainText('recorded under it, permanently,');
+          await expect(page.locator('#register')).toContainText(
+            'When available, live chat and private reports follow their own retention notices.');
+        }
+      }
+    } finally { await server.close(); }
+  }
 });
 
 test('off-mode notice checks do not validate cached position-only credentials', async ({ page }) => {
@@ -308,6 +350,8 @@ import persistence
 from server import _Handler, _ThreadedServer, guard
 from server.websocket import _SWEEP
 persistence._DB_PATH=Path(sys.argv[1])/'worlds.db'
+from scripts.community_fixture import configure
+configure(Path(sys.argv[1]))
 persistence.mint_invite_key(sys.argv[2], sys.argv[3])
 guard.WS_SWEEP_INTERVAL_SEC=3600
 server=_ThreadedServer(('127.0.0.1',0),_Handler)
@@ -404,6 +448,9 @@ for (const method of ['click', 'keyboard']) test(`an open native Chronicle survi
     await expect(chronicle).toHaveJSProperty('open', true);
     if (method === 'click') await accept(page);
     else {
+      await expect(page.getByRole('checkbox', { name: AGE, exact: true })).toBeFocused();
+      await page.keyboard.press('Space');
+      await page.keyboard.press('Tab');
       await expect(page.getByRole('checkbox', { name: AGREEMENT, exact: true })).toBeFocused();
       await page.keyboard.press('Space');
       await page.keyboard.press('Tab');
@@ -436,6 +483,8 @@ import sys
 import persistence
 from server import _Handler, _ThreadedServer
 persistence._DB_PATH=Path(sys.argv[1])/'worlds.db'
+from scripts.community_fixture import configure
+configure(Path(sys.argv[1]))
 if persistence.lookup_invite_key(sys.argv[2]) is None:
     persistence.mint_invite_key(sys.argv[2],sys.argv[3])
 server=_ThreadedServer(('127.0.0.1',int(sys.argv[4])),_Handler)

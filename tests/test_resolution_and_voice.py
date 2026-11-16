@@ -20,6 +20,7 @@ import pytest
 
 import consciousness
 import persistence
+from tests.study_fixture import acknowledge_current_study
 from multiverse import store
 from multiverse.generator import generate_node_hierarchy
 from server import _Handler, _ThreadedServer
@@ -362,6 +363,7 @@ class TestTranscriptIdentityOverHTTP:
         # player_name is ignored), which is exactly why credential-keying is
         # what makes the transcript stable.
         persistence.mint_invite_key("nw_ada", "Ada")
+        acknowledge_current_study("nw_ada")
         real = generate_node_hierarchy(seed=42, max_depth=1)
         seen = {}
 

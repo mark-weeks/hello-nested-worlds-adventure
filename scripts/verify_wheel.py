@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _MIGRATION_PREFIX = "persistence/migrations/"
-_SCHEMA_VERSIONS = list(range(1, 33))
+_SCHEMA_VERSIONS = list(range(1, 34))
 
 
 def _run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
@@ -49,7 +49,7 @@ def migration_versions(names: list[str]) -> list[int]:
 
 
 def assert_source_schema_inventory(source: dict[str, bytes]) -> None:
-    """Ship 0001 through 0032, retaining blocks, consent and spend controls."""
+    """Ship 0001 through 0033, retaining every operational schema step."""
     retired = f"{_MIGRATION_PREFIX}0030_cost_budget_names.sql"
     if retired in source:
         raise RuntimeError(f"source contains a deleted migration: {retired}")
@@ -62,10 +62,13 @@ def assert_source_schema_inventory(source: dict[str, bytes]) -> None:
     spend = f"{_MIGRATION_PREFIX}0032_model_spend.sql"
     if spend not in source:
         raise RuntimeError(f"schema 32 must include {spend}")
+    community = f"{_MIGRATION_PREFIX}0033_private_chat_reports.sql"
+    if community not in source:
+        raise RuntimeError(f"schema 33 must include {community}")
     versions = migration_versions(list(source))
     if sorted(versions) != _SCHEMA_VERSIONS or len(versions) != len(_SCHEMA_VERSIONS):
         raise RuntimeError(
-            "source migrations must be exactly versions 0001 through 0032, "
+            "source migrations must be exactly versions 0001 through 0033, "
             f"found {sorted(versions)}"
         )
 
@@ -211,6 +214,12 @@ def main() -> None:
             "consciousness/model_dispatch.py",
             "persistence/model_spend.py",
             "persistence/migrations/0032_model_spend.sql",
+            "persistence/community.py",
+            "persistence/migrations/0033_private_chat_reports.sql",
+            "server/community_policy.py",
+            "server/community_api.py",
+            "static/reporting.js",
+            "static/reporting.css",
             "persistence/ideas_cli.py",
             "static/ideas.html",
             "static/interface.js",
@@ -266,7 +275,8 @@ def main() -> None:
             "persistence.init_db(); "
             f"assert persistence.known_schema_version() == {_SCHEMA_VERSIONS[-1]}; "
             "from consciousness import model_policy, model_dispatch; "
-            "from persistence import model_spend; "
+            "from persistence import model_spend, community; "
+            "from server import community_policy, community_api; "
             "from server.handlers import _STATIC_DIR; "
             "assert (_STATIC_DIR / 'index.html').is_file(); "
             "assert persistence._MIGRATIONS_DIR.is_dir(); "
@@ -275,7 +285,12 @@ def main() -> None:
             "assert (_STATIC_DIR / 'ideas.js').is_file(); "
             "assert persistence._connect().execute(\"SELECT count(*) FROM community_promotions\").fetchone()[0] == 0; "
             "assert persistence._connect().execute(\"SELECT count(*) FROM model_spend_reservations\").fetchone()[0] == 0; "
-            "assert persistence._connect().execute(\"SELECT count(*) FROM model_spend_latch\").fetchone()[0] == 0"
+            "assert persistence._connect().execute(\"SELECT count(*) FROM model_spend_latch\").fetchone()[0] == 0; "
+            "assert persistence._connect().execute(\"SELECT count(*) FROM community_policies\").fetchone()[0] == 0; "
+            "assert persistence._connect().execute(\"SELECT count(*) FROM private_chat_messages\").fetchone()[0] == 0; "
+            "assert persistence._connect().execute(\"SELECT count(*) FROM private_reports\").fetchone()[0] == 0; "
+            "assert persistence._connect().execute(\"SELECT count(*) FROM report_actions\").fetchone()[0] == 0; "
+            "assert persistence._connect().execute(\"SELECT count(*) FROM private_chat_deletions\").fetchone()[0] == 0"
         )
         _run(str(python), "-c", smoke, cwd=tmp, env=smoke_env)
         _run(str(cli), "--help", cwd=tmp, env=smoke_env)

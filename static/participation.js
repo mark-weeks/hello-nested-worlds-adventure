@@ -1,4 +1,4 @@
-// One test-world notice for both clients and their public entry pages.
+// One study notice and age confirmation for both clients and public entry pages.
 // Acceptance belongs to the server's participant identity, never to a browser
 // onboarding flag. Nothing here stores acceptance or infers a deployment mode.
 (function () {
@@ -6,7 +6,7 @@
   if (globalThis.EnfoldedParticipation) return;
 
   const UNREACHED = 'Participation information could not be reached. Try loading it again.';
-  const INCOMPLETE = 'This test is not ready for visitors. Ask the person who invited you to finish its participation notice.';
+  const INCOMPLETE = 'This study is not ready for visitors. Ask the person who invited you to finish its participation notice.';
   let pending;
   let rechecking;
   let testWorldSeen = false;
@@ -40,10 +40,12 @@
       }
       if (typeof data.required !== 'boolean' || (data.required && (
         typeof data.ready !== 'boolean' || !Array.isArray(data.paragraphs) ||
+        typeof data.temporary !== 'boolean' ||
         data.paragraphs.some(line => typeof line !== 'string') ||
         typeof data.title !== 'string' || typeof data.accepted !== 'boolean' ||
         (data.ready && (typeof data.revision !== 'string' || !data.revision ||
           typeof data.agreement !== 'string' || !data.agreement.trim() ||
+          typeof data.age_confirmation !== 'string' || !data.age_confirmation.trim() ||
           !Number.isInteger(data.minimum_age)))
       ))) throw new Error(UNREACHED);
       if (data.required) testWorldSeen = true;
@@ -79,8 +81,8 @@
 
   const ordinaryCopy = new WeakMap();
   const temporaryText = {
-    'register-intro': 'You have been invited to a temporary test world. Choose the name your words, solved puzzles and actions will be recorded under. Read the notice below before playing; this test world may be reset or removed.',
-    'guide-intro': 'You are an explorer in a temporary test world. Your words, actions and solved puzzles become part of its shared history while the test exists. Its records follow the participation notice below; progress is not promised to persist.',
+    'register-intro': 'You have been invited to a temporary test world. Choose the name your actions, solved puzzles and exchanges with places and inhabitants will be recorded under. Read the notice below before playing; live chat and reports have separate private retention, and this test world may be reset or removed.',
+    'guide-intro': 'You are an explorer in a temporary test world. Your actions, solved puzzles and exchanges with places and inhabitants become part of its shared history while the test exists. Live chat and reports have separate private retention. Its records follow the participation notice below; progress is not promised to persist.',
     'guide-puzzles': 'Puzzles compose the way the world does. Constellations complete when every system of a galaxy, or every room of a region, is resolved. Completion is recorded and credited in this test world. Co-op attempts pool, so travelers can light a constellation together. Lineage sigils use three marks from three enclosing scales; bonds ask for the atom puzzle in the lattice that holds it.',
     'guide-sealed': 'Some rooms are sealed until their lock is answered. The key is a truth about the place that holds the room, readable one scale up. Speak the key from the threshold and the way opens for everyone, until the world\'s slow entropy re-arms the room.',
     'guide-history-title': 'Reading this test world\'s history',
@@ -99,7 +101,7 @@
     if (!slots.length) return;
     try {
       const notice = await request(undefined, true);
-      temporaryCopy(notice.required);
+      temporaryCopy(notice.temporary === true);
       for (const slot of slots) {
         slot.hidden = !notice.required;
         if (notice.required) noticeContents(slot, notice);
@@ -195,21 +197,27 @@
         agree.type = 'checkbox'; agree.id = 'participation-agree';
         const agreeLabel = element('label', '', 'participation-choice');
         agreeLabel.append(agree, element('span', notice.agreement));
+        const age = element('input');
+        age.type = 'checkbox'; age.id = 'participation-age';
+        const ageLabel = element('label', '', 'participation-choice');
+        ageLabel.append(age, element('span', notice.age_confirmation));
         const status = element('p', '', 'participation-status');
         status.setAttribute('role', 'status');
         const submit = element('button', 'Agree and continue');
         submit.type = 'submit'; submit.disabled = true;
-        const enable = () => { submit.disabled = !agree.checked; };
+        const enable = () => { submit.disabled = !agree.checked || !age.checked; };
         agree.addEventListener('change', enable);
-        form.append(agreeLabel, element('p', 'You can leave this page without agreeing.'), status, submit);
+        age.addEventListener('change', enable);
+        form.append(ageLabel, agreeLabel, element('p', 'You can leave this page without agreeing.'), status, submit);
         form.addEventListener('submit', async event => {
           event.preventDefault();
-          if (!agree.checked || submit.disabled) return;
+          if (!agree.checked || !age.checked || submit.disabled) return;
           submit.disabled = true;
           agree.disabled = true;
+          age.disabled = true;
           status.textContent = 'Saving your choice…';
           try {
-            const result = await request({ accepted: true, revision: notice.revision });
+            const result = await request({ accepted: true, age_confirmed: true, revision: notice.revision });
             if (result.refused) { finish(); return; }
             if (result.changed) { await display(); return; }
             if (result.accepted && result.revision === notice.revision) { finish(true); return; }
@@ -217,11 +225,12 @@
           } catch {
             status.textContent = 'Your choice could not be saved. Try again.';
             agree.disabled = false;
+            age.disabled = false;
             enable();
           }
         });
         card.append(form);
-        agree.focus();
+        age.focus();
       };
       display();
     });

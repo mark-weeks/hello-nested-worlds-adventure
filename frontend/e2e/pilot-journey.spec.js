@@ -41,7 +41,10 @@ print(json.dumps({
 `, database], {cwd: repo});
     const invites = JSON.parse(stdout);
     server = await serveBrowser({database, pump: true,
-      env: {NESTED_WORLDS_MATURATION_SCALE: '0'}});
+      // This journey reloads two travelers' pages faster than human use.
+      // Keep its notice reads inside an explicit fixture budget; hosted
+      // cohort/NAT capacity is measured separately by the staging rehearsal.
+      env: {NESTED_WORLDS_MATURATION_SCALE: '0', NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN: '1200'}});
     return {...server, invites, async close() {
       await server.close();
       await rm(directory, {recursive: true, force: true});
@@ -65,6 +68,12 @@ async function identity(page, name, key) {
     {headers: {'X-Beta-Key': key}})).json();
   expect(me.participant.name).toBe(name);
   return me;
+}
+
+async function agreeToStudy(page) {
+  await page.locator('#participation-age').check();
+  await page.locator('#participation-agree').check();
+  await page.getByRole('button', {name: 'Agree and continue', exact: true}).click();
 }
 
 async function attempt(page, label) {
@@ -123,8 +132,10 @@ test('self-service entry and auxiliary-page returns keep the registered pilot id
     await page.setViewportSize({width: 390, height: 844});
     await page.goto(server.url + '/register?invite=' + registration);
     await page.getByLabel('Your name', {exact: true}).fill('Clara');
+    await page.locator('#register-age').check();
     await page.getByRole('button', {name: 'Enter the worlds', exact: true}).click();
     await page.waitForURL(url => url.pathname === '/app');
+    await agreeToStudy(page);
     await page.getByRole('button', {name: 'Begin', exact: true}).click();
     await arrived(page, sockets);
     const key = await page.evaluate(() => localStorage.getItem('nw_beta_key'));
@@ -175,6 +186,7 @@ test('an invited traveler explores, acts and returns through a private journal t
     // also disables generated images, so this cannot depend on model artwork.
     await page.context().addInitScript(() => {HTMLCanvasElement.prototype.getContext = () => null;});
     await page.goto(server.url + server.invites.ada + '&node=' + encodeURIComponent(region));
+    await agreeToStudy(page);
     await page.getByRole('button', {name: 'Begin', exact: true}).click();
     await expect(page.locator('#node-name')).toHaveAttribute('title', region);
     await arrived(page, sockets);
@@ -206,6 +218,7 @@ test('an invited traveler explores, acts and returns through a private journal t
     const other = await otherContext.newPage();
     const otherSockets = watchSockets(other);
     await other.goto(server.url + server.invites.bea + '&node=' + encodeURIComponent(instrument));
+    await agreeToStudy(other);
     await other.getByRole('button', {name: 'Begin', exact: true}).click();
     await expect(other.locator('#node-name')).toHaveAttribute('title', instrument);
     let welcome = await arrived(other, otherSockets);
@@ -274,6 +287,7 @@ test('a legacy map invitation returns through the journal to the scene without a
   const sockets = watchSockets(page);
   try {
     await page.goto(server.url + server.invites.ada.replace(/^\/app/, '/'));
+    await agreeToStudy(page);
     await page.locator('#btn-begin').click();
     await expect(page.locator('#graph svg')).toBeVisible();
     await expect(page.locator('#node-name')).toHaveAttribute('title', /.+-\d+$/);
@@ -295,6 +309,7 @@ test('the home bookmark renders a stored place name as text and encodes its scen
   const unsafeNode = '<img src=x onerror="window.__homeInjected=true">-11111111';
   try {
     await page.goto(server.url + server.invites.ada);
+    await agreeToStudy(page);
     await page.getByRole('button', {name: 'Begin', exact: true}).click();
     await expect(page.locator('#node-name')).toBeVisible();
     // Preserve the authenticated production response and replace only the

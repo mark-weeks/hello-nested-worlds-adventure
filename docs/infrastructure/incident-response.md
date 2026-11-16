@@ -78,6 +78,28 @@ Sanction rows are not chronicle rows. `redact` does not reach them, and every ba
 
 ## Words already shared
 
+For new traveler chat and reports, use the private
+[operator queue](../development/community-reporting.md#operator-queue):
+`python main.py report list`, then `report show REPORT_ID`. Acknowledge or close
+with `--note -` to keep the private note out of shell history. Output is escaped
+JSON and remains operator data. Reporting reaches no provider, makes no automatic
+sanction and sends no external notification. Arrange queue polling toward the
+24-hour beta goal; this page does not establish a live staffing commitment.
+
+Human chat follows its recorded policy, including retention until deletion.
+Use `chat-log delete EVIDENCE_REF` for one line or `chat-log delete-tester NAME`
+for one tester's lines across keys. Open or acknowledged reports hold cited
+lines until closure; deletion removes eligible lines and reports the held count
+and reason. It never closes a complaint. Reports reference the original line
+without copying its quotation. Reporter explanations are separately retained report content. All
+new human WebSocket chat uses this operational log in every mode; absent policy
+disables it and reporting, not other gameplay. Authored ambient conversations
+and place/inhabitant exchanges remain recorded separately. Use `community-status`
+and `community-prune` for eligible timed expiry; pending complaints and cited
+evidence remain held until closure. Stopped-server cleanup and backup
+deletion remain operator responsibilities, including the potentially indefinite
+newest-backup exception. None of these commands rewrite legacy chronicle rows.
+
 ```bash
 fly ssh console -a enfolded-beta -C "python main.py redact --find 'the text'"
 fly ssh console -a enfolded-beta -C "python main.py redact --id 12345 --scrub-name --reason 'ToS' --yes"

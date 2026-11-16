@@ -16,6 +16,8 @@ IMMUTABLE = 'public, max-age=31536000, immutable'
 def raw(accounts, monkeypatch):  # noqa: F811
     monkeypatch.setenv('NESTED_WORLDS_CANONICAL_SEED', '382')
     from server import _Handler, _ThreadedServer
+    from tests.study_fixture import acknowledge_current_study
+    acknowledge_current_study(accounts[0])
     server = _ThreadedServer(('127.0.0.1', 0), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 

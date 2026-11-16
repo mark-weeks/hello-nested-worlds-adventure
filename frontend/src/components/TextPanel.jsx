@@ -5,16 +5,17 @@ import Wayback from "./Wayback.jsx";
 import { causalFeedLine, displayName, nodeAddress } from "../names.js";
 import { restoreChatInput } from "../chatDraft.js";
 
-export default function TextPanel({ node, players, blocks = [], participantId, onBlock, blockBusy, blockStatus, agents = {}, connected, events, seed, depth, playerName, onChat, chatRestore, onJump, onSolved, onNodeChanged, onEnsurePosition, soundOn, onToggleSound, onWaybackListen, scoreVolume, onScoreVolume }) {
+export default function TextPanel({ node, players, blocks = [], participantId, onBlock, blockBusy, blockStatus, onReport, community, agents = {}, connected, events, seed, depth, playerName, onChat, chatRestore, onJump, onSolved, onNodeChanged, onEnsurePosition, soundOn, onToggleSound, onWaybackListen, scoreVolume, onScoreVolume }) {
   const [chatInput, setChatInput] = useState("");
   const [chronicleOpen, setChronicleOpen] = useState(false);
   const [waybackOpen, setWaybackOpen] = useState(false);
+  const chatAccessibility = globalThis.EnfoldedReporting.chatAccessibility(community);
   // A held or declined line comes back only into an empty input.
   useEffect(() => chatRestore?.attach(
     (line) => setChatInput(current => restoreChatInput(current, line))), [chatRestore]);
   const handleChat = () => {
     const text = chatInput.trim();
-    if (!text || !connected) return;
+    if (!text || !connected || !community?.chat.enabled) return;
     if (onChat(text)) setChatInput("");
   };
   return <div className="world-panel">
@@ -39,22 +40,24 @@ export default function TextPanel({ node, players, blocks = [], participantId, o
         <button onClick={()=>setChronicleOpen(true)}>View full chronicle</button>
       </div>
       <div className="feed" aria-label="Recent events">
-        {events.length ? events.map((ev,i)=><p className="quiet" key={i}>{ev.type==='chat' ? `${ev.name}: ${ev.text}` : ev.text || causalFeedLine(ev.kind,ev.node,ev.strength)}{ev.type==='chat' && participantId && ev.liveParticipant && ev.liveParticipant!==participantId && <button className="block-control" disabled={blockBusy} onClick={()=>onBlock(ev.liveParticipant,true)} aria-label={`Block ${ev.name}`}>Block</button>}</p>) : <p className="quiet">No events yet.</p>}
+        {events.length ? events.map((ev,i)=><p className="quiet" key={i}>{ev.type==='chat' ? `${ev.name}: ${ev.text}` : ev.text || causalFeedLine(ev.kind,ev.node,ev.strength)}{ev.type==='chat' && participantId && ev.liveParticipant && ev.liveParticipant!==participantId && <button className="block-control" disabled={blockBusy} onClick={()=>onBlock(ev.liveParticipant,true)} aria-label={`Block ${ev.name}`}>Block</button>}{ev.type==='chat' && participantId && ev.liveParticipant!==participantId && (ev.liveParticipant || ev.evidenceRef) && <button className="report-control" onClick={()=>onReport({participant:ev.liveParticipant || null,evidence_ref:ev.evidenceRef || null,name:ev.name})} aria-label={`Report ${ev.name || 'this message'}`}>Report</button>}</p>) : <p className="quiet">No events yet.</p>}
       </div>
     </details>
     <details className="secondary">
       <summary>Travelers & chat</summary>
-      {players.map(p=><div className="traveler-controls" key={p.session_id}><button className="traveler" disabled={!p.node} onClick={()=>onJump?.(p.node)}><span>◈ {p.name}</span><span>{p.node===node.name ? "Here" : p.node ? displayName(p.node) : "Arriving"}</span></button>{participantId && p.participant_id && p.participant_id!==participantId && <button disabled={blockBusy} onClick={()=>onBlock(p.participant_id,true)} aria-label={`Block ${p.name}`}>Block</button>}</div>)}
-      {Object.entries(agents).map(([name,a])=><div className="traveler-controls" key={name}><button className="traveler" disabled={!a.node} onClick={()=>onJump?.(a.node)}><span>✦ {name}{a.persona ? ` · ${a.persona}` : ""}</span><span>{a.node===node.name ? "Here" : a.node ? displayName(a.node) : "Arriving"}</span></button>{participantId && a.participant_id && <button disabled={blockBusy} onClick={()=>onBlock(a.participant_id,true)} aria-label={`Block ${name}`}>Block</button>}</div>)}
+      {players.map(p=><div className="traveler-controls" key={p.session_id}><button className="traveler" disabled={!p.node} onClick={()=>onJump?.(p.node)}><span>◈ {p.name}</span><span>{p.node===node.name ? "Here" : p.node ? displayName(p.node) : "Arriving"}</span></button>{participantId && p.participant_id && p.participant_id!==participantId && <><button disabled={blockBusy} onClick={()=>onBlock(p.participant_id,true)} aria-label={`Block ${p.name}`}>Block</button><button onClick={()=>onReport({participant:p.participant_id,evidence_ref:null,name:p.name})} aria-label={`Report ${p.name}`}>Report</button></>}</div>)}
+      {Object.entries(agents).map(([name,a])=><div className="traveler-controls" key={name}><button className="traveler" disabled={!a.node} onClick={()=>onJump?.(a.node)}><span>✦ {name}{a.persona ? ` · ${a.persona}` : ""}</span><span>{a.node===node.name ? "Here" : a.node ? displayName(a.node) : "Arriving"}</span></button>{participantId && a.participant_id && <><button disabled={blockBusy} onClick={()=>onBlock(a.participant_id,true)} aria-label={`Block ${name}`}>Block</button><button onClick={()=>onReport({participant:a.participant_id,evidence_ref:null,name})} aria-label={`Report ${name}`}>Report</button></>}</div>)}
       {!players.length && !Object.keys(agents).length && <p className="quiet">No other travelers are in view.</p>}
       {participantId && <>
         <p className="quiet">Blocking hides their live chat and presence for you. They are not notified. Shared history and world changes remain visible.</p>
         {!!blocks.length && <details className="blocked-travelers"><summary>Blocked travelers ({blocks.length})</summary>{blocks.map(b=><div className="traveler-controls" key={b.id}><span>{b.name}</span><button disabled={blockBusy} onClick={()=>onBlock(b.id,false)} aria-label={`Unblock ${b.name}`}>Unblock</button></div>)}</details>}
         <p className="quiet" role="status">{blockStatus}</p>
       </>}
+      <p id="chat-availability" className="community-notice" role="status" hidden={!chatAccessibility.showUnavailable}>Traveler chat is currently unavailable.</p>
+      <p id="chat-recording-notice" className="community-notice" role="status">{community?.chat.notice || 'Loading chat recording information…'}</p>
       <div className="chat-row">
-        <input aria-label="Message to travelers" maxLength={256} placeholder={connected ? "Say something…" : "Not connected"} value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && handleChat()} disabled={!connected} />
-        <button onClick={handleChat} disabled={!connected || !chatInput.trim()}>Send</button>
+        <input aria-label="Message to travelers" aria-describedby={chatAccessibility.describedBy} maxLength={256} placeholder={!community ? "Loading chat…" : !community.chat.enabled ? "Chat unavailable" : connected ? "Say something…" : "Not connected"} value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && handleChat()} disabled={!connected || !community?.chat.enabled} />
+        <button onClick={handleChat} disabled={!connected || !community?.chat.enabled || !chatInput.trim()}>Send</button>
       </div>
     </details>
     <details className="secondary">

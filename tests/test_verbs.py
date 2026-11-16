@@ -15,6 +15,7 @@ import urllib.request
 import pytest
 
 import persistence
+from tests.study_fixture import acknowledge_current_study
 from multiverse.generator import LEVELS, generate_node_hierarchy
 from multiverse.node import SpatialNode
 from multiverse.verbs import VERBS, VERBS_BY_NAME, apply_verb
@@ -247,6 +248,7 @@ class TestActEndpoint:
 
         key = "nw_" + "h" * 32
         persistence.mint_invite_key(key, "Ada")
+        acknowledge_current_study(key)
         calls = []
         writer_held = []
         real = handlers._build_world
@@ -306,6 +308,7 @@ class TestActEndpoint:
         racers = 8
         key = "nw_" + "r" * 32
         persistence.mint_invite_key(key, "Ada")
+        acknowledge_current_study(key)
         region = store.world_tree(seed=63, max_depth=7)
         while region.level != "Region":
             region = region.children[0]
