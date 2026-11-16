@@ -84,7 +84,9 @@ several merged pull requests.
 3. Refresh the standing counts the merged work changed: the top migration in the
    roadmap index, the migration count in `README.md`, and the like.
 4. Restamp the verification line at the top of `docs/roadmap/README.md`.
-5. Run `./scripts/check.sh`. The status pull request writes no fragment of its own.
+5. Run `./scripts/check.sh` unless
+   [AGENTS.md's documentation-only test-run rule](../../AGENTS.md#documentation-only-test-run-rule)
+   applies. The status pull request writes no fragment of its own.
 
 ## Review tiers
 

@@ -61,8 +61,9 @@ commits made on `main`, as GitHub's merge buttons do. A section heading the firs
 the fragment, and prints the `Status:` lines.
 The status pull request then applies those lines by hand, updates
 `tests/test_beta_checklist_counts.py` when a pinned checklist status changes, restamps
-the roadmap index's verification line, and runs `./scripts/check.sh`. It writes no
-fragment of its own.
+the roadmap index's verification line, and runs `./scripts/check.sh` unless
+[AGENTS.md's documentation-only test-run rule](../../AGENTS.md#documentation-only-test-run-rule)
+applies. It writes no fragment of its own.
 
 A pull request opened before this rule merged keeps the direct entry and the
 status-document edits it already has.

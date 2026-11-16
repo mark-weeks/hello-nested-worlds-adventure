@@ -45,8 +45,11 @@
      include reference/consistency validation. For ./scripts/check.sh, include Ruff,
      Python/Vitest counts, bundle freshness, and installed-wheel smoke; name E2E
      results if run. Distinguish inspected, executed, skipped, and blocked checks.
-     Drafts may name remaining verification; the canonical gate still applies
-     before proposing merge. -->
+     Drafts may name remaining verification. Follow AGENTS.md, "Documentation-only
+     test-run rule", for the required local checks, CI evidence on the current head and
+     readiness condition before proposing merge. Put the CI run, head SHA and results
+     in this PR description or a PR comment; the fragment records local checks and
+     links to that verification record. -->
 
 ## Irreversibility check
 

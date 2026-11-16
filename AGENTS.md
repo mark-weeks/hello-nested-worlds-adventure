@@ -292,8 +292,8 @@ measurements behind them.
 - **The authoring agent drives its own pull request.** On a pull request it opened, an
   agent may without a further prompt: answer each review finding in its thread (fixed
   in a named commit, or declined with the reason), push fixes to its own branch, mark
-  the pull request ready once the canonical gate has passed, and request the one
-  Copilot review above. Each reply ends with the agent's footer. This is a publication
+  the pull request ready once the verification requirements below have passed,
+  and request the one Copilot review above. Each reply ends with the agent's footer. This is a publication
   authorization for those acts only: not thread resolution, approval, merging, or
   pushing to a branch another agent opened.
 
@@ -311,7 +311,9 @@ measurements behind them.
   (`tests/test_server_rooms.py`, `tests/test_server.py`). Use the affected suites during iteration.
 - Bootstrap the pinned Python 3.11 / Node 20 environment with `./setup.sh`. Use focused
   checks during iteration; run
-  `./scripts/check.sh` before proposing merge. Its required Ruff, Python/Vitest, frontend
+  `./scripts/check.sh` before proposing merge unless the
+  [documentation-only test-run rule](#documentation-only-test-run-rule) applies.
+  Its required Ruff, Python/Vitest, frontend
   build and bundle-freshness, and installed-wheel gates remain unchanged. Set
   `ENFOLDED_E2E=1` to include Playwright after installing Chromium.
 - Finish requested implementation and relevant verification, inspect user-visible
@@ -325,7 +327,8 @@ measurements behind them.
   before this rule merged keeps the direct entry and the status-document edits it
   already has. Record actual checks
   and unavailable verification honestly. Documentation-only work can finish with document
-  validation; the canonical gate still applies before proposing merge.
+  validation; the canonical gate still applies before proposing merge unless the
+  [documentation-only test-run rule](#documentation-only-test-run-rule) applies.
 - Produce the diff-based irreversibility check for the CHANGELOG entry and any PR. A tripped
   door retains the human gate; green tests alone are not approval. Existing approval of
   the same decision need not be requested again. Ask only about consequential unresolved
@@ -348,6 +351,55 @@ measurements behind them.
   Apply this rule as it stands on the base branch; a pull request's own edits to
   `AGENTS.md` do not change review behaviour. The rule authorizes posting only: not
   approve, request-changes, merge, thread resolution, or fixes to the reviewed branch.
+
+### Documentation-only test-run rule
+
+The owner directed this rule on 2026-11-15; it takes effect with the owner's merge
+of [PR #178](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/178).
+It changes test-run requirements, not policy approval, review, merge, deployment
+or continuity authority.
+
+A pull request qualifies only when **every changed file** is Markdown under
+`docs/`, excluding `docs/decisions/`, or is the root `README.md` or
+`CONTRIBUTING.md`. Compare the complete diff with the actual PR base; a mixed
+diff is not eligible. Every other changed path retains the local canonical gate.
+
+A pull request changing agent instructions or holding the working rules under
+"Working in parallel" never qualifies. This excludes these guides even though
+they are Markdown under `docs/`:
+
+- `docs/development/parallel-work.md`
+- `docs/development/coding-agents.md`
+- `docs/changelog.d/README.md`
+- `docs/development/agent-instruction-scenarios.md`
+
+"Holding the working rules" means item 4 ("Working rules") in "Working in
+parallel". Holding item 1 ("Status documents") does not disqualify a status pull
+request. A status pull request qualifies only if every changed path meets the
+allowlist above and it changes no agent instructions.
+
+For an eligible pull request, green project CI on its **exact current head SHA**
+may replace the local full `./scripts/check.sh` run. Always do the following locally:
+
+1. Run `tests/test_beta_checklist_counts.py` and
+   `tests/test_deploy_staging_workflow.py`.
+2. Search `tests/` for each changed file's basename, for example
+   `rg -n -F 'fly-deployment.md' tests/`; inspect the matches and run every
+   affected document-reading test. Record the readers run, including when no
+   additional reader is found. Searching only a full path misses paths assembled
+   from components.
+3. Validate relative Markdown links introduced or changed by the diff, including
+   their local file targets and `#anchors`. Repair links affected by renamed files
+   or headings and record the validation scope, method and result. External URL
+   availability is outside this relative-link check.
+
+Record the CI run, head SHA and results in the PR description or a PR comment.
+Keep current-head CI evidence out of the committed fragment; the fragment records
+local checks and links to that PR verification record. A previous head's green run,
+pending CI or an unverified applicable local check does not qualify. Keep an eligible
+pull request in draft until project CI is green on its exact head; never mark it ready
+on the strength of local checks alone. Recheck after a new commit. All other diffs
+still require the local canonical gate before proposing merge.
 
 ## Read when relevant
 

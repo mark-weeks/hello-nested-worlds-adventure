@@ -63,7 +63,9 @@ an issue without preparing a patch.
    local development and the core game work with authored voice fallbacks and
    deterministic art. Leave invite keys unminted for an ungated local instance.
 4. Run focused checks as you work. Before proposing merge, run
-   `./scripts/check.sh`; after installing Chromium with
+   `./scripts/check.sh` unless
+   [AGENTS.md's documentation-only test-run rule](AGENTS.md#documentation-only-test-run-rule)
+   applies. After installing Chromium with
    `cd frontend && npx playwright install chromium`, run
    `ENFOLDED_E2E=1 ./scripts/check.sh` from the repository root for browser checks.
    Explain any checks you could not run.
@@ -85,7 +87,9 @@ Include appropriate regression coverage for behavior changes, documentation,
 one measured [CHANGELOG](docs/CHANGELOG.md) entry written as a fragment file in
 [`docs/changelog.d/`](docs/changelog.d/README.md), and the diff-based
 irreversibility check described in the PR template. Documentation-only drafts
-can report document validation; the canonical check still applies before merge.
+can report document validation; the canonical check still applies before merge
+unless [the documentation-only test-run rule](AGENTS.md#documentation-only-test-run-rule)
+applies.
 
 AI-assisted contributions are welcome. You must understand and verify your
 submission, explain its behavior, and respond to review. Identify material AI
