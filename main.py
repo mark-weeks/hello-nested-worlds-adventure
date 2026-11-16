@@ -1101,7 +1101,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_restore.add_argument("--yes", action="store_true",
                            help="Skip the interactive confirmation")
     p_restore.add_argument("--deletions", metavar="PATH",
-                           help="Required deletion export when the current database was lost")
+                           help="Required deletion export for every private-chat backup")
     p_restore.set_defaults(func=cmd_restore)
 
     p_redact = sub.add_parser(

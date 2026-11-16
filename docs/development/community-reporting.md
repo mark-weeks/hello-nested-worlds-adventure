@@ -208,27 +208,40 @@ copies from deleting live rows alone. No backup duration is chosen here.
 ### Deletion records during restore
 
 Stop the server and all private-log writers before exporting, restoring or
-replaying deletions. Export from the ready current store before overwriting it:
+replaying deletions. Every backup containing the `private_chat_messages` table
+requires an explicit `--deletions` file, even when the current database exists
+or that table is empty. Current ledger records are still merged into the restore;
+their presence does not waive the explicit file.
+
+For routine recovery with the intact current database, export its latest ledger
+before overwriting it, preserve a private durable copy outside the snapshot and
+app volume, and pass that file to restore:
 
 ```sh
 python main.py chat-log export-deletions /private/chat-deletions.json
 python main.py restore --from /private/worlds-backup.db --deletions /private/chat-deletions.json --yes
 ```
 
-Keep the export in private durable storage outside the database snapshot and
-app volume after every deletion, not only when a restore is planned. Copy the
-latest record into the maintenance environment before recovery. A normal restore
-of the same database automatically carries its current deletion ledger forward,
-including when the backup predates schema 33. The explicit `--deletions` file
-also supplies the external record. A missing or corrupt supplied export aborts
-before the live database is overwritten.
+For a lost or recreated database, retrieve the latest independently preserved
+operator export and copy it into the maintenance environment. Skip the export
+command above: initializing a fresh database with `init_db` on a replacement
+volume still counts as lost-store recovery. Its new empty ledger or export must
+not replace the independently preserved record. An older ledger inside the
+backup cannot establish the latest deletion state either.
 
-If the live database is lost or missing, restoring a private-chat snapshot
-requires `--deletions` with the latest external export. Never treat an older
-ledger inside that backup as the latest record. A valid empty export made before
-the first deletion is usable only when the operator confirms that no deletion
-requests are outstanding. Without that evidence, keep service closed and resolve
-the deletion record before restoring access.
+Keep the independent export after every deletion, not only when a restore is
+planned. An explicit empty record is usable only after the operator verifies
+that no outstanding deletions need to be applied for this restore. A fresh or
+locally empty ledger is not that verification. An omitted required file or a
+missing/corrupt supplied export aborts before the live database is overwritten.
+Without the latest record or that verified empty state, keep service closed and
+resolve the deletion evidence before restoring access.
+
+A backup predating schema 33, with no `private_chat_messages` table, can be
+restored without the file; current ledger records are still carried forward.
+That exception does not waive the file on any later private-chat restore.
+Restoring a pre-33 backup or initializing its replacement volume cannot be used
+to make a subsequent schema-33 backup count as a restore without private chat.
 
 If recovery replaces the database outside `main.py restore`, validate, merge and
 replay the external record on the restored store before starting any writer:

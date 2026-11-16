@@ -13,6 +13,7 @@ from puzzles.engine import build_puzzle
 import pytest
 
 import persistence
+from persistence import community_deletions
 from causality.staging import drain_due_hops
 from multiverse import store
 from server import heartbeat
@@ -214,7 +215,9 @@ def test_sigkill_and_restart_recover_exactly_one_effect(queue, phase, tmp_path, 
     persistence.backup_to(backup)
     assert drain(queue, limit=1) == 1
     expected = snapshot()
-    persistence.restore_from(backup)
+    deletions = tmp_path / "latest-deletions.json"
+    community_deletions.export_to(deletions)
+    persistence.restore_from(backup, deletions=deletions)
     join(start_worker(queue, phase), -signal.SIGKILL)
     row = persistence.inspect_work(queue, work_id)
     assert row["status"] == ("completed" if phase == "after_commit" else "pending")
@@ -404,7 +407,9 @@ def test_pending_legacy_migration_and_backup_restore(tmp_path, monkeypatch):
                                  (root.name,)).fetchall()
     assert strengths == [(0.5,), (0.25,)]
     assert expected[1][galaxy.name] == {"star_density": 438, "kindled": True}
-    persistence.restore_from(backup)
+    deletions = tmp_path / "latest-deletions.json"
+    community_deletions.export_to(deletions)
+    persistence.restore_from(backup, deletions=deletions)
     from server.rooms import clear_rooms
     clear_rooms()
     join(start_worker("causal_queue", "recover"))

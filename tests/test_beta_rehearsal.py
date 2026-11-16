@@ -8,7 +8,7 @@ import sqlite3
 from urllib.parse import quote
 
 import persistence as db
-from persistence import interventions, participants
+from persistence import community_deletions, interventions, participants
 from multiverse import store
 from tests.server_helpers import server
 
@@ -63,9 +63,13 @@ def test_cold_restore_keeps_identity_privacy_puzzles_and_one_pending_attempt(acc
                               'ON n.world_seed=m.world_seed AND n.name=m.node_name').fetchone()[0]
         assert mapped == total and total > 0
     restored = tmp_path / 'restored.db'
+    deletions = tmp_path / 'latest-deletions.json'
+    # The latest intact store proves this rehearsal has no later erasure requests.
+    # The separately preserved export remains required even for empty chat tables.
+    assert community_deletions.export_to(deletions)['exported'] == 0
     monkeypatch.setattr(db, '_DB_PATH', restored)
     db.init_db()
-    db.restore_from(download)
+    db.restore_from(download, deletions=deletions)
     assert logical_digest(download) == logical_digest(restored)
     assert not Path(str(download) + '-wal').exists()
     with server(restored) as request:

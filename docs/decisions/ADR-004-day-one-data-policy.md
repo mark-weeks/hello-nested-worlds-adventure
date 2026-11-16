@@ -654,10 +654,21 @@ timestamps, without message or name text. Startup replays that ledger before
 listening; restore carries its current records into the candidate database and
 replays them before replacing live data. A backup's stale complaint state cannot
 undo completed erasure. Export the ledger after each completed deletion to
-private durable storage outside the restored database/snapshot. Lost-store
-recovery requires that external record rather than trusting an older backup's
-ledger. Stop writers before restoring and reconcile before restarting play.
-Held messages get no erasure record and later messages are unaffected.
+private durable storage outside the restored database/snapshot. Every backup
+containing `private_chat_messages` requires an explicit `--deletions` record on
+restore, even with an existing database or an empty private-chat table; current
+ledger records are still merged. For an intact current store, export its latest
+ledger before restore. For a lost or recreated store, retrieve the latest
+independently preserved operator record. Running `init_db` on a replacement
+volume does not make its new empty ledger or export a substitute, and an older
+backup's ledger cannot supply the latest proof. An explicit empty record needs
+operator verification that no outstanding deletions apply to the restore, not
+an inference from a fresh or locally empty ledger. A pre-33 backup without the
+private-chat table can restore without the file; any subsequent private-chat
+restore still requires it. Omitted required files or invalid supplied records
+abort before live overwrite. Stop writers before restoring and reconcile before
+restarting play. Held messages get no erasure record and later messages are
+unaffected.
 
 Operational reads include chat without an expiry and preserve pending complaints
 and evidence holds. A lifecycle-managed worker and operator prune command remove

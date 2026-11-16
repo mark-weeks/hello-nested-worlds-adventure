@@ -555,7 +555,10 @@ class TestRestore:
         persistence.record_mutation(881, "D-1", "AGENT_VISIT", None, {})
         assert len(persistence.get_mutations(881, limit=10)) == 4
 
-        counts = persistence.restore_from(snap)
+        from persistence import community_deletions
+        deletions = tmp_path / "latest-deletions.json"
+        community_deletions.export_to(deletions)
+        counts = persistence.restore_from(snap, deletions=deletions)
         assert counts["events_before"] >= counts["events_after"]
         nodes = {m["node"] for m in persistence.get_mutations(881, limit=10)}
         assert nodes == {"A-1", "B-1"}

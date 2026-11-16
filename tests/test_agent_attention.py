@@ -11,6 +11,7 @@ from unittest.mock import patch
 import pytest
 
 import persistence
+from persistence import community_deletions
 from agents.agent import Agent
 from causality.staging import drain_due_hops
 from multiverse import store, wrap
@@ -440,7 +441,9 @@ def test_backup_restore_retains_attention_cursor_pending_and_completion_fence(tm
         conn.execute("UPDATE verb_maturation SET due_at='2000-01-01'")
     heartbeat.drain_matured_verbs(world_seed=SEED)
     expected = snapshot()
-    persistence.restore_from(backup)
+    deletions = tmp_path / 'latest-deletions.json'
+    community_deletions.export_to(deletions)
+    persistence.restore_from(backup, deletions=deletions)
     assert persistence.load_agent_memory(NAME, SEED) == saved
     assert persistence.load_agent_attention(NAME, SEED, [target.name]) == attention
     with persistence._connect() as conn:

@@ -122,12 +122,20 @@ proof overrides an old backup's stale open-case state. Stop writers before
 restore and restart only after reconciliation.
 
 Export the text-free ledger after each completed deletion to private durable
-storage outside the restored snapshot and database volume. If the current DB is
-lost, a private-chat restore requires that external record; the backup's older
-ledger is not accepted as the latest proof. Invalid records abort without
-changing live data. Keep deletion records while a backup containing those lines
-can still be restored. An explicit empty export is appropriate only when the
-operator has verified that no deletion requests are outstanding.
+storage outside the restored snapshot and database volume. Every restore of a
+backup containing `private_chat_messages` requires an explicit `--deletions`
+record, regardless of whether the current database or private-chat rows exist.
+Current ledger records are still merged. Routine recovery exports the intact
+current store's latest ledger; lost-store recovery retrieves the latest
+independently preserved operator record. Initializing a replacement volume does
+not make its fresh empty ledger authoritative, and neither that export nor the
+backup's older ledger may replace the independent record. An explicit empty
+record is appropriate only after the operator verifies that no outstanding
+deletions need to be applied for the restore; local emptiness is not proof.
+Omitted required files or invalid supplied records abort without changing live
+data. A pre-33 backup with no private-chat table can restore without the file,
+but any later private-chat restore still requires it. Keep deletion records while
+a backup containing those lines can still be restored.
 
 Whole-DB backups retain copies beyond live deletion or expiry; newest-validated
 and local/downloaded copies can survive until separately deleted. Their treatment

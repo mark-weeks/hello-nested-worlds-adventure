@@ -55,7 +55,9 @@ def test_completed_deletion_is_carried_from_live_db_through_old_backup(accounts,
     assert result["deleted"] == 1
     proof = ledger()
     assert proof == [(item["evidence_ref"], "2026-11-15T12:00:00.000000Z")]
-    db.restore_from(backup)
+    export = tmp_path / "current-deletions.json"
+    community_deletions.export_to(export)
+    db.restore_from(backup, deletions=export)
     assert retained_refs() == set()
     assert ledger() == proof
     assert community.status()["retained_chat"] == 0
@@ -95,7 +97,9 @@ def test_completed_proof_overrides_a_backups_stale_open_complaint(accounts, tmp_
     db.backup_to(backup)
     community.close_report(case, operator="Synthetic operator")
     assert community.delete_chat_message(item["evidence_ref"])["deleted"] == 1
-    db.restore_from(backup)
+    export = tmp_path / "current-deletions.json"
+    community_deletions.export_to(export)
+    db.restore_from(backup, deletions=export)
     restored = community.show_report(case)
     assert restored["status"] == "open"
     assert restored["evidence"] == {"status": "unavailable"}
@@ -131,6 +135,92 @@ def test_explicit_empty_export_allows_recovery_when_no_requests_exist(accounts, 
     monkeypatch.setattr(db, "_DB_PATH", tmp_path / "recovered.db")
     db.restore_from(backup, deletions=export)
     assert retained_refs() == {item["evidence_ref"]}
+
+
+def test_existing_store_also_requires_an_explicit_record(accounts, tmp_path):
+    item = chat(accounts[0])
+    backup = tmp_path / "before-request.db"
+    db.backup_to(backup)
+    community.delete_chat_message(item["evidence_ref"])
+    proof = ledger()
+    with pytest.raises(ValueError, match="private-chat backup requires"):
+        db.restore_from(backup)
+    assert retained_refs() == set()
+    assert ledger() == proof
+
+
+def test_empty_private_chat_backup_still_requires_an_explicit_record(accounts, tmp_path):
+    backup, export = tmp_path / "empty-private.db", tmp_path / "verified-no-requests.json"
+    db.backup_to(backup)
+    assert retained_refs() == set() and ledger() == []
+    with pytest.raises(ValueError, match="private-chat backup requires"):
+        db.restore_from(backup)
+    community_deletions.export_to(export)
+    db.restore_from(backup, deletions=export)
+    assert retained_refs() == set() and ledger() == []
+
+
+def test_replacement_volume_boot_cannot_bypass_external_record(accounts, tmp_path, monkeypatch):
+    item = chat(accounts[0])
+    backup, export = tmp_path / "old.db", tmp_path / "latest-independent-record.json"
+    db.backup_to(backup)
+    community.delete_chat_message(item["evidence_ref"])
+    community_deletions.export_to(export)
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "replacement-volume" / "worlds.db")
+    db.init_db()  # A replacement machine boots before the operator can restore.
+    assert ledger() == [] and retained_refs() == set()
+    db.record_mutation(382, "Fresh boot marker", "AGENT_VISIT", None, {})
+    before = db.get_mutations(382)
+    with pytest.raises(ValueError, match="separately preserved deletion export"):
+        db.restore_from(backup)
+    assert db.get_mutations(382) == before
+    assert ledger() == [] and retained_refs() == set()
+    db.restore_from(backup, deletions=export)
+    assert retained_refs() == set()
+    assert ledger()[0][0] == item["evidence_ref"]
+
+
+@pytest.mark.parametrize("boot_after_old_restore", [False, True])
+def test_pre33_restore_cannot_waive_later_private_backup_record(
+        accounts, tmp_path, monkeypatch, boot_after_old_restore):
+    item = chat(accounts[0])
+    backup, export = tmp_path / "old-private.db", tmp_path / "latest-independent-record.json"
+    db.backup_to(backup)
+    community.delete_chat_message(item["evidence_ref"])
+    community_deletions.export_to(export)
+    old_source = tmp_path / "pre33.db"
+    migrations = [entry for entry in db._list_migrations() if entry[0] < 33]
+    with monkeypatch.context() as setup:
+        setup.setattr(db, "_DB_PATH", tmp_path / "pre33-source" / "worlds.db")
+        setup.setattr(db, "_list_migrations", lambda: migrations)
+        db.init_db()
+        db.record_mutation(382, "Pre33 marker", "AGENT_VISIT", None, {})
+        db.backup_to(old_source)
+    monkeypatch.setattr(db, "_DB_PATH", tmp_path / "recovered-volume" / "worlds.db")
+    db.restore_from(old_source)  # Genuine pre33 backups have no private chat.
+    if boot_after_old_restore:
+        db.init_db()
+    with sqlite3.connect(db._DB_PATH) as conn:
+        assert conn.execute("SELECT count(*) FROM world_mutations").fetchone()[0] == 1
+    with pytest.raises(ValueError, match="separately preserved deletion export"):
+        db.restore_from(backup)
+    with sqlite3.connect(db._DB_PATH) as conn:
+        assert conn.execute("SELECT count(*) FROM world_mutations").fetchone()[0] == 1
+    db.restore_from(backup, deletions=export)
+    assert retained_refs() == set()
+    assert ledger()[0][0] == item["evidence_ref"]
+
+
+def test_current_proof_is_still_merged_with_the_explicit_export(accounts, tmp_path):
+    item = chat(accounts[0])
+    backup, earlier_export = tmp_path / "old.db", tmp_path / "earlier-record.json"
+    db.backup_to(backup)
+    community_deletions.export_to(earlier_export)
+    community.delete_chat_message(item["evidence_ref"])
+    proof = ledger()
+    db.restore_from(backup, deletions=earlier_export)
+    assert retained_refs() == set()
+    assert ledger() == proof
 
 
 @pytest.mark.parametrize("payload", [

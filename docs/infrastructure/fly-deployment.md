@@ -1457,42 +1457,59 @@ references and UTC timestamps, not messages or identities. Copy the latest
 external record into the maintenance environment before recovery; never trust
 an older ledger in the backup as the latest record.
 
-A normal same-database restore automatically carries the current deletion ledger
-forward, including when restoring a schema-32 backup. Passing `--deletions PATH`
-also supplies the external export. If the live database is lost or missing, a
-private-chat snapshot requires that explicit export. A valid empty export from
-before the first deletion is usable only when the operator confirms that no
-requests remain outstanding. A missing or corrupt supplied export aborts before
-overwriting the live database. Keep service closed until the record is resolved.
+Every backup containing the `private_chat_messages` table requires an explicit
+`--deletions PATH` record on restore, even if the current database exists or the
+private-chat table is empty. The restore also carries the current deletion
+ledger forward; it cannot substitute for the required file.
+
+For routine recovery with the intact current database, export its latest ledger,
+preserve an independent durable copy, and pass that export to restore. For a
+lost or recreated database, retrieve the latest independently preserved operator
+record instead. A replacement volume that has already run `init_db` is still
+lost-store recovery: do not overwrite the preserved record with its fresh empty
+export. An explicit empty record is usable only after the operator verifies
+that no outstanding deletions need to be applied for this restore. A fresh or
+locally empty ledger does not establish that fact.
+
+A pre-33 backup with no private-chat table can restore without the file, while
+current ledger records are still carried forward. Restoring that older backup or
+initializing a replacement database does not waive `--deletions` for a later
+private-chat backup. An omitted required file or a missing/corrupt supplied
+export aborts before overwriting the live database. Keep service closed until
+the record is resolved.
 
 ```bash
 # The first schema-33 rehearsal is restricted to throwaway enfolded-staging.
 ENFOLDED_RESTORE_APP=enfolded-staging
 
 # 1. Stop the server and all application/heartbeat/private-log writers while
-#    retaining maintenance access. Export the current deletion ledger before
-#    overwriting the live database. Transfer this file to private durable
-#    storage outside the database snapshot and app volume as well.
-#    If the live store is lost, skip this export and use the latest externally
-#    kept record in step 2 instead.
+#    retaining maintenance access. Choose the applicable recovery path below.
+
+# 2a. Routine recovery, intact current database only: export its latest ledger
+#     before overwriting it. Transfer this file to private durable storage
+#     outside the database snapshot and app volume as well.
 fly ssh console -a "$ENFOLDED_RESTORE_APP" -C "python main.py chat-log export-deletions /tmp/chat-deletions.json"
 
-# 2. Restore uses SQLite backup in reverse; --yes skips confirmation.
-#    If the live database is missing, first copy the latest independently kept
-#    deletion export to /tmp/chat-deletions.json; do not export from the backup.
-#    A machine-local deploy copy is worlds-YYYYMMDD.db.
+# 2b. Lost/recreated database: SKIP 2a, even if init_db has already initialized
+#     a replacement volume. Retrieve the latest independently preserved operator
+#     record and copy it to /tmp/chat-deletions.json. Never replace that record
+#     with an export from a fresh empty database or the older backup.
+
+# 3. Restore uses SQLite backup in reverse; --yes skips confirmation.
+#    --deletions is mandatory for every backup containing private_chat_messages,
+#    regardless of the current database. A machine-local copy is worlds-YYYYMMDD.db.
 fly ssh console -a "$ENFOLDED_RESTORE_APP" -C "python main.py restore --from /data/backups/worlds-YYYYMMDD.db --deletions /tmp/chat-deletions.json --yes"
 
 #    An off-host object is downloaded as ./worlds-backup.db and uploaded to
 #    the same name. Use that path, not the dated deploy-backup name:
 fly ssh console -a "$ENFOLDED_RESTORE_APP" -C "python main.py restore --from /data/backups/worlds-backup.db --deletions /tmp/chat-deletions.json --yes"
 
-# 3. The restore command already merges/replays deletion records. If instead
+# 4. The restore command already merges/replays deletion records. If instead
 #    a maintenance recovery replaced the database outside main.py restore,
 #    replay the external record before any writer starts:
 fly ssh console -a "$ENFOLDED_RESTORE_APP" -C "python main.py chat-log replay-deletions /tmp/chat-deletions.json"
 
-# 4. Complete deletion replay and the other restore reconciliation, then restart
+# 5. Complete deletion replay and the other restore reconciliation, then restart
 #    so in-memory state (rooms, puzzle sessions, rate buckets) matches the file.
 fly machine restart <machine-id> -a "$ENFOLDED_RESTORE_APP"
 ```
@@ -1741,7 +1758,7 @@ not this restore.
 | See current machine status | `fly status` |
 | Restart the machine | `fly machine restart <id>` |
 | Inspect the volume | `fly volumes list` |
-| Restore from a backup | Stop server/private-log writers; export current deletions to private durable storage outside the snapshot/volume; `python main.py restore --from <file> --deletions <latest-export>` (required if the live store is lost); replay if the file was replaced outside that command; complete reconciliation, then restart (§7) |
+| Restore from a backup | Stop server/private-log writers; for an intact store export its latest ledger, or for a lost/recreated store retrieve the independently preserved record without replacing it with a fresh empty export. `python main.py restore --from <file> --deletions <latest-export>` requires the file for every backup containing private_chat_messages; only a backup without that table can omit it. Replay if the file was replaced outside that command; complete reconciliation, then restart (§7) |
 | Adjust a runtime cap | Set the neutral name and the legacy name to the same integer in one `fly secrets set` (it accepts multiple `NAME=VALUE` pairs and restarts once). Example: `fly secrets set NESTED_WORLDS_VOICE_DAILY_CALLS=1000 NESTED_WORLDS_ANTHROPIC_DAILY_CALLS=1000`. Do the same for the image pair and for both `_PER_USER` pairs. A leftover lower legacy value is a warning, not a crash, and requests enforce that lower integer. Removing the legacy name is a separate `fly secrets unset NAME`. To apply the set and the unset in one restart, pass `--stage` on each and then run `fly secrets deploy`. There is no command that sets and unsets together. |
 | Bound slow HTTP reads, response writes, or handler threads | `fly secrets set NESTED_WORLDS_HTTP_READ_TIMEOUT=30 NESTED_WORLDS_HTTP_WRITE_TIMEOUT=30 NESTED_WORLDS_MAX_HANDLER_THREADS=160` |
 | Kill switch AI without redeploy | `fly secrets set NESTED_WORLDS_DISABLE_AI=1` |

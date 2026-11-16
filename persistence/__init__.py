@@ -3065,9 +3065,11 @@ def restore_from(source: Path, *, deletions: Path | None = None) -> dict[str, An
 
     Refuses anything that is not a readable SQLite database containing a
     `world_mutations` table, so a typo'd path can't blank the chronicle.
-    A missing live DB cannot prove which requests followed a private-chat
-    snapshot, so it requires a separately preserved deletion export. Invalid
-    exports or candidate reconciliation leave the live database unchanged.
+    Every private-chat snapshot requires an explicit deletion export. An
+    existing DB may have been recreated or restored from an older schema, so
+    its existence or empty ledger cannot prove which requests followed the
+    snapshot. Current records are still merged with the supplied export.
+    Invalid exports or reconciliation leave the live database unchanged.
     Returns {events_before, events_after} for the operator's sanity check.
     """
     source = Path(source)
@@ -3086,6 +3088,8 @@ def restore_from(source: Path, *, deletions: Path | None = None) -> dict[str, An
             raise ValueError(
                 f"{source} is a SQLite database but not a worlds backup "
                 "(no world_mutations table) — refusing to restore it")
+        if "private_chat_messages" in tables and deletions is None:
+            raise ValueError("A private-chat backup requires a separately preserved deletion export (--deletions).")
         live_path = Path(_DB_PATH)
         current = []
         before = 0
@@ -3093,8 +3097,6 @@ def restore_from(source: Path, *, deletions: Path | None = None) -> dict[str, An
             with closing(sqlite3.connect(live_path.resolve().as_uri() + "?mode=ro", uri=True)) as prior:
                 before = prior.execute("SELECT COUNT(*) FROM world_mutations").fetchone()[0]
                 current = community_deletions.records_on(prior)
-        elif "private_chat_messages" in tables and deletions is None:
-            raise ValueError("A missing private-chat store requires a separately preserved deletion export (--deletions).")
         live_path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".world-restore-", dir=live_path.parent) as directory:
             candidate = sqlite3.connect(Path(directory) / "candidate.db")

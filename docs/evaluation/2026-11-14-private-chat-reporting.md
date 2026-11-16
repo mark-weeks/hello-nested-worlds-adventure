@@ -6,7 +6,40 @@ on 2026-11-15. [ADR-040](../decisions/ADR-040-private-chat-and-reporting.md) rem
 Proposed. The documented study choices do not deploy a policy, establish a live
 reviewer commitment or ratify the broader conversational-agent design.
 
-## 15 November review follow-up
+## 16 November restore follow-up
+
+The follow-up to [comment4580180938](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/174#discussion_r4580180938)
+is prepared on published `80734f8`. A database file can be a newly initialized
+replacement volume or the result of an older restore, so existence and an empty
+local ledger do not prove that all deletion requests are represented.
+
+Every source backup containing `private_chat_messages` now requires an explicit
+`--deletions` record, including an empty private-chat table and an existing
+destination. The guard runs before any live-store read or path creation. The
+current ledger is still merged with the supplied record and replayed in the
+candidate before live replacement. A genuine pre33 source without that table
+remains restorable without the argument; it cannot waive the requirement for a
+later private-chat backup.
+
+Regression coverage exercises a fresh `init_db()` on the replacement path, a
+pre33-then-private restore both before and after boot, an intact destination,
+empty private backups and merging current proof with an explicit record. Refused
+restores preserve live data; recovery with the independently preserved latest
+record keeps the deleted line absent. Schema33 test callers now provide actual
+exports, and synthetic pre33 fixtures genuinely omit the private tables.
+Runbooks distinguish routine intact-store exports from lost/recreated recovery:
+a fresh-boot empty export must never replace the latest independent record.
+
+Focused verification passed **47 deletion/CLI cases**, the **236-case** caller
+suite and **22 restore-path cases** rerun under the final guard. Ruff and
+whitespace checks passed. The ignored build migration inventory matches source;
+this correction changes no migration or application bundle. The fresh full
+`ENFOLDED_E2E=1 ./scripts/check.sh` run is pending and will be reported separately
+on the candidate head. The full results below are historical evidence for
+`80734f8`, not verification of this correction. No live database, deployment,
+merge or external notification was performed.
+
+## Historical 15 November review follow-up (`80734f8`)
 
 The follow-up addresses [review5912009287](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/174#pullrequestreview-5912009287)
 on published `a47e88e`. That head is preserved locally; the candidate is rebased

@@ -92,9 +92,16 @@ def test_reads_survive_v23_restore_without_restart(busy_place, surface, tmp_path
     backup = tmp_path / 'v23.db'
     db.backup_to(backup)
     with closing(sqlite3.connect(backup)) as conn:
+        # This historical source predates both v24 indexes and the private-chat store.
         conn.executescript('DROP INDEX idx_world_mutations_material_node; '
                            'DROP INDEX idx_world_mutations_rearms; '
+                           'DROP TABLE private_chat_deletions; '
+                           'DROP TABLE report_actions; '
+                           'DROP TABLE private_reports; '
+                           'DROP TABLE private_chat_messages; '
+                           'DROP TABLE community_policies; '
                            'DELETE FROM schema_version WHERE version>=24;')
+        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='private_chat_messages'").fetchone() is None
     assert db._DB_PATH in db._initialized
     def forbidden(*args):
         raise AssertionError('Restored schemas must remain readable without migration')
