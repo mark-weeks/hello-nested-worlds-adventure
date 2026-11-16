@@ -6,8 +6,9 @@ description: Assess the actual Enfolded diff for irreversible changes when prepa
 # Irreversibility check
 
 Assess the diff when documenting a change batch or preparing its PR/merge.
-Record the result even for a draft whose verification is incomplete; the canonical
-checks still must pass before proposing merge. Human questions apply only to a
+Record the result even for a draft whose verification is incomplete. Apply
+[AGENTS.md's documentation-only test-run rule](../../../AGENTS.md#documentation-only-test-run-rule)
+to determine the verification required before proposing merge. Human questions apply only to a
 tripped one-way door whose decision has not already been ratified.
 
 ## Procedure

@@ -76,6 +76,11 @@ indented two spaces:
 
 ## Completion
 
+Apply [AGENTS.md's documentation-only test-run rule](../../../AGENTS.md#documentation-only-test-run-rule)
+when recording the entry's required local document checks. Put current-head CI
+evidence in the PR description or a PR comment and point the entry there; do not
+commit that head's CI result into the fragment.
+
 Done when one entry accurately describes this batch, its measured evidence, verification,
 and diff-based irreversibility result. Update the same entry as the batch changes. This
 skill does not itself authorize a commit, PR publication, or merge.
