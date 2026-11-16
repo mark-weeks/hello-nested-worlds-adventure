@@ -565,7 +565,11 @@ def cmd_restore(args):
             print("Aborted — nothing was changed.")
             return
     deletion_record = getattr(args, "deletions", None)
-    counts = persistence.restore_from(source, deletions=Path(deletion_record).expanduser() if deletion_record else None)
+    try:
+        counts = persistence.restore_from(source, deletions=Path(deletion_record).expanduser() if deletion_record else None)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     print(f"Restored from {source}")
     print(f"  chronicle events: {counts['events_before']} -> "
           f"{counts['events_after']}")

@@ -9,7 +9,8 @@ reviewer commitment or ratify the broader conversational-agent design.
 ## 16 November restore follow-up
 
 The follow-up to [comment4580180938](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/174#discussion_r4580180938)
-is prepared on published `80734f8`. A database file can be a newly initialized
+was committed as `98d2a716563daa869753e8136578c9e85cfb54e5`, following
+published `80734f8`. A database file can be a newly initialized
 replacement volume or the result of an older restore, so existence and an empty
 local ledger do not prove that all deletion requests are represented.
 
@@ -31,13 +32,40 @@ Runbooks distinguish routine intact-store exports from lost/recreated recovery:
 a fresh-boot empty export must never replace the latest independent record.
 
 Focused verification passed **47 deletion/CLI cases**, the **236-case** caller
-suite and **22 restore-path cases** rerun under the final guard. Ruff and
-whitespace checks passed. The ignored build migration inventory matches source;
-this correction changes no migration or application bundle. The fresh full
-`ENFOLDED_E2E=1 ./scripts/check.sh` run is pending and will be reported separately
-on the candidate head. The full results below are historical evidence for
-`80734f8`, not verification of this correction. No live database, deployment,
-merge or external notification was performed.
+suite and **22 restore-path cases** rerun under the final guard. Document links,
+whitespace and the ignored-build migration inventory passed; this correction
+changes no migration or application bundle. The verification record below is
+for `98d2a71`:
+
+| Run | Result |
+| --- | --- |
+| Fresh local `ENFOLDED_E2E=1 ./scripts/check.sh` | **Exited 1**. Ruff passed; **4,324 Python passed / one historical skip** (837.26 seconds); **241 Vitest passed** in 20 files; bundle freshness and installed-wheel smoke with schema **33** passed. Playwright finished with **211 passed / one failed** (6.8 minutes). |
+| Focused browser diagnosis after that failure | The exact `/app` inhabitant-blocking case passed once alone, then **six of six** repeats with two workers. All seven runs passed; captured block/unblock requests returned HTTP 200. The original failure's cause remains unproven. No source or test change was made to suppress it. |
+| [PR CI run 43788028440](https://github.com/mark-weeks/hello-nested-worlds-adventure/actions/runs/43788028440) | Green; **212 browser cases passed without retries**. |
+| [Push CI run 43788020584](https://github.com/mark-weeks/hello-nested-worlds-adventure/actions/runs/43788020584) | Green; a different journal case needed a retry. |
+
+The local canonical invocation did not exit 0; focused reruns and green CI are
+separate evidence. The earlier full results below remain historical evidence
+for `80734f8`. Verification used disposable stores; no live-database operation,
+merge or deployment was performed.
+
+### Final verification-record and CLI corrections
+
+The final review replaces the former pending statements with the measured
+`98d2a71` outcomes above. Restore now catches `ValueError`, which includes
+`community.CommunityError`, and prints one `error: <message>` line on stderr
+before exiting 1. Missing, malformed or omitted deletion exports retain the live
+store and never expose their contents or a traceback; a valid export keeps the
+existing success and restart output.
+
+The three refusal regressions failed against the previous command and passed
+after correction. **175 tests passed** across the community CLI, chat deletions,
+persistence and deployment-rollback suites; Ruff passed. A combined rerun with
+the checklist, changelog, agent-instruction and staging-workflow readers passed
+**307 tests, one historical skip**; fragment and whitespace checks passed. These
+are checks of the CLI correction, separate from the historical full run above. Current-head CI
+evidence is recorded in the PR description. This correction changes no migration,
+application bundle, restore authorization or world-history behavior.
 
 ## Historical 15 November review follow-up (`80734f8`)
 

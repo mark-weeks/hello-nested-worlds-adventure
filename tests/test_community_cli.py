@@ -294,6 +294,62 @@ def test_invalid_deletion_export_is_safe_operator_json(tmp_path, capsys):
     assert private not in result.out + result.err
 
 
+def _restore_cli(backup, deletions=None):
+    script = '''
+import sys
+from pathlib import Path
+import main
+import persistence
+persistence._DB_PATH = Path(sys.argv[1])
+main.main(sys.argv[2:])
+'''
+    args = ["restore", "--from", str(backup), "--yes"]
+    if deletions is not None:
+        args.extend(["--deletions", str(deletions)])
+    return subprocess.run([sys.executable, "-c", script, str(persistence._DB_PATH), *args],
+                          capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("record", ["omitted", "invalid", "missing"])
+def test_restore_refusal_is_a_clean_cli_error_without_changing_live_data(tmp_path, record):
+    persistence.init_db()
+    backup = tmp_path / "before-marker.db"
+    persistence.backup_to(backup)
+    persistence.record_mutation(382, "Synthetic restore marker", "AGENT_VISIT", None, {})
+    before = persistence.get_mutations(382)
+    private = "Synthetic private export contents must not reach stderr"
+    deletions = None
+    if record != "omitted":
+        deletions = tmp_path / "deletions.json"
+        if record == "invalid":
+            deletions.write_text(private)
+    result = _restore_cli(backup, deletions)
+    message = ("A private-chat backup requires a separately preserved deletion export (--deletions)."
+               if record == "omitted" else "The private chat deletion record is invalid.")
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == f"error: {message}\n"
+    assert "Traceback" not in result.stderr and private not in result.stderr
+    assert persistence.get_mutations(382) == before
+
+
+def test_restore_cli_with_a_valid_deletion_export_keeps_its_success_output(tmp_path):
+    from persistence import community_deletions
+
+    persistence.init_db()
+    backup, deletions = tmp_path / "before-marker.db", tmp_path / "deletions.json"
+    persistence.backup_to(backup)
+    community_deletions.export_to(deletions)
+    persistence.record_mutation(382, "Synthetic restore marker", "AGENT_VISIT", None, {})
+    result = _restore_cli(backup, deletions)
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert f"Restored from {backup}" in result.stdout
+    assert "chronicle events: 1 -> 0" in result.stdout
+    assert "Restart the server" in result.stdout
+    assert persistence.get_mutations(382) == []
+
+
 def test_unavailable_status_never_creates_a_world_database(capsys):
     with pytest.raises(SystemExit) as caught:
         main.main(["community-status"])
