@@ -5,7 +5,10 @@ disposable newcomer watch only. It takes effect when the owner names the
 endpoint and signs its data-use note (items 24 and 25 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)). Until
 then, and for every other use, this record stays Proposed.
 
-**Status:** Proposed, 2026-11-01. Written from the second-text-adapter plan
+**Status:** Proposed, with one exception the owner adopted on 2026-11-18
+(note above): one named endpoint, for the disposable newcomer watch only, once
+the owner names it and signs its data-use note.
+Earlier status, kept as the record: Proposed, 2026-11-01. Written from the second-text-adapter plan
 that Mark Weeks, the sole maintainer, approved the same day. **Not ratified.** This
 document introduces no runtime behavior, no registered adapter, no migration,
 and no write path. The open decisions below stay with the owner. Citing this

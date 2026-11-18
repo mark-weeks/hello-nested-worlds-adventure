@@ -11,7 +11,9 @@ commitment and fulfillment for voice independently of recent chatter. This
 retains discovery memory and the M4 attention policy. It introduces no private
 journal access or unrestricted agent planning.
 
-**Status:** Proposed for review, 2026-09-08. Implements bounded M4 only;
+**Status:** Accepted as implemented by the owner, 2026-11-18, except the
+puzzle-eligibility paragraph (note above).
+Earlier status, kept as the record: Proposed for review, 2026-09-08. Implements bounded M4 only;
 ADR-013's broader proposals and M0/M5 content remain Proposed.
 
 ## Context

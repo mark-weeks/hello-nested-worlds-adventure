@@ -5,8 +5,9 @@ working session (quoted below and in the
 [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md), D-B).
 The session cannot be verified from the repository; the owner's merge of the
 pull request that adds this record is the verifiable act. This record changes
-no code. The implementation is its own pull request, and the golden re-pin it
-needs was approved by the owner in the same session.
+no code. The implementation is its own pull request. The owner approved the
+golden re-pin it needs in the same session; that pull request restates the
+approval and shows the exact pin diff for the owner's read (D7).
 
 ## Context
 
@@ -72,13 +73,28 @@ own column and primary key. Code that needs a position reads it from the node
 or looks it up by name. The server sends the address to clients as its own
 field. Clients may show it; they never derive it from a name.
 
-### D4. Nothing else moves
+### D4. Nothing else is meant to move
 
 Puzzle draws, per-node difficulty, the Causal Augury election and any other
-derivation keyed on a node's identity are keyed on the name together with the
-address. That keeps every draw byte-identical to today's, so the re-pin is
-limited to names and to text that prints a name. Puzzle wording that refers to
-the dash or to a "lineage mark" is rewritten.
+derivation keyed on a node's identity are keyed on the string
+`f"{name}-{address}"`. That is byte for byte the name stored today, which
+`puzzles/generators.py` hashes for difficulty and for each node's random
+stream. Every random input therefore stays identical.
+
+Selection can still move. The generator rejects a candidate whose answer shows
+in the rendered prompt or hints (`_answer_leaks`), and today's prompts print
+the suffix. Without the suffix a different candidate can pass, so a place can
+get a different puzzle family and answer from the same random inputs. Review
+of this record *executed* one such case (seed 212, epoch 0); the count for
+seed 382 is not measured. The implementation compares the old and new family
+and answer for every node, at both depths and for epochs 0 to 2, and reports
+every difference. The existing digests omit prompts and hints, and the renewal
+pins cover depth 6 only, so the pins alone cannot show this. The old selection
+is not kept by screening against the suffix: that would reject candidates for
+text no player sees. Removing the suffix can only let more candidates pass,
+never fewer.
+
+Puzzle wording that refers to the dash or to a "lineage mark" is rewritten.
 
 ### D5. The cast
 
@@ -95,9 +111,18 @@ implementation pins it with a test).
 
 `GENERATOR_VERSION` becomes 3. The pins that move, at both depths: the names
 digest, the world digest, the landmark names, and the puzzle pins for epoch 0
-and renewal epochs 1 and 2, because prompts print place names. The era-name
-pins do not move. The owner approved this re-pin on 2026-11-18 ("approved");
-the approval covers this change and no other.
+and renewal epochs 1 and 2, because prompts print place names and because
+selection can move (D4). The era-name pins do not move.
+
+The owner approved this re-pin on 2026-11-18 ("approved"), in the task that
+carries the implementation. `AGENTS.md` requires the owner's approval of the
+specific pin change in the current task or pull request, and says a decision
+record does not pre-approve a re-pin. So this record is not that approval, and
+a different task or agent cannot rely on it. The implementation pull request
+restates the approval, shows the exact pin diff and the D4 comparison, and
+waits for the owner's read of its irreversibility check. The approval was
+given before the selection changes in D4 were known, so the owner confirms it
+against that diff. It covers this change and no other.
 
 ## Trade-offs accepted
 
@@ -105,7 +130,8 @@ the approval covers this change and no other.
   makes one indexed lookup.
 - A local world born under generator version 2 keeps its suffixed names until
   it is re-created. No such world exists on staging or production.
-- Every puzzle pin moves, although no draw does.
+- Every puzzle pin moves. No random input does, but some places get a
+  different puzzle (D4).
 - Both clients change, so the implementation holds the client bundle.
 
 ## Revisit when

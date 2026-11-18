@@ -1,11 +1,15 @@
 # ADR-040: Private traveler chat and operator reports
 
 **2026-11-18 owner adoption:** Accepted as implemented in #174 (item 43 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
-Still to be set for a kept world: the end-of-study deletion date (item 34), the
-backup retention and ledger location (item 12), and the second operator
-(item 31).
+Adopted for a kept world, taking effect with the community policy file and the
+bucket account: messages not under a complaint hold are deleted 30 days after
+the cohort's last window (item 34), and backups are kept 30 days under a 7-day
+delete lock, with the deletion ledger under a separate prefix (item 12). Still
+to be named: the second operator (item 31).
 
-**Status:** Proposed for scoped implementation review, revised 2026-11-15.
+**Status:** Accepted as implemented in #174 by the owner, 2026-11-18 (note
+above).
+Earlier status, kept as the record: Proposed for scoped implementation review, revised 2026-11-15.
 The owner's [Version 4 direction on PR #174](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/174#issuecomment-6896201907)
 selects operator-only chat retention until deletion, complaint evidence holds and
 affirmative adult participation. The merge remains the human gate for the

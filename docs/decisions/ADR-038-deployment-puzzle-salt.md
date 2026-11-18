@@ -1,10 +1,15 @@
 # ADR-038: A deployment puzzle salt, so the hosted world has no offline answer table
 
 **2026-11-18 owner adoption:** Adopted in principle, with separate staging and
-production salts. It does not gate the first cohort; it is built after ADR-036
-batch 2 and before any open invitation (item 22 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
-[ADR-041](ADR-041-natural-unique-names.md) changes names, not the draws this
-record keys.
+production salts (item 22 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
+**Open for the owner:** whether B1 and B2 land before the kept world's first
+boot, as open question 1 and the Irreversibility section below require if the
+salt is adopted. The first version of this note said the salt did not gate the
+first cohort. That is withdrawn: the cohort world is the kept world (item 10),
+and a puzzle pinned without the salt stays computable offline until its place
+renews. Recommended in the record: before the first boot.
+[ADR-041](ADR-041-natural-unique-names.md) changes names, not the random
+inputs this record keys.
 
 **Status:** Proposed, 2026-11-10; revised 2026-11-11 after two adversarial
 checks (of `7482379` and `75f4fff`). **Owner:** Mark Weeks. Not ratified; it writes no code,

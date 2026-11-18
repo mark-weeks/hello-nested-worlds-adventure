@@ -5,9 +5,14 @@ D8 stay Proposed until this record is refreshed against `main`. The owner
 directed the four batches for the first cohort and set two rules the refresh
 must carry (D-D and D-E of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)). An agent asked for puzzle help may help
 when its goals align with the player's and may decline when they conflict.
-Rivalry between agents and players is over aims, never over solving.
+Rivalry between agents and players is over aims, never over solving. Batch 4
+is the collaboration batch this record shares with ADR-036. It waits for the
+owner's answer to open question 4 (who sees an agent's puzzle help, and whether
+it is stored) and is meant to land before the cohort enters.
 
-**Status:** Proposed, 2026-11-07; revised 2026-11-10. **Owner:** Mark Weeks.
+**Status:** D1, D2, D4 and D5 ratified by the owner, 2026-11-18; D3, D6, D7 and
+D8 Proposed (note above).
+Earlier status, kept as the record: Proposed, 2026-11-07; revised 2026-11-10. **Owner:** Mark Weeks.
 **Not ratified.** No code, migration, write path, player-text destination,
 spend or deployment; citing it authorizes nothing. Designed against `main` at
 `f3ead74`.

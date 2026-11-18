@@ -2,12 +2,16 @@
 
 **2026-11-18 owner adoption (implementation pending):** The [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md) adopt three changes to
 this policy, each taking effect with the code that implements it. Section 2:
-every line on a surface that stores words is classified when the classifier is
-available, while chat stays on its current screen (item 30). Section 7: the
+every line of shared text on Speak, agent voice, Ideas and published profile
+fields goes to the classifier, and fails closed when classification cannot
+complete, as section 2 already requires. Private notes, unpublished profile
+text and report text are never sent to a model, and chat stays on its current
+screen (item 30). Section 7: the
 reserved list gains Admin, Moderator, Operator, System, Enfolded and Traveler,
 and retired cast names stay reserved (item 15). Presence rows stay in the
 record but are left out of a place's memory (item 18). The same record confirms
-that never-wipe starts when the first cohort invite is redeemed (item 9). Names
+section 3: never-wipe starts with the first invited outside player, by either
+invite path, and disposable worlds run on staging (item 9). Names
 follow [ADR-041](ADR-041-natural-unique-names.md).
 
 **Prepared implementation, revised 2026-11-15:** the private-chat/reporting batch is

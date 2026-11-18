@@ -19,6 +19,12 @@ account), the last column says so, and the answer does not take effect until
 the value exists. It changes no working rule: `AGENTS.md` and the guides change
 only in a pull request of their own.
 
+**Revised after review, 2026-11-18.** Codex and Grok Bot reviewed the first
+version of this page at `4e88ed5`. Their findings changed items 3, 5, 6, 9, 12,
+13, 19, 22, 26, 30, 38, 40 and 44. Where review showed that an adopted answer
+left a question unanswered, the table says **Open for the owner** and section 5
+lists it. A merge of this page does not answer those questions.
+
 ## 1. Decisions in the owner's words
 
 Five recommendations were changed by the owner. These quotes override the
@@ -44,7 +50,10 @@ suffix at display time, the owner wrote: "I agree with separating the name from
 the address". Asked for the approval the golden-pin rule requires for that
 change, the owner answered: "approved".
 [ADR-041](../decisions/ADR-041-natural-unique-names.md) records the decision,
-what the re-pin covers and why it is safe before any world is born.
+what the re-pin covers and why it is safe before any world is born. Under
+`AGENTS.md` that approval is used in the task it was given in and does not
+travel through a record: the naming pull request restates it and shows the
+exact pin diff for the owner's read.
 
 **D-C. Puzzles must be challenging and interesting; quality is a design
 decision made before the kept world is born.** The recommendation had been no
@@ -87,10 +96,10 @@ answer still needs before it takes effect.
 |---|---|---|---|
 | 1 | Fly account and staging twin | The owner creates the account and dispatches the staging deploy, aiming for Friday 20 November. The twin is the watch venue. | Owner action: account, billing, token |
 | 2 | Map view switch (entry requirement 2) | Directed as a client batch: `/` serves the shared React Map view, the current map stays reachable at a named path until the cohort read-out, and ADR-005 records the result. Assignment follows the default concern (the player journey in `/app`) unless the owner assigns it otherwise. | The client pull request |
-| 3 | Watch with AI on or off | **Owner words (D-A): on.** Place voices, agent voices, free-text intentions and moderation run live. This moves items 24 to 27 ahead of the watch. A disposable twin whose accounting stop latches can be re-created (*inferred*; not rehearsed), so item 28's procedure waits for the cohort. | Items 24 to 27 |
+| 3 | Watch with AI on or off | **Owner words (D-A): on.** Place voices, agent voices, free-text intentions and moderation run live. This moves items 24 to 27 ahead of the watch. If the accounting stop latches on the twin, its live routes stay off. Re-creating the twin would discard the ledger and the stop while the provider still bills the same account, so it does not clear a stop. The watch then finishes with AI off, or resumes only after the owner has reconciled that day's provider spend against the account, as ADR-039 requires before calls are re-enabled. Item 28's written clearing procedure still waits for the cohort. | Items 24 to 27 |
 | 4 | Chat and Report in the watch | On, with one session in which two testers overlap, so chat, co-solving and the report path are exercised once. | A community policy file for the twin |
-| 5 | Watch particulars | The owner is lead, facilitator and operator. Two or three adults on desktop Chromium. The twin is destroyed within seven days of the last session, after watch reports are exported. | Tester names and session dates |
-| 6 | Notice values for the twin | A contact address the owner reads daily; the destroy date from item 5; a data-use statement that names the model provider and says tester text is sent to it to run the game and is not used to train models. | The contact address; the provider from item 24 |
+| 5 | Watch particulars | The owner is lead, facilitator and operator. Two or three adults on desktop Chromium. The twin is destroyed within seven days of the last session, once every report from the watch is closed. An open or acknowledged report holds the twin, with the chat lines it cites, until it is closed or the complete case has been moved and checked; exporting reports alone does not keep that evidence. The tester notice says a complaint can extend the date. | Tester names and session dates |
+| 6 | Notice values for the twin | A contact address the owner reads daily; the destroy date from item 5, with its complaint exception, and the date the twin's backups are deleted (item 12); a data-use statement that names the model provider and says tester text is sent to it to run the game and is not used to train models. | The contact address; the provider from item 24 |
 | 7 | Invite gate at deploy | The first key is minted as a step of the deploy, on staging and in the production runbook, so the gate is never open after a deploy. | A runbook change |
 | 8 | Watch kit | Refreshed once items 2 to 6 are settled; it still says the honesty rule does not exist. | — |
 
@@ -98,11 +107,11 @@ answer still needs before it takes effect.
 
 | # | Question | Adopted answer | Still needed |
 |---|---|---|---|
-| 9 | When the one-way door closes | ADR-004 governs: never-wipe starts when the first cohort invite is redeemed. Until then a production volume may be booted, rehearsed and re-created. The runbook sentence that said the first deploy starts the permanent world is corrected in this batch. | — |
+| 9 | When the one-way door closes | ADR-004 governs: never-wipe starts with the first invited outside player, whether they enter with an operator-minted key or a redeemed registration invite. Before that a production volume holds no history to protect, but it is not a rehearsal space: ADR-004 section 3 puts disposable worlds on staging, and a production boot already births the world and pins its puzzles. The two runbook sentences that said the first deploy makes history permanent are corrected in this batch. | — |
 | 10 | World status | Production for the cohort world, declared at the watch read-out once a downloaded backup restores into isolated staging and item 11 passes. Staging and any local watch are disposable. | The declaration, at the read-out |
 | 11 | Backup clock | An outside scheduler dispatches the backup every 30 minutes. The one-hour bound is proven over seven consecutive days on the twin. Continuous replication stays after the pilot and before a second cohort. | The scheduler service |
-| 12 | Backup bucket and retention | The runbook's S3-compatible bucket, 30 days, a 7-day delete lock, no lifecycle rule; the deletion ledger under a separate prefix. The snapshot size is measured first. | The bucket account |
-| 13 | Monitor, Sentry, tokens | The scheduler from item 11 also alerts one address on backup freshness, uptime and voice health. Sentry is on, with frame locals off and a line in the notice. Production tokens live in a main-only GitHub environment. | The alert address |
+| 12 | Backup bucket and retention | The runbook's S3-compatible bucket, 30 days, a 7-day delete lock, no lifecycle rule; the deletion ledger under a separate prefix. The snapshot size is measured first. The backup workflow prunes only the app it is backing up and always keeps that app's newest copy, so the twin's snapshots, which hold private chat and reports, are deleted from the bucket by hand, as a named teardown step, as soon as the delete lock allows. The watch notice gives that date. | The bucket account |
+| 13 | Monitor, Sentry, tokens | The scheduler from item 11 also alerts one address on backup freshness, uptime and voice health. The freshness check does not share the dispatcher's clock unwatched: it runs on a second, separately hosted schedule, or reports to a missed-check alert held elsewhere, as the [backup cadence record](../evaluation/2026-11-11-backup-schedule-cadence.md) requires. Sentry is on, with frame locals off and a line in the notice. Production tokens live in a main-only GitHub environment. | The alert address |
 | 14 | Cast names | **Owner words (D-B).** "Cartographer-9" becomes "Cartographer". No cast name carries appended characters. A name used in production stays reserved forever. | The naming pull request (ADR-041) |
 | 15 | Reserved names | Admin, Moderator, Operator, System, Enfolded and Traveler join the reserved list; retired cast names stay reserved. | An ADR-004 section 7 change with the code |
 | 16 | Era names repeat | Accepted for the cohort. Eras are materialized before the week of 19 April 2027, when seed 382 first repeats a name. | — |
@@ -113,10 +122,10 @@ answer still needs before it takes effect.
 
 | # | Question | Adopted answer | Still needed |
 |---|---|---|---|
-| 19 | Ratify ADR-036 | Ratified with its recorded answers as starting values: an unsolved puzzle never renews by itself; the longest send-away is four hours; each player climbs their own hint ladder; a send-away says when to return; twelve wrong guesses a day, not to be raised without re-running the band search. A helping agent is not named in the solve credit. "An annoyed player" is read as an annoyed puzzle. Ratification authorizes batches 2 and 1b only; batch 1a merged in #170. | — |
+| 19 | Ratify ADR-036 | Ratified with its recorded answers as starting values: an unsolved puzzle never renews by itself; the longest patience send-away is four hours; each player climbs their own hint ladder; a send-away says when to return; at most twelve judged misses for one player at one puzzle in any rolling 24 hours, not to be raised without re-running the band search. A send-away that this cap binds lasts until the count allows another guess, which can be most of a day. A helping agent is not named in the solve credit. "An annoyed player" is read as an annoyed puzzle. Ratification authorizes batches 2 and 1b only; batch 1a merged in #170. | — |
 | 20 | Next puzzle batches | Both directed: the cast stops attempting puzzles, then per-player send-aways replace the shared pool. The kept database is born after the first of them. | The two pull requests |
 | 21 | Wrong-guess text (ADR-036 question 6) | Only right or wrong is stored. It ships as a small change before the first invite. | The code change |
-| 22 | Puzzle salt (ADR-038) | Adopted in principle, with separate staging and production salts. It does not gate the cohort; it is built after item 20 and before any open invitation. | — |
+| 22 | Puzzle salt (ADR-038) | Adopted in principle, with separate staging and production salts. **Open for the owner (a first-boot door):** whether the salt is in place before the kept world's first boot. The first version of this page said it did not gate the cohort; review showed that this conflicts with ADR-038. A puzzle pinned without the salt stays computable from the public code until its place renews, the heartbeat pins at the first tick, and under item 19 an unsolved puzzle never renews by itself. Recommended: before the first boot (ADR-038's B1 and B2). Item 20 already holds the kept database for the first puzzle batch, so the cost is one small pull request and one secret. | The owner's answer |
 | 23 | Puzzle quality | **Owner words (D-C).** Replaces "duplicate answers". The generic kinds (anagram, cipher, number pattern, riddle, ordering: 1,445 of 4,208 puzzles on seed 382) are retired. Prediction is deepened. The look-up kinds are redesigned so a player must infer or experiment. Agent collaboration is designed with them (item 40). The work starts with a design record holding ten sample puzzles per proposed kind for the owner to judge, before any generator code. The watch is not held for it; the kept world is. | The design record |
 
 ### Models and spend
@@ -125,11 +134,11 @@ answer still needs before it takes effect.
 |---|---|---|---|
 | 24 | First controlled model route | For the watch: ADR-035 is accepted for one named endpoint, and the choice ends with the disposable twin. For the cohort: decided from what the watch shows; the alternative on record is a controlled transport for the incumbent provider. | The endpoint and vendor. One check, not yet made: whether the incumbent provider's own Chat Completions-compatible endpoint satisfies the adapter |
 | 25 | Data rules | Packet decision 10's operating rules 1 to 4 are accepted: one sign-off covers one provider account, under named terms, at one exact endpoint, for listed data classes. No Enfolded data trains any model during the pilot. | One data-use note for item 24's endpoint, signed |
-| 26 | Dollar ceilings | Starting values: 15 dollars a day global and 3 dollars a day per participant, adjusted after a staging test shows what one full-context reservation costs. A 150-dollar provider spend limit is the outer bound. | The owner's confirmation of the amounts in the policy file |
+| 26 | Dollar ceilings | Starting values: 15 dollars a day global and 3 dollars a day per participant, adjusted after a staging test shows what one full-context reservation costs. A 150-dollar provider spend limit is the outer bound. | The owner's confirmation of the amounts in the policy file, and a spend-ledger retention period of two days or more, which the policy file must carry and ADR-039 asks the owner to approve |
 | 27 | Models | The voice, intention and moderation models are pinned in the policy file. One live rubric run, with the owner as the single grader, recorded as a deviation from the two-grader rule. | The model ids |
 | 28 | ADR-039 | Accepted after one staging rehearsal of reservation, settlement and the stop. A written procedure to clear the accounting stop exists before any live route on a kept world. | The rehearsal |
 | 29 | Call caps | The global text cap rises to about 1,000 a day; 150 per player stays. Caps are set before day one. | — |
-| 30 | Moderation coverage | Every line on a surface that stores words (Speak, agent voice, ideas, profiles) is classified when the classifier is up. Chat stays on its current screen, because chat is no longer permanent or quoted. | An ADR-004 section 2 change with the code |
+| 30 | Moderation coverage | Every line of shared text on Speak, agent voice, Ideas and published profile fields goes to the classifier. When classification cannot complete, shared text fails closed, as ADR-004 section 2 already requires. Private journal notes, unpublished profile text and report text are never sent to a model. Chat stays on its current screen, because chat is no longer permanent or quoted. | An ADR-004 section 2 change with the code |
 
 ### Safety, people and admission
 
@@ -142,9 +151,9 @@ answer still needs before it takes effect.
 | 35 | Served history | Before the first invite, `/chronicle` and `/history` stop serving the `actor` field and the `agent` and `persona` keys. Stored rows are untouched. | The code change |
 | 36 | Terms and notice | One combined page, served as the notice text. It names the owner as data holder, the host, bucket, monitor and model provider, and says an idea may be summarized publicly. The first cohort is adults in the owner's own country. | The page |
 | 37 | Cohort exceptions | One dated list, signed at the watch read-out: later-improvement rows excused, measurement rows required only to be instrumented. | The list, at the read-out |
-| 38 | Evidence gates | The four pilot gates are adopted as hypotheses reported with counts. A missed gate buys one fix-and-rerun round. Playtest bars are readings with one tripwire. | — |
+| 38 | Evidence gates | The four pilot gates are adopted as hypotheses reported with counts. A missed gate buys one fix-and-rerun round. Playtest bars are readings, with one tripwire: a puzzle family with five or more attempted puzzles and none solved, or an overall median interest rating under 3, opens a fix before the cohort widens. Ratings are collected by the facilitator's question; no rating surface is built. The threshold is the agent's recommendation of 2026-11-18 and a default the owner may change at the read-out. | — |
 | 39 | Dates | Watch sessions by 11 December 2026. The cohort start is set at the watch read-out. The earlier January targets are withdrawn, because the naming change, the puzzle redesign and agents in chat now precede the cohort. | — |
-| 40 | Agents in the first cohort | **Owner words (D-D, D-E).** In scope. Agents never solve a puzzle by themselves. When a human asks an agent for help, the agent may help if its goals align with that player's, and may decline if they conflict. Rivalry is over aims, such as discovering places or shifting properties toward competing goals, never over solving. ADR-037's four batches are directed. Agents need stated goals; a design note sets them and the rivalry, written with item 23. ADR-037's standing answers: at most two lingering travelers; travelers in chat and Speak for places; agent chat lines stored as human chat is; an honesty answer goes to the asker alone. | The design note; ADR-037 refreshed against `main` |
+| 40 | Agents in the first cohort | **Owner words (D-D, D-E).** In scope. Agents never solve a puzzle by themselves. When a human asks an agent for help, the agent may help if its goals align with that player's, and may decline if they conflict. Rivalry is over aims, such as discovering places or shifting properties toward competing goals, never over solving. ADR-037's four batches are directed. Agents need stated goals; a design note sets them and the rivalry, written with item 23. ADR-037's standing answers: at most two lingering travelers; travelers in chat and Speak for places; agent chat lines stored as human chat is; an honesty answer goes to the asker alone. **Open for the owner:** who sees an agent's puzzle help, and whether it is stored (ADR-037 open question 4). As ordinary chat a correct suggestion would reach everyone and be stored. ADR-037 recommends that it reach only the asker and not be stored. Batch 4, the collaboration batch that ADR-036 and ADR-037 share, waits for this answer and is meant to land before the cohort enters. | The design note; ADR-037 refreshed against `main`; the owner's answer on puzzle help |
 
 ### Records and process
 
@@ -153,7 +162,7 @@ answer still needs before it takes effect.
 | 41 | Status pull request | Asked for by this adoption. Claude Code prepares it once this page has merged; it folds the waiting fragments and applies the `Status:` lines of the fragment that lands with this page. | This page, merged |
 | 42 | The 15 November decision page | To be committed, so `main` carries the owner's words that ten records cite. | The page, from the owner |
 | 43 | ADR status pass | ADR-019, ADR-020 and ADR-021 are accepted as implemented. ADR-022 is accepted as implemented except its puzzle-eligibility paragraph, which the owner's 2026-11-06 decision overruled. ADR-040 is accepted as implemented. ADR-035 and ADR-039 stay Proposed until items 24 and 28. | — |
-| 44 | Covenant re-tune (D9) | Closed as stale. | — |
+| 44 | Covenant re-tune (D9) | D9, the proposal to keep five covenants and demote the rest to guidance, is closed as stale; no covenant is demoted. One covenant wording question remains. When ADR-037 D4 (no labels) ships, the sentence "live presence may distinguish" stops describing the product. Rewording it is the owner's decision, proposed and approved in the working-rules pull request of item 45, not here. | The owner's approval, in that pull request |
 | 45 | Decision process | Two rules, to be written in a working-rules pull request of their own: reversible choices are listed as defaults and accepted by the owner's merge; an ADR asks the owner only door questions. At most three pull requests wait on the owner. | That pull request |
 | 46 | Copilot | No budget is set. The merged rule lets work proceed without it. Every reviewer posts under a footer naming it. | — |
 | 47 | Issues #87 to #89 | #89 gets a hold note that the owner posts; #88 stays deferred; #87 becomes one watch question (does a newcomer name the scale unprompted). | The note, posted by the owner |
@@ -188,8 +197,9 @@ decision now.
 - A dated adoption note at the head of ADR-004, ADR-005, ADR-019, ADR-020,
   ADR-021, ADR-022, ADR-029, ADR-032, ADR-035, ADR-036, ADR-037, ADR-038 and
   ADR-040. Each note points here; the text beneath it is kept as the historical
-  record.
-- The runbook sentence on when the permanent world starts (item 9).
+  record. Where a note changes a record's status, its `Status:` line now leads
+  with the new status and keeps the earlier text after it.
+- The two runbook sentences on when history becomes permanent (item 9).
 
 **Not in this batch.**
 
@@ -198,9 +208,9 @@ decision now.
   request (item 41). Until it lands they still show these decisions as open,
   and this page governs.
 - `AGENTS.md`. Its pointer still says ADR-019 to ADR-022 remain Proposed, and
-  its covenant "live presence may distinguish" still stands. Both change in the
-  working-rules pull request of item 45, with the covenant reworded when the
-  labels go.
+  its covenant "live presence may distinguish" still stands. The pointer
+  changes in the working-rules pull request of item 45. The covenant is
+  reworded only with the owner's approval in that pull request (item 44).
 - Every build: the naming change, the Map view, the puzzle batches, the puzzle
   redesign, agents in chat, the model route, the backup scheduler. Each is its
   own pull request under the working rules.
@@ -218,3 +228,16 @@ decision now.
 6. The second operator (item 31).
 7. The 15 November decision page (item 42).
 8. The hold note on issue #89 (item 47).
+9. The spend-ledger retention period, two days or more (item 26).
+
+**Open for the owner.** Review of this page found these unanswered. A merge
+does not answer them.
+
+10. Whether the puzzle salt is in place before the kept world's first boot
+    (item 22). Recommended: yes.
+11. Who sees an agent's puzzle help, and whether it is stored (item 40).
+    ADR-037 recommends the asker alone, not stored.
+12. The exact golden-pin diff of the naming change, read and approved in its
+    own pull request (ADR-041, D7).
+13. The rewording of the covenant sentence "live presence may distinguish", in
+    the working-rules pull request (items 44 and 45).

@@ -228,15 +228,18 @@ the
 [community preflight](#private-traveler-chat-and-reports) for the selected state;
 the default is a behavior change, not implicit approval of a chat-off watch.
 
-> **The first redeemed cohort invite starts the permanent world**
-> ([ADR-004](../decisions/ADR-004-day-one-data-policy.md); confirmed by the
+> **The first invited outside player starts the permanent world**
+> ([ADR-004](../decisions/ADR-004-day-one-data-policy.md) section 3; confirmed by the
 > [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md), item 9).
-> From then on the database is never wiped between cohorts — whatever your
-> first testers do becomes history the project carries forward, forever.
-> Until that invite is redeemed, a production volume may be booted, rehearsed
-> and re-created. The cast starts writing history about three minutes after a
-> boot, so do not leave a rehearsal volume running into the launch.
-> Invite when you mean it.
+> That is the first person other than the operator who plays, by either entry
+> path in §6: a key the operator minted (`invite mint`) or a registration
+> invite they redeemed (`invite create`). From then on the database is never
+> wiped between cohorts — whatever your first testers do becomes history the
+> project carries forward, forever.
+> Rehearse on the staging twin (§3a), not here: ADR-004 puts a disposable world
+> on staging. A production boot already births the world, pins its puzzles at
+> the first heartbeat tick and starts the cast writing history after about
+> three minutes. Issue the first key or invite when you mean it.
 
 Run these from the repo root.
 
@@ -271,8 +274,10 @@ deploy takes ~3-5 minutes.
 
 ### 3a. Staging rehearsal — before the permanent world begins
 
-The first production deploy springs two one-way doors at once: the
-content banks freeze and history becomes permanent. Rehearse on a
+Production springs two one-way doors. The first production deploy births
+the world, so the content banks freeze for it. The first invited outside
+player, by either invite path, then makes its history permanent (ADR-004
+section 3). Rehearse on a
 disposable twin first (ADR-005): the onboarding watch, the WS soak, and
 the live-voice probe all run against a world that is thrown away, and
 the deploy runbook itself gets exercised end-to-end before the run that
