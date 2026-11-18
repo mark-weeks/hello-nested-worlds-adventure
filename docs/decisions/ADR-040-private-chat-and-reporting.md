@@ -1,5 +1,10 @@
 # ADR-040: Private traveler chat and operator reports
 
+**2026-11-18 owner adoption:** Accepted as implemented in #174 (item 43 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
+Still to be set for a kept world: the end-of-study deletion date (item 34), the
+backup retention and ledger location (item 12), and the second operator
+(item 31).
+
 **Status:** Proposed for scoped implementation review, revised 2026-11-15.
 The owner's [Version 4 direction on PR #174](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/174#issuecomment-6896201907)
 selects operator-only chat retention until deletion, complaint evidence holds and

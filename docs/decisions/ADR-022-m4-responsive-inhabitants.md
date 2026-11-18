@@ -1,5 +1,10 @@
 # ADR-022: Bounded attention to familiar places
 
+**2026-11-18 owner adoption:** Accepted as implemented, except the
+puzzle-eligibility paragraph. The owner's 2026-11-06 decision overruled it:
+agents do not attempt puzzles by themselves (items 20 and 43 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
+The status text below is kept as the historical record.
+
 **2026-09-12 bounded extension:** [ADR-025](ADR-025-first-situation.md) adds one
 executable public commitment for Tessera and retrieves its actual opening,
 commitment and fulfillment for voice independently of recent chatter. This

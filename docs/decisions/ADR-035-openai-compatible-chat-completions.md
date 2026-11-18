@@ -1,5 +1,10 @@
 # ADR-035: Second text adapter — OpenAI-compatible Chat Completions
 
+**2026-11-18 owner adoption:** Accepted for one named endpoint, for the
+disposable newcomer watch only. It takes effect when the owner names the
+endpoint and signs its data-use note (items 24 and 25 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)). Until
+then, and for every other use, this record stays Proposed.
+
 **Status:** Proposed, 2026-11-01. Written from the second-text-adapter plan
 that Mark Weeks, the sole maintainer, approved the same day. **Not ratified.** This
 document introduces no runtime behavior, no registered adapter, no migration,

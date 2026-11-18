@@ -1,5 +1,11 @@
 # ADR-036: Puzzle temperament — moods, send-aways and warmth instead of a fixed attempt pool
 
+**2026-11-18 owner adoption:** Ratified, with its recorded answers as starting
+values and question 6 answered: only right or wrong is stored (items 19 and 21
+of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)). Ratification authorizes batches 2 and 1b only; batch 1a merged in
+#170. Batches 3 and 4 wait. The owner has also adopted a redesign of the
+puzzles themselves (item 23), which this record does not cover.
+
 **Status:** Proposed, 2026-11-07; revised 2026-11-10 after the owner-requested
 review of `d716cc3`. **Owner:** Mark Weeks. Records the owner's puzzle
 decisions of 2026-11-06 and 2026-11-07 and designs them against the code. Not

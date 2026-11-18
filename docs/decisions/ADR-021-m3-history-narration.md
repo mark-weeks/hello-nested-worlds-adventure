@@ -1,5 +1,8 @@
 # ADR-021: Evidence-bound history narration
 
+**2026-11-18 owner adoption:** Accepted as implemented (item 43 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
+The status text below is kept as the historical record.
+
 **Status:** Proposed for review, 2026-09-08. Bounded M3 presentation policy;
 ADR-013's broader proposals remain Proposed.
 

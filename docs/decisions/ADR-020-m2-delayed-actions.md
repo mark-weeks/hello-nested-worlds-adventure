@@ -1,5 +1,8 @@
 # ADR-020: Coherent delayed scale actions
 
+**2026-11-18 owner adoption:** Accepted as implemented (item 43 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
+The status text below is kept as the historical record.
+
 **2026-09-12 request and conflict revision:** [ADR-024](ADR-024-participants-and-active-content.md)
 adds optional authenticated HTTP request IDs to `/act`, with transactional
 receipts and client retry persistence. Legacy callers without IDs retain their

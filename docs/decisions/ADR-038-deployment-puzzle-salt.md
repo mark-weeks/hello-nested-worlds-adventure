@@ -1,5 +1,11 @@
 # ADR-038: A deployment puzzle salt, so the hosted world has no offline answer table
 
+**2026-11-18 owner adoption:** Adopted in principle, with separate staging and
+production salts. It does not gate the first cohort; it is built after ADR-036
+batch 2 and before any open invitation (item 22 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
+[ADR-041](ADR-041-natural-unique-names.md) changes names, not the draws this
+record keys.
+
 **Status:** Proposed, 2026-11-10; revised 2026-11-11 after two adversarial
 checks (of `7482379` and `75f4fff`). **Owner:** Mark Weeks. Not ratified; it writes no code,
 sets no secret, and authorizes no implementation, deployment or merge. Cited

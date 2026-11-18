@@ -228,10 +228,15 @@ the
 [community preflight](#private-traveler-chat-and-reports) for the selected state;
 the default is a behavior change, not implicit approval of a chat-off watch.
 
-> **The first production deploy starts the permanent world.** Under the continuity
-> policy the database is never wiped between cohorts — whatever your
+> **The first redeemed cohort invite starts the permanent world**
+> ([ADR-004](../decisions/ADR-004-day-one-data-policy.md); confirmed by the
+> [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md), item 9).
+> From then on the database is never wiped between cohorts — whatever your
 > first testers do becomes history the project carries forward, forever.
-> Deploy when you mean it.
+> Until that invite is redeemed, a production volume may be booted, rehearsed
+> and re-created. The cast starts writing history about three minutes after a
+> boot, so do not leave a rehearsal volume running into the launch.
+> Invite when you mean it.
 
 Run these from the repo root.
 

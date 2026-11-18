@@ -1,5 +1,8 @@
 # ADR-019: Atomic SQLite Delivery for M1
 
+**2026-11-18 owner adoption:** Accepted as implemented (item 43 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
+The status text below is kept as the historical record.
+
 **Status:** Proposed for development-team review, 2026-09-08. This records the
 implementation choice that shipped with M1 (PR #94); neither this record nor
 the planning merge ratifies ADR-013's broader situation/action contracts.
