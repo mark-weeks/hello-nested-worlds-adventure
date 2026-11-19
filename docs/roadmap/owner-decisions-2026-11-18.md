@@ -23,7 +23,8 @@ only in a pull request of their own.
 **Revised after review, 2026-11-18 and 2026-11-19.** Codex and Grok Bot
 reviewed the first version of this page at `4e88ed5`. Nine checking agents then
 verified the first revision (`f7b933f`) against the sources it cites, and Codex
-reviewed the second (`402dd5d`). The three rounds changed items 3, 5, 6, 8, 9, 12, 13, 14, 16, 19, 20, 22, 23, 25, 26, 28,
+reviewed the second (`402dd5d`) and the third (`80a08ad`). The four rounds
+changed items 3, 5, 6, 8, 9, 12, 13, 14, 16, 19, 20, 22, 23, 25, 26, 28,
 29, 30, 34, 38, 40 and 44. Two markers show what the owner has not yet seen or
 decided:
 
@@ -110,7 +111,7 @@ answer still needs before it takes effect.
 | 3 | Watch with AI on or off | **Owner words (D-A): on.** Place voices, agent voices, free-text intentions and moderation run live. This moves items 24 to 27 ahead of the watch. *Added after review:* if the accounting stop latches on the twin, its live routes stay off. Nothing clears a stop today: there is no command for it, a restart does not, and a re-created twin must not be used as one, because the provider has already billed that day (ADR-039; `docs/development/model-policy.md`). Voices then fall silent, and shared lines the local screen cannot clear are held (ADR-004 section 2). The AI-on watch ends there, unless item 28's clearing procedure has been written and rehearsed first. | Items 24 to 27 |
 | 4 | Chat and Report in the watch | On, with one session in which two testers overlap, so chat, co-solving and the report path are exercised once. | A community policy file for the twin |
 | 5 | Watch particulars | The owner is lead, facilitator and operator. Two or three adults on desktop Chromium. The twin is destroyed within seven days of the last session. *Added after review:* this replaces "after watch reports are exported". The twin is destroyed only once every report from the watch is closed. An open or acknowledged report holds the twin, with the chat lines it cites, until the owner closes it (`docs/development/community-reporting.md`). Exporting reports does not keep that evidence, and no tool moves a case elsewhere. | Tester names and session dates; a runbook teardown change |
-| 6 | Notice values for the twin | A contact address the owner reads daily; the destroy date from item 5; a data-use statement that names the model provider and says tester text is sent to it to run the game and is not used to train models. *Added after review:* the notice also says that an open complaint can extend the destroy date (item 5), what happens to the twin's backups and other copies (item 12), and that a report is kept until the twin is destroyed, which is usually well inside the 90-day report window selected for the watch (ADR-040); a complaint still open when its window ends is kept, with the twin, until it is closed. | The contact address; the provider from item 24 |
+| 6 | Notice values for the twin | A contact address the owner reads daily; the destroy date from item 5; a data-use statement that names the model provider and says tester text is sent to it to run the game and is not used to train models. *Added after review:* the notice also says that an open complaint can extend the destroy date (item 5), what happens to the twin's backups and other copies (item 12), and how long reports are kept: a closed report until its original 90-day deadline (ADR-040) or until the twin is destroyed, whichever comes first; an open or acknowledged complaint, with the lines it cites, until it is closed. Closing a complaint does not restart its 90 days and does not delete the lines it cited: they stay, like other chat, until a tester asks for deletion or the twin is destroyed. | The contact address; the provider from item 24 |
 | 7 | Invite gate at deploy | The first key is minted as a step of the deploy, on staging and in the production runbook, so the gate is never open after a deploy. | A runbook change |
 | 8 | Watch kit | Refreshed once items 2 to 6 and 12 are settled; it still says the honesty rule does not exist. *Added after review:* its teardown section is rewritten to match items 3, 5 and 12. | The refresh |
 
@@ -158,7 +159,7 @@ answer still needs before it takes effect.
 | 31 | Second operator | One adult the owner trusts, named before recruiting. They read the queues and the log and can use the kill switches. Sanctions, redaction and deletion stay with the owner. | The person |
 | 32 | Governance | The owner alone suspends and bans. One report opens a case and triggers nothing automatically. The owner emails each sanction with its reason and an appeal address. Juries wait until reports outrun the owner's 24-hour reading. | — |
 | 33 | Report path, remainder | Twice-daily manual queue checks stay. The reported traveler's recent retained lines are added to the operator's report view. | The code change |
-| 34 | Chat log end date | Messages not under a complaint hold are deleted 30 days after the cohort's last window. The notice states the date. *Added after review:* the policy file cannot hold a chat expiry (ADR-040), so the operator runs the deletion on that date. A line the run skips because a complaint holds it has no expiry of its own. The run reports how many lines it skipped, not which, so the operator notes which testers' runs reported held lines and repeats the deletion for them once the last hold clears. The deletion record is exported again after that run and kept for restores (`docs/development/community-reporting.md`). | The cohort's last window date; the operator's deletion run, and a second run for any line a complaint held |
+| 34 | Chat log end date | Messages not under a complaint hold are deleted 30 days after the cohort's last window. The notice states the date. *Added after review:* the policy file cannot hold a chat expiry (ADR-040), so the operator runs the deletion on that date. A line the run skips because a complaint holds it has no expiry of its own. At that run the operator records the evidence references cited by each open or acknowledged report (`report show` lists them). Once the last hold on a line clears, the operator deletes that line by its reference (`chat-log delete`), not by tester: a tester-wide run would also delete what that tester wrote after the first run. The deletion record is exported again after each of those deletions and kept for restores (`docs/development/community-reporting.md`). | The cohort's last window date; the operator's deletion run, and a deletion by reference for each line a complaint held |
 | 35 | Served history | Before the first invite, `/chronicle` and `/history` stop serving the `actor` field and the `agent` and `persona` keys. Stored rows are untouched. | The code change |
 | 36 | Terms and notice | One combined page, served as the notice text. It names the owner as data holder, the host, bucket, monitor and model provider, and says an idea may be summarized publicly. The first cohort is adults in the owner's own country. | The page |
 | 37 | Cohort exceptions | One dated list, signed at the watch read-out: later-improvement rows excused, measurement rows required only to be instrumented. | The list, at the read-out |
@@ -287,8 +288,8 @@ them unless the owner strikes them:
 - The no-training sentence makes the packet's rule 5 unnecessary (item 25).
 - Classify caps are sized with the call caps (item 29).
 - Which text the classifier does and does not see (item 30).
-- The operator runs the chat deletion, and repeats it for lines a complaint
-  held (item 34).
+- The operator runs the chat deletion, and later deletes by reference each
+  line a complaint held (item 34).
 - The proposed playtest tripwire (item 38).
 - Batch 4 is an aim, not a condition of cohort entry (item 40).
 
