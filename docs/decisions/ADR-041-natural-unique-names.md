@@ -85,7 +85,9 @@ Every derivation keyed on a node's identity is keyed on the string
 `_path_suffix` produces today. That string is byte for byte the name stored
 today, so every random input stays identical (*inferred* from reading each
 keyed hash in `puzzles/generators.py`: difficulty, the node's random stream,
-renewal and the Causal Augury election). Other derivations keyed on a node's
+renewal and the Causal Augury election). A world born under generator version
+2 or earlier already stores that string as its name, so its key is the stored
+name alone and its hints keep today's wording (see Trade-offs). Other derivations keyed on a node's
 name take the same key: cascade hop tokens (`causality/laws.py`), the cast's
 attempt rolls (`agents/agent.py`), and client art and sound.
 
@@ -111,9 +113,10 @@ working from the address:
   rewritten; 842 and 718 of seed 382's epoch-0 puzzles at full depth contain
   those words. New wording is screened as new text and could change a verdict.
 
-So the implementation compares the old and new family and answer for every
-node, at both depths and for epochs 0 to 2, and reports every difference. None
-is expected. Any that appears is shown to the owner with the pin diff (D7). The
+So the implementation compares the old and new family, answer and difficulty
+for every node, at both depths and for epochs 0 to 2, and reports every
+difference. It runs the same comparison, with prompt and hint text, on a world
+born under generator version 2. None is expected. Any that appears is shown to the owner with the pin diff (D7). The
 pins alone cannot show a selection change, because every pinned line begins
 with the place's name and so changes anyway.
 
@@ -156,10 +159,17 @@ exact pin diff and the D4 comparison, and the owner approves that diff there.
 
 - A position can no longer be read off a name. Code that held only a name now
   makes one indexed lookup.
-- A local world born under generator version 2 keeps its suffixed names until
-  it is re-created. Under the new key its draws would change, unless the
-  implementation keys version-2 rows on the stored name alone; the
-  implementation says which. No such world exists on staging or production.
+- A world born under generator version 2 or earlier keeps its stored names,
+  which already end in the path digits, until it is re-created. Its key is the
+  stored name alone, and its hints keep today's wording. Appending the address
+  again would change the difficulty of 3,213 of seed 382's 4,208 places
+  (*executed*; the root moves from 3 to 4). Stored puzzle definitions would
+  survive, but unopened puzzles and renewals would be drawn from the changed
+  input. Each stored row records its generator version, but nothing reads it
+  today. The implementation adds that read, and the server sends clients the
+  key, so a client never joins a name and an address itself. As of 2026-11-19
+  no such world exists on staging or production. A staging twin deployed
+  before the implementation merges would be one; it is disposable.
 - Every puzzle pin moves, because each pinned line carries the place's name.
   No random input moves, and no place is expected to get a different puzzle
   (D4).
