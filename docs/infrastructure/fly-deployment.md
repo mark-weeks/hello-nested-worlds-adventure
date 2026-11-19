@@ -237,9 +237,12 @@ the default is a behavior change, not implicit approval of a chat-off watch.
 > wiped between cohorts — whatever your first testers do becomes history the
 > project carries forward, forever.
 > Rehearse on the staging twin (§3a), not here: ADR-004 puts a disposable world
-> on staging. A production boot already births the world, pins its puzzles at
-> the first heartbeat tick and starts the cast writing history after about
-> three minutes. Issue the first key or invite when you mean it.
+> on staging, and the launch checklist bars a reset once this world's status is
+> declared. A production boot births the world at its first heartbeat tick,
+> about three minutes in, or at the first `/world` request if that comes
+> sooner. From that tick the cast starts pinning puzzles and writing history.
+> Mint your own key at once to close the gate (§6). Give a key or an invite to
+> someone else only when you mean it.
 
 Run these from the repo root.
 
@@ -276,8 +279,8 @@ deploy takes ~3-5 minutes.
 
 Production springs two one-way doors. The first production deploy births
 the world, so the content banks freeze for it. The first invited outside
-player, by either invite path, then makes its history permanent (ADR-004
-section 3). Rehearse on a
+player then makes its history permanent (ADR-004 section 3), whichever invite
+path they use. Rehearse on a
 disposable twin first (ADR-005): the onboarding watch, the WS soak, and
 the live-voice probe all run against a world that is thrown away, and
 the deploy runbook itself gets exercised end-to-end before the run that

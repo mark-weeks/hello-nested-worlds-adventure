@@ -6,8 +6,8 @@ working session (quoted below and in the
 The session cannot be verified from the repository; the owner's merge of the
 pull request that adds this record is the verifiable act. This record changes
 no code. The implementation is its own pull request. The owner approved the
-golden re-pin it needs in the same session; that pull request restates the
-approval and shows the exact pin diff for the owner's read (D7).
+naming change and its re-pin in the same session; under `AGENTS.md` the pin
+diff itself is approved in that pull request (D7).
 
 ## Context
 
@@ -73,33 +73,57 @@ own column and primary key. Code that needs a position reads it from the node
 or looks it up by name. The server sends the address to clients as its own
 field. Clients may show it; they never derive it from a name.
 
+The address has two written forms. The stored path is dot-joined (`1.2.1`).
+The digits form is the same path with no separator (`121`), which is the
+suffix a name carries today. Keys use the digits form (D4). The implementation
+says which form the server sends.
+
 ### D4. Nothing else is meant to move
 
-Puzzle draws, per-node difficulty, the Causal Augury election and any other
-derivation keyed on a node's identity are keyed on the string
-`f"{name}-{address}"`. That is byte for byte the name stored today, which
-`puzzles/generators.py` hashes for difficulty and for each node's random
-stream. Every random input therefore stays identical.
+Every derivation keyed on a node's identity is keyed on the string
+`f"{name}-{digits}"`, where `digits` is the undotted path digits that
+`_path_suffix` produces today. That string is byte for byte the name stored
+today, so every random input stays identical (*inferred* from reading each
+keyed hash in `puzzles/generators.py`: difficulty, the node's random stream,
+renewal and the Causal Augury election). Other derivations keyed on a node's
+name take the same key: cascade hop tokens (`causality/laws.py`), the cast's
+attempt rolls (`agents/agent.py`), and client art and sound.
 
-Selection can still move. The generator rejects a candidate whose answer shows
-in the rendered prompt or hints (`_answer_leaks`), and today's prompts print
-the suffix. Without the suffix a different candidate can pass, so a place can
-get a different puzzle family and answer from the same random inputs. Review
-of this record *executed* one such case (seed 212, epoch 0); the count for
-seed 382 is not measured. The implementation compares the old and new family
-and answer for every node, at both depths and for epochs 0 to 2, and reports
-every difference. The existing digests omit prompts and hints, and the renewal
-pins cover depth 6 only, so the pins alone cannot show this. The old selection
-is not kept by screening against the suffix: that would reject candidates for
-text no player sees. Removing the suffix can only let more candidates pass,
-never fewer.
+Three things in the puzzle generator read the suffix itself. Each is kept
+working from the address:
 
-Puzzle wording that refers to the dash or to a "lineage mark" is rewritten.
+- **The leak screen.** `_answer_leaks` rejects a candidate whose answer shows
+  in what the player is served, and today that includes the suffix printed in
+  prompts and hints. The address is still served (D3), so the screen keeps
+  treating the address digits as shown text. Otherwise a place could be given a
+  number pattern whose answer is its own address. With that, the screen's
+  verdicts do not change. What dropping the digits would do was *executed* on
+  2026-11-19, by stripping the suffix at the screen only. On seed 382 no place
+  gets a different puzzle at depth 6 or depth 11 for epochs 0 to 2. On seed 212
+  one place does at epoch 0, the case review found, and 9 of 280,152
+  node-epochs do across seeds 1 to 400 at depth 6. Every one is a Universe
+  given a number pattern whose answer equals its address digits, which is why
+  the screen must keep them.
+- **The enfold puzzles.** `_make_enfold` takes a place's depth and ordinal from
+  the digits and declines when a name has none. The implementation gives it the
+  address, so those puzzles and their answers do not move.
+- **Wording.** Hints that refer to "the dash" or to a "lineage mark" are
+  rewritten; 842 and 718 of seed 382's epoch-0 puzzles at full depth contain
+  those words. New wording is screened as new text and could change a verdict.
+
+So the implementation compares the old and new family and answer for every
+node, at both depths and for epochs 0 to 2, and reports every difference. None
+is expected. Any that appears is shown to the owner with the pin diff (D7). The
+pins alone cannot show a selection change, because every pinned line begins
+with the place's name and so changes anyway.
 
 ### D5. The cast
 
 `Cartographer-9` becomes `Cartographer`. A cast name used in production stays
-reserved forever, including after a cast member retires.
+reserved forever, including after a cast member retires. Derivations keyed on
+the cast member's own name move with the rename: its puzzle-attempt roll
+(`agents/agent.py`) and its banter phase. Its persona comes from the roster,
+not from a hash of the name.
 
 ### D6. Player names
 
@@ -109,29 +133,36 @@ implementation pins it with a test).
 
 ### D7. The re-pin
 
-`GENERATOR_VERSION` becomes 3. The pins that move, at both depths: the names
-digest, the world digest, the landmark names, and the puzzle pins for epoch 0
-and renewal epochs 1 and 2, because prompts print place names and because
-selection can move (D4). The era-name pins do not move.
+`GENERATOR_VERSION` becomes 3. The pins that move:
 
-The owner approved this re-pin on 2026-11-18 ("approved"), in the task that
-carries the implementation. `AGENTS.md` requires the owner's approval of the
-specific pin change in the current task or pull request, and says a decision
-record does not pre-approve a re-pin. So this record is not that approval, and
-a different task or agent cannot rely on it. The implementation pull request
-restates the approval, shows the exact pin diff and the D4 comparison, and
-waits for the owner's read of its irreversibility check. The approval was
-given before the selection changes in D4 were known, so the owner confirms it
-against that diff. It covers this change and no other.
+- the names digest, the world digest and the landmark names, at both depths;
+- the epoch-0 puzzle pin at both depths, and the renewal pins for epochs 1 and
+  2 at depth 6, because every pinned line begins with the place's name;
+- the launch hinge name in `tests/test_wrap_passage.py`, as a string only. The
+  selector keys on the path, so the hinge stays on the same node.
+
+The era-name pins do not move. A selection change (D4) would move the same
+puzzle pins and cannot be told apart from the rename by a digest, which is why
+D4 requires the comparison.
+
+The owner approved the naming change and its re-pin on 2026-11-18
+("approved"). `AGENTS.md` requires the owner's approval of the specific pin
+change in the current task or pull request, and says a decision record does
+not pre-approve a re-pin. So this record is not that approval, and a different
+task or agent cannot rely on it. The implementation pull request shows the
+exact pin diff and the D4 comparison, and the owner approves that diff there.
 
 ## Trade-offs accepted
 
 - A position can no longer be read off a name. Code that held only a name now
   makes one indexed lookup.
 - A local world born under generator version 2 keeps its suffixed names until
-  it is re-created. No such world exists on staging or production.
-- Every puzzle pin moves. No random input does, but some places get a
-  different puzzle (D4).
+  it is re-created. Under the new key its draws would change, unless the
+  implementation keys version-2 rows on the stored name alone; the
+  implementation says which. No such world exists on staging or production.
+- Every puzzle pin moves, because each pinned line carries the place's name.
+  No random input moves, and no place is expected to get a different puzzle
+  (D4).
 - Both clients change, so the implementation holds the client bundle.
 
 ## Revisit when
@@ -140,6 +171,8 @@ against that diff. It covers this change and no other.
   rename, which belongs to ADR-029.
 - Breadth above nine is wanted. Path digits are single digits today.
 - A second world shares a database with the first. Uniqueness is per world.
+- A level's names approach its name space (`_NAME_SPACE`, 6,912 phrases a
+  level). The generator fails loudly before it repeats a name.
 
 ## Rejected alternatives
 

@@ -3,11 +3,14 @@
 **2026-11-18 owner adoption:** Ratified, with its recorded answers as starting
 values and question 6 answered: only right or wrong is stored (items 19 and 21
 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)). Ratification authorizes batches 2 and 1b only; batch 1a merged in
-#170. Batch 3 waits. Batch 4 is the collaboration batch this record shares
-with ADR-037 (its D7). The owner's direction of agents in the first cohort
-(item 40) releases it once ADR-037 is refreshed and the owner has said where an
-agent's puzzle help goes (ADR-037 open question 4); it is meant to land before
-the cohort enters. The daily cap is twelve judged misses for one player at one
+#170. Batch 3 waits, except the end of stored wrong-guess text, which ships by
+itself before the first invite (item 21). Batches 1b and 2 both land before the
+kept database is born, as D8 says (item 20). Batch 4 is the collaboration batch
+this record shares with ADR-037 (ADR-037's D7). The owner's direction of agents
+in the first cohort (item 40) releases it once ADR-037 is refreshed, the owner
+has answered ADR-037's open question 4 and, for AI on, the data-use note and
+the ceilings are in place (items 25 and 26). The aim is to land it before the
+cohort enters; the cohort is not held for it. The daily cap is twelve judged misses for one player at one
 puzzle in any rolling 24 hours, and a send-away that the cap binds can outlast
 the four-hour patience limit. The owner has also adopted a redesign of the
 puzzles themselves (item 23), which this record does not cover.

@@ -1,17 +1,23 @@
 # ADR-037: Agents as conversational players — addressed in chat, unlabeled, honest
 
-**2026-11-18 owner adoption:** D1, D2, D4 and D5 are ratified. D3, D6, D7 and
-D8 stay Proposed until this record is refreshed against `main`. The owner
-directed the four batches for the first cohort and set two rules the refresh
-must carry (D-D and D-E of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)). An agent asked for puzzle help may help
-when its goals align with the player's and may decline when they conflict.
-Rivalry between agents and players is over aims, never over solving. Batch 4
-is the collaboration batch this record shares with ADR-036. It waits for the
-owner's answer to open question 4 (who sees an agent's puzzle help, and whether
-it is stored) and is meant to land before the cohort enters.
+**2026-11-18 owner adoption:** D1, D2, D4 and D5 are ratified, except D4's
+question about cast names (answered by D-B and ADR-041) and D5's proposed
+covenant text. D3, D6, D7 and D8 stay Proposed until this record is refreshed
+against `main`, apart from two answers the owner adopted: agent chat lines are
+stored as human chat is, and an honesty answer goes to the asker alone (item 40
+of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)). The owner directed this record's batches for the first cohort
+and set two rules the refresh must carry (D-D and D-E). An agent asked for
+puzzle help may help when its goals align with the player's and may decline
+when they conflict. Rivalry between agents and players is over aims, never over
+solving. Batch 4 is the collaboration batch this record shares with ADR-036. It
+waits for the owner's answer to open question 4 (who sees an agent's puzzle
+help, and whether it is stored). The aim is to land it before the cohort
+enters; the cohort is not held for it. The covenant wording proposed in D5 does
+not land with batch 2: `AGENTS.md` changes only in a working-rules pull request,
+with the owner's approval (item 44).
 
-**Status:** D1, D2, D4 and D5 ratified by the owner, 2026-11-18; D3, D6, D7 and
-D8 Proposed (note above).
+**Status:** D1, D2, D4 and D5 ratified by the owner, 2026-11-18, with the two
+exceptions in the note above; D3, D6, D7 and D8 Proposed.
 Earlier status, kept as the record: Proposed, 2026-11-07; revised 2026-11-10. **Owner:** Mark Weeks.
 **Not ratified.** No code, migration, write path, player-text destination,
 spend or deployment; citing it authorizes nothing. Designed against `main` at

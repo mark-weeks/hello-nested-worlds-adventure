@@ -1,11 +1,12 @@
 # ADR-040: Private traveler chat and operator reports
 
 **2026-11-18 owner adoption:** Accepted as implemented in #174 (item 43 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
-Adopted for a kept world, taking effect with the community policy file and the
-bucket account: messages not under a complaint hold are deleted 30 days after
-the cohort's last window (item 34), and backups are kept 30 days under a 7-day
-delete lock, with the deletion ledger under a separate prefix (item 12). Still
-to be named: the second operator (item 31).
+Adopted for a kept world: messages not under a complaint hold are deleted 30
+days after the cohort's last window, by the operator's deletion command,
+because the policy file cannot hold a chat expiry (item 34); and backups are
+kept 30 days under a 7-day delete lock, with the deletion ledger under a
+separate prefix, once the bucket account exists (item 12). Still to be named:
+the second operator (item 31).
 
 **Status:** Accepted as implemented in #174 by the owner, 2026-11-18 (note
 above).
