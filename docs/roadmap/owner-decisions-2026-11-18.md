@@ -9,9 +9,12 @@ and formalize these decisions." This page is that formal record.*
 **Provenance.** The decisions were given in a Claude Code working session, which
 cannot be verified from the repository. The owner's merge of the pull request
 that adds this page is the verifiable act, as with the working rules adopted in
-#176. Quoted text is the owner's, copied from that session. Everything else is
-the recommendation the owner adopted, written by the agent, except the text
-marked *Added after review* (see below).
+#176. Quoted text is the owner's, copied from that session, unless the sentence
+around it or this paragraph names another source: D-F quotes one message of the agent's, some
+*Added after review* notes quote the first version of this page, item 19
+quotes the owner's answer of 2026-11-07, and item 23 quotes the checklist's
+open question 8. Everything else is the recommendation the owner adopted, written by the agent, except the
+text marked *Added after review* (see below).
 
 **What this page is not.** It builds nothing, deploys nothing, recruits nobody
 and approves no spend, provider account or merge beyond its own. Where an
@@ -25,22 +28,29 @@ reviewed the first version of this page at `4e88ed5`. Nine checking agents then
 verified the first revision (`f7b933f`) against the sources it cites, and Codex
 reviewed the second (`402dd5d`), the third (`80a08ad`) and the fourth
 (`9875bfb`). The five rounds changed items 3, 5, 6, 8, 9, 12, 13, 14, 16, 19,
-20, 22, 23, 25, 26, 28, 29, 30, 34, 38, 40 and 44. Two markers show what the
-owner has not yet seen or decided:
+20, 22, 23, 25, 26, 28, 29, 30, 34, 38, 40 and 44. Three markers show what the
+owner has not yet seen, has not yet decided, or decided on 2026-11-19:
 
-- *Added after review* marks wording the agent wrote after the session. It has
-  not been put to the owner. The owner's merge adopts it; anything unwanted
-  should be struck before merging. Section 5 lists these in one place.
+- *Added after review* marks wording the agent wrote after the owner's adoption
+  of 18 November or, in items 9, 22, 30 and 40, after his answers of
+  19 November. It has not been put to the owner. The owner's merge adopts it;
+  anything unwanted should be struck before merging. Section 5 lists these in
+  one place.
 - **Open for the owner** marks a question that a merge of this page does not
   answer. Section 5 lists each one.
+- **Answered by the owner, 2026-11-19** marks one of the four open questions
+  the owner answered that day by adopting the recommendation put to him (D-F
+  in section 1).
 
 Everything unmarked is the recommendation the owner adopted in the session,
 corrected only where review showed it to be wrong about a source.
 
 ## 1. Decisions in the owner's words
 
-Five recommendations were changed by the owner. These quotes override the
-recommendation wherever the two differ.
+Five recommendations were changed by the owner (D-A to D-E). His quotes
+override the recommendation wherever the two differ. D-F records four
+recommendations he adopted unchanged on 2026-11-19; the message quoted there is
+the agent's and overrides nothing.
 
 **D-A. The newcomer watch runs with AI on.** The recommendation had been an
 AI-off watch.
@@ -96,6 +106,37 @@ recommendation had been no agents in chat before the cohort starts.
 > help if its goals are aligned with the human player. If the agent player has
 > conflicting goals, then it can choose to decline assisting the human player.
 
+**D-F. Four open questions, answered on 2026-11-19.** Review left six questions
+open for the owner (section 5). On 2026-11-19, later in the same Claude Code
+session, the agent's message listed four of them, each with a recommendation;
+the other two wait for their own pull requests. In the agent's words, not the
+owner's: "Four open questions, with my recommendations: puzzle salt before the
+kept world's first boot (yes); reset boundary (the checklist declaration); who
+sees an agent's puzzle help (the asker alone, not stored); shared lines when
+the classifier is unreachable (held)." The owner wrote:
+
+> Adopt your recommendations to open questions
+
+Items 22, 9, 40 and 30 carry the four answers, each marked **Answered by the
+owner, 2026-11-19**. The agent made two readings of the owner's sentence, which
+he can correct before merging.
+
+- *Which questions.* It covers the four the message listed. This page records
+  no answer to the three questions that close the draft of item 23's puzzle
+  design record, which were put to him separately; that draft is not yet in the
+  repository. The two questions that wait for their own pull requests stay open
+  (section 5, entries 16 and 17).
+- *Which wording.* The message named each question in a few words. The items
+  record three of the recommendations as this page worded them at `23056ff`,
+  and the fourth (item 9) as the message worded it. The page's wording is wider
+  than the message in two places. Item 30 also holds a shared line when a cap
+  is spent or AI is off, where the message said only "when the classifier is
+  unreachable". Item 40 keeps ADR-037's condition that the answer needs private
+  messages between people too, which the message did not mention. For the reset
+  boundary (item 9) this page carried no recommendation before the message,
+  only the rule that a declared production world is not reset until the owner
+  answers; "the checklist declaration" was first put to him there.
+
 ## 2. Adopted answers
 
 Item numbers are those of the list the owner worked on 2026-11-18. "Owner
@@ -119,7 +160,7 @@ answer still needs before it takes effect.
 
 | # | Question | Adopted answer | Still needed |
 |---|---|---|---|
-| 9 | When the one-way door closes | ADR-004 governs: never-wipe starts with the first invited outside player. *Added after review:* this replaces "when the first cohort invite is redeemed. Until then a production volume may be booted, rehearsed and re-created". That player may enter with an operator-minted key or a redeemed registration invite. Rehearsals stay on staging, as ADR-004 section 3 requires for a disposable world. A production boot is itself a door: the world is born at the first heartbeat tick or `/world` request, and from that tick the cast starts pinning puzzles and writing rows. **Open for the owner:** the checklist's R3 bars a reset once the world's status is declared (item 10: at the watch read-out), which is earlier than ADR-004's boundary. Until the owner says which governs, a declared production world is not reset. The two runbook passages that said the first deploy makes history permanent are corrected in this batch. | The owner's answer |
+| 9 | When the one-way door closes | ADR-004 governs: never-wipe starts with the first invited outside player. *Added after review:* this replaces "when the first cohort invite is redeemed. Until then a production volume may be booted, rehearsed and re-created". That player may enter with an operator-minted key or a redeemed registration invite. Rehearsals stay on staging, as ADR-004 section 3 requires for a disposable world. A production boot is itself a door: the world is born at the first heartbeat tick or `/world` request, and from that tick the cast starts pinning puzzles and writing rows. **Answered by the owner, 2026-11-19 (D-F):** the checklist declaration is the boundary that bars a reset of a production world. The checklist's R3 bars a reset once the world's status is declared (item 10: at the watch read-out), which is earlier than ADR-004's boundary. *Added after review:* this item opens with "ADR-004 governs". The answer changes which boundary binds first: the cohort world is not reset from its declaration on, even before an outside player enters it. If the status is declared before the first production deploy, which is the order item 10 and the runbook lead to, the world is not reset from that deploy on. ADR-004 section 3 is not rewritten and stays in force: the first invited outside player still starts never-wipe for a production world whose status has not been declared by then. The two runbook passages that said the first deploy makes history permanent are corrected in this batch. | The declaration, at the read-out (item 10) |
 | 10 | World status | Production for the cohort world, declared at the watch read-out once a downloaded backup restores into isolated staging and item 11 passes. Staging and any local watch are disposable. | The declaration, at the read-out |
 | 11 | Backup clock | An outside scheduler dispatches the backup every 30 minutes. The one-hour bound is proven over seven consecutive days on the twin. Continuous replication stays after the pilot and before a second cohort. | The scheduler service |
 | 12 | Backup bucket and retention | The runbook's S3-compatible bucket, 30 days, a 7-day delete lock, no lifecycle rule; the deletion ledger under a separate prefix. The snapshot size is measured first. *Added after review:* the backup workflow prunes only the app it is backing up and always keeps that app's newest copy, so once the twin is destroyed nothing prunes its snapshots, which hold private chat and reports. They are deleted from the bucket by hand (`scripts/backup_store.py delete-before`, then `delete` for the newest copy), as a step to be added to the runbook's teardown. Those commands and the workflow's own 30-day prune delete by key alone. On a bucket that keeps object versions, which a delete lock on Amazon S3 needs, that hides a snapshot and leaves its versions retrievable (the reviewer's reading of the provider's documentation; this session could not reach it to re-check). So no notice, for the twin or the cohort, states the 30 days or a deletion date until the chosen backend's erasure procedure has been checked, including deleting the retained versions and confirming they are gone. Until then the notice says backup copies stay until the operator deletes them, and promises no date (ADR-040). No document yet says what the 7-day delete lock counts from. If it is seven days from each upload, the last copy can go seven days after the twin's last backup. Once the procedure is checked, the notice states that rule. It also names the other copies: the host's own volume snapshots, which the runbook says are kept five days, and any copy the operator downloaded. | The bucket account; a definition of the delete lock; a checked erasure procedure; a runbook teardown change |
@@ -137,7 +178,7 @@ answer still needs before it takes effect.
 | 19 | Ratify ADR-036 | Ratified with its recorded answers as starting values: an unsolved puzzle never renews by itself; the longest patience send-away is four hours; each player climbs their own hint ladder; a send-away says when to return; at most twelve judged misses for one player at one puzzle in any rolling 24 hours, not to be raised without re-running the band search. A send-away that this cap binds lasts until at most ten of that player's judged misses at that puzzle lie in the last 24 hours (ADR-036's rule), which can be most of a day. A helping agent is not named in the solve credit. "An annoyed player" is read as an annoyed puzzle. Ratification authorizes batches 2 and 1b, and item 21's change, which ADR-036 lists in batch 3; batch 1a merged in #170. | — |
 | 20 | Next puzzle batches | Both directed: the cast stops attempting puzzles, and per-player send-aways replace the shared pool. *Added after review:* this replaces "The kept database is born after the first of them". ADR-036 D8, which item 19 ratifies, puts the send-away batch (1b) before the batch that stops the cast (2) and says both should land before the first production boot, because each opens a write path. The kept database is born after both. | The two pull requests |
 | 21 | Wrong-guess text (ADR-036 question 6) | Only right or wrong is stored. It ships as a small change before the first invite. | The code change |
-| 22 | Puzzle salt (ADR-038) | The owner adopted the salt in principle, with separate staging and production salts. **Open for the owner (a first-boot door):** ADR-038's question 1, whether the hosted world gets the salt before its first boot. The first version of this page said the salt did not gate the cohort; review showed that this conflicts with ADR-038. A puzzle pinned without the salt stays computable from the public code until its place renews, the heartbeat starts pinning at the first tick, and under item 19 an unsolved puzzle never renews by itself. Recommended: before the first boot (ADR-038's B1 and B2). The salt's code (ADR-038's B1) can be built alongside item 20's batches. The kept boot then waits for whichever finishes last: those batches, the naming change, the puzzle redesign (item 23), or the salt's build and deployment (B1 and B2). ADR-038 has the salt probe and its audit rerun when the guess limit or a puzzle family changes, so the production salt is audited against the final generator. The cost is the B1 pull request, one secret on each app and the working-rules change that follows. **Also open:** approval of ADR-038's D8 wording for `AGENTS.md` (its question 3), which changes a working rule and so goes in the working-rules pull request (item 44). | The owner's answers |
+| 22 | Puzzle salt (ADR-038) | The owner adopted the salt in principle, with separate staging and production salts. **Answered by the owner, 2026-11-19 (D-F):** yes to ADR-038's question 1, a first-boot door. The hosted world gets the salt before its first boot, so ADR-038's B1 and B2 come before the first production boot. *Added after review:* the first version of this page said the salt did not gate the cohort and was built after item 20; review showed that this conflicts with ADR-038. A puzzle pinned without the salt stays computable from the public code until its place renews, the heartbeat starts pinning at the first tick, and under item 19 an unsolved puzzle never renews by itself. The salt's code (ADR-038's B1) can be built alongside item 20's batches. The kept boot then waits for whichever finishes last: those batches, the naming change, the puzzle redesign (item 23), or the salt's build and deployment (B1 and B2). ADR-038 has the salt probe and its audit rerun when the guess limit or a puzzle family changes, so the production salt is audited against the final generator. The cost is the B1 pull request, one secret on each app and the working-rules change that follows. A watch twin deployed before B1 exists (item 1 aims at 20 November) is not held for the salt. It runs unsalted until its first deploy that carries B1; its secret is set before that deploy, because a marked server refuses to start without one (ADR-038 D4). Puzzles it pinned before then stay unsalted until their places renew. **Open for the owner:** approval of ADR-038's D8 wording for `AGENTS.md` (its question 3), which changes a working rule and so goes in the working-rules pull request (item 44). | The B1 pull request; the staging secret before the first staging deploy that carries B1, and the production secret with the first-deploy secrets (B2), before the first production boot; the owner's approval of the D8 wording |
 | 23 | Puzzle quality | **Owner words (D-C).** Replaces "duplicate answers". The generic kinds (anagram, cipher, number pattern, riddle, ordering: 1,445 of 4,208 puzzles on seed 382) are retired. Prediction is deepened. The look-up kinds are redesigned so a player must infer or experiment. Agent collaboration is designed with them (item 40). The work starts with a design record holding ten sample puzzles per proposed kind for the owner to judge, before any generator code. The watch is not held for it; the kept world is. | The design record; then the owner's approval of the puzzle re-pin, in the redesign's own pull request |
 
 ### Models and spend
@@ -149,8 +190,8 @@ answer still needs before it takes effect.
 | 26 | Dollar ceilings | Starting values: 15 dollars a day global and 3 dollars a day per participant, adjusted after a staging test shows what one full-context reservation costs. A 150-dollar provider spend limit is the outer bound. | The owner's confirmation of the amounts in the policy file, and a spend-ledger retention period of two days or more, which the policy file must carry and ADR-039 asks the owner to approve |
 | 27 | Models | The voice, intention and moderation models are pinned in the policy file. One live rubric run, with the owner as the single grader, recorded as a deviation from the two-grader rule. | The model ids |
 | 28 | ADR-039 | Accepted after one staging rehearsal of reservation, settlement and the stop. A written procedure to clear the accounting stop exists before any live route on a kept world. *Added after review:* the stop is rehearsed on a separate throwaway app, or after the last watch session, because a latched stop keeps a twin's live routes off (item 3). | The rehearsal |
-| 29 | Call caps | The global text cap rises to about 1,000 a day; 150 per player stays. Caps are set before day one. *Added after review:* the classify caps are set with them, because item 30 makes every shared line a classifier call and the defaults are 60 a player a day and 2,000 shared. | The exact integers, set as secrets at deploy |
-| 30 | Moderation coverage | Every line of shared text on Speak, agent voice, Ideas and published profile fields goes to the classifier when it can be reached. Chat stays on its current screen, because chat is no longer permanent or quoted. *Added after review:* the first version said "a surface that stores words", which would have taken in private text. Today only a line the local screen marks ambiguous is sent, so this is a change. Registered names also stay on their current screen. Private journal notes and unpublished profile text are not screened, and report text is never sent to a model, as ADR-004 already says. **Open for the owner:** what happens to a shared line when the classifier cannot be reached, a cap is spent or AI is off. Today a line the local screen cannot clear is held and a locally clean line still publishes (ADR-004 section 2). Recommended: hold every shared line then, because otherwise a player who spends their classify cap can publish unclassified lines. The cost is that Ideas, profile publishing and stored Speak lines stop while the classifier is down. | An ADR-004 section 2 change with the code; classify caps sized for one call a line (item 29); the owner's answer |
+| 29 | Call caps | The global text cap rises to about 1,000 a day; 150 per player stays. Caps are set before day one. *Added after review:* the classify caps and the per-player model-action cap are set with them, because item 30 makes every shared line a classifier call, each of which also charges the model-action cap. The defaults are 60 classifies a player a day, 2,000 shared, and 200 model actions a player a day. A Speak exchange then costs two model actions, so the default of 200 binds before the 150 voice calls do. | The exact integers, set as secrets at deploy |
+| 30 | Moderation coverage | Every line of shared text on Speak, agent voice, Ideas and published profile fields goes to the classifier when it can be reached. Chat stays on its current screen, because chat is no longer permanent or quoted. *Added after review:* the first version said "a surface that stores words", which would have taken in private text. Today only a line the local screen marks ambiguous is sent, so this is a change. Registered names also stay on their current screen. Private journal notes and unpublished profile text are not screened, and report text is never sent to a model, as ADR-004 already says. **Answered by the owner, 2026-11-19 (D-F):** a shared line is held when the classifier cannot be reached, a cap is spent or AI is off. Today a line the local screen cannot clear is held and a locally clean line still publishes (ADR-004 section 2). Every shared line is held then, because otherwise a player who spends their classify cap can publish unclassified lines. The cost is that Ideas, profile publishing and stored Speak lines stop while the classifier is down. *Added after review:* the same stop applies to everyone once the shared classify cap or the day's dollar ceiling is spent, to one player once their own classify cap, model-action cap or dollar ceiling is spent, and while AI is off. A spent voice cap (item 29) does not stop the classifier and holds nothing. Three of today's cases differ from "a line the local screen cannot clear is held and a locally clean line still publishes" above. A player's spent moderation action cap (600 submissions a day by default; not the model-action cap) and the moderation kill switch already hold a locally clean line. And the AI kill switch stops voice and intention only: with it on and the moderation route live, a line the local screen cannot clear is not held; it still goes to the classifier and publishes if cleared, so under this answer that switch also stops Ideas and profile publishing. Speak and agent voice store nothing while AI is off, today and after; the code change keeps the authored identity answer there, which the honesty covenant requires with AI on or off. A local development world and the automated tests, which run with no classifier, publish locally clean lines today; the code change says whether the rule reaches them. A hosted world is covered, the staging twin included. | An ADR-004 section 2 change with the code; classify caps and the per-player model-action cap sized for one call a line (item 29) |
 
 ### Safety, people and admission
 
@@ -165,7 +206,7 @@ answer still needs before it takes effect.
 | 37 | Cohort exceptions | One dated list, signed at the watch read-out: later-improvement rows excused, measurement rows required only to be instrumented. | The list, at the read-out |
 | 38 | Evidence gates | The four pilot gates are adopted as hypotheses reported with counts. A missed gate buys one fix-and-rerun round. Playtest bars are readings with one tripwire. *Added after review:* the first version did not say what the tripwire is. Proposed: a puzzle family with five or more attempted puzzles and none solved, or an overall median interest rating under 3, opens a fix before invitations go beyond the first cohort. It is read at the watch read-out and at each cohort read, and is not an entry requirement. Ratings are collected by the facilitator's question; no rating surface is built. | The owner's confirmation of the tripwire, at the read-out |
 | 39 | Dates | Watch sessions by 11 December 2026. The cohort start is set at the watch read-out. The earlier January targets are withdrawn, because the naming change, the puzzle redesign and agents in chat now precede the cohort. | — |
-| 40 | Agents in the first cohort | **Owner words (D-D, D-E).** In scope. Agents never solve a puzzle by themselves. When a human asks an agent for help, the agent may help if its goals align with that player's, and may decline if they conflict. Rivalry is over aims, such as discovering places or shifting properties toward competing goals, never over solving. ADR-037's batches are directed. Agents need stated goals; a design note sets them and the rivalry, written with item 23. ADR-037's standing answers: at most two lingering travelers (D2); travelers in chat and Speak for places (D1); agent chat lines stored as human chat is (D8); an honesty answer goes to the asker alone (D3). *Added after review:* the first version stated what is ratified only in the note on ADR-037. D1, D2, D4 and D5 are ratified, except D4's question about cast names (answered by D-B and ADR-041) and D5's proposed covenant text (item 44). D3, D6, D7 and D8 stay Proposed until the refresh, apart from the two answers above that fall under them. **Open for the owner:** who sees an agent's puzzle help, and whether it is stored (ADR-037 question 4). As ordinary chat a correct suggestion would reach everyone and be stored. ADR-037 recommends that it reach only the asker and not be stored, and says that needs private messages between people too, so that a private line does not mark the agent as an AI. This page leaves chat scope until after the cohort, so the owner's answer also settles that. Batch 4, the collaboration batch that ADR-036 and ADR-037 share, waits for this answer. The aim is to land it before the cohort enters; the cohort is not held for it. | The design note; ADR-037 refreshed against `main`; the owner's answer on puzzle help |
+| 40 | Agents in the first cohort | **Owner words (D-D, D-E).** In scope. Agents never solve a puzzle by themselves. When a human asks an agent for help, the agent may help if its goals align with that player's, and may decline if they conflict. Rivalry is over aims, such as discovering places or shifting properties toward competing goals, never over solving. ADR-037's batches are directed. Agents need stated goals; a design note sets them and the rivalry, written with item 23. ADR-037's standing answers: at most two lingering travelers (D2); travelers in chat and Speak for places (D1); agent chat lines stored as human chat is (D8); an honesty answer goes to the asker alone (D3). *Added after review:* the first version stated what is ratified only in the note on ADR-037. D1, D2, D4 and D5 are ratified, except D4's question about cast names (answered by D-B and ADR-041) and D5's proposed covenant text (item 44). D3, D6, D7 and D8 stay Proposed until the refresh, apart from the two answers above and the answer to question 4 below. **Answered by the owner, 2026-11-19 (D-F):** an agent's puzzle help reaches the asker alone and is not stored (ADR-037 question 4, as ADR-037 recommends). As ordinary chat a correct suggestion would reach everyone and be stored. ADR-037 says the answer needs private messages between people too, so that a private line does not mark the agent as an AI. *Added after review:* this page had left chat scope until after the cohort. The answer moves one part of it: direct messages between people are built with batch 4, and place-local chat stays for after the cohort. ADR-040's private log and reports were designed for room-wide chat: each human line is logged before delivery and carries the reference a report cites. So the ADR-037 refresh says how direct messages are logged and reported. It also says how an agent's help line, an exception to "agent chat lines stored as human chat is" above, stays unstored without differing from a person's direct message in what the asker receives or can report, because that difference would mark the agent as an AI. Batch 4, the collaboration batch that ADR-036 and ADR-037 share, no longer waits for an answer. The aim is to land it before the cohort enters; the cohort is not held for it. | The design note; ADR-037 refreshed against `main`, covering direct messages between people |
 
 ### Records and process
 
@@ -174,7 +215,7 @@ answer still needs before it takes effect.
 | 41 | Status pull request | Asked for by this adoption. Claude Code prepares it once this page has merged; it folds the waiting fragments and applies the `Status:` lines of the fragment that lands with this page. | This page, merged |
 | 42 | The 15 November decision page | To be committed, so `main` carries the owner's words that ten records cite. | The page, from the owner |
 | 43 | ADR status pass | ADR-019, ADR-020 and ADR-021 are accepted as implemented. ADR-022 is accepted as implemented except its puzzle-eligibility paragraph, which the owner's 2026-11-06 decision overruled. ADR-040 is accepted as implemented. ADR-035 and ADR-039 stay Proposed until items 24 and 28. | — |
-| 44 | Covenant re-tune (D9) | D9, the proposal to keep five covenants and demote the rest to guidance, is closed as stale; no covenant is demoted. **Open for the owner:** three wordings in `AGENTS.md` that work directed or recommended here will need. Each is approved in the working-rules pull request of item 45, not here. When ADR-037 D4 (no labels) ships, the sentence "live presence may distinguish" stops describing the product. ADR-036 batch 2 (item 20) changes the agent-solve covenant. ADR-038's D8 adds a clause to the determinism contract if the salt is adopted (item 22). | The owner's approval, in that pull request |
+| 44 | Covenant re-tune (D9) | D9, the proposal to keep five covenants and demote the rest to guidance, is closed as stale; no covenant is demoted. **Open for the owner:** three wordings in `AGENTS.md` that work directed or recommended here will need. Each is approved in the working-rules pull request of item 45, not here. When ADR-037 D4 (no labels) ships, the sentence "live presence may distinguish" stops describing the product. ADR-036 batch 2 (item 20) changes the agent-solve covenant. ADR-038's D8 adds a clause to the determinism contract and a phrase to the difficulty covenant, now that the salt goes in before the first boot (item 22). | The owner's approval, in that pull request |
 | 45 | Decision process | Two rules, to be written in a working-rules pull request of their own: reversible choices are listed as defaults and accepted by the owner's merge; an ADR asks the owner only door questions. At most three pull requests wait on the owner. | That pull request |
 | 46 | Copilot | No budget is set. The merged rule lets work proceed without it. Every reviewer posts under a footer naming it. | — |
 | 47 | Issues #87 to #89 | #89 gets a hold note that the owner posts; #88 stays deferred; #87 becomes one watch question (does a newcomer name the scale unprompted). | The note, posted by the owner |
@@ -224,8 +265,8 @@ decision now.
   changes in the working-rules pull request of item 45. The covenant is
   reworded only with the owner's approval in that pull request (item 44).
 - Every build: the naming change, the Map view, the puzzle batches, the puzzle
-  redesign, agents in chat, the model route, the backup scheduler. Each is its
-  own pull request under the working rules.
+  redesign, the puzzle salt, agents in chat, the model route, the backup
+  scheduler. Each is its own pull request under the working rules.
 
 ## 5. What is left for the owner
 
@@ -246,52 +287,71 @@ decision now.
 10. The bucket account and the scheduler service (items 11, 12).
 11. A judgment on the sample puzzles in the design record (item 23).
 
+**Answered by the owner on 2026-11-19** (D-F in section 1). These were open
+after review. The owner adopted the agent's recommendation on each; D-F says
+how each was put to him.
+
+12. The puzzle salt is in place before the kept world's first boot (item 22).
+13. The checklist's declaration of world status is the boundary that bars a
+    reset of a production world (item 9).
+14. An agent's puzzle help reaches the asker alone and is not stored, which
+    needs private messages between people too (item 40).
+15. A shared line is held when the classifier cannot be reached, a cap is
+    spent or AI is off (item 30).
+
 **Open for the owner.** A merge does not answer these.
 
-12. Whether the puzzle salt is in place before the kept world's first boot
-    (item 22). Recommended: yes.
-13. Which boundary bars a reset of a production world: the checklist's
-    declaration of world status, or ADR-004's first invited outside player
-    (item 9). Until answered, a declared production world is not reset.
-14. Who sees an agent's puzzle help, and whether it is stored (item 40).
-    ADR-037 recommends the asker alone, not stored, which needs private
-    messages between people too.
-15. What happens to a shared line when the classifier cannot be reached, a cap
-    is spent or AI is off (item 30). Recommended: it is held.
 16. The exact golden-pin diff of the naming change, approved in its own pull
     request (ADR-041, D7), and later the puzzle redesign's pin diff in its own
     (item 23).
 17. Three wordings in `AGENTS.md`, approved in the working-rules pull request:
-    "live presence may distinguish", the agent-solve covenant, and ADR-038's
-    clause for the determinism contract (items 22, 44 and 45).
+    "live presence may distinguish", the agent-solve covenant, and ADR-038's D8
+    wording (items 22, 44 and 45).
 
 **At the watch read-out.** Declare the world's status (item 10). Sign the
 exception list (item 37). Set the cohort date (item 39). Choose the cohort's
 model route (item 24). Confirm or change the playtest tripwire (item 38). Give
 the yes-or-no on alignment (section 3).
 
-**Added after review.** The agent wrote these after the session. A merge adopts
-them unless the owner strikes them:
+**Added after review.** The agent wrote these after the owner's adoption, or
+after his answers of 2026-11-19. A merge adopts them unless the owner strikes
+them:
 
 - A latched spend stop ends the AI-on watch, and the stop is rehearsed away
   from the watch twin (items 3 and 28).
 - An open report holds the twin (item 5).
 - What the tester notice says about complaints, copies and reports (item 6).
 - The watch kit's teardown section is rewritten (item 8).
-- Who the first outside player is, and that a production boot is itself a door
+- Who the first outside player is, that a production boot is itself a door,
+  that the declaration binds before an outside player enters, that a world
+  declared before its first production deploy is not reset from that deploy
+  on, and that ADR-004's boundary stays for a production world not yet declared
   (item 9).
 - The twin's backups are deleted by hand; the delete lock needs a definition,
   and no notice gives a backup deletion date until the erasure procedure is
   checked (item 12).
 - A second service checks backup freshness (item 13).
 - The kept database waits for both puzzle batches (item 20).
+- The kept boot also waits for the salt's build and deployment, the production
+  salt is audited against the final generator, and a watch twin deployed before
+  the salt's code exists runs unsalted until its first deploy that carries it
+  (item 22).
 - The no-training sentence makes the packet's rule 5 unnecessary (item 25).
-- Classify caps are sized with the call caps (item 29).
-- Which text the classifier does and does not see (item 30).
+- Classify caps and the per-player model-action cap are sized with the call
+  caps (items 29 and 30).
+- Which text the classifier does and does not see, who is stopped when a cap
+  or a dollar ceiling is spent or AI is off, that the AI kill switch then also
+  stops Ideas and profile publishing, that the authored identity answer is kept
+  on Speak and agent voice, that a hosted world is covered, the staging twin
+  included, and that the code change says whether the rule reaches a local
+  world or the automated tests (item 30).
 - The operator runs the chat deletion, and later deletes by reference each
   line a complaint held (item 34).
 - The proposed playtest tripwire (item 38).
-- Batch 4 is an aim, not a condition of cohort entry (item 40).
+- Which parts of ADR-037 are ratified; batch 4 is an aim, not a condition of
+  cohort entry; direct messages between people are built with it; and the
+  refresh says how they are logged and reported and how an unstored help line
+  stays indistinguishable from a person's direct message (item 40).
 
 **Values a merge adopts.** One reviewer asked that these agent-worded answers
 be read as the owner's own before merging, because each sets a value reserved

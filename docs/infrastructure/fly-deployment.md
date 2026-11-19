@@ -238,7 +238,11 @@ the default is a behavior change, not implicit approval of a chat-off watch.
 > project carries forward, forever.
 > Rehearse on the staging twin (§3a), not here: ADR-004 puts a disposable world
 > on staging, and the launch checklist bars a reset once this world's status is
-> declared. A production boot births the world at its first heartbeat tick,
+> declared, even before the first invited outside player enters (the owner's
+> answer of 2026-11-19, item 9). The status is declared at the watch read-out
+> (item 10); a production world booted after that is not reset from its first
+> boot.
+> A production boot births the world at its first heartbeat tick,
 > about three minutes in, or at the first `/world` request if that comes
 > sooner. From that tick the cast starts pinning puzzles and writing history.
 > Mint your own key at once to close the gate (§6). Give a key or an invite to
@@ -280,7 +284,12 @@ deploy takes ~3-5 minutes.
 Production springs two one-way doors. The first production deploy births
 the world, so the content banks freeze for it. The first invited outside
 player then makes its history permanent (ADR-004 section 3), whichever invite
-path they use. Rehearse on a
+path they use. A reset is barred sooner once the world's status is declared
+production (launch checklist R3; the owner's answer of 2026-11-19, item 9 of
+the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)): a
+production world whose status is declared before its first deploy is not reset
+from that deploy. A twin declared disposable is outside this rule.
+Rehearse on a
 disposable twin first (ADR-005): the onboarding watch, the WS soak, and
 the live-voice probe all run against a world that is thrown away, and
 the deploy runbook itself gets exercised end-to-end before the run that

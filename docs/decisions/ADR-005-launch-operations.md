@@ -7,7 +7,10 @@ one-hour bound is proven over seven consecutive days on the staging twin, and
 continuous replication follows the pilot (item 11). Sentry is on with frame
 locals off (item 13). History becomes permanent with the first invited outside
 player, by an operator-minted key or a redeemed registration invite, and
-rehearsals stay on staging (ADR-004 section 3; item 9). `/` switches to the shared React Map
+rehearsals stay on staging (ADR-004 section 3; item 9). By the owner's answer of
+2026-11-19, a production world is not reset once the launch checklist's world
+status is declared, which for the cohort world comes before that player
+(item 9). `/` switches to the shared React Map
 view in a client batch of its own (item 2). Watch sessions are due by
 11 December 2026, and the cohort date is set at the watch read-out (item 39).
 

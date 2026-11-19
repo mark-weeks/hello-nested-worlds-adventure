@@ -4,8 +4,13 @@
 this policy, each taking effect with the code that implements it. Section 2:
 every line of shared text on Speak, agent voice, Ideas and published profile
 fields goes to the classifier when it can be reached; today only a line the
-local screen marks ambiguous is sent. What happens to a line when the
-classifier cannot be reached is open for the owner. Private notes and
+local screen marks ambiguous is sent. By the owner's answer of 2026-11-19, a
+shared line is held when the classifier cannot be reached, a cap is spent or AI
+is off. Today a locally clean line still publishes during a classifier outage,
+once a classify cap is spent and, on Ideas and published profiles, while AI is
+off; a player's spent moderation action cap and the moderation switch already
+hold it.
+Private notes and
 unpublished profile text stay unscreened, report text is never sent to a model,
 and chat and registered names stay on their current screens (item 30).
 Section 7: the
@@ -14,7 +19,11 @@ and retired cast names stay reserved (item 15). Presence rows stay in the
 record but are left out of a place's memory (item 18). The same record confirms
 section 3 (never-wipe starts with the first invited outside player, and
 disposable worlds run on staging) and adds that either invite path counts
-(item 9). It also accepts operating rules 1 to 4 of packet decision 10 and bars
+(item 9). On 2026-11-19 the owner answered that the launch checklist's
+declaration of world status is the boundary that bars a reset of a production
+world. For the cohort world that declaration comes before the first invited
+outside player; section 3 is not rewritten and still applies to a production
+world not yet declared. The record also accepts operating rules 1 to 4 of packet decision 10 and bars
 training any model on Enfolded data during the pilot (item 25); the 2026-11-07
 note below is kept as the record. Names
 follow [ADR-041](ADR-041-natural-unique-names.md).
