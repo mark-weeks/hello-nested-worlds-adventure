@@ -558,6 +558,9 @@ export default function App() {
       setNodeStack(inView);
       return;
     }
+    // A place named without its address (a frame that carried only the
+    // name): ask the server where it stands. A name says nothing of position.
+    if (!addressDepth(address)) address = await readAddress(nodeName);
     const needed = addressDepth(address);
     if (!needed) return;
     if (needed > worldDepth) {

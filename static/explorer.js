@@ -1146,6 +1146,12 @@ async function jumpTo(nodeName, address) {
   if (!nodeName) return;
   let hit = findNodeByName(hierLayout && hierLayout.data, nodeName);
   if (!hit) {
+    // A place named without its address (a frame or a caller that carried
+    // only the name): ask the server where it stands. A name says nothing
+    // about position.
+    if (!addressDepth(address)) {
+      address = await readNodeAddress(fetch, withKey('/node?node_name=' + encodeURIComponent(nodeName)));
+    }
     // Below the rendered horizon: the address length IS the needed depth.
     const needed = addressDepth(address);
     if (needed && needed > worldParams.depth) {
@@ -1550,7 +1556,10 @@ function updatePresenceRings() {
   const place = (nodeName, address, color, agent=false) => {
     if (!nodeName) return;
     let target = nodeName, beneath = false;
-    if (!nodesByAddress[address]) {
+    // A place drawn in this view is ringed where it stands, found by its
+    // address or, when the frame carried none, by its name (unique in a
+    // world). Only a place outside the view needs the address.
+    if (!nodesByAddress[address] && !(nodeG.filter(d => d.data.name === nodeName).size())) {
       const anc = deepestVisibleAncestor(address);
       if (!anc) return;
       target = anc.name;
