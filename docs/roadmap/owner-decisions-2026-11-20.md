@@ -183,9 +183,12 @@ O13, and the hosted proof of the 18+ question at sign-up.
   another vendor's compatible endpoint that passes the same checks. No new
   adapter or controlled native transport is built for the watch; that transport
   stays the cohort alternative on record.
-- **Order of signing.** The owner signs the data-use note only after G1's check
-  record names the endpoint that passes. Each note covers one account at one
-  endpoint (item 25), so a switch after signing needs a new signed note.
+- **Order of signing.** G1's check record recommends the candidate that passes
+  the desk checks. The owner signs the data-use note for that account and
+  endpoint. G3's first live run on the twin then establishes final acceptance.
+  The live proof needs the signed note, so signing cannot wait for it. Each note
+  covers one account at one endpoint (item 25), so a switch after signing needs
+  a new signed note.
 - **Data-use note.** One note covers one account, under its named terms, at one
   exact endpoint (item 25).
   - **Data classes sent:**
@@ -205,9 +208,14 @@ O13, and the hosted proof of the 18+ question at sign-up.
   model, so every id is set explicitly: `NESTED_WORLDS_MODERATION_MODEL`, and
   `NESTED_WORLDS_MODEL` or each task's own variable. Each id is pinned in the
   policy file with its resolved id (item 27).
-  - **Moderation:** `claude-haiku-4-5`, the `anthropic` adapter's moderation
-    id. It is a starting point, not an endorsement (`AGENTS.md`, "Provider and
-    model optionality").
+  - **Moderation:** on the incumbent's endpoint, `claude-haiku-4-5`, the
+    `anthropic` adapter's moderation id. It is a starting point, not an
+    endorsement (`AGENTS.md`, "Provider and model optionality"). That id is not
+    served on the fallback endpoint. So G1 names, for each candidate, a
+    structured-output moderation model that endpoint serves. The selected
+    endpoint's model is pinned before that endpoint is chosen. O4's
+    reservation rule does not choose moderation: its calls are short and
+    capped (O5).
   - **Voice and intention:** the largest model of that vendor that passes the
     reservation rule in O4. The `anthropic` adapter's voice id,
     `claude-opus-4-8`, is tried first. At a full-context reservation it is
@@ -389,11 +397,21 @@ on.
     destroyed.
   - **Until G4 merges,** the twin runs without chat and Report, or without
     off-host backup.
-- **Erasure check.** Before any notice gives a backup deletion date, the
-  operator checks the erasure procedure on this bucket and records the result:
-  delete after the lock expires, then confirm no copy can be retrieved. *Not
-  verified:* that R2's lock counts from upload and that R2 keeps no hidden
-  versions; the check settles both. Until then O6's wording stands.
+- **Erasure check.** Before any notice gives a backup deletion date or age
+  limit, the operator checks and records three things on this bucket, using a
+  disposable object under `offhost/`:
+  1. **The configured lock.** Record the effective lock rule, then check that a
+     delete attempted inside the seven days is refused and one after them
+     succeeds. A delete that succeeds proves nothing on its own, because it
+     also succeeds with no lock at all.
+  2. **The effective lifecycle rule.** Its prefix covers `offhost/` and its age
+     is 37 days.
+  3. **No retained copy.** After the delete, no copy of the object can be
+     retrieved.
+
+  *Not verified:* when R2's lock starts and expires, and whether R2 keeps any
+  hidden version; this check settles both. Until it is recorded, O6's wording
+  stands.
 
 **Owner act:** the R2 account, bucket and tokens; the settings above. **Unblocks:**
 C2's teardown step, the backup proof and P3.
@@ -556,9 +574,10 @@ The rehearsals start once O12 is done; only G3's probes wait for G3's merge:
   against the same endpoint and pinned ids, with its own `--max-usd` set by the
   owner. The policy ledger does not count that spend; the $150 provider limit
   does;
-- a capacity rehearsal with three simultaneous clients: `scripts/ws_soak.py
-  --clients 3` with the three-key file, and `--no-chat` unless `/community`
-  reports chat enabled;
+- a capacity rehearsal with three simultaneous clients, against the deployed
+  twin: `scripts/ws_soak.py --url https://enfolded-staging.fly.dev --clients 3
+  --keys-file <private file>`, with `--no-chat` unless `/community` reports
+  chat enabled. The script's default URL is a local world;
 - block and unblock;
 - sanction suspend and lift;
 - `python main.py redact`;
@@ -596,14 +615,25 @@ The rehearsals start once O12 is done; only G3's probes wait for G3's merge:
      so nothing falls back to `enfolded-beta` with a staging token.
   4. Revoke the backup token and delete its secret.
   5. Pause or delete the twin's heartbeat monitor.
-- **Re-arming for production** is a separate owner act before the first
-  production boot, in this order:
-  1. Store a production token in the protected environment.
-  2. Leave `ENFOLDED_BACKUP_APP` unset or set it to `enfolded-beta`.
-  3. Re-enable the workflow.
-  4. Run one manual dispatch and confirm a real object is stored.
-  5. Only then set `ENFOLDED_BACKUP_REQUIRED=true`.
-  6. Point a new heartbeat monitor at production.
+- **Re-arming for production** is a separate owner act. A manual dispatch
+  snapshots the running app over `flyctl ssh`, so no production object can
+  exist before the first production deploy. The order is:
+  - **Before the first production boot:**
+    1. Store the production Fly token and the bucket secrets in the protected
+       environment.
+    2. Leave `ENFOLDED_BACKUP_APP` unset or set it to `enfolded-beta`.
+    3. Re-enable the workflow.
+    4. Retarget the external dispatcher to production; it stays paused.
+
+    The pre-boot recovery evidence is the staging restore (item 10).
+  - **After the first production deploy, before any invitation**
+    (`fly-deployment.md`):
+    1. Run one manual dispatch and confirm a real production object is stored.
+    2. Only then set `ENFOLDED_BACKUP_REQUIRED=true`.
+    3. Enable the external dispatcher. GitHub's own schedule alone has shown
+       five-hour gaps against the one-hour bound (backup cadence record).
+    4. Confirm successive production objects meet the one-hour bound.
+    5. Point a new heartbeat monitor at production.
 
 **Owner act:** the DSN secret, the scheduler, uptime and heartbeat accounts, and
 the token.
@@ -720,8 +750,8 @@ the token.
     - items 18, 21, 33 and 35;
     - ADR-037 batches 2 and 3a (agents in chat, authored), which land together.
       Batch 3b's flag and batch 4 do not hold the cohort (items 39, 40);
-    - if O3's route continues for the cohort world, O9's audited clear command
-      (the ADR-039 revision and its migration).
+    - if the cohort world runs any live model route, O9's audited clear command
+      (the ADR-039 revision and its migration). Only an AI-off cohort is exempt.
   - **Alignment:** answered there.
 - **Terms page (item 36).** Claude Code drafts the combined terms-and-notice
   page in its next batch for the owner to edit. Cohort membership stays the

@@ -167,7 +167,7 @@ Non-scope: cap integers (the owner sets them as deploy secrets; Grok only lists 
 C2 - Watch-twin records (items 4, 5, 6, 8, 12; Watch entry requirements 1, 4, 6, 8)
 (a) Community policy:
 - Do not commit an enabled watch policy under config/. ADR-040:53-56 says the 90/180 days are "not deployment defaults or checked-in policy selections", and server/community_policy.py:109-112 requires contact and backup_notice text for any enabled route.
-- In docs/development/community-reporting.md, document the watch policy as a template: chat retained until deleted, reports retained 90 days, with <OWNER: contact> and <OWNER: backup_notice> placeholders. Explain that it is installed privately with --policy /private/community-policy.json (fly-deployment.md:443-462).
+- In docs/development/community-reporting.md, document the watch policy as a template: chat retained until deleted, reports retained 90 days, with <OWNER: contact> and <OWNER: backup_notice> placeholders. Explain how it is installed, as owner decision O12 gives it. `--policy` only feeds the offline `community-policy --check`. Activation means placing the file on the machine, setting NESTED_WORLDS_COMMUNITY_POLICY to its path, restarting, and checking the revision and the chat and report flags at /community (fly-deployment.md:443-462).
 - Add behaviour tests in tests/test_community_policy.py and tests/test_community_activation.py. They build the template in a temp file with test text filled in and prove it loads and enables chat and Report.
 (b) Refresh docs/evaluation/2026-11-02-newcomer-watch-kit.md:
 - The honesty rule now exists, so the wording at about :522 is wrong.
@@ -183,7 +183,9 @@ C2 - Watch-twin records (items 4, 5, 6, 8, 12; Watch entry requirements 1, 4, 6,
   3. delete the ENFOLDED_BACKUP_REQUIRED and ENFOLDED_BACKUP_APP variables;
   4. revoke the backup token and delete its secret;
   5. pause the twin's heartbeat monitor.
-- Then write the separate re-arm order for production: token in the protected environment; app unset or enfolded-beta; re-enable the workflow; one manual dispatch that stores a real object; only then ENFOLDED_BACKUP_REQUIRED=true; a new heartbeat monitor.
+- Then write the separate re-arm order for production, as owner decision O14 gives it:
+  - before the boot: credentials in the protected environment, the app target, the workflow re-enabled, and the external dispatcher retargeted to production;
+  - after the first production deploy and before invitations: the first manual dispatch, ENFOLDED_BACKUP_REQUIRED=true, the dispatcher enabled, successive objects checked against the one-hour bound, and a new heartbeat monitor.
 - Keep the existing references to "step 6" and to "the authenticated live-voice probe in section 8" (:857-858, :880) as they are.
 (d) Notice-text template (item 6):
 - Write it in fly-deployment.md "Participation notice and adult confirmation" (:485). The served notice is built from NESTED_WORLDS_TEST_CONTACT, NESTED_WORLDS_TEST_RETENTION and NESTED_WORLDS_TEST_DATA_USE (server/participation.py:67-70) plus the community policy's contact and backup_notice.
@@ -300,13 +302,15 @@ PR G1 - watch model-policy kit
   - Show $15/day global and $3/day per participant as unconfirmed placeholders in the policy JSON.
   - The $150 provider console limit is not a policy field: the strict parse refuses unknown keys (model_policy.py:246-247, :262-264). Record it in the PR body and in the runbook as a separate owner step on the provider account (owner decisions O4).
 - Reservation report: extend the existing `python main.py model-policy --check` output (cmd_model_policy, main.py:191; no new command; the logic lives in consciousness/model_policy.py, reserve_microusd at :379). Per route, report the full-context reservation and how many reservations fit under the participant and global ceilings. The owner confirms amounts against this report (item 26).
-- Endpoint check: write docs/evaluation/2026-11-2x-chat-completions-endpoint-check.md, the item 24 check of whether the incumbent provider's Chat Completions-compatible endpoint satisfies consciousness/openai_compat_provider.py:
+- Endpoint check: write docs/evaluation/2026-11-2x-chat-completions-endpoint-check.md, the item 24 check. It covers both candidates of owner decision O3, the incumbent provider's Chat Completions-compatible endpoint and OpenAI's own Chat Completions endpoint, and asks whether each satisfies consciousness/openai_compat_provider.py on:
   - structured outputs for intention and moderation;
   - send_store_false;
   - max_tokens_param;
   - usage counts for settlement;
   - the reported model, for resolved_models.
   Verify against current official docs (the AGENTS.md external-contract rule), and mark anything that cannot be confirmed without a live key as unverified.
+  - For each candidate, name the models it serves for voice, intention and moderation. Moderation needs structured output, and the record names the model each candidate would pin.
+  - End with one recommendation: the candidate that passes the desk checks. The owner signs the data-use note for that account and endpoint, then G3's first live run on the twin establishes final acceptance (O3). Signing does not wait for live proof, because the live proof needs the signed note.
 - Rubric-run brief: add a one-page brief for item 27's single-grader live rubric run with scripts/model_eval.py --live --max-usd --max-calls --allow-destination. Do not run it.
   - Controlled mode refuses live eval wrappers (docs/development/model-policy.md:123-128; evals/harness.py RecordingProvider).
   - So the brief runs it isolated from the twin, with no NESTED_WORLDS_MODEL_POLICY and no twin database, against the same endpoint and pinned ids.
@@ -344,16 +348,19 @@ PR G2 - procedure for clearing the latched accounting stop (items 3, 28; ADR-039
 PR G3 - authenticated live-route probe
 You may open it as a draft now, but mark it ready only after Claude's C1 (moderation holds) merges. Its hold assertions use C1's semantics.
 - scripts/live_route_probe.py drives the ordinary gameplay endpoints with an acknowledged check key: /speak, /agent/voice, an Act free-text intention, and a moderation-held shared line. It asserts:
-  - Success: HTTP 200, ai:true, and exactly one new model_spend_reservations row for the call. That row has:
-    - status `settled`, never `uncertain`, `anomaly` or `reserved`;
-    - accounted_microusd <= reserved_microusd;
-    - usage_json carrying prompt, completion and cached-token counts;
-    - a resolved_model in the route's approved resolved_models.
+  - Success, asserted per endpoint against that endpoint's own response contract:
+    - /speak and /agent/voice: HTTP 200 and ai:true. A shared line that passes model classification and reaches live voice creates two reservations, one for task moderation and one for voice.
+    - Act free-text intention: the accepted contract, `accepted: true` with a receipt (no `ai` field), and one intent reservation.
+    - Every expected dispatch is checked by task. Each one's model_spend_reservations row has:
+      - status `settled`, never `uncertain`, `anomaly` or `reserved`;
+      - accounted_microusd <= reserved_microusd;
+      - usage_json carrying prompt, completion and cached-token counts;
+      - a resolved_model in that task's approved resolved_models.
 
     Report any `uncertain` row as a failed ADR-035 requirement 4 (tests/test_model_dispatch.py:469-480 shows a usable reply can leave one).
   - Hold, as separate cases using C1's semantics:
     - (a) An unclassified shared line, or the AI kill switch on, the dollar ceiling spent, or a classify / model-action cap spent: shared Speak and agent voice return HTTP 200, moderation.HOLD_LINE, held:true, ai:false. Ideas and profile publishing return 422 IDEAS_HOLD / PROFILE_HOLD.
-    - (b) Quiet failure: only the voice cap spent, with classification still succeeding. /speak and /agent/voice return HTTP 200, ai:false and the authored quiet line (LEVEL_FALLBACKS / fallback_voice), with held absent or false and no new reservation.
+    - (b) Quiet failure: only the voice cap spent, with classification still succeeding. /speak and /agent/voice return HTTP 200, ai:false and guard.QUIET_RESPONSE (handlers.py:1262, :1355, :1572, :1656), with held absent or false. The successful classification leaves one settled moderation reservation; assert that row and the absence of any voice reservation.
   - With the kill switch on, a sincere identity question still gets the consciousness.honesty answer: HTTP 200, ai:false.
 - It refuses any non-temporary world. Direct --probe stays refused in controlled mode.
 - tests/test_live_route_probe.py runs it against a local controlled server with a fake Chat Completions endpoint, reusing the tests/test_openai_compat_provider.py fixtures.
