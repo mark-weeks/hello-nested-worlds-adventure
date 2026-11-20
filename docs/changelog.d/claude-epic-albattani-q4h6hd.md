@@ -17,6 +17,8 @@ Section: Fixed
   is a separate load-budget limit, not this race, and is left alone. At moderate load
   (2 busy loops, 2 workers) both variants pass 15/15.
   **Verified:** the repeated Playwright runs above (Node 20.19.0, Python 3.11, system
-  Chromium via `PW_CHROMIUM_PATH`); full gate result in the pull request.
+  Chromium via `PW_CHROMIUM_PATH`), then `ENFOLDED_E2E=1 ./scripts/check.sh` green: Ruff
+  clean; 4,329 Python tests passed, 1 skipped; 241 Vitest tests in 20 files; frontend
+  build and bundle freshness passed; installed wheel verified; 212 Playwright tests passed.
   **Irreversibility check:** none — a test-harness wait in one E2E spec; no generator,
   store, migration, chronicle, endpoint or client-bundle source change.
