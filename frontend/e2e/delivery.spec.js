@@ -162,7 +162,16 @@ async function enter(page,url,route,node,name='Ada') {
     sessionStorage.setItem('nw_sound_invited','1');
   },{node,name,key:credentials[name]});
   await page.goto(url+route);
-  if(route==='/')await page.locator('#btn-act').click();
+  if(route==='/') {
+    await page.locator('#btn-act').click();
+    // The explorer reads /position before it opens the world, so its /world
+    // read can land after enter() returns. Wait for the drawn world's status
+    // ("Opening the shared world…" comes earlier) so later request counts and
+    // actions start from a loaded page. This branch belongs to whichever route
+    // serves static/explorer.js: when X2 moves the explorer (planned /map),
+    // move this wait with it.
+    await expect(page.locator('#status')).toHaveText(/^\d+ nodes · shared world · depth \d+$/);
+  }
   else await page.getByRole('button',{name:'Act',exact:true}).click();
   return page.locator('enfolded-interventions');
 }
