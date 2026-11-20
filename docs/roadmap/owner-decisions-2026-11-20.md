@@ -212,8 +212,9 @@ O13, and the hosted proof of the 18+ question at sign-up.
     `anthropic` adapter's moderation id. It is a starting point, not an
     endorsement (`AGENTS.md`, "Provider and model optionality"). That id is not
     served on the fallback endpoint. So G1 names, for each candidate, a
-    structured-output moderation model that endpoint serves. The selected
-    endpoint's model is pinned before that endpoint is chosen. O4's
+    structured-output moderation model that endpoint serves, before the owner
+    chooses an endpoint. The chosen endpoint's moderation model is then pinned
+    in the policy file with its resolved id. O4's
     reservation rule does not choose moderation: its calls are short and
     capped (O5).
   - **Voice and intention:** the largest model of that vendor that passes the
@@ -371,13 +372,17 @@ on.
   stops, the rule also removes the last copy after 37 days.
 - **Versioning.** None. A delete by key then leaves no older version (*not
   verified* for R2; see below).
-- **Repository settings:**
-  - variables: `ENFOLDED_BACKUP_APP=enfolded-staging` (unset, it backs up
-    `enfolded-beta`) and `ENFOLDED_BACKUP_S3_REGION=auto`;
-  - the bucket secrets: access key id, secret key, bucket and endpoint;
+- **Repository variables:**
+  - `ENFOLDED_BACKUP_APP=enfolded-staging` (unset, it backs up
+    `enfolded-beta`);
+  - `ENFOLDED_BACKUP_S3_REGION=auto`;
+  - `ENFOLDED_BACKUP_REQUIRED=true`, set only after a manual dispatch has
+    stored a real object.
+- **`backup` environment secrets (G4), never repository secrets:**
+  - the write key pair: access key id and secret key;
+  - the bucket and the endpoint;
   - the read-only key pair for the health check;
-  - `ENFOLDED_BACKUP_REQUIRED=true`, set as a **variable** only after a manual
-    dispatch has stored a real object.
+  - the Fly token (below).
 - **The backup job's Fly token.**
   - **Why it is sensitive.** The backup workflow reads `FLY_API_TOKEN`
     (`backup.yml:43`) and runs `flyctl ssh console` and `flyctl ssh sftp get`.
@@ -575,7 +580,7 @@ The rehearsals start once O12 is done; only G3's probes wait for G3's merge:
   owner. The policy ledger does not count that spend; the $150 provider limit
   does;
 - a capacity rehearsal with three simultaneous clients, against the deployed
-  twin: `scripts/ws_soak.py --url https://enfolded-staging.fly.dev --clients 3
+  twin: `.venv/bin/python scripts/ws_soak.py --url https://enfolded-staging.fly.dev --clients 3
   --keys-file <private file>`, with `--no-chat` unless `/community` reports
   chat enabled. The script's default URL is a local world;
 - block and unblock;
@@ -628,11 +633,13 @@ The rehearsals start once O12 is done; only G3's probes wait for G3's merge:
     The pre-boot recovery evidence is the staging restore (item 10).
   - **After the first production deploy, before any invitation**
     (`fly-deployment.md`):
-    1. Run one manual dispatch and confirm a real production object is stored.
+    1. Run one manual dispatch and confirm a validated production snapshot is
+       stored (not a quarantined one).
     2. Only then set `ENFOLDED_BACKUP_REQUIRED=true`.
     3. Enable the external dispatcher. GitHub's own schedule alone has shown
        five-hour gaps against the one-hour bound (backup cadence record).
-    4. Confirm successive production objects meet the one-hour bound.
+    4. Confirm successive validated production snapshots meet the one-hour
+       bound.
     5. Point a new heartbeat monitor at production.
 
 **Owner act:** the DSN secret, the scheduler, uptime and heartbeat accounts, and
