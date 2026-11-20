@@ -40,7 +40,8 @@ owner has not yet seen, has not yet decided, or decided on 2026-11-19:
   answer. Section 5 lists each one.
 - **Answered by the owner, 2026-11-19** marks one of the four open questions
   the owner answered that day by adopting the recommendation put to him (D-F
-  in section 1).
+  in section 1). He then changed one of the four, puzzle help, in his own
+  words (D-G).
 
 Everything unmarked is the recommendation the owner adopted in the session,
 corrected only where review showed it to be wrong about a source.
@@ -50,7 +51,8 @@ corrected only where review showed it to be wrong about a source.
 Five recommendations were changed by the owner (D-A to D-E). His quotes
 override the recommendation wherever the two differ. D-F records four
 recommendations he adopted unchanged on 2026-11-19; the message quoted there is
-the agent's and overrides nothing.
+the agent's and overrides nothing. D-G is the owner's own change to one of
+them and overrides it. D-H is a further rule in his words.
 
 **D-A. The newcomer watch runs with AI on.** The recommendation had been an
 AI-off watch.
@@ -131,11 +133,29 @@ he can correct before merging.
   and the fourth (item 9) as the message worded it. The page's wording is wider
   than the message in two places. Item 30 also holds a shared line when a cap
   is spent or AI is off, where the message said only "when the classifier is
-  unreachable". Item 40 keeps ADR-037's condition that the answer needs private
-  messages between people too, which the message did not mention. For the reset
+  unreachable". Item 40 kept ADR-037's condition that the answer needs private
+  messages between people too, which the message did not mention; D-G has since
+  replaced that answer. For the reset
   boundary (item 9) this page carried no recommendation before the message,
   only the rule that a declared production world is not reset until the owner
   answers; "the checklist declaration" was first put to him there.
+
+**D-G. Puzzle help happens in the shared chat.** After D-F was recorded, the
+owner changed the third of those answers, later on 2026-11-19:
+
+> Collaboration on solving puzzles (Puzzle help) can occur in the shared chat.
+> It does not need to wait for private chat.
+
+This overrides the puzzle-help answer in D-F. Item 40 carries it.
+
+**D-H. A human solves.** Asked the same day whether an AI traveler may act at a
+player's request, not only suggest, the owner wrote:
+
+> AI travelers do not solve puzzles, even if a human requests. A human player
+> must solve the puzzles.
+
+Item 40 carries the rule. What it means for each kind of puzzle belongs to the
+puzzle design record (item 23), which is not yet in the repository.
 
 ## 2. Adopted answers
 
@@ -206,7 +226,7 @@ answer still needs before it takes effect.
 | 37 | Cohort exceptions | One dated list, signed at the watch read-out: later-improvement rows excused, measurement rows required only to be instrumented. | The list, at the read-out |
 | 38 | Evidence gates | The four pilot gates are adopted as hypotheses reported with counts. A missed gate buys one fix-and-rerun round. Playtest bars are readings with one tripwire. *Added after review:* the first version did not say what the tripwire is. Proposed: a puzzle family with five or more attempted puzzles and none solved, or an overall median interest rating under 3, opens a fix before invitations go beyond the first cohort. It is read at the watch read-out and at each cohort read, and is not an entry requirement. Ratings are collected by the facilitator's question; no rating surface is built. | The owner's confirmation of the tripwire, at the read-out |
 | 39 | Dates | Watch sessions by 11 December 2026. The cohort start is set at the watch read-out. The earlier January targets are withdrawn, because the naming change, the puzzle redesign and agents in chat now precede the cohort. | — |
-| 40 | Agents in the first cohort | **Owner words (D-D, D-E).** In scope. Agents never solve a puzzle by themselves. When a human asks an agent for help, the agent may help if its goals align with that player's, and may decline if they conflict. Rivalry is over aims, such as discovering places or shifting properties toward competing goals, never over solving. ADR-037's batches are directed. Agents need stated goals; a design note sets them and the rivalry, written with item 23. ADR-037's standing answers: at most two lingering travelers (D2); travelers in chat and Speak for places (D1); agent chat lines stored as human chat is (D8); an honesty answer goes to the asker alone (D3). *Added after review:* the first version stated what is ratified only in the note on ADR-037. D1, D2, D4 and D5 are ratified, except D4's question about cast names (answered by D-B and ADR-041) and D5's proposed covenant text (item 44). D3, D6, D7 and D8 stay Proposed until the refresh, apart from the two answers above and the answer to question 4 below. **Answered by the owner, 2026-11-19 (D-F):** an agent's puzzle help reaches the asker alone and is not stored (ADR-037 question 4, as ADR-037 recommends). As ordinary chat a correct suggestion would reach everyone and be stored. ADR-037 says the answer needs private messages between people too, so that a private line does not mark the agent as an AI. *Added after review:* this page had left chat scope until after the cohort. The answer moves one part of it: direct messages between people are built with batch 4, and place-local chat stays for after the cohort. ADR-040's private log and reports were designed for room-wide chat: each human line is logged before delivery and carries the reference a report cites. So the ADR-037 refresh says how direct messages are logged and reported. It also says how an agent's help line, an exception to "agent chat lines stored as human chat is" above, stays unstored without differing from a person's direct message in what the asker receives or can report, because that difference would mark the agent as an AI. Batch 4, the collaboration batch that ADR-036 and ADR-037 share, no longer waits for an answer. The aim is to land it before the cohort enters; the cohort is not held for it. | The design note; ADR-037 refreshed against `main`, covering direct messages between people |
+| 40 | Agents in the first cohort | **Owner words (D-D, D-E, D-H).** In scope. Agents never solve a puzzle by themselves, and do not solve one at a human's request either: a human player must solve it (D-H). When a human asks an agent for help, the agent may help if its goals align with that player's, and may decline if they conflict. Rivalry is over aims, such as discovering places or shifting properties toward competing goals, never over solving. ADR-037's batches are directed. Agents need stated goals; a design note sets them and the rivalry, written with item 23. ADR-037's standing answers: at most two lingering travelers (D2); travelers in chat and Speak for places (D1); agent chat lines stored as human chat is (D8); an honesty answer goes to the asker alone (D3). *Added after review:* the first version stated what is ratified only in the note on ADR-037. D1, D2, D4 and D5 are ratified, except D4's question about cast names (answered by D-B and ADR-041) and D5's proposed covenant text (item 44). D3, D6, D7 and D8 stay Proposed until the refresh, apart from the two answers above and the answer to question 4 below. **Answered by the owner, 2026-11-19 (D-G, which replaces his answer in D-F):** collaboration on solving puzzles (puzzle help) can occur in the shared chat and does not need to wait for private chat (ADR-037 question 4). The answer in D-F had been the asker alone, not stored, which needed private messages between people. *Added after review:* so an agent's puzzle help is ordinary chat. Every connected traveler who has not blocked the speaker receives it, and it is kept as agent chat lines are (D8 above). Direct messages between people are not built for batch 4, and chat scope is again left until after the cohort. A correct suggestion is then seen by every connected traveler who has not blocked that agent, and any of them can enter it; the attempt and the solve stay a human's. ADR-037 warned that such a line would enter the public chronicle. Human chat has left the chronicle since #174 and is kept in the operator-only log (ADR-040); where agent chat lines are kept is for the ADR-037 refresh to confirm (*inferred* that they follow human chat). Batch 4, the collaboration batch that ADR-036 and ADR-037 share, no longer waits for an answer. The aim is to land it before the cohort enters; the cohort is not held for it. | The design note; ADR-037 refreshed against `main`, confirming where agent chat lines are kept |
 
 ### Records and process
 
@@ -287,15 +307,17 @@ decision now.
 10. The bucket account and the scheduler service (items 11, 12).
 11. A judgment on the sample puzzles in the design record (item 23).
 
-**Answered by the owner on 2026-11-19** (D-F in section 1). These were open
-after review. The owner adopted the agent's recommendation on each; D-F says
-how each was put to him.
+**Answered by the owner on 2026-11-19** (D-F and D-G in section 1). These were
+open after review. The owner adopted the agent's recommendation on each, and
+D-F says how each was put to him; he then changed entry 14 in his own words
+(D-G).
 
 12. The puzzle salt is in place before the kept world's first boot (item 22).
 13. The checklist's declaration of world status is the boundary that bars a
     reset of a production world (item 9).
-14. An agent's puzzle help reaches the asker alone and is not stored, which
-    needs private messages between people too (item 40).
+14. An agent's puzzle help can be given in the shared chat and does not wait
+    for private chat (item 40). This is the owner's later answer (D-G); his first
+    (D-F) was the asker alone, not stored.
 15. A shared line is held when the classifier cannot be reached, a cap is
     spent or AI is off (item 30).
 
@@ -349,9 +371,10 @@ them:
   line a complaint held (item 34).
 - The proposed playtest tripwire (item 38).
 - Which parts of ADR-037 are ratified; batch 4 is an aim, not a condition of
-  cohort entry; direct messages between people are built with it; and the
-  refresh says how they are logged and reported and how an unstored help line
-  stays indistinguishable from a person's direct message (item 40).
+  cohort entry; puzzle help in shared chat reaches every connected traveler who
+  has not blocked the speaker;
+  no direct messages are built for it; and the refresh confirms where agent
+  chat lines are kept (item 40).
 
 **Values a merge adopts.** One reviewer asked that these agent-worded answers
 be read as the owner's own before merging, because each sets a value reserved

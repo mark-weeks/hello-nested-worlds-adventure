@@ -11,9 +11,14 @@ and set two rules the refresh must carry (D-D and D-E). An agent asked for
 puzzle help may help when its goals align with the player's and may decline
 when they conflict. Rivalry between agents and players is over aims, never over
 solving. Batch 4 is the collaboration batch this record shares with ADR-036. On
-2026-11-19 the owner answered open question 4 as this record recommends: an
-agent's puzzle help reaches the asker alone and is not stored, which needs
-private messages between people too (D7); the refresh covers them (item 40).
+2026-11-19 the owner answered open question 4, and not as this record
+recommends: an agent's puzzle help can be given in the shared chat and does not
+wait for private chat (D-G). He also wrote that AI travelers do not solve
+puzzles even if a human requests; a human player must solve them (D-H). He had first adopted the recommended answer, the
+asker alone and not stored, and changed it the same day. So D7's recommended
+private delivery and the direct messages it needs are not built for batch 4;
+the refresh rewrites D7 to match and confirms where agent chat lines are kept
+(item 40).
 The aim is to land batch 4 before the cohort enters; the cohort is not held for
 it. The covenant wording proposed in D5 does
 not land with batch 2: `AGENTS.md` changes only in a working-rules pull request,
