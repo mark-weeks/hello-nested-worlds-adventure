@@ -52,7 +52,7 @@ Five recommendations were changed by the owner (D-A to D-E). His quotes
 override the recommendation wherever the two differ. D-F records four
 recommendations he adopted unchanged on 2026-11-19; the message quoted there is
 the agent's and overrides nothing. D-G is the owner's own change to one of
-them and overrides it. D-H and D-I are further decisions in his words; D-I overrides part of item 23.
+them and overrides it. D-H, D-I and D-J are further decisions in his words; D-I overrides part of item 23, and D-J qualifies D-H for two of the new kinds.
 
 **D-A. The newcomer watch runs with AI on.** The recommendation had been an
 AI-off watch.
@@ -173,6 +173,29 @@ should disappear or stay as an easy first puzzle, the owner wrote on
 This overrides item 23 where it said the generic kinds are retired and the
 look-up kinds redesigned. Item 23 carries it.
 
+**D-J. Five puzzle-design answers, 2026-11-20.** After this page merged, the
+agent put five questions on the puzzle design to the owner: which first puzzle;
+whether today's prediction puzzles stay beside the new forecasting kind or fold
+into it; whether a puzzle that opens on a state of the world needs a human's
+act; whether the two-traveler kind stays for the cohort; and whether to cut
+three samples that need more travelers online than a small cohort supplies. He
+wrote:
+
+> 1. Select a first puzzle that helps orient the player to the world and the
+>    game mechanics.
+> 2. fold them in
+> 3. open when the condition is met, regardless of which players (AI or human)
+>    established the conditions. With so many conditions changing I don't think
+>    it's feasible to restrict to only human actions.
+> 4. Keep it for the cohort with at least one human required. A human can
+>    cooperate with an AI agent to solve a two places at once puzzle, provided
+>    both players are willing to cooperate with each other.
+> 5. Hold and defer the three that need more travelers online than a small
+>    cohort supplies
+
+Item 23 carries these. Answers 3 and 4 qualify D-H for two of the new kinds;
+where they differ from D-H, they govern those kinds.
+
 ## 2. Adopted answers
 
 Item numbers are those of the list the owner worked on 2026-11-18. "Owner
@@ -215,7 +238,7 @@ answer still needs before it takes effect.
 | 20 | Next puzzle batches | Both directed: the cast stops attempting puzzles, and per-player send-aways replace the shared pool. *Added after review:* this replaces "The kept database is born after the first of them". ADR-036 D8, which item 19 ratifies, puts the send-away batch (1b) before the batch that stops the cast (2) and says both should land before the first production boot, because each opens a write path. The kept database is born after both. | The two pull requests |
 | 21 | Wrong-guess text (ADR-036 question 6) | Only right or wrong is stored. It ships as a small change before the first invite. | The code change |
 | 22 | Puzzle salt (ADR-038) | The owner adopted the salt in principle, with separate staging and production salts. **Answered by the owner, 2026-11-19 (D-F):** yes to ADR-038's question 1, a first-boot door. The hosted world gets the salt before its first boot, so ADR-038's B1 and B2 come before the first production boot. *Added after review:* the first version of this page said the salt did not gate the cohort and was built after item 20; review showed that this conflicts with ADR-038. A puzzle pinned without the salt stays computable from the public code until its place renews, the heartbeat starts pinning at the first tick, and under item 19 an unsolved puzzle never renews by itself. The salt's code (ADR-038's B1) can be built alongside item 20's batches. The kept boot then waits for whichever finishes last: those batches, the naming change, the puzzle redesign (item 23), or the salt's build and deployment (B1 and B2). ADR-038 has the salt probe and its audit rerun when the guess limit or a puzzle family changes, so the production salt is audited against the final generator. The cost is the B1 pull request, one secret on each app and the working-rules change that follows. A watch twin deployed before B1 exists (item 1 aims at 20 November) is not held for the salt. It runs unsalted until its first deploy that carries B1; its secret is set before that deploy, because a marked server refuses to start without one (ADR-038 D4). Puzzles it pinned before then stay unsalted until their places renew. **Open for the owner:** approval of ADR-038's D8 wording for `AGENTS.md` (its question 3), which changes a working rule and so goes in the working-rules pull request (item 44). | The B1 pull request; the staging secret before the first staging deploy that carries B1, and the production secret with the first-deploy secrets (B2), before the first production boot; the owner's approval of the D8 wording |
-| 23 | Puzzle quality | **Owner words (D-C, D-I).** Replaces "duplicate answers". By D-I the look-up puzzles are removed completely, a newcomer's first puzzle is something else, the anagram, cipher, number pattern, riddle, ordering and similar puzzles are preserved, and four new kinds are added. Agent collaboration is designed with the new kinds (item 40). The work starts with a design record holding ten sample puzzles per proposed kind for the owner to judge, before any generator code. The watch is not held for it; the kept world is. *Added after review:* D-I replaces "The generic kinds (anagram, cipher, number pattern, riddle, ordering: 1,445 of 4,208 puzzles on seed 382) are retired. Prediction is deepened. The look-up kinds are redesigned so a player must infer or experiment." The four new kinds are those of the draft design record, which is not yet in the repository: a place that opens when the world is made a certain way; finding a universe's law by experiment and forecasting from it; working out what happened from a place's history; and two travelers acting at two places within a short window. A look-up puzzle is read here by what the player must do: fetch a named property, a name or a position from the world. On seed 382 at epoch 0 that is all but nine of the 2,367 puzzles of the navigation, logic and lock kinds. The kind tag is not the test: a renewal can draw a handwritten puzzle tagged logic that is an ordering exercise (The Star Type Logic, `puzzles/data.py`), which D-I preserves. The rule applies to renewal puzzles as well as the first ones. The draft's samples that are themselves look-ups go with them. D-I does not name prediction (396): the draft deepens it into the second new kind, and the design record will say whether today's prediction puzzles stay beside it. The agent reads D-H as making both acts of a two-traveler puzzle human acts; the draft had let an AI traveler be the second. The preserved kinds keep answers that can be computed from the public code, so the salt (item 22) still matters for them. | The design record; then the owner's approval of the puzzle re-pin, in the redesign's own pull request |
+| 23 | Puzzle quality | **Owner words (D-C, D-I).** Replaces "duplicate answers". By D-I the look-up puzzles are removed completely, a newcomer's first puzzle is something else, the anagram, cipher, number pattern, riddle, ordering and similar puzzles are preserved, and four new kinds are added. Agent collaboration is designed with the new kinds (item 40). The work starts with a design record holding ten sample puzzles per proposed kind for the owner to judge, before any generator code. The watch is not held for it; the kept world is. *Added after review:* D-I replaces "The generic kinds (anagram, cipher, number pattern, riddle, ordering: 1,445 of 4,208 puzzles on seed 382) are retired. Prediction is deepened. The look-up kinds are redesigned so a player must infer or experiment." The four new kinds are those of the draft design record, which is not yet in the repository: a place that opens when the world is made a certain way; finding a universe's law by experiment and forecasting from it; working out what happened from a place's history; and two travelers acting at two places within a short window. A look-up puzzle is read here by what the player must do: fetch a named property, a name or a position from the world. On seed 382 at epoch 0 that is all but nine of the 2,367 puzzles of the navigation, logic and lock kinds. The kind tag is not the test: a renewal can draw a handwritten puzzle tagged logic that is an ordering exercise (The Star Type Logic, `puzzles/data.py`), which D-I preserves. The rule applies to renewal puzzles as well as the first ones. The draft's samples that are themselves look-ups go with them. D-I does not name prediction (396); by D-J today's prediction puzzles are folded into the second new kind. By D-J a puzzle that opens on a state of the world opens when the condition is met, whoever brought it about, human or AI; a two-traveler puzzle stays for the cohort and needs at least one human, who may cooperate with a willing AI traveler; the first puzzle is one chosen to orient a newcomer to the world and its mechanics; and the three samples that need more travelers online than a small cohort supplies are held and deferred. The agent had first read D-H as making both acts of a two-traveler puzzle human acts; D-J corrects that. Elsewhere D-H stands: an AI traveler does not enter an answer or solve a puzzle for a player. The preserved kinds keep answers that can be computed from the public code, so the salt (item 22) still matters for them. | The design record; then the owner's approval of the puzzle re-pin, in the redesign's own pull request |
 
 ### Models and spend
 
@@ -390,8 +413,8 @@ them:
 - What counts as a look-up puzzle (by what the player must do, not by kind
   tag, at renewals too), what the four new kinds
   are, that the draft's samples which are themselves look-ups are dropped,
-  that both acts of a two-traveler puzzle are a human's (the agent's reading
-  of D-H), that prediction's place is left to the design record, and that the
+  that D-H still bars an AI traveler from entering an answer or solving for a
+  player outside the two kinds D-J names, and that the
   preserved kinds still need the salt (item 23).
 - The proposed playtest tripwire (item 38).
 - Which parts of ADR-037 are ratified; batch 4 is an aim, not a condition of
