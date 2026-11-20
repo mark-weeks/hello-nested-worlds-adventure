@@ -3,6 +3,11 @@
 const STYLE = `:host{display:block;color:var(--text);font:1rem/1.5 system-ui}*{box-sizing:border-box;overflow-wrap:anywhere}section{padding:0}.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr));gap:8px;margin:12px 0}.choices button{display:flex;flex-direction:column;gap:8px}.choices small{font-size:.875rem;color:var(--muted);font-weight:normal}.selected{border:2px solid var(--accent)}p{margin:8px 0;color:var(--muted)}button,input,select,textarea{font:inherit;color:var(--text);background:var(--raised);border:1px solid var(--line);border-radius:var(--contour);padding:12px;max-width:100%}button{cursor:pointer;text-align:left;min-height:44px}button:hover{background:var(--canvas)}button:disabled{border-style:dashed;color:var(--muted);cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:3px}textarea{width:100%;min-height:100px;resize:vertical}textarea::placeholder{color:var(--muted)}.primary{background:var(--accent);color:var(--on-accent);font-weight:600;width:100%;margin:12px 0}.primary:hover{background:var(--text)}.caption{font-size:.8125rem;color:var(--muted)}.recent{margin-top:12px}.recent article{margin:16px 0;font-size:.875rem}.recent strong{color:var(--text)}summary{cursor:pointer;min-height:44px;padding:12px 0}.intention{border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:16px 0}.intention summary{color:var(--accent);font-weight:600}.quiet{font-size:.875rem;color:var(--muted)}.status:not(:empty){border-left:3px solid var(--attention);padding:12px;margin:16px 0;color:var(--text);background:var(--raised)}.combine{font-size:.875rem;background:transparent}@media(max-width:360px){.choices{grid-template-columns:1fr}}`;
 
 function el(tag, text, props = {}) { const n = document.createElement(tag); if (text != null) n.textContent = text; Object.assign(n, props); return n; }
+const INTERVENTION_EVENT = 'enfolded:intervention';
+globalThis.EnfoldedInterventions = {
+  // Called by both hosts for every intervention_changed broadcast.
+  announce(message) { globalThis.dispatchEvent?.(new CustomEvent(INTERVENTION_EVENT, {detail: message})); },
+};
 const display = name => globalThis.EnfoldedClient.displayName(name || '');
 class InterventionComposer extends HTMLElement {
   constructor() { super(); this.attachShadow({mode:'open'}); this.steps = []; this.generation = 0; this.loadSequence = 0; }
@@ -19,7 +24,14 @@ class InterventionComposer extends HTMLElement {
     this.renderPending();
     this.revision = value.node.senses?.revision;
   }
-  disconnectedCallback() { this.generation++; clearTimeout(this.poll); }
+  // A delayed action changes no served property until it lands, so a node
+  // revision cannot reveal another player's new pending work. Hosts announce
+  // each accepted action; a co-viewer re-reads outcomes for its own place.
+  connectedCallback() {
+    this.onIntervention ||= event => { if (this.ctx?.node && event.detail?.node === this.ctx.node.name) this.load(); };
+    globalThis.addEventListener?.(INTERVENTION_EVENT, this.onIntervention);
+  }
+  disconnectedCallback() { this.generation++; clearTimeout(this.poll); globalThis.removeEventListener?.(INTERVENTION_EVENT, this.onIntervention); }
   async request(path, body) {
     const ctx = this.ctx;
     const response = await fetch(path + (body ? '' : '?' + new URLSearchParams({seed:ctx.seed,node:ctx.node.name})), {

@@ -303,8 +303,9 @@ for(const route of ['/','/app']) {
       const reads=pages.map(()=>({world:0,node:0}));pages.forEach((page,i)=>page.on('request',req=>{const ep=new URL(req.url()).pathname.slice(1);if(ep in reads[i])reads[i][ep]++;}));
       const own=await kindle(ada,a);await expect(a.getByRole('status')).toHaveText(own.flavor);
       await expect(b.getByRole('status')).toHaveText('');
-      // The other player's pending work is visible on demand, not a forced route.
-      await b.getByText('Actions still echoing',{exact:true}).click();await expect(b).toContainText('Ada · Kindle');
+      // The other player's pending work is visible on demand, not a forced route,
+      // while it is still pending: well inside the 15 s maturation, not when it lands.
+      await b.getByText('Actions still echoing',{exact:true}).click({timeout:10000});await expect(b).toContainText('Ada · Kindle',{timeout:10000});
       const other=await kindle(bea,b);expect(other.id).not.toBe(own.id);
       await expect(a.getByRole('status')).toHaveText(own.flavor);await expect(b.getByRole('status')).toHaveText(other.flavor);
       await expect.poll(async()=> (await(await request.get(server.url+'/node?node_name='+encodeURIComponent(galaxy.name))).json()).node.properties.star_density,{timeout:25000}).toBe(459);

@@ -1,6 +1,6 @@
 // Behavior tests for the shared composer's outcome polling. The element is a
 // plain script with no exports, so the custom-element registry captures it.
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 let Composer;
 beforeAll(async () => {
@@ -194,5 +194,36 @@ describe("receipt and observed-history recovery", () => {
     ]);
     await c.load(); await c.load(true); c.disconnectedCallback();
     expect(changed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("another player's accepted action", () => {
+  // Node has no window: give the module the global event target hosts use.
+  const target = new EventTarget();
+  beforeAll(() => {
+    globalThis.addEventListener = target.addEventListener.bind(target);
+    globalThis.removeEventListener = target.removeEventListener.bind(target);
+    globalThis.dispatchEvent = target.dispatchEvent.bind(target);
+  });
+  afterAll(() => { delete globalThis.addEventListener; delete globalThis.removeEventListener; delete globalThis.dispatchEvent; });
+
+  it("re-reads outcomes for this place only, without asking the host for the node again", async () => {
+    const { c, changed } = composer([
+      { participant: "p", recent: [{ performer: "Ada", summary: "Kindle", pending: 1 }] },
+      { participant: "p", recent: [] },
+    ]);
+    c.connectedCallback();
+    // A delayed acceptance leaves the served revision unchanged: only the
+    // announcement can tell this viewer that new work is pending here.
+    globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Elsewhere-9", id: "x" });
+    expect(c.request).not.toHaveBeenCalled();
+    globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "a" });
+    await vi.waitFor(() => expect(c.data?.recent?.[0]?.performer).toBe("Ada"));
+    expect(c.request).toHaveBeenCalledTimes(1);
+    expect(c.request).toHaveBeenCalledWith("/interventions");
+    expect(changed).not.toHaveBeenCalled();
+    c.disconnectedCallback();
+    globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "b" });
+    expect(c.request).toHaveBeenCalledTimes(1);
   });
 });

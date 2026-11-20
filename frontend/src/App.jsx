@@ -426,6 +426,7 @@ export default function App() {
     },
     onIntervention: (msg) => {
       pushEvent({type: 'system', text: msg.flavor || 'A new arrangement arrives.'});
+      globalThis.EnfoldedInterventions?.announce(msg);
       // Like scale acts: only the place this client stands on is re-read.
       if (msg.node === currentNodeName) {
         refreshCurrentNode(msg.node, msg);

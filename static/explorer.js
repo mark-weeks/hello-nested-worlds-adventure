@@ -1364,6 +1364,7 @@ function handleWsMsg(msg) {
     }
     case 'intervention_changed':
       pushFeed(msg.flavor || 'A new arrangement arrives.');
+      globalThis.EnfoldedInterventions?.announce(msg);
       if (selected?.name === msg.node) refreshPendingAct(msg.node, msg);
       break;
     case 'scale_act': {
