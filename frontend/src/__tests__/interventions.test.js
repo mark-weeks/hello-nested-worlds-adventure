@@ -10,7 +10,8 @@ beforeAll(async () => {
   globalThis.HTMLElement = FakeElement;
   globalThis.customElements = { get: () => undefined, define: (_, cls) => { Composer = cls; } };
   globalThis.document = { createElement: tag => ({ tag, children: [], attrs: {}, style: {},
-    append(...nodes) { this.children.push(...nodes); }, setAttribute(k, v) { this.attrs[k] = v; } }) };
+    append(...nodes) { this.children.push(...nodes); }, setAttribute(k, v) { this.attrs[k] = v; },
+    getAttribute(k) { return this.attrs[k] ?? null; }, focus() { globalThis.__focused = this; } }) };
   const stored = new Map();
   globalThis.localStorage = { getItem: k => stored.get(k) ?? null, setItem: (k, v) => stored.set(k, v), removeItem: k => stored.delete(k) };
   globalThis.EnfoldedIntents = { begin: async () => ({ request_id: "req-1" }), finish() {} };
@@ -225,5 +226,70 @@ describe("another player's accepted action", () => {
     c.disconnectedCallback();
     globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "b" });
     expect(c.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps this viewer's own receipt when an announced read fails, and retries with backoff", async () => {
+    vi.useFakeTimers();
+    const { c } = composer([
+      Object.assign(new Error("The world keeps its own pace."), {status:429}),
+      Object.assign(new Error("The world keeps its own pace."), {status:429}),
+      { participant: "p", recent: [{ performer: "Ada", summary: "Kindle", pending: 0 }] },
+    ]);
+    c.message = "Bea acts: the stars kindle.";
+    c.connectedCallback();
+    globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "a" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(c.request).toHaveBeenCalledTimes(1);
+    expect(c.message).toBe("Bea acts: the stars kindle.");
+    // Nothing was pending before, yet the failed announced read is retried: 8 s, then 16 s.
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(c.request).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(15999);
+    expect(c.request).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(c.request).toHaveBeenCalledTimes(3);
+    expect(c.data.recent[0].performer).toBe("Ada");
+    expect(c.message).toBe("Bea acts: the stars kindle.");
+    await vi.advanceTimersByTimeAsync(120000);
+    expect(c.request).toHaveBeenCalledTimes(3);
+    c.disconnectedCallback();
+  });
+
+  it("keeps keyboard focus on the same observed arrival when history refreshes", () => {
+    const { c } = composer([]);
+    delete c.renderRecent;
+    globalThis.EnfoldedClient = { displayName: name => name };
+    const root = { children: [], replaceChildren(...nodes) { this.children = nodes; }, append(...nodes) { this.children.push(...nodes); },
+      contains: node => node === focusedBefore,
+      querySelectorAll() { return this.children.flatMap(n => n.children || []).filter(n => n.tag === "button"); } };
+    const focusedBefore = { getAttribute: k => k === "data-focus-key" ? "observed:41" : null };
+    c.shadowRoot.activeElement = focusedBefore;
+    c.shadowRoot.querySelector = selector => selector === ".recent" ? root : null;
+    c.data = { recent: [{ performer: "Ada", summary: "Kindle", pending: 1, origin: "Mire-112",
+      arrivals: [{ node: "Mire-112", event_id: 40 }, { node: "Mire-1", event_id: 41 }] }] };
+    globalThis.__focused = null;
+    c.renderRecent();
+    expect(globalThis.__focused?.getAttribute("data-focus-key")).toBe("observed:41");
+    expect(globalThis.__focused).not.toBe(focusedBefore);
+  });
+
+  it("adds the first record's disclosure in place while a control keeps focus", async () => {
+    const { c } = composer([{ participant: "p", recent: [{ performer: "Ada", summary: "Kindle", pending: 1, arrivals: [] }] }]);
+    const section = { append: vi.fn() };
+    let recent = null;
+    c.shadowRoot.activeElement = { tag: "button" };
+    c.shadowRoot.querySelector = selector => selector === ".choices" ? {} : selector === "section" ? section : selector === ".recent" ? recent : null;
+    c.render = vi.fn();
+    c.renderRecent = vi.fn();
+    await c.load(false, true);
+    clearTimeout(c.poll);
+    expect(c.render).not.toHaveBeenCalled();
+    expect(section.append).toHaveBeenCalledTimes(1);
+    expect(section.append.mock.calls[0][0].tag).toBe("details");
+    expect(c.renderRecent).toHaveBeenCalledTimes(1);
+    // Once the disclosure exists, a later read only refreshes its rows.
+    recent = {};
+    c.ensureHistory();
+    expect(section.append).toHaveBeenCalledTimes(1);
   });
 });

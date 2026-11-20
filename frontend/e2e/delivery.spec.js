@@ -300,7 +300,9 @@ for(const order of ['HTTP first','socket first']) {
 
 for(const route of ['/','/app']) {
   test(`${route} co-viewers keep their own action replies while the shared state updates`,async({browser,request})=>{
-    test.setTimeout(45000);
+    // Page entry under load (up to ~19 s) plus one 15 s maturation and a 5 s
+    // pump tick; the delivery and visibility bounds below stay as tight as before.
+    test.setTimeout(60000);
     const directory=await mkdtemp(path.join(tmpdir(),'enfolded-v2-viewers-')),db=path.join(directory,'worlds.db');let server;const contexts=[];
     try {
       server=await startServer(db,true,0,'0.05');
@@ -310,11 +312,20 @@ for(const route of ['/','/app']) {
       for(const name of ['Ada','Bea']) {const ctx=await browser.newContext();contexts.push(ctx);const page=await ctx.newPage();pages.push(page);acts.push(await enter(page,server.url,route,galaxy.name,name));}
       const [ada,bea]=pages,[a,b]=acts;
       const reads=pages.map(()=>({world:0,node:0}));pages.forEach((page,i)=>page.on('request',req=>{const ep=new URL(req.url()).pathname.slice(1);if(ep in reads[i])reads[i][ep]++;}));
+      // Bea has a control focused when Ada acts: the first record must still
+      // appear, without taking her focus.
+      const beaKindle=b.getByRole('button',{name:'Kindle',exact:true});await beaKindle.focus();
       const own=await kindle(ada,a);await expect(a.getByRole('status')).toHaveText(own.flavor);
       await expect(b.getByRole('status')).toHaveText('');
       // The other player's pending work is visible on demand, not a forced route,
-      // while it is still pending: well inside the 15 s maturation, not when it lands.
-      await b.getByText('Actions still echoing',{exact:true}).click({timeout:10000});await expect(b).toContainText('Ada · Kindle',{timeout:10000});
+      // while it is still pending: the row is shown before any consequence lands.
+      await expect(b.getByText('Actions still echoing',{exact:true})).toBeVisible({timeout:10000});
+      await expect(beaKindle).toBeFocused();
+      await b.getByText('Actions still echoing',{exact:true}).click();
+      const adaRow=b.locator('article').filter({hasText:'Ada · Kindle'});
+      await expect(adaRow).toContainText('Consequences pending');
+      await expect(adaRow.getByRole('button',{name:/^Observed/})).toHaveCount(0);
+      expect((await(await request.get(server.url+'/node?node_name='+encodeURIComponent(galaxy.name))).json()).node.properties.star_density).toBe(418);
       const other=await kindle(bea,b);expect(other.id).not.toBe(own.id);
       await expect(a.getByRole('status')).toHaveText(own.flavor);await expect(b.getByRole('status')).toHaveText(other.flavor);
       await expect.poll(async()=> (await(await request.get(server.url+'/node?node_name='+encodeURIComponent(galaxy.name))).json()).node.properties.star_density,{timeout:25000}).toBe(459);

@@ -15,28 +15,40 @@ Section: Fixed
   because `click()` on "Actions still echoing" waited for the panel's first recent
   entry. The test therefore serialized two maturations and used 42.5 s of its 45 s
   budget with no load. Under load (8 busy loops on 4 cores, 4 workers) it hit the
-  45 s test timeout; the poll's "438" was its last value, not a slow arrival. Both
-  hosts now announce each `intervention_changed` broadcast, and the composer
-  re-reads `/interventions` for its own node with `load()`. That re-read adds no
-  `/node` read; it is one extra GET per co-viewer per broadcast on that node. The
-  test's assertions are unchanged except one tightening: Bea must open "Actions still
-  echoing" and see "Ada · Kindle" within 10 s, inside the 15 s maturation. Against the
-  old composer it now fails deterministically (click timeout at 10 s) instead of
-  passing slowly. Measured: one test went from ~39 s to ~21 s unloaded; under the
-  load above, `/app` went from 1/20 to 19/20 passing (one 45 s timeout in setup). Before
-  PR #184 merged, the `/` route still failed with its `"world":1` read-count race (9/20
-  here). Merged with #184, both routes passed 40/40 at that load: mean 26.3 s and
-  slowest 39.9 s to the 459 landing in a timed run. That tail is page entry under load
-  (Ada's first reply up to 18.8 s).
-  Known gap: the 45 s budget keeps ~5 s of headroom at the slowest observed load.
-  **Verified:** Vitest `interventions.test.js` 11/11, new case failing on the old
-  composer; frontend rebuilt; the Playwright stress runs above (Node 20.19.0, Python
-  3.11, system Chromium via `PW_CHROMIUM_PATH`). `ENFOLDED_E2E=1 ./scripts/check.sh`
-  green on `41ab14e` (before #184): Ruff clean; 4,329 Python tests
-  passed, 1 skipped; 242 Vitest tests in 20 files; frontend build and bundle freshness
-  passed; installed wheel verified; 212 Playwright tests passed. After merging main
-  (#184, spec and fragment only): the co-viewer stress run 40/40 and the whole
-  `delivery.spec.js` 17/17 unloaded.
+  45 s test timeout; the poll's "438" was its last value, not a slow arrival.
+  Both hosts now announce each `intervention_changed` broadcast. The composer re-reads
+  `/interventions` for its own node as a background read: no `/node` read, one extra
+  GET per co-viewer per broadcast on that node. Codex's review of the first version
+  (PR #185) found four more defects, all reproduced in Chromium and fixed here:
+  - With a control focused, the first record never appeared, because `renderRecent()`
+    had no `.recent` container to fill. The disclosure is now added in place, keeping
+    focus and any draft.
+  - A failed background read (one 429 from the per-IP read limiter) replaced the
+    viewer's own receipt and was never retried. Background failures now stay out of
+    the status line and retry at 8 s, 16 s and so on, up to 60 s.
+  - Re-rendering the history dropped keyboard focus from an "Observed" button. Focus
+    is now restored by arrival event id.
+  - The test still passed when visibility came only after the arrival, because the
+    row stays after landing and the 10 s bound started at Ada's reply.
+  The test now gives Bea's Kindle focus before Ada acts. It requires the disclosure
+  within 10 s with that focus kept, Ada's row "Consequences pending" with zero
+  "Observed" arrivals, and the galaxy still at 418. Against the first version's
+  composer it fails at the 10 s disclosure wait, deterministically. Measured: one test
+  went from ~39 s to ~21 s unloaded. Before PR #184 merged, the `/` route failed with
+  its `"world":1` read-count race (9/20 here). With #184 and the review fixes, 2 of 40
+  `/app` runs at the load above still hit the 45 s test budget: both had already
+  reached 459 and were in the final per-page checks. That budget left ~5 s at the
+  slowest load (page entry up to ~19 s, then 15 s maturation and up to 5 s pump). The
+  co-viewer test's overall budget is now 60 s. Its 25 s delivery poll and 10 s
+  visibility bound are unchanged.
+  **Verified:** Vitest `interventions.test.js` 14/14; the three new review-driven cases
+  fail on the reviewed head `b9f15f8`. Frontend rebuilt. Co-viewer stress at the load
+  above 40/40 with the 60 s budget (Node 20.19.0, Python 3.11, system Chromium via
+  `PW_CHROMIUM_PATH`). The first version's `ENFOLDED_E2E=1 ./scripts/check.sh` was
+  green on `41ab14e`: Ruff clean; 4,329 Python tests passed, 1 skipped; 242 Vitest
+  tests in 20 files; frontend build and bundle freshness passed; installed wheel
+  verified; 212 Playwright tests passed. The canonical gate on the review-fix head is
+  recorded in PR #185.
   **Irreversibility check:** none — client refresh wiring and one E2E/unit test; no
   generator, bank, golden pin, migration, chronicle write path, `world_meta` pin, era
   bank or endpoint change. The Act surface stays the single interaction surface (no

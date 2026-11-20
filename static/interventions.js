@@ -28,7 +28,7 @@ class InterventionComposer extends HTMLElement {
   // revision cannot reveal another player's new pending work. Hosts announce
   // each accepted action; a co-viewer re-reads outcomes for its own place.
   connectedCallback() {
-    this.onIntervention ||= event => { if (this.ctx?.node && event.detail?.node === this.ctx.node.name) this.load(); };
+    this.onIntervention ||= event => { if (this.ctx?.node && event.detail?.node === this.ctx.node.name) this.load(false, true); };
     globalThis.addEventListener?.(INTERVENTION_EVENT, this.onIntervention);
   }
   disconnectedCallback() { this.generation++; clearTimeout(this.poll); globalThis.removeEventListener?.(INTERVENTION_EVENT, this.onIntervention); }
@@ -42,7 +42,9 @@ class InterventionComposer extends HTMLElement {
     if (!response.ok || data.error) { const error = new Error(data.error || 'The arrangement could not be heard.'); error.status = response.status; throw error; }
     return data;
   }
-  async load(fromPoll = false) {
+  // A background read (another player's announced action) never replaces this
+  // viewer's own status line; a failed one retries with backoff on its own.
+  async load(fromPoll = false, background = false) {
     if (!this.ctx.key) { this.message='Enter with an invite to compose lasting changes.'; this.render(); return; }
     const generation = this.generation, sequence = ++this.loadSequence;
     // Outcome polling must survive a failed poll: keep the last known pending
@@ -63,18 +65,22 @@ class InterventionComposer extends HTMLElement {
       }
       // Poll outcomes without replacing focused controls or an in-progress draft.
       if (!this.busy && (!this.shadowRoot.activeElement || !this.shadowRoot.querySelector('.choices'))) this.render();
-      else this.renderRecent();
+      else { this.ensureHistory(); this.renderRecent(); }
+      this.backgroundRetry = 0;
       pending = data.recent.reduce((n,r) => n+r.pending,0);
       // A node-triggered read already has fresh properties; only polling must
       // request them when it discovers a missed outcome notification.
       if (fromPoll && had != null && (had !== pending || priorObserved !== observed(data.recent))) this.ctx.changed?.();
     } catch (error) {
       failed = true;
-      if (generation === this.generation && sequence === this.loadSequence) { this.message=this.pollError=error.status ? error.message : 'This place could not be heard. Listen again.'; this.render(); }
+      if (generation === this.generation && sequence === this.loadSequence && !background) { this.message=this.pollError=error.status ? error.message : 'This place could not be heard. Listen again.'; this.render(); }
     } finally {
       if (generation === this.generation && sequence === this.loadSequence && this.isConnected) {
         clearTimeout(this.poll);
-        if (pending) this.poll=setTimeout(() => this.load(true), failed ? 8000 : 4000);
+        if (failed && background) {
+          this.backgroundRetry = (this.backgroundRetry || 0) + 1;
+          this.poll=setTimeout(() => this.load(fromPoll, true), Math.min(8000 * 2 ** (this.backgroundRetry - 1), 60000));
+        } else if (pending) this.poll=setTimeout(() => this.load(true), failed ? 8000 : 4000);
       }
     }
   }
@@ -133,15 +139,29 @@ class InterventionComposer extends HTMLElement {
     await this.ctx.jump?.(name);
     if(focused)requestAnimationFrame(()=>document.getElementById('node-name')?.focus());
   }
+  historyElement() {
+    const history=el('details',null,{open:!!this.historyOpen});history.ontoggle=()=>this.historyOpen=history.open;
+    history.append(el('summary','Actions still echoing'),el('div',null,{className:'recent'}));
+    return history;
+  }
+  // The first record can arrive while a control is focused: add the disclosure
+  // in place rather than re-rendering over the focused control or a draft.
+  ensureHistory() {
+    if(!this.data?.recent?.length || this.shadowRoot.querySelector('.recent')) return;
+    this.shadowRoot.querySelector('section')?.append(this.historyElement());
+  }
   renderRecent() {
     const root=this.shadowRoot.querySelector('.recent'); if(!root) return;
+    const active=this.shadowRoot.activeElement, focusKey=root.contains?.(active) ? active.getAttribute('data-focus-key') : null;
     root.replaceChildren(el('span','YOUR THREADS THROUGH THE WORLD',{className:'caption'}));
     for(const r of this.data?.recent || []) {
       const item=el('article'); item.append(el('strong',`${r.performer} · ${r.summary}`),el('p',`${display(r.origin)} · Attempt accepted. ${r.pending ? 'Consequences pending' : 'All consequences settled'}`));
-      for(const a of r.arrivals) { const b=el('button',`Observed · ${display(a.node)}`); b.onclick=()=>this.jumpToObserved(a.node); item.append(b,el('p',a.flavor || 'A consequence was observed.')); }
+      for(const a of r.arrivals) { const b=el('button',`Observed · ${display(a.node)}`); b.setAttribute('data-focus-key',`observed:${a.event_id}`); b.onclick=()=>this.jumpToObserved(a.node); item.append(b,el('p',a.flavor || 'A consequence was observed.')); }
       root.append(item);
     }
     if(!this.data?.recent?.length) root.append(el('p','What you set in motion will remain here when you return.'));
+    // Keep keyboard focus on the same arrival across a history refresh.
+    if(focusKey) [...root.querySelectorAll('button')].find(b=>b.getAttribute('data-focus-key')===focusKey)?.focus({preventScroll:true});
   }
   render() {
     const active=this.shadowRoot.activeElement;
@@ -202,9 +222,7 @@ class InterventionComposer extends HTMLElement {
       recover.onclick=()=>this.commit();section.append(recover);
     }
     const status=el('p',this.message,{className:'status',tabIndex:-1});status.setAttribute('role','status');status.setAttribute('aria-live','polite');section.append(status);
-    if(this.data.recent?.length) {
-      const history=el('details',null,{open:!!this.historyOpen});history.ontoggle=()=>this.historyOpen=history.open;history.append(el('summary','Actions still echoing'),el('div',null,{className:'recent'}));section.append(history);this.renderRecent();
-    }
+    if(this.data.recent?.length) { section.append(this.historyElement()); this.renderRecent(); }
   }
 }
 if(!customElements.get('enfolded-interventions')) customElements.define('enfolded-interventions',InterventionComposer);
