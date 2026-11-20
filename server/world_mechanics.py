@@ -10,7 +10,7 @@ import persistence
 from causality import ORIGIN_STRENGTH, CausalityBus, EventKind
 from causality.staging import stage_cascade
 from causality.wiring import wire_world_handlers
-from multiverse import store
+from multiverse import naming, store
 from multiverse.node import SpatialNode
 from multiverse.utils import apply_property_patch
 from puzzles.instances import get_puzzle, peek_puzzle
@@ -96,18 +96,20 @@ def entangled_twin(node: SpatialNode) -> SpatialNode | None:
     """Return the structurally paired live-entangled particle, if any."""
     if node.level != "SubatomicParticle" or node.parent is None:
         return None
-    suffix = node.name.rpartition("-")[2]
-    if not suffix or not suffix[-1].isdigit():
+    # The pairing is by position: a particle's ordinal is the last step of
+    # its address (ADR-041 D3), never a reading of its name.
+    address = naming.node_address(node)
+    if not address:
         return None
-    ordinal = int(suffix[-1])
-    twin_suffix = suffix[:-1] + str(
+    ordinal = int(address[-1])
+    twin_address = address[:-1] + str(
         ordinal + 1 if ordinal % 2 == 1 else ordinal - 1
     )
     twin = next(
         (
             child
             for child in node.parent.children
-            if child.name.rpartition("-")[2] == twin_suffix
+            if naming.node_address(child) == twin_address
         ),
         None,
     )
@@ -163,6 +165,26 @@ def resolve_entangled_twin(
     if notifications is None:
         for message in messages:
             broadcast(room, message)
+
+
+def node_addresses(seed, names) -> dict[str, str]:
+    """Stored name -> address (digits form) for the names this world holds.
+
+    For payloads that name places a client may jump to: the address travels
+    beside the name, because a position is never read out of a name
+    (ADR-041 D3). One indexed read per distinct name; a name the world was
+    not born with is left out. Reads only: an unborn world is not born here.
+    """
+    found: dict[str, str] = {}
+    if not isinstance(seed, int) or isinstance(seed, bool):
+        return found
+    for name in dict.fromkeys(names):
+        if not name or not isinstance(name, str):
+            continue
+        row = persistence.get_world_node_address(seed, name)
+        if row is not None:
+            found[name] = naming.digits_of(row[0])
+    return found
 
 
 def resolve_node(seed: int, node_name: str) -> SpatialNode | None:

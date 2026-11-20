@@ -8,6 +8,7 @@ from persistence import participants, interventions, intents
 from multiverse import interventions_v3 as physics
 from puzzles.gates import seal_check
 from server import guard, observability
+from server.world_mechanics import node_addresses
 
 _log = logging.getLogger(__name__)
 ROUTES = {'/interventions', '/interventions/preview', '/interventions/commit'}
@@ -110,6 +111,11 @@ def handle(handler, path, qs, body=None):
                                 for op, info in vocabulary.items()],
                     'state': physics.read_state(interventions.live(seed, node)),
                     'recent': interventions.recent(seed, name, me['id'])}
+            # Each place the recent list names, with its address, so a
+            # client can go to an arrival it has not loaded (ADR-041 D3).
+            data['addresses'] = node_addresses(seed, [name, *(
+                place for item in data['recent']
+                for place in (item['origin'], *(a['node'] for a in item['arrivals'])))])
         elif body is None:
             raise ValueError('This action needs a submission.')
         elif path == '/interventions/preview':

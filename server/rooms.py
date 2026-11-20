@@ -14,11 +14,14 @@ of ever blocking the room.
 from __future__ import annotations
 
 import json
+import sqlite3
 import queue
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
+import persistence
+from multiverse.naming import digits_of
 from persistence.blocks import agent_target
 from server.block_targets import wire_message
 from server.protocol import ws_send
@@ -247,6 +250,9 @@ class Room:
     active_agents: dict = field(default_factory=dict)  # agent_name → current_node
     agent_personas: dict = field(default_factory=dict)  # agent_name → persona name
     puzzle_sessions: dict = field(default_factory=dict)  # node_name → PuzzleSession
+    # node_name → address (digits form). A born name never changes its
+    # place, so a found address is kept for the life of the room.
+    addresses: dict = field(default_factory=dict, compare=False, repr=False)
     # Acceptance owns the room lock across its DB transaction and calls the
     # existing session helpers, which acquire the same lock themselves.
     lock: threading.RLock = field(default_factory=threading.RLock, compare=False, repr=False)
@@ -308,6 +314,31 @@ def broadcast(room: Room, msg: dict, exclude: str | None = None) -> None:
                 room.players.pop(sid, None)
 
 
+def node_address(room: Room, node: str | None) -> str | None:
+    """The address (digits form, "121") of the place a presence frame names.
+
+    Presence frames carry it beside the name so a client can go to a
+    traveler it has not loaded: a position is never read out of a name
+    (ADR-041 D3). One indexed read of the stored name, remembered per room;
+    None for a name this world does not hold. A read only: nothing is born.
+    """
+    if not node or not isinstance(node, str):
+        return None
+    with room.lock:
+        if node in room.addresses:
+            return room.addresses[node]
+    try:
+        found = persistence.get_world_node_address(room.seed, node)
+    except sqlite3.Error:  # presence must not fail on a storage hiccup
+        return None
+    if found is None:
+        return None
+    address = digits_of(found[0])
+    with room.lock:
+        room.addresses[node] = address
+    return address
+
+
 def agent_enter(room: Room, name: str, persona: str | None = None) -> None:
     with room.lock:
         room.active_agents[name] = ""
@@ -325,7 +356,8 @@ def agent_move(room: Room, name: str, node: str) -> list[str]:
         room.active_agents[name] = node
         others = [n for n, pos in room.active_agents.items()
                   if pos == node and n != name]
-    broadcast(room, {"type": "agent_move", "name": name, "node": node})
+    broadcast(room, {"type": "agent_move", "name": name, "node": node,
+                     "address": node_address(room, node)})
     return others
 
 
@@ -344,7 +376,9 @@ def agent_persona(room: Room, name: str) -> str | None:
 
 def snapshot(room: Room, viewer: Player | None = None) -> list[dict]:
     with room.lock:
-        return [{"name": p.name, "node": p.current_node, "session_id": p.session_id,
+        return [{"name": p.name, "node": p.current_node,
+                 "address": node_address(room, p.current_node),
+                 "session_id": p.session_id,
                  **({"participant_id": p.participant_id} if p.participant_id else {})}
                 for p in room.players.values()
                 if viewer is None or p.participant_id not in viewer.blocked_ids]
@@ -374,7 +408,7 @@ def agents_snapshot(room: Room, viewer: Player | None = None) -> list[dict]:
     """The cast members currently walking this world, with positions —
     the agent half of the travelers roster the welcome payload carries."""
     with room.lock:
-        return [{"name": n, "node": pos,
+        return [{"name": n, "node": pos, "address": node_address(room, pos),
                  "persona": room.agent_personas.get(n), 'participant_id': target}
                 for n, pos in room.active_agents.items()
                 for target in (agent_target(n),)

@@ -295,9 +295,9 @@ def test_a_name_beside_the_question_is_one_the_speaker_answers_to():
                     assert not honesty.is_identity_question(line, own_names=[other]), (line, other)
     # The speaker's name as players write it, and one name passed alone.
     for line in ("Locksmith, are you human?", "the locksmith, are you human?",
-                 "Hello Cartographer 9. Are you an AI?", "Are you human, TESSERA?"):
+                 "Hello Cartographer. Are you an AI?", "Are you human, TESSERA?"):
         assert honesty.is_identity_question(
-            line, own_names=["The Locksmith", "Cartographer-9", "Tessera"]), line
+            line, own_names=["The Locksmith", "Cartographer", "Tessera"]), line
     assert honesty.is_identity_question("Tessera, are you human?", own_names="Tessera")
     assert not honesty.is_identity_question("Tessera, are you human?", own_names=None)
     # A place's own name is not known here, so it takes the normal path.

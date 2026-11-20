@@ -38,6 +38,16 @@ class TestRosterDesign:
         assert set(CAST_NAMES) == set(WANDERER_CAST)
         assert len(CAST_NAMES) == len(WANDERER_CAST) == 12
 
+    def test_no_cast_name_carries_appended_characters(self):
+        # ADR-041 D1/D5: a cast name is words only, and each is unique
+        # under the key player names are compared by.
+        import persistence
+        for name in CAST_NAMES:
+            assert all(part.isalpha() for part in name.split(" ")), name
+        assert "Cartographer" in CAST_NAMES
+        assert "Cartographer-9" not in CAST_NAMES
+        assert len({persistence.name_key(name) for name in CAST_NAMES}) == 12
+
     def test_personas_are_balanced(self):
         counts = Counter(p.persona for p in PROFILES)
         assert counts == {"tender": 3, "destabilizer": 3,
@@ -64,7 +74,11 @@ class TestRosterDesign:
     def test_for_name_honors_the_deliberate_assignment(self):
         # The two the hash famously miscast:
         assert for_name("Aunt Entropy").name == "destabilizer"
-        assert for_name("Cartographer-9").name == "scholar"
+        assert for_name("Cartographer").name == "scholar"
+        # ADR-041 D5: the persona comes from the roster, not from a hash of
+        # the name. The bare hash lands the renamed Cartographer elsewhere.
+        digest = hashlib.sha1(b"Cartographer").digest()
+        assert CATALOG[digest[0] % len(CATALOG)].name != "scholar"
         for p in PROFILES:
             assert for_name(p.name).name == p.persona
 

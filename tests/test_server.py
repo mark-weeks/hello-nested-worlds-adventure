@@ -252,6 +252,10 @@ class TestCoopPuzzles:
         assert region, "expected a Region node in the generated tree"
         region_node = SpatialNode(name=region["name"], level="Region",
                                   properties=dict(region["properties"]))
+        # The puzzle is drawn from the place's identity key and address,
+        # which the payload carries beside the name (ADR-041 D3, D4).
+        region_node.key, region_node.address = region["key"], region["address"]
+        assert region["key"] == f'{region["name"]}-{region["address"]}'
         answer = build_puzzle(region_node).answer
 
         # Alice burns one wrong attempt.
@@ -339,10 +343,13 @@ class TestPositionResume:
         assert status == 200 and saved["saved"] is True
         # A "second device" carrying the same key reads the same position back.
         data, _, _ = _get(f"{base}/position?key=k_pos")
+        # The address travels with the saved name: the client resumes at
+        # the depth it gives and never reads one out of the name (ADR-041).
         assert data["position"] == {
-            "node": node.name, "seed": 42,
+            "node": node.name, "address": node.address, "seed": 42,
             "depth": 6, "min_breadth": 1, "max_breadth": 3,
         }
+        assert node.address == "11" and node.address not in node.name
 
     def test_positions_isolated_between_keys(self, srv):
         base, _ = srv

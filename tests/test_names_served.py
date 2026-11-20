@@ -1,0 +1,296 @@
+"""ADR-041 on the server: a name is a label, the address and the identity
+key travel as their own fields, and no keyed draw moved with the names.
+
+- /world, /node and /wayback carry `address` (digits form) and `key`.
+- GET /position, /world's entry and wrap landings, presence frames, the
+  journal, the interventions list and the investigation carry the address
+  beside each name a client may go to.
+- A world born under generator version 2 keeps its stored names; its key is
+  the stored name alone.
+- The cast's attempt roll, the banter key and the verb token take the key,
+  which is the string a version-2 name was.
+"""
+from __future__ import annotations
+
+import json
+import threading
+import urllib.parse
+import urllib.request
+
+import pytest
+
+import persistence
+from agents.agent import Agent
+from agents.banter import compose_exchange
+from multiverse import naming, store
+from multiverse.node import SpatialNode
+from multiverse.situation import NODES
+from server import _Handler, _ThreadedServer, rooms
+from server.world_mechanics import entangled_twin, node_addresses
+
+SEED = 5150
+V2_SEED = 5151
+
+
+@pytest.fixture()
+def srv():
+    server = _ThreadedServer(("127.0.0.1", 0), _Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+
+
+def _get(url):
+    with urllib.request.urlopen(url) as response:
+        return json.loads(response.read())
+
+
+def _post(url, body):
+    request = urllib.request.Request(
+        url, data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request) as response:
+        return json.loads(response.read())
+
+
+def _walk(node, parent=None):
+    yield node, parent
+    for child in node.get("children", []):
+        yield from _walk(child, node)
+
+
+def _tree_nodes(root):
+    yield root
+    for child in root.children:
+        yield from _tree_nodes(child)
+
+
+def _v2_twin(node):
+    """The node as generator version 2 named it: a hand-built place whose
+    name ends in its path digits and that carries no key or address."""
+    return SpatialNode(f"{node.name}-{node.address}", node.level,
+                       properties=dict(node.properties))
+
+
+def _v2_tree(node):
+    """The whole subtree as generator version 2 named it."""
+    twin = _v2_twin(node)
+    for child in node.children:
+        twin.add_child(_v2_tree(child))
+    return twin
+
+
+class TestNodePayloads:
+    def test_world_carries_the_address_and_the_key_of_every_node(self, srv):
+        data = _get(f"{srv}/world?seed={SEED}&depth=6")
+        nodes = list(_walk(data["world"]))
+        assert len(nodes) == data["node_count"] > 100
+        assert data["world"]["address"] == "1"
+        for node, parent in nodes:
+            assert node["address"].isdigit()
+            assert not any(ch.isdigit() or ch == "-" for ch in node["name"])
+            # The key is the name generator version 2 stored (ADR-041 D4).
+            assert node["key"] == f'{node["name"]}-{node["address"]}'
+            if parent is not None:
+                ordinal = parent["children"].index(node) + 1
+                assert node["address"] == parent["address"] + str(ordinal)
+        assert len({node["name"] for node, _ in nodes}) == len(nodes)
+        assert len({node["address"] for node, _ in nodes}) == len(nodes)
+
+    def test_world_carries_the_address_of_each_wrap_landing(self, srv):
+        wrap = _get(f"{srv}/world?seed={SEED}&depth=2")["wrap"]
+        assert wrap["root_address"] == "1"
+        # The hinge is a leaf of the full world, far below this view.
+        assert len(wrap["hinge_address"]) == 11
+        assert store.node_at(SEED, wrap["hinge_address"]).name == wrap["hinge"]
+
+    def test_node_and_wayback_carry_them_for_a_place_outside_any_view(self, srv):
+        deep = next(node for node in _tree_nodes(store.world_tree(seed=SEED, max_depth=9))
+                    if len(node.address) == 9)
+        quoted = urllib.parse.quote(deep.name)
+        served = _get(f"{srv}/node?seed={SEED}&node_name={quoted}")["node"]
+        assert (served["address"], served["key"]) == (
+            deep.address, f"{deep.name}-{deep.address}")
+        past = _get(f"{srv}/wayback?seed={SEED}&node_name={quoted}")["node"]
+        assert (past["name"], past["address"], past["key"]) == (
+            deep.name, deep.address, served["key"])
+
+    def test_a_world_born_under_version_two_keys_on_its_stored_name(self, srv):
+        from multiverse.generator import generate_node_hierarchy
+        born = list(_tree_nodes(generate_node_hierarchy(seed=V2_SEED, max_depth=11)))
+        rows = [(naming.dotted_of(n.address), f"{n.name}-{n.address}", n.level,
+                 json.dumps(n.properties, ensure_ascii=False), len(n.children))
+                for n in born]
+        assert persistence.save_world_nodes(V2_SEED, rows, 2) == len(rows)
+        data = _get(f"{srv}/world?seed={V2_SEED}&depth=4")
+        served = [node for node, _ in _walk(data["world"])]
+        assert len(served) > 10
+        for node in served:
+            # Appending the address again would move every keyed draw.
+            assert node["key"] == node["name"]
+            assert node["name"].endswith("-" + node["address"])
+        assert data["wrap"]["hinge"].endswith("-" + data["wrap"]["hinge_address"])
+        deep = next(n for n in born if len(n.address) == 8)
+        stored = f"{deep.name}-{deep.address}"
+        got = _get(f"{srv}/node?seed={V2_SEED}&node_name="
+                   + urllib.parse.quote(stored))["node"]
+        assert (got["name"], got["address"], got["key"]) == (stored, deep.address, stored)
+
+
+class TestAddressesBesideNames:
+    def test_node_addresses_reads_stored_names_and_births_nothing(self):
+        assert node_addresses(SEED, ["Nowhere At All"]) == {}
+        assert persistence.world_generator_version(SEED) is None  # still unborn
+        root = store.world_tree(seed=SEED, max_depth=3)
+        child = root.children[0]
+        assert node_addresses(SEED, [root.name, child.name, None, "", "Forged-11",
+                                     child.name]) == {root.name: "1", child.name: "11"}
+        assert node_addresses(None, [root.name]) == {}
+
+    def test_presence_frames_carry_the_address(self):
+        root = store.world_tree(seed=SEED, max_depth=3)
+        galaxy = root.children[0].children[0]
+        room = rooms.get_room(SEED)
+        frames = []
+        player = rooms.Player(name="Ada", seed=SEED, current_node=root.name,
+                              session_id="s1", sock=None)
+        player.send = lambda message, **_: frames.append(message) or True
+        with room.lock:
+            room.players["s1"] = player
+        rooms.agent_enter(room, "Tessera")
+        rooms.agent_move(room, "Tessera", galaxy.name)
+        moved = frames[-1]
+        assert (moved["type"], moved["name"], moved["node"], moved["address"]) == (
+            "agent_move", "Tessera", galaxy.name, "111")
+        assert rooms.snapshot(room) == [
+            {"name": "Ada", "node": root.name, "address": "1", "session_id": "s1"}]
+        (agent,) = rooms.agents_snapshot(room)
+        assert (agent["node"], agent["address"]) == (galaxy.name, "111")
+        # A name this world does not hold has no address to send.
+        rooms.agent_move(room, "Tessera", "Nowhere At All")
+        assert frames[-1]["address"] is None
+
+    def test_the_journal_the_investigation_and_the_recent_list_carry_them(self, http):
+        from persistence import situations
+        situations.install(382)
+        status, data, _ = http("/situation?seed=382")
+        assert status == 200
+        names = [data["situation"]["entry"], *data["situation"]["nodes"].values()]
+        assert set(data["addresses"]) == set(names)
+        for name in names:
+            assert store.node_at(382, data["addresses"][name]).name == name
+
+        place = NODES["instrument"]
+        address = store.address_of(382, place)
+        assert http("/position", body={"node": place, "seed": 382, "depth": 9})[0] == 200
+        status, position, _ = http("/position")
+        assert position["position"]["node"] == place
+        assert position["position"]["address"] == address
+
+        assert http("/journal/note", body={
+            "seed": 382, "node": place, "text": "a note", "id": "note-0001"})[0] == 200
+        assert http("/profile/home", body={"seed": 382, "node": place})[0] == 200
+        status, journal, _ = http("/journal/data?seed=382")
+        assert status == 200
+        assert journal["notes"][0]["node"] == journal["profile"]["home"]["node"] == place
+        assert journal["addresses"] == {place: address}
+
+        status, recent, _ = http("/interventions?node=" + urllib.parse.quote(place))
+        assert status == 200
+        assert recent["addresses"][place] == address
+
+
+class TestKeyedDrawsDidNotMove:
+    """Each derivation gives a version-3 place what it gave the same place
+    under its version-2 name."""
+
+    def _places(self):
+        root = store.world_tree(seed=SEED, max_depth=6)
+        return [node for node in _tree_nodes(root)]
+
+    def test_the_cast_attempt_roll(self):
+        root = store.world_tree(seed=SEED, max_depth=6)
+        pairs = list(zip(_tree_nodes(root), _tree_nodes(_v2_tree(root))))
+        outcomes = set()
+        for name in ("Tessera", "Halden", "The Locksmith"):
+            for node, twin in pairs[:120]:
+                for epoch in (0, 2):
+                    now = Agent(name=name)._attempt_puzzle(node, epoch=epoch)
+                    assert now == Agent(name=name)._attempt_puzzle(
+                        twin, epoch=epoch), (name, node.name, epoch)
+                    outcomes.add(now[0])
+        assert outcomes == {True, False}  # the roll is exercised both ways
+
+    def test_the_banter_exchange(self):
+        seen = set()
+        for node in self._places()[:80]:
+            for ordinal in (0, 1):
+                now = compose_exchange(SEED, node, "Tessera", "tender",
+                                       "Vex", "destabilizer", ordinal)
+                assert now == compose_exchange(
+                    SEED, _v2_twin(node), "Tessera", "tender",
+                    "Vex", "destabilizer", ordinal), node.name
+                seen.add(json.dumps(now))
+        assert len(seen) > 20  # exchanges do vary with the place
+
+    def test_the_verb_token_of_a_player_act(self, srv, monkeypatch):
+        from server import handlers
+        tokens = []
+        real = handlers.accept_verb
+
+        def recording(seed, node, verb, token, *args, **kwargs):
+            tokens.append(token)
+            return real(seed, node, verb, token, *args, **kwargs)
+
+        monkeypatch.setattr(handlers, "accept_verb", recording)
+        root = store.world_tree(seed=SEED, max_depth=3)
+        target = root.children[0]
+        result = _post(f"{srv}/act", {"seed": SEED, "depth": 3,
+                                      "node_name": target.name, "player_name": "Ada"})
+        assert result["action_status"] == "accepted"
+        assert tokens == [f"Ada:{target.name}-{target.address}"]
+
+    def test_the_verb_token_of_a_cast_act(self, monkeypatch):
+        from server import heartbeat
+        tokens = []
+        real = heartbeat.accept_verb
+
+        def recording(seed, node, verb, token, *args, **kwargs):
+            tokens.append((node.name, token))
+            return real(seed, node, verb, token, *args, **kwargs)
+
+        monkeypatch.setattr(heartbeat, "accept_verb", recording)
+        monkeypatch.setenv("NESTED_WORLDS_HOP_DELAY", "0")
+        import random
+        root = store.world_tree(seed=SEED, max_depth=4)
+        visited = [node.name for node in _tree_nodes(root)][:12]
+        heartbeat._persona_act(SEED, rooms.get_room(SEED), root, "Tessera", "tender",
+                               visited, random.Random(3), chance=False)
+        assert tokens
+        for name, token in tokens:
+            agent, _, key = token.partition(":")
+            assert agent == "Tessera"
+            assert key == f"{name}-{store.address_of(SEED, name)}"
+
+
+class TestEntanglementReadsTheAddress:
+    def test_twins_pair_by_position_in_both_generations(self):
+        root = store.world_tree(seed=SEED, max_depth=11)
+        particles = [node for node in _tree_nodes(root)
+                     if node.level == "SubatomicParticle"]
+        paired = [(node, entangled_twin(node)) for node in particles]
+        paired = [(node, twin) for node, twin in paired if twin is not None]
+        assert paired
+        for node, twin in paired:
+            last = int(node.address[-1])
+            wanted = node.address[:-1] + str(last + 1 if last % 2 else last - 1)
+            assert twin.address == wanted and twin.parent is node.parent
+        # The same ring as version 2 named it pairs the same way.
+        node, twin = paired[0]
+        ring = SpatialNode("Old Ring-1", node.parent.level)
+        old = {child.address: _v2_twin(child) for child in node.parent.children}
+        for child in old.values():
+            ring.add_child(child)
+        found = entangled_twin(old[node.address])
+        assert found is not None
+        assert naming.node_address(found) == twin.address
