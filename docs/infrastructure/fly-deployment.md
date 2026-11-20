@@ -228,10 +228,34 @@ the
 [community preflight](#private-traveler-chat-and-reports) for the selected state;
 the default is a behavior change, not implicit approval of a chat-off watch.
 
-> **The first production deploy starts the permanent world.** Under the continuity
-> policy the database is never wiped between cohorts — whatever your
-> first testers do becomes history the project carries forward, forever.
-> Deploy when you mean it.
+> **The first invited outside player starts the permanent world**
+> ([ADR-004](../decisions/ADR-004-day-one-data-policy.md) section 3; confirmed by the
+> [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md), item 9).
+> That is the first person other than the operator who plays, by either entry
+> path in §6: a key the operator minted (`invite mint`) or a registration
+> invite they redeemed (`invite create`). From then on the database is never
+> wiped between cohorts — whatever your first testers do becomes history the
+> project carries forward, forever.
+> Rehearse on the staging twin (§3a), not here: ADR-004 puts a disposable world
+> on staging, and the launch checklist bars a reset once this world's status is
+> declared, even before the first invited outside player enters (the owner's
+> answer of 2026-11-19, item 9). The status is declared at the watch read-out
+> (item 10); a production world booted after that is not reset from its first
+> boot.
+> A production boot births the world at its first heartbeat tick,
+> about three minutes in, or at the first `/world` request if that comes
+> sooner. From that tick the cast starts pinning puzzles and writing history.
+> Mint your own key at once to close the gate (§6). Give a key or an invite to
+> someone else only when you mean it.
+
+> **Hold: the puzzle salt comes first.** Do not run the first production deploy
+> below until the salt's code is on `main` and the audited production salt is
+> set with the first-deploy secrets
+> ([ADR-038](../decisions/ADR-038-deployment-puzzle-salt.md), B1 and B2; item 22
+> of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
+> A production boot without it pins unsalted puzzles at the first tick or
+> `/world` request, and they stay until their places renew. The disposable
+> staging twin has its own timing (item 22).
 
 Run these from the repo root.
 
@@ -266,8 +290,15 @@ deploy takes ~3-5 minutes.
 
 ### 3a. Staging rehearsal — before the permanent world begins
 
-The first production deploy springs two one-way doors at once: the
-content banks freeze and history becomes permanent. Rehearse on a
+Production springs two one-way doors. The first production deploy births
+the world, so the content banks freeze for it. The first invited outside
+player then makes its history permanent (ADR-004 section 3), whichever invite
+path they use. A reset is barred sooner once the world's status is declared
+production (launch checklist R3; the owner's answer of 2026-11-19, item 9 of
+the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)): a
+production world whose status is declared before its first deploy is not reset
+from that deploy. A twin declared disposable is outside this rule.
+Rehearse on a
 disposable twin first (ADR-005): the onboarding watch, the WS soak, and
 the live-voice probe all run against a world that is thrown away, and
 the deploy runbook itself gets exercised end-to-end before the run that

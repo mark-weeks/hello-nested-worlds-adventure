@@ -1,5 +1,12 @@
 # ADR-029: The Evolution Grammar — a born world that changes shape, as chronicled events
 
+**2026-11-18 owner adoption:** Not ratified. One conflict is closed by the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)
+(item 17): batch 1, the identity and provenance migration, is required before
+the first structural operation, not before the first production history. The
+sentence below that says it must precede first production history is
+superseded. Names are unique under [ADR-041](ADR-041-natural-unique-names.md),
+which is what keeps the alias table additive.
+
 **Status:** Proposed draft, 2026-10-03, written at the owner's request after the
 [ambition-and-boundaries assessment](../evaluation/2026-10-03-ambition-and-boundaries.md)
 (decision D1). Not ratified. This document introduces no runtime behavior,

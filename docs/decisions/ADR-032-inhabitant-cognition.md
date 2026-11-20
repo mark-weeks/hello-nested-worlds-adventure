@@ -1,5 +1,12 @@
 # ADR-032: Inhabitant Cognition and the Open Roster — minds behind the cast, players behind the door
 
+**2026-11-18 owner adoption:** Not ratified. The [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md) record that three parts
+are superseded by the owner's decisions of 2026-11-06 and 2026-11-07 and by
+[ADR-037](ADR-037-agents-as-conversational-players.md): inhabitant speech
+delivered in Speak (D2, D5), inhabitants answering puzzles by themselves (D4),
+and persona tags for visitor agents (D6). No inhabitant cognition under this
+record ships in the first cohort. The rest waits for pilot evidence.
+
 **Status:** Proposed draft, 2026-10-03, written at the owner's request after the
 [ambition-and-boundaries assessment](../evaluation/2026-10-03-ambition-and-boundaries.md)
 (decision D4). Not ratified. This document introduces no runtime behavior,

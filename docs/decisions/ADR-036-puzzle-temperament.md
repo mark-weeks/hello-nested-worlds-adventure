@@ -1,6 +1,24 @@
 # ADR-036: Puzzle temperament — moods, send-aways and warmth instead of a fixed attempt pool
 
-**Status:** Proposed, 2026-11-07; revised 2026-11-10 after the owner-requested
+**2026-11-18 owner adoption:** Ratified, with its recorded answers as starting
+values and question 6 answered: only right or wrong is stored (items 19 and 21
+of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)). Ratification authorizes batches 2 and 1b only; batch 1a merged in
+#170. Batch 3 waits, except the end of stored wrong-guess text, which ships by
+itself before the first invite (item 21). Batches 1b and 2 both land before the
+kept database is born, as D8 says (item 20). Batch 4 is the collaboration batch
+this record shares with ADR-037 (ADR-037's D7). The owner's direction of agents
+in the first cohort (item 40) releases it once ADR-037 is refreshed and, for AI
+on, the data-use note and the ceilings are in place (items 25 and 26). The
+owner answered ADR-037's open question 4 on 2026-11-19: an agent's puzzle help
+can be given in the shared chat and does not wait for private chat. The aim is to land batch 4 before
+the cohort enters; the cohort is not held for it. The daily cap is twelve judged misses for one player at one
+puzzle in any rolling 24 hours, and a send-away that the cap binds can outlast
+the four-hour patience limit. The owner has also adopted a redesign of the
+puzzles themselves (item 23), which this record does not cover.
+
+**Status:** Ratified by the owner, 2026-11-18, for batches 2 and 1b (note
+above).
+Earlier status, kept as the record: Proposed, 2026-11-07; revised 2026-11-10 after the owner-requested
 review of `d716cc3`. **Owner:** Mark Weeks. Records the owner's puzzle
 decisions of 2026-11-06 and 2026-11-07 and designs them against the code. Not
 ratified; it writes no code, migration or write path and authorizes no

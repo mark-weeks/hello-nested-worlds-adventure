@@ -1,6 +1,26 @@
 # ADR-038: A deployment puzzle salt, so the hosted world has no offline answer table
 
-**Status:** Proposed, 2026-11-10; revised 2026-11-11 after two adversarial
+**2026-11-18 owner adoption:** Adopted in principle, with separate staging and
+production salts (item 22 of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
+**Answered by the owner, 2026-11-19:** open question 1 below, yes. The hosted
+world gets the salt before its first boot, so B1 and B2 land before the kept
+world's first boot, as the Irreversibility section requires. **Open for the
+owner:** open question 3, the D8 wording for `AGENTS.md`, which goes in a
+working-rules pull request. Added by the agent after that answer and not put to
+the owner (item 22): a staging twin first deployed before B1 exists runs
+unsalted until its first deploy that carries B1. For that twin its secret is
+set before that deploy, not before staging's first deploy as B2 below says,
+because a marked server refuses to start without one (D4). Puzzles it pinned
+earlier stay unsalted until their places renew (D6). The first version of this
+note said the salt did not gate the first cohort. That is withdrawn: the cohort
+world is the kept world (item 10), and a puzzle pinned without the salt stays
+computable offline until its place renews. [ADR-041](ADR-041-natural-unique-names.md) changes
+names, not the random inputs this record keys.
+
+**Status:** Adopted in principle by the owner, 2026-11-18. Open question 1
+answered yes by the owner, 2026-11-19: the salt (B1 and B2) comes before the
+first production boot. Its D8 wording is open (note above).
+Earlier status, kept as the record: Proposed, 2026-11-10; revised 2026-11-11 after two adversarial
 checks (of `7482379` and `75f4fff`). **Owner:** Mark Weeks. Not ratified; it writes no code,
 sets no secret, and authorizes no implementation, deployment or merge. Cited
 ranges were read at `e8081c0`. Claims are *executed*, *read* or *inferred*.

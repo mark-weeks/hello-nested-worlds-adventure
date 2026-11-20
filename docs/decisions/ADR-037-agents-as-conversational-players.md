@@ -1,6 +1,33 @@
 # ADR-037: Agents as conversational players — addressed in chat, unlabeled, honest
 
-**Status:** Proposed, 2026-11-07; revised 2026-11-10. **Owner:** Mark Weeks.
+**2026-11-18 owner adoption:** D1, D2, D4 and D5 are ratified, except D4's
+question about cast names (answered by D-B and ADR-041) and D5's proposed
+covenant text. D3, D6, D7 and D8 stay Proposed until this record is refreshed
+against `main`, apart from the answers the owner adopted: agent chat lines are
+stored as human chat is, an honesty answer goes to the asker alone, and, on
+2026-11-19, the answer to open question 4 below (item 40
+of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)). The owner directed this record's batches for the first cohort
+and set two rules the refresh must carry (D-D and D-E). An agent asked for
+puzzle help may help when its goals align with the player's and may decline
+when they conflict. Rivalry between agents and players is over aims, never over
+solving. Batch 4 is the collaboration batch this record shares with ADR-036. On
+2026-11-19 the owner answered open question 4, and not as this record
+recommends: an agent's puzzle help can be given in the shared chat and does not
+wait for private chat (D-G). He also wrote that AI travelers do not solve
+puzzles even if a human requests; a human player must solve them (D-H). He had first adopted the recommended answer, the
+asker alone and not stored, and changed it the same day. So D7's recommended
+private delivery and the direct messages it needs are not built for batch 4;
+the refresh rewrites D7 to match and confirms where agent chat lines are kept
+(item 40).
+The aim is to land batch 4 before the cohort enters; the cohort is not held for
+it. The covenant wording proposed in D5 does
+not land with batch 2: `AGENTS.md` changes only in a working-rules pull request,
+with the owner's approval (item 44).
+
+**Status:** D1, D2, D4 and D5 ratified by the owner, 2026-11-18, with the two
+exceptions in the note above; D3, D6, D7 and D8 Proposed. Open question 4
+answered by the owner, 2026-11-19 (note above).
+Earlier status, kept as the record: Proposed, 2026-11-07; revised 2026-11-10. **Owner:** Mark Weeks.
 **Not ratified.** No code, migration, write path, player-text destination,
 spend or deployment; citing it authorizes nothing. Designed against `main` at
 `f3ead74`.
