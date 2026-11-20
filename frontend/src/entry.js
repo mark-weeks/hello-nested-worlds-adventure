@@ -19,6 +19,26 @@ export function entryPath(root, savedNodeName, playerKey) {
   return shared.entryPath(root, savedNodeName, playerKey);
 }
 
-export function resumeDepth(savedDepth, savedNodeName, minDepth, maxDepth) {
-  return shared.resumeDepth(savedDepth, savedNodeName, minDepth, maxDepth);
+export function resumeDepth(savedDepth, savedAddress, minDepth, maxDepth) {
+  return shared.resumeDepth(savedDepth, savedAddress, minDepth, maxDepth);
+}
+
+export function readNodeAddress(read, url) {
+  return shared.readNodeAddress(read, url);
+}
+
+export function rememberAddress(storage, name, address) {
+  return shared.rememberAddress(storage, name, address);
+}
+
+export function savedAddress(storage) {
+  return shared.savedAddress(storage);
+}
+
+export function addressDepth(address) {
+  return shared.addressDepth(address);
+}
+
+export function addressPath(root, address) {
+  return shared.addressPath(root, address);
 }

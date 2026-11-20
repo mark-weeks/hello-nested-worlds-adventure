@@ -114,11 +114,11 @@ class InterventionComposer extends HTMLElement {
     const target=this.shadowRoot.querySelector('.pending');
     if(target) target.textContent=(this.ctx?.node?.pending_actions || []).map(p=>`${p.count} ${p.verb} ${p.count===1?'change is':'changes are'} still traveling.`).join(' ');
   }
-  async jumpToObserved(name) {
+  async jumpToObserved(name, address) {
     // Hand focus to a stable landmark before the host can replace this composer.
     const focused=!!this.shadowRoot.activeElement;
     if(focused)document.getElementById('node-name')?.focus();
-    await this.ctx.jump?.(name);
+    await this.ctx.jump?.(name, address);
     if(focused)requestAnimationFrame(()=>document.getElementById('node-name')?.focus());
   }
   renderRecent() {
@@ -126,7 +126,7 @@ class InterventionComposer extends HTMLElement {
     root.replaceChildren(el('span','YOUR THREADS THROUGH THE WORLD',{className:'caption'}));
     for(const r of this.data?.recent || []) {
       const item=el('article'); item.append(el('strong',`${r.performer} · ${r.summary}`),el('p',`${display(r.origin)} · Attempt accepted. ${r.pending ? 'Consequences pending' : 'All consequences settled'}`));
-      for(const a of r.arrivals) { const b=el('button',`Observed · ${display(a.node)}`); b.onclick=()=>this.jumpToObserved(a.node); item.append(b,el('p',a.flavor || 'A consequence was observed.')); }
+      for(const a of r.arrivals) { const b=el('button',`Observed · ${display(a.node)}`); b.onclick=()=>this.jumpToObserved(a.node,this.data?.addresses?.[a.node]); item.append(b,el('p',a.flavor || 'A consequence was observed.')); }
       root.append(item);
     }
     if(!this.data?.recent?.length) root.append(el('p','What you set in motion will remain here when you return.'));

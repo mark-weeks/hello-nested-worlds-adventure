@@ -61,7 +61,10 @@ const BIOME_HUES = { tundra: 195, jungle: 130, desert: 45, ocean: 210,
 export function nodeArtParams(seed, node) {
   const props = node.properties || {};
   const base = LEVEL_BASE[node.level] || { hue: 220, family: "speckle" };
-  const h = hashString(`${seed}:${node.name}`);
+  // The identity key, not the name: the server sends it, and it is the
+  // string this hash has always taken (ADR-041). A node built by hand
+  // without one is keyed on its name.
+  const h = hashString(`${seed}:${node.key || node.name}`);
   const rng = mulberry32(h);
 
   let hue = (base.hue + Math.floor(rng() * 70) - 35 + 360) % 360;

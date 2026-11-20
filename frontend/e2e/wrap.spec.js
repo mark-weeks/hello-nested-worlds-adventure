@@ -20,24 +20,28 @@ async function wrapInfo(request) {
   const data = await response.json();
   expect(data.wrap?.hinge).toBeTruthy();
   expect(data.wrap?.root).toBeTruthy();
+  // The hinge's address is its own field; the name does not carry it.
+  expect(data.wrap?.hinge_address).toMatch(/^[1-9]{11}$/);
+  expect(data.wrap?.hinge).not.toMatch(/-\d+$/);
   return data.wrap;
 }
 
 test("/app crosses the wrap in both directions", async ({ page, request }) => {
   const wrap = await wrapInfo(request);
 
-  // Resume standing on the hinge particle itself (suffix length pins the
-  // view depth to 11, so the particle scale is rendered).
+  // Resume standing on the hinge particle itself (the client asks the
+  // server for its address, eleven steps long, so the view opens to depth
+  // 11 and the particle scale is rendered).
   await page.addInitScript((nodeName) => {
     localStorage.setItem("nw_seen_intro", "1");
     localStorage.setItem("nw_player_name", "WrapWalker");
     localStorage.setItem("nw_last_node", nodeName);
   }, wrap.hinge);
 
-  // The display layer shows the phrase; the address gets its own field.
-  const hingePhrase = wrap.hinge.replace(/-\d+$/, "");
-  const hingeAddress = wrap.hinge.split("-").pop();
-  const rootPhrase = wrap.root.replace(/-\d+$/, "");
+  // The name is shown as it reads; the address gets its own field.
+  const hingePhrase = wrap.hinge;
+  const hingeAddress = wrap.hinge_address;
+  const rootPhrase = wrap.root;
 
   const errors = collectErrors(page);
   await page.goto("/app");
@@ -73,17 +77,17 @@ test("explorer crosses the wrap in both directions", async ({ page, request }) =
     localStorage.setItem("nw_last_node", nodeName);
   }, wrap.hinge);
 
-  const hingePhrase = wrap.hinge.replace(/-\d+$/, "");
-  const rootPhrase = wrap.root.replace(/-\d+$/, "");
+  const hingePhrase = wrap.hinge;
+  const rootPhrase = wrap.root;
 
   const errors = collectErrors(page);
   await page.goto("/");
   await expect(page.locator("#status")).toContainText("depth 11");
-  // Display name in the sidebar; the canonical name survives as hover
-  // title and the address in the same identity block.
+  // The name in the sidebar and as hover title; the address in the same
+  // identity block.
   await expect(page.locator("#node-name")).toHaveText(hingePhrase);
   await expect(page.locator("#node-name")).toHaveAttribute("title", wrap.hinge);
-  await expect(page.locator(".node-identity #node-address")).toHaveText(`⌖ ${wrap.hinge.split("-").pop()}`);
+  await expect(page.locator(".node-identity #node-address")).toHaveText(`⌖ ${wrap.hinge_address}`);
   await expect(page.locator("#node-props")).not.toContainText("address");
 
   // The particle offers the descent — and only the descent.
@@ -101,15 +105,16 @@ test("explorer crosses the wrap in both directions", async ({ page, request }) =
   await expect(page.locator("#event-feed")).toContainText("beyond the last membrane");
 
   // The live observer flow also speaks display names: watch an agent
-  // traverse from here and check the first row — the phrase shown, no
-  // address riding it, the canonical name kept on hover.
+  // traverse from here and check the first row — the name shown, no
+  // address riding it, on screen or on hover.
   await disclose(page,"Travelers & chat");
   await page.click("#btn-observe");
   await page.locator("#btn-do-observe").click();
   const obsName = page.locator(".obs-row .obs-name").first();
   await expect(obsName).toBeVisible({ timeout: 10_000 });
   await expect(obsName).not.toHaveText(/-\d+$/);
-  await expect(obsName).toHaveAttribute("title", /-\d+$/);
+  await expect(obsName).toHaveAttribute("title", /\S/);
+  await expect(obsName).not.toHaveAttribute("title", /-\d+$/);
 
   expect(errors).toEqual([]);
 });

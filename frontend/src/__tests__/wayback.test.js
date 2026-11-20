@@ -7,7 +7,9 @@ import { waybackMomentLine, waybackNode } from "../wayback.js";
 
 const live = {
   id: "live-id",
-  name: "Quiet Brass Chamber-1121",
+  name: "Quiet Brass Chamber",
+  address: "1121",
+  key: "Quiet Brass Chamber-1121",
   level: "Room",
   properties: { danger_level: 8, lighting: "dim" },
   ripple_score: 0.9,
@@ -27,6 +29,9 @@ describe("waybackNode", () => {
     });
     expect(historical).toMatchObject({
       id: "live-id",
+      // Art and sound of the past are seeded by the same identity key.
+      address: "1121",
+      key: "Quiet Brass Chamber-1121",
       properties: { lighting: "bright", stabilized: true },
       ripple_score: 0.15,
       activity: 3,

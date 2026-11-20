@@ -40,10 +40,11 @@ describe("pilot invitation and return", () => {
   it("starts a different invited traveler without the previous arrival", async () => {
     const {values} = await enter("https://world.test/app?key=nw_new&name=Bea", {
       nw_beta_key: "nw_previous", nw_player_name: "Ada",
-      nw_last_node: "Private bookmark-111", nw_view_depth: "11",
+      nw_last_node: "Private bookmark", nw_last_address: "111", nw_view_depth: "11",
     });
     expect(values.get("nw_player_name")).toBe("Bea");
     expect(values.has("nw_last_node")).toBe(false);
+    expect(values.has("nw_last_address")).toBe(false);
     expect(values.has("nw_view_depth")).toBe(false);
   });
 

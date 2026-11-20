@@ -23,14 +23,22 @@
     if (!response.ok || data.error) throw new Error(data.error || 'Please try again.');
     return data;
   }
+  // The scene needs a place's address to open deep enough to show it. The
+  // server sends each linked place's address beside the names.
+  let addresses = {};
+  function sceneHref(node) {
+    const at = addresses[node];
+    return '/app?node=' + encodeURIComponent(node) + (at ? '&at=' + encodeURIComponent(at) : '');
+  }
   function link(node) {
     const a = document.createElement('a');
     a.textContent = node.replace(/-\d+$/, '');
-    a.href = '/app?node=' + encodeURIComponent(node);
+    a.href = sceneHref(node);
     return a;
   }
   async function load() {
     const data = await api('/journal/data?seed=' + encodeURIComponent(seed));
+    addresses = data.addresses || {};
     $('journal').hidden = false;
     const profile = data.profile;
     if (!profileLoaded) {
@@ -61,7 +69,7 @@
     for (const change of data.recap) {
       const row = document.createElement('p'); row.append(link(change.node), ' — ' + change.text + ' ');
       const evidence = document.createElement('a'); evidence.textContent = 'Recorded event #' + change.event_id;
-      evidence.href = '/app?node=' + encodeURIComponent(change.node); row.append(evidence); $('recap').append(row);
+      evidence.href = sceneHref(change.node); row.append(evidence); $('recap').append(row);
     }
     if (!data.recap.length) $('recap').textContent = 'No material changes recorded at your saved places or investigations yet.';
   }

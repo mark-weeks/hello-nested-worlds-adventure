@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {serveUX,enterUX} from './ux-fixture.js';
 import {disclose} from './disclosures.js';
-const region='Emberlit Orchard Terraces-111111';
+const region='Emberlit Orchard Terraces';
 const act=page=>page.locator('enfolded-interventions');
 const pace='The world keeps its own pace. Rest a moment, then return.';
 async function capture(page,name,fullPage=true){const dir=path.join(tmpdir(),'enfolded-ux-review-evidence');await mkdir(dir,{recursive:true});await page.screenshot({path:path.join(dir,`${process.env.UX_REVIEW_PHASE || 'fixed'}-${name}.jpg`),type:'jpeg',quality:82,fullPage});}

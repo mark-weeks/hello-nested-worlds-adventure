@@ -1,11 +1,18 @@
-// The display layer: the readable phrase is shown, the address (the
-// path-digit suffix — deterministic coordinates, not randomness) stays one
-// gesture away, and the canonical full name remains the identity.
+// Names, addresses and keys (ADR-041). A name is shown as it reads. The
+// address and the identity key are fields the server sends; a client never
+// works either out of a name. A world born before names and addresses were
+// separated stores names ending in "-<digits>", and those still display
+// without the digits.
 import { describe, expect, it } from "vitest";
-import { causalFeedLine, displayName, nodeAddress, observationRow } from "../names.js";
+import { causalFeedLine, displayName, nodeAddress, nodeKey, observationRow } from "../names.js";
 
 describe("displayName", () => {
-  it("shows the phrase without the address", () => {
+  it("shows a three-word name whole", () => {
+    expect(displayName("Hidden Thorn Quark")).toBe("Hidden Thorn Quark");
+    expect(displayName("Elder Reed Cosmos")).toBe("Elder Reed Cosmos");
+  });
+
+  it("shows an earlier world's stored name without its digits", () => {
     expect(displayName("Hidden Thorn Quark-11431112111")).toBe("Hidden Thorn Quark");
     expect(displayName("Elder Reed Cosmos-1")).toBe("Elder Reed Cosmos");
   });
@@ -48,15 +55,33 @@ describe("live narration builders", () => {
 });
 
 describe("nodeAddress", () => {
-  it("extracts the path digits", () => {
-    expect(nodeAddress("Hidden Thorn Quark-11431112111")).toBe("11431112111");
-    expect(nodeAddress("Elder Reed Cosmos-1")).toBe("1");
+  it("reads the address the server sent with the node", () => {
+    expect(nodeAddress({ name: "Hidden Thorn Quark", address: "11431112111" })).toBe("11431112111");
+    expect(nodeAddress({ name: "Elder Reed Cosmos", address: "1" })).toBe("1");
+    // An earlier world's node carries the field too; the name is not consulted.
+    expect(nodeAddress({ name: "Hidden Thorn Quark-11431112111", address: "11431112111" })).toBe("11431112111");
   });
 
-  it("returns null when a name carries no address", () => {
-    expect(nodeAddress("Aethon")).toBeNull();
-    expect(nodeAddress("Vault-12a")).toBeNull();
-    expect(nodeAddress("-123")).toBeNull();
-    expect(nodeAddress("")).toBeNull();
+  it("never derives a position from a name", () => {
+    expect(nodeAddress("Hidden Thorn Quark-11431112111")).toBeNull();
+    expect(nodeAddress({ name: "Hidden Thorn Quark-11431112111" })).toBeNull();
+    expect(nodeAddress({ name: "Aethon", address: "12a" })).toBeNull();
+    expect(nodeAddress({ name: "Aethon", address: "" })).toBeNull();
+    expect(nodeAddress(null)).toBeNull();
+  });
+});
+
+describe("nodeKey", () => {
+  it("is the key the server sent, never a join of name and address", () => {
+    expect(nodeKey({ name: "Hidden Thorn Quark", address: "11431112111", key: "Hidden Thorn Quark-11431112111" }))
+      .toBe("Hidden Thorn Quark-11431112111");
+    // An earlier world's key is its stored name alone.
+    expect(nodeKey({ name: "Elder Reed Cosmos-1", address: "1", key: "Elder Reed Cosmos-1" }))
+      .toBe("Elder Reed Cosmos-1");
+  });
+
+  it("falls back to the name for a node built without a key", () => {
+    expect(nodeKey({ name: "Aethon", address: "12" })).toBe("Aethon");
+    expect(nodeKey(null)).toBe("");
   });
 });

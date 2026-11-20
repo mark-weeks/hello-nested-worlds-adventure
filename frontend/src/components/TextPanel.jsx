@@ -22,7 +22,7 @@ export default function TextPanel({ node, players, blocks = [], participantId, o
     <section className="node-identity" aria-labelledby="node-name">
       <div id="node-level">{node.level}</div>
       <h1 id="node-name" tabIndex={-1} title={node.name}>{displayName(node.name)}</h1>
-      <div id="node-address" title="Position: path from the root of the multiverse">⌖ {nodeAddress(node.name) || "1"}</div>
+      <div id="node-address" title="Position: path from the root of the multiverse">{nodeAddress(node) ? `⌖ ${nodeAddress(node)}` : ""}</div>
       <p id="node-description">{node.senses?.description || node.properties?.aspect}</p>
     </section>
     <Interact node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} onNodeChanged={onNodeChanged} onJump={onJump} onEnsurePosition={onEnsurePosition} />
@@ -45,8 +45,8 @@ export default function TextPanel({ node, players, blocks = [], participantId, o
     </details>
     <details className="secondary">
       <summary>Travelers & chat</summary>
-      {players.map(p=><div className="traveler-controls" key={p.session_id}><button className="traveler" disabled={!p.node} onClick={()=>onJump?.(p.node)}><span>◈ {p.name}</span><span>{p.node===node.name ? "Here" : p.node ? displayName(p.node) : "Arriving"}</span></button>{participantId && p.participant_id && p.participant_id!==participantId && <><button disabled={blockBusy} onClick={()=>onBlock(p.participant_id,true)} aria-label={`Block ${p.name}`}>Block</button><button onClick={()=>onReport({participant:p.participant_id,evidence_ref:null,name:p.name})} aria-label={`Report ${p.name}`}>Report</button></>}</div>)}
-      {Object.entries(agents).map(([name,a])=><div className="traveler-controls" key={name}><button className="traveler" disabled={!a.node} onClick={()=>onJump?.(a.node)}><span>✦ {name}{a.persona ? ` · ${a.persona}` : ""}</span><span>{a.node===node.name ? "Here" : a.node ? displayName(a.node) : "Arriving"}</span></button>{participantId && a.participant_id && <><button disabled={blockBusy} onClick={()=>onBlock(a.participant_id,true)} aria-label={`Block ${name}`}>Block</button><button onClick={()=>onReport({participant:a.participant_id,evidence_ref:null,name})} aria-label={`Report ${name}`}>Report</button></>}</div>)}
+      {players.map(p=><div className="traveler-controls" key={p.session_id}><button className="traveler" disabled={!p.node} onClick={()=>onJump?.(p.node, p.address)}><span>◈ {p.name}</span><span>{p.node===node.name ? "Here" : p.node ? displayName(p.node) : "Arriving"}</span></button>{participantId && p.participant_id && p.participant_id!==participantId && <><button disabled={blockBusy} onClick={()=>onBlock(p.participant_id,true)} aria-label={`Block ${p.name}`}>Block</button><button onClick={()=>onReport({participant:p.participant_id,evidence_ref:null,name:p.name})} aria-label={`Report ${p.name}`}>Report</button></>}</div>)}
+      {Object.entries(agents).map(([name,a])=><div className="traveler-controls" key={name}><button className="traveler" disabled={!a.node} onClick={()=>onJump?.(a.node, a.address)}><span>✦ {name}{a.persona ? ` · ${a.persona}` : ""}</span><span>{a.node===node.name ? "Here" : a.node ? displayName(a.node) : "Arriving"}</span></button>{participantId && a.participant_id && <><button disabled={blockBusy} onClick={()=>onBlock(a.participant_id,true)} aria-label={`Block ${name}`}>Block</button><button onClick={()=>onReport({participant:a.participant_id,evidence_ref:null,name})} aria-label={`Report ${name}`}>Report</button></>}</div>)}
       {!players.length && !Object.keys(agents).length && <p className="quiet">No other travelers are in view.</p>}
       {participantId && <>
         <p className="quiet">Blocking hides their live chat and presence for you. They are not notified. Shared history and world changes remain visible.</p>
