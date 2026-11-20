@@ -23,18 +23,20 @@ Section: Fixed
   echoing" and see "Ada · Kindle" within 10 s, inside the 15 s maturation. Against the
   old composer it now fails deterministically (click timeout at 10 s) instead of
   passing slowly. Measured: one test went from ~39 s to ~21 s unloaded; under the
-  load above, `/app` went from 1/20 to 19/20 passing (one 45 s timeout in setup). With
-  PR #184's explorer wait applied locally, both routes passed 40/40: mean 26.3 s,
-  slowest 39.9 s to the 459 landing; that tail is page entry under load (Ada's first
-  reply up to 18.8 s). Without #184 the `/` route still fails with #184's
-  `"world":1` read-count signature (9/20 here), so this branch rebases onto #184.
+  load above, `/app` went from 1/20 to 19/20 passing (one 45 s timeout in setup). Before
+  PR #184 merged, the `/` route still failed with its `"world":1` read-count race (9/20
+  here). Merged with #184, both routes passed 40/40 at that load: mean 26.3 s and
+  slowest 39.9 s to the 459 landing in a timed run. That tail is page entry under load
+  (Ada's first reply up to 18.8 s).
   Known gap: the 45 s budget keeps ~5 s of headroom at the slowest observed load.
   **Verified:** Vitest `interventions.test.js` 11/11, new case failing on the old
   composer; frontend rebuilt; the Playwright stress runs above (Node 20.19.0, Python
   3.11, system Chromium via `PW_CHROMIUM_PATH`). `ENFOLDED_E2E=1 ./scripts/check.sh`
   green on `41ab14e` (before #184): Ruff clean; 4,329 Python tests
   passed, 1 skipped; 242 Vitest tests in 20 files; frontend build and bundle freshness
-  passed; installed wheel verified; 212 Playwright tests passed.
+  passed; installed wheel verified; 212 Playwright tests passed. After merging main
+  (#184, spec and fragment only): the co-viewer stress run 40/40 and the whole
+  `delivery.spec.js` 17/17 unloaded.
   **Irreversibility check:** none — client refresh wiring and one E2E/unit test; no
   generator, bank, golden pin, migration, chronicle write path, `world_meta` pin, era
   bank or endpoint change. The Act surface stays the single interaction surface (no
