@@ -244,7 +244,7 @@ def _accessible(node, signals, threshold, current_name=None, seed=None):
     room = gates.sealing_room(node)
     if room is None:
         return True
-    if current_name and gates._path_suffix(current_name).startswith(gates._path_suffix(room.name)):
+    if gates.inside_seal(seed, room, current_name):
         return True  # shared structural rule: the seal never imprisons
     signal = signals[room.name]
     from puzzles.instances import get_puzzle

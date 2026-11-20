@@ -4,6 +4,7 @@ import pytest
 
 from puzzles.types import Puzzle, PuzzleKind, PuzzleResult
 from puzzles.engine import PuzzleEngine
+from multiverse import naming
 from multiverse.generator import generate_node_hierarchy
 from multiverse.node import SpatialNode
 from puzzles.generators import (
@@ -335,3 +336,215 @@ class TestCanonicalLevelsUseGenerator:
         for level in CANONICAL_LEVELS:
             p = build_puzzle(_node(level))
             assert p.kind in rich
+
+
+# ── Names, addresses and keys (ADR-041) ─────────────────────────────────────
+# A born name is its three words; the address is carried beside it; every
+# keyed draw takes the key, which is the name generator version 2 stored. So
+# a place serves the same puzzle whichever generation its world was born
+# under, and only wording that pointed at the digits in a name differs.
+
+_SUFFIX_WORDING = ("dash", "lineage mark", "lineage digits", "final digit")
+
+
+def _address_tree(seed: int, depth: int):
+    """A freshly generated world and each node's address digits."""
+    root = generate_node_hierarchy(seed=seed, max_depth=depth)
+    nodes: list[SpatialNode] = []
+    _walk(root, nodes)
+    return root, nodes
+
+
+def _as_version_two(nodes) -> None:
+    """Rename a generated tree the way generator version 2 stored it: each
+    name ends in its path digits, and the key is the stored name alone."""
+    for n in nodes:
+        n.name = f"{n.name}-{n.address}"
+        n.key = n.name
+
+
+def _served(node, epoch):
+    p = build_puzzle(node, epoch)
+    return (p.kind, p.name, p.answer, p.difficulty, p.max_attempts)
+
+
+class TestNamesAndAddresses:
+    SEED = 911
+
+    def test_generated_nodes_carry_an_address_and_a_key(self):
+        _, nodes = _address_tree(self.SEED, 6)
+        for n in nodes:
+            assert n.address and n.address.isdigit()
+            assert not n.name.endswith(n.address)
+            assert naming.node_key(n) == f"{n.name}-{n.address}"
+
+    def test_a_place_serves_the_same_puzzle_under_either_generation(self):
+        _, new = _address_tree(self.SEED, 7)
+        _, old = _address_tree(self.SEED, 7)
+        _as_version_two(old)
+        assert len(new) == len(old) > 300
+        for a, b in zip(new, old):
+            assert node_difficulty(a) == node_difficulty(b)
+            for epoch in (0, 1, 2):
+                assert _served(a, epoch) == _served(b, epoch), (a.name, epoch)
+
+    def test_text_differs_only_by_the_name_and_the_reworded_lines(self):
+        _, new = _address_tree(self.SEED, 7)
+        _, old = _address_tree(self.SEED, 7)
+        _as_version_two(old)
+        reworded = 0
+        for a, b in zip(new, old):
+            chain = []
+            x, y = a, b
+            while x is not None:
+                chain.append((y.name, x.name))
+                x, y = x.parent, y.parent
+            for epoch in (0, 1):
+                p, q = build_puzzle(a, epoch), build_puzzle(b, epoch)
+                assert len(p.hints) == len(q.hints)
+                for new_text, old_text in zip([p.prompt, *p.hints],
+                                              [q.prompt, *q.hints]):
+                    for suffixed, bare in chain:
+                        old_text = old_text.replace(suffixed, bare)
+                    if new_text != old_text:
+                        reworded += 1
+                        assert any(w in old_text for w in _SUFFIX_WORDING) or \
+                            "written where everything else is" in old_text, (
+                                a.name, old_text, new_text)
+        assert reworded > 50
+
+    def test_new_wording_never_points_at_a_suffix(self):
+        _, nodes = _address_tree(self.SEED, 7)
+        for n in nodes:
+            for epoch in (0, 1, 2):
+                p = build_puzzle(n, epoch)
+                for text in [p.prompt, *p.hints]:
+                    assert not any(w in text for w in _SUFFIX_WORDING), (
+                        n.name, text)
+                    assert f"-{n.address}" not in text, (n.name, text)
+
+    def test_a_version_two_world_keeps_its_wording(self):
+        _, nodes = _address_tree(self.SEED, 7)
+        _as_version_two(nodes)
+        texts = [t for n in nodes for p in [build_puzzle(n)]
+                 for t in [p.prompt, *p.hints]]
+        for line in (
+            "Its living name is everything before the dash and digits.",
+            "Strip each dash and lineage digits before counting its words.",
+            "Read the final digit after the dash.",
+            "Count the digits after the dash, then subtract this place itself.",
+        ):
+            assert line in texts, line
+        assert any(t.endswith("the words before its lineage mark.")
+                   for t in texts)
+
+    def test_new_wording_is_served_where_the_old_was(self):
+        _, nodes = _address_tree(self.SEED, 7)
+        texts = [t for n in nodes for p in [build_puzzle(n)]
+                 for t in [p.prompt, *p.hints]]
+        for line in (
+            "Its living name is its name in full, every word.",
+            "Count the words of each living name exactly as it is written.",
+            "Read the final step of this place's address.",
+            "Count the steps in this place's address, then subtract this "
+            "place itself.",
+        ):
+            assert line in texts, line
+        assert any(t.endswith("the words it is called by.") for t in texts)
+
+    def test_the_address_counts_as_shown_text(self):
+        # The address is served beside the name, so an answer equal to its
+        # digits is on show wherever the name is printed.
+        from puzzles.generators import _answer_leaks
+        place = SpatialNode("Hollow Reed Sphere", "Universe")
+        place.address, place.key = "11", "Hollow Reed Sphere-11"
+        prompt = "A pattern pulses through Hollow Reed Sphere: 3, 5, 7, 9, ?"
+        assert _answer_leaks(make_puzzle(prompt=prompt, answer="11"), place)
+        assert not _answer_leaks(make_puzzle(prompt=prompt, answer="13"), place)
+        elsewhere = SpatialNode("Hollow Reed Sphere", "Universe")
+        elsewhere.address, elsewhere.key = "12", "Hollow Reed Sphere-12"
+        assert not _answer_leaks(make_puzzle(prompt=prompt, answer="11"),
+                                 elsewhere)
+        # A holder's address shows where the holder is named.
+        child = SpatialNode("Mossbound Bell Disc", "Galaxy")
+        child.address, child.key = "111", "Mossbound Bell Disc-111"
+        place.add_child(child)
+        hint = "The keeper is Hollow Reed Sphere — the Universe that holds it."
+        assert _answer_leaks(
+            make_puzzle(prompt="Speak.", answer="11", hints=[hint]), child)
+        # The screen reads; it never rewrites what is served.
+        assert make_puzzle(prompt=prompt, answer="11").prompt == prompt
+
+    def test_enfold_reads_the_address_not_the_name(self):
+        from puzzles.generators import _make_enfold, node_rng
+        place = SpatialNode("Quiet Salt Whorl", "Galaxy")
+        place.address, place.key = "132", "Quiet Salt Whorl-132"
+        answers = set()
+        for i in range(40):
+            place.key = f"Quiet Salt Whorl-132:{i}"  # vary the draw only
+            answers.add(_make_enfold(place, node_rng(place), 2).answer)
+        assert answers == {"2", "8"}  # held by two, eight within, second
+        unplaced = SpatialNode("Quiet Salt Whorl", "Galaxy")
+        assert _make_enfold(unplaced, node_rng(unplaced), 2) is None
+
+    def test_the_stored_world_serves_what_the_generator_does(self):
+        from multiverse import store
+        seed = 4431
+        _, nodes = _address_tree(seed, 6)
+        for n in nodes[::9]:
+            stored = store.resolve_node_by_name(seed, n.name)
+            assert naming.node_key(stored) == naming.node_key(n)
+            for epoch in (0, 1):
+                assert _served(stored, epoch) == _served(n, epoch)
+
+
+class TestSealsReadAddresses:
+    """The seal never imprisons, and it tells inside from outside by
+    address: one lookup of the stored name, whatever generation the world
+    was born under."""
+
+    def _locked_room(self, root):
+        nodes: list[SpatialNode] = []
+        _walk(root, nodes)
+        return next(n for n in nodes if n.level == "Room"
+                    and n.properties.get("locked") and n.children)
+
+    def _check(self, seed):
+        from multiverse import store
+        from puzzles.gates import inside_seal, seal_check
+        root = store.world_tree(seed)
+        room = self._locked_room(root)
+        deep = room.children[0].children[0]
+        sibling = next(c for c in room.parent.children if c is not room)
+        assert seal_check(seed, deep) is not None
+        assert seal_check(seed, deep, current_name=room.name) is None
+        assert seal_check(seed, room, current_name=deep.name) is None
+        assert seal_check(seed, deep, current_name=sibling.name) is not None
+        assert seal_check(seed, deep, current_name=root.name) is not None
+        assert seal_check(seed, deep, current_name="No Such Place") is not None
+        # A name the world does not hold is outside, digits or not.
+        forged = f"Forged-{room.address}1"
+        assert seal_check(seed, deep, current_name=forged) is not None
+        # Without a world to ask, the room's own subtree answers.
+        assert inside_seal(None, room, deep.name)
+        assert not inside_seal(None, room, sibling.name)
+        return room
+
+    def test_in_a_world_born_with_plain_names(self):
+        room = self._check(4432)
+        assert naming.legacy_address(room.name) is None
+
+    def test_in_a_world_born_under_generator_version_two(self):
+        import json
+        import persistence
+        from multiverse import store
+        seed = 4433
+        _, nodes = _address_tree(seed, 11)
+        rows = [(naming.dotted_of(n.address), f"{n.name}-{n.address}",
+                 n.level, json.dumps(n.properties, ensure_ascii=False),
+                 len(n.children)) for n in nodes]
+        assert persistence.save_world_nodes(seed, rows, 2) == len(rows)
+        assert store.generator_version(seed) == 2
+        room = self._check(seed)
+        assert room.name.endswith(f"-{room.address}")
+        assert naming.node_key(room) == room.name
