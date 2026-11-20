@@ -165,9 +165,10 @@ async function enter(page,url,route,node,name='Ada') {
   if(route==='/') {
     await page.locator('#btn-act').click();
     // The explorer reads /position before it opens the world, so its /world
-    // read can land after enter() returns. Wait for the drawn world so later
-    // request counts start from a loaded page.
-    await expect(page.locator('#status')).toContainText('shared world');
+    // read can land after enter() returns. Wait for the drawn world's status
+    // ("Opening the shared world…" comes earlier) so later request counts and
+    // actions start from a loaded page.
+    await expect(page.locator('#status')).toHaveText(/^\d+ nodes · shared world · depth \d+$/);
   }
   else await page.getByRole('button',{name:'Act',exact:true}).click();
   return page.locator('enfolded-interventions');
