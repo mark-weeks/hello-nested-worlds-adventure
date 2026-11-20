@@ -32,7 +32,9 @@ Section: Fixed
   **Verified:** Vitest `interventions.test.js` 11/11, new case failing on the old
   composer; frontend rebuilt; the Playwright stress runs above (Node 20.19.0, Python
   3.11, system Chromium via `PW_CHROMIUM_PATH`). `ENFOLDED_E2E=1 ./scripts/check.sh`
-  is in progress; its result is recorded in the next commit.
+  green on `41ab14e` (before #184): Ruff clean; 4,329 Python tests
+  passed, 1 skipped; 242 Vitest tests in 20 files; frontend build and bundle freshness
+  passed; installed wheel verified; 212 Playwright tests passed.
   **Irreversibility check:** none — client refresh wiring and one E2E/unit test; no
   generator, bank, golden pin, migration, chronicle write path, `world_meta` pin, era
   bank or endpoint change. The Act surface stays the single interaction surface (no
