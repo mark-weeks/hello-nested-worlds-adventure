@@ -294,3 +294,43 @@ class TestEntanglementReadsTheAddress:
         found = entangled_twin(old[node.address])
         assert found is not None
         assert naming.node_address(found) == twin.address
+
+
+class TestVerbTokensOutsideTheServer:
+    """The CLI verb and the intervention interpreter hash the identity key
+    too, so a place answers the same there as through POST /act and as it
+    did under its version-2 name (ADR-041 D4)."""
+
+    def test_the_verb_token_of_a_cli_act(self, monkeypatch):
+        import interface
+        from causality import delivery
+        tokens = []
+        real = delivery.accept_verb
+
+        def recording(seed, node, verb, token, *args, **kwargs):
+            tokens.append(token)
+            return real(seed, node, verb, token, *args, **kwargs)
+
+        monkeypatch.setattr(delivery, "accept_verb", recording)
+        root = store.world_tree(seed=SEED, max_depth=3)
+        target = root.children[0]
+        interface._do_scale_verb(target, SEED, "Ada")
+        assert tokens == [f"Ada:{target.name}-{target.address}"]
+
+    def test_an_intervention_plan_keys_on_the_identity_key(self, monkeypatch):
+        from multiverse import interventions_v2
+        from persistence import interventions
+        seen = []
+
+        def recording(props, steps, level, token):
+            seen.append(token)
+            return {"state": "calm", "changed": {}}
+
+        monkeypatch.setattr(interventions_v2, "simulate", recording)
+        root = store.world_tree(seed=SEED, max_depth=3)
+        node = root.children[0]
+        twin = _v2_twin(node)
+        interventions._plan(interventions_v2, {}, [], node)
+        interventions._plan(interventions_v2, {}, [], twin)
+        assert seen == [f"{node.name}-{node.address}"] * 2
+        assert twin.name == f"{node.name}-{node.address}"  # the twin is a real v2 name

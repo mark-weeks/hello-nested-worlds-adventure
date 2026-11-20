@@ -211,7 +211,7 @@ def _do_scale_verb(node: SpatialNode, seed: int,
     if verb is None:
         print("  Nothing can be done at this scale.")
         return
-    token = f"{player_name or 'traveler'}:{node.name}"
+    token = f"{player_name or 'traveler'}:{naming.node_key(node)}"
     payload = {"verb": verb.name}
     if player_name:
         payload["actor"] = player_name

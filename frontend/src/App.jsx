@@ -186,10 +186,10 @@ export default function App() {
     // The address comes from the same source as the node it describes.
     const link = new URLSearchParams(location.search);
     const savedNode = targetNode || link.get("node") || localStorage.getItem(LAST_NODE_KEY);
-    const savedAddress = targetNode ? targetAddress
+    const resumeAddress = targetNode ? targetAddress
       : link.get("node") ? link.get("at") : savedAddress(localStorage);
     const requestedDepth = resumeDepth(
-      depth, savedAddress, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
+      depth, resumeAddress, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
     );
     if (!background) {
       setLoading(true);
