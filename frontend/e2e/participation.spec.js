@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { serveBrowser } from './server.js';
+import { failFirstNotice } from './notice-fixture.js';
 
 const KEY = 'nw_' + '9'.repeat(32);
 const NAME = 'Test traveler';
@@ -98,7 +99,7 @@ for (const route of ['/', '/app']) for (const failure of [429, 502, 'network']) 
     try {
       await returning(page);
       await page.addInitScript(() => localStorage.setItem('nw_player_name', 'Ordinary traveler'));
-      await page.route('**/participation', intercepted => failMetadata(intercepted, failure), { times: 1 });
+      await failFirstNotice(page, intercepted => failMetadata(intercepted, failure));
       await page.goto(server.url + route);
       await expect(page.locator('#node-name')).toBeVisible();
       await expect(page.locator('.participation-gate')).toHaveCount(0);
@@ -111,7 +112,7 @@ for (const route of ['/', '/app']) for (const failure of [429, 502, 'network']) 
     try {
       await returning(page);
       const counts = countGameplay(page);
-      await page.route('**/participation', intercepted => failMetadata(intercepted, failure), { times: 1 });
+      await failFirstNotice(page, intercepted => failMetadata(intercepted, failure));
       await page.goto(`${server.url}${route}?key=${KEY}&name=${encodeURIComponent(NAME)}`);
       await expect(page.getByRole('heading', { name: 'Temporary test world' })).toBeVisible();
       expect(counts()).toEqual({ worlds: 1, sockets: 0 });
@@ -130,7 +131,7 @@ for (const route of ['/guide', `/register?invite=${TOKEN}`]) for (const failure 
     for (const temporary of [false, true]) {
       const server = await serveBrowser({ env: temporary ? noticeEnv : {} });
       try {
-        await page.route('**/participation', intercepted => failMetadata(intercepted, failure), { times: 1 });
+        await failFirstNotice(page, intercepted => failMetadata(intercepted, failure));
         await page.goto(server.url + route);
         await expect(page.getByRole('button', { name: 'Load the notice again', exact: true })).toBeVisible();
         if (route === '/guide') await expect(page.locator('body')).toContainText("world's permanent chronicle");

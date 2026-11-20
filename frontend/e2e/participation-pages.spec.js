@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {acknowledgeCurrentStudy} from './study-fixture.js';
+import {failFirstNotice} from './notice-fixture.js';
 
 const KEY = 'nw_' + '6'.repeat(32);
 const AGREEMENT = 'I have read this notice and agree to participate in this temporary test world.';
@@ -159,7 +160,7 @@ for (const route of ['/journal', '/ideas']) {
     const server = await servePages(false);
     try {
       await holdKey(page);
-      await page.route('**/participation', intercepted => failure === 'network' ? intercepted.abort() : intercepted.fulfill({ status: Number(failure), contentType: 'text/plain', body: 'Notice unavailable' }), { times: 1 });
+      await failFirstNotice(page, intercepted => failure === 'network' ? intercepted.abort() : intercepted.fulfill({ status: Number(failure), contentType: 'text/plain', body: 'Notice unavailable' }));
       await page.goto(server.url + route);
       await expect(page.locator(route === '/journal' ? '#journal' : '#board')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Load the notice again', exact: true })).toHaveCount(0);
@@ -169,7 +170,7 @@ for (const route of ['/journal', '/ideas']) {
     const server = await servePages();
     try {
       await holdKey(page);
-      await page.route('**/participation', intercepted => intercepted.fulfill({ status: 502, contentType: 'text/plain', body: 'Notice unavailable' }), { times: 1 });
+      await failFirstNotice(page, intercepted => intercepted.fulfill({ status: 502, contentType: 'text/plain', body: 'Notice unavailable' }));
       await page.goto(server.url + route);
       await expect(page.getByRole('heading', { name: 'Temporary test world', exact: true })).toBeVisible();
       await agree(page);
