@@ -45,6 +45,7 @@ Two things are still unverified: how the incumbent provider's Chat Completions-c
 | G1 | Grok Bot | `cursor/` | Watch model-policy kit: example policy, reservation report, endpoint check record, model sections of the runbook | items 3, 7, 24, 26, 27, 29; D-A; Watch req. 5; S2, E1, E2, M4 | none | `consciousness/model_policy.py`, `main.py` (existing `cmd_model_policy` :191 output only), `config/model-policy.watch.example.json` (new), `docs/development/model-policy.md`, `docs/development/agent-runtime.md`, `docs/evaluation/2026-11-2x-chat-completions-endpoint-check.md` (new), `fly-deployment.md` (**§3a steps 6–7, "Approved live controlled text" :566, row :516, and the item 7 key-mint step**), `tests/test_model_policy*.py` | none | spend, external data destination, authentication (key mint): yes |
 | G2 | Grok Bot | `cursor/` | Written procedure for clearing the latched accounting stop | items 3, 28; ADR-039; E2 | none (no migration) | `docs/development/model-policy.md` (new "Clearing the stop" section only), `docs/infrastructure/incident-response.md` | rebase on G1 for `model-policy.md` | spend control: yes |
 | G3 | Grok Bot | `cursor/` | Authenticated live-route probe: success, hold and failure | Watch req. 5 "live success/hold/failure probes"; M4, D3 | none | `scripts/live_route_probe.py` (new), `tests/test_live_route_probe.py` (new, fake Chat Completions server), `fly-deployment.md` (**§8 checklist bullet "Model-state and gameplay checks" :1695 only**) | may open as a draft now; mark ready only after C1 merges (hold semantics); rebase on G1 for runbook text | deployment runbook: yes |
+| G4 | Grok Bot | `cursor/` | Backup job in a main-only `backup` environment | O7; Watch req. 4, 8 (participant data protection) | none | `.github/workflows/backup.yml`, `docs/infrastructure/backup-bucket.md` | open before the twin collects participant text | deployment, authentication: yes |
 
 ## 3. Sequencing and collision rules
 
@@ -87,7 +88,7 @@ Two things are still unverified: how the incumbent provider's Chat Completions-c
   - Any other Copilot review, Max effort included, is the owner's to request.
   - If Copilot cannot run, the PR says so.
 - **Executing cross-agent review:**
-  - Claude Code reviews X1, X2, G1, G2 and G3.
+  - Claude Code reviews X1, X2, G1, G2, G3 and G4.
   - Codex reviews C1 and C2.
   - Codex also reviews C0 if C0 changes `tests/test_beta_checklist_counts.py` or any other non-Markdown file. Otherwise C0 is records-only.
 - **Wait for the owner's read of the irreversibility check:**
@@ -97,8 +98,9 @@ Two things are still unverified: how the incumbent provider's Chat Completions-c
   - G1: spend, data destination, key mint.
   - G2: spend control.
   - G3: deployment runbook.
+  - G4: deployment and authentication (the backup token's scope).
   - Green tests are not approval.
-- **Queue size:** the owner's adopted item 45 limit ("at most three PRs wait on the owner") is not yet a working rule. Six PRs here wait on the owner's read, so the owner confirms the queue size in O1.
+- **Queue size:** the owner's adopted item 45 limit ("at most three PRs wait on the owner") is not yet a working rule. Seven PRs here wait on the owner's read, so the owner confirms the queue size in O1.
 - Copilot approvals never count. The owner merges each PR individually, and auto-merge is never enabled.
 
 ## 5. Prompts
@@ -115,7 +117,7 @@ Your concern is integrity, safety and records. Open three pull requests, each on
 C0 - Status PR (owner request: item 41)
 - Goal: fold the pending fragments with scripts/fold_changelog.py. Run `git fetch --unshallow origin main` first. Five fragments are pending now: claude-awesome-newton-k3lclx.md, claude-dreamy-gauss-y0s3tz.md, claude-wizardly-gauss-h90q0o.md, claude-wizardly-gauss-h90q0o-puzzle-answers.md and codex-documentation-test-run-rule.md. The script folds every fragment present, so fold whatever is on main at your final rebase and list the folded set in the PR body.
 - Apply exactly the Status: lines those fragments carry, and nothing more.
-- Restamp docs/roadmap/README.md line 3 to "verified against main at #181 (372d77f)".
+- Restamp docs/roadmap/README.md line 3, in its existing form, to the main commit your final rebase sits on: "*Verified on <date> against `main` at #<last merged PR> (`<short SHA>`, <date>)." Use the base you actually inspected, not 372d77f, and name that SHA in the PR body.
 - If you see other mismatches with the 2026-11-18 record, list them in the PR body for the owner and do not edit them. Examples: A1 at beta-launch-checklist.md:210 still says "No honesty rule exists" although consciousness/honesty.py exists; S4, C7, P6, E2.
 - Holds: status documents (docs/CHANGELOG.md, docs/roadmap/README.md, docs/roadmap/beta-launch-checklist.md, tests/test_beta_checklist_counts.py).
 - Non-scope: code, new decisions, ADR Status lines, and any file outside those files and the folded fragments.
@@ -134,10 +136,13 @@ When a shared line is held:
 - The kill switch then also stops Ideas and profile publishing.
 - A spent voice cap holds nothing (item 30).
 
-What is not sent to the classifier:
-- Chat (server/websocket.py:659, surface "chat") and registered names stay on the local screen.
+What keeps today's screen (not moved to every-line classification):
+- Chat (server/websocket.py:659, surface "chat") and the puzzle public_excerpt (server/handlers.py:2175, surface "puzzle", via moderation.py:280-288) keep today's screen() behaviour unchanged.
+  - A locally clean line publishes without a classifier call.
+  - A line the local tier marks ambiguous still escalates to one classify call, and is held if that call cannot complete (moderation.py:207, :237-249).
+  - Do not remove that escalation. Item 30 names neither surface for every-line classification; say so in the PR body.
+- Registered names stay on the local name screen (moderation.py:305-319), with no classifier call.
 - Private journal, unpublished profile and report text are never sent.
-- The puzzle public_excerpt surface (server/handlers.py:2175, surface "puzzle") is not named by item 30. Keep it on the local screen and say so in the PR body.
 
 Honesty answer (covenant):
 - handlers._asks_identity uses moderation.needs_model (handlers.py:251), and the honest line still passes moderation.screen (handlers.py:1291 speak, :1605 agent voice).
@@ -172,6 +177,13 @@ C2 - Watch-twin records (items 4, 5, 6, 8, 12; Watch entry requirements 1, 4, 6,
 - The twin is destroyed only when every report is closed (item 5).
 - Its off-host snapshots are removed by hand with scripts/backup_store.py delete-before, then delete (item 12).
 - On a versioned bucket these commands hide objects but do not erase them. Do not call this step erasure, and promise no deletion date. Leave <OWNER: bucket versioning and what the 7-day delete lock counts from>.
+- Retire the twin's backup schedule completely. Stopping the outside dispatcher is not enough, because backup.yml also runs on its own cron (:17 and :47 each hour). After the final snapshot:
+  1. stop the scheduler's dispatch;
+  2. disable the "Off-host backup" workflow;
+  3. delete the ENFOLDED_BACKUP_REQUIRED and ENFOLDED_BACKUP_APP variables;
+  4. revoke the backup token and delete its secret;
+  5. pause the twin's heartbeat monitor.
+- Then write the separate re-arm order for production: token in the protected environment; app unset or enfolded-beta; re-enable the workflow; one manual dispatch that stores a real object; only then ENFOLDED_BACKUP_REQUIRED=true; a new heartbeat monitor.
 - Keep the existing references to "step 6" and to "the authenticated live-voice probe in section 8" (:857-858, :880) as they are.
 (d) Notice-text template (item 6):
 - Write it in fly-deployment.md "Participation notice and adult confirmation" (:485). The served notice is built from NESTED_WORLDS_TEST_CONTACT, NESTED_WORLDS_TEST_RETENTION and NESTED_WORLDS_TEST_DATA_USE (server/participation.py:67-70) plus the community policy's contact and backup_notice.
@@ -229,6 +241,7 @@ PR X2 (codex/ branch; open only after X1 merges) - route switch
   - Keep invites at /app?key= (handlers.py:1756) and check that the register and participation redirects still land.
   - The old explorer stays reachable at its path until the cohort read-out. Do not remove it. Freeze it except for privacy, safety and correctness fixes.
 - Links: update "/" links in static/guide.html (:36, :49), static/ideas.html (:18), static/journal.html (:3) and SceneView's "World map" link.
+- Pitch capture: scripts/capture_pitch_assets.mjs:117-128 (openExplorer) navigates to "/" and waits for the old explorer's #node-name and window.NodeArt. Point it at /map, keeping the ?name= query, so `npm --prefix frontend run capture:pitch` (frontend/package.json:16) still works. Fix README.md:397 and docs/pitch/beta-brief.md:210 only if they become untrue. No CI step runs it, so run it once or say in the PR body that it was not run.
 - e2e: update the specs that loop over '/' (blocking, delivery, expressive, ideas, inhabitants, participation, presence-join, puzzle-answer-withdrawal, reporting, ux-review, ux) and the ones that goto('/') directly (smoke, wayback, wrap, expressive). Confirm the list with `rg -n "goto\('/'\)|of \[.*'/'" frontend/e2e`, list the final set in the PR body, and cover both the new "/" and the old map's path.
 - Python tests:
   - Update the "/" route assertion at tests/test_guard.py:1001 and the public-asset tests (~878-890) for the new path.
@@ -284,7 +297,8 @@ PR G1 - watch model-policy kit
 - Example policy:
   - Add config/model-policy.watch.example.json in the enabled shape that consciousness/model_policy.py validates (:194-199, :208, :262-264). That includes adapter, endpoint, model, resolved_models, timeout_seconds, options, input_bound_kind (value "provider_context_maximum"), input_bound_evidence, prices, data_use_note, approval_reference, limits.global_daily_usd, limits.participant_daily_usd and ledger_retention_days (>= 2).
   - Every owner value is a clearly marked placeholder that the check refuses.
-  - Show the item 26 starting values as unconfirmed: $15/day global, $3/day per participant, $150 provider console limit.
+  - Show $15/day global and $3/day per participant as unconfirmed placeholders in the policy JSON.
+  - The $150 provider console limit is not a policy field: the strict parse refuses unknown keys (model_policy.py:246-247, :262-264). Record it in the PR body and in the runbook as a separate owner step on the provider account (owner decisions O4).
 - Reservation report: extend the existing `python main.py model-policy --check` output (cmd_model_policy, main.py:191; no new command; the logic lives in consciousness/model_policy.py, reserve_microusd at :379). Per route, report the full-context reservation and how many reservations fit under the participant and global ceilings. The owner confirms amounts against this report (item 26).
 - Endpoint check: write docs/evaluation/2026-11-2x-chat-completions-endpoint-check.md, the item 24 check of whether the incumbent provider's Chat Completions-compatible endpoint satisfies consciousness/openai_compat_provider.py:
   - structured outputs for intention and moderation;
@@ -294,6 +308,9 @@ PR G1 - watch model-policy kit
   - the reported model, for resolved_models.
   Verify against current official docs (the AGENTS.md external-contract rule), and mark anything that cannot be confirmed without a live key as unverified.
 - Rubric-run brief: add a one-page brief for item 27's single-grader live rubric run with scripts/model_eval.py --live --max-usd --max-calls --allow-destination. Do not run it.
+  - Controlled mode refuses live eval wrappers (docs/development/model-policy.md:123-128; evals/harness.py RecordingProvider).
+  - So the brief runs it isolated from the twin, with no NESTED_WORLDS_MODEL_POLICY and no twin database, against the same endpoint and pinned ids.
+  - It has its own --max-usd, and its spend is reconciled against the provider console limit (owner decisions O13).
 - Runbook: in docs/infrastructure/fly-deployment.md edit ONLY these parts:
   1. Section 3a step 6: replace the "no-provider watch" text. Keep the label "step 6"; Claude's teardown text refers to it.
   2. Section 3a step 7: its check greps '"ai": false' for the no-provider watch (about :402-423), which is untrue for an AI-on watch.
@@ -315,21 +332,41 @@ PR G2 - procedure for clearing the latched accounting stop (items 3, 28; ADR-039
   - that a clear never refunds the day's spend or shortens retention;
   - that a restart or a re-created twin does not count as a clear.
 - If a command is needed, write a handoff in the PR body naming the owner approval it needs (an ADR-039 revision and the migration slot). Do not build it.
-- Write rehearsal steps for a separate throwaway Fly app; do not run them.
+- Cover the process-local stop. `_settlement_fault` (consciousness/model_dispatch.py:49, :113-125, :337-356) survives a database clear, and the startup unsettled-row check runs once per process. So the procedure:
+  1. quiesces dispatch;
+  2. reconciles outstanding reservations;
+  3. clears the latch row;
+  4. restarts the machine;
+  5. confirms `python main.py models` / voice-health report not stopped, and that one controlled call settles.
+- Write rehearsal steps, including that restart and post-restart settled call, for a separate throwaway Fly app; do not run them.
 - Rebase on G1 for model-policy.md.
 
 PR G3 - authenticated live-route probe
 You may open it as a draft now, but mark it ready only after Claude's C1 (moderation holds) merges. Its hold assertions use C1's semantics.
 - scripts/live_route_probe.py drives the ordinary gameplay endpoints with an acknowledged check key: /speak, /agent/voice, an Act free-text intention, and a moderation-held shared line. It asserts:
-  - success: ai:true and a ledger delta;
-  - hold: HTTP 200 with moderation.HOLD_LINE, held:true, ai:false;
-  - failure: with the kill switch on or a cap spent, HTTP 200, ai:false and the authored quiet line;
-  - the honesty answer to a sincere identity question.
+  - Success: HTTP 200, ai:true, and exactly one new model_spend_reservations row for the call. That row has:
+    - status `settled`, never `uncertain`, `anomaly` or `reserved`;
+    - accounted_microusd <= reserved_microusd;
+    - usage_json carrying prompt, completion and cached-token counts;
+    - a resolved_model in the route's approved resolved_models.
+
+    Report any `uncertain` row as a failed ADR-035 requirement 4 (tests/test_model_dispatch.py:469-480 shows a usable reply can leave one).
+  - Hold, as separate cases using C1's semantics:
+    - (a) An unclassified shared line, or the AI kill switch on, the dollar ceiling spent, or a classify / model-action cap spent: shared Speak and agent voice return HTTP 200, moderation.HOLD_LINE, held:true, ai:false. Ideas and profile publishing return 422 IDEAS_HOLD / PROFILE_HOLD.
+    - (b) Quiet failure: only the voice cap spent, with classification still succeeding. /speak and /agent/voice return HTTP 200, ai:false and the authored quiet line (LEVEL_FALLBACKS / fallback_voice), with held absent or false and no new reservation.
+  - With the kill switch on, a sincere identity question still gets the consciousness.honesty answer: HTTP 200, ai:false.
 - It refuses any non-temporary world. Direct --probe stays refused in controlled mode.
 - tests/test_live_route_probe.py runs it against a local controlled server with a fake Chat Completions endpoint, reusing the tests/test_openai_compat_provider.py fixtures.
 - Runbook: edit only the section 8 checklist bullet "Model-state and gameplay checks" (fly-deployment.md:1695; section 8 has no model-state heading). Keep the phrase "authenticated live-voice probe" there true, because Claude's teardown text cites it. Rebase on G1.
 
-Non-scope for all three PRs:
+PR G4 - backup job in a main-only environment (owner decisions O7; added after Codex's review of #182)
+- Problem: the backup workflow reads secrets.FLY_API_TOKEN (.github/workflows/backup.yml:43) and needs `flyctl ssh console` and `flyctl ssh sftp get` (:95-108). A token that can do that can read testers' chat on the twin, and a repository secret is readable by a workflow on any branch (fly-deployment.md:344-351).
+- Change: add `environment: backup` to the job, with deployment branches main only, so cron and dispatch runs from main keep working. Update docs/infrastructure/backup-bucket.md's settings table to match.
+- Token: check whether a Fly token with SSH and sftp but no deploy authority exists (`fly tokens create --help`). Record the result as verified or unverified; prefer that token if it works.
+- Ordering: open this before the twin collects any participant text. It touches deployment, so it waits for the owner's read.
+- Tests: tests/test_deploy_staging_workflow.py and any backup-workflow reader that the rg search finds.
+
+Non-scope for all four PRs:
 - frontend/ and static/app/ (Codex holds the bundle).
 - Status documents (docs/CHANGELOG.md, docs/roadmap/README.md, beta-launch-checklist.md).
 - Any ADR Status line: ADR-035 and ADR-039 stay Proposed until the owner accepts them.
@@ -341,7 +378,7 @@ Non-scope for all three PRs:
 - Committing a real filled policy, real model ids, prices or amounts.
 - Next batch, not now: item 18 presence rows, the backup bound-proof tool, the dispatcher handoff, AI-on soak mode.
 
-Verification: behaviour tests, not string-presence checks. Use focused suites while iterating, then run ./scripts/check.sh before marking ready. G1 and G3 change code. G2 is Markdown under docs/ and may use the documentation-only test-run rule: run the two named tests, search for and run the document readers, validate relative links, and stay in draft until CI is green on the exact head SHA.
+Verification: behaviour tests, not string-presence checks. Use focused suites while iterating, then run ./scripts/check.sh before marking ready. G1, G3 and G4 change code or workflows. G2 is Markdown under docs/ and may use the documentation-only test-run rule: run the two named tests, search for and run the document readers, validate relative links, and stay in draft until CI is green on the exact head SHA.
 
 Records:
 - One changelog fragment per PR in docs/changelog.d/, named after the lowercased branch, with Status: lines (for example S2, E2, M4 evidence), the actual checks, and anything unverified.
@@ -369,17 +406,17 @@ The table is kept as planned.
 | O4 | Confirm amounts after reading G1's reservation report | Committing and approving the policy file | USD/day global (start $15); USD/day per participant (start $3); provider console limit (start $150); `ledger_retention_days` (integer ≥ 2) |
 | O5 | Set the call and cap integers as deploy secrets (item 29), each neutral name and its legacy name to the same integer in one `fly secrets set` | C1 holds behave as intended; G1 runbook | `NESTED_WORLDS_VOICE_DAILY_CALLS` + `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` (~1,000); both `_PER_USER` (150); `NESTED_WORLDS_MODERATION_DAILY_CALLS` (2,000); `_PER_USER` (60); `NESTED_WORLDS_MODEL_ACTIONS_PER_USER` (200) |
 | O6 | Notice and community-policy values (item 6) | C2 placeholders; twin first boot | Contact address read daily; twin destroy date; provider name; country (adults 18+); `backup_notice` wording |
-| O7 | Bucket account and the delete-lock definition (item 12) | C2 teardown step; backup proof; P3 | S3-compatible bucket + token (secret); repository **variable** `ENFOLDED_BACKUP_REQUIRED=true` (`.github/workflows/backup.yml:22,46`); one sentence on what the 7-day delete lock counts from; whether the bucket is versioned |
+| O7 | Bucket account and the delete-lock definition (item 12) | C2 teardown step; backup proof; P3 | S3-compatible bucket + token (secret); the backup job's Fly token in the main-only `backup` environment (G4), never a repository secret; repository **variable** `ENFOLDED_BACKUP_REQUIRED=true` (`.github/workflows/backup.yml:22,46`); one sentence on what the 7-day delete lock counts from; whether the bucket is versioned |
 | O8 | Name the second operator (item 31: "named before recruiting"), then testers and dates (item 5, by 11 Dec 2026) | Watch kit; capacity rehearsal | One trusted adult; 2–3 adult tester names; session dates; desktop Chromium |
 | O9 | Approve G2's stop-clearing evidence rule and choose the mechanism: the documented hand-SQL clear, or an ADR-039 revision for an audited command (which needs a migration). Then run the ADR-039 rehearsal on a **separate throwaway app** and accept or hold ADR-039. | AI-on watch survives a latch; required before any live route on a kept world | "Clear requires: <evidence>"; "hand SQL" or "revise ADR-039"; rehearsal date; ADR-039 accept/hold and which PR records it |
 | O10 | Approve the old map's named path in X2 (default `/map`, kept until the cohort read-out). Confirm or replace X1's reading of "shared React Map view". | X1/X2 merge | In-PR comments |
-| O11 | Read the irreversibility checks and merge one PR at a time: C0, X1, C1, C2, G1, X2, G2, G3. C1 must come before G3. | Everything downstream | Per-PR merge instruction (auto-merge never enabled) |
-| O12 | At deploy: install the approved private community policy (`--policy /private/community-policy.json`) and the approved model policy; verify `/community`, `/participation` and `ai: true` with the check key; then revoke it | Watch entry requirements 4 and 5 on the twin | done / not done; name the deployed commit (feeds Claude's F2 evidence record) |
-| O13 | Operator runs: G3 probes live; single-grader rubric run (item 27, a recorded deviation); 3-tester capacity rehearsal; block/unblock; sanction suspend/lift; `main.py redact`; urgent escalation; twice-daily checks of open and acknowledged reports; `fly machine stop/restart`; `beta_metrics.py --days 1`; operator-key entry demands the 18+ acknowledgement | Watch entry requirements 4–7 | Dated log in the private record |
+| O11 | Read the irreversibility checks and merge one PR at a time: C0, X1, C1, C2, G1, G4, X2, G2, G3. C1 must come before G3; G4 before the twin collects participant text. | Everything downstream | Per-PR merge instruction (auto-merge never enabled) |
+| O12 | At deploy: install the approved community policy and model policy (validated offline with `community-policy --check` and `model-policy --check`; loaded at restart via `NESTED_WORLDS_COMMUNITY_POLICY` and `NESTED_WORLDS_MODEL_POLICY`, plus `NESTED_WORLDS_DISABLE_AI=0`); verify `/community`, `/participation` and `ai: true` with the check key; then revoke it | Watch entry requirements 4 and 5 on the twin | done / not done; name the deployed commit (feeds Claude's F2 evidence record) |
+| O13 | Operator runs: G3 probes live; single-grader rubric run (item 27, a recorded deviation; isolated from the twin, because controlled mode refuses eval wrappers); 3-client capacity rehearsal (three distinct rehearsal keys); block/unblock; sanction suspend/lift; `main.py redact`; urgent escalation; twice-daily checks of open and acknowledged reports; `fly machine stop/restart`; `beta_metrics.py --days 1`; operator-key entry demands the 18+ acknowledgement | Watch entry requirements 4–7 | Dated log in the private record |
 | O14 | Observability and alerts: `SENTRY_ENVIRONMENT=staging`, then `SENTRY_DSN`; alert address; scheduler service and a separately hosted freshness check; uptime checker; who holds the dispatch credential (items 11, 13) | B1/B3/P5; Grok's next-batch dispatcher handoff; the 7-day proof on the twin | DSN secret; one email; service names; "fine-grained token" or "GitHub App" |
 | O15 | Records only the owner can supply: the 15 Nov decision page (item 42, the Version 4 record AGENTS.md cites); the issue #89 hold note; Copilot budget if it is spent | Citations in records; Copilot tier | File or text; GitHub comment; budget setting |
 | O16 | Set up the next agent batch: (a) restate the ADR-041 re-pin approval **inside** the naming PR after seeing the exact pin diff and the D4 comparison; (b) supply or authorize re-deriving the puzzle design record draft (item 23) and judge the samples (A10, D6, D10 held); (c) answer ADR-037 question 5, second half: is an AI traveler's honesty answer kept, including with AI off and for a repeat within ten minutes (§5 item 18 / item 40; this blocks the ADR-037 chat batch); (d) request the working-rules PR and approve its three wordings (live presence, agent-solve covenant, ADR-038 D8; items 44, 45); (e) ADR-038 B2 salts | Claude's next batch; ADR-036 batch 2; ADR-037 chat batch; salt B1 production audit | In-PR approval comment; doc or "re-derive"; Q5 answer; explicit working-rules request; salts set as `fly secrets` (staging first) |
-| O17 | Recruit the watch newcomers. At the watch read-out: declare world status (item 10), sign the exception list (item 37, Y4/Y6), set the cohort start date (item 39), choose the cohort model route (item 24), confirm or change the playtest tripwire (item 38), and answer yes or no on alignment (§3). Then: cohort membership, cohort device list (Y5), terms page (item 36), and the 8–12 cohort start record in `docs/roadmap/README.md`. | End of the delivery priority; the cohort | Names; signed declarations; dates |
+| O17 | Recruit the watch newcomers. Admission (playable keys) waits for every applicable Watch requirement's evidence against the O12 commit, including X2, L5, F2, G3 live probes and O13. At the watch read-out: declare world status (item 10), sign the exception list (item 37, Y4/Y6), set the cohort start date (item 39), choose the cohort model route (item 24), confirm or change the playtest tripwire (item 38), and answer yes or no on alignment (§3). Then: cohort membership, cohort device list (Y5), terms page (item 36), and the 8–12 cohort start record in `docs/roadmap/README.md`. | End of the delivery priority; the cohort | Names; signed declarations; dates |
 
 ## 7. Explicitly deferred
 
