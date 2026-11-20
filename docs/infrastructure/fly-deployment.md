@@ -245,8 +245,11 @@ the default is a behavior change, not implicit approval of a chat-off watch.
 > A production boot births the world at its first heartbeat tick,
 > about three minutes in, or at the first `/world` request if that comes
 > sooner. From that tick the cast starts pinning puzzles and writing history.
-> Mint your own key at once to close the gate (§6). Give a key or an invite to
-> someone else only when you mean it.
+> Mint the first key in step 5 of the commands below, from a terminal, before
+> the URL is shared. [Section 6](#6-mint-invite-keys) is the form of that
+> command. A workflow does not mint it:
+> `.github/workflows/deploy-staging.yml` mints no invite keys. Give a key or
+> an invite to someone else only when you mean it.
 
 > **Hold: the puzzle salt comes first.** Do not run the first production deploy
 > below until the salt's code is on `main` and the audited production salt is
@@ -275,13 +278,16 @@ fly secrets set SENTRY_DSN=https://...ingest.sentry.io/...
 # until the first per-user key or registration invite is issued (§6);
 # from then on it stays closed, even if every key is later revoked. An ungated server is an open
 # proxy if external routes are later enabled. The daily
-# caps are not an access gate. Mint the
-# first per-user key in §6 BEFORE you announce the URL, and do not share the
-# URL until then.
+# caps are not an access gate. The first key is step 5, after this deploy,
+# and it is minted from a terminal. Do not share the URL until then.
 
 # Deploy. (--first-deploy skips the pre-deploy backup — nothing to back
 # up yet. Every subsequent deploy goes through scripts/deploy.sh plain.)
 scripts/deploy.sh --first-deploy
+
+# 5. Mint the first key at once. This closes the invite gate. Never mint a
+#    key in CI. '<operator>' stands in until the operator supplies the name.
+fly ssh console -C "python main.py invite mint --name '<operator>' --note 'first key, gate closed'"
 ```
 
 `fly deploy` builds the Docker image remotely, ships it to the region,
@@ -387,17 +393,24 @@ fly secrets set -a enfolded-staging SENTRY_ENVIRONMENT=staging
 fly ssh console -a enfolded-staging -C "printenv SENTRY_ENVIRONMENT"
 fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
 #    This build requires an immutable model policy on hosted/test worlds.
-#    Keep both external kill switches at 1 for the no-provider watch.
-#    A provider key alone cannot activate a route. The former Anthropic
-#    activation command is deliberately removed: this first controlled
-#    slice supports only the built-in Chat Completions transport and
-#    refuses Anthropic, direct probes, wrappers and images.
-#    Live staging and production voice is blocked until ADR-035 is
-#    accepted or a controlled Anthropic path exists, and the destination,
-#    prices, amounts and retention are approved. The first controlled
-#    adapter/vendor is an open owner decision. Follow "Approved live
-#    controlled text" below only after those gates; do not remove the
-#    requirement or assume installing a provider key completes them.
+#    Keep both external kill switches at 1 until "Approved live controlled
+#    text" below is complete. A provider key alone cannot activate a route.
+#    This controlled slice dispatches only through the built-in Chat
+#    Completions transport. It refuses any other adapter, direct probes,
+#    eval wrappers and images.
+#    The watch is AI-on only after the owner fills
+#    config/model-policy.watch.example.json, the offline check passes, and
+#    the approved file is on the machine. The checked-in example is refused
+#    until those owner values are filled. ADR-035 stays Proposed until the
+#    owner records acceptance. Do not remove the policy requirement.
+#    Before any paid call, set a $150 spend limit on the provider account
+#    itself. That limit is not a policy field: the strict parse refuses an
+#    unknown key, and the server neither knows nor enforces it. If the
+#    account offers only an alert, stop and record a replacement decision.
+#    Call caps are separate secrets. Set each neutral name and its legacy
+#    name to the same unconfirmed integer in one secrets set. The names and
+#    the unconfirmed drafts are in the controlled model policy guide under
+#    "Watch call caps". Leave the image caps unset.
 
 # 7. Verify GET /community matches the selected enabled/off state and
 #    GET /participation serves the revised, ready test-world notice.
@@ -408,9 +421,10 @@ fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
 #    on a tester's behalf. Without acknowledgement a keyed /world or /ws
 #    is refused with 428; an incomplete notice refuses gameplay with 503.
 #    Check it with the check key from step 5, never a tester's: /health
-#    ok, the gate closed, and the voice authored/quiet for the default
-#    no-provider watch. Only after separately approved live activation
-#    must /speak answer "ai": true. A live answer writes a
+#    ok, the gate closed. For this AI-on watch, /speak answers "ai": true
+#    only after "Approved live controlled text" has loaded the policy and
+#    the text kill switch is 0. Until then the same request answers "ai": false, which is not a
+#    pass for this watch. A live answer writes a
 #    PLAYER_SPEAK row to the staging chronicle under the check key's name,
 #    and the node's transcript is keyed on that key. Under a tester's key
 #    it would read as that tester speaking before they arrived. Then revoke
@@ -418,7 +432,7 @@ fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
 curl https://enfolded-staging.fly.dev/health
 curl -i https://enfolded-staging.fly.dev/world        # 403 without a key
 curl -s -H 'X-Beta-Key: <check key>' 'https://enfolded-staging.fly.dev/world?depth=1' | python3 -c 'import json, sys; print(json.load(sys.stdin)["world"]["name"])'
-curl -s -X POST https://enfolded-staging.fly.dev/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<the place name printed above>"}' | grep -o '"ai": false'
+curl -s -X POST https://enfolded-staging.fly.dev/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<the place name printed above>"}' | grep -o '"ai": true'
 fly ssh console -a enfolded-staging -C "python main.py invite revoke <check key>"
 
 # 8. Only now, and only once protocol 2's prerequisites below are recorded,
@@ -513,7 +527,7 @@ placeholder descriptions as policy:
 | `NESTED_WORLDS_TEST_CONTACT` | The research owner or facilitator and a way to contact them. |
 | `NESTED_WORLDS_TEST_RETENTION` | The approved retention/deletion treatment of the world database, consent records, research records and backups. State how to request deletion or leave the study and that backup copies are removed when those backups are deleted. This setting displays a statement; it does not schedule deletion. |
 | `NESTED_WORLDS_TEST_MIN_AGE` | Optional compatibility setting: `18` only. The owner-set minimum is 18; an absent value keeps 18, and any conflicting value leaves the notice not ready. |
-| `NESTED_WORLDS_TEST_DATA_USE` | The approved explanation of who receives study data, which model providers are used, and why. A no-provider watch must have no provider credentials set. |
+| `NESTED_WORLDS_TEST_DATA_USE` | The approved explanation of who receives study data, which model provider is used, and why. For this AI-on watch the sentence is the owner's signed data-use note: `<OWNER: provider name>`, not used to train a model, and the classes of text that note lists. Leave provider credentials unset until the approved policy file is installed. Do not copy this placeholder into the secret. |
 
 The canonical setting is `1`. Case-insensitive `true`, `on` and `yes` also
 enable it; absent/empty, `0`, `false`, `off` and `no` turn temporary mode off.
@@ -554,34 +568,56 @@ decisions, separate from authored world voices. Continuing worlds keep their
 standing shared-history disclosure alongside any required study notice;
 temporary copy is selected only when metadata reports `temporary: true`.
 
-The default staging watch remains without provider keys. The step 6 provider
-setup and step 7 `ai: true` probe apply only after the provider-data review and
-the adapter/vendor, prices, amounts and retention decisions are complete,
-and ADR-035 is accepted or a controlled Anthropic path exists. An authored-silence watch instead verifies
-`ai: false`. Keep the AI and image kill switches on until the corresponding
-live-provider path is approved and configured. These notices do not decide
-production chat permanence, replace research consent, or close the beta's
-terms, privacy, reporting and provider gates.
+The staging watch runs AI-on only after the approved policy file is on the
+machine. Until then, leave provider credentials unset and keep both kill
+switches at 1. Step 6 is where those secrets are set, and step 7's `/speak`
+check requires `"ai": true` only after that activation. ADR-035 stays Proposed
+until the owner records acceptance. These notices do not decide production chat
+permanence, replace research consent, or close the beta's terms, privacy,
+reporting and provider gates.
 
 #### Approved live controlled text
 
-This procedure is blocked while the first controlled adapter/vendor decision
-remains open. ADR-035 is still Proposed; either accept it before choosing its
-Chat Completions path or implement and review a controlled Anthropic path.
-The restriction applies to production as well as staging. No command below is
+This procedure stays blocked until the owner signs one data-use note for one
+account at one endpoint, fills a private copy of
+`config/model-policy.watch.example.json`, and `model-policy --check` passes.
+ADR-035 stays Proposed until the owner records acceptance. The
+[endpoint-check record](../evaluation/2026-11-2x-chat-completions-endpoint-check.md)
+recommends a candidate; it does not sign the note or fill the file. The
+restriction applies to production as well as staging. No command below is
 authorization to choose an endpoint, set prices or amounts, or activate a route.
 
-Before activation, record the selected destination/account data-use approval,
-model and resolved-model allowlist, verified input bound, reviewed prices,
-global/per-participant USD ceilings, ledger retention and backup treatment.
-Install the approved immutable policy file and task configuration; use a
-staging-only account/key for rehearsal. Run
-`python main.py model-policy --check --policy <approved file>` in the intended
-process environment. A few full-context
-reservations can exhaust a small allowance even on short prompts; check that
-admission is useful before activating. Keep the committed requirement and
-`NESTED_WORLDS_DISABLE_IMAGES=1`. A disabled moderation route holds text needing
-classification; enabling voice is not permission for its screen to call a model.
+Before activation, record the signed data-use note, the model and
+resolved-model allowlist, the verified input bound, the reviewed prices, the
+global and per-participant USD ceilings, ledger retention and backup treatment.
+Read the reservation rows from the offline check and confirm the amounts
+against them. Set the $150 spend limit on the provider account before the
+first paid call. That limit is not a field in the policy file.
+
+The approved file is a private copy. It is not the checked-in example, and it
+is not baked into the image. On the operator's machine, in the environment the
+process will use:
+
+```sh
+python main.py model-policy --check --policy <approved file>
+```
+
+Copy that file onto the machine, for example with sftp
+(`fly ssh sftp shell -a enfolded-staging`) into `/data/model-policy.json`.
+Then point the process at it. An ordinary secrets set restarts the machine,
+which loads the file. The CLI freezes its own environment and file; it does
+not inspect the running server's earlier snapshot.
+
+```bash
+fly secrets set -a enfolded-staging NESTED_WORLDS_MODEL_POLICY=/data/model-policy.json
+```
+
+Use a staging-only account and key for rehearsal. Keep the committed
+requirement and `NESTED_WORLDS_DISABLE_IMAGES=1`. A disabled moderation route
+holds text needing classification; enabling voice is not permission for its
+screen to call a model. A few full-context reservations can exhaust a small
+allowance even on short prompts; the reservation report is how you see that
+before activating.
 
 Fly's [configuration reference](https://docs.fly.io/reference/configuration#the-env-variables-section)
 says a secret overrides an `[env]` value of the same name, and its

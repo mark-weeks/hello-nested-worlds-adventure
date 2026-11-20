@@ -433,6 +433,30 @@ def settlement(route: Route, result: runtime.Completion,
         return None, True, encoded
 
 
+def reservations(policy: Policy) -> list[dict]:
+    """Per enabled route: the full-context reservation, and how many fit.
+
+    The reservation is ``reserve_microusd`` at the route's maximum output.
+    A remainder smaller than one reservation does not count: admission
+    refuses once less than one reservation of a ceiling remains. Counts are
+    integer microUSD. The rows name the task only — no endpoint, model id,
+    price or approval text — so the CLI summary can carry them.
+    """
+    rows = []
+    for task in policy.enabled_routes:
+        route = policy.routes[task]
+        amount = reserve_microusd(route, route.max_output_tokens)
+        if amount < 1:
+            raise ModelPolicyError()
+        rows.append({
+            "task": task,
+            "full_context_reservation_microusd": amount,
+            "participant_reservations": policy.participant_limit_microusd // amount,
+            "global_reservations": policy.global_limit_microusd // amount,
+        })
+    return rows
+
+
 def summary(policy: Policy) -> dict:
     """Safe CLI summary: no paths, endpoints, model strings or approval text."""
     return {"policy_id": policy.policy_id, "enabled_routes": list(policy.enabled_routes),
@@ -440,4 +464,5 @@ def summary(policy: Policy) -> dict:
             "global_limit_microusd": policy.global_limit_microusd,
             "participant_limit_microusd": policy.participant_limit_microusd,
             "ledger_retention_days": policy.retention_days,
+            "reservations": reservations(policy),
             "verification": "Configuration valid; remote availability and terms not verified."}
