@@ -24,6 +24,12 @@ class SpatialNode:
         # Runtime state — mutated as the world evolves; not included in repr
         # so that deterministic generation tests are unaffected.
         self.ripple_score: float = 0.0        # 0.0–1.0 cumulative causal pressure
+        # ADR-041: the name is a label. `address` is the path from the root
+        # in digits form ("121") and `key` is what identity-keyed derivations
+        # hash. The generator and the store set both; a hand-built node has
+        # neither and keys on its name (multiverse/naming.py). Not in repr.
+        self.address: str | None = None
+        self.key: str | None = None
 
         # Children passed at construction need their parent set; do this via
         # `add_child` so the linkage is consistent with later additions.

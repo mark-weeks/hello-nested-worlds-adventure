@@ -9,11 +9,11 @@ from causality import CausalityBus, EventKind
 from causality.wiring import (
     wire_world_handlers,
 )
-from multiverse import store, wrap
+from multiverse import naming, store, wrap
 from multiverse.generator import DEFAULT_WORLD_SEED
 from multiverse.node import SpatialNode
 from multiverse.utils import (
-    apply_property_overrides, apply_ripple_scores, display_name, node_address,
+    apply_property_overrides, apply_ripple_scores, display_name,
 )
 from puzzles.engine import PuzzleEngine
 from puzzles.types import PuzzleResult
@@ -94,7 +94,7 @@ def _print_look(node: SpatialNode) -> None:
     from multiverse.verbs import verb_for_level
 
     print(f"\n{_fmt(node)}")
-    address = node_address(node.name)
+    address = naming.node_address(node)
     if address is not None:
         # The address field: the node's path from the root, kept visible
         # without riding the display name.
@@ -438,7 +438,7 @@ def _wrap_ascend(stack: list[SpatialNode], seed: int,
         return
     # The hinge lives at full depth; deepen the session's view if it
     # doesn't reach that far yet (a deeper view of the same one world).
-    digits = hinge.rpartition("-")[2]
+    digits = target.address  # the stored path; never read from the name
     root = stack[0]
 
     def _walk_to_hinge(from_root: SpatialNode) -> list[SpatialNode] | None:

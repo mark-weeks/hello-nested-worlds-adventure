@@ -71,7 +71,7 @@ def wraps_outward(node: SpatialNode) -> bool:
 
 # Worthiness weights, tuned before the first pinning (never after — the
 # pin, not this function, is the hinge's identity from then on). On seed
-# 382 the rule lands on Hidden Thorn Quark-11431112111: entangled,
+# 382 the rule lands on Hidden Thorn Quark (address 11431112111): entangled,
 # superposed, coherence 0.988, its Room ancestor unlocked.
 _TENDENCY_BONUS = 1.0    # entangled / recurring: the loop's own vocabulary
 _SPIN_BONUS = 0.5        # superposed: both directions at once

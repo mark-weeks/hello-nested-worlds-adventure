@@ -1,8 +1,11 @@
 """A shared, versioned interpretation of place, independent of media providers."""
 from multiverse.interventions_v2 import digest, read_state
 from multiverse.description import describe_place
+from multiverse.naming import node_key
 
 VERSION = 3
+# Keyed on the node's identity key (ADR-041), which for these places is the
+# name joined to its address in every generation of world 382.
 PLATES = {
     'Emberlit Orchard Terraces-111111': ('orchard', 'a lace of pollen hangs about it; it tightens when approached, and it is patient the way stone is patient.'),
     'Broken Ember Gallery-1111111': ('gallery', 'it carries a dusting of dew; it holds itself perfectly still, and it has forgiven whatever happened here.'),
@@ -50,14 +53,14 @@ def describe(node):
     danger = p.get('danger_level', 0)
     danger = danger if type(danger) in (int, float) else 0
     tension = max(0, min(1, danger / 10 + max(0, state['echo']) / 24))
-    plate = PLATES.get(node.name)
+    plate = PLATES.get(node_key(node))
     plate = '/media/places/' + plate[0] + '-v1.png' if (plate and aspect == plate[1] and
         all(p.get(k) == value for k, value in PLATE_SHAPES[plate[0]].items())) else None
     ancestor = node
     while ancestor.parent is not None and ancestor.level not in ('Region', 'Planet'):
         ancestor = ancestor.parent
     # Identity may choose a tonal family; literal material/atmosphere never hash.
-    family = int(digest(ancestor.name)[:4], 16) % 4
+    family = int(digest(node_key(ancestor))[:4], 16) % 4
     result = {'version': VERSION, 'aspect': aspect, 'description': describe_place(node.level, p, state), 'material': str(p.get('material', texture)),
               'texture': texture, 'atmosphere': atmosphere, 'shadow': shadow, 'light': light,
               'tension': round(tension, 3), 'energy': state['energy'] / 12,

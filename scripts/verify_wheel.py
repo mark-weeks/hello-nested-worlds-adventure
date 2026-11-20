@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _MIGRATION_PREFIX = "persistence/migrations/"
-_SCHEMA_VERSIONS = list(range(1, 34))
+_SCHEMA_VERSIONS = list(range(1, 35))
 
 
 def _run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
@@ -49,7 +49,7 @@ def migration_versions(names: list[str]) -> list[int]:
 
 
 def assert_source_schema_inventory(source: dict[str, bytes]) -> None:
-    """Ship 0001 through 0033, retaining every operational schema step."""
+    """Ship 0001 through 0034, retaining every operational schema step."""
     retired = f"{_MIGRATION_PREFIX}0030_cost_budget_names.sql"
     if retired in source:
         raise RuntimeError(f"source contains a deleted migration: {retired}")
@@ -65,10 +65,13 @@ def assert_source_schema_inventory(source: dict[str, bytes]) -> None:
     community = f"{_MIGRATION_PREFIX}0033_private_chat_reports.sql"
     if community not in source:
         raise RuntimeError(f"schema 33 must include {community}")
+    names = f"{_MIGRATION_PREFIX}0034_world_node_names_unique.sql"
+    if names not in source:
+        raise RuntimeError(f"schema 34 must include {names}")
     versions = migration_versions(list(source))
     if sorted(versions) != _SCHEMA_VERSIONS or len(versions) != len(_SCHEMA_VERSIONS):
         raise RuntimeError(
-            "source migrations must be exactly versions 0001 through 0033, "
+            "source migrations must be exactly versions 0001 through 0034, "
             f"found {sorted(versions)}"
         )
 
@@ -216,6 +219,7 @@ def main() -> None:
             "persistence/migrations/0032_model_spend.sql",
             "persistence/community.py",
             "persistence/migrations/0033_private_chat_reports.sql",
+            "persistence/migrations/0034_world_node_names_unique.sql",
             "server/community_policy.py",
             "server/community_api.py",
             "static/reporting.js",
