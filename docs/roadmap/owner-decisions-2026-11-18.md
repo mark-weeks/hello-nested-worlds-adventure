@@ -32,7 +32,7 @@ reviewed the second (`402dd5d`), the third (`80a08ad`) and the fourth
 owner has not yet seen, has not yet decided, or decided on 2026-11-19:
 
 - *Added after review* marks wording the agent wrote after the owner's adoption
-  of 18 November or, in items 9, 22, 30 and 40, after his answers of
+  of 18 November or, in items 9, 22, 23, 30 and 40, after his answers of
   19 November. It has not been put to the owner. The owner's merge adopts it;
   anything unwanted should be struck before merging. Section 5 lists these in
   one place.
@@ -52,7 +52,7 @@ Five recommendations were changed by the owner (D-A to D-E). His quotes
 override the recommendation wherever the two differ. D-F records four
 recommendations he adopted unchanged on 2026-11-19; the message quoted there is
 the agent's and overrides nothing. D-G is the owner's own change to one of
-them and overrides it. D-H is a further rule in his words.
+them and overrides it. D-H and D-I are further decisions in his words; D-I overrides part of item 23.
 
 **D-A. The newcomer watch runs with AI on.** The recommendation had been an
 AI-off watch.
@@ -123,10 +123,12 @@ Items 22, 9, 40 and 30 carry the four answers, each marked **Answered by the
 owner, 2026-11-19**. The agent made two readings of the owner's sentence, which
 he can correct before merging.
 
-- *Which questions.* It covers the four the message listed. This page records
-  no answer to the three questions that close the draft of item 23's puzzle
-  design record, which were put to him separately; that draft is not yet in the
-  repository. The two questions that wait for their own pull requests stay open
+- *Which questions.* It covers the four the message listed. D-F answers none of
+  the three questions that close the draft of item 23's puzzle design record,
+  which were put to him separately; that draft is not yet in the repository. He
+  answered them in his own words afterwards: D-H answers the third, and D-I
+  answers the second and adds the four kinds the first asks about. Which
+  samples he would cut is still open (section 5, entry 11). The two questions that wait for their own pull requests stay open
   (section 5, entries 16 and 17).
 - *Which wording.* The message named each question in a few words. The items
   record three of the recommendations as this page worded them at `23056ff`,
@@ -156,6 +158,19 @@ player's request, not only suggest, the owner wrote:
 
 Item 40 carries the rule. What it means for each kind of puzzle belongs to the
 puzzle design record (item 23), which is not yet in the repository.
+
+**D-I. Which puzzle kinds stay, go and arrive.** Shown the four kinds proposed
+in the draft of the puzzle design record, and asked whether look-up puzzles
+should disappear or stay as an easy first puzzle, the owner wrote on
+2026-11-19:
+
+> Remove look-up puzzles completely and use an alternative first puzzle.
+> Preserve anagram, cipher, number pattern, riddle, ordering, and similar
+> puzzles.
+> Add the four new kinds of puzzles.
+
+This overrides item 23 where it said the generic kinds are retired and the
+look-up kinds redesigned. Item 23 carries it.
 
 ## 2. Adopted answers
 
@@ -199,7 +214,7 @@ answer still needs before it takes effect.
 | 20 | Next puzzle batches | Both directed: the cast stops attempting puzzles, and per-player send-aways replace the shared pool. *Added after review:* this replaces "The kept database is born after the first of them". ADR-036 D8, which item 19 ratifies, puts the send-away batch (1b) before the batch that stops the cast (2) and says both should land before the first production boot, because each opens a write path. The kept database is born after both. | The two pull requests |
 | 21 | Wrong-guess text (ADR-036 question 6) | Only right or wrong is stored. It ships as a small change before the first invite. | The code change |
 | 22 | Puzzle salt (ADR-038) | The owner adopted the salt in principle, with separate staging and production salts. **Answered by the owner, 2026-11-19 (D-F):** yes to ADR-038's question 1, a first-boot door. The hosted world gets the salt before its first boot, so ADR-038's B1 and B2 come before the first production boot. *Added after review:* the first version of this page said the salt did not gate the cohort and was built after item 20; review showed that this conflicts with ADR-038. A puzzle pinned without the salt stays computable from the public code until its place renews, the heartbeat starts pinning at the first tick, and under item 19 an unsolved puzzle never renews by itself. The salt's code (ADR-038's B1) can be built alongside item 20's batches. The kept boot then waits for whichever finishes last: those batches, the naming change, the puzzle redesign (item 23), or the salt's build and deployment (B1 and B2). ADR-038 has the salt probe and its audit rerun when the guess limit or a puzzle family changes, so the production salt is audited against the final generator. The cost is the B1 pull request, one secret on each app and the working-rules change that follows. A watch twin deployed before B1 exists (item 1 aims at 20 November) is not held for the salt. It runs unsalted until its first deploy that carries B1; its secret is set before that deploy, because a marked server refuses to start without one (ADR-038 D4). Puzzles it pinned before then stay unsalted until their places renew. **Open for the owner:** approval of ADR-038's D8 wording for `AGENTS.md` (its question 3), which changes a working rule and so goes in the working-rules pull request (item 44). | The B1 pull request; the staging secret before the first staging deploy that carries B1, and the production secret with the first-deploy secrets (B2), before the first production boot; the owner's approval of the D8 wording |
-| 23 | Puzzle quality | **Owner words (D-C).** Replaces "duplicate answers". The generic kinds (anagram, cipher, number pattern, riddle, ordering: 1,445 of 4,208 puzzles on seed 382) are retired. Prediction is deepened. The look-up kinds are redesigned so a player must infer or experiment. Agent collaboration is designed with them (item 40). The work starts with a design record holding ten sample puzzles per proposed kind for the owner to judge, before any generator code. The watch is not held for it; the kept world is. | The design record; then the owner's approval of the puzzle re-pin, in the redesign's own pull request |
+| 23 | Puzzle quality | **Owner words (D-C, D-I).** Replaces "duplicate answers". By D-I the look-up puzzles are removed completely, a newcomer's first puzzle is something else, the anagram, cipher, number pattern, riddle, ordering and similar puzzles are preserved, and four new kinds are added. Agent collaboration is designed with the new kinds (item 40). The work starts with a design record holding ten sample puzzles per proposed kind for the owner to judge, before any generator code. The watch is not held for it; the kept world is. *Added after review:* D-I replaces "The generic kinds (anagram, cipher, number pattern, riddle, ordering: 1,445 of 4,208 puzzles on seed 382) are retired. Prediction is deepened. The look-up kinds are redesigned so a player must infer or experiment." The four new kinds are those of the draft design record, which is not yet in the repository: a place that opens when the world is made a certain way; finding a universe's law by experiment and forecasting from it; working out what happened from a place's history; and two travelers acting at two places within a short window. The look-up puzzles are read here as the navigation, logic and lock kinds (2,367 of 4,208 on seed 382), all but nine of which send the player to read a named property, a name or a position. The draft's samples that are themselves look-ups go with them. D-I does not name prediction (396): the draft deepens it into the second new kind, and the design record will say whether today's prediction puzzles stay beside it. The agent reads D-H as making both acts of a two-traveler puzzle human acts; the draft had let an AI traveler be the second. The preserved kinds keep answers that can be computed from the public code, so the salt (item 22) still matters for them. | The design record; then the owner's approval of the puzzle re-pin, in the redesign's own pull request |
 
 ### Models and spend
 
@@ -369,6 +384,11 @@ them:
   world or the automated tests (item 30).
 - The operator runs the chat deletion, and later deletes by reference each
   line a complaint held (item 34).
+- Which of today's kinds count as look-up puzzles, what the four new kinds
+  are, that the draft's samples which are themselves look-ups are dropped,
+  that both acts of a two-traveler puzzle are a human's (the agent's reading
+  of D-H), that prediction's place is left to the design record, and that the
+  preserved kinds still need the salt (item 23).
 - The proposed playtest tripwire (item 38).
 - Which parts of ADR-037 are ratified; batch 4 is an aim, not a condition of
   cohort entry; puzzle help in shared chat reaches every connected traveler who
