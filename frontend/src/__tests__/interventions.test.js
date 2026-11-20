@@ -228,6 +228,22 @@ describe("another player's accepted action", () => {
     expect(c.request).toHaveBeenCalledTimes(1);
   });
 
+  it("reads once per broadcast: not for a served change, an own commit, or while committing", async () => {
+    const { c } = composer([{ participant: "p", recent: [] }]);
+    c.connectedCallback();
+    const announce = notice => globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", ...notice });
+    announce({ id: "immediate", changed: { star_density: 438 } }); // the node revision reloads this
+    c.ownAccepted = new Set(["mine"]);
+    announce({ id: "mine", changed: {} });                          // the commit reloaded after its reply
+    c.busy = true;
+    announce({ id: "during", changed: {} });                        // the reply's reload will include it
+    expect(c.request).not.toHaveBeenCalled();
+    c.busy = false;
+    announce({ id: "peer", changed: {} });
+    await vi.waitFor(() => expect(c.request).toHaveBeenCalledTimes(1));
+    c.disconnectedCallback();
+  });
+
   it("keeps this viewer's own receipt when an announced read fails, and retries with backoff", async () => {
     vi.useFakeTimers();
     const { c } = composer([

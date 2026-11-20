@@ -28,7 +28,14 @@ class InterventionComposer extends HTMLElement {
   // revision cannot reveal another player's new pending work. Hosts announce
   // each accepted action; a co-viewer re-reads outcomes for its own place.
   connectedCallback() {
-    this.onIntervention ||= event => { if (this.ctx?.node && event.detail?.node === this.ctx.node.name) this.load(false, true); };
+    this.onIntervention ||= event => {
+      const notice = event.detail;
+      if (!this.ctx?.node || notice?.node !== this.ctx.node.name) return;
+      // One read per broadcast. A served change reloads through the node
+      // revision; this viewer's own commit reloads after its reply.
+      if (this.busy || (notice.id != null && this.ownAccepted?.has(notice.id)) || Object.keys(notice.changed || {}).length) return;
+      this.load(false, true);
+    };
     globalThis.addEventListener?.(INTERVENTION_EVENT, this.onIntervention);
   }
   disconnectedCallback() { this.generation++; clearTimeout(this.poll); globalThis.removeEventListener?.(INTERVENTION_EVENT, this.onIntervention); }
@@ -116,6 +123,8 @@ class InterventionComposer extends HTMLElement {
       if(generation!==this.generation) return;
       this.pending=null; this.submission=null; this.message=result.flavor || result.response;
       if(result.accepted) {
+        (this.ownAccepted ||= new Set()).add(result.id);
+        if(this.ownAccepted.size > 32) this.ownAccepted.delete(this.ownAccepted.values().next().value);
         this.steps=[]; this.compose=false; this.intention='';
         ctx.changed?.(result); await this.load();
       } else this.intentionOpen=true;

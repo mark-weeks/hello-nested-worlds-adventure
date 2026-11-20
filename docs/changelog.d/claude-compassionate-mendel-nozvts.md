@@ -17,9 +17,13 @@ Section: Fixed
   budget with no load. Under load (8 busy loops on 4 cores, 4 workers) it hit the
   45 s test timeout; the poll's "438" was its last value, not a slow arrival.
   Both hosts now announce each `intervention_changed` broadcast. The composer re-reads
-  `/interventions` for its own node as a background read: no `/node` read, one extra
-  GET per co-viewer per broadcast on that node. Codex's review of the first version
-  (PR #185) found four more defects, all reproduced in Chromium and fixed here:
+  `/interventions` for its own node as a background read, with no `/node` read. It
+  skips the read when the broadcast carries a served change (the node revision
+  reloads it), for its own accepted id, and while its own commit is in flight (the
+  reply reloads it). That leaves at most one read per broadcast, counted against the
+  per-IP read limiter (120 GETs/min; `/interventions` is not exempt). Codex's review
+  of the first version (PR #185) found four more defects, all reproduced in Chromium
+  and fixed here:
   - With a control focused, the first record never appeared, because `renderRecent()`
     had no `.recent` container to fill. The disclosure is now added in place, keeping
     focus and any draft.
@@ -41,8 +45,10 @@ Section: Fixed
   slowest load (page entry up to ~19 s, then 15 s maturation and up to 5 s pump). The
   co-viewer test's overall budget is now 60 s. Its 25 s delivery poll and 10 s
   visibility bound are unchanged.
-  **Verified:** Vitest `interventions.test.js` 14/14; the three new review-driven cases
-  fail on the reviewed head `b9f15f8`. Frontend rebuilt. Co-viewer stress at the load
+  A second review found the duplicate read above and the rate-limit statement, both
+  corrected. **Verified:** Vitest `interventions.test.js` 15/15; the three
+  receipt, focus and disclosure cases fail on the reviewed head `b9f15f8`. Whole
+  `delivery.spec.js` 17/17 unloaded. Frontend rebuilt. Co-viewer stress at the load
   above 40/40 with the 60 s budget (Node 20.19.0, Python 3.11, system Chromium via
   `PW_CHROMIUM_PATH`). The first version's `ENFOLDED_E2E=1 ./scripts/check.sh` was
   green on `41ab14e`: Ruff clean; 4,329 Python tests passed, 1 skipped; 242 Vitest
