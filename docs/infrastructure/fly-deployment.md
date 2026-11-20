@@ -248,6 +248,15 @@ the default is a behavior change, not implicit approval of a chat-off watch.
 > Mint your own key at once to close the gate (§6). Give a key or an invite to
 > someone else only when you mean it.
 
+> **Hold: the puzzle salt comes first.** Do not run the first production deploy
+> below until the salt's code is on `main` and the audited production salt is
+> set with the first-deploy secrets
+> ([ADR-038](../decisions/ADR-038-deployment-puzzle-salt.md), B1 and B2; item 22
+> of the [2026-11-18 owner decisions](../roadmap/owner-decisions-2026-11-18.md)).
+> A production boot without it pins unsalted puzzles at the first tick or
+> `/world` request, and they stay until their places renew. The disposable
+> staging twin has its own timing (item 22).
+
 Run these from the repo root.
 
 ```bash

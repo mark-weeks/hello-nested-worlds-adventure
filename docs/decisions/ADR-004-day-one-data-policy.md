@@ -6,7 +6,10 @@ every line of shared text on Speak, agent voice, Ideas and published profile
 fields goes to the classifier when it can be reached; today only a line the
 local screen marks ambiguous is sent. By the owner's answer of 2026-11-19, a
 shared line is held when the classifier cannot be reached, a cap is spent or AI
-is off. Today a locally clean line still publishes during a classifier outage,
+is off. The recommendation he adopted was worded "when the classifier is
+unreachable"; the spent-cap and AI-off cases are the record's wider wording,
+the agent's reading, which a merge adopts unless he corrects it (D-F and
+item 30 of that record). Today a locally clean line still publishes during a classifier outage,
 once a classify cap is spent and, on Ideas and published profiles, while AI is
 off; a player's spent moderation action cap and the moderation switch already
 hold it.
