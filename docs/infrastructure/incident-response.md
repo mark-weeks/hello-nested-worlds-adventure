@@ -46,8 +46,10 @@ controlled mode; do not use it to test recovery.
 
 An accounting stop differs from a daily allowance refusal. Keep external routes
 off, inspect the status and ERROR/Sentry evidence, and reconcile provider spend
-before restarting or restoring. A persistent stop is not cleared by midnight or
-a policy change; this batch supplies no automatic refund or unlatch. Live ledger
+before restarting or restoring. A persistent stop is not cleared by midnight, a
+policy change, a restart, or a new app. There is no automatic refund and no
+unlatch command. The hand procedure for the disposable watch twin is
+[Clearing the stop](#clearing-the-stop). Live ledger
 expiry does not erase whole-database backups, whose newest validated copy can
 remain indefinitely under the keep-newest exception.
 
@@ -61,6 +63,372 @@ fly secrets set -a enfolded-beta \
 ```
 
 Use numbers you mean for this incident. The examples are not a new policy.
+
+## Clearing the stop
+
+The accounting contract is
+[Clearing the stop](../development/model-policy.md#clearing-the-stop).
+This section is the operator procedure.
+[Owner decision O9](../roadmap/owner-decisions-2026-11-20.md#o9-clearing-the-latched-spend-stop-items-3-28)
+(2026-11-20) adopts it for the disposable watch twin. ADR-039 stays Proposed.
+There is still no unlatch command, no audit table, and no migration.
+
+The stop is the single `model_spend_latch` row (`singleton = 1`, reason
+`billing_anomaly`, `accounting_fault`, or `unsettled_startup`). Application
+code only inserts that row and does nothing when it is already present.
+A doc-only clear is hand SQL on the volume database,
+`/data/.nested-worlds/worlds.db`. An `unsettled_startup` latch leaves
+`status = 'reserved'` rows, and those rows latch again at the next boot
+until they leave that status. `_settlement_fault` lives in the server
+process and survives a database clear. The startup scan runs once per
+process, including a boot with the kill switches on.
+
+Use this procedure in two places only:
+
+- A rehearsal, before the first watch session and by Friday 4 December 2026,
+  on a throwaway Fly app that is neither the watch twin nor the kept world.
+  The deployment runbook's twin is `enfolded-staging`. The kept world named
+  in `fly.toml` is `enfolded-beta`. The throwaway app is a third name.
+- A real latch on the disposable watch twin, after that rehearsal is recorded.
+
+A kept world that will serve any live model route needs an audited clear
+command first (an ADR-039 revision and a migration). Hand SQL on that volume
+is not acceptable. Do not run the statements below against `enfolded-beta`
+or any other kept world. The script cannot see the Fly app name. The check
+is the `-a` on the shell command in front of you.
+
+A clear never refunds the day's spend and never shortens ledger retention.
+A restart is not a clear. A new app, a new volume, or a re-created twin is
+not a clear: the provider has already billed that UTC day.
+
+### Evidence before the write
+
+Record all four items in a dated private operator entry kept outside the
+world database and outside player-visible history. Name the app, the backup
+path, and the UTC time. Do not write a chronicle row or a chat line.
+
+1. The provider console's spend for each UTC day that has a `reserved` row,
+   and for the UTC day of `latched_at`. Beside it, the ledger sum of
+   `accounted_microusd` for that day. One USD is 1,000,000 microUSD. Record
+   both figures. Do not copy the console total into the ledger. If the
+   console total is higher than this installation's calls explain, stop
+   here, leave the latch, and keep the routes off.
+2. The latch reason and `latched_at`.
+3. Every `reserved` row, from the read-only listing below.
+4. This entry, including the backup path, finished before the write.
+
+### 1. Quiesce dispatch
+
+Set the app name in your own shell. For the rehearsal it is the throwaway
+app. For a real latch it is the watch twin.
+
+```bash
+# Local shell. Not the kept world.
+ENFOLDED_CLEAR_APP=throwaway-app-name
+curl -fsS "https://${ENFOLDED_CLEAR_APP}.fly.dev/health"
+```
+
+`/health` returns `{"status":"ok"}` before you continue. Then set the voice
+and moderation switches in one command. Confirm the image switch is already
+`1`. Setting secrets restarts the machine. That restart is not a clear.
+
+```bash
+fly secrets set -a "$ENFOLDED_CLEAR_APP" \
+  NESTED_WORLDS_DISABLE_AI=1 \
+  NESTED_WORLDS_DISABLE_MODERATION=1
+curl -fsS "https://${ENFOLDED_CLEAR_APP}.fly.dev/health"
+fly ssh console -a "$ENFOLDED_CLEAR_APP" -C "python main.py models"
+```
+
+Every route line reads `disabled (intentional)`. `model controls` may still
+say `STOPPED`. Leave these switches on until step 5 has confirmed the
+database. A process that is otherwise willing to dispatch will take a new
+reservation as soon as the latch row is gone, and the next boot will latch
+`unsettled_startup` again.
+
+`fly ssh console -C` does not run a remote shell. Expand any `$(...)` in
+your local shell, as the backup command below does.
+
+### 2. Reconcile, then back up
+
+On the machine, list the latch and the reserved rows. This opens the
+database read-only.
+
+```bash
+fly ssh console -a "$ENFOLDED_CLEAR_APP"
+```
+
+At that remote shell, paste:
+
+```bash
+cd /app && python - <<'EOF'
+import os
+import sqlite3
+from collections import defaultdict
+
+since = os.environ.get("ENFOLDED_CLEAR_SINCE", "")
+if since and (len(since) != 27 or since[10] != "T" or not since.endswith("Z")):
+    raise SystemExit("ENFOLDED_CLEAR_SINCE must look like 2026-11-20T23:40:00.000000Z")
+
+db = sqlite3.connect("file:/data/.nested-worlds/worlds.db?mode=ro", uri=True, timeout=5)
+db.row_factory = sqlite3.Row
+db.execute("BEGIN")
+latch = db.execute(
+    "SELECT singleton, latched_at, reason FROM model_spend_latch"
+).fetchall()
+print("latch:")
+if not latch:
+    print("  (no row)")
+for row in latch:
+    print(f"  singleton={row['singleton']} latched_at={row['latched_at']} reason={row['reason']}")
+rows = db.execute(
+    "SELECT day, status, accounted_microusd FROM model_spend_reservations"
+).fetchall()
+by_status = defaultdict(lambda: [0, 0])
+by_day = defaultdict(lambda: [0, 0])
+for row in rows:
+    by_status[row["status"]][0] += 1
+    by_status[row["status"]][1] += row["accounted_microusd"]
+    by_day[row["day"]][0] += 1
+    by_day[row["day"]][1] += row["accounted_microusd"]
+print("by status:")
+for status in sorted(by_status):
+    count, accounted = by_status[status]
+    print(f"  {status} count={count} accounted_microusd={accounted}")
+print("by day:")
+for day in sorted(by_day):
+    count, accounted = by_day[day]
+    print(f"  {day} count={count} accounted_microusd={accounted}")
+print("reserved:")
+reserved = db.execute(
+    """SELECT id, day, task, reserved_microusd, accounted_microusd, abandoned_at,
+              settled_at, retention_days, retain_until
+       FROM model_spend_reservations WHERE status='reserved' ORDER BY created_at, id"""
+).fetchall()
+if not reserved:
+    print("  (none)")
+for row in reserved:
+    print("  " + " ".join(f"{key}={row[key]}" for key in row.keys()))
+if since:
+    print(f"created after {since}:")
+    created = db.execute(
+        """SELECT id, day, task, status, reserved_microusd, accounted_microusd, settled_at
+           FROM model_spend_reservations WHERE created_at > ? ORDER BY created_at, id""",
+        (since,),
+    ).fetchall()
+    if not created:
+        print("  (none)")
+    for row in created:
+        print("  " + " ".join(f"{key}={row[key]}" for key in row.keys()))
+db.execute("ROLLBACK")
+db.close()
+EOF
+```
+
+Copy that listing into the private entry. Then take a fresh backup and copy
+it off the machine before any write. The file is the whole database,
+including private chat. Keep it outside the checkout, and do not delete the
+copy on the machine until the settled call in step 5 is recorded. A later
+deploy prunes machine-local backups to the newest five
+([§7](fly-deployment.md#7-backups)).
+
+```bash
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+fly ssh console -a "$ENFOLDED_CLEAR_APP" -C "python main.py backup --to /data/backups/worlds-clear-${STAMP}.db"
+mkdir -p "${TMPDIR:-/tmp}/enfolded-clear-${STAMP}"
+cd "${TMPDIR:-/tmp}/enfolded-clear-${STAMP}"
+fly ssh sftp get "/data/backups/worlds-clear-${STAMP}.db" -a "$ENFOLDED_CLEAR_APP"
+```
+
+Write the backup path into the private entry. If the write below has to be
+undone, restore this backup with
+[Restoring from a backup](fly-deployment.md#restoring-from-a-backup). A
+restore abandons everything recorded after the backup.
+
+### 3. Clear the latch
+
+Still on the machine, from `cd /app`, and only after the four evidence items
+and the backup path are in the private entry. The script opens
+`/data/.nested-worlds/worlds.db` and no other file. It resolves each
+`reserved` row to `uncertain` at the same `accounted_microusd`, sets
+`settled_at`, clears `abandoned_at`, and deletes the latch row. It commits
+only when no reserved row remains and no row's money, day, or retention
+changed. Any refusal rolls back.
+
+```bash
+cd /app && ENFOLDED_CLEAR_TARGET=throwaway-rehearsal python - <<'EOF'
+import sqlite3
+from datetime import datetime, timezone
+
+target = __import__("os").environ.get("ENFOLDED_CLEAR_TARGET", "")
+if target not in {"throwaway-rehearsal", "watch-twin"}:
+    raise SystemExit("refusing: set ENFOLDED_CLEAR_TARGET to throwaway-rehearsal or watch-twin")
+
+path = "/data/.nested-worlds/worlds.db"
+reasons = {"billing_anomaly", "accounting_fault", "unsettled_startup"}
+db = sqlite3.connect(path, timeout=5, isolation_level=None)
+db.row_factory = sqlite3.Row
+started = False
+try:
+    db.execute("BEGIN IMMEDIATE")
+    started = True
+    latch = db.execute(
+        "SELECT singleton, latched_at, reason FROM model_spend_latch"
+    ).fetchall()
+    if len(latch) != 1 or latch[0]["singleton"] != 1 or latch[0]["reason"] not in reasons:
+        raise SystemExit("refusing: expected one latch row with a known reason")
+    before = db.execute(
+        """SELECT id, day, status, reserved_microusd, accounted_microusd,
+                  retention_days, retain_until
+           FROM model_spend_reservations"""
+    ).fetchall()
+    for row in before:
+        if row["status"] == "reserved" and row["accounted_microusd"] != row["reserved_microusd"]:
+            raise SystemExit("refusing: a reserved row's accounted total does not match")
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    db.execute(
+        """UPDATE model_spend_reservations
+           SET status='uncertain', settled_at=?, abandoned_at=NULL
+           WHERE status='reserved'""",
+        (now,),
+    )
+    after = db.execute(
+        """SELECT id, day, status, reserved_microusd, accounted_microusd,
+                  retention_days, retain_until, settled_at, abandoned_at
+           FROM model_spend_reservations"""
+    ).fetchall()
+    by_id = {row["id"]: row for row in after}
+    if len(after) != len(before):
+        raise SystemExit("refusing: the reservation count changed")
+    resolved = 0
+    for old in before:
+        new = by_id[old["id"]]
+        if (new["accounted_microusd"] != old["accounted_microusd"]
+                or new["reserved_microusd"] != old["reserved_microusd"]
+                or new["day"] != old["day"]
+                or new["retention_days"] != old["retention_days"]
+                or new["retain_until"] != old["retain_until"]):
+            raise SystemExit("refusing: money, day, or retention changed")
+        if old["status"] == "reserved":
+            resolved += 1
+            if (new["status"] != "uncertain" or new["settled_at"] != now
+                    or new["abandoned_at"] is not None):
+                raise SystemExit("refusing: a reserved row did not resolve to uncertain")
+        elif new["status"] != old["status"]:
+            raise SystemExit("refusing: a terminal row changed status")
+    if db.execute(
+        "SELECT COUNT(*) FROM model_spend_reservations WHERE status='reserved'"
+    ).fetchone()[0] != 0:
+        raise SystemExit("refusing: a reserved row remains")
+    db.execute("DELETE FROM model_spend_latch WHERE singleton=1")
+    if db.execute("SELECT COUNT(*) FROM model_spend_latch").fetchone()[0] != 0:
+        raise SystemExit("refusing: the latch row remains")
+    db.execute("COMMIT")
+    started = False
+    print(f"cleared target={target} reason={latch[0]['reason']} latched_at={latch[0]['latched_at']} resolved={resolved} at {now}")
+except BaseException:
+    if started:
+        db.execute("ROLLBACK")
+    raise
+finally:
+    db.close()
+EOF
+```
+
+On the watch twin, set `ENFOLDED_CLEAR_TARGET=watch-twin` instead. If the
+script exits with `database is locked`, a writer still holds the file. Wait
+until the switches are on and `/health` is ok, and run it again. Do not
+delete the database file. A second successful clear is a new incident: the
+script refuses when the latch row is already gone.
+
+### 4. Restart
+
+```bash
+fly machine list -a "$ENFOLDED_CLEAR_APP"
+fly machine restart <machine-id> -a "$ENFOLDED_CLEAR_APP"
+curl -fsS "https://${ENFOLDED_CLEAR_APP}.fly.dev/health"
+```
+
+The new process runs the startup scan. Reserved rows or a latch row stop
+dispatch again. This restart is the one that drops the server's
+`_settlement_fault`. It is not, by itself, a clear. The restart replaces
+the machine's ephemeral root filesystem. The volume at `/data`, including
+the database and the backup taken above, stays.
+
+### 5. Confirm, then one settled call
+
+On the machine:
+
+```bash
+fly ssh console -a "$ENFOLDED_CLEAR_APP" -C "python main.py models"
+fly ssh console -a "$ENFOLDED_CLEAR_APP" -C "python main.py voice-health"
+```
+
+Require these lines, and require the output not to contain `STOPPED`:
+
+- `model accounting durable stop: no`
+- `model accounting unresolved reservations: 0`
+- `model controls: no recorded stop`
+
+`voice-health: ok` is the accounting result when nothing else in the window
+is wrong. Another failure in that window (a screen error, a missing
+provider) still fails the command. The clear's accounting half is the three
+lines above, and the absence of `controlled model dispatch is stopped`.
+Record any other failure. Do not treat it as the latch, and do not ignore
+a durable stop hiding behind it.
+
+These commands read the database and their own process. They do not read the
+server's memory. The restart in step 4 is what replaces that process.
+
+Only then restore the approved voice and moderation switches. Leave the
+image switch at `1`. This set restarts the machine again and is not a clear.
+Re-read the three lines after `/health` returns.
+
+```bash
+fly secrets set -a "$ENFOLDED_CLEAR_APP" \
+  NESTED_WORLDS_DISABLE_AI=0 \
+  NESTED_WORLDS_DISABLE_MODERATION=0
+```
+
+Take a UTC stamp in the ledger's form (`2026-11-20T23:40:00.000000Z`) after
+this restart and before the call. Then make one ordinary authenticated
+gameplay call that is expected to dispatch: a place line, an agent line, or
+an Act free-text intention. Do not ask whether the speaker is human. Do not
+pass `--probe`. Controlled mode refuses those probes.
+
+Run the step 2 read-only script again on the machine. Set
+`ENFOLDED_CLEAR_SINCE` to that stamp on the same command
+(`ENFOLDED_CLEAR_SINCE=2026-11-20T23:40:00.000000Z python - <<'EOF'`). Every
+row under `created after` is `settled`, with `accounted_microusd` less than
+or equal to `reserved_microusd`. The latch section is `(no row)`. At least
+one such row exists. The clear is complete only then. Write the reservation
+ids and statuses into the private entry.
+
+If the day's accounted total leaves no room for one more full reservation,
+the call is refused for the allowance and the ledger keeps no new reserved
+row. That refusal is not a latch. Set both kill switches back to `1`, leave
+the latch deleted, and make the confirming call once the current UTC day can
+admit one reservation. Until that call settles, the clear is not complete.
+
+### Rehearsal on a throwaway app
+
+Do not run this rehearsal from the repository, against the twin, or against
+a kept world. The owner brings the throwaway app up with its own volume, its
+own approved policy, and its own key. This page does not mint that key.
+
+1. One ordinary call settles. The read-only listing shows that row
+   `settled` and no latch row.
+2. Start a second ordinary call and stop the machine before it returns, so
+   a `reserved` row is left behind. Start the machine again. `python main.py
+   models` reports a durable stop. A further call does not dispatch. If no
+   reserved row was left, the application did not produce the stop. Do not
+   insert a latch row by hand. Record that and try the interrupted call
+   once more.
+3. Run this procedure: the four evidence items, the backup, the hand-SQL
+   clear, the restart, and one settled call after it.
+4. Record the result for the owner. ADR-039 is accepted only after this
+   rehearsal passes, and only in the records or status pull request the
+   owner names.
 
 ## A person
 
