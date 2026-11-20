@@ -747,11 +747,13 @@ What the file cannot stop:
   app scope (step 3) is what stops such a change from reaching another app.
 - A copy of this workflow edited on another branch and dispatched with
   `--ref`. GitHub runs that branch's copy, which can drop every guard above.
-  It can also read every repository secret, `backup.yml`'s `FLY_API_TOKEN`
-  included. That is true of any workflow file on any branch, for anyone with
-  write access, and not something this file adds. The `staging`
-  environment's main-only branch rule is what keeps `FLY_API_TOKEN_STAGING`
-  out of such a run.
+  It can also read every repository secret. That is true of any workflow
+  file on any branch, for anyone with write access, and not something this
+  file adds. The `staging` environment's main-only branch rule is what keeps
+  `FLY_API_TOKEN_STAGING` out of such a run. The backup job's `FLY_API_TOKEN`
+  is a secret of the `backup` environment, withheld by that environment's
+  main-only branch rule ([backup-bucket.md](backup-bucket.md)). A repository
+  copy of it would be readable by this path, so that copy is deleted.
 
 `tests/test_deploy_staging_workflow.py` checks the guards and runs the
 workflow's step scripts against a stub `fly` and small git histories.
@@ -763,8 +765,11 @@ fly.io or github.com):
   refused by every other app. The first residual path above rests on it.
 - That such a token permits `fly ssh console`. `scripts/deploy.sh` uses it
   for the backup, the schema probe and the prune on every deploy except
-  `--first-deploy`. `backup.yml` already assumes the same for its own token.
-  If it does not, the backup step fails and `deploy.sh` refuses to deploy,
+  `--first-deploy`. The off-host job does not use this deploy token. Its token
+  is `fly tokens create ssh -a <app>` on flyctl 0.5.1
+  ([backup-bucket.md](backup-bucket.md)).
+  If the deploy token does not permit a console, the backup step fails and
+  `deploy.sh` refuses to deploy,
   so nothing changes on Fly. The fallback is to redeploy from the owner's
   machine (`FLY_APP=enfolded-staging scripts/deploy.sh`). Another is to move
   staging into a Fly organization of its own and store a token for that
@@ -1234,10 +1239,10 @@ at most one hour of lost history. A schedule alone does not establish that bound
 [GitHub documents delayed and dropped scheduled jobs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 The workflow takes an online backup, downloads a self-contained SQLite file,
 checks integrity and required tables, and stores it in a private S3-compatible
-bucket. Cloudflare R2 is an example of that store, and a 30-day retention is
-the example used when the retention variable is unset. Mark has not recorded
-either choice. Setup, the token, retention, and the rehearsal list are in
-[backup-bucket.md](backup-bucket.md).
+bucket. Cloudflare R2 is that store, and retention is 30 days, both recorded
+on 2026-11-20 (O7). The workflow writes 30. There is no retention variable.
+Setup, the token, the bucket lock, the lifecycle, and the rehearsal list are
+in [backup-bucket.md](backup-bucket.md).
 
 GitHub's artifact list is available to anyone with read access to the
 repository ([artifact API](https://docs.github.com/en/rest/actions/artifacts#list-artifacts-for-a-repository)).
@@ -1250,35 +1255,41 @@ salvage. A healthy object is
 count as healthy backups. A successful upload is not yet a restore rehearsal.
 
 The bucket is private: no public `r2.dev` URL and no custom domain. The job
-reads secrets and variables. `FLY_API_TOKEN` is a deploy token for one app
-(`fly tokens create deploy -a <app>`), not an organization token. The S3
-access key, secret, bucket, and endpoint are secrets. The endpoint contains
-the account id, and a bucket stored as a variable would appear in the public
-job log. Region, retention, the app name, and `ENFOLDED_BACKUP_REQUIRED` are
-variables. Until the token and the bucket settings are set, the scheduled run
-is an inactive no-op and uploads nothing. The job log does not print the
-object key.
+runs in the `backup` environment and reads that environment's secrets.
+`FLY_API_TOKEN` is an SSH token for one app (`fly tokens create ssh -a <app>`
+on flyctl 0.5.1), not a deploy token, not an organization token, and not a
+repository secret. The S3 access key, secret, bucket, endpoint, and the
+read-only list pair are environment secrets the same way. The endpoint
+contains the account id, and a bucket stored as a variable would appear in
+the public job log. The repository variables are only `ENFOLDED_BACKUP_APP`,
+`ENFOLDED_BACKUP_S3_REGION`, and `ENFOLDED_BACKUP_REQUIRED`. Until the token
+and the bucket settings are set, the scheduled run is an inactive no-op and
+uploads nothing. The job log does not print the object key.
 
-Before a separately authorized launch, configure the repository as in the
-bucket runbook, then:
+Before a separately authorized launch, configure the `backup` environment as
+in the bucket runbook, then:
 
-- Variable `ENFOLDED_BACKUP_APP`: the exact app name (default `enfolded-beta`).
-  Use the staging app during rehearsal; switch deliberately before production.
-- Variable `ENFOLDED_BACKUP_REQUIRED`: exactly `true` before permanent history is
-  accepted. Missing credentials or bucket settings then fail the workflow.
-  Before activation, a missing value with the variable unset or exactly `false`
-  produces an explicit inactive warning and no recovery claim. Any other value
-  fails configuration; a typo cannot silently turn enforcement off.
-- Variable `ENFOLDED_BACKUP_RETENTION_DAYS`: optional. When it is unset the
-  workflow uses **30** as an example, not as a recorded retention period. It
-  deletes this app's backup objects whose snapshot-start is at least that many
-  days old, and it never deletes the newest validated object. Prune runs only
-  after the store step succeeded. A lifecycle rule on prefix `offhost/` must
-  be the retention plus 7 days or more. That rule expires by age and does not
-  keep the newest copy, so it is an outer bound, not a substitute for the
-  keep-newest prune. This replaces the old 90-day artifact expiry. The
-  replacement of that expiry is not itself a decision to keep copies for 30
-  days.
+- Variable `ENFOLDED_BACKUP_APP`: the exact app name. Unset, the workflow uses
+  `enfolded-beta`. Set `enfolded-staging` while the watch twin is the app
+  being backed up. Leave it unset, or set `enfolded-beta`, only in the
+  production re-arm order in the bucket runbook. Deleting this variable while
+  a staging token is still stored aims the job at `enfolded-beta`.
+- Variable `ENFOLDED_BACKUP_S3_REGION`: `auto`.
+- Variable `ENFOLDED_BACKUP_REQUIRED`: exactly `true` only after a manual
+  dispatch has stored a validated object. For production, that dispatch is
+  after the first production deploy (O14). Missing credentials or bucket
+  settings then fail the workflow. Before activation, a missing value with
+  the variable unset or exactly `false` produces an explicit inactive warning
+  and no recovery claim. Any other value fails configuration; a typo cannot
+  silently turn enforcement off.
+- Retention is 30 days. The workflow deletes this app's backup objects whose
+  snapshot-start is at least that many days old, and it never deletes the
+  newest validated object. Prune runs only after the store step succeeded. A
+  bucket lock of 7 days on prefix `offhost/` blocks an earlier delete. A
+  lifecycle rule on that prefix expires objects at 37 days. It does not keep
+  the newest copy, and once the schedule has stopped it removes the last copy
+  after 37 days. It is an operator backstop, not a date promised to players
+  until the erasure check in the bucket runbook is recorded.
 
 Manually dispatch `backup.yml` and confirm the object, not just the job badge.
 Staging keys cannot satisfy the production check. Run this read-only check
@@ -1600,12 +1611,12 @@ run `scripts/backup_store.py delete` for one key, or `delete-before` with
 `--dry-run` prints that window and deletes nothing. A future cutoff is
 refused. `delete` of one named key can remove the newest validated object.
 `delete-before` and the retention prune cannot: both keep the newest
-nonempty validated object. The example retention when the variable is unset
-is 30 days, which Mark has not adopted as a decision. Any lifecycle rule
-deletes the last copy once the schedule has been stopped that many days;
-retention + 7 only delays it by 7 days. The rule does not keep the newest
-object. Expiry is not a substitute for deleting a copy you were asked to
-remove.
+nonempty validated object. Retention is 30 days (O7). The lifecycle rule on
+`offhost/` is 37 days and deletes the last copy once the schedule has been
+stopped that long; it does not keep the newest object. Expiry is not a
+substitute for deleting a copy you were asked to remove. A 7-day bucket lock
+can refuse that deletion until the lock age has passed
+([backup-bucket.md](backup-bucket.md)).
 
 Redaction removes words from the chronicle. It does not keep their author
 out: suspend or ban them for that (§6, "Suspending or banning a player").

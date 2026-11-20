@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -234,9 +235,9 @@ def test_backup_workflow_never_publishes_a_github_artifact():
     assert 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' in text
     assert "cron: '17,47 * * * *'" in text
     assert 'curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300' in text
-    assert '# Example only; Mark has not chosen a retention (ADR-034 §5).' in text
+    assert '# Retention is 30 days (owner decision O7, 2026-11-20), not an example.' in text
     gate = (Path(__file__).resolve().parents[1] / 'scripts/backup_gate.sh').read_text()
-    assert '# Example only; Mark has not chosen a retention (ADR-034 §5).' in gate
+    assert '# Retention is 30 days (owner decision O7, 2026-11-20), not an example.' in gate
     store_id, store_if, _store_run, store_step = _workflow_step(text, 'Store the snapshot in the private bucket')
     _prune_id, prune_if, _prune_run, _prune_step = _workflow_step(text, 'Prune private-bucket objects past retention')
     assert store_id == 'store'
@@ -279,3 +280,125 @@ print('offhost/worlds-backup-should-not-be-logged')
         assert ('--quarantine' in argv) is quarantined
         assert 'offhost/' not in result.stdout + result.stderr
         assert summary.read_text().strip() == summary_line
+
+
+_BACKUP_WORKFLOW = Path(__file__).resolve().parents[1] / '.github/workflows/backup.yml'
+_BACKUP_EXPR = re.compile(r'\$\{\{\s*(.*?)\s*\}\}')
+_BACKUP_VARIABLES = {
+    "vars.ENFOLDED_BACKUP_APP || 'enfolded-beta'",
+    'vars.ENFOLDED_BACKUP_REQUIRED',
+    "vars.ENFOLDED_BACKUP_S3_REGION || 'auto'",
+}
+_BACKUP_SECRETS = {
+    'secrets.FLY_API_TOKEN',
+    'secrets.ENFOLDED_BACKUP_S3_ACCESS_KEY_ID',
+    'secrets.ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY',
+    'secrets.ENFOLDED_BACKUP_S3_BUCKET',
+    'secrets.ENFOLDED_BACKUP_S3_ENDPOINT',
+    'secrets.ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID',
+    'secrets.ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY',
+}
+_WRITE_SECRETS = {
+    'ENFOLDED_BACKUP_S3_ACCESS_KEY_ID',
+    'ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY',
+    'ENFOLDED_BACKUP_S3_BUCKET',
+    'ENFOLDED_BACKUP_S3_ENDPOINT',
+}
+_LIST_SECRETS = {
+    'ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID',
+    'ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY',
+}
+
+
+def _backup_workflow():
+    from tests.test_deploy_staging_workflow import _load
+    text = _BACKUP_WORKFLOW.read_text()
+    return text, _load(text)
+
+
+def test_backup_job_keeps_secrets_in_the_main_only_environment():
+    text, workflow = _backup_workflow()
+    assert list(workflow) == ['name', 'on', 'permissions', 'concurrency', 'jobs']
+    assert workflow['permissions'] == {'contents': 'read'}
+    assert workflow['on']['workflow_dispatch'] is None
+    assert workflow['on']['schedule'] == [{'cron': '17,47 * * * *'}]
+    job = workflow['jobs']['backup']
+    assert 'permissions' not in job
+    assert job['environment'] == {'name': 'backup', 'deployment': False}
+    assert job['env']['ENFOLDED_BACKUP_RETENTION_DAYS'] == '30'
+    assert 'FLY_API_TOKEN' not in job['env']
+    assert 'vars.ENFOLDED_BACKUP_RETENTION_DAYS' not in text
+    found = _BACKUP_EXPR.findall(text)
+    assert text.count('${{') == len(found)
+    assert set(found) == _BACKUP_VARIABLES | _BACKUP_SECRETS | {'steps.validate.outcome'}
+    names = [step.get('name') for step in job['steps']]
+    assert names[0] == 'Refuse any ref but main'
+    secret_steps = {
+        'Check for the Fly token and the private bucket': {'FLY_API_TOKEN', *_WRITE_SECRETS},
+        'Take an online backup on the machine': {'FLY_API_TOKEN'},
+        'Download the backup off-host': {'FLY_API_TOKEN'},
+        'Store the snapshot in the private bucket': {'VALIDATE_OUTCOME', *_WRITE_SECRETS},
+        'Prune private-bucket objects past retention': _WRITE_SECRETS | _LIST_SECRETS,
+        'Prune old machine-local off-host copies': {'FLY_API_TOKEN'},
+    }
+    seen = {}
+    for step in job['steps']:
+        env = step.get('env') or {}
+        seen[step.get('name')] = set(env)
+        assert 'secrets.' not in str(step.get('with') or '')
+        if 'run' in step:
+            assert '${{' not in step['run']
+        for key, value in env.items():
+            if key == 'VALIDATE_OUTCOME':
+                assert value == '${{ steps.validate.outcome }}'
+            elif key == 'FLY_API_TOKEN' or key.startswith('ENFOLDED_BACKUP_S3_'):
+                assert value == '${{ secrets.' + key + ' }}'
+    assert seen['Refuse any ref but main'] == set()
+    assert seen[None] == set()
+    assert seen['Install AWS CLI'] == set()
+    assert seen['Set up flyctl'] == set()
+    assert seen['Validate the downloaded SQLite snapshot'] == set()
+    for name, keys in secret_steps.items():
+        assert seen[name] == keys
+    assert 'github.token' not in text.lower()
+    assert 'GITHUB_TOKEN' not in text
+
+
+def test_the_workflow_retention_is_a_value_the_gate_accepts(tmp_path):
+    _text, workflow = _backup_workflow()
+    days = workflow['jobs']['backup']['env']['ENFOLDED_BACKUP_RETENTION_DAYS']
+    result, ready, summary = _gate(
+        tmp_path, BACKUP_REQUIRED='true', FLY_API_TOKEN='fixture-token',
+        **{**S3_READY, 'ENFOLDED_BACKUP_RETENTION_DAYS': days})
+    assert result.returncode == 0
+    assert ready == 'ready=yes'
+    assert 'fixture-token' not in result.stdout + result.stderr + summary
+
+
+def test_backup_refuses_every_ref_but_main_and_calls_no_flyctl(tmp_path):
+    text = _BACKUP_WORKFLOW.read_text()
+    _identity, condition, script, _step = _workflow_step(text, 'Refuse any ref but main')
+    assert condition == ''
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    called = tmp_path / 'called'
+    exe = bindir / 'flyctl'
+    exe.write_text('#!/bin/sh\necho called >> "$CALLED"\nexit 99\n')
+    exe.chmod(0o755)
+    for ref, code in (
+            ('refs/heads/main', 0),
+            ('refs/heads/cursor/other', 1),
+            ('refs/pull/4/merge', 1),
+            ('refs/tags/v1', 1),
+            (None, 1)):
+        called.write_text('')
+        env = {'PATH': str(bindir) + os.pathsep + '/usr/bin:/bin', 'CALLED': str(called)}
+        if ref is not None:
+            env['GITHUB_REF'] = ref
+        result = subprocess.run(
+            ['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', script],
+            capture_output=True, text=True, env=env)
+        assert result.returncode == code, (ref, result.stdout, result.stderr)
+        assert called.read_text() == ''
+        if code:
+            assert 'Off-host backup runs only from main.' in result.stdout
