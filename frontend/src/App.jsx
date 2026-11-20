@@ -5,10 +5,10 @@ import SceneView from "./components/SceneView.jsx";
 import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
 import { withKey, urlName, betaKey } from "./auth.js";
-import { entryPath, findNodeByName, resumeDepth } from "./entry.js";
+import { entryPath, findNodeByName, findPath, resumeDepth } from "./entry.js";
 import { describeMutation, scaleActLine, causalNoticeLine } from "./mutations.js";
 import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
-import { displayName } from "./names.js";
+import { displayName, nodeAddress } from "./names.js";
 import { createNodeRefresher } from "./nodeRefresh.js";
 import { createChatDraft, createChatRestore } from "./chatDraft.js";
 import { arrivalScreen, openWorld, WORLD_UNREACHED_LINE } from "./arrival.js";
@@ -95,8 +95,7 @@ export default function App() {
   const liveViewerId = useRef(null);
   const [agents, setAgents]       = useState({});  // name → { node, persona }
   const [events, setEvents]       = useState([]);
-  // The fetched world tree, retained so jump-to-traveler can rebuild a real
-  // ancestry stack from a node name (names encode their path).
+  // Map, passages and traveler jumps share the same served ancestry.
   const worldRootRef = useRef(null);
   // A node whose seal we just opened: walk through once the solve lands.
   const [walkThrough, setWalkThrough] = useState(null);
@@ -173,6 +172,7 @@ export default function App() {
     targetNode = null,
     preserveSession = false,
     background = false,
+    signal,
   } = {}) => {
     const savedNode = targetNode || new URLSearchParams(location.search).get("node") || localStorage.getItem(LAST_NODE_KEY);
     const requestedDepth = resumeDepth(
@@ -192,11 +192,13 @@ export default function App() {
     try {
       const opened = await openWorld(
         async url => {
-          let response = await fetch(url);
-          if (await globalThis.EnfoldedParticipation.recover(response)) response = await fetch(url);
+          let response = await fetch(url, { signal });
+          if (await globalThis.EnfoldedParticipation.recover(response)) response = await fetch(url, { signal });
           return response;
         }, withKey(`/world?depth=${requestedDepth}`), !!betaKey(),
       );
+      // A player can leave a horizon while its wider tree is being read.
+      if (signal?.aborted) return false;
       if (opened.unopened) {
         // The arrival screens show this only while no place is in hand; a
         // horizon read keeps its own retry beside the scene.
@@ -523,22 +525,27 @@ export default function App() {
     }
   }, [walkThrough, connected, currentNodeName, sendMessage]);
 
-  // Jump to a traveler: rebuild the real ancestry stack from the node name
-  // (names encode their path — "…-1121" lies under 1→1→2→1). If the traveler
-  // is below the fetched horizon, progressively deepen the canonical view.
+  // In-view destinations are identified by the served tree itself. An address
+  // is needed only to look for a place outside the current view.
   const jumpTo = useCallback(async (nodeName) => {
     const root = worldRootRef.current;
-    const suffix = (nodeName || "").split("-").pop() || "";
-    if (!root || !/^\d+$/.test(suffix)) return;
-    if (suffix.length > worldDepth) {
-      const targetDepth = Math.min(MAX_WORLD_DEPTH, suffix.length);
+    if (!root || !nodeName) return;
+    const inView = findPath(root, nodeName);
+    if (inView) {
+      setNodeStack(inView);
+      return;
+    }
+    const address = nodeAddress(nodeName);
+    if (!address) return;
+    if (address.length > worldDepth) {
+      const targetDepth = Math.min(MAX_WORLD_DEPTH, address.length);
       pushEvent({ type: "system", text: `… deepening the view toward ${displayName(nodeName)}` });
       await loadWorld({ depth: targetDepth, targetNode: nodeName, preserveSession: true });
       return;
     }
     const path = [root];
     let cur = root;
-    for (const ch of suffix.slice(1)) {   // the leading 1 is the root itself
+    for (const ch of address.slice(1)) {   // the leading 1 is the root itself
       const next = (cur.children || [])[Number(ch) - 1];
       if (!next) break;                   // deeper than this view reaches
       path.push(next);
@@ -557,22 +564,23 @@ export default function App() {
   // "look within" click.
   const horizonChildren = nodeStack[nodeStack.length - 1]?.children?.length ?? 0;
   useEffect(() => {
-    if (!currentNodeName || horizonChildren > 0 || worldDepth >= MAX_WORLD_DEPTH) {
+    if (loading || !currentNodeName || horizonChildren > 0 || worldDepth >= MAX_WORLD_DEPTH) {
       setPassageLoadStatus("idle");
       return undefined;
     }
-    let active = true;
+    const read = new AbortController();
     setPassageLoadStatus("loading");
     loadWorld({
       depth: worldDepth + 1,
       targetNode: currentNodeName,
       preserveSession: true,
       background: true,
+      signal: read.signal,
     }).then(ok => {
-      if (active) setPassageLoadStatus(ok ? "idle" : "error");
+      if (!read.signal.aborted) setPassageLoadStatus(ok ? "idle" : "error");
     });
-    return () => { active = false; };
-  }, [currentNodeName, horizonChildren, loadWorld, passageRetry, worldDepth]);
+    return () => read.abort();
+  }, [currentNodeName, horizonChildren, loading, loadWorld, passageRetry, worldDepth]);
 
   const sendChat = useCallback(
     (text) => community?.chat.enabled && sendMessage({ type: "chat", text, ref: chatDraft.sent(text) }),
@@ -705,6 +713,7 @@ export default function App() {
     <main className="world-layout" style={globalThis.EnfoldedInterface.resolve(currentNode)}>
       <a className="skip-link" href="#interactions">Skip to interactions</a>
       <SceneView
+        world={worldRootRef.current}
         node={currentNode}
         transients={transients}
         parent={nodeStack.at(-2)}
