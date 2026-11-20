@@ -162,7 +162,13 @@ async function enter(page,url,route,node,name='Ada') {
     sessionStorage.setItem('nw_sound_invited','1');
   },{node,name,key:credentials[name]});
   await page.goto(url+route);
-  if(route==='/')await page.locator('#btn-act').click();
+  if(route==='/') {
+    await page.locator('#btn-act').click();
+    // The explorer reads /position before it opens the world, so its /world
+    // read can land after enter() returns. Wait for the drawn world so later
+    // request counts start from a loaded page.
+    await expect(page.locator('#status')).toContainText('shared world');
+  }
   else await page.getByRole('button',{name:'Act',exact:true}).click();
   return page.locator('enfolded-interventions');
 }
