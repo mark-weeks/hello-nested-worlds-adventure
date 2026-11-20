@@ -82,7 +82,7 @@ Two things are still unverified: how the incumbent provider's Chat Completions-c
 
 ## 4. Review assignments
 
-- **Copilot:**
+- **Copilot:** unavailable until the monthly quota resets. On #182 it failed with HTTP 402 ("exceeded your monthly quota"), and no budget is set (item 46, O15). Until then, each PR's executing cross-agent review is its only non-author review. The steps below apply once Copilot can run again.
   - It reviews automatically when each PR opens.
   - When the author marks the PR ready, the author requests one more review on the final commit at the default effort.
   - Any other Copilot review, Max effort included, is the owner's to request.
@@ -361,7 +361,9 @@ You may open it as a draft now, but mark it ready only after Claude's C1 (modera
 
 PR G4 - backup job in a main-only environment (owner decisions O7; added after Codex's review of #182)
 - Problem: the backup workflow reads secrets.FLY_API_TOKEN (.github/workflows/backup.yml:43) and needs `flyctl ssh console` and `flyctl ssh sftp get` (:95-108). A token that can do that can read testers' chat on the twin, and a repository secret is readable by a workflow on any branch (fly-deployment.md:344-351).
-- Change: add `environment: backup` to the job, with deployment branches main only, so cron and dispatch runs from main keep working. Update docs/infrastructure/backup-bucket.md's settings table to match.
+- Change: add `environment: backup` to the job, with deployment branches main only, so cron and dispatch runs from main keep working.
+- Secrets: the environment holds FLY_API_TOKEN and every ENFOLDED_BACKUP_S3_* secret, both the write pair and the read-only list pair. Between them they can read every snapshot, and the write pair can delete them. Today all of them are read only in the one `backup` job.
+- Docs: update docs/infrastructure/backup-bucket.md's settings table to say "`backup` environment secret" and to tell the owner to delete the repository copies.
 - Token: check whether a Fly token with SSH and sftp but no deploy authority exists (`fly tokens create --help`). Record the result as verified or unverified; prefer that token if it works.
 - Ordering: open this before the twin collects any participant text. It touches deployment, so it waits for the owner's read.
 - Tests: tests/test_deploy_staging_workflow.py and any backup-workflow reader that the rg search finds.

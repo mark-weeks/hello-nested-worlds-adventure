@@ -44,9 +44,11 @@ deploys and spends nothing.
 
 ## Takeaway
 
-The watch runs on the staging twin on 8 and 10 December, with AI on through the
-incumbent provider's Chat Completions-compatible endpoint if Grok Bot's check
-and the live probe pass. Spend is bounded at $15 a day, $3 to $5 a day per
+The watch runs on the staging twin on 8 and 10 December, with AI on through a
+Chat Completions endpoint that passes Grok Bot's check and the live probe. The
+incumbent provider's compatibility endpoint is checked first, but its own
+documentation reportedly rules out settled usage, so OpenAI's endpoint, the
+named fallback, is the likely route. Spend is bounded at $15 a day, $3 to $5 a day per
 participant, and $150 at the provider. The voice model is chosen by a stated
 reservation rule, not by default. Pull requests that need the owner's
 one-way-door read reach him at most three at a time.
@@ -161,10 +163,29 @@ O13, and the hosted proof of the 18+ question at sign-up.
   absent, the fallback below applies; a smaller model does not cure it. The
   next records or status pull request records the acceptance on the owner's
   instruction.
-- **Fallback** (agent judgment). If the endpoint fails a requirement the adapter
-  cannot work around, the owner chooses another vendor's compatible endpoint
-  that passes the same checks. No new adapter or controlled native transport is
-  built for the watch; that transport stays the cohort alternative on record.
+- **Known risk to requirement 4.** A reviewer of this record reports that the
+  incumbent vendor's documentation for its compatibility layer says three
+  things:
+  - `usage.prompt_tokens_details` is always empty, and `store` is ignored;
+  - prompt caching is not supported;
+  - the layer is not considered a long-term or production-ready solution.
+
+  *Not verified in this session:* the vendor's documentation was not
+  reachable. The code consequence is confirmed. With no `cached_tokens`,
+  `consciousness/openai_compat_provider.py` leaves the input count unknown, so
+  every call settles `uncertain` and fails requirement 4. The fallback below is
+  therefore the likely outcome. G1's endpoint check confirms or refutes the
+  vendor's statement first.
+- **Fallback** (agent judgment): OpenAI's own Chat Completions endpoint. It is
+  the reference implementation of the API the adapter targets. G1 checks it
+  against the same five requirements, in parallel with the incumbent's endpoint.
+  Its models are chosen by O4's rule. If it also fails, the owner chooses
+  another vendor's compatible endpoint that passes the same checks. No new
+  adapter or controlled native transport is built for the watch; that transport
+  stays the cohort alternative on record.
+- **Order of signing.** The owner signs the data-use note only after G1's check
+  record names the endpoint that passes. Each note covers one account at one
+  endpoint (item 25), so a switch after signing needs a new signed note.
 - **Data-use note.** One note covers one account, under its named terms, at one
   exact endpoint (item 25).
   - **Data classes sent:**
@@ -197,7 +218,7 @@ O13, and the hosted proof of the 18+ question at sign-up.
   endpoint. G1's check and G3's probe answer it.
 
 **Owner act:**
-- sign the note;
+- sign the note, for the endpoint G1's record names as passing;
 - set the staging-only key and the model variables with `fly secrets`;
 - confirm the ids against G1's report.
 
@@ -357,7 +378,10 @@ on.
     (`fly-deployment.md` §3a step 3), so it is never a repository secret while
     the twin holds participant data.
   - **This batch.** Grok Bot's G4 adds a main-only `backup` environment to the
-    job, and the owner stores the token there. G4 touches deployment, so it
+    job. The owner stores the Fly token there, and every `ENFOLDED_BACKUP_S3_*`
+    secret as well: both the write pair and the read-only list pair, which can
+    read every snapshot (the write pair can also delete them). The repository
+    copies are then deleted. G4 touches deployment, so it
     waits for the owner's read.
   - **Which token.** A token with SSH and sftp but no deploy authority, if Fly
     provides one (*not verified*; G4 checks). Otherwise
