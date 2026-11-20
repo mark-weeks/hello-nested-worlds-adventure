@@ -7,15 +7,29 @@ VERSION = 1
 WINDOW_SECONDS = 60
 STEP_SECONDS = 20
 KEEPER = 'Tessera'
+# The authored places, by the name world 382 is born with under the current
+# generator. `ADDRESSES` is where each one stands; `definition` resolves by
+# address, so a world 382 born under an earlier generator version, whose
+# stored names differ, serves its own stored names (ADR-041).
 NODES = {
-    'region': 'Emberlit Orchard Terraces-111111',
-    'gallery': 'Broken Ember Gallery-1111111',
-    'instrument': 'Elder River Instrument-11111111',
-    'chain': 'Distant River Chain-111111111',
-    'fold': 'Elder Lantern Fold-111111112',
-    'regulator': 'Amber Ember Mechanism-11111112',
-    'structure': 'Emberlit Crown Structure-111111121',
-    'alcove': 'Mossbound Orchard Alcove-1111112',
+    'region': 'Emberlit Orchard Terraces',
+    'gallery': 'Broken Ember Gallery',
+    'instrument': 'Elder River Instrument',
+    'chain': 'Distant River Chain',
+    'fold': 'Elder Lantern Fold',
+    'regulator': 'Amber Ember Mechanism',
+    'structure': 'Emberlit Crown Structure',
+    'alcove': 'Mossbound Orchard Alcove',
+}
+ADDRESSES = {
+    'region': '111111',
+    'gallery': '1111111',
+    'instrument': '11111111',
+    'chain': '111111111',
+    'fold': '111111112',
+    'regulator': '11111112',
+    'structure': '111111121',
+    'alcove': '1111112',
 }
 CLUES = {
     'region': 'The orchard hums whenever the gallery brightens. Holding the signal inside the gallery would calm these terraces; releasing it would carry it farther, and make the ground less settled.',
@@ -40,14 +54,16 @@ BRANCHES = {
 def definition(seed):
     if seed != 382:
         raise ValueError('This authored situation belongs to world 382.')
-    for role, name in NODES.items():
-        node = store.resolve_node_by_name(seed, name)
+    nodes = {}
+    for role, address in ADDRESSES.items():
+        node = store.node_at(seed, address)
         if node is None:
             raise ValueError(f'The authored place for {role} is unavailable.')
         if role != 'alcove' and sealing_room(node) is not None:
             raise ValueError('A required clue would be behind a seal.')
-    return {'version': VERSION, 'title': 'The signal in the gallery', 'nodes': NODES,
+        nodes[role] = node.name
+    return {'version': VERSION, 'title': 'The signal in the gallery', 'nodes': nodes,
             'clues': CLUES, 'branches': BRANCHES, 'keeper': KEEPER,
             'window_seconds': WINDOW_SECONDS, 'step_seconds': STEP_SECONDS,
-            'entry': NODES['region'], 'required_clues': ['instrument', 'regulator'],
+            'entry': nodes['region'], 'required_clues': ['instrument', 'regulator'],
             'promise': 'Tessera will leave a lasting mark in the Elder Lantern Fold after the signal reaches the terraces.'}

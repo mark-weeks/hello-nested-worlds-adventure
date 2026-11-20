@@ -36,6 +36,7 @@ from dataclasses import dataclass
 
 from causality import MIN_STRENGTH
 from causality.laws import hop_token, law_for
+from multiverse import naming
 from multiverse.node import SpatialNode
 
 # Matches causality.propagate()'s default and staging.STAGED_DAMPENING —
@@ -88,7 +89,8 @@ def up_arm_forecast(origin: SpatialNode) -> UpArmForecast:
         if law is None:
             factor, tunneled = FALLBACK_DAMPENING, False
         else:
-            token = hop_token(law, origin.name, node.name, hop)
+            token = hop_token(law, naming.node_key(origin),
+                              naming.node_key(node), hop)
             if law.drops(token):
                 return UpArmForecast(hops=tuple(hops), dropped_at=node)
             tunneled = law.tunnels(token)

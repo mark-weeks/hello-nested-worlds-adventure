@@ -20,7 +20,7 @@ export const SCORE_PROFILES = {
 export function scoreDirection(node) {
   const s=node?.senses || {}, p=node?.properties || {}, level=node?.level || 'Room';
   const profile=SCORE_PROFILES[level] || SCORE_PROFILES.Room;
-  const identity=hash(node?.name || 'place');
+  const identity=hash(node?.key || node?.name || 'place'); // the served identity key (ADR-041)
   const memory=s.memory ? parseInt(s.memory.slice(0,4),16)||0 : identity;
   const minor=s.polarity<0 || s.tension>.6;
   let tempo=1, color=1, density=.5;

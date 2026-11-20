@@ -12,9 +12,9 @@ const repo = path.resolve(import.meta.dirname, '../..');
 const adaKey = 'nw_' + 'a'.repeat(32);
 const beaKey = 'nw_' + 'b'.repeat(32);
 const registration = 'nwr_' + 'c'.repeat(32);
-const region = 'Emberlit Orchard Terraces-111111';
-const gallery = 'Broken Ember Gallery-1111111';
-const instrument = 'Elder River Instrument-11111111';
+const region = 'Emberlit Orchard Terraces';
+const gallery = 'Broken Ember Gallery';
+const instrument = 'Elder River Instrument';
 
 // Exercise the actual operator URL helper and registration endpoint on a born
 // world, without installing a scripted situation or opening an operator DB.
@@ -208,7 +208,7 @@ test('an invited traveler explores, acts and returns through a private journal t
     await page.getByRole('button', {name: 'Make this my home bookmark', exact: true}).click();
     const home = page.locator('#home-label').getByRole('link');
     await expect(home).toHaveText('Elder River Instrument');
-    await expect(home).toHaveAttribute('href', '/app?node=' + encodeURIComponent(instrument));
+    await expect(home).toHaveAttribute('href', '/app?node=' + encodeURIComponent(instrument) + '&at=11111111');
     await home.click();
     await expect(page.locator('#node-name')).toHaveAttribute('title', instrument);
     await arrived(page, sockets);
@@ -290,7 +290,7 @@ test('a legacy map invitation returns through the journal to the scene without a
     await agreeToStudy(page);
     await page.locator('#btn-begin').click();
     await expect(page.locator('#graph svg')).toBeVisible();
-    await expect(page.locator('#node-name')).toHaveAttribute('title', /.+-\d+$/);
+    await expect(page.locator('#node-name')).toHaveAttribute('title', /\S/);
     await expect.poll(() => sockets.welcomes.length).toBeGreaterThan(0);
     const place = await page.locator('#node-name').getAttribute('title');
     const previous = sockets.welcomes.length;

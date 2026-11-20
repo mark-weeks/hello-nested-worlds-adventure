@@ -21,11 +21,11 @@ def samples():
         with tempfile.TemporaryDirectory(prefix='enfolded-visual-study-') as directory:
             persistence._DB_PATH = Path(directory) / 'worlds.db'
             for name, operation in [
-                ('Emberlit Orchard Terraces-111111', 'channel'),
-                ('Broken Ember Gallery-1111111', 'illuminate'),
-                ('Elder River Instrument-11111111', 'fracture'),
-                ('Amber Ember Mechanism-11111112', 'engrave'),
-                ('Distant River Chain-111111111', 'branch'),
+                ('Emberlit Orchard Terraces', 'channel'),
+                ('Broken Ember Gallery', 'illuminate'),
+                ('Elder River Instrument', 'fracture'),
+                ('Amber Ember Mechanism', 'engrave'),
+                ('Distant River Chain', 'branch'),
             ]:
                 node = store.resolve_node_by_name(382, name)
                 def snapshot():

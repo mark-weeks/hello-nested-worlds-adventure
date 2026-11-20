@@ -2,6 +2,7 @@
 from persistence import blocks, participants
 from multiverse import store
 from server import guard, moderation
+from server.world_mechanics import node_addresses
 
 
 def handle(handler, path, qs, body=None):
@@ -35,6 +36,13 @@ def handle(handler, path, qs, body=None):
                         'profile': participants.profile(me['id'], owner=True),
                         'notes': participants.notes(me['id'], seed),
                         'recap': participants.recap(me['id'], seed)}
+                # Each place the journal links to, with its address: the
+                # client cannot read a position out of a name (ADR-041 D3).
+                home = data['profile'].get('home')
+                data['addresses'] = node_addresses(seed, [
+                    home['node'] if home and home.get('seed') == seed else None,
+                    *(note['node'] for note in data['notes']),
+                    *(change['node'] for change in data['recap'])])
             else:
                 raise ValueError('This action requires a submission.')
         elif path == '/profile/save':

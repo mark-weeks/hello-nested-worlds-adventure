@@ -85,6 +85,10 @@ const {
   resumeDepth,
   WORLD_UNREACHED_LINE,
   wrapAffordance,
+  addressDepth,
+  readNodeAddress,
+  rememberAddress,
+  savedAddress,
 } = window.EnfoldedClient;
 
 // The player's most recent chat line, kept until its verdict. A line the
@@ -135,10 +139,20 @@ async function hydrateFromServer() {
     if (!res.ok) return;
     const { position } = await res.json();
     if (!position || !position.node) return;
-    const depth = resumeDepth(position.depth, position.node);
+    const depth = resumeDepth(position.depth, position.address);
     localStorage.setItem(LAST_NODE_KEY, position.node);
+    rememberAddress(localStorage, position.node, position.address);
     localStorage.setItem(LAST_DEPTH_KEY, String(depth));
   } catch (_) { /* offline or gate off — keep whatever this browser cached */ }
+}
+
+// A position this browser saved by name alone (before it kept addresses):
+// ask the server where that place stands, so the view opens deep enough.
+async function recoverSavedAddress() {
+  const saved = localStorage.getItem(LAST_NODE_KEY);
+  if (!saved || savedAddress(localStorage)) return;
+  rememberAddress(localStorage, saved,
+    await readNodeAddress(fetch, withKey('/node?node_name=' + encodeURIComponent(saved))));
 }
 
 function savePositionToServer(name) {
@@ -257,7 +271,7 @@ function renderTree(worldRoot, { preservePresence = false } = {}) {
     players = {};
     agents = {};
   }
-  indexSuffixes(worldRoot);
+  indexAddresses(worldRoot);
 
   const hier   = d3.hierarchy(worldRoot, d => d.children?.length ? d.children : null);
   const leaves = hier.leaves().length;
@@ -397,11 +411,11 @@ function selectNode(data, { refresh = false } = {}) {
   root_g.selectAll('.node text').text(d=>d.data.id===data.id ? 'You are here' : displayName(d.data.name));
 
   document.getElementById('node-level').textContent = data.level;
-  // Display layer: the readable phrase is the shown name; hovering it
-  // reveals the full canonical form, and the address gets its own row.
+  // Display layer: the name as it reads, and the address (the server's
+  // field) in its own row.
   document.getElementById('node-name').textContent  = displayName(data.name);
   document.getElementById('node-name').title        = data.name;
-  const address = nodeAddress(data.name);
+  const address = nodeAddress(data);
   document.getElementById('node-address').textContent = address ? `⌖ ${address}` : '';
   document.getElementById('node-description').textContent = data.senses?.description || data.properties?.aspect || '';
   let propsHtml = Object.entries(data.properties || {}).filter(([key]) => key !== 'aspect').map(
@@ -414,8 +428,7 @@ function selectNode(data, { refresh = false } = {}) {
       `<span class="prop-val">${bars} ${data.ripple_score.toFixed(2)}</span></div>`;
   }
   document.getElementById('node-props').innerHTML = propsHtml;
-  const suffix=data.name.split('-').pop();
-  const parent=nodesBySuffix[suffix.slice(0,-1)];
+  const parent=nodesByAddress[(address || '').slice(0,-1)];
   const horizon=worldParams.depth<11 && data.level!=='SubatomicParticle' && !data.children?.length;
   document.getElementById('navigation').context={node:data,parent,seed:worldParams.seed,jump:jumpTo,
     wrap:wrapAffordance(data,wrapInfo),cross:passage=>crossWrap(passage.direction),
@@ -440,6 +453,7 @@ function selectNode(data, { refresh = false } = {}) {
     // Remember where the player is so they resume here next session — locally for
     // this browser, and on the server so it follows them to other devices.
     localStorage.setItem(LAST_NODE_KEY, data.name);
+    rememberAddress(localStorage, data.name, address);
     savePositionToServer(data.name);
     wsSend({ type: 'move', node: data.name });
   }
@@ -1104,37 +1118,44 @@ function replaceAgentRoster(roster) {
 }
 
 // ── Travelers: jump-to-presence ─────────────────────────────────────────────
-// Names encode their path ("Vault-1121" lies under path 1→1→2→1), so the
-// client can find any traveler's enclosing RENDERED ancestor — or deepen
-// the view to reach them — without asking the server anything.
-let nodesBySuffix = {};
+// The server sends every place's address (its path: "1121" lies under
+// 1→1→2→1) beside its name, so the client can find any traveler's enclosing
+// RENDERED ancestor, or deepen the view to reach them. It reads the address
+// field; a name says nothing about position (ADR-041).
+let nodesByAddress = {};
 
-function indexSuffixes(root) {
-  nodesBySuffix = {};
+function indexAddresses(root) {
+  nodesByAddress = {};
   (function walk(n) {
-    nodesBySuffix[n.name.split('-').pop()] = n;
+    const address = nodeAddress(n);
+    if (address) nodesByAddress[address] = n;
     for (const c of n.children || []) walk(c);
   })(root);
 }
 
-function deepestVisibleAncestor(nodeName) {
-  const suffix = (nodeName || '').split('-').pop();
-  if (!/^\d+$/.test(suffix)) return null;
-  for (let i = suffix.length - 1; i >= 1; i--) {
-    const hit = nodesBySuffix[suffix.slice(0, i)];
+function deepestVisibleAncestor(address) {
+  if (!addressDepth(address)) return null;
+  for (let i = address.length - 1; i >= 1; i--) {
+    const hit = nodesByAddress[address.slice(0, i)];
     if (hit) return hit;
   }
   return null;
 }
 
-async function jumpTo(nodeName) {
+async function jumpTo(nodeName, address) {
   if (!nodeName) return;
   let hit = findNodeByName(hierLayout && hierLayout.data, nodeName);
   if (!hit) {
-    // Below the rendered horizon: the suffix length IS the needed depth.
-    const suffix = nodeName.split('-').pop();
-    if (/^\d+$/.test(suffix) && suffix.length > worldParams.depth) {
-      document.getElementById('depth').value = Math.min(11, suffix.length);
+    // A place named without its address (a frame or a caller that carried
+    // only the name): ask the server where it stands. A name says nothing
+    // about position.
+    if (!addressDepth(address)) {
+      address = await readNodeAddress(fetch, withKey('/node?node_name=' + encodeURIComponent(nodeName)));
+    }
+    // Below the rendered horizon: the address length IS the needed depth.
+    const needed = addressDepth(address);
+    if (needed && needed > worldParams.depth) {
+      document.getElementById('depth').value = Math.min(11, needed);
       pushFeed(`… deepening the view toward ${displayName(nodeName)}`);
       await loadWorld();
       hit = findNodeByName(hierLayout && hierLayout.data, nodeName);
@@ -1144,7 +1165,7 @@ async function jumpTo(nodeName) {
     selectNode(hit);
     centerOnNode(hit);
   } else {
-    const anc = deepestVisibleAncestor(nodeName);
+    const anc = deepestVisibleAncestor(address);
     if (anc) {
       selectNode(anc);
       centerOnNode(anc);
@@ -1162,7 +1183,7 @@ async function crossWrap(direction) {
   if (passage.line && firstWrapCrossing(direction)) {
     pushFeed(passage.line);
   }
-  await jumpTo(passage.target);
+  await jumpTo(passage.target, passage.targetAddress);
 }
 
 async function deepenSelected() {
@@ -1440,7 +1461,7 @@ function renderPlayers() {
   const rows = [];
   for (const p of humans) {
     rows.push(
-      `<div class="traveler-controls"><button class="player-row traveler-row" data-node="${escHtml(p.node || '')}"${p.node ? '' : ' disabled'} ` +
+      `<div class="traveler-controls"><button class="player-row traveler-row" data-node="${escHtml(p.node || '')}" data-address="${escHtml(p.address || '')}"${p.node ? '' : ' disabled'} ` +
       `title="go to ${escHtml(p.name)}">` +
       `<span class="player-dot" style="color:${p.color}" aria-label="Player">◆</span>` +
       `<span class="player-name">${escHtml(p.name)}</span>` +
@@ -1449,7 +1470,7 @@ function renderPlayers() {
   }
   for (const [name, a] of cast) {
     rows.push(
-      `<div class="traveler-controls"><button class="player-row traveler-row" data-node="${escHtml(a.node || '')}"${a.node ? '' : ' disabled'} ` +
+      `<div class="traveler-controls"><button class="player-row traveler-row" data-node="${escHtml(a.node || '')}" data-address="${escHtml(a.address || '')}"${a.node ? '' : ' disabled'} ` +
       `title="follow ${escHtml(name)}">` +
       `<span class="player-dot" style="color:${AGENT_RING_COLOR}" aria-label="Inhabitant">✦</span>` +
       `<span class="player-name">${escHtml(name)}` +
@@ -1461,14 +1482,15 @@ function renderPlayers() {
   el.innerHTML = rows.join('');
 }
 
-// One delegated listener: traveler rows carry their node in data-node
+// One delegated listener: traveler rows carry their node in data-node and
+// its address in data-address
 // (inline handlers are barred by the production CSP).
 document.getElementById('players-list').addEventListener('click', (e) => {
   if (openReportControl(e.target)) return;
   const block = e.target.closest('[data-block]');
   if (block) { changeBlock(block.dataset.block, true); return; }
   const row = e.target.closest('[data-node]');
-  if (row && row.dataset.node) jumpTo(row.dataset.node);
+  if (row && row.dataset.node) jumpTo(row.dataset.node, row.dataset.address);
 });
 
 document.getElementById('blocked-list').addEventListener('click', e => {
@@ -1531,19 +1553,22 @@ function updatePresenceRings() {
   // the rendered horizon, the deepest visible ancestor that enfolds them
   // (dotted sparser: presence sensed THROUGH the enclosing scale).
   const ringsAt = {};  // nodeName → [{color, beneath, agent}]
-  const place = (nodeName, color, agent=false) => {
+  const place = (nodeName, address, color, agent=false) => {
     if (!nodeName) return;
     let target = nodeName, beneath = false;
-    if (!nodesBySuffix[(nodeName.split('-').pop())]) {
-      const anc = deepestVisibleAncestor(nodeName);
+    // A place drawn in this view is ringed where it stands, found by its
+    // address or, when the frame carried none, by its name (unique in a
+    // world). Only a place outside the view needs the address.
+    if (!nodesByAddress[address] && !(nodeG.filter(d => d.data.name === nodeName).size())) {
+      const anc = deepestVisibleAncestor(address);
       if (!anc) return;
       target = anc.name;
       beneath = true;
     }
     (ringsAt[target] = ringsAt[target] || []).push({ color, beneath, agent });
   };
-  for (const p of Object.values(players)) place(p.node, p.color);
-  for (const a of Object.values(agents))  place(a.node, AGENT_RING_COLOR, true);
+  for (const p of Object.values(players)) place(p.node, p.address, p.color);
+  for (const a of Object.values(agents))  place(a.node, a.address, AGENT_RING_COLOR, true);
   for (const [nodeName, rings] of Object.entries(ringsAt)) {
     const group = nodeG.filter(d => d.data.name === nodeName);
     rings.forEach(({ color, beneath, agent }, i) => {
@@ -1622,7 +1647,7 @@ function restoreWorldInputs() {
   // Remember only how much of the canonical world the player chose to render.
   const saved = resumeDepth(
     localStorage.getItem(LAST_DEPTH_KEY),
-    localStorage.getItem(LAST_NODE_KEY),
+    savedAddress(localStorage),
   );
   const depth = document.getElementById('depth');
   if (depth) {
@@ -1632,6 +1657,7 @@ function restoreWorldInputs() {
 
 async function boot() {
   await hydrateFromServer();   // cross-device resume takes precedence over the local cache
+  await recoverSavedAddress();
   restoreWorldInputs();
   if (playerName) {
     loadWorld();
@@ -1677,7 +1703,7 @@ function configureComposer(data) {
   if (!customElements.get('enfolded-interventions')) return;
   document.getElementById('composer').context = {
     node:{...data},seed:worldParams.seed,key:localStorage.getItem('nw_beta_key') || '',
-    jump:name=>jumpTo(name),
+    jump:(name,address)=>jumpTo(name,address),
     changed:notice=>refreshPendingAct(data.name,notice || {}),
     ensure:async()=>{
       const response=await fetch(withKey('/position'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node:data.name,seed:worldParams.seed,depth:worldParams.depth})});

@@ -1319,7 +1319,7 @@ class TestBodyShapeRobustness:
         quote = urllib.parse.quote
         constellation_of = {"Galaxy": "systems", "Region": "rooms"}
         for level, node, empty_name in places:
-            own = len(node.name.rpartition("-")[2])
+            own = len(node.address)
             depths = sorted({1, own, 11})
             hops = []
             blocks = []

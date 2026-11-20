@@ -4,9 +4,12 @@ The hash fallback in `agents.personas.for_name` gave the original eight cast
 members whatever archetype sha1 happened to land on: four tenders, two
 scholars, one wanderer, and a single destabilizer — the world's entire
 entropy engine hanging off one name, with "Aunt Entropy" miscast as a
-scholar and "Cartographer-9" as the destabilizer. This module assigns
+scholar and the Cartographer (then named "Cartographer-9") as the
+destabilizer. This module assigns
 personas deliberately, balanced 3/3/3/3, and gives each regular a small
-trait sheet the heartbeat reads:
+trait sheet the heartbeat reads. No cast name carries appended characters
+(ADR-041 D1, D5); the roster, not a hash of the name, decides each persona.
+The trait sheet holds:
 
 - ``home_levels``: preferred initial placement when no fair cursor exists.
   The Locksmith starts near Rooms and Aunt Entropy near cosmic shells.
@@ -60,7 +63,7 @@ PROFILES: tuple[AgentProfile, ...] = (
     # ── scholars: the record ────────────────────────────────────────────
     AgentProfile("Halden", "scholar", ("Planetary System", "Planet"), 7,
                  "inscribe", "Noted, dated, filed."),
-    AgentProfile("Cartographer-9", "scholar", ("Galaxy", "Planetary System"), 7,
+    AgentProfile("Cartographer", "scholar", ("Galaxy", "Planetary System"), 7,
                  "calibrate", "The map has been amended."),
     AgentProfile("Marginalia", "scholar", ("Molecule", "Atom"), 6,
                  "observe", "See footnote."),

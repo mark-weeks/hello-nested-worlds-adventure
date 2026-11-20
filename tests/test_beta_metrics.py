@@ -355,13 +355,13 @@ def _cli(capsys, *argv: str) -> str:
 
 # The universe under the root: a three-attempt navigation puzzle, so one
 # wrong guess leaves the pool open for the co-solve.
-COSOLVE_NODE = "Ashen Ember Sphere-11"
+COSOLVE_NODE = "Ashen Ember Sphere"
 # A galaxy beneath it, three attempts, for the failure pool.
-FAILING_NODE = "Mossbound Bell Disc-111"
+FAILING_NODE = "Mossbound Bell Disc"
 # A subatomic particle and its entangled twin: a solve at the first
 # resolves the second (server/world_mechanics.py).
-ENTANGLED_NODE = "Bright Dawn Spark-11112121111"
-ENTANGLED_TWIN = "Cedar Rain Point-11112121112"
+ENTANGLED_NODE = "Bright Dawn Spark"
+ENTANGLED_TWIN = "Cedar Rain Point"
 CHAT = "marker-chat-lantern by the reeds"
 REPLY = "marker-chat-reply on my way"
 GUESS = "marker-guess-nowhere"
@@ -436,7 +436,7 @@ class TestTwoTravelers:
         assert isinstance(target, str) and len(target) == 32
         assert target != participants.identify(s["bea_key"])["id"]
         assert s["bea_moves"] == {"type": "player_move", "name": "Zephyrine",
-                                  "node": COSOLVE_NODE,
+                                  "node": COSOLVE_NODE, "address": "11",
                                   "session_id": s["bea_moves"]["session_id"],
                                   "participant_id": target}
 

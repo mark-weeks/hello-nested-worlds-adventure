@@ -2172,7 +2172,18 @@ def save_world_nodes(world_seed: int,
     Refuses to overwrite: if the seed already has any row (including a
     concurrent birth racing this one — the PK raises IntegrityError),
     nothing is written and 0 is returned. A born world is never re-born.
+
+    A name repeated within `rows` raises ValueError before anything is
+    written (ADR-041 D2). It must not reach the unique index: that would
+    raise IntegrityError, which below means a lost birth race.
     """
+    seen: set[str] = set()
+    for _path, name, *_rest in rows:
+        if name in seen:
+            raise ValueError(
+                f"world {world_seed} cannot be born: the name {name!r} "
+                "is given to more than one node")
+        seen.add(name)
     with _connect() as conn:
         exists = conn.execute(
             "SELECT 1 FROM world_nodes WHERE world_seed = ? LIMIT 1",
@@ -2236,6 +2247,34 @@ def get_world_node_chain(world_seed: int,
             (world_seed, *paths),
         ).fetchall()
         return rows
+
+
+@_with_db
+def world_generator_version(world_seed: int) -> int | None:
+    """The generator version a world was born under, or None when the seed
+    is not born. Every row of a world carries the same version; the root's
+    is read."""
+    with _connection() as conn:
+        row = conn.execute(
+            """SELECT generator_version FROM world_nodes
+               WHERE world_seed = ? AND path = '1'""",
+            (world_seed,),
+        ).fetchone()
+        return row[0] if row else None
+
+
+@_with_db
+def get_world_node_address(world_seed: int, name: str) -> tuple[str, int] | None:
+    """(path, generator_version) of the node born with exactly this name,
+    or None. Names are unique within a world (migration 0034), so this is
+    one indexed lookup; the path is the dot-joined stored form."""
+    with _connection() as conn:
+        row = conn.execute(
+            """SELECT path, generator_version FROM world_nodes
+               WHERE world_seed = ? AND name = ?""",
+            (world_seed, name),
+        ).fetchone()
+        return (row[0], row[1]) if row else None
 
 
 # ── Immutable world metadata (ADR-008) ──

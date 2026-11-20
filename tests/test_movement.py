@@ -194,7 +194,8 @@ class TestMoveValidation:
         # resolution must reject it, same as the HTTP paths do.
         seed = 4312
         real = generate_node_hierarchy(seed=seed, max_depth=2).children[0]
-        suffix = real.name.rpartition("-")[2]
+        suffix = real.address  # a real position under a name never born
+        assert suffix and suffix.isdigit()
         s, _ = _ws_connect(srv, seed, "Ada")
         _ws_send_json(s, {"type": "move", "node": f"Forged-{suffix}"})
         _recv_frames(

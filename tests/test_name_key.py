@@ -165,7 +165,7 @@ def test_sharp_s_is_the_same_name_as_ss(open_srv, capsys):
 RESERVED_SPELLINGS = [
     pytest.param("Ｓｃｏｕｔ", id="fullwidth-scout"),
     pytest.param("Ｔｅｓｓｅｒａ", id="fullwidth-cast-name"),
-    pytest.param("Cartographer-\u2468", id="circled-digit-cast-name"),
+    pytest.param("\u24b8artographer", id="circled-letter-cast-name"),
     pytest.param("\U0001d40e\U0001d41b\U0001d42c\U0001d41e\U0001d42b\U0001d42f"
                  "\U0001d41e\U0001d42b", id="math-bold-observer"),
     pytest.param("The\u00a0Locksmith", id="no-break-space-cast-name"),
@@ -173,7 +173,7 @@ RESERVED_SPELLINGS = [
 
 
 def test_every_reserved_spelling_below_names_a_server_identity():
-    names = {"Scout", "Tessera", "Cartographer-9", "Observer", "The Locksmith"}
+    names = {"Scout", "Tessera", "Cartographer", "Observer", "The Locksmith"}
     assert names <= set(WANDERER_CAST) | {"Scout", "Observer"}
     from agents import identities
     for param in RESERVED_SPELLINGS:

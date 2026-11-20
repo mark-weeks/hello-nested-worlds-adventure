@@ -12,11 +12,11 @@ const python = process.env.ENFOLDED_PYTHON || 'python';
 const key = 'nw_' + 'a'.repeat(32);
 const otherKey = 'nw_' + 'b'.repeat(32);
 const names = {
-  region: 'Emberlit Orchard Terraces-111111',
-  instrument: 'Elder River Instrument-11111111',
-  regulator: 'Amber Ember Mechanism-11111112',
-  fold: 'Elder Lantern Fold-111111112',
-  chain: 'Distant River Chain-111111111',
+  region: 'Emberlit Orchard Terraces',
+  instrument: 'Elder River Instrument',
+  regulator: 'Amber Ember Mechanism',
+  fold: 'Elder Lantern Fold',
+  chain: 'Distant River Chain',
 };
 const capture = name => path.join(tmpdir(), name);
 
@@ -119,7 +119,7 @@ test('320px GPU-free scene offers keyboard navigation and one action surface', a
     // keyboard accessible regardless of which renderer is available.
     const passage = page.getByRole('button', {name: 'Room ↘ Broken Ember Gallery', exact: true});
     await passage.focus(); await page.keyboard.press('Enter');
-    await expect(page.locator('[title="Broken Ember Gallery-1111111"]').first()).toBeVisible();
+    await expect(page.locator('[title="Broken Ember Gallery"]').first()).toBeVisible();
     await expect(page.getByRole('button', {name: 'Act',exact:true})).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({path: capture('enfolded-discovery-gpu-free.png')});
@@ -135,7 +135,7 @@ test('renderer initialization failure leaves a navigable text scene', async ({pa
     await expect(page.getByRole('region', {name: 'Living scene'})).toBeVisible();
     await expect(page.getByText('The view is quiet. The passages remain open to exploration.')).toBeVisible();
     await page.locator('enfolded-navigation .children button').first().click();
-    await expect(page.locator('[title="Broken Ember Gallery-1111111"]').first()).toBeVisible();
+    await expect(page.locator('[title="Broken Ember Gallery"]').first()).toBeVisible();
   } finally { await server.close(); }
 });
 

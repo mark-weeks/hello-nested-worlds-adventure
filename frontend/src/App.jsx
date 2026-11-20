@@ -5,10 +5,10 @@ import SceneView from "./components/SceneView.jsx";
 import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
 import { withKey, urlName, betaKey } from "./auth.js";
-import { entryPath, findNodeByName, resumeDepth } from "./entry.js";
+import { addressDepth, addressPath, entryPath, findNodeByName, findPath, readNodeAddress, rememberAddress, resumeDepth, savedAddress } from "./entry.js";
 import { describeMutation, scaleActLine, causalNoticeLine } from "./mutations.js";
 import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
-import { displayName } from "./names.js";
+import { displayName, nodeAddress } from "./names.js";
 import { createNodeRefresher } from "./nodeRefresh.js";
 import { createChatDraft, createChatRestore } from "./chatDraft.js";
 import { arrivalScreen, openWorld, WORLD_UNREACHED_LINE } from "./arrival.js";
@@ -49,14 +49,22 @@ async function hydratePositionFromServer() {
     const { position } = await res.json();
     if (!position || !position.node) return null;
     const depth = resumeDepth(
-      position.depth, position.node, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
+      position.depth, position.address, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
     );
     localStorage.setItem(LAST_NODE_KEY, position.node);
+    rememberAddress(localStorage, position.node, position.address);
     localStorage.setItem(LAST_DEPTH_KEY, String(depth));
     return { ...position, depth };
   } catch (_) {
     return null;                    // offline / gate off — keep the local cache
   }
+}
+
+// A place known only by its name (`?node=` alone, or a position this
+// browser saved before it kept addresses): ask the server where it stands,
+// so the view opens deep enough to show it. A name says nothing about depth.
+function readAddress(name) {
+  return readNodeAddress(fetch, withKey(`/node?node_name=${encodeURIComponent(name)}`));
 }
 
 async function savePositionToServer(node, seed, depth) {
@@ -96,7 +104,7 @@ export default function App() {
   const [agents, setAgents]       = useState({});  // name → { node, persona }
   const [events, setEvents]       = useState([]);
   // The fetched world tree, retained so jump-to-traveler can rebuild a real
-  // ancestry stack from a node name (names encode their path).
+  // ancestry stack from a place's name or, outside the tree, its address.
   const worldRootRef = useRef(null);
   // A node whose seal we just opened: walk through once the solve lands.
   const [walkThrough, setWalkThrough] = useState(null);
@@ -171,12 +179,17 @@ export default function App() {
   const loadWorld = useCallback(async ({
     depth = INITIAL_WORLD_DEPTH,
     targetNode = null,
+    targetAddress = null,
     preserveSession = false,
     background = false,
   } = {}) => {
-    const savedNode = targetNode || new URLSearchParams(location.search).get("node") || localStorage.getItem(LAST_NODE_KEY);
+    // The address comes from the same source as the node it describes.
+    const link = new URLSearchParams(location.search);
+    const savedNode = targetNode || link.get("node") || localStorage.getItem(LAST_NODE_KEY);
+    const resumeAddress = targetNode ? targetAddress
+      : link.get("node") ? link.get("at") : savedAddress(localStorage);
     const requestedDepth = resumeDepth(
-      depth, savedNode, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
+      depth, resumeAddress, INITIAL_WORLD_DEPTH, MAX_WORLD_DEPTH,
     );
     if (!background) {
       setLoading(true);
@@ -225,6 +238,7 @@ export default function App() {
       if (new URLSearchParams(location.search).has("node")) {
         const url = new URL(location.href);
         url.searchParams.delete("node");
+        url.searchParams.delete("at");
         history.replaceState(null, "", url);
       }
 
@@ -254,6 +268,7 @@ export default function App() {
   }, []);
 
   const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
+  const currentAddress = nodeAddress(nodeStack[nodeStack.length - 1]);
   const positionQueue = useRef(Promise.resolve());
   const latestPosition = useRef(null);
   const queuePosition = useCallback((node, world, depth) => {
@@ -377,7 +392,7 @@ export default function App() {
     // must appear, not be silently dropped.
     onPlayerMove: (msg) => !blockIds.current.has(msg.participant_id) && setPlayers(p =>
       p.some(x => x.session_id === msg.session_id)
-        ? p.map(x => x.session_id === msg.session_id ? { ...x, node: msg.node } : x)
+        ? p.map(x => x.session_id === msg.session_id ? { ...x, node: msg.node, address: msg.address } : x)
         : [...p, msg]),
     onChat: (msg) => {
       if (!blockIds.current.has(msg.participant_id)) pushEvent({ type: "chat", name: msg.name, text: msg.text, liveParticipant: msg.participant_id, evidenceRef: msg.evidence_ref });
@@ -472,14 +487,22 @@ export default function App() {
     setLoading(true);
     const position = await hydratePositionFromServer();
     if (cancelled()) return;
-    const targetNode = new URLSearchParams(location.search).get("node") || position?.node || localStorage.getItem(LAST_NODE_KEY);
+    const link = new URLSearchParams(location.search);
+    const linked = link.get("node");
+    const targetNode = linked || position?.node || localStorage.getItem(LAST_NODE_KEY);
+    // The address travels with the node it describes: the link's own, the
+    // server's saved position, or this browser's cache.
+    const known = linked ? link.get("at")
+      : position?.node ? position.address : savedAddress(localStorage);
+    const targetAddress = known || (targetNode ? await readAddress(targetNode) : null);
+    if (cancelled()) return;
     const targetDepth = resumeDepth(
       position?.depth ?? localStorage.getItem(LAST_DEPTH_KEY),
-      targetNode,
+      targetAddress,
       INITIAL_WORLD_DEPTH,
       MAX_WORLD_DEPTH,
     );
-    loadWorld({ depth: targetDepth, targetNode });
+    loadWorld({ depth: targetDepth, targetNode, targetAddress });
   }, [loadWorld]);
 
   // Mount once.
@@ -502,10 +525,11 @@ export default function App() {
   useEffect(() => {
     if (currentNodeName) {
       localStorage.setItem(LAST_NODE_KEY, currentNodeName);
+      rememberAddress(localStorage, currentNodeName, currentAddress);
       localStorage.setItem(LAST_DEPTH_KEY, String(worldDepth));
       queuePosition(currentNodeName, seed, worldDepth);
     }
-  }, [currentNodeName, seed, worldDepth, queuePosition]);
+  }, [currentNodeName, currentAddress, seed, worldDepth, queuePosition]);
 
   // Drop all transients when the player navigates — a leftover ripple from
   // the previous node is meaningless in the new scene.
@@ -522,27 +546,31 @@ export default function App() {
     }
   }, [walkThrough, connected, currentNodeName, sendMessage]);
 
-  // Jump to a traveler: rebuild the real ancestry stack from the node name
-  // (names encode their path — "…-1121" lies under 1→1→2→1). If the traveler
-  // is below the fetched horizon, progressively deepen the canonical view.
-  const jumpTo = useCallback(async (nodeName) => {
+  // Jump to a place or a traveler: rebuild the real ancestry stack. A place
+  // in the fetched tree is found by its name. One outside it is reached by
+  // the address the server sent beside the name ("1121" lies under 1→1→2→1):
+  // below the fetched horizon, progressively deepen the canonical view.
+  const jumpTo = useCallback(async (nodeName, address) => {
     const root = worldRootRef.current;
-    const suffix = (nodeName || "").split("-").pop() || "";
-    if (!root || !/^\d+$/.test(suffix)) return;
-    if (suffix.length > worldDepth) {
-      const targetDepth = Math.min(MAX_WORLD_DEPTH, suffix.length);
-      pushEvent({ type: "system", text: `… deepening the view toward ${displayName(nodeName)}` });
-      await loadWorld({ depth: targetDepth, targetNode: nodeName, preserveSession: true });
+    if (!root || !nodeName) return;
+    const inView = findPath(root, nodeName);
+    if (inView) {
+      setNodeStack(inView);
       return;
     }
-    const path = [root];
-    let cur = root;
-    for (const ch of suffix.slice(1)) {   // the leading 1 is the root itself
-      const next = (cur.children || [])[Number(ch) - 1];
-      if (!next) break;                   // deeper than this view reaches
-      path.push(next);
-      cur = next;
+    // A place named without its address (a frame that carried only the
+    // name): ask the server where it stands. A name says nothing of position.
+    if (!addressDepth(address)) address = await readAddress(nodeName);
+    const needed = addressDepth(address);
+    if (!needed) return;
+    if (needed > worldDepth) {
+      const targetDepth = Math.min(MAX_WORLD_DEPTH, needed);
+      pushEvent({ type: "system", text: `… deepening the view toward ${displayName(nodeName)}` });
+      await loadWorld({ depth: targetDepth, targetNode: nodeName, targetAddress: address, preserveSession: true });
+      return;
     }
+    const path = addressPath(root, address);
+    const cur = path[path.length - 1];
     if (cur.name !== nodeName) {
       pushEvent({ type: "system",
                   text: `▼ ${displayName(nodeName)} lies enfolded beneath ${displayName(cur.name)}` });
@@ -565,13 +593,14 @@ export default function App() {
     loadWorld({
       depth: worldDepth + 1,
       targetNode: currentNodeName,
+      targetAddress: currentAddress,
       preserveSession: true,
       background: true,
     }).then(ok => {
       if (active) setPassageLoadStatus(ok ? "idle" : "error");
     });
     return () => { active = false; };
-  }, [currentNodeName, horizonChildren, loadWorld, passageRetry, worldDepth]);
+  }, [currentNodeName, currentAddress, horizonChildren, loadWorld, passageRetry, worldDepth]);
 
   const sendChat = useCallback(
     (text) => community?.chat.enabled && sendMessage({ type: "chat", text, ref: chatDraft.sent(text) }),
@@ -586,7 +615,7 @@ export default function App() {
     if (affordance.line && firstWrapCrossing(affordance.direction)) {
       pushEvent({ type: "system", text: affordance.line });
     }
-    jumpTo(affordance.target);
+    jumpTo(affordance.target, affordance.targetAddress);
   }, [jumpTo, pushEvent]);
 
   const currentNode = nodeStack[nodeStack.length - 1] ?? null;

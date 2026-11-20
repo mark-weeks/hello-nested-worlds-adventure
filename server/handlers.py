@@ -24,7 +24,7 @@ from consciousness import honesty, model_dispatch, runtime
 from agents import identities
 from agents.agent import Agent
 from agents.personas import by_name as persona_by_name, for_name as persona_for_name
-from multiverse import store, wrap
+from multiverse import naming, store, wrap
 from multiverse.generator import BREADTH_ENVELOPE
 from multiverse.node import SpatialNode
 from multiverse.utils import (
@@ -46,6 +46,7 @@ from server.world_mechanics import (
     check_constellation as _check_constellation,
     constellation_progress as _constellation_progress,
     entangled_twin as _entangled_twin,
+    node_addresses as _node_addresses,
     resolve_entangled_twin as _resolve_entangled_twin,
     resolve_node as _resolve_node,
 )
@@ -111,12 +112,10 @@ def _build_world(params: Mapping[str, Any]) -> tuple[SpatialNode, int, int]:
     return root, seed, depth
 
 
-def _place_depth(node_name: str) -> int:
-    """Path length encoded in a canonical name, or 1 when it has none."""
-    _, _, suffix = node_name.rpartition("-")
-    if suffix.isdigit():
-        return len(suffix)
-    return 1
+def _place_depth(node: SpatialNode) -> int:
+    """The place's depth: the length of its address (ADR-041 D3), or 1 for
+    a node that carries none."""
+    return len(naming.node_address(node) or "") or 1
 
 
 def _with_child_ring(seed: int, node: SpatialNode) -> SpatialNode:
@@ -129,7 +128,7 @@ def _with_child_ring(seed: int, node: SpatialNode) -> SpatialNode:
     level is that first ring. The world's leaf level has no children in
     any view.
     """
-    if node.children or _place_depth(node.name) >= guard.MAX_DEPTH:
+    if node.children or _place_depth(node) >= guard.MAX_DEPTH:
         return node
     # One indexed child read would attach bare born rows: no parent link,
     # ripple, or property overlay. This rebuild is the same hydrated tree
@@ -137,7 +136,7 @@ def _with_child_ring(seed: int, node: SpatialNode) -> SpatialNode:
     # place one level below the view.
     deeper, _, _ = _build_world({
         "seed": seed,
-        "depth": min(_place_depth(node.name) + 1, guard.MAX_DEPTH),
+        "depth": min(_place_depth(node) + 1, guard.MAX_DEPTH),
     })
     found = find_node(deeper, node.name)
     return found if found is not None else node
@@ -160,13 +159,14 @@ def _puzzle_target(root: SpatialNode, seed: int, node_name: str) -> SpatialNode 
     target = find_node(root, node_name)
     if target is not None:
         return _with_child_ring(seed, target)
-    if _resolve_node(seed, node_name) is None:
+    resolved = _resolve_node(seed, node_name)
+    if resolved is None:
         return None
     # Same one-level rebuild as ``_with_child_ring`` (hydrated tree, not
     # bare child rows). The place was not in the client's view at all.
     deeper, _, _ = _build_world({
         "seed": seed,
-        "depth": min(_place_depth(node_name) + 1, guard.MAX_DEPTH),
+        "depth": min(_place_depth(resolved) + 1, guard.MAX_DEPTH),
     })
     return find_node(deeper, node_name)
 
@@ -315,6 +315,12 @@ def _node_to_dict(node: SpatialNode, activity: dict | None = None,
         "senses": describe(node),
         **({"id": node.id} if children else {}),
         "name": node.name,
+        # ADR-041 D3/D4: the position and the identity key travel as their
+        # own fields. `address` is the digits form of the stored path
+        # ("121"); `key` is what art and sound seed from. A client never
+        # reads a position out of a name or joins the two itself.
+        "address": naming.node_address(node),
+        "key": naming.node_key(node),
         "level": node.level,
         "properties": node.properties,
         # Cumulative causal pressure — surfaced so clients can show how much
@@ -1062,6 +1068,8 @@ class Handler(BaseHTTPRequestHandler):
                 "node": {
                     "senses": describe(born),
                     "name": born.name,
+                    "address": naming.node_address(born),
+                    "key": naming.node_key(born),
                     "level": born.level,
                     "properties": state["properties"],
                     "ripple_score": state["ripple_score"],
@@ -1083,6 +1091,12 @@ class Handler(BaseHTTPRequestHandler):
             hosted = guard.canonical_seed()
             if position and hosted is not None and position.get("seed") != hosted:
                 position = None
+            if position:
+                # The client resumes at the depth the address gives; it
+                # cannot read one from the saved name (ADR-041 D3).
+                position["address"] = _node_addresses(
+                    position.get("seed"), [position.get("node")]
+                ).get(position.get("node"))
             self._send_json({"position": position})
 
         elif path == "/node":
@@ -1107,15 +1121,21 @@ class Handler(BaseHTTPRequestHandler):
             activity = persistence.count_mutations_by_node(seed)
             from persistence.situations import view as situation_view
             investigation = situation_view(seed)
+            entry_node = investigation["entry"] if investigation else None
+            hinge = wrap.hinge_name(seed)
+            addresses = _node_addresses(seed, [entry_node, hinge])
             self._send_json({"seed": seed, "node_count": node_count,
-                             "entry_node": investigation["entry"] if investigation else None,
+                             "entry_node": entry_node,
+                             "entry_address": addresses.get(entry_node),
                              # The wrap passage (ADR-008): the loop's two
                              # fixed landings and its authored lines, so
                              # every client offers the same passage and
                              # speaks the same fiction at the crossing.
                              "wrap": {
                                  "root": root.name,
-                                 "hinge": wrap.hinge_name(seed),
+                                 "root_address": naming.node_address(root),
+                                 "hinge": hinge,
+                                 "hinge_address": addresses.get(hinge),
                                  "descent_passage": wrap.DESCENT_PASSAGE,
                                  "ascent_passage": wrap.ASCENT_PASSAGE,
                                  "descent_line": wrap.DESCENT_LINE,
@@ -2056,7 +2076,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"'{verb_name}' doesn't work at {target.level} scale — "
                 f"here you can only {verb.name}", 400)
 
-        token = f"{player_name or 'traveler'}:{target.name}"
+        token = f"{player_name or 'traveler'}:{naming.node_key(target)}"
         payload = {"verb": verb.name}
         if player_name:
             payload["actor"] = player_name

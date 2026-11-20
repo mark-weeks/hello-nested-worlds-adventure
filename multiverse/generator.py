@@ -13,11 +13,15 @@
 #     agrees on node identity, and persistence keyed on
 #     (seed, node_name) refers to the same place everywhere.
 #   * STABLE, READABLE, UNIQUE NAMES. A curated semantic grammar makes the
-#     base phrase readable and assigns it injectively within each level. The
-#     suffix encodes the node's path
-#     (root is "1", its second child "12", that child's first child
-#     "121"), so names are unique within a world and identical across
-#     rebuilds at any depth. Breadth is capped at 9 so path digits are
+#     name readable and assigns it injectively within each level, and every
+#     level has its own form words, so names are unique within a world and
+#     identical across rebuilds at any depth. A name is those three words
+#     and nothing else (ADR-041, generator version 3).
+#   * THE PATH IS THE ADDRESS. A node's position is its path from the root
+#     (root is "1", its second child "12", that child's first child "121").
+#     Each node carries it as `address`, and carries `key`, the string
+#     identity-keyed derivations hash: "<name>-<address>", which is the
+#     name version 2 stored. Breadth is capped at 9 so path digits are
 #     unambiguous.
 
 import hashlib
@@ -25,6 +29,7 @@ import random
 from math import gcd
 from typing import Callable
 
+from multiverse.naming import digits_of
 from multiverse.node import SpatialNode
 
 DEFAULT_WORLD_SEED = 382
@@ -90,9 +95,13 @@ def _pick(pool: list, rng: random.Random) -> str:
 # ── Semantic names (generator v2) ──────────────────────────────────────────
 # A launch-world node must have a name a person can read, remember, and repeat.
 # Invented syllables failed that bar even when their path suffix made them
-# technically unique. V2 names are three curated English words:
+# technically unique. Names are three curated English words:
 #
-#     <qualifier> <motif> <level form>-<path>
+#     <qualifier> <motif> <level form>
+#
+# Version 2 appended "-<path digits>"; version 3 does not (ADR-041). The
+# phrase assignment below is unchanged, so a version-3 name is the version-2
+# name without its suffix.
 #
 # There are 24 × 24 × 12 = 6,912 phrases per level. The widest possible level
 # under BREADTH_BY_LEVEL contains 6,144 nodes. `_path_ordinal` maps every path
@@ -440,12 +449,6 @@ def generate_properties(level: str, rng: random.Random) -> dict:
     return props
 
 
-def _path_suffix(path: tuple[int, ...]) -> str:
-    """Digit-string form of the node's path. Unique within a world because
-    every component is a single digit (breadth ≤ 9 is enforced)."""
-    return "".join(str(i) for i in path)
-
-
 def _path_ordinal(level: str, path: tuple[int, ...]) -> int:
     """Return this path's unique zero-based slot within its level.
 
@@ -496,7 +499,7 @@ def _generate_name(level: str, path: tuple[int, ...], seed: int) -> str:
     remainder = code % motif_stride
     motif = NAME_MOTIFS[remainder // form_count]
     form = forms[remainder % form_count]
-    return f"{qualifier} {motif} {form}-{_path_suffix(path)}"
+    return f"{qualifier} {motif} {form}"
 
 
 def _node_seed(seed: int, path: tuple[int, ...], domain: str) -> int:
@@ -507,7 +510,8 @@ def _node_seed(seed: int, path: tuple[int, ...], domain: str) -> int:
     return int.from_bytes(digest[:8], "big")
 
 
-# Path digits must stay single-digit for name uniqueness (see _path_suffix).
+# Path digits must stay single-digit: the digits form of an address, and the
+# key built from it, are unambiguous only then (multiverse/naming.py).
 MAX_GENERATOR_BREADTH = 9
 
 
@@ -536,6 +540,10 @@ def generate_node_hierarchy(seed: int = DEFAULT_WORLD_SEED,
         breadth_rng = random.Random(_node_seed(seed, path, "breadth"))
         properties = generate_properties(level, property_rng)
         node = SpatialNode(name=name, level=level, properties=properties)
+        # The generator is always the current version, so the key is the
+        # name joined to the address (ADR-041 D4).
+        node.address = digits_of(path)
+        node.key = f"{name}-{node.address}"
 
         breadth = breadth_rng.randint(*BREADTH_BY_LEVEL[level])
         if level_index + 1 < max_depth:

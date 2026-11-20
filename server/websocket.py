@@ -13,7 +13,7 @@ from collections.abc import Callable
 
 import persistence
 from persistence import blocks, participants
-from multiverse import store
+from multiverse import naming, store
 from puzzles import gates
 from server import guard, moderation
 from server.protocol import (
@@ -29,6 +29,7 @@ from server.rooms import (
     agents_snapshot,
     broadcast,
     get_room,
+    node_address,
     snapshot,
 )
 
@@ -471,7 +472,8 @@ def handle_websocket(
                 broadcast(
                     room,
                     {"type": "player_join", "name": name, "session_id": session_id,
-                     "participant_id": participant_id, "node": entry_node},
+                     "participant_id": participant_id, "node": entry_node,
+                     "address": node_address(room, entry_node)},
                     exclude=session_id,
                 )
         persistence.record_mutation(
@@ -607,6 +609,7 @@ def handle_websocket(
                             "type": "player_move",
                             "name": name,
                             "node": node_name,
+                            "address": naming.node_address(target),
                             "session_id": session_id,
                             "participant_id": participant_id,
                         },

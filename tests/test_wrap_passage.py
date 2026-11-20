@@ -40,7 +40,8 @@ from tests.test_movement import _recv_frames
 
 SEED = 382  # the launch world — the census below is its permanent record
 
-LAUNCH_HINGE = "Hidden Thorn Quark-11431112111"
+LAUNCH_HINGE = "Hidden Thorn Quark"
+LAUNCH_HINGE_ADDRESS = "11431112111"  # the same node as before ADR-041
 
 
 def _born_rows(seed):
@@ -89,6 +90,9 @@ class TestHingeSelection:
         assert wrap.hinge_name(SEED) == LAUNCH_HINGE
         hinge = store.resolve_node_by_name(SEED, LAUNCH_HINGE)
         assert hinge is not None and hinge.level == "SubatomicParticle"
+        # The selector keys on the path, so the monument stands where it
+        # stood when its name still carried these digits (ADR-041 D7).
+        assert hinge.address == LAUNCH_HINGE_ADDRESS
         # Its born character carries the loop's own physics.
         assert hinge.properties["spin"] == "superposed"
         assert hinge.properties["tendency"] == "entangled"

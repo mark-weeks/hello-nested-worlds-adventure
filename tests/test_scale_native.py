@@ -285,15 +285,16 @@ class TestEnfoldPuzzles:
         assert len(enfolds) / len(served) >= 0.2
         assert all(p.kind is PuzzleKind.NAVIGATION for p in enfolds)
 
-    def test_answers_derive_from_the_name_alone(self):
+    def test_answers_derive_from_the_address_alone(self):
         # Structural answers must be correct AND independent of whether the
         # node came with children attached (pure function of identity).
-        from multiverse import store
+        from multiverse import naming, store
         for n in self._cosmic():
             p = build_puzzle(n)
             if not self._is_enfold(p):
                 continue
-            suffix = n.name.rpartition("-")[2]
+            suffix = naming.node_address(n)
+            assert suffix and suffix.isdigit(), n.name
             assert p.answer in {str(len(suffix) - 1),
                                 str(len(LEVELS) - len(suffix)),
                                 suffix[-1]}, n.name

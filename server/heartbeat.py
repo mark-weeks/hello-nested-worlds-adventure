@@ -39,7 +39,7 @@ from causality import CausalityBus, EventKind
 from causality.staging import stage_cascade
 from causality.delivery import accept_verb, deliver_due
 from causality.wiring import wire_world_handlers
-from multiverse import store
+from multiverse import naming, store
 from multiverse.generator import DEFAULT_WORLD_SEED, LEVELS
 from multiverse.node import SpatialNode
 from server import guard, rooms as _rooms_module
@@ -193,7 +193,7 @@ def _persona_act(seed: int, room, root: SpatialNode, agent_name: str,
             verb = verb_for_level(node.level)
             if verb is None or (allowed and verb.name not in allowed):
                 continue
-            token = f"{agent_name}:{node.name}"
+            token = f"{agent_name}:{naming.node_key(node)}"
             act_payload = {"verb": verb.name, **payload}
             accepted = perform(node, lambda: accept_verb(
                 seed, node, verb, token, act_payload, act_payload,
@@ -244,7 +244,7 @@ def _accessible(node, signals, threshold, current_name=None, seed=None):
     room = gates.sealing_room(node)
     if room is None:
         return True
-    if current_name and gates._path_suffix(current_name).startswith(gates._path_suffix(room.name)):
+    if gates.inside_seal(seed, room, current_name):
         return True  # shared structural rule: the seal never imprisons
     signal = signals[room.name]
     from puzzles.instances import get_puzzle

@@ -6,7 +6,7 @@ import secrets
 
 import persistence as db
 from persistence import intents
-from multiverse import interventions_v1, interventions_v2, interventions_v3, store
+from multiverse import interventions_v1, interventions_v2, interventions_v3, naming, store
 from multiverse.verbs import maturation_seconds
 
 INTERPRETERS = {1: interventions_v1, 2: interventions_v2, 3: interventions_v3}
@@ -50,7 +50,9 @@ def _plan(interpreter, props, steps, node):
     if interpreter.VERSION == 1:
         plan = interpreter.simulate(props, steps)
         return {**plan, 'changed': {'resonance': plan['state']}}
-    return interpreter.simulate(props, steps, node.level, node.name)
+    # The deterministic token is the identity key, not the display name
+    # (ADR-041 D4): it is what the stored name was under generator version 2.
+    return interpreter.simulate(props, steps, node.level, naming.node_key(node))
 
 
 def preview(seed, name, steps, *, version=1):
@@ -130,7 +132,7 @@ def accept(seed, participant, name, request_id, steps, expected, *, performer, a
 def accept_attempt(seed, participant, name, request_id, payload, steps, *, performer, actor_identity, authorize,
                    model_provider=None, resolved_model=None):
     node = lineage(seed, name)[0]
-    plan = interventions_v3.attempt(steps, node.level, name)
+    plan = interventions_v3.attempt(steps, node.level, naming.node_key(node))
     def apply():
         authorize()
         ident, now = secrets.token_hex(16), _now()

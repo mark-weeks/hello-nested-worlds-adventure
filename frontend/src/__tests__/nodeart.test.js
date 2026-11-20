@@ -16,6 +16,23 @@ describe("nodeArtParams", () => {
     expect(a).toEqual(b);
   });
 
+  it("seeds from the served identity key, not the name (ADR-041)", () => {
+    // A three-word name with its key paints exactly what the earlier
+    // stored name painted, and an earlier world's node is unchanged.
+    const before = nodeArtParams(42, node("Velkarith Vault-1121", "Room", { lighting: "dim" }));
+    const named = { ...node("Velkarith Vault", "Room", { lighting: "dim" }),
+      address: "1121", key: "Velkarith Vault-1121" };
+    const earlier = { ...node("Velkarith Vault-1121", "Room", { lighting: "dim" }),
+      address: "1121", key: "Velkarith Vault-1121" };
+    expect(nodeArtParams(42, named)).toEqual(before);
+    expect(nodeArtParams(42, earlier)).toEqual(before);
+    // The key is used as sent: a client never appends the address itself.
+    const unkeyed = node("Velkarith Vault", "Room", { lighting: "dim" });
+    expect(nodeArtParams(42, { ...unkeyed, address: "1121" }).prng)
+      .toBe(nodeArtParams(42, unkeyed).prng);
+    expect(nodeArtParams(42, unkeyed).prng).not.toBe(before.prng);
+  });
+
   it("differs across nodes and across seeds", () => {
     const a = nodeArtParams(42, node("Emberglass Vault-1121", "Room"));
     const b = nodeArtParams(42, node("Saltfall Archive-1122", "Room"));

@@ -1,5 +1,11 @@
 """Golden-master freeze — RE-SCOPED by ADR-006 (Option A, 2026-07-19):
-these pins now describe what generator v1 BIRTHS, not the permanent world.
+these pins now describe what the generator BIRTHS, not the permanent world.
+
+Re-pinned for generator v3 (ADR-041): a born name is its three curated
+words, and the path digits it used to end in are the node's address. Every
+name-bearing pin moved with that; TestIdentityKeysAreFrozen holds the
+digests the name-bearing pins had under generator v2, computed over each
+node's identity key (name-address), to show that no random input moved.
 
 The world is materialized (`multiverse/store.py`, `world_nodes`): the
 generator runs once per seed as a birthing tool, born rows are the node's
@@ -64,13 +70,15 @@ def _walk(node: SpatialNode, out: list) -> list:
 # The curated launch world: seed 382 at the clients' initial depth-6 payload
 # window. Generator v2 and this seed were consciously selected and pinned on
 # 2026-08-03, before first production birth, after the 512-seed launch census.
+# Re-pinned for generator v3 (ADR-041, names without the address suffix); the
+# node counts, breadth profile and root aspect did not move.
 _REF_SEED = 382
 _REF_NODE_COUNT = 279
 _REF_NAMES_DIGEST = (
-    "f4599db11c7d63eee140752131ce773c042caa906fa5991f82be83b23cc429d9"
+    "60bf7a7365b46b9edcb54f11c058e39132848be733431ffdcefffd167aac380e"
 )
 _REF_WORLD_DIGEST = (
-    "8dcbf080140908d064950b5db32eceed0a91a93da0844db7479ab0ca74789680"
+    "d96d1a58539a5c858a30814984bea66fa53cd91bc84b0b41c5d25084737234be"
 )
 
 # The world's shape itself: one rng.randint draw per node over these exact
@@ -101,13 +109,13 @@ _REF_BREADTH_PROFILE = {
 _REF_FULL_DEPTH = 11
 _REF_FULL_NODE_COUNT = 4208
 _REF_FULL_NAMES_DIGEST = (
-    "8df05af32f51a62679419e193e771258298e166af31e6b684ab3f02b593347a8"
+    "c3f516d634703e4e9c718b23784e017dd9c033e3d3c7f4b59d326a7747565350"
 )
 _REF_FULL_WORLD_DIGEST = (
-    "d22fd32b6cab71fc8e597ffb0bc1774dc4a6cef61e254725d529ccd46518fcb1"
+    "b728e2f2f9b2af262d12397e729ef2f1a836f1e706e312c1c60ea56943f00281"
 )
 _REF_FULL_PUZZLES_DIGEST = (
-    "4b0f49cb44cf6ef994e6582928e05c6b61d13aeb39b494a73f9623052c5cc17b"
+    "643532f2cde003283be27d2ff8e760cd7a09934c2c99a70811c367bd12f01562"
 )
 
 
@@ -146,10 +154,10 @@ class TestGeneratedWorldIsFrozen:
     def test_landmark_names_are_pinned(self):
         # Human-readable canaries so a digest failure is diagnosable.
         names = [n.name for n in self._nodes()]
-        assert names[0] == "Elder Reed Cosmos-1"
-        assert names[1] == "Ashen Ember Sphere-11"
-        assert names[10] == "Mossbound Reed Assembly-1112"
-        assert names[-1] == "Still Pilgrim Vale-144322"
+        assert names[0] == "Elder Reed Cosmos"
+        assert names[1] == "Ashen Ember Sphere"
+        assert names[10] == "Mossbound Reed Assembly"
+        assert names[-1] == "Still Pilgrim Vale"
 
     def test_breadth_profile_is_pinned(self):
         from multiverse.generator import BREADTH_BY_LEVEL
@@ -222,12 +230,12 @@ class TestFullDepthWorldIsFrozen:
         first_of = {}
         for n in nodes:
             first_of.setdefault(n.level, n.name)
-        assert first_of["Room"] == "Broken Ember Gallery-1111111"
-        assert first_of["Object"] == "Elder River Instrument-11111111"
-        assert first_of["Molecule"] == "Distant River Chain-111111111"
-        assert first_of["Atom"] == "Distant Tide Nuclide-1111111111"
-        assert first_of["SubatomicParticle"] == "Cedar Anchor Quark-11111111111"
-        assert nodes[-1].name == "Weathered Willow Wave-14432222222"
+        assert first_of["Room"] == "Broken Ember Gallery"
+        assert first_of["Object"] == "Elder River Instrument"
+        assert first_of["Molecule"] == "Distant River Chain"
+        assert first_of["Atom"] == "Distant Tide Nuclide"
+        assert first_of["SubatomicParticle"] == "Cedar Anchor Quark"
+        assert nodes[-1].name == "Weathered Willow Wave"
 
 
 class TestPuzzleLayerIsFrozen:
@@ -243,12 +251,63 @@ class TestPuzzleLayerIsFrozen:
             for n in nodes)
         digest = hashlib.sha256(blob.encode()).hexdigest()
         assert digest == (
-            "aa8ef1c06ace7b264aa85eac83b4cc4da16b9973ba101aad9b01f98c2ebfb26a"
+            "8a4585ef84b22a084e2b5344a07b828779fa3856246d0a0b2bd15303735cec31"
         ), (
             "Epoch-0 puzzle generation changed for the reference world. "
             "Post-launch this resets every solved puzzle. Revert, or "
             "re-pin consciously before first production deploy only."
         )
+
+
+class TestIdentityKeysAreFrozen:
+    """ADR-041 D4: nothing but the name moved. Every draw keyed on a node's
+    identity hashes its key, f"{name}-{address digits}", which is byte for
+    byte the name generator v2 stored. So the same digests computed over
+    the key instead of the name must equal the values pinned under v2 —
+    the names, world and puzzle pins above moved only because each pinned
+    line begins with the name."""
+
+    _V2_PINS = {
+        6: {
+            "names": "f4599db11c7d63eee140752131ce773c042caa906fa5991f82be83b23cc429d9",
+            "world": "8dcbf080140908d064950b5db32eceed0a91a93da0844db7479ab0ca74789680",
+            0: "aa8ef1c06ace7b264aa85eac83b4cc4da16b9973ba101aad9b01f98c2ebfb26a",
+            1: "890ff714ff90a354af0022b62e1ac7c4c033afabbac7e8e3643529bb3d52ff17",
+            2: "3ce3781aea90ff1617b5f08a863e59a4880c6cb931fb0cca502c9ebd432f9e80",
+        },
+        _REF_FULL_DEPTH: {
+            "names": "8df05af32f51a62679419e193e771258298e166af31e6b684ab3f02b593347a8",
+            "world": "d22fd32b6cab71fc8e597ffb0bc1774dc4a6cef61e254725d529ccd46518fcb1",
+            0: "4b0f49cb44cf6ef994e6582928e05c6b61d13aeb39b494a73f9623052c5cc17b",
+        },
+    }
+
+    def test_keyed_digests_equal_the_generator_v2_pins(self):
+        from multiverse import naming
+        from puzzles.engine import build_puzzle
+
+        def sha(lines):
+            return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+        for depth, pinned in self._V2_PINS.items():
+            nodes = _walk(
+                generate_node_hierarchy(seed=_REF_SEED, max_depth=depth), [])
+            keys = [naming.node_key(n) for n in nodes]
+            # The key is the name and the address, joined; never the name alone.
+            assert all(k == f"{n.name}-{n.address}" for k, n in zip(keys, nodes))
+            assert sha(keys) == pinned["names"]
+            assert sha(
+                f"{k}|{json.dumps(n.properties, sort_keys=True)}"
+                for k, n in zip(keys, nodes)) == pinned["world"]
+            for epoch in (e for e in pinned if isinstance(e, int)):
+                puzzles = [build_puzzle(n, epoch=epoch) for n in nodes]
+                assert sha(
+                    f"{k}|{p.name}|{p.answer}"
+                    for k, p in zip(keys, puzzles)) == pinned[epoch], (
+                    f"Depth-{depth} epoch-{epoch} puzzles no longer match "
+                    "what generator v2 drew for the same places: a draw "
+                    "keyed on a node's identity moved (ADR-041 D4)."
+                )
 
 
 class TestEraNamesAreFrozen:
@@ -284,8 +343,8 @@ class TestRenewalEpochPuzzlesArePinned:
         from puzzles.engine import build_puzzle
         nodes = _walk(generate_node_hierarchy(seed=_REF_SEED, max_depth=6), [])
         pinned = {
-            1: "890ff714ff90a354af0022b62e1ac7c4c033afabbac7e8e3643529bb3d52ff17",
-            2: "3ce3781aea90ff1617b5f08a863e59a4880c6cb931fb0cca502c9ebd432f9e80",
+            1: "2cad8a9635736a7151cb20596376c984604e7c29f3e4e4f72db212e0564743ff",
+            2: "6871b577a9f81cad1bf73548486d49b41656fed6e0a9812a25de29c1aaf7efa3",
         }
         for epoch, expected in pinned.items():
             blob = "\n".join(
