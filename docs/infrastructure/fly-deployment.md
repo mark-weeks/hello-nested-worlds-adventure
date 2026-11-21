@@ -1258,7 +1258,11 @@ The bucket is private: no public `r2.dev` URL and no custom domain. The job
 runs in the `backup` environment and reads that environment's secrets.
 `FLY_API_TOKEN` is an SSH token for one app (`fly tokens create ssh -a <app>`
 on flyctl 0.5.1), not a deploy token, not an organization token, and not a
-repository secret. The S3 access key, secret, bucket, endpoint, and the
+repository secret. Confirm it as [backup-bucket.md](backup-bucket.md#fly-token)
+says: paste the printed line into the secret with no added quotes, decode
+that token with `fly tokens debug`, and run the SSH commands with the
+candidate token and `-a`. Do not test it with `fly deploy` from this
+checkout. The committed `fly.toml` selects `enfolded-beta`. The S3 access key, secret, bucket, endpoint, and the
 read-only list pair are environment secrets the same way. The endpoint
 contains the account id, and a bucket stored as a variable would appear in
 the public job log. The repository variables are only `ENFOLDED_BACKUP_APP`,

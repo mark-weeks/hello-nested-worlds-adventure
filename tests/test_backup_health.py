@@ -402,3 +402,23 @@ def test_backup_refuses_every_ref_but_main_and_calls_no_flyctl(tmp_path):
         assert called.read_text() == ''
         if code:
             assert 'Off-host backup runs only from main.' in result.stdout
+
+
+def test_backup_runbook_confirms_the_token_without_a_deploy():
+    """The operator steps must not store quotes or deploy this checkout."""
+    root = Path(__file__).resolve().parents[1]
+    bucket = (root / 'docs/infrastructure/backup-bucket.md').read_text()
+    runbook = (root / 'docs/infrastructure/fly-deployment.md').read_text()
+    assert 'Quote it.' not in bucket
+    assert 'plus one `fly deploy` that must be' not in bucket
+    assert 'with no characters added' in bucket
+    assert 'a quote mark becomes part of the token' in bucket
+    assert 'Do not run `fly deploy` here.' in bucket
+    assert "unset FLY_ACCESS_TOKEN" in bucket
+    assert "FLY_API_TOKEN='<exact printed token>' fly tokens debug" in bucket
+    assert "fly ssh console -a <OWNER: Fly app name>" in bucket
+    assert "fly ssh sftp get -a <OWNER: Fly app name>" in bucket
+    assert 'issueCertificate' in bucket and 'addWireGuardPeer' in bucket
+    assert 'Do not use `enfolded-beta`.' in bucket
+    assert 'backup-bucket.md#fly-token' in runbook
+    assert 'Do not test it with `fly deploy` from this' in runbook

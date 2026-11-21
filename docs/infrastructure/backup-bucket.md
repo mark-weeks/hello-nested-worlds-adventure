@@ -203,9 +203,8 @@ app. `machine-exec` can limit shell commands, but this job uses `ssh console`
 and `ssh sftp get`, which are the SSH token's commands, not `machine exec`.
 
 **Not verified.** This change does not call Fly. It does not show that the
-SSH token can complete `ssh console` and `ssh sftp get`, or that it is
-refused for `fly deploy`. The default expiry in that source is 20 years
-(`time.Hour * 24 * 365 * 20`).
+SSH token can complete `ssh console` and `ssh sftp get`. The default expiry
+in that source is 20 years (`time.Hour * 24 * 365 * 20`).
 
 `<OWNER: create the backup Fly token>` From a terminal, for the app this job
 backs up, with flyctl 0.5.1 or the same `tokens create ssh` command:
@@ -214,19 +213,70 @@ backs up, with flyctl 0.5.1 or the same `tokens create ssh` command:
 fly tokens create ssh -a <OWNER: Fly app name>
 ```
 
-Paste the whole printed line, including a `FlyV1 ` prefix if the command
-prints one, as the environment secret `FLY_API_TOKEN`. Quote it. Do not use
-`fly tokens create deploy`, `fly tokens create org`, or `fly auth token`.
+The command prints one line. Paste that line into the GitHub environment
+secret `FLY_API_TOKEN` with no characters added. The secret field stores
+every character typed there, so a quote mark becomes part of the token and
+flyctl rejects it. Include a `FlyV1 ` prefix when the command prints one.
+Quoting belongs on a shell argument, in the confirmation below, and not in
+the secret field. Do not use `fly tokens create deploy`,
+`fly tokens create org`, or `fly auth token`.
 `<OWNER: SSH token expiry>` The source default is 20 years. Pass `--expiry`
 when a shorter life is wanted. Revoke the token when the twin is destroyed,
 and again when production backups are retired.
 
-`<OWNER: confirm the SSH token on the app>` One `ssh console` and one
-`ssh sftp get` of a disposable file, plus one `fly deploy` that must be
-refused. If the SSH token cannot do the two SSH commands, stop and use the
-fallback O7 names, `fly tokens create deploy -a <app>`, for that one app
-only. Record which command was stored. Do not widen the token before that
-check fails.
+`<OWNER: confirm the SSH token on the app>` Confirm the printed token. Do
+not confirm it by deploying.
+
+The committed `fly.toml` sets `app = "enfolded-beta"`. A bare `fly deploy`
+from this checkout selects that production app. The terminal may still be
+the owner's `fly auth login`, so that deploy can ship production, and a
+denial that names the wrong app can make an overprivileged staging token
+look SSH-only. Do not run `fly deploy` here.
+
+flyctl 0.5.1's `fly tokens debug`
+([`internal/command/tokens/debug.go`](https://github.com/superfly/flyctl/blob/v0.5.1/internal/command/tokens/debug.go))
+decodes the macaroon and prints the caveats. It does not call Fly. In that
+version, `Load` applies the config file, then `FLY_ACCESS_TOKEN` when it is
+set and otherwise `FLY_API_TOKEN`, then `-t` when that flag is passed
+(`internal/config/config.go`). In a private terminal, with the exact printed
+token:
+
+```bash
+unset FLY_ACCESS_TOKEN
+FLY_API_TOKEN='<exact printed token>' fly tokens debug
+```
+
+The quotes are shell syntax. They are not part of the value. Read the JSON
+on that terminal and delete it. Do not paste it into a log, a ticket, or
+this repository. One decoded macaroon lists mutations `issueCertificate`
+and `addWireGuardPeer` and no others. Another is the read attenuation
+`runSSH` adds (`resset.ActionRead`). Stop if the mutations list is anything
+else, or if the output is the single unattenuated token
+`fly tokens create deploy` prints. The app id in that JSON is numeric
+(`Apps` in macaroon v0.3.2, the module flyctl 0.5.1 requires). Matching
+that number to a name is not this check.
+
+The SSH checks use the same token and name the app. Quoting is again only
+the shell assignment. `-a` is required. Omitting it follows `fly.toml` to
+`enfolded-beta`.
+
+```bash
+unset FLY_ACCESS_TOKEN
+FLY_API_TOKEN='<exact printed token>' fly ssh console -a <OWNER: Fly app name> -C "echo backup-token-ok"
+FLY_API_TOKEN='<exact printed token>' fly ssh sftp get -a <OWNER: Fly app name> /data/backups/<disposable>.db <local-file>
+```
+
+Use a disposable file, not the live chronicle. If either SSH command fails,
+stop and use the fallback O7 names, `fly tokens create deploy -a <app>`,
+for that one app only. Record which command was stored. Do not widen the
+token before that check fails.
+
+A live test that the token cannot deploy needs its own authorization. Run
+it only against a disposable app created for that test, with `-a` set to
+that app and `FLY_API_TOKEN` set to the candidate as above. Do not use `enfolded-beta`.
+A refusal that names a different app does not show the
+token is SSH-only. This change did not run the debug command or the SSH
+commands.
 
 ## Bucket lock and lifecycle
 
@@ -494,7 +544,7 @@ Do this on the staging app before any production history.
 - [ ] Token is Object Read & Write on that bucket only. A disposable put and delete, on keys outside `offhost/`, succeeded, including one `DeleteObjects` of two keys. Admin Read & Write was not used.
 - [ ] `<OWNER: add the 7-day bucket lock on offhost/>` and `<OWNER: add the 37-day lifecycle rule on offhost/>`.
 - [ ] Environment secrets are set, and `<OWNER: delete the repository copies of the backup secrets>` is done. The three repository variables are the only ones. `ENFOLDED_BACKUP_APP` is `enfolded-staging`. `ENFOLDED_BACKUP_REQUIRED` is still unset.
-- [ ] `<OWNER: create the backup Fly token>` with `fly tokens create ssh`, and `<OWNER: confirm the SSH token on the app>`.
+- [ ] `<OWNER: create the backup Fly token>` with `fly tokens create ssh`. Paste the printed line into the environment secret with no added quotes. `<OWNER: confirm the SSH token on the app>` with `fly tokens debug` and the two SSH commands bound to that token and `-a`. Do not run `fly deploy` from this checkout.
 - [ ] Manual dispatch of `backup.yml` from `main` stores a validated snapshot. The job summary does not print the object key, the bucket, or the account id, and the log has no artifact upload.
 - [ ] `python scripts/backup_health.py --app <staging-app>` exits 0. `--max-age-minutes 1` against an old stamp exits 1.
 - [ ] Download, `validate_backup.py`, checksum, and `python main.py restore` on the isolated staging machine. Every backup containing `private_chat_messages` requires `--deletions <latest-export>` with the latest independently preserved operator deletion record, even when a current database exists; a fresh-boot empty export is not authoritative. Follow the [restore procedure](fly-deployment.md#restoring-from-a-backup), then record the checksum, snapshot time, app, release SHA, and elapsed time.
