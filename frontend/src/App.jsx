@@ -256,6 +256,7 @@ export default function App() {
   }, []);
 
   const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
+  const redirectedThreshold = useRef(null);
   const positionQueue = useRef(Promise.resolve());
   const latestPosition = useRef(null);
   const queuePosition = useCallback((node, world, depth) => {
@@ -353,11 +354,19 @@ export default function App() {
     }),
     onMoveDenied: (msg) => {
       if (msg.reason === "sealed") {
-        // The scene stays on the sealed node — you stand at the threshold;
-        // the server keeps your true position outside until the key is
-        // spoken (solving the room's puzzle re-sends the move).
+        if (msg.node !== currentNodeName) return;
+        const room = msg.sealed_by || msg.node;
+        // A jump can target anything below a seal. Show the room whose
+        // puzzle opens it, using the ancestry already in the current view.
+        if (room !== currentNodeName) {
+          const threshold = nodeStack.findIndex(place => place.name === room);
+          if (threshold >= 0) {
+            redirectedThreshold.current = room;
+            setNodeStack(nodeStack.slice(0, threshold + 1));
+          }
+        }
         pushEvent({ type: "system",
-                    text: `▦ ${displayName(msg.node)} is sealed — its key is written in ${displayName(msg.keeper) || "the scale above"}` });
+                    text: `▦ ${displayName(room)} is sealed — its key is written in ${displayName(msg.keeper) || "the scale above"}` });
         if (msg.prompt) pushEvent({ type: "system", text: msg.prompt });
       } else {
         pushEvent({ type: "system", text: `✕ no way to ${displayName(msg.node)} — ${msg.reason}` });
@@ -496,7 +505,13 @@ export default function App() {
   // players see us where we actually are — including the initial drop-in /
   // resume node, which may arrive through a restored position.
   useEffect(() => {
-    if (connected && currentNodeName) sendMessage({ type: "move", node: currentNodeName });
+    // Showing the threshold after a refusal is the result of the original
+    // move. Solving its puzzle or reconnecting will try the move again.
+    const threshold = redirectedThreshold.current;
+    redirectedThreshold.current = null;
+    if (connected && currentNodeName && currentNodeName !== threshold) {
+      sendMessage({ type: "move", node: currentNodeName });
+    }
   }, [connected, currentNodeName, sendMessage]);
 
   // Persist the current node so a returning player resumes here next session —

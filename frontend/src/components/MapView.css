@@ -15,6 +15,10 @@
 }
 .map-board {
   position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--map-columns), 15rem);
+  grid-template-rows: repeat(var(--map-rows), minmax(5.5rem, 1fr));
+  width: max-content;
   margin-inline: auto;
   margin-block: 30cqh;
 }
@@ -33,8 +37,9 @@
   stroke-width: 2.5;
 }
 .map-place {
-  position: absolute;
-  transform: translate(-50%, -50%);
+  position: relative;
+  place-self: center;
+  margin-block: .375rem;
   width: min(11.5rem, calc(100cqw - .5rem));
   min-height: 44px;
   padding: .45rem .65rem;
