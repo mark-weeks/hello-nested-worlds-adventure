@@ -17,10 +17,12 @@ Cases, each prepared by the operator before the run:
   receives the authored honesty answer.
 
 An uncertain reservation fails ADR-035 requirement 4 even when the reply
-itself was usable. Any world that is not declared temporary is refused
-before a place is discovered. Running this acknowledges the current notice
-for the check key, including the age confirmation: run it only as the
-operator who holds that key.
+itself was usable. A hold does too, when the classifier completed a charge:
+an uncertain or anomalous moderation row fails, a still-reserved row is the
+unreachable classifier, and no row is a cap or a dollar ceiling. Any world
+that is not declared temporary is refused before a place is discovered.
+The check key must already have acknowledged the current notice. This probe
+does not accept it. Run it only as the operator who holds that key.
 
 The shared line is locally ambiguous, so classification is part of the
 pass on a server that classifies only ambiguous lines and on one that
@@ -30,10 +32,12 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import hashlib
 import ipaddress
 import json
 import os
 from pathlib import Path
+import secrets
 import sqlite3
 import sys
 from urllib.error import HTTPError, URLError
@@ -157,7 +161,8 @@ def _expect(status: int, actual: int, label: str) -> None:
         raise ProbeError(f"{label}: HTTP {actual}")
 
 
-def _ledger(path: Path) -> list[sqlite3.Row]:
+def _ledger(path: Path, key: str) -> list[sqlite3.Row]:
+    """Reservations for this check key's participant, and no one else's."""
     if not path.is_file():
         raise ProbeError("the ledger database was not found")
     try:
@@ -167,11 +172,21 @@ def _ledger(path: Path) -> list[sqlite3.Row]:
     try:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA query_only = ON")
+        # The stored credential is sha256 of the key. See persistence._credential_digest.
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        owner = conn.execute(
+            "SELECT participant_id FROM participant_credentials WHERE credential_digest=?",
+            (digest,),
+        ).fetchone()
+        if owner is None:
+            return []
         return list(conn.execute(
             """SELECT r.id, r.task, r.status, r.reserved_microusd, r.accounted_microusd,
                       r.usage_json, r.resolved_model, p.policy_json
                FROM model_spend_reservations r
-               JOIN model_spend_policies p ON p.digest = r.policy_digest"""
+               JOIN model_spend_policies p ON p.digest = r.policy_digest
+               WHERE r.participant_id=?""",
+            (owner[0],),
         ))
     except sqlite3.Error:
         raise ProbeError("the ledger could not be read") from None
@@ -179,14 +194,14 @@ def _ledger(path: Path) -> list[sqlite3.Row]:
         conn.close()
 
 
-def _ids(path: Path | None) -> set[str]:
+def _ids(path: Path | None, key: str) -> set[str]:
     if path is None:
         return set()
-    return {row["id"] for row in _ledger(path)}
+    return {row["id"] for row in _ledger(path, key)}
 
 
-def _new_rows(path: Path, before: set[str]) -> list[sqlite3.Row]:
-    return [row for row in _ledger(path) if row["id"] not in before]
+def _new_rows(path: Path, before: set[str], key: str) -> list[sqlite3.Row]:
+    return [row for row in _ledger(path, key) if row["id"] not in before]
 
 
 def _approved(policy_json: str, task: str) -> list[str]:
@@ -222,8 +237,8 @@ def _assert_settled(row: sqlite3.Row) -> None:
         raise ProbeError("resolved model is not in that task's approved resolved_models")
 
 
-def _assert_dispatch(path: Path, before: set[str], expected: Counter) -> set[str]:
-    rows = _new_rows(path, before)
+def _assert_dispatch(path: Path, before: set[str], expected: Counter, key: str) -> set[str]:
+    rows = _new_rows(path, before, key)
     found = Counter(row["task"] for row in rows)
     if found != expected:
         raise ProbeError("ledger tasks did not match this call")
@@ -232,11 +247,22 @@ def _assert_dispatch(path: Path, before: set[str], expected: Counter) -> set[str
     return before | {row["id"] for row in rows}
 
 
-def _forbid_voice(path: Path | None, before: set[str]) -> None:
-    if path is None:
-        return
-    if any(row["task"] in _VOICE_TASKS for row in _new_rows(path, before)):
+def _assert_hold_ledger(path: Path, before: set[str], key: str) -> None:
+    """A completed classifier charge must settle. A reserved row has not completed.
+
+    Cap exhaustion and a spent dollar ceiling write no reservation. An
+    unreachable classifier leaves the moderation row reserved. An uncertain
+    or anomalous charge is a completed accounting failure.
+    """
+    rows = _new_rows(path, before, key)
+    if any(row["task"] in _VOICE_TASKS for row in rows):
         raise ProbeError("a voice reservation was written during a hold")
+    if any(row["task"] != "moderation" for row in rows):
+        raise ProbeError("ledger tasks did not match this call")
+    for row in rows:
+        if row["status"] == "reserved":
+            continue
+        _assert_settled(row)
 
 
 def _discover(origin: str, key: str, timeout: float) -> dict:
@@ -284,18 +310,16 @@ def _assert_product_hold(status: int, body: dict, line: str, label: str) -> None
         raise ProbeError(f"{label}: its hold line was not returned")
 
 
-def _acknowledge(origin: str, key: str, timeout: float, notice: dict) -> None:
-    if notice.get("ready") is not True or type(notice.get("revision")) is not str or not notice["revision"]:
-        raise ProbeError("the participation notice is not ready")
-    if notice.get("required") is True and notice.get("accepted") is not True:
-        status, body = _request(
-            origin, "POST", "/participation",
-            {"accepted": True, "revision": notice["revision"], "age_confirmed": True},
-            timeout, "participation", key,
+def _require_acknowledgement(origin: str, key: str, timeout: float, notice: dict) -> None:
+    """The anonymous preflight cannot see this key. Do not accept for it."""
+    status, body = _request(origin, "GET", "/participation", None, timeout, "participation", key)
+    _expect(200, status, "participation")
+    if body.get("revision") != notice["revision"] or body.get("accepted") is not True:
+        raise ProbeError(
+            "the check key has not acknowledged the current notice. "
+            "Follow section 3a step 7: open this key's invite URL and acknowledge the notice. "
+            "The probe does not accept it."
         )
-        _expect(200, status, "participation")
-        if body.get("accepted") is not True:
-            raise ProbeError("participation: the notice was not accepted")
 
 
 def _success(origin: str, key: str, timeout: float, place: dict, db: Path) -> dict:
@@ -306,31 +330,34 @@ def _success(origin: str, key: str, timeout: float, place: dict, db: Path) -> di
     _expect(200, status, "position")
     if arrived.get("saved") is not True:
         raise ProbeError("position: could not arrive at the place")
-    before = _ids(db)
+    before = _ids(db, key)
     speak = {"message": SHARED_LINE, "node_name": name}
     _, body = _voice(origin, key, timeout, "/speak", speak, "speak")
     _assert_live(body, "speak")
-    before = _assert_dispatch(db, before, Counter({"moderation": 1, "node": 1}))
+    before = _assert_dispatch(db, before, Counter({"moderation": 1, "node": 1}), key)
     agent = {"message": SHARED_LINE, "node_name": name, "agent_name": AGENT_NAME}
     _, body = _voice(origin, key, timeout, "/agent/voice", agent, "agent voice")
     _assert_live(body, "agent voice")
-    before = _assert_dispatch(db, before, Counter({"moderation": 1, "inhabitant": 1}))
+    before = _assert_dispatch(db, before, Counter({"moderation": 1, "inhabitant": 1}), key)
+    # One id for this submission. A retry of this same commit would send it
+    # again. The next invocation of the probe generates another.
+    act_id = "probe-act-" + secrets.token_hex(8)
     status, body = _request(
         origin, "POST", "/interventions/commit",
-        {"node": name, "version": 3, "request_id": "probe-act-01", "intention": INTENTION},
+        {"node": name, "version": 3, "request_id": act_id, "intention": INTENTION},
         timeout, "intention", key,
     )
     _expect(200, status, "intention")
     if (body.get("accepted") is not True or type(body.get("id")) is not str or not body["id"]
             or "ai" in body):
         raise ProbeError("intention: the accepted receipt was not returned")
-    _assert_dispatch(db, before, Counter({"intent": 1}))
+    _assert_dispatch(db, before, Counter({"intent": 1}), key)
     return {"case": "success", "settled": {"moderation": 2, "node": 1, "inhabitant": 1, "intent": 1}}
 
 
-def _hold(origin: str, key: str, timeout: float, place: dict, db: Path | None) -> dict:
+def _hold(origin: str, key: str, timeout: float, place: dict, db: Path) -> dict:
     name = place["name"]
-    before = _ids(db)
+    before = _ids(db, key)
     _, body = _voice(origin, key, timeout, "/speak",
                      {"message": SHARED_LINE, "node_name": name}, "speak")
     _assert_hold(body, "speak")
@@ -351,28 +378,28 @@ def _hold(origin: str, key: str, timeout: float, place: dict, db: Path | None) -
         timeout, "profile", key,
     )
     _assert_product_hold(status, body, moderation.PROFILE_HOLD, "profile")
-    _forbid_voice(db, before)
+    _assert_hold_ledger(db, before, key)
     return {"case": "hold", "speak": "held", "agent_voice": "held", "ideas": "held", "profile": "held"}
 
 
 def _quiet(origin: str, key: str, timeout: float, place: dict, db: Path) -> dict:
     name = place["name"]
-    before = _ids(db)
+    before = _ids(db, key)
     _, body = _voice(origin, key, timeout, "/speak",
                      {"message": SHARED_LINE, "node_name": name}, "speak")
     _assert_quiet(body, "speak")
-    before = _assert_dispatch(db, before, Counter({"moderation": 1}))
+    before = _assert_dispatch(db, before, Counter({"moderation": 1}), key)
     _, body = _voice(origin, key, timeout, "/agent/voice",
                      {"message": SHARED_LINE, "node_name": name, "agent_name": AGENT_NAME},
                      "agent voice")
     _assert_quiet(body, "agent voice")
-    _assert_dispatch(db, before, Counter({"moderation": 1}))
+    _assert_dispatch(db, before, Counter({"moderation": 1}), key)
     return {"case": "quiet", "moderation_settled": 2, "voice_reservations": 0}
 
 
 def _identity(origin: str, key: str, timeout: float, place: dict, db: Path | None) -> dict:
     name = place["name"]
-    before = _ids(db)
+    before = _ids(db, key)
     _, body = _voice(origin, key, timeout, "/speak",
                      {"message": IDENTITY_LINE, "node_name": name}, "speak")
     if (body.get("ai") is not False or body.get("held") not in (None, False)
@@ -384,7 +411,7 @@ def _identity(origin: str, key: str, timeout: float, place: dict, db: Path | Non
     if (body.get("ai") is not False or body.get("held") not in (None, False)
             or body.get("response") != honesty.agent_answer(body.get("persona") if isinstance(body.get("persona"), str) else None)):
         raise ProbeError("agent voice: the authored honesty answer was not returned")
-    if db is not None and _new_rows(db, before):
+    if db is not None and _new_rows(db, before, key):
         raise ProbeError("a reservation was written for an authored honesty answer")
     return {"case": "identity", "ai": False}
 
@@ -396,10 +423,12 @@ def run(args) -> dict:
     _, notice = _request(origin, "GET", "/participation", None, args.timeout, "participation")
     if notice.get("temporary") is not True:
         raise ProbeError("refusing a world that is not declared temporary")
-    if args.case in {"success", "quiet"} and args.db is None:
+    if notice.get("ready") is not True or type(notice.get("revision")) is not str or not notice["revision"]:
+        raise ProbeError("the participation notice is not ready")
+    if args.case in {"success", "hold", "quiet"} and args.db is None:
         raise ProbeError("this case needs --db so the ledger can be checked")
     key = _load_key(args)
-    _acknowledge(origin, key, args.timeout, notice)
+    _require_acknowledgement(origin, key, args.timeout, notice)
     place = _discover(origin, key, args.timeout)
     db = None if args.db is None else Path(args.db)
     if args.case == "success":

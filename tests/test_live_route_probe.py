@@ -85,7 +85,18 @@ class _Chat(BaseHTTPRequestHandler):
         usage = dict(_USAGE)
         if self.server.mode == "uncertain":
             del usage["total_tokens"]
-        if model == "fixture-moderation":
+        elif self.server.mode == "anomaly":
+            usage = {
+                "prompt_tokens": 10,
+                "completion_tokens": 32,
+                "total_tokens": 10,
+                "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+            }
+        if model == "fixture-moderation" and self.server.mode in {"undecided", "held"}:
+            content = "MAYBE"
+            if self.server.mode == "undecided":
+                usage.pop("total_tokens", None)
+        elif model == "fixture-moderation":
             content = "ALLOW"
         elif model == "fixture-intent":
             content = _INTENT
@@ -228,7 +239,7 @@ def _stop_game(server, thread) -> None:
 def stage(tmp_path, monkeypatch):
     started = []
 
-    def start(*, mode="ok", test_world="1", limits=("1", "1"), extra=None):
+    def start(*, mode="ok", test_world="1", limits=("1", "1"), extra=None, acknowledge=True):
         cert = _certificate(tmp_path)
         fake = _start_tls(cert)
         port = fake.server_address[1]
@@ -264,6 +275,11 @@ def stage(tmp_path, monkeypatch):
             monkeypatch.setenv(name, value)
         persistence.init_db()
         persistence.mint_invite_key(_KEY, "Check")
+        if acknowledge:
+            from server import participation
+            from persistence import participation as consents
+            current = participation.notice()
+            consents.accept(_KEY, current["revision"], participation.snapshot(current))
         model_policy.reset_for_tests()
         model_dispatch.reset_for_tests()
         runtime.reset_provider_selection()
@@ -479,12 +495,115 @@ def test_ledger_checks_reject_an_unsettled_or_incomplete_row():
         probe._assert_settled(row(resolved_model="unapproved-model"))
 
 
-def test_success_and_quiet_require_the_ledger(stage, capsys):
+def test_success_hold_and_quiet_require_the_ledger(stage, capsys):
     _fake, _game, url = stage()
-    with pytest.raises(SystemExit) as caught:
-        probe.main(_argv(url, "success", db=False))
-    assert caught.value.code == 1
-    captured = _quiet_output(capsys)
-    assert "needs --db" in captured.err
+    for case in ("success", "hold", "quiet"):
+        with pytest.raises(SystemExit) as caught:
+            probe.main(_argv(url, case, db=False))
+        assert caught.value.code == 1
+        captured = _quiet_output(capsys)
+        assert "needs --db" in captured.err
     with persistence._connection() as conn:
         assert conn.execute("SELECT COUNT(*) FROM world_nodes").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM model_spend_reservations").fetchone()[0] == 0
+
+
+def test_missing_acknowledgement_stops_before_discovery(stage, capsys):
+    _fake, game, url = stage(acknowledge=False)
+    with pytest.raises(SystemExit) as caught:
+        probe.main(_argv(url, "hold"))
+    assert caught.value.code == 1
+    captured = _quiet_output(capsys)
+    assert "section 3a step 7" in captured.err
+    assert "does not accept" in captured.err
+    participation = [item for item in game.calls if item["path"] == "/participation"]
+    assert [item["keyed"] for item in participation] == [False, True]
+    assert "/world" not in {item["path"] for item in game.calls}
+    with persistence._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM participation_consents").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM world_nodes").fetchone()[0] == 0
+
+
+def test_uncertain_classifier_charge_fails_a_hold(stage, capsys):
+    _fake, game, url = stage(mode="undecided")
+    with pytest.raises(SystemExit) as caught:
+        probe.main(_argv(url, "hold"))
+    assert caught.value.code == 1
+    captured = _quiet_output(capsys)
+    assert "failed ADR-035 requirement 4" in captured.err
+    speak = next(item for item in game.calls if item["path"] == "/speak")
+    assert speak["status"] == 200 and speak["response"] == moderation.HOLD_LINE and speak["ai"] is False
+    assert _rows() and all(row[1] == "uncertain" for row in _rows())
+
+
+def test_anomalous_classifier_charge_fails_a_hold(stage, capsys):
+    _fake, game, url = stage(mode="anomaly")
+    with pytest.raises(SystemExit) as caught:
+        probe.main(_argv(url, "hold"))
+    assert caught.value.code == 1
+    captured = _quiet_output(capsys)
+    assert "a reservation status is anomaly" in captured.err
+    speak = next(item for item in game.calls if item["path"] == "/speak")
+    assert speak["response"] == moderation.HOLD_LINE and speak["held"] is True
+    assert any(row[1] == "anomaly" for row in _rows())
+
+
+def test_a_settled_undecided_verdict_still_passes_the_hold(stage, capsys):
+    fake, game, url = stage(mode="held")
+    probe.main(_argv(url, "hold"))
+    _quiet_output(capsys)
+    assert {item["model"] for item in fake.seen} == {"fixture-moderation"}
+    held = [item for item in game.calls if item["path"] in {"/speak", "/agent/voice"}]
+    assert len(held) == 2 and all(item["response"] == moderation.HOLD_LINE for item in held)
+    rows = _rows()
+    assert rows and {row[0] for row in rows} == {"moderation"}
+    assert {row[1] for row in rows} == {"settled"}
+    assert all(row[3] <= row[2] for row in rows)
+
+
+def test_a_second_success_run_settles_a_new_intention(stage, capsys):
+    _fake, _game, url = stage()
+    probe.main(_argv(url, "success"))
+    capsys.readouterr()
+    probe.main(_argv(url, "success"))
+    _quiet_output(capsys)
+    with persistence._connection() as conn:
+        receipts = conn.execute(
+            "SELECT request_id FROM request_receipts WHERE operation='intervention' ORDER BY request_id"
+        ).fetchall()
+    assert len(receipts) == 2
+    assert receipts[0][0] != receipts[1][0]
+    assert [row[0] for row in _rows()].count("intent") == 2
+
+
+def test_another_participant_cannot_supply_or_spoil_this_call(stage, monkeypatch, capsys):
+    _fake, _game, url = stage()
+    original = probe._assert_live
+
+    def plant(body, label):
+        original(body, label)
+        if label != "speak":
+            return
+        with persistence.transaction() as conn:
+            conn.execute("INSERT INTO participants(id) VALUES ('other-participant')")
+            conn.execute(
+                """INSERT INTO model_spend_reservations
+                   (id,day,participant_id,task,adapter,endpoint,requested_model,policy_digest,
+                    reserved_microusd,accounted_microusd,status,usage_json,resolved_model,
+                    created_at,settled_at,retention_days,retain_until)
+                   SELECT 'other-during-speak', day, 'other-participant', 'intent', adapter, endpoint,
+                          requested_model, policy_digest, reserved_microusd, accounted_microusd, 'settled',
+                          usage_json, 'fixture-intent-v1', created_at, settled_at, retention_days, retain_until
+                   FROM model_spend_reservations LIMIT 1"""
+            )
+
+    monkeypatch.setattr(probe, "_assert_live", plant)
+    probe.main(_argv(url, "success"))
+    _quiet_output(capsys)
+    db = persistence._DB_PATH
+    with persistence._connection() as conn:
+        earlier = {row[0] for row in conn.execute(
+            "SELECT id FROM model_spend_reservations WHERE id != 'other-during-speak'"
+        )}
+    with pytest.raises(probe.ProbeError, match="ledger tasks did not match"):
+        probe._assert_dispatch(db, earlier, {"intent": 1}, _KEY)

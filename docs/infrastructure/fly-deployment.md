@@ -1703,12 +1703,19 @@ not this restore.
       [approved live controlled text](#approved-live-controlled-text) is complete.
       Only then, on that disposable staging machine, run the authenticated
       live-voice probe. It reads the volume ledger, so it has to run there.
-      Put the check key in a file for the run and remove the file afterwards:
-      `fly ssh console -C "python scripts/live_route_probe.py --url http://127.0.0.1:8080 --key-file /data/check-key --db /data/.nested-worlds/worlds.db --case success"`
+      Put the check key in a file for the run and remove the file afterwards.
+      Name the disposable app. From this repository, omitting `-a` selects
+      `enfolded-beta` through `fly.toml`. If the disposable app has another
+      name, pass that name to `-a` on every case:
+      `fly ssh console -a enfolded-staging -C "python scripts/live_route_probe.py --url http://127.0.0.1:8080 --key-file /data/check-key --db /data/.nested-worlds/worlds.db --case success"`
       and the same command with `--case hold`, `--case quiet` and `--case identity`.
       The probe refuses any world that is not declared temporary, before it
-      discovers a place, and it records the check key's acknowledgement of the
-      current notice. Run it only as the operator who holds that key.
+      discovers a place. It does not acknowledge the notice. Before these
+      commands, open the check key's invite URL and acknowledge the current
+      notice, as
+      [§3a](#3a-staging-rehearsal--before-the-permanent-world-begins) step 7
+      says. The probe stops when that acknowledgement is missing. Run it only
+      as the operator who holds that key.
       Prepare each case on the server before the command. Success needs the
       approved routes, with allowances unspent and the shared line classified
       as allowed. Hold is an unclassified shared line, the AI kill switch, a
@@ -1719,14 +1726,26 @@ not this restore.
       return HTTP 200 and `ai: true`: the shared line leaves one settled
       moderation reservation and one settled voice reservation. An Act
       free-text intention returns `accepted: true` and a receipt, with no
-      `ai` field, and one settled intent reservation. Every row is `settled`,
-      never `uncertain`, `anomaly` or `reserved`; accounted microUSD is at
-      most the reserved amount; the usage carries the prompt, completion and
-      cached-token counts; and the resolved model is one of that task's
-      approved `resolved_models`. An `uncertain` row fails ADR-035 requirement
-      4. Hold: Speak and agent voice return HTTP 200 with the shared hold
-      line, `held: true` and `ai: false`; Ideas and a published profile
-      return 422 with their hold lines. Quiet failure: HTTP 200, `ai: false`
+      `ai` field, and one settled intent reservation. Each success run uses a
+      new Act request id, so a second run settles its own intention. Every
+      row is `settled`, never `uncertain`, `anomaly` or `reserved`; accounted
+      microUSD is at most the reserved amount; the usage carries the prompt,
+      completion and cached-token counts; and the resolved model is one of
+      that task's approved `resolved_models`. An `uncertain` row fails
+      ADR-035 requirement 4. The ledger read is limited to the check key's
+      participant. Hold also requires `--db`. Speak and agent voice return
+      HTTP 200 with the shared hold line, `held: true` and `ai: false`; Ideas
+      and a published profile return 422 with their hold lines. A completed
+      moderation charge must be `settled` under the same usage and model
+      checks. An `uncertain` or `anomaly` charge fails. A spent cap or dollar
+      ceiling may leave no reservation, and an unreachable classifier may
+      leave `reserved` moderation rows. No voice reservation is written.
+      Beside the probe, still check Act clarification (`accepted: false`,
+      `clarification: true`, `ai: true`), refusal (`accepted: false`,
+      `declined: true`, `ai: true`), and one explicit version-3 `steps`
+      commit (`accepted: true` and a receipt). The four probe cases accept
+      one free-text intention and do not cover those three, which checklist
+      M4 still requires. Quiet failure: HTTP 200, `ai: false`
       and the quiet line, `held` absent or false, one settled moderation
       reservation and no voice reservation. With the kill switch on,
       `--case identity` still returns the authored honesty answer, HTTP 200
