@@ -278,6 +278,43 @@ test("/app opens a depth horizon automatically without losing the current node",
   expect(errors).toEqual([]);
 });
 
+test("/app keeps the chosen destination when the previous horizon finishes opening", async ({ page, request }) => {
+  const {world} = await (await request.get("/world?depth=6")).json();
+  let parent = world;
+  while (parent.children[0].children?.length) parent = parent.children[0];
+  const horizon = parent.children[0];
+
+  await page.addInitScript((name) => {
+    localStorage.setItem("nw_seen_intro", "1");
+    localStorage.setItem("nw_player_name", "Map traveler");
+    localStorage.setItem("nw_last_node", name);
+
+    // Pause a real, fully read world just before the client uses its data.
+    const read = Response.prototype.json;
+    Response.prototype.json = async function (...args) {
+      const data = await read.apply(this, args);
+      const url = new URL(this.url || location.href);
+      if (url.pathname === "/world" && url.searchParams.get("depth") === "7") {
+        await new Promise(resolve => { window.releaseHorizon = resolve; });
+      }
+      return data;
+    };
+  }, horizon.name);
+  await page.goto("/app");
+  await page.waitForFunction(() => typeof window.releaseHorizon === "function");
+  const parentPassage = page.locator("enfolded-navigation .top button").first();
+  await parentPassage.click();
+  const heading = page.locator("#node-name");
+  await expect(heading).toHaveAttribute("title", parent.name);
+  await page.evaluate(async () => {
+    window.releaseHorizon();
+    // Let React paint the result of the released read before checking location.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  await expect(heading).toHaveAttribute("title", parent.name);
+  expect(await page.evaluate(() => localStorage.getItem("nw_last_node"))).toBe(parent.name);
+});
+
 async function mockSavedPosition(page, position) {
   // This fixture supplies only a position credential, not a minted participant.
   // Composition ownership is exercised with real invites in expressive.spec.js.
