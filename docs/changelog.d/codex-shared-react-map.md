@@ -12,9 +12,9 @@ Status: Watch entry requirement 2: record X1 as the first client change for the 
   A side-effect import of the vendored D3 left its global undefined in the
   production build. The map reads the module exports there and the browser
   global in development. Its 95 kB gzipped script loads on first use.
-  **Verified:** the full local check passed Ruff, 4,329 Python tests (one skip),
-  243 client unit tests, bundle freshness, the installed wheel and all 215
-  Chromium cases, including keyboard travel, reconnect, reload and a failed
+  **Verified:** Ruff, 4,329 Python tests (one skip), 256 client unit tests,
+  bundle freshness and the installed-wheel check passed after the rebase on
+  #185. The 215 Chromium cases covered keyboard travel, reconnect, reload and a failed
   map download. At 320 px with 200% text, the current marker fit the viewport.
   Switching views preserved the Speak draft and WebSocket session.
   **Irreversibility check:** none. The diff changes client rendering and travel
