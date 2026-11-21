@@ -1705,7 +1705,9 @@ not this restore.
       live-voice probe. It reads the volume ledger, so it has to run there.
       The check key file stays off that volume, at `/tmp/check-key`, and is
       removed after the last case. Do not pass the key to `fly ssh console -C`:
-      that puts it on the local command line and in shell history. From an
+      that puts it on the local command line and in shell history. The probe
+      has no `--key` argument. It reads `--key-file` or `ENFOLDED_LIVE_ROUTE_KEY`,
+      and only one of those. From an
       interactive `fly ssh console -a enfolded-staging` shell, write the key
       to `/tmp/check-key` and leave the shell. Or, from `fly ssh sftp shell`,
       `put` a local file that is not committed to `/tmp/check-key`, then delete

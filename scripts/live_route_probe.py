@@ -94,15 +94,13 @@ def _origin(url: str) -> str:
 
 
 def _load_key(args) -> str:
-    sources = [args.key is not None, args.key_file is not None,
-               bool(os.environ.get("ENFOLDED_LIVE_ROUTE_KEY"))]
+    sources = [args.key_file is not None, bool(os.environ.get("ENFOLDED_LIVE_ROUTE_KEY"))]
     if sum(sources) != 1:
         raise ProbeError(
-            "Pass the check key once, with --key-file, --key, or ENFOLDED_LIVE_ROUTE_KEY."
+            "Pass the check key once, with --key-file or ENFOLDED_LIVE_ROUTE_KEY. "
+            "There is no --key argument."
         )
-    if args.key is not None:
-        raw = args.key
-    elif args.key_file is not None:
+    if args.key_file is not None:
         try:
             raw = Path(args.key_file).read_text(encoding="utf-8")
         except OSError:
@@ -179,7 +177,9 @@ def _ledger(path: Path, key: str) -> list[sqlite3.Row]:
             (digest,),
         ).fetchone()
         if owner is None:
-            return []
+            raise ProbeError(
+                "the check key is not in this ledger; --db must be the served database"
+            )
         return list(conn.execute(
             """SELECT r.id, r.task, r.status, r.reserved_microusd, r.accounted_microusd,
                       r.usage_json, r.resolved_model, p.policy_json
@@ -444,10 +444,9 @@ def run(args) -> dict:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--url", required=True)
     parser.add_argument("--case", required=True, choices=("success", "hold", "quiet", "identity"))
-    parser.add_argument("--key", default=None)
     parser.add_argument("--key-file", default=None)
     parser.add_argument("--db", default=None)
     parser.add_argument("--timeout", type=float, default=30)

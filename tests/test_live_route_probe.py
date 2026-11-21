@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler
 import json
 from pathlib import Path
 import socket
+import sqlite3
 import ssl
 import subprocess
 import sys
@@ -271,6 +272,7 @@ def stage(tmp_path, monkeypatch):
             guard.DISABLE_AI_ENV, "ENFOLDED_LIVE_ROUTE_KEY",
         ):
             monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("ENFOLDED_LIVE_ROUTE_KEY", _KEY)
         for name, value in (extra or {}).items():
             monkeypatch.setenv(name, value)
         persistence.init_db()
@@ -313,7 +315,7 @@ def _rows():
 
 
 def _argv(url, case, db=True):
-    argv = ["--url", url, "--case", case, "--key", _KEY, "--timeout", "30"]
+    argv = ["--url", url, "--case", case, "--timeout", "30"]
     if db:
         argv.extend(["--db", str(persistence._DB_PATH)])
     return argv
@@ -607,3 +609,48 @@ def test_another_participant_cannot_supply_or_spoil_this_call(stage, monkeypatch
         )}
     with pytest.raises(probe.ProbeError, match="ledger tasks did not match"):
         probe._assert_dispatch(db, earlier, {"intent": 1}, _KEY)
+
+
+def test_a_ledger_without_the_check_key_is_refused(stage, tmp_path, capsys):
+    _fake, _game, url = stage(mode="undecided")
+    copy = tmp_path / "not-the-served.db"
+    with persistence._connection() as source, sqlite3.connect(copy) as dest:
+        source.backup(dest)
+        dest.execute("DELETE FROM participant_credentials")
+    argv = _argv(url, "hold", db=False)
+    argv.extend(["--db", str(copy)])
+    with pytest.raises(SystemExit) as caught:
+        probe.main(argv)
+    assert caught.value.code == 1
+    captured = _quiet_output(capsys)
+    assert "not in this ledger" in captured.err
+    assert "served database" in captured.err
+    assert _rows() == []
+    with sqlite3.connect(copy) as dest:
+        assert dest.execute("SELECT COUNT(*) FROM participant_credentials").fetchone()[0] == 0
+
+
+def test_the_check_key_comes_from_a_file(stage, tmp_path, monkeypatch, capsys):
+    _fake, _game, url = stage()
+    monkeypatch.delenv("ENFOLDED_LIVE_ROUTE_KEY", raising=False)
+    key_file = tmp_path / "check-key"
+    key_file.write_text(_KEY + "\n", encoding="utf-8")
+    probe.main(["--url", url, "--case", "identity", "--key-file", str(key_file), "--timeout", "30"])
+    captured = _quiet_output(capsys)
+    assert '"identity"' in captured.out
+
+
+def test_a_command_line_key_and_two_sources_are_refused(stage, tmp_path, monkeypatch, capsys):
+    _fake, _game, url = stage()
+    with pytest.raises(SystemExit) as unrecognized:
+        probe.main(["--url", url, "--case", "identity", "--key", "nw_not-a-flag", "--timeout", "30"])
+    assert unrecognized.value.code == 2
+    capsys.readouterr()
+    key_file = tmp_path / "check-key"
+    key_file.write_text(_KEY, encoding="utf-8")
+    with pytest.raises(SystemExit) as caught:
+        probe.main(["--url", url, "--case", "identity", "--key-file", str(key_file), "--timeout", "30"])
+    assert caught.value.code == 1
+    captured = _quiet_output(capsys)
+    assert "no --key argument" in captured.err
+    assert "once" in captured.err
