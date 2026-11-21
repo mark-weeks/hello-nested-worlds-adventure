@@ -1703,12 +1703,19 @@ not this restore.
       [approved live controlled text](#approved-live-controlled-text) is complete.
       Only then, on that disposable staging machine, run the authenticated
       live-voice probe. It reads the volume ledger, so it has to run there.
-      Put the check key in a file for the run and remove the file afterwards.
-      Name the disposable app. From this repository, omitting `-a` selects
-      `enfolded-beta` through `fly.toml`. If the disposable app has another
-      name, pass that name to `-a` on every case:
-      `fly ssh console -a enfolded-staging -C "python scripts/live_route_probe.py --url http://127.0.0.1:8080 --key-file /data/check-key --db /data/.nested-worlds/worlds.db --case success"`
+      The check key file stays off that volume, at `/tmp/check-key`, and is
+      removed after the last case. Do not pass the key to `fly ssh console -C`:
+      that puts it on the local command line and in shell history. From an
+      interactive `fly ssh console -a enfolded-staging` shell, write the key
+      to `/tmp/check-key` and leave the shell. Or, from `fly ssh sftp shell`,
+      `put` a local file that is not committed to `/tmp/check-key`, then delete
+      the local file. Name the disposable app. From this repository, omitting
+      `-a` selects `enfolded-beta` through `fly.toml`. If the disposable app
+      has another name, pass that name to `-a` on every case:
+      `fly ssh console -a enfolded-staging -C "python scripts/live_route_probe.py --url http://127.0.0.1:8080 --key-file /tmp/check-key --db /data/.nested-worlds/worlds.db --case success"`
       and the same command with `--case hold`, `--case quiet` and `--case identity`.
+      After those four cases:
+      `fly ssh console -a enfolded-staging -C "rm -f /tmp/check-key"`.
       The probe refuses any world that is not declared temporary, before it
       discovers a place. It does not acknowledge the notice. Before these
       commands, open the check key's invite URL and acknowledge the current
