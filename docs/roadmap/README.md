@@ -1,7 +1,8 @@
 # Roadmap index — what governs now
 
-*Verified on 2026-11-11 against `main` at #169 (`bd03148`, 2026-11-11).
-Repository facts were re-read at that commit. Hosted state was checked only
+*Verified on 2026-11-21 against `main` at #190 (`00fa804`, 2026-11-21).
+The text changed in this pass was re-read at that commit; the shipped list
+below still runs through #169. Hosted state was checked only
 through GitHub (releases and workflow runs); the Fly account and
 enfolded.world were not reachable from the verifying session, so "not
 deployed" below rests on the record on `main` and is otherwise unverified.*
@@ -32,6 +33,23 @@ cohort. No deployment, recruitment or hosted verification is established here.
 The owner rejected explorer retirement in #173; the current map and scene client
 posture remains, and any consolidation belongs to a later owner-directed batch.
 
+## Owner decisions, 2026-11-18
+
+The [18 November owner decisions](owner-decisions-2026-11-18.md) adopt answers
+to 47 numbered items and record the owner's own words as D-A to D-J. The watch
+runs with AI on, names are natural and unique
+([ADR-041](../decisions/ADR-041-natural-unique-names.md)), and agents are in
+scope for the first cohort. The record builds, deploys and recruits nothing.
+
+## Owner decisions, 2026-11-20
+
+The [20 November owner decisions](owner-decisions-2026-11-20.md) adopt the
+owner's items O1 to O17 of the
+[20 November batch plan](batch-plan-2026-11-20.md). They set the watch route,
+spend amounts, backup bucket, people and dates, and the defaults to bring to the
+read-out. The plan names the next parallel batch. Neither merges, deploys or
+spends anything.
+
 ## Where the project stands
 
 - **Not deployed.** The hosted world at enfolded.world has never run, the
@@ -40,13 +58,13 @@ posture remains, and any consolidation belongs to a later owner-directed batch.
   `v0.1.1-qa.2` on 2026-08-31); no production release has been cut. The
   [beta readiness record](../evaluation/2026-10-03-beta-readiness.md) (#109)
   named October 31 as a conditional target for an 8–12 person invited study.
-  **That date has lapsed and no new date is set.** The re-plan is an open
-  owner decision: decision 6 in the
-  [November decision packet](decision-packet-2026-11.md#6-re-plan-date-q4-decision-a),
-  which is decision A in the
-  [Q4 plan](next-steps-2026-q4.md#part-2-decisions-the-owner-must-make-and-by-when).
-  The packet sets out the options; its recommendation is proposed by agent
-  and not decided. The hosted and human gates the readiness record lists are
+  **That date has lapsed.** The re-plan
+  ([packet decision 6](decision-packet-2026-11.md#6-re-plan-date-q4-decision-a))
+  is now set: watch sessions on Tuesday 8 and Thursday 10 December 2026
+  (Friday 11 December spare), and the read-out on Monday 14 December. The
+  January targets are withdrawn (item 39). The cohort start is still set at
+  the read-out, so no cohort date is set (O8, O17). The hosted and human
+  gates the readiness record lists are
   still open on the record: backup activation, hosted restore, freshness
   alerting, live models, hosted runtime and devices, first-session
   observations, the seven-day return.
@@ -124,27 +142,31 @@ posture remains, and any consolidation belongs to a later owner-directed batch.
   and Apache-2.0 (#99); M1–M4 delivery, delayed choices, history narration and
   responsive inhabitants (#94–#97); the four pre-launch batches (#77–#81).
 - **Open:** M7 (pilot cohort) and M8; deployment and its launch gates; the
-  beta re-plan date and the other undecided items in the
-  [November decision packet](decision-packet-2026-11.md);
-  ratification of the implemented-but-Proposed contracts — ADR-019 through
-  ADR-022 (M1–M4) and the bounded parts of ADR-013 and ADR-014 realised under
-  ADR-024/025 — whose code is merged while their status is still Proposed;
+  cohort start date, set at the 14 December read-out, and the other undecided
+  items in the [November decision packet](decision-packet-2026-11.md);
+  ratification of the bounded parts of ADR-013 and ADR-014 realised under
+  ADR-024/025, whose code is merged while their status is still Proposed;
   ADR-012's direction, realised so far only as that bounded first situation;
   ADR-015 through ADR-018 (referential puzzles, spoken interaction,
   multidimensional leaderboards, collectibles), which remain unimplemented
   directions pending both implementation and ratification; ratification of
+  D3, D6, D7 and D8 of
   [ADR-037](../decisions/ADR-037-agents-as-conversational-players.md), the
-  Proposed design for agents in chat, and its five open questions; ratification of
+  design for agents in chat, after its refresh against `main`; ratification of
   the ADR-029 through ADR-033 drafts; ratification of
   [ADR-035](../decisions/ADR-035-openai-compatible-chat-completions.md), a
   Proposed design for a second text adapter (the record registers nothing
   and changes no runtime behavior; the adapter merged for evaluation in
-  #134; status still Proposed); ratification of
-  [ADR-036](../decisions/ADR-036-puzzle-temperament.md), the Proposed puzzle
-  temperament design, and its eight open questions; ratification of
-  [ADR-038](../decisions/ADR-038-deployment-puzzle-salt.md), the Proposed
-  deployment puzzle salt, whose first open question must be answered before
-  the first production boot; the decision agenda below.
+  #134; status still Proposed); the build and deployment of
+  [ADR-038](../decisions/ADR-038-deployment-puzzle-salt.md)'s puzzle salt
+  (B1 and B2), adopted in principle on 2026-11-18 and, by the owner's answer
+  of 2026-11-19, due before the first production boot (item 22); two
+  questions the 18 November record leaves open for the owner (section 5,
+  entries 16 and 17): the exact golden-pin diff of the naming change, and
+  later of the puzzle redesign, each approved in its own pull request, and
+  three `AGENTS.md` wordings approved in the working-rules pull request ("live
+  presence may distinguish", the agent-solve covenant and ADR-038's D8
+  wording); the decision agenda below.
 
 ## Live documents
 
@@ -154,7 +176,7 @@ posture remains, and any consolidation belongs to a later owner-directed batch.
 | [Phase 2 scale plan](phase-2-scale.md) | The standing continuity policy; capacity triggers at 100 users and beyond | Standing; edit in place as triggers fire |
 | [Community Ideas board](community-ideas.md) | Player-submitted ideas, support votes, moderation, explicit GitHub promotion | Merged (#102–#104); not deployed |
 | [Expressive world: next steps](expressive-world-next-steps.md) | The boundary of the #105–#107 batches and their remaining gaps | Checkpoint; the gaps feed the decision agenda |
-| [Beta readiness record](../evaluation/2026-10-03-beta-readiness.md) | Beta scope and promise, the #109 evidence for the remaining launch gates and their owners, the October 31 conditional target (lapsed; the re-plan is packet decision 6, undecided) | Current (#109); not launch approval. The checklist governs exit criteria; the Q4 plan governs order |
+| [Beta readiness record](../evaluation/2026-10-03-beta-readiness.md) | Beta scope and promise, the #109 evidence for the remaining launch gates and their owners, the October 31 conditional target (lapsed; the re-plan, packet decision 6, is set: watch sessions 8 and 10 December 2026, read-out 14 December; items 39, O8) | Current (#109); not launch approval. The checklist governs exit criteria; the Q4 plan governs order |
 | [Beta launch checklist](beta-launch-checklist.md) | Exit criteria before 8 to 12 invited people play: 95 items, evidence, and the decisions held for the owner. The Q4 plan governs order | Living. Statuses are as of `main` at `23b8830` (2026-11-02), with later updates listed in the checklist header (among them M3 to Partial on 2026-11-05; E3, F5 and P6 to Done on 2026-11-06; A1's criterion for the owner's 2026-11-06 decisions; S2 to Partial and L4 to Not started for the owner's 2026-11-07 decisions; C7 and G1 to Partial on 2026-11-10 for personal blocking, #161). F2 went to Partial on 2026-11-11 for the `0.1.2rc1` candidate (#169); that change is in the F2 row and is not yet listed in the checklist header. Thresholds marked as proposals are not decided |
 | [Owner decision packet, November 2026](decision-packet-2026-11.md) | Twelve decisions with needed-by dates, what each blocks, and options with costs: S5 chat permanence, the newcomer-watch venue, puzzle failure semantics, world status, minimum tester age, the re-plan date, reserving Observer and Scout, the lapsed Q4 decisions A, C and H, S2, E2 and Q4 decision I | Prepared 2026-11-02 at `23b8830`. Decision 7 decided 2026-11-03; decision 2 decided (a) and decision 3's options superseded by owner direction on 2026-11-06; decision 10 decided as a policy, decision 2 updated (the Fly staging twin preferred) and three of decision 3's questions answered on 2026-11-07; decision 10's operating rules and the rest are proposed by agent, not decided |
 | [Newcomer watch facilitator kit](../evaluation/2026-11-02-newcomer-watch-kit.md) | Setup, script, capture and teardown for 2 to 3 protocol-2 newcomer sessions on the Fly staging twin, with a local, declared-disposable world as the fallback | Draft. Venue: the Fly staging twin, preferred by the owner on 2026-11-07, with the local world allowed on 2026-11-06 kept as the fallback; the 2026-11-07 provider policy may permit live voice (*inferred*), but the watch runs in per-scale silence, with no provider key, until the owner signs off the named provider's L4 data use note (proposed, packet decision 10); code citations re-verified at the branch head (`3200eed` code) on 2026-11-10, runbook citations by section. Recruits nobody and deploys nothing |
@@ -162,15 +184,20 @@ posture remains, and any consolidation belongs to a later owner-directed batch.
 | [Pilot protocol 2](../evaluation/2026-09-12-pilot-protocol.md) | The M7 study: curiosity, attempted-action and observed-consequence understanding, unprompted and useful return | Ready to run; no cohort observed |
 | [2026-10-03 assessment](../evaluation/2026-10-03-ambition-and-boundaries.md) | The decision agenda and a proposed 90-day sequence | Findings for the owner; ratifies nothing |
 | [Next steps, Q4 2026](next-steps-2026-q4.md) | The dated critical path to the M7 pilot, the owner's decisions and their needed-by dates, the parallel maintenance track, and the November–January batch order for ADR-029 to ADR-033 as ratified | Plan (2026-10-04); ratifies nothing |
-| [ADR-037: agents as conversational players](../decisions/ADR-037-agents-as-conversational-players.md) | The owner's 2026-11-06 decisions on agent disclosure and structural parity and the owner's 2026-11-07 puzzle answers, designed against `f3ead74`: travelers (human or agent) are talked to in chat and places in Speak; no human-or-agent label on any player-facing surface, live notices and prompts included; the honesty, notice, no-solicitation and mute/report guardrails; triggers, caps and the AI-off floor; puzzle help only on a human's explicit request, never submitted, with its batch shared with ADR-036; five ordered batches | Proposed 2026-11-07, revised 2026-11-10; not ratified. Changes no code; approves no player-text destination or spend. S2: a policy is recorded in #156, and the destinations (L3) and the terms check (L4) are still open; S5 and E2 open. Five open questions for the owner |
+| [ADR-037: agents as conversational players](../decisions/ADR-037-agents-as-conversational-players.md) | The owner's 2026-11-06 decisions on agent disclosure and structural parity and the owner's 2026-11-07 puzzle answers, designed against `f3ead74`: travelers (human or agent) are talked to in chat and places in Speak; no human-or-agent label on any player-facing surface, live notices and prompts included; the honesty, notice, no-solicitation and mute/report guardrails; triggers, caps and the AI-off floor; puzzle help only on a human's explicit request, never submitted, with its batch shared with ADR-036; five ordered batches | D1, D2, D4 and D5 ratified on 2026-11-18 (item 40), with two exceptions: D4's question about cast names (answered by D-B and ADR-041) and D5's proposed covenant text (item 44). D3, D6, D7 and D8 stay Proposed until the refresh against `main`. All five open questions answered (question 4 on 2026-11-19: an agent's puzzle help can be given in the shared chat; question 5's second half on 2026-11-20, O16(c): with AI on, an honesty answer is kept as that agent's chat lines are kept (D8), out of the history fed to other voices; with AI off nothing is stored; a repeat from the same asker to the same agent within ten minutes is stored nowhere). Changes no code; approves no player-text destination or spend. S2: a policy is recorded in #156, and the destinations (L3) and the terms check (L4) are still open; S5 and E2 open |
 | [Incident response](../infrastructure/incident-response.md) | One-page operator playbook: kill switches, redaction, rollback versus restore, who decides | Operational. Records no policy decision |
-| [ADR-036: Puzzle temperament](../decisions/ADR-036-puzzle-temperament.md) | The owner's 2026-11-06 and 2026-11-07 puzzle decisions designed against the code: per-node temperaments, puzzle-wide grumpiness and per-player send-aways (always after a warning, within a proposed 24-hour cap of 12 misses) in place of the fixed pool and its answer release (F10), whole-answer warmer/colder bands measured per family over a day (the [band-searcher record](../evaluation/2026-11-07-puzzle-band-searchers.md)), no ambient agent attempts (superseding ADR-022's puzzle-eligibility paragraph in part), agents who help only on a human's proposal and never see the answer; four ordered batches, the first shipping its answer withdrawal alone as a rollback floor, and eight open questions | Proposed 2026-11-07, revised 2026-11-10, not ratified. Batch 1a answer withdrawal is prepared in [#170](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/170) from the owner's working-session request; owner approval of that PR will confirm its scope ([record](../evaluation/2026-11-11-puzzle-answer-withdrawal.md)); the shared pool, FAILED and write paths remain. Batches 1b–4 and the eight open questions remain |
-| [ADR-038: Deployment puzzle salt](../decisions/ADR-038-deployment-puzzle-salt.md) | Whether the hosted world gets a secret salt for puzzle content before its first boot: keep seed 382 (no puzzle draw reads the seed, and `/world` serves it); HMAC-key every draw in puzzle generation, difficulty and the Augury election included (amending ADR-010 in part), with a per-deployment salt, renewals keeping their epoch-0 difficulty and Augury family, birth unkeyed and the unsalted path byte-identical; a marked deployment refuses to run without it; separate staging and production salts; Sentry stops sending frame locals. Measured on seed 382 (the [salt-probe record](../evaluation/2026-11-11-puzzle-salt-probes.md)): an offline attacker using 400 salts of their own still guesses 15–16% of epoch-0 answers first time and 31–32% within today's 3–5 pooled attempts (every sealed lock and lineage), so the salt keeps at most about 84–85% off a one-guess table and 68–69% off such a list; every family stays mechanically solvable once its prompt is served; its answer-release observations describe pre-#170 code, with direct disclosure withdrawn separately by ADR-036 batch 1a in [#170](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/170) | Proposed 2026-11-10, revised 2026-11-11; not ratified. Writes no code; sets no secret. Three open questions; the first must be answered before the first production boot |
+| [ADR-036: Puzzle temperament](../decisions/ADR-036-puzzle-temperament.md) | The owner's 2026-11-06 and 2026-11-07 puzzle decisions designed against the code: per-node temperaments, puzzle-wide grumpiness and per-player send-aways (always after a warning, within a proposed 24-hour cap of 12 misses) in place of the fixed pool and its answer release (F10), whole-answer warmer/colder bands measured per family over a day (the [band-searcher record](../evaluation/2026-11-07-puzzle-band-searchers.md)), no ambient agent attempts (superseding ADR-022's puzzle-eligibility paragraph in part), agents who help only on a human's proposal and never see the answer; four ordered batches, the first shipping its answer withdrawal alone as a rollback floor, and eight open questions | Ratified on 2026-11-18 with its recorded answers as starting values (item 19); batches 1b and 2 directed (item 20). Batch 1a, the answer withdrawal, merged in [#170](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/170) ([record](../evaluation/2026-11-11-puzzle-answer-withdrawal.md)); the shared pool, FAILED and write paths remain until batches 1b and 2. Batches 1b to 4 remain to be built; the eight open questions are answered by the recorded starting values (item 19) |
+| [ADR-038: Deployment puzzle salt](../decisions/ADR-038-deployment-puzzle-salt.md) | Whether the hosted world gets a secret salt for puzzle content before its first boot: keep seed 382 (no puzzle draw reads the seed, and `/world` serves it); HMAC-key every draw in puzzle generation, difficulty and the Augury election included (amending ADR-010 in part), with a per-deployment salt, renewals keeping their epoch-0 difficulty and Augury family, birth unkeyed and the unsalted path byte-identical; a marked deployment refuses to run without it; separate staging and production salts; Sentry stops sending frame locals. Measured on seed 382 (the [salt-probe record](../evaluation/2026-11-11-puzzle-salt-probes.md)): an offline attacker using 400 salts of their own still guesses 15–16% of epoch-0 answers first time and 31–32% within today's 3–5 pooled attempts (every sealed lock and lineage), so the salt keeps at most about 84–85% off a one-guess table and 68–69% off such a list; every family stays mechanically solvable once its prompt is served; its answer-release observations describe pre-#170 code, with direct disclosure withdrawn separately by ADR-036 batch 1a in [#170](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/170) | Proposed 2026-11-10, revised 2026-11-11; adopted in principle on 2026-11-18, with separate staging and production salts. Its first open question was answered on 2026-11-19: the salt, B1 and B2, comes before the first production boot (item 22). No code is written and no secret is set. Its D8 wording is open for the working-rules pull request |
 | [Backup schedule cadence](../evaluation/2026-11-11-backup-schedule-cadence.md) | What GitHub's schedule delivers for `backup.yml` against ADR-005's one-hour bound and the 60-minute default of `scripts/backup_health.py`: 1,018 runs measured, the consequence for standing commitment 1.2 and checklist P3 and P5, and five options with their costs | Findings for the owner (2026-11-11). The options and the recommendation are proposed by agent, not decided. Changes no workflow, threshold or ADR status |
-| [ADR-039: controlled model dispatch and spend](../decisions/ADR-039-controlled-model-spend.md) | Frozen destination/model/options permissions, durable USD reservations and conservative settlement, incident stops and operational ledger retention | Proposed for implementation review, 2026-11-11; implementation requested in session, unverified from the repository, not independently ratified. The first controlled adapter/vendor remains an owner decision. Every Fly app, production included, starts all-off; live voice waits for ADR-035 acceptance or a controlled Anthropic path plus approved destinations, prices, amounts and retention. Migration number remains provisional |
+| [ADR-039: controlled model dispatch and spend](../decisions/ADR-039-controlled-model-spend.md) | Frozen destination/model/options permissions, durable USD reservations and conservative settlement, incident stops and operational ledger retention | Proposed for implementation review, 2026-11-11; stays Proposed until the staging rehearsal of item 28. Implementation requested in session, unverified from the repository, not independently ratified. The first controlled adapter/vendor remains an owner decision. Every Fly app, production included, starts all-off; live voice waits for ADR-035 acceptance or a controlled Anthropic path plus approved destinations, prices, amounts and retention. Migration number remains provisional |
 | [Controlled-model implementation evidence](../evaluation/2026-11-11-model-spend-controls.md) | The prepared control boundary, measured checks, known limitations and remaining live gates | Implementation evidence, not provider evaluation, live activation or approval of policy values. Chat retention is outside this batch |
-| [ADR-040: private chat retention and reporting](../decisions/ADR-040-private-chat-and-reporting.md) | The operational storage boundary for new human traveler chat, private reports and operator triage, legacy-history projection and aggregate art continuity | Version 4 prepares the owner's until-deleted private chat policy, complaint holds, deletion commands and affirmative adult participation. Report windows of 90 days for the watch and 180 days for the cohort are documented decisions only; rollout policy, contact and backup treatment still require operator configuration. The ADR remains Proposed and the additive migration number provisional |
+| [ADR-040: private chat retention and reporting](../decisions/ADR-040-private-chat-and-reporting.md) | The operational storage boundary for new human traveler chat, private reports and operator triage, legacy-history projection and aggregate art continuity | Accepted as implemented on 2026-11-18 (item 43). Version 4 prepares the owner's until-deleted private chat policy, complaint holds, deletion commands and affirmative adult participation. Report windows of 90 days for the watch and 180 days for the cohort are documented decisions only; rollout policy, contact and backup treatment still require operator configuration. The additive migration number remains provisional |
 | [Community retention and reporting](../development/community-reporting.md) | Offline community-policy checks, private report and chat-deletion commands, complaint holds, end-of-study review, backup limits and queue polling | Implementation guidance. No policy file means new traveler chat and reports are disabled in hosted and local modes. Until-deleted chat and the documented report windows supply no deployment defaults, live staffing commitment or external notifications |
+| ADR-019 to ADR-022 ([019](../decisions/ADR-019-m1-sqlite-delivery.md), [020](../decisions/ADR-020-m2-delayed-actions.md), [021](../decisions/ADR-021-m3-history-narration.md), [022](../decisions/ADR-022-m4-responsive-inhabitants.md)) | M1–M4: delivery, delayed actions, history narration and inhabitant attention | ADR-019, ADR-020 and ADR-021 accepted as implemented on 2026-11-18 (item 43). ADR-022 accepted as implemented except its puzzle-eligibility paragraph, which the owner's 2026-11-06 decision overruled |
+| [Owner decisions, 2026-11-18](owner-decisions-2026-11-18.md) | The owner's answers to 47 items and his words D-A to D-J: the AI-on watch, natural names, agents in the first cohort, puzzles, spend, backups, people and dates | Adopted by the owner's merge. Builds, deploys and recruits nothing. Of its open questions for the owner, entries 16 and 17 remain; entry 18 was answered on 2026-11-20 (O16(c)) |
+| [ADR-041: natural, unique names](../decisions/ADR-041-natural-unique-names.md) | Names are labels and the path is the address: no cast or place name carries appended characters, and a name used in production stays reserved | Accepted 2026-11-18 (D-B). Changes no code; the naming pull request carries the build, and the owner approves its exact pin diff there |
+| [Owner decisions, 2026-11-20](owner-decisions-2026-11-20.md) | The owner's batch, O1 to O17: the watch route and data-use note, dollar amounts, call caps, notice values, the backup bucket, people and dates, the old map's path, merge order, rehearsals, alerts and the read-out defaults | Adopted by the owner's merge. Performs no act and supplies no owner-held value; the read-out declarations are not made in advance |
+| [Batch plan, 2026-11-20](batch-plan-2026-11-20.md) | The next parallel batch for the three coding agents, its single-writer holds and merge order, and the owner's items that O1 to O17 decide | Plan; authorizes no merge, deployment or spend |
 
 The owner's 2026-10-04 provider/model optionality direction is recorded in
 [ADR-034](../decisions/ADR-034-provider-and-model-optionality.md). It supersedes
@@ -181,8 +208,11 @@ ADR-005's vendor-family preference, not the release gates or the open decisions 
 `openai_compatible`: stdlib HTTP, OpenAI-compatible Chat Completions, an
 operator-set base URL, no default model ids, and the existing voice-budget
 bucket left in place. Mark Weeks approved the source plan the same day. The
-record is not accepted. It registers no adapter, approves no destination for
-player text, and sets no spend ceiling. Citing it authorizes nothing.
+record is not accepted, and stays Proposed until item 24's endpoint is
+settled: by O3 it is accepted for one endpoint once G1's check record and
+G3's first live probe on the twin show its five requirements met. It
+registers no adapter, approves no destination for player text, and sets no
+spend ceiling. Citing it authorizes nothing.
 Separately from the record, the adapter is on `main`: #134 registered
 `openai_compatible` for evaluation (selected only by
 `NESTED_WORLDS_PROVIDER=openai_compatible`; unset still means `anthropic`),
@@ -207,9 +237,9 @@ not ratify the five drafts or approve map retirement.
 | D4 Budgeted inhabitant cognition and an open agent roster | [ADR-032](../decisions/ADR-032-inhabitant-cognition.md) | Yes, after pilot evidence |
 | D5 A scale registry and lateral kinds; no twelfth depth | [ADR-033](../decisions/ADR-033-scale-registry.md) | Yes to the registry; keep ADR-008 |
 | D6 What must precede first production history | none | Only the identity/alias and provenance schema |
-| D7 One client | [ADR-005](../decisions/ADR-005-launch-operations.md) | Pilot `/app` default approved 2026-11-04 for consistent first arrival and return. Device and human gates remain; map retirement is undecided |
+| D7 One client | [ADR-005](../decisions/ADR-005-launch-operations.md) | Pilot `/app` default approved 2026-11-04 for consistent first arrival and return. Device and human gates remain. The current explorer moves to `/map` until the cohort read-out, and the shared React Map view lands at `/` (O10). The in-session World map is in `/app` beside the living scene (X1, #190); the public entry switch and the legacy `/map` alias follow in X2 |
 | D8 Budget posture | none | Dollars per day, not calls per day |
-| D9 Process re-tune | none | Keep five covenants; demote the rest to guidance |
+| D9 Process re-tune | none | Keep five covenants; demote the rest to guidance. Closed as stale, 2026-11-18; no covenant is demoted, and three `AGENTS.md` wordings wait for the working-rules pull request (item 44) |
 
 ### Migration numbering rule
 
@@ -231,9 +261,11 @@ Line numbers in this section were re-read at the commit in the verification
 stamp at the top of this page. Each link also carries its section anchor,
 which survives edits that move lines.
 
-- ADR-029 batch 1 says it must precede first production history
+- Resolved 2026-11-18 by the owner (item 17): ADR-029 batch 1 lands before
+  the first structural operation, not before the pilot. ADR-029 batch 1 says
+  it must precede first production history
   ([ADR-029](../decisions/ADR-029-evolution-grammar.md#implementing-batches-and-the-doors-they-trip)
-  line 192). Decision C states "Before the first structural operation, not
+  line 199). Decision C states "Before the first structural operation, not
   before the pilot."
   ([next-steps-2026-q4.md](next-steps-2026-q4.md#part-2-decisions-the-owner-must-make-and-by-when)
   line 127). The beta-readiness record states: do not add ADR-029
@@ -242,9 +274,12 @@ which survives edits that move lines.
   that depend on it
   ([2026-10-03-beta-readiness.md](../evaluation/2026-10-03-beta-readiness.md#identity-timing-recommendation-not-ratification)
   lines 146–148).
-- ADR-032 says batch 1 ships dark and can be turned on for the pilot cohort
+- Resolved 2026-11-18 by the owner (section 3): there is no inhabitant
+  cognition in the first cohort, and budgeted cognition and the open roster
+  wait for pilot evidence. ADR-032 says batch 1 ships dark and can be turned
+  on for the pilot cohort
   ([ADR-032](../decisions/ADR-032-inhabitant-cognition.md#d8-economics-and-gating)
-  lines 201–202). The Q4 plan schedules D4 after the pilot: decision F says
+  lines 208–209). The Q4 plan schedules D4 after the pilot: decision F says
   "D4 only after pilot evidence"
   ([next-steps-2026-q4.md](next-steps-2026-q4.md#part-2-decisions-the-owner-must-make-and-by-when)
   line 130), and the November–January order places ADR-032 batch 1 after
@@ -253,8 +288,11 @@ which survives edits that move lines.
   line 193). Row D4 of the
   [decision agenda](#decision-agenda-the-owners-only-bounded-d7-pilot-default-is-decided)
   above records the same timing.
-- ADR-037 (Proposed) talks to agents in chat and leaves Speak to places,
-  keeps every traveler unlabeled, and lets an agent only suggest a puzzle
+- Resolved 2026-11-18 by the owner (section 3): ADR-032's solo puzzle
+  attempts, persona tags and Speak delivery are superseded by the owner's
+  decisions of 2026-11-06 and 2026-11-07 and by ADR-037. ADR-037 (D1, D2, D4 and D5 ratified 2026-11-18; the rest Proposed) talks to
+  agents in chat and leaves Speak to places, keeps every traveler unlabeled,
+  and lets an agent only suggest a puzzle
   answer to a human who asked
   ([ADR-037](../decisions/ADR-037-agents-as-conversational-players.md) D1,
   D4, D7). [ADR-032](../decisions/ADR-032-inhabitant-cognition.md)
