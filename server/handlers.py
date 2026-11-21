@@ -1580,7 +1580,9 @@ class Handler(BaseHTTPRequestHandler):
         # in its canonical spelling: the name lands in AGENT_VOICE data.agent,
         # which is neither redactable nor screened.
         requested = body.get("agent_name", identities.SCOUT)
-        agent_name = identities.canonical(requested)
+        # A cast member whose name a registered player holds is not voiced
+        # (identities.voiced): it gets the unknown agent's quiet line.
+        agent_name = identities.voiced(requested)
         # Same rule as /speak: a line that is only a sincere "are you
         # human?" is answered in the archetype's authored voice, with AI on
         # or off, by no model. A name beside it must be one this agent
@@ -1964,7 +1966,11 @@ class Handler(BaseHTTPRequestHandler):
         content += '<h1>Conditions when this question opened</h1><p>' + escape(puzzle.prompt) + '</p>'
         content += '<p>The world may have changed since these observations. This question still uses these conditions.</p>'
         for row in rows:
-            content += '<h2>' + escape(row['node']) + '</h2><dl>'
+            content += '<h2>' + escape(row['node']) + '</h2>'
+            # Snapshots pinned before the address was captured have none.
+            if row.get('address'):
+                content += '<p>Address ' + escape(str(row['address'])) + '</p>'
+            content += '<dl>'
             for key, value in row['properties'].items():
                 content += '<dt>' + escape(str(key)) + '</dt><dd>' + escape(str(value)) + '</dd>'
             content += '</dl>'

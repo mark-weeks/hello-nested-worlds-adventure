@@ -242,3 +242,55 @@ def test_cli_opens_questions_from_current_properties(command, monkeypatch):
         monkeypatch.setattr(main.Agent, 'traverse', traverse)
         main.cmd_agent(Namespace(seed=382, name='Test Walker', danger_threshold=7, max_nodes=1))
     assert evidence(382, root.name, 0)[0]['properties']['scene'] == 'current cli world'
+
+
+def test_cli_question_tour_shows_each_place_with_its_address(monkeypatch, capsys):
+    """A question may ask about the place's address (ADR-041 D3), and a
+    name no longer carries it, so the standalone tour prints it."""
+    from argparse import Namespace
+    import main
+    root = store.world_tree(382)
+    played = [root, root.children[0], root.children[0].children[0]]
+    # A wrong guess each time: walking away without a guess ends the tour.
+    monkeypatch.setattr('builtins.input', lambda _: 'not the answer')
+    main.cmd_puzzles(Namespace(seed=382, limit=3))
+    lines = capsys.readouterr().out.splitlines()
+    for node, address in zip(played, ('1', '11', '111')):
+        assert node.address == address
+        place = lines.index(f'{node.name} ({node.level}), address {address}')
+        # The place and its address come before that place's question.
+        question = next(i for i, line in enumerate(lines) if i > place and line.startswith('=== '))
+        assert not any(line.startswith('=== ') for line in lines[place:question])
+    assert sum(', address ' in line for line in lines) == 3
+
+
+def test_new_question_evidence_pins_and_shows_each_address_and_old_evidence_still_reads(http):
+    from puzzles.instances import evidence
+    from multiverse.situation import NODES
+    node = store.resolve_node_by_name(382, NODES['instrument'])
+    get_puzzle(382, node)
+    rows = evidence(382, node.name, 0)
+    lineage = []
+    place = node
+    while place is not None:
+        lineage.append(place)
+        place = place.parent
+    assert [(r['node'], r['address']) for r in rows] == [(n.name, n.address) for n in lineage]
+    assert rows[0]['address'] == node.address and rows[-1]['address'] == '1'
+    status, html, _ = http('/puzzle/evidence?node_name=' + quote(node.name) + '&epoch=0')
+    assert status == 200
+    for place in lineage:
+        assert f'<h2>{place.name}</h2><p>Address {place.address}</p>' in html
+
+    # A snapshot pinned before addresses were captured has none to show.
+    root = lineage[-1]
+    get_puzzle(382, root)
+    old = [{k: v for k, v in row.items() if k != 'address'} for row in evidence(382, root.name, 0)]
+    with persistence.transaction() as conn:
+        conn.execute('UPDATE puzzle_instances SET evidence=? WHERE world_seed=382 AND node_name=?',
+                     (json.dumps(old), root.name))
+    status, html, _ = http('/puzzle/evidence?node_name=' + quote(root.name) + '&epoch=0')
+    assert status == 200 and f'<h2>{root.name}</h2><dl>' in html
+    assert 'Address' not in html and 'None' not in html
+    for key in old[0]['properties']:
+        assert f'<dt>{key}</dt>' in html

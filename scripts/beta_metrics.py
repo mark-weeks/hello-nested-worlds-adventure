@@ -354,8 +354,17 @@ def _default_db() -> Path:
 
 
 def _cast_names() -> tuple[str, ...]:
-    from agents.identities import SERVER_IDENTITIES
-    return SERVER_IDENTITIES
+    """Actor names that are the world's own agents, for classification only.
+
+    The retired names are included: a renamed cast member's older rows
+    carry no agent tag, only the name it had then, and an archive must
+    keep reading them as the cast's. A registered player who takes a
+    released name is still counted: their rows carry the credential's
+    identity, never the name. A keyless local session under a retired name
+    cannot be told from the old cast rows and is read as the cast.
+    """
+    from agents.identities import RETIRED_IDENTITIES, SERVER_IDENTITIES
+    return (*SERVER_IDENTITIES, *RETIRED_IDENTITIES)
 
 
 def _connect_ro(db_path: Path) -> sqlite3.Connection:

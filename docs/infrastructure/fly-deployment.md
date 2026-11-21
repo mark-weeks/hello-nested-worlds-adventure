@@ -1229,6 +1229,18 @@ this check; run it by hand before the script. A machine still running a
 build without the command answers `invalid choice: 'duplicates'`; run the
 check right after deploying the first build that has it.
 
+A group headed by a cast member's name is handled by the server as well. A
+name can be registered before the cast takes it: `Cartographer` was free
+until the cast member `Cartographer-9` was renamed (ADR-041 D5). The player
+keeps the name, the credential and the history. While any registered row,
+revoked or not, holds a cast member's name, that cast member is kept out of
+the world: the heartbeat does not walk it, and `POST /agent/voice` answers
+for it with the quiet line of an agent that is not there. The server says so
+once at startup, as a warning from `nested_worlds.heartbeat` that names the
+cast member and the registered spelling. There are two ways to end it, both
+the owner's: leave the cast member out, or give it another name in a release.
+Nothing changes the player's row.
+
 **Off-host copies (every 30 minutes; freshness must be checked).** ADR-005 targets
 at most one hour of lost history. A schedule alone does not establish that bound:
 [GitHub documents delayed and dropped scheduled jobs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).

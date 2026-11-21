@@ -35,6 +35,14 @@ UTILITY_IDENTITIES: tuple[str, ...] = (SCOUT, OBSERVER)
 SERVER_IDENTITIES: tuple[str, ...] = tuple(
     dict.fromkeys([*WANDERER_CAST, KEEPER, *UTILITY_IDENTITIES]))
 
+# Names a server identity was once stored under: retired spelling -> the
+# identity's current name. A rename moves no stored row, so what was saved
+# under the old spelling is read through this map: a personal block
+# (``persistence.blocks``) keeps following the member, and the beta metrics
+# keep counting the old rows as the cast's. A retired spelling is not a
+# server identity: nothing acts, speaks or is reserved under it.
+RETIRED_IDENTITIES: dict[str, str] = {"Cartographer-9": "Cartographer"}
+
 # Keyed by ``persistence.name_key``, the comparison every name check uses.
 _CANONICAL: dict[str, str] = {name_key(name): name for name in SERVER_IDENTITIES}
 
@@ -53,3 +61,42 @@ def canonical(raw: Any) -> str | None:
     if not isinstance(raw, str):
         return None
     return _CANONICAL.get(name_key(raw))
+
+
+def cast_held_by_players() -> dict[str, tuple[str, ...]]:
+    """Cast names a registered player already holds: name -> registered spellings.
+
+    Registration refuses a reserved name, so a row like this was written
+    before the name was reserved: "Cartographer" was free to register until
+    the cast member "Cartographer-9" took it (ADR-041 D5). The player keeps
+    the name, the credential and the history. The cast member stays out of
+    the world instead (`walking_cast`, `voiced`), so no agent acts or speaks
+    under a name a player holds. Revoked names count: they stay taken, and
+    their rows stay in the chronicle. One read of `invite_keys`, a row per
+    invited player. `python main.py invite duplicates` lists the same rows
+    for the operator.
+    """
+    import persistence
+    cast = set(WANDERER_CAST)
+    held: dict[str, list[str]] = {}
+    for row in persistence.list_invite_keys(include_revoked=True):
+        name = canonical(row["name"])
+        if name in cast:
+            held.setdefault(name, []).append(row["name"])
+    return {name: tuple(spellings) for name, spellings in held.items()}
+
+
+def walking_cast(roster=WANDERER_CAST) -> list[str]:
+    """The cast members free to walk: the roster, in order, less every
+    member whose name a registered player holds."""
+    held = cast_held_by_players()
+    return [name for name in roster if name not in held]
+
+
+def voiced(raw: Any) -> str | None:
+    """`canonical`, except that a cast member whose name a registered
+    player holds is not an agent this world can voice."""
+    name = canonical(raw)
+    if name is not None and name in cast_held_by_players():
+        return None
+    return name

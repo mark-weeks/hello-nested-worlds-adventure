@@ -334,3 +334,183 @@ class TestVerbTokensOutsideTheServer:
         interventions._plan(interventions_v2, {}, [], twin)
         assert seen == [f"{node.name}-{node.address}"] * 2
         assert twin.name == f"{node.name}-{node.address}"  # the twin is a real v2 name
+
+
+class TestManyAddressesInOneRead:
+    """A journal can name a hundred places. Their addresses come from one
+    connection, and the mapping is what one read per name gave."""
+
+    @staticmethod
+    def _one_read_per_name(seed, names):
+        found = {}
+        for name in dict.fromkeys(names):
+            if not name or not isinstance(name, str):
+                continue
+            row = persistence.get_world_node_address(seed, name)
+            if row is not None:
+                found[name] = naming.digits_of(row[0])
+        return found
+
+    def test_the_mapping_is_unchanged_and_one_connection_is_opened(self, monkeypatch):
+        root = store.world_tree(seed=SEED, max_depth=6)
+        places = [node.name for node in _tree_nodes(root)]
+        assert len(places) > 150
+        # Out of path order, repeated, with unknown names and non-names.
+        asked = [*places[140:40:-1], "Nowhere At All", None, "", 7, places[41],
+                 "Forged-11", *places[41:60], "nowhere at all", places[0]]
+        assert len({name for name in asked if isinstance(name, str) and name}) > 100
+        expected = self._one_read_per_name(SEED, asked)
+        assert len(expected) == 101 and "Nowhere At All" not in expected
+
+        opened = []
+        connect = persistence._connect
+
+        def counting(*args, **kwargs):
+            opened.append(1)
+            return connect(*args, **kwargs)
+
+        monkeypatch.setattr(persistence, "_connect", counting)
+        found = node_addresses(SEED, asked)
+        assert len(opened) == 1
+        assert found == expected
+        assert list(found) == list(expected)  # the same order: first asked first
+
+    def test_the_helper_returns_path_and_version_for_known_names_only(self):
+        root = store.world_tree(seed=SEED, max_depth=3)
+        child = root.children[1]
+        assert persistence.get_world_node_addresses(SEED, [child.name, "Nowhere", root.name]) == {
+            child.name: persistence.get_world_node_address(SEED, child.name),
+            root.name: persistence.get_world_node_address(SEED, root.name)}
+        assert persistence.get_world_node_addresses(SEED, []) == {}
+        # Another world's names are not this world's.
+        assert persistence.get_world_node_addresses(SEED + 1, [root.name]) == {}
+
+    def test_more_names_than_one_statement_binds(self):
+        root = store.world_tree(seed=SEED, max_depth=6)
+        places = [node.name for node in _tree_nodes(root)]
+        asked = [*places, *(f"Unknown Place {i}" for i in range(2000))]
+        assert node_addresses(SEED, asked) == self._one_read_per_name(SEED, places)
+
+    def test_an_unborn_world_is_not_born_by_the_read(self):
+        assert node_addresses(SEED + 2, ["Nowhere At All", "Elsewhere"]) == {}
+        assert persistence.world_generator_version(SEED + 2) is None
+
+
+class TestAddressReadsStayOutOfTheRoomLock:
+    """A roster is built from the positions the room holds. Where an
+    address must still be read, the read is made with no lock held, so a
+    slow one never stops another participant's move."""
+
+    @staticmethod
+    def _slow_reads(monkeypatch, slow_names):
+        """Make the stored-address read of `slow_names` wait until released.
+        Returns (entered, release, names read slowly)."""
+        entered, release, read = threading.Event(), threading.Event(), []
+        real = persistence.get_world_node_address
+
+        def delayed(seed, name):
+            if name in slow_names:
+                read.append(name)
+                entered.set()
+                assert release.wait(10), "the slow read was never released"
+            return real(seed, name)
+
+        monkeypatch.setattr(persistence, "get_world_node_address", delayed)
+        return entered, release, read
+
+    def test_a_slow_read_for_a_roster_does_not_hold_the_room(self, monkeypatch):
+        root = store.world_tree(seed=SEED, max_depth=3)
+        galaxy = root.children[0].children[0]
+        room = rooms.get_room(SEED)
+        # A position recorded without its address: the one case left to read.
+        ada = rooms.Player(name="Ada", seed=SEED, current_node=root.name,
+                           session_id="s1", sock=None)
+        ada.send = lambda message, **_: True
+        with room.lock:
+            room.players["s1"] = ada
+        rooms.agent_enter(room, "Tessera")
+        entered, release, _ = self._slow_reads(monkeypatch, {root.name})
+
+        rosters = []
+        reader = threading.Thread(
+            target=lambda: rosters.append((rooms.snapshot(room), rooms.agents_snapshot(room))))
+        reader.start()
+        assert entered.wait(5)
+        moved = []
+        mover = threading.Thread(
+            target=lambda: moved.append(rooms.agent_move(room, "Tessera", galaxy.name)))
+        mover.start()
+        mover.join(2)
+        try:
+            assert not mover.is_alive(), "a move waited on another's address read"
+            assert moved == [[]] and reader.is_alive()
+            assert room.lock.acquire(timeout=1)
+            room.lock.release()
+        finally:
+            release.set()
+            reader.join(5)
+            mover.join(5)
+        (players, agents), = rosters
+        assert players == [{"name": "Ada", "node": root.name, "address": "1",
+                            "session_id": "s1"}]
+        assert [(a["name"], a["node"], a["address"]) for a in agents] == [
+            ("Tessera", galaxy.name, "111")]
+
+    def test_a_join_with_a_slow_read_does_not_delay_another_players_move(
+            self, srv, monkeypatch):
+        from tests.test_day_one_recording import _ws_connect, _ws_send_json
+        from tests.test_ws_credential_lifetime import _until_type
+        port = int(srv.rsplit(":", 1)[1])
+        root = store.world_tree(seed=SEED, max_depth=4)
+        galaxy = root.children[0].children[0]
+        system = galaxy.children[0]
+        universe = root.children[0]
+        sockets = []
+
+        def join(name):
+            sock, status = _ws_connect(port, SEED, name)
+            assert b"101" in status
+            sockets.append(sock)
+            return sock, _until_type(sock, "welcome")[0]
+
+        try:
+            ada, _ = join("Ada")
+            bea, _ = join("Bea")
+            _until_type(ada, "player_join")
+            _ws_send_json(ada, {"type": "move", "node": galaxy.name})
+            assert _until_type(bea, "player_move")[0]["address"] == "111"
+            # A position recorded without its address, as a test or an older
+            # caller may leave one: the only read a join still has to make.
+            room = rooms.get_room(SEED)
+            ghost = rooms.Player(name="Ghost", seed=SEED, current_node=system.name,
+                                 session_id="ghost", sock=None)
+            ghost.send = lambda message, **_: True
+            with room.lock:
+                room.players["ghost"] = ghost
+            entered, release, read = self._slow_reads(
+                monkeypatch, {galaxy.name, system.name})
+
+            welcomes = []
+            joiner = threading.Thread(target=lambda: welcomes.append(join("Cleo")[1]))
+            joiner.start()
+            assert entered.wait(5)
+            try:
+                # Cleo's join is waiting on a read. Bea still moves, and Ada
+                # still hears of it.
+                _ws_send_json(bea, {"type": "move", "node": universe.name})
+                moved = _until_type(ada, "player_move", timeout=2.0)[0]
+                assert (moved["name"], moved["node"], moved["address"]) == (
+                    "Bea", universe.name, "11")
+                assert joiner.is_alive() and welcomes == []
+            finally:
+                release.set()
+                joiner.join(10)
+            # Ada's place was never read again: her move recorded its address.
+            assert read == [system.name]
+            (welcome,) = welcomes
+            assert {(p["name"], p["node"], p["address"]) for p in welcome["players"]} == {
+                ("Ada", galaxy.name, "111"), ("Bea", universe.name, "11"),
+                ("Ghost", system.name, "1111"), ("Cleo", root.name, "1")}
+        finally:
+            for sock in sockets:
+                sock.close()

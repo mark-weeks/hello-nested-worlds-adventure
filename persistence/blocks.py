@@ -25,6 +25,29 @@ def _target_agent(target: str) -> str | None:
     return name if agent_target(name) == target else None
 
 
+def current_target(target: str) -> str:
+    """The target a stored row names today.
+
+    A cast member's block is stored under the name it had when the block was
+    made. A rename rewrites no row, so a row under a retired name
+    (``agents.identities.RETIRED_IDENTITIES``) is read as the member's
+    current target: the block keeps working and shows the current name.
+    """
+    from agents.identities import RETIRED_IDENTITIES
+    if isinstance(target, str) and target.startswith('agent:'):
+        renamed = agent_target(RETIRED_IDENTITIES.get(target[6:]))
+        if renamed is not None:
+            return renamed
+    return target
+
+
+def _stored_targets(target: str) -> list[str]:
+    """Every spelling a row for this target may be stored under."""
+    from agents.identities import RETIRED_IDENTITIES
+    return [target, *('agent:' + old for old in RETIRED_IDENTITIES
+                      if current_target('agent:' + old) == target)]
+
+
 def _list(conn, participant: str) -> list[dict]:
     rows = conn.execute("""SELECT b.blocked_id, COALESCE((
         SELECT i.name FROM invite_keys i JOIN participant_credentials c
@@ -33,8 +56,13 @@ def _list(conn, participant: str) -> list[dict]:
         ), 'Unavailable traveler')
         FROM participant_blocks b WHERE b.participant_id=?
         ORDER BY b.created_at,b.blocked_id""", (participant,)).fetchall()
-    return [{"id": target, "name": _target_agent(target) or name}
-            for target, name in rows]
+    # One entry per current target: a row under a retired name and a newer
+    # row under the current one are the same block.
+    listed = {}
+    for stored, name in rows:
+        target = current_target(stored)
+        listed.setdefault(target, {"id": target, "name": _target_agent(target) or name})
+    return list(listed.values())
 
 
 def list_blocks(participant: str) -> list[dict]:
@@ -69,6 +97,8 @@ def set_block(participant: str, target: str, blocked: bool) -> list[dict]:
             conn.execute("""INSERT INTO participant_blocks(participant_id,blocked_id)
                 VALUES (?,?) ON CONFLICT DO NOTHING""", (participant, target))
         else:
-            conn.execute("DELETE FROM participant_blocks WHERE participant_id=? AND blocked_id=?",
-                         (participant, target))
+            # Unblocking removes the row under every name the target has had.
+            for stored in _stored_targets(target):
+                conn.execute("DELETE FROM participant_blocks WHERE participant_id=? AND blocked_id=?",
+                             (participant, stored))
         return _list(conn, participant)

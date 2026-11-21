@@ -28,6 +28,7 @@ from server.rooms import (
     Player,
     agents_snapshot,
     broadcast,
+    ensure_addresses,
     get_room,
     node_address,
     snapshot,
@@ -437,12 +438,14 @@ def handle_websocket(
         # imprisoned by it.
         root_name = store.root_name(seed)
         entry_node = root_name
+        entry_address = None
         if ws_key:
             saved = persistence.get_player_position(ws_key)
             if saved and saved.get("seed") == seed and saved.get("node"):
                 target = store.resolve_node_by_name(seed, str(saved["node"])[:128])
                 if target is not None:
                     entry_node = target.name
+                    entry_address = naming.node_address(target)
 
         player = Player(
             name=name,
@@ -453,6 +456,13 @@ def handle_websocket(
             participant_id=participant_id,
         )
         room = get_room(seed)
+        # The position carries its address from here on, so the rosters
+        # below are built from memory. Every read is made before a lock is
+        # taken: a slow one delays this join, never another player's move.
+        if entry_address is None:
+            entry_address = node_address(room, entry_node)
+        player.move_to(entry_node, entry_address)
+        ensure_addresses(room)
         with BLOCKS_LOCK:
             if participant_id:
                 player.set_blocks(blocks.list_blocks(participant_id))
@@ -465,15 +475,15 @@ def handle_websocket(
                         "session_id": session_id,
                         "participant_id": participant_id,
                         "blocks": list(player.blocks),
-                        "players": snapshot(room, player),
-                        "agents": agents_snapshot(room, player),
+                        "players": snapshot(room, player, lookup=False),
+                        "agents": agents_snapshot(room, player, lookup=False),
                     }
                 )
                 broadcast(
                     room,
                     {"type": "player_join", "name": name, "session_id": session_id,
                      "participant_id": participant_id, "node": entry_node,
-                     "address": node_address(room, entry_node)},
+                     "address": entry_address},
                     exclude=session_id,
                 )
         persistence.record_mutation(
@@ -601,15 +611,16 @@ def handle_websocket(
                             }
                         )
                         continue
+                    address = naming.node_address(target)
                     with room.lock:
-                        player.current_node = node_name
+                        player.move_to(node_name, address)
                     broadcast(
                         room,
                         {
                             "type": "player_move",
                             "name": name,
                             "node": node_name,
-                            "address": naming.node_address(target),
+                            "address": address,
                             "session_id": session_id,
                             "participant_id": participant_id,
                         },

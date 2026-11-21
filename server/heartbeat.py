@@ -31,6 +31,7 @@ import sqlite3
 import threading
 
 import persistence
+from agents import identities
 from agents.agent import Agent
 from agents.behaviors import State, should_preserve
 from agents.personas import for_name as persona_for_name
@@ -311,7 +312,13 @@ def _run_tick(seed, rng, max_nodes, pace):
     if seed is None:
         seed = _pick_seed(rng)
 
-    agent_name = rng.choice(WANDERER_ROSTER)
+    # A cast member whose name a registered player holds stays out of the
+    # world (agents.identities.cast_held_by_players). With no such row this
+    # is the roster itself, so every draw below is unchanged.
+    cast = identities.walking_cast(WANDERER_ROSTER)
+    if not cast:
+        return {'seed': seed, 'status': 'no_cast', 'fresh': None, 'act': None, 'work': {}}
+    agent_name = rng.choice(cast)
     persona = persona_for_name(agent_name)
     profile = profile_for(agent_name)
 
@@ -449,7 +456,7 @@ def _run_tick(seed, rng, max_nodes, pace):
         # encounter. The companion is only present for a real visit.
         nonlocal companion
         if not agent.activity_nodes and rng.random() < (0.7 if node.properties.get("contains_npc") else 0.35):
-            others = [name for name in WANDERER_ROSTER if name != agent_name]
+            others = [name for name in cast if name != agent_name]
             if others:
                 companion = rng.choice(others)
                 companion_persona = persona_for_name(companion)
@@ -555,6 +562,26 @@ def _run_tick(seed, rng, max_nodes, pace):
                "origin": target.name, "fresh": agent.fresh_count, "act": act, "work": work}
     _log.info("heartbeat: %s", summary)
     return summary
+
+
+def report_benched_cast() -> dict[str, tuple[str, ...]]:
+    """Tell the operator, at startup, which cast members are kept out of the
+    world because a registered player holds their name. Returns them."""
+    try:
+        held = identities.cast_held_by_players()
+    except sqlite3.Error:
+        _log.warning("could not check registered names against the cast; "
+                     "run `python main.py invite duplicates`")
+        return {}
+    for name, spellings in held.items():
+        _log.warning(
+            "cast member %r is kept out of the world: %d registered player "
+            "name(s) hold its name (%s). The player keeps the name, the "
+            "credential and the history; the cast member does not walk or "
+            "answer. List the rows with `python main.py invite duplicates` "
+            "and take the choice to the owner (runbook section 7).",
+            name, len(spellings), ", ".join(ascii(s) for s in spellings))
+    return held
 
 
 def run_loop(stop: threading.Event) -> None:

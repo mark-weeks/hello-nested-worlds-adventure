@@ -172,19 +172,16 @@ def node_addresses(seed, names) -> dict[str, str]:
 
     For payloads that name places a client may jump to: the address travels
     beside the name, because a position is never read out of a name
-    (ADR-041 D3). One indexed read per distinct name; a name the world was
-    not born with is left out. Reads only: an unborn world is not born here.
+    (ADR-041 D3). The distinct names are read on one connection; a name the
+    world was not born with is left out. The mapping keeps the order the
+    names were given in. Reads only: an unborn world is not born here.
     """
-    found: dict[str, str] = {}
     if not isinstance(seed, int) or isinstance(seed, bool):
-        return found
-    for name in dict.fromkeys(names):
-        if not name or not isinstance(name, str):
-            continue
-        row = persistence.get_world_node_address(seed, name)
-        if row is not None:
-            found[name] = naming.digits_of(row[0])
-    return found
+        return {}
+    wanted = [name for name in dict.fromkeys(names)
+              if name and isinstance(name, str)]
+    rows = persistence.get_world_node_addresses(seed, wanted)
+    return {name: naming.digits_of(rows[name][0]) for name in wanted if name in rows}
 
 
 def resolve_node(seed: int, node_name: str) -> SpatialNode | None:

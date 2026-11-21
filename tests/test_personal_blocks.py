@@ -507,3 +507,78 @@ def test_agent_broadcast_enriches_once_for_all_recipients_and_queued_delivery(mo
         for player in players:
             player.stop_writer()
             player._writer.join(2)
+
+
+def _block_stored_before_the_rename(owner):
+    """The row the base version wrote when a player blocked the cast member
+    then named "Cartographer-9": the same table, the old target string."""
+    with persistence.transaction() as conn:
+        conn.execute('INSERT INTO participant_blocks(participant_id,blocked_id) VALUES (?,?)',
+                     (owner, 'agent:Cartographer-9'))
+
+
+def test_a_block_made_before_the_cast_rename_still_hides_the_renamed_member(server, accounts):
+    """ADR-041 D5 renamed "Cartographer-9" to "Cartographer". A block saved
+    under the old target keeps working and shows the current name: in the
+    block list, the welcome roster, live frames and `blocks_changed`."""
+    request, join = server
+    owner = participants.identify(accounts[0])['id']
+    _block_stored_before_the_rename(owner)
+    current = handle(owner, 'agent:Cartographer')
+    listed = [{'id': current, 'name': 'Cartographer'}]
+
+    assert blocks.list_blocks(owner) == [{'id': 'agent:Cartographer', 'name': 'Cartographer'}]
+    assert request(accounts[0])[1]['blocks'] == listed
+
+    room = get_room(382)
+    agent_enter(room, 'Cartographer', 'scholar')
+    agent_move(room, 'Cartographer', 'Vault-1')
+    agent_enter(room, 'Vex', 'destabilizer')
+    ada, welcome = join(accounts[0])
+    bea, bea_welcome = join(accounts[1])
+    assert welcome['blocks'] == listed
+    assert [a['name'] for a in welcome['agents']] == ['Vex']
+    assert {a['name'] for a in bea_welcome['agents']} == {'Cartographer', 'Vex'}
+    for sock in (ada, bea):
+        _through_pong(sock)
+
+    agent_move(room, 'Cartographer', 'Vault-2')
+    broadcast(room, {'type': 'agent_talk', 'a': 'Cartographer', 'b': 'Vex', 'node': 'Vault-2',
+                     'lines': [{'speaker': 'Cartographer', 'line': 'The map has been amended.'},
+                               {'speaker': 'Vex', 'line': 'Ask me how it breaks.'}]})
+    frames = _through_pong(ada)
+    assert [m['type'] for m in frames] == ['agent_talk']
+    assert [line['speaker'] for line in frames[0]['lines']] == ['Vex']
+    assert [m['type'] for m in _through_pong(bea)] == ['agent_move', 'agent_talk']
+
+    # Blocking the member again under its current name is the same block.
+    status, body, _ = request(accounts[0], {'participant': current, 'blocked': True})
+    assert (status, body['blocks']) == (200, listed)
+    changed = _until_type(ada, 'blocks_changed')[0]
+    assert changed['blocks'] == listed
+    assert [a['name'] for a in changed['agents']] == ['Vex']
+
+    # The owner can still remove it, and the member is then seen again.
+    status, body, _ = request(accounts[0], {'participant': current, 'blocked': False})
+    assert (status, body['blocks']) == (200, [])
+    changed = _until_type(ada, 'blocks_changed')[0]
+    assert changed['blocks'] == []
+    assert {a['name'] for a in changed['agents']} == {'Cartographer', 'Vex'}
+    assert blocks.list_blocks(owner) == []
+    with persistence._connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM participant_blocks').fetchone()[0] == 0
+    agent_move(room, 'Cartographer', 'Vault-3')
+    assert [m['type'] for m in _through_pong(ada)] == ['agent_move']
+
+
+def test_a_retired_cast_name_is_not_a_new_block_target(accounts):
+    """Reading an old row is the only use of the retired name: it cannot be
+    blocked afresh, and a restart-time unblock by handle finds the old row."""
+    from server.block_targets import resolve
+    owner = participants.identify(accounts[0])['id']
+    with pytest.raises(ValueError):
+        blocks.set_block(owner, 'agent:Cartographer-9', True)
+    _block_stored_before_the_rename(owner)
+    token = handle(owner, 'agent:Cartographer')
+    assert resolve(owner, token) == 'agent:Cartographer'
+    assert blocks.set_block(owner, resolve(owner, token), False) == []

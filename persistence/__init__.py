@@ -23,7 +23,7 @@ import tempfile
 import threading
 import unicodedata
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from merge_patch import json_merge_patch
 from persistence.schema_probe import applied_version, known_version, migration_files
@@ -2275,6 +2275,37 @@ def get_world_node_address(world_seed: int, name: str) -> tuple[str, int] | None
             (world_seed, name),
         ).fetchone()
         return (row[0], row[1]) if row else None
+
+
+# Names bound in one statement. SQLite's default host-parameter limit was
+# 999 before 3.32; the seed takes one.
+_ADDRESS_BATCH = 900
+
+
+@_with_db
+def get_world_node_addresses(
+        world_seed: int, names: Iterable[str]) -> dict[str, tuple[str, int]]:
+    """name -> (path, generator_version) for the names this world was born
+    with; a name it does not hold is left out.
+
+    `get_world_node_address` for many names on one connection: one indexed
+    lookup per name (the unique index of migration 0034), in as many
+    statements as `_ADDRESS_BATCH` needs.
+    """
+    wanted = list(dict.fromkeys(names))
+    found: dict[str, tuple[str, int]] = {}
+    if not wanted:
+        return found
+    with _connection() as conn:
+        for start in range(0, len(wanted), _ADDRESS_BATCH):
+            batch = wanted[start:start + _ADDRESS_BATCH]
+            for name, path, version in conn.execute(
+                    f"""SELECT name, path, generator_version FROM world_nodes
+                        WHERE world_seed = ?
+                          AND name IN ({",".join("?" for _ in batch)})""",
+                    (world_seed, *batch)):
+                found[name] = (path, version)
+    return found
 
 
 # ── Immutable world metadata (ADR-008) ──

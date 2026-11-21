@@ -85,6 +85,12 @@ class Player:
     session_id: str
     sock: object
     participant_id: str | None = None
+    # The address (digits form) of `current_node`, kept with the position so
+    # a roster is built from memory. `_address_node` names the place it was
+    # resolved for: a position set without one (`current_node` alone) is
+    # resolved once, outside every lock, by `ensure_addresses`.
+    current_address: str | None = None
+    _address_node: str | None = field(default=None, repr=False, compare=False)
     _block_policy: _BlockPolicy = field(default_factory=_BlockPolicy, repr=False)
     # Serializes all frame writes on this socket — the writer thread's data
     # frames and the reader thread's pong/close echoes (see protocol.ws_recv).
@@ -97,6 +103,22 @@ class Player:
         default_factory=threading.Event, compare=False, repr=False)
     _writer: threading.Thread | None = field(
         default=None, compare=False, repr=False)
+
+    def __post_init__(self):
+        if self.current_address is not None:
+            self._address_node = self.current_node
+
+    def move_to(self, node: str, address: str | None) -> None:
+        """Take a position together with its address (None when the world
+        holds no such name). The caller holds the room lock."""
+        self.current_node = node
+        self.current_address = address
+        self._address_node = node
+
+    @property
+    def located(self) -> bool:
+        """True when `current_address` was resolved for `current_node`."""
+        return self._address_node == self.current_node
 
     @property
     def blocks(self):
@@ -250,6 +272,9 @@ class Room:
     active_agents: dict = field(default_factory=dict)  # agent_name → current_node
     agent_personas: dict = field(default_factory=dict)  # agent_name → persona name
     puzzle_sessions: dict = field(default_factory=dict)  # node_name → PuzzleSession
+    # agent_name → (node, address): the address resolved for the position in
+    # `active_agents`, so the agents roster is built from memory.
+    agent_addresses: dict = field(default_factory=dict, compare=False, repr=False)
     # node_name → address (digits form). A born name never changes its
     # place, so a found address is kept for the life of the room.
     addresses: dict = field(default_factory=dict, compare=False, repr=False)
@@ -339,9 +364,40 @@ def node_address(room: Room, node: str | None) -> str | None:
     return address
 
 
+def ensure_addresses(room: Room) -> None:
+    """Resolve the address of every position that lacks one.
+
+    The only place a roster's addresses are read from storage, and it holds
+    no lock while it reads: a slow read delays this caller, never another
+    participant's move. A join and a move record the address with the
+    position, so there is normally nothing to resolve.
+    """
+    with room.lock:
+        players = [(p, p.current_node) for p in room.players.values()
+                   if p.current_node and not p.located]
+        agents = [(name, node) for name, node in room.active_agents.items()
+                  if room.agent_addresses.get(name, (None, None))[0] != node]
+    resolved = {node: node_address(room, node)
+                for node in {node for _, node in (*players, *agents)}}
+    with room.lock:
+        for player, node in players:
+            if player.current_node == node and not player.located:
+                player.move_to(node, resolved[node])
+        for name, node in agents:
+            if room.active_agents.get(name) == node:
+                room.agent_addresses[name] = (node, resolved[node])
+
+
+def _held_address(room: Room, node: str, held: str | None, known: bool) -> str | None:
+    """The address a roster row carries, from memory only. Caller holds
+    `room.lock`."""
+    return held if known else room.addresses.get(node)
+
+
 def agent_enter(room: Room, name: str, persona: str | None = None) -> None:
     with room.lock:
         room.active_agents[name] = ""
+        room.agent_addresses[name] = ("", None)
         if persona is not None:
             room.agent_personas[name] = persona
     # Agent presence is first-class, like player presence: connected
@@ -350,20 +406,33 @@ def agent_enter(room: Room, name: str, persona: str | None = None) -> None:
     broadcast(room, {"type": "agent_enter", "name": name, "persona": persona})
 
 
-def agent_move(room: Room, name: str, node: str) -> list[str]:
-    """Update agent position; return names of agents already at the same node."""
+_UNRESOLVED = object()
+
+
+def agent_move(room: Room, name: str, node: str, address=_UNRESOLVED) -> list[str]:
+    """Update agent position; return names of agents already at the same node.
+
+    A caller that holds the node passes its address. Otherwise it is looked
+    up here, before the room lock is taken.
+    """
+    if address is _UNRESOLVED:
+        address = node_address(room, node)
     with room.lock:
         room.active_agents[name] = node
+        room.agent_addresses[name] = (node, address)
+        if address is not None:
+            room.addresses[node] = address
         others = [n for n, pos in room.active_agents.items()
                   if pos == node and n != name]
     broadcast(room, {"type": "agent_move", "name": name, "node": node,
-                     "address": node_address(room, node)})
+                     "address": address})
     return others
 
 
 def agent_leave(room: Room, name: str) -> None:
     with room.lock:
         room.active_agents.pop(name, None)
+        room.agent_addresses.pop(name, None)
         room.agent_personas.pop(name, None)
     broadcast(room, {"type": "agent_leave", "name": name})
 
@@ -374,10 +443,20 @@ def agent_persona(room: Room, name: str) -> str | None:
         return room.agent_personas.get(name)
 
 
-def snapshot(room: Room, viewer: Player | None = None) -> list[dict]:
+def snapshot(room: Room, viewer: Player | None = None, *,
+             lookup: bool = True) -> list[dict]:
+    """The players roster. Built under the room lock from memory alone.
+
+    Any address still missing is resolved first, with no lock held. A
+    caller that already holds a lock passes `lookup=False` and calls
+    `ensure_addresses` itself before taking it.
+    """
+    if lookup:
+        ensure_addresses(room)
     with room.lock:
         return [{"name": p.name, "node": p.current_node,
-                 "address": node_address(room, p.current_node),
+                 "address": _held_address(room, p.current_node,
+                                          p.current_address, p.located),
                  "session_id": p.session_id,
                  **({"participant_id": p.participant_id} if p.participant_id else {})}
                 for p in room.players.values()
@@ -394,9 +473,10 @@ def sync_blocks(participant: str, blocks: list[dict]) -> None:
     with _rooms_lock:
         rooms = list(_rooms.values())
     for room in rooms:
+        ensure_addresses(room)  # before the room lock: no read is made under it
         with room.lock:
-            players = snapshot(room)
-            agents = agents_snapshot(room)
+            players = snapshot(room, lookup=False)
+            agents = agents_snapshot(room, lookup=False)
             for player in room.players.values():
                 if player.participant_id == participant:
                     player.set_blocks(blocks)
@@ -404,13 +484,19 @@ def sync_blocks(participant: str, blocks: list[dict]) -> None:
                                  "players": players, "agents": agents})
 
 
-def agents_snapshot(room: Room, viewer: Player | None = None) -> list[dict]:
+def agents_snapshot(room: Room, viewer: Player | None = None, *,
+                    lookup: bool = True) -> list[dict]:
     """The cast members currently walking this world, with positions —
-    the agent half of the travelers roster the welcome payload carries."""
+    the agent half of the travelers roster the welcome payload carries.
+    Built from memory under the room lock, as `snapshot` is."""
+    if lookup:
+        ensure_addresses(room)
     with room.lock:
-        return [{"name": n, "node": pos, "address": node_address(room, pos),
+        return [{"name": n, "node": pos,
+                 "address": _held_address(room, pos, held[1], held[0] == pos),
                  "persona": room.agent_personas.get(n), 'participant_id': target}
                 for n, pos in room.active_agents.items()
+                for held in (room.agent_addresses.get(n, (None, None)),)
                 for target in (agent_target(n),)
                 if viewer is None or target not in viewer.blocked_ids]
 
