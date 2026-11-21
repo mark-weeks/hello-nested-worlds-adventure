@@ -290,7 +290,7 @@ _BACKUP_VARIABLES = {
     "vars.ENFOLDED_BACKUP_S3_REGION || 'auto'",
 }
 _BACKUP_SECRETS = {
-    'secrets.FLY_API_TOKEN',
+    'secrets.BACKUP_FLY_SSH_TOKEN',
     'secrets.ENFOLDED_BACKUP_S3_ACCESS_KEY_ID',
     'secrets.ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY',
     'secrets.ENFOLDED_BACKUP_S3_BUCKET',
@@ -351,7 +351,9 @@ def test_backup_job_keeps_secrets_in_the_main_only_environment():
         for key, value in env.items():
             if key == 'VALIDATE_OUTCOME':
                 assert value == '${{ steps.validate.outcome }}'
-            elif key == 'FLY_API_TOKEN' or key.startswith('ENFOLDED_BACKUP_S3_'):
+            elif key == 'FLY_API_TOKEN':
+                assert value == '${{ secrets.BACKUP_FLY_SSH_TOKEN }}'
+            elif key.startswith('ENFOLDED_BACKUP_S3_'):
                 assert value == '${{ secrets.' + key + ' }}'
     assert seen['Refuse any ref but main'] == set()
     assert seen[None] == set()
@@ -362,6 +364,7 @@ def test_backup_job_keeps_secrets_in_the_main_only_environment():
         assert seen[name] == keys
     assert 'github.token' not in text.lower()
     assert 'GITHUB_TOKEN' not in text
+    assert 'secrets.FLY_API_TOKEN' not in text
 
 
 def test_the_workflow_retention_is_a_value_the_gate_accepts(tmp_path):
@@ -424,29 +427,12 @@ def test_gate_rejects_a_half_set_read_pair_before_upload(tmp_path):
     assert 'list-secret-value' not in both.stdout + both.stderr
 
 
-def test_backup_runbook_confirms_the_token_without_a_deploy():
-    """The operator steps must not store quotes, deploy this checkout, or hide the peer."""
+def test_backup_runbook_omits_the_deploy_and_quoted_token_hazards():
+    """Negative checks for hazards a reworded runbook can put back."""
     root = Path(__file__).resolve().parents[1]
     bucket = (root / 'docs/infrastructure/backup-bucket.md').read_text()
-    runbook = (root / 'docs/infrastructure/fly-deployment.md').read_text()
     workflow = (root / '.github/workflows/backup.yml').read_text()
     assert 'Quote it.' not in bucket
     assert 'plus one `fly deploy` that must be' not in bucket
-    assert "FLY_API_TOKEN='<exact printed token>'" not in bucket
-    assert 'with no characters added' in bucket
-    assert 'a quote mark becomes part of the token' in bucket
-    assert 'Do not run `fly deploy` here.' in bucket
-    assert 'read -rs FLY_API_TOKEN' in bucket
-    assert 'unset FLY_API_TOKEN' in bucket
-    assert "fly ssh console -a <OWNER: Fly app name>" in bucket
-    assert "fly ssh sftp get -a <OWNER: Fly app name>" in bucket
-    assert 'issueCertificate' in bucket and 'addWireGuardPeer' in bucket
-    assert 'not evidence that a peer cannot reach another app' in bucket
-    assert 'private addresses of every app in the org' in bucket
-    assert 'Do not use `enfolded-beta`.' in bucket
-    assert 'A manual prune must pass `--retention-days 30`' in bucket
-    assert 'the retention,' not in bucket
-    assert 'backup-bucket.md#fly-token' in runbook
-    assert 'Do not test it with `fly deploy` from this' in runbook
-    assert 'every app in the org' in runbook
-    assert 'every app in the org, not only the app named with -a' in workflow
+    assert "FLY_API_TOKEN='" not in bucket
+    assert 'fly deploy' not in workflow

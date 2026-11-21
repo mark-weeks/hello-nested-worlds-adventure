@@ -709,7 +709,9 @@ What keeps it on staging:
   repository is public, and refuses if `origin` cannot be read. So a re-run
   of an old run cannot put an older commit over a newer deploy.
 - It reads one token, `FLY_API_TOKEN_STAGING`, in the `staging` environment
-  (step 3). It never reads `FLY_API_TOKEN`, the token `backup.yml` uses.
+  (step 3). The backup job's secret is `BACKUP_FLY_SSH_TOKEN`, which
+  `backup.yml` passes to flyctl as `FLY_API_TOKEN`. This workflow does not
+  read `BACKUP_FLY_SSH_TOKEN`.
 - It refuses a commit that does not descend from `f3ead74` (#152), the
   first commit whose `scripts/deploy.sh` checks the schema and whose binary
   refuses a newer chronicle. On any commit it accepts, `scripts/deploy.sh`
@@ -750,10 +752,15 @@ What the file cannot stop:
   It can also read every repository secret. That is true of any workflow
   file on any branch, for anyone with write access, and not something this
   file adds. The `staging` environment's main-only branch rule is what keeps
-  `FLY_API_TOKEN_STAGING` out of such a run. The backup job's `FLY_API_TOKEN`
-  is a secret of the `backup` environment, withheld by that environment's
-  main-only branch rule ([backup-bucket.md](backup-bucket.md)). A repository
-  copy of it would be readable by this path, so that copy is deleted.
+  `FLY_API_TOKEN_STAGING` out of such a run. The backup job reads
+  `BACKUP_FLY_SSH_TOKEN` from the `backup` environment and passes it to
+  flyctl as `FLY_API_TOKEN`. That environment's main-only branch rule
+  withholds the environment secret
+  ([backup-bucket.md](backup-bucket.md)). If the environment secret is
+  missing, `secrets.<NAME>` falls back to a repository secret of the same
+  name. `BACKUP_FLY_SSH_TOKEN` does not match a repository `FLY_API_TOKEN`.
+  The six `ENFOLDED_BACKUP_S3_*` names still would, so those repository
+  copies, and any repository `FLY_API_TOKEN`, are deleted.
 
 `tests/test_deploy_staging_workflow.py` checks the guards and runs the
 workflow's step scripts against a stub `fly` and small git histories.
@@ -1258,20 +1265,26 @@ salvage. A healthy object is
 count as healthy backups. A successful upload is not yet a restore rehearsal.
 
 The bucket is private: no public `r2.dev` URL and no custom domain. The job
-runs in the `backup` environment and reads that environment's secrets.
-`FLY_API_TOKEN` is `fly tokens create ssh -a <app>` on flyctl 0.5.1, not a
-deploy token, not an organization token, and not a repository secret. It
-can SSH to that app. It can also add a WireGuard peer on the app's Fly
+runs in the `backup` environment. It reads `BACKUP_FLY_SSH_TOKEN` from that
+environment and passes it to flyctl as `FLY_API_TOKEN`. For the twin that
+token is `fly tokens create ssh -a enfolded-staging --expiry 720h` on flyctl
+0.5.1. It is not a deploy token and not an organization token. It can SSH
+to that app. It can also add a WireGuard peer on the app's Fly
 organization, and that peer reaches the private addresses of every app in
-the org, not only the app named with `-a`. Confirm it as
+the org, not only the app named with `-a`. A missing environment secret
+falls back to a repository secret of the same name. This token's name does
+not match a repository `FLY_API_TOKEN`. Confirm it as
 [backup-bucket.md](backup-bucket.md#fly-token) says: paste the printed line
-into the secret with no added quotes, read the token with `read -rs` so it
-is not on a command line, decode it with `fly tokens debug`, and run the
-SSH commands with `-a`. Do not test it with `fly deploy` from this
-checkout. The committed `fly.toml` selects `enfolded-beta`. How far a peer
-can reach was not tried. If the twin and production share an organization,
-the owner puts the twin in its own organization or records that this reach
-is accepted before storing the token.
+into `BACKUP_FLY_SSH_TOKEN` with no added quotes, set `FLY_CONFIG_DIR` to an
+empty directory, read the token with `read -rs` so it is not on a command
+line, decode it with `fly tokens debug`, and run the SSH commands with
+`-a`. Remove any WireGuard peer that check added. Do not test it with
+`fly deploy` from this checkout. The committed `fly.toml` selects
+`enfolded-beta`. The first manual dispatch from `main` is the proof that
+the stored secret works on a runner with no saved flyctl state. How far a
+peer can reach was not tried. If the twin and production share an
+organization, the owner puts the twin in its own organization or records
+that this reach is accepted before storing the token.
 
 The S3 access key, secret, bucket, endpoint, and the
 read-only list pair are environment secrets the same way. The endpoint

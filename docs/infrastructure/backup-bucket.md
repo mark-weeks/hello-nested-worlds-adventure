@@ -150,7 +150,7 @@ player chat included.
 
 | Secret | Value |
 |---|---|
-| `FLY_API_TOKEN` | `<OWNER: FLY_API_TOKEN>` from the SSH token command below. Not an organization token, and not a deploy token |
+| `BACKUP_FLY_SSH_TOKEN` | `<OWNER: BACKUP_FLY_SSH_TOKEN>` from the SSH token command below. The job passes this value to flyctl as `FLY_API_TOKEN`. Not an organization token, and not a deploy token |
 | `ENFOLDED_BACKUP_S3_ACCESS_KEY_ID` | `<OWNER: ENFOLDED_BACKUP_S3_ACCESS_KEY_ID>` |
 | `ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY` | `<OWNER: ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY>` |
 | `ENFOLDED_BACKUP_S3_BUCKET` | `<OWNER: ENFOLDED_BACKUP_S3_BUCKET>` Bucket name. A variable would be printed in the public job log |
@@ -159,10 +159,23 @@ player chat included.
 | `ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY` | `<OWNER: ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY>` |
 
 `<OWNER: delete the repository copies of the backup secrets>`
-After the environment secrets exist, delete any repository copies of the
-seven names above, including a repository `FLY_API_TOKEN`. The job does not
-read a repository secret. A copy left behind is still readable by a workflow
-on another branch that does not use this environment.
+If an environment secret is missing, `secrets.<NAME>` falls back to a
+repository secret of the same name. GitHub's
+[secrets reference](https://docs.github.com/en/actions/reference/security/secrets)
+says the lowest level that has the name wins, so a missing environment
+secret leaves the repository copy in place. The job would keep running on
+that copy, and the run would look the same as one that read the environment.
+Delete the repository copies of the six `ENFOLDED_BACKUP_S3_*` names and of
+`FLY_API_TOKEN`. Then confirm that Settings → Secrets and variables →
+Actions → Repository secrets lists none of those seven names, and none of
+`BACKUP_FLY_SSH_TOKEN`.
+
+The job reads the Fly token as `secrets.BACKUP_FLY_SSH_TOKEN`. That name is
+not `FLY_API_TOKEN`, so a leftover repository deploy token is not what this
+job receives when the environment secret is missing or mistyped. The six
+bucket secrets still use their `ENFOLDED_BACKUP_S3_*` names, so a repository
+copy of one of those is what the job receives until that copy is deleted.
+A repository secret is also readable by a workflow on another branch.
 
 ### Repository variables
 
@@ -214,23 +227,29 @@ SSH token can complete `ssh console` and `ssh sftp get`, and it does not
 show how far a peer created with this token can reach. The default expiry
 in that source is 20 years (`time.Hour * 24 * 365 * 20`).
 
-`<OWNER: create the backup Fly token>` From a terminal, for the app this job
-backs up, with flyctl 0.5.1 or the same `tokens create ssh` command:
+`<OWNER: create the backup Fly token>` From a terminal, for the twin, with
+flyctl 0.5.1 or the same `tokens create ssh` command:
 
 ```bash
-fly tokens create ssh -a <OWNER: Fly app name>
+fly tokens create ssh -a enfolded-staging --expiry 720h
 ```
 
+`<OWNER: SSH token expiry>` `720h` is 30 days. That is the life to pass for
+the twin. The source default, with no `--expiry`, is 20 years
+(`time.Hour * 24 * 365 * 20` on `newSSH` in flyctl 0.5.1). Pass a different
+`--expiry` when 30 days is the wrong life. A missed revocation then expires
+on its own. Revoke the token when the twin is destroyed (O7). Production
+uses the same 720-hour life when it is re-armed, and
+`<OWNER: production backup token rotation>` replaces that secret before the
+720 hours run out.
+
 The command prints one line. Paste that line into the GitHub environment
-secret `FLY_API_TOKEN` with no characters added. The secret field stores
-every character typed there, so a quote mark becomes part of the token and
-flyctl rejects it. Include a `FlyV1 ` prefix when the command prints one.
-Quoting belongs on a shell argument, in the confirmation below, and not in
-the secret field. Do not use `fly tokens create deploy`,
+secret `BACKUP_FLY_SSH_TOKEN` with no characters added. The secret field
+stores every character typed there, so a quote mark becomes part of the
+token and flyctl rejects it. Include a `FlyV1 ` prefix when the command
+prints one. Quoting belongs on a shell argument, in the confirmation below,
+and not in the secret field. Do not use `fly tokens create deploy`,
 `fly tokens create org`, or `fly auth token`.
-`<OWNER: SSH token expiry>` The source default is 20 years. Pass `--expiry`
-when a shorter life is wanted. Revoke the token when the twin is destroyed,
-and again when production backups are retired.
 
 `<OWNER: put the twin in its own Fly organization, or record that this org-wide WireGuard reach is accepted>`
 Do not store this token for a twin that shares production's organization
@@ -251,11 +270,25 @@ flyctl 0.5.1's `fly tokens debug`
 decodes the macaroon and prints the caveats. It does not call Fly. In that
 version, `Load` applies the config file, then `FLY_ACCESS_TOKEN` when it is
 set and otherwise `FLY_API_TOKEN`, then `-t` when that flag is passed
-(`internal/config/config.go`). In a private terminal, with the exact printed
-token:
+(`internal/config/config.go`).
+
+flyctl 0.5.1 stores config under `FLY_CONFIG_DIR` when that variable is
+set, and otherwise under `~/.fly`
+([`helpers/config.go`](https://github.com/superfly/flyctl/blob/v0.5.1/helpers/config.go)
+`GetConfigDirectory`). The agent socket is `fly-agent.sock` in that same
+directory
+([`internal/command/agent/agent.go`](https://github.com/superfly/flyctl/blob/v0.5.1/internal/command/agent/agent.go)
+`socketPath`). A terminal that has already used `fly ssh` reuses the saved
+peer and the running agent, so this check would never exercise the candidate
+token's `addWireGuardPeer`. The empty directory below is what makes the
+check use a new peer. The first manual dispatch from `main` is the proof
+that the stored secret works: a GitHub runner starts with no saved flyctl
+state. This local check is the check that the printed token can open a
+shell and copy a file. In a private terminal, with the exact printed token:
 
 ```bash
 unset FLY_ACCESS_TOKEN FLY_API_TOKEN
+export FLY_CONFIG_DIR="$(mktemp -d)"
 read -rs FLY_API_TOKEN
 export FLY_API_TOKEN
 fly tokens debug
@@ -282,10 +315,23 @@ Omitting it follows `fly.toml` to `enfolded-beta`. Do not pass the token
 with `-t`.
 
 ```bash
+fly wireguard list <OWNER: org slug>
 fly ssh console -a <OWNER: Fly app name> -C "echo backup-token-ok"
 fly ssh sftp get -a <OWNER: Fly app name> /data/backups/<disposable>.db <local-file>
-unset FLY_API_TOKEN
+fly wireguard list <OWNER: org slug>
+fly wireguard remove <OWNER: org slug> <OWNER: peer name this check added>
+fly agent stop
+rm -rf "$FLY_CONFIG_DIR"
+unset FLY_CONFIG_DIR FLY_API_TOKEN
 ```
+
+`fly wireguard list` prints every peer in the organization
+(`GetWireGuardPeers` in flyctl 0.5.1), not only the peer in this directory.
+Record the list before the SSH commands and again after. Remove only a peer
+that this check added. `fly wireguard remove` takes the org slug and that
+peer name (`runWireguardRemove`). If list or remove is refused, stop and
+remove the new peer with the owner's own login in another terminal that is
+not using this token. Do not store a wider token so the removal can succeed.
 
 Use a disposable file, not the live chronicle. If either SSH command fails,
 stop and use the fallback O7 names, `fly tokens create deploy -a <app>`,
@@ -517,8 +563,11 @@ backups are re-armed after that deploy.
 
 Before the first production boot:
 
-1. Store the production Fly token (`fly tokens create ssh -a enfolded-beta`)
-   and the bucket secrets in the `backup` environment.
+1. Store the production Fly token
+   (`fly tokens create ssh -a enfolded-beta --expiry 720h`) as
+   `BACKUP_FLY_SSH_TOKEN`, and the bucket secrets, in the `backup`
+   environment. `<OWNER: production backup token rotation>` replaces that
+   secret before the 720 hours run out.
 2. Leave `ENFOLDED_BACKUP_APP` unset, or set it to `enfolded-beta`.
 3. Re-enable the "Off-host backup" workflow if it was disabled.
 4. Retarget the external dispatcher to production, and leave it paused.
@@ -566,7 +615,7 @@ Do this on the staging app before any production history.
 - [ ] Token is Object Read & Write on that bucket only. A disposable put and delete, on keys outside `offhost/`, succeeded, including one `DeleteObjects` of two keys. Admin Read & Write was not used.
 - [ ] `<OWNER: add the 7-day bucket lock on offhost/>` and `<OWNER: add the 37-day lifecycle rule on offhost/>`.
 - [ ] Environment secrets are set, and `<OWNER: delete the repository copies of the backup secrets>` is done. The three repository variables are the only ones. `ENFOLDED_BACKUP_APP` is `enfolded-staging`. `ENFOLDED_BACKUP_REQUIRED` is still unset.
-- [ ] `<OWNER: create the backup Fly token>` with `fly tokens create ssh`. Paste the printed line into the environment secret with no added quotes. `<OWNER: confirm the SSH token on the app>` with `fly tokens debug` and the two SSH commands bound to that token and `-a`. Do not run `fly deploy` from this checkout.
+- [ ] `<OWNER: create the backup Fly token>` with `fly tokens create ssh -a enfolded-staging --expiry 720h`. Paste the printed line into `BACKUP_FLY_SSH_TOKEN` with no added quotes. `<OWNER: confirm the SSH token on the app>` with `FLY_CONFIG_DIR` set to an empty directory, `fly tokens debug`, and the two SSH commands bound to that token and `-a`. Remove any WireGuard peer that check added. Do not run `fly deploy` from this checkout.
 - [ ] Manual dispatch of `backup.yml` from `main` stores a validated snapshot. The job summary does not print the object key, the bucket, or the account id, and the log has no artifact upload.
 - [ ] `python scripts/backup_health.py --app <staging-app>` exits 0. `--max-age-minutes 1` against an old stamp exits 1.
 - [ ] Download, `validate_backup.py`, checksum, and `python main.py restore` on the isolated staging machine. Every backup containing `private_chat_messages` requires `--deletions <latest-export>` with the latest independently preserved operator deletion record, even when a current database exists; a fresh-boot empty export is not authoritative. Follow the [restore procedure](fly-deployment.md#restoring-from-a-backup), then record the checksum, snapshot time, app, release SHA, and elapsed time.

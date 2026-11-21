@@ -20,21 +20,32 @@ name: Off-host backup
 # replication remains the post-launch follow-up. This cron alone does not
 # meet that limit: the measured cadence is in the note that ends this file.
 #
-# The one job runs in the backup environment. FLY_API_TOKEN and every
-# ENFOLDED_BACKUP_S3_* secret are secrets of that environment, never
-# repository secrets: a workflow on any branch can read a repository secret,
-# and this token can read participant chat through ssh. The owner creates
-# the environment, limits its deployment branches to main, and deletes any
-# repository copies before this file runs on main. GitHub otherwise creates
-# the named environment with no rules and no secrets. deployment: false
-# keeps the branch rule and does not record a GitHub deployment.
+# The one job runs in the backup environment. The Fly token is the
+# environment secret BACKUP_FLY_SSH_TOKEN, passed to flyctl as FLY_API_TOKEN.
+# The six ENFOLDED_BACKUP_S3_* values are environment secrets of those names.
+# GitHub's secrets reference: when the same name exists at more than one
+# level, the lowest level wins. A missing environment secret therefore
+# resolves to a repository secret of that name, and the run looks the same.
+# BACKUP_FLY_SSH_TOKEN does not match a repository FLY_API_TOKEN, so a
+# leftover deploy token is not what this job receives. The six bucket names
+# still would. Delete those repository copies, and any repository
+# FLY_API_TOKEN, before this file runs on main. A workflow on any branch can
+# read a repository secret, and this token can read participant chat through
+# ssh. The owner creates the environment and limits its deployment branches
+# to main. GitHub otherwise creates the named environment with no rules and
+# no secrets. deployment: false keeps the branch rule and does not record a
+# GitHub deployment.
 #
-# The Fly token is `fly tokens create ssh -a <app>` on the flyctl 0.5.1 this
-# job installs. It is not a deploy token. The printed token can SSH to that
-# app and can add a WireGuard peer on the app's Fly organization. That peer
-# joins the organization's private network, which reaches the private
-# addresses of every app in the org, not only the app named with -a. Live
-# use, and how far such a peer can reach, was not tried from this change.
+# The Fly token is `fly tokens create ssh -a enfolded-staging --expiry 720h`
+# on the flyctl 0.5.1 this job installs. It is not a deploy token. The
+# printed token can SSH to that app and can add a WireGuard peer on the
+# app's Fly organization. That peer joins the organization's private
+# network, which reaches the private addresses of every app in the org, not
+# only the app named with -a. Live use, and how far such a peer can reach,
+# was not tried from this change. The ref check below stops an accidental
+# dispatch of this unedited file. A branch that edits the file and is
+# dispatched with --ref can delete that step. The environment's main-only
+# branch rule is what withholds the secrets.
 #
 # Until those secrets are set, the gate leaves the job as an inactive no-op
 # and uploads nothing. Set ENFOLDED_BACKUP_REQUIRED=true only after a manual
@@ -76,6 +87,7 @@ jobs:
       AWS_CLI_SHA256_X86_64: 14cb35809ad7547dd3c69fa9899a3975fbd850b6a6791f3fe264856490cd9a63
       AWS_CLI_SHA256_AARCH64: f6eb845fbacb11bee87de3f5fbe8043773cbe89d0414607b44b71e216eb9226b
     steps:
+      # Defence against accidental dispatch only; the environment's branch rule withholds the secrets.
       - name: Refuse any ref but main
         run: |
           set -euo pipefail
@@ -91,7 +103,7 @@ jobs:
       - name: Check for the Fly token and the private bucket
         id: gate
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_API_TOKEN: ${{ secrets.BACKUP_FLY_SSH_TOKEN }}
           ENFOLDED_BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.ENFOLDED_BACKUP_S3_ACCESS_KEY_ID }}
           ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY }}
           ENFOLDED_BACKUP_S3_BUCKET: ${{ secrets.ENFOLDED_BACKUP_S3_BUCKET }}
@@ -130,7 +142,7 @@ jobs:
       - name: Take an online backup on the machine
         if: steps.gate.outputs.ready == 'yes'
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_API_TOKEN: ${{ secrets.BACKUP_FLY_SSH_TOKEN }}
         run: |
           STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
@@ -141,7 +153,7 @@ jobs:
         id: download
         if: steps.gate.outputs.ready == 'yes'
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_API_TOKEN: ${{ secrets.BACKUP_FLY_SSH_TOKEN }}
         run: |
           flyctl ssh sftp get "/data/backups/offhost-$STAMP.db" -a "$FLY_APP"
           ls -la "offhost-$STAMP.db"
@@ -194,7 +206,7 @@ jobs:
       - name: Prune old machine-local off-host copies
         if: always() && steps.gate.outputs.ready == 'yes'
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_API_TOKEN: ${{ secrets.BACKUP_FLY_SSH_TOKEN }}
         run: |
           flyctl ssh console -a "$FLY_APP" -C \
             "sh -c 'ls -t /data/backups/offhost-*.db 2>/dev/null | tail -n +7 | xargs -r rm'" \
