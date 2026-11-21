@@ -361,6 +361,46 @@ describe("another player's accepted action", () => {
     c.disconnectedCallback();
   });
 
+  it("reads for a notice once a superseded read for the previous place settles", async () => {
+    vi.useFakeTimers();
+    let releaseOld;
+    const { c } = composer([]);
+    c.request = vi.fn()
+      .mockImplementationOnce(() => new Promise(resolve => { releaseOld = () => resolve({ participant: "p", recent: [] }); }))
+      .mockResolvedValue({ participant: "p", recent: [{ performer: "Ada", summary: "Kindle", pending: 1 }] });
+    c.connectedCallback();
+    const old = c.load();                 // the previous place's history, delayed
+    c.generation++;                       // the viewer moves to the galaxy
+    await c.load();                       // the galaxy's history loads
+    globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "peer", changed: {} });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(2); // waits on the old read
+    releaseOld(); await old;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(3);
+    expect(c.data.recent[0].performer).toBe("Ada");
+    c.disconnectedCallback();
+  });
+
+  it("reads for a notice after a foreground read it waited on fails transiently", async () => {
+    vi.useFakeTimers();
+    let fail;
+    const { c } = composer([]);
+    c.request = vi.fn()
+      .mockImplementationOnce(() => new Promise((_, reject) => { fail = () => reject(Object.assign(new Error("Unavailable"), { status: 503 })); }))
+      .mockResolvedValue({ participant: "p", recent: [{ performer: "Ada", summary: "Kindle", pending: 1 }] });
+    c.connectedCallback();
+    const foreground = c.load();
+    globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "peer", changed: {} });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(1);
+    fail(); await foreground;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(2);
+    expect(c.data.recent[0].performer).toBe("Ada");
+    c.disconnectedCallback();
+  });
+
   it("keeps the receipt through polls that an announced read started", async () => {
     vi.useFakeTimers();
     const { c } = composer([

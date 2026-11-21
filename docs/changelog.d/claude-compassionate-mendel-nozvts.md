@@ -55,8 +55,11 @@ Section: Fixed
   A second review found the duplicate read above and the rate-limit statement, both
   corrected. Its re-review added two nits, both fixed: a refused background read
   retried forever (13 GETs in 10 min), and a restarting debounce gave no read during a
-  steady stream (0 reads in 18 s at one notice per 900 ms). **Verified:** Vitest
-  `interventions.test.js` 21/21; the two nit cases fail on `cdcd09a`. The three
+  steady stream (0 reads in 18 s at one notice per 900 ms). Codex's third review found that the notice timer waited on superseded reads (the
+  previous place's, after navigation) and on a foreground read that failed
+  transiently, and nothing re-checked afterwards; now the last read to settle
+  re-checks owed notices. **Verified:** Vitest `interventions.test.js` 23/23; the
+  two nit cases fail on `cdcd09a` and the two settle cases on `8d1c255`. The three
   receipt, focus and disclosure cases fail on `b9f15f8`; the five notice-coverage
   cases fail on `386e571`, including an own commit whose history read hit a 429 and
   whose echo, reusing the intervention id, was then suppressed. Whole

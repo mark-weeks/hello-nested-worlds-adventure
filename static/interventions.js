@@ -99,7 +99,8 @@ class InterventionComposer extends HTMLElement {
       if (generation === this.generation && sequence === this.loadSequence && !background) { this.message=this.pollError=error.status ? error.message : 'This place could not be heard. Listen again.'; this.render(); }
     } finally {
       this.loading--;
-      if (generation === this.generation && sequence === this.loadSequence && this.isConnected) {
+      const current = generation === this.generation && sequence === this.loadSequence;
+      if (current && this.isConnected) {
         clearTimeout(this.poll);
         if (failed && background) {
           // Only a transient failure is retried. A refusal (a guarded place, a
@@ -109,9 +110,12 @@ class InterventionComposer extends HTMLElement {
             this.poll=setTimeout(() => this.load(fromPoll, true), Math.min(8000 * 2 ** (this.backgroundRetry - 1), 60000));
           }
         } else if (pending) this.poll=setTimeout(() => this.load(true, background), failed ? 8000 : 4000);
-        // A notice that arrived after this read began is still owed.
-        if (!failed && this.noticesOwed()) this.scheduleNoticeRead();
       }
+      // The notice timer waits while any read is in flight, superseded ones
+      // included. When the last one settles, a notice no successful read has
+      // covered gets its read, unless this was a current background read that
+      // failed: that one already retries with backoff, or stopped on a refusal.
+      if (this.isConnected && !this.loading && !(current && failed && background) && this.noticesOwed()) this.scheduleNoticeRead();
     }
   }
   retry() { this.message=''; this.render(); return this.load(); }
