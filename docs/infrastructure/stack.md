@@ -7,8 +7,8 @@ the rationale and revisit triggers, and ADR-003 for the persistence contract.
 
 | Layer | Service | Notes |
 |-------|---------|-------|
-| Browser frontend (scene) | React + PixiJS + Vite (`frontend/`) | Scene rendering, hotspots, Act surface, journal, multiplayer presence; built into `static/app/` and served at `/app`. Primary development surface since the ADR-005 2026-09-12 revision |
-| Browser frontend (map) | Vanilla D3 (`static/index.html` + `static/explorer.js`) | Tree explorer served at `/` directly by the Python server; still the invite destination (ADR-005) |
+| Browser frontend | React + Vite (`frontend/`, built into `static/app/`) | `/` opens the D3 world map. Invites open the 2D canvas scene at `/app`. Both views share one multiplayer session and interaction panel. |
+| Original explorer | Vanilla D3 (`static/index.html` and `static/explorer.js`) | The Python server serves the explorer at `/map` through the cohort read-out (ADR-005). |
 | Shared client modules | `static/clientlogic.js`, `interface.js`, `navigation.js`, `intents.js`, `interventions.js`, `sensory.js`, `score.js` | Entry/affordance/chronicle rules, navigation vocabulary, request-ID receipts, the Act surface, deterministic senses and the sampled score, consumed by both clients. `nodeart.js` remains the explorer's fallback renderer |
 | Local media | `static/media/` (four PNG plates, eleven VSCO 2 CE samples, manifests) | Ships in the wheel; no provider needed for the curated places or the score. Provenance in `docs/media/expressive-world.md` |
 | Backend HTTP/WebSocket | Python stdlib `http.server` + `ThreadingMixIn` (`server/`) | Threaded, no external HTTP framework; security headers + CSP + body/frame caps; a 64-connection accept backlog, an HTTP read deadline, a response-write stall timeout, and a cap on handler threads (open WebSockets included); no reverse-DNS lookup at bind (#109); sub-API modules for interventions, participants, situations and Ideas |

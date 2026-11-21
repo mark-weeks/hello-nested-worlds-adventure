@@ -67,7 +67,7 @@ async function returning(page, key = null) {
   }, { key, name: NAME });
 }
 
-test("/app on a new device says how to return, then opens from the invite link", async ({ page }) => {
+for (const route of ["/", "/app"]) test(`${route} on a new device says how to return, then opens from the invite link`, async ({ page }) => {
   const server = await serve();
   const errors = watchErrors(page);
   try {
@@ -84,7 +84,7 @@ test("/app on a new device says how to return, then opens from the invite link",
     });
     // The gate's answer is slow: the player has time to click.
     const world = await holdWorld(page);
-    await page.goto(server.url + "/app");
+    await page.goto(server.url + route);
     await expect.poll(world.reads).toBe(1);
     await expect(page.getByText(LOADING)).toBeVisible();
     await expect(page.getByRole("button", { name: "Begin", exact: true })).toHaveCount(0);
@@ -261,12 +261,12 @@ test("/app answers an unreachable world with a retry, and a failed speech with t
   }
 });
 
-test("the map says how to return without a key, opens from the invite link, and keeps a failed speech in fiction", async ({ page }) => {
+test("the original explorer says how to return without a key, opens from the invite link, and keeps a failed speech in fiction", async ({ page }) => {
   const server = await serve();
   const errors = watchErrors(page);
   try {
     await returning(page);
-    await page.goto(server.url + "/");
+    await page.goto(server.url + "/map");
     await expect(page.locator("#status")).toHaveText(INVITE);
     await expect(page.locator("#node-description")).toHaveText(INVITE);
     await expect(page.locator("body")).not.toContainText(/forbidden/i);
@@ -274,7 +274,7 @@ test("the map says how to return without a key, opens from the invite link, and 
     await page.locator("#btn-do-speak").click();
     await expect(page.locator("#status")).toHaveText(INVITE);
 
-    await page.goto(server.url + inviteLink("/"));
+    await page.goto(server.url + inviteLink("/map"));
     await expect(page.locator("#status")).toContainText("shared world");
     await expect(page.locator("#node-name")).not.toHaveText("Select a node");
     expect(await page.evaluate(() => localStorage.getItem("nw_beta_key"))).toBe(KEY);
@@ -292,11 +292,11 @@ test("the map says how to return without a key, opens from the invite link, and 
   }
 });
 
-test("the map keeps a refused invitation neutral", async ({ page }) => {
+test("the original explorer keeps a refused invitation neutral", async ({ page }) => {
   const server = await serve();
   try {
     await returning(page, UNKNOWN_KEY);
-    await page.goto(server.url + "/");
+    await page.goto(server.url + "/map");
     await expect(page.locator("#status")).toHaveText(REFUSED);
     await expect(page.locator("body")).not.toContainText(/forbidden/i);
   } finally {
@@ -304,7 +304,7 @@ test("the map keeps a refused invitation neutral", async ({ page }) => {
   }
 });
 
-test("the map keeps its line for a world it cannot draw, and for a refusal after it", async ({ page }) => {
+test("the original explorer keeps its line for a world it cannot draw, and for a refusal after it", async ({ page }) => {
   const server = await serve();
   const errors = watchErrors(page);
   try {
@@ -317,7 +317,7 @@ test("the map keeps its line for a world it cannot draw, and for a refusal after
       await page.route(worldRead, route => route.fulfill({
         status: 200, contentType: "application/json", body,
       }));
-      await page.goto(server.url + "/");
+      await page.goto(server.url + "/map");
       await expect(page.locator("#status")).toHaveText(UNREACHED);
       await expect(page.locator("#node-description")).toHaveText(UNREACHED);
       await page.locator("#btn-do-speak").click();
@@ -392,12 +392,12 @@ test("/app answers a refused or failed speech with authored lines, and keeps the
   }
 });
 
-test("the map answers a refused or failed speech with authored lines, and keeps the server's own", async ({ page }) => {
+test("the original explorer answers a refused or failed speech with authored lines, and keeps the server's own", async ({ page }) => {
   const server = await serve();
   const errors = watchErrors(page);
   try {
     await returning(page, KEY);
-    await page.goto(server.url + "/");
+    await page.goto(server.url + "/map");
     await expect(page.locator("#status")).toContainText("nodes · shared world");
     await expect(page.locator("#node-name")).not.toHaveText("Select a node");
     await answerSpeech(page);
@@ -418,7 +418,7 @@ test("the map answers a refused or failed speech with authored lines, and keeps 
   }
 });
 
-test("the map asks again for a deeper view after a paced or undrawable read", async ({ page, request }) => {
+test("the original explorer asks again for a deeper view after a paced or undrawable read", async ({ page, request }) => {
   const server = await serve();
   const errors = watchErrors(page);
   try {
@@ -426,7 +426,7 @@ test("the map asks again for a deeper view after a paced or undrawable read", as
     let deep = world.world;
     while (deep.name.split("-").pop().length < 8) deep = deep.children[0];
     await returning(page, KEY);
-    await page.goto(server.url + "/");
+    await page.goto(server.url + "/map");
     await expect(page.locator("#status")).toContainText("depth 6");
 
     // The deepening read toward a place below the horizon is paced.

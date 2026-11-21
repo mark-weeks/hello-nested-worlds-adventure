@@ -10,8 +10,8 @@ player, by an operator-minted key or a redeemed registration invite, and
 rehearsals stay on staging (ADR-004 section 3; item 9). By the owner's answer of
 2026-11-19, a production world is not reset once the launch checklist's world
 status is declared, which for the cohort world comes before that player
-(item 9). `/` switches to the shared React Map
-view in a client batch of its own (item 2). Watch sessions are due by
+(item 9). The public map switch (item 2) is recorded in section 3 below.
+Watch sessions are due by
 11 December 2026, and the cohort date is set at the watch read-out (item 39).
 
 **2026-11-15 study-entry amendment (owner-decided):** The owner
@@ -66,22 +66,18 @@ recommended next batch."
 That instruction authorizes the recommended implementation and scoped
 pilot-client choice. It does not approve deployment, recruitment, map
 retirement, or waive the device and human evidence named in the recommendation.
-Section 3's explorer-default decision is superseded within this scope: minted
-invites, self-service registration and primary return links use `/app`; `/`
-remains the explicitly named world-map alternate. This selects the pilot
-experience, not a deployment or a finding that the device gates passed.
-Physical-device, accessibility, fallback and observed-newcomer checks remain
-required before including those devices in the cohort. Map retirement is a
-separate, undecided change.
+That revision moved minted invites, self-service registration and primary
+return links to `/app` and kept the original world map at `/`. The later
+public route switch in section 3 supersedes that map address. Physical-device,
+accessibility, fallback and observed-newcomer checks remain required before
+including those devices in the cohort.
 
-**2026-09-12 client development revision:** The scene client `/app` is now the
-primary surface for the discovery/return slice. The explorer `/` retains the
-world map and compatibility role; shared rules and request-intent handling live
-outside either shell. Invites still default to `/` in this batch. A public
-switch follows a reviewed device/accessibility/fallback assessment and human
-onboarding evidence; Chromium checks alone do not establish support on every
-device. The scene now has a responsive layout and navigable text fallback when
-its graphics renderer is unavailable. See ADR-025 and the implementation evaluation.
+**2026-09-12 client development revision (historical).** This revision made
+`/app` the primary surface for the discovery/return slice. At that time the
+explorer at `/` still received invites. The scene gained a responsive layout
+and navigable text fallback. The revision called for device, accessibility,
+fallback and human onboarding evidence. See ADR-025 and the implementation
+evaluation.
 
 **Status:** Accepted 2026-07-19
 
@@ -155,23 +151,24 @@ ADR-004's "the current DB is pre-launch; there is no throwaway pre-launch
 data worth protecting" makes this fully covenant-compatible — the
 throwaway phase simply never touches the production volume.
 
-### 3. Pilot client posture: `/app` default, world map the named alternate
+### 3. Browser entry and the original explorer
 
-**Decided 2026-11-04, by the owner's instruction above:** use one client for
-the invitation, registration, journal/home/recap links and return journey.
-`/app` is that client. Keep `/` available as **World map**, rather than
-silently moving returning players into a different interface. The guide and
-auxiliary pages follow the same default. Existing free exploration and
-Speak | Puzzle | Act stay intact; no scripted onboarding route is introduced.
+A fresh visit to `/` opens the shared React world map. Invitations,
+registration and journal return links open the living scene at `/app`.
+The player can switch views at the same place with one session, one
+participation notice and the same Speak, Puzzle, Act and Travelers controls.
+The map uses D3. The scene uses a 2D canvas and offers text and passages
+when drawing is unavailable. The client dropped its unused PixiJS shim.
 
-The scene renders with a 2D canvas and has navigable text when rendering is
-unavailable. The old WebGL distinction therefore does not decide the pilot
-default. Desktop Chromium coverage is still insufficient evidence for the
-cohort's physical devices or assistive technology. This amendment changes
-the development/pilot default while retaining the launch checks and the
-staging-before-production decision in section 2.
+The original D3 explorer is available at `/map` through the cohort read-out.
+During that period it receives privacy, safety and correctness fixes and
+changes from batches the owner already ratified. Its HTML shell can load
+before a player supplies an invite key. World data and play still use the
+invite and participation checks. The cohort's device, accessibility and
+newcomer checks remain part of admission.
+[Owner decision O10](../roadmap/owner-decisions-2026-11-20.md#o10-the-old-maps-path-and-the-map-view-reading-item-2)
 
-#### Original 2026-07-19 client decision (superseded within the scope above)
+#### Original 2026-07-19 client decision (superseded)
 
 Two feature-complete clients are a real maintenance tax under a
 launch-window deploy freeze, and the executed parity harness (entry,
@@ -232,15 +229,14 @@ transcripts, and switch only if quality holds.
 - **A staging twin costs a few hours and a few dollars**, and its config
   can drift from production — mitigated by using the same `fly.toml` and
   `deploy.sh` with only `FLY_APP` overridden.
-- **One pilot client with an alternate map.** The 2026-11-04 decision keeps
-  first visit and return consistent, while retaining the map's compatibility
-  and overview role. Maintaining both remains a cost; this batch does not
-  approve retirement.
-- **De-emphasizing `/app`** hides the product's visual half from first
+- **One pilot client and a retained explorer.** Players can switch between
+  map and scene within the React session. Keeping the original explorer at
+  `/map` preserves its ambient observation view and incurs the cost of
+  maintaining a second client through the cohort read-out.
+- *Historical trade-off from the July decision, superseded in November.*
+  **De-emphasizing `/app`** hides the product's visual half from first
   impressions — accepted for the beta; the guide names it rather than
   burying it.
-  *Historical client trade-off, retained verbatim; superseded 2026-11-04 by
-  the pilot-client decision above.*
 - **A model bump days before launch** carries nonzero voice-drift risk even
   at identical API surface — accepted because it is one env-swappable
   default, and the staging live-voice probe exercises it before any
@@ -255,13 +251,13 @@ transcripts, and switch only if quality holds.
   re-run the rehearsal; the production first-deploy waits.
 - **The cohort device checks or newcomer observations expose a client
   blocker** → fix and recheck it before using that device; revisit the pilot
-  client choice if the blocker cannot be resolved. A map-retirement proposal
-  needs its own decision and evidence.
-- **The parity harness reaches the remaining duplicated explorer logic**
+  client choice if the blocker cannot be resolved. Any proposal to retire
+  the original explorer after the cohort read-out needs its own decision
+  and evidence.
+- *Historical trigger from the July decision, superseded in November.*
+  **The parity harness reaches the remaining duplicated explorer logic**
   → re-advertise `/app` as a co-equal surface if the cohort's devices
   support it.
-  *Historical client revisit trigger, retained verbatim; superseded
-  2026-11-04 by the scoped pilot default and current device checks above.*
 - **A month of real transcripts exists** → run the Sonnet 5 A/B; if voice
   quality holds, take the ~1.7x saving (and note Sonnet's lower cache
   minimum makes the 4096 guard conservative-but-harmless, not wrong).

@@ -31,7 +31,7 @@ function replyTo(page, path) {
   return page.waitForResponse(reply => new URL(reply.url()).pathname === path);
 }
 
-test('a traveler uses the map, Speak, Puzzle and Act by keyboard and returns to the same place', async ({page}) => {
+for (const route of ['/', '/app']) test(`${route}: a traveler uses the shared map by keyboard and returns to the same place`, async ({page}) => {
   test.setTimeout(60_000);
   const server = await serveBrowser({
     preseed: 382, invite: key, player,
@@ -50,11 +50,12 @@ test('a traveler uses the map, Speak, Puzzle and Act by keyboard and returns to 
       interruptConnection = () => Promise.all([socket.close(), peer.close()]);
     });
     await page.emulateMedia({reducedMotion: 'reduce'});
-    const invite = new URL('/app', server.url);
+    const invite = new URL(route, server.url);
     invite.search = new URLSearchParams({key, name: player, node: region});
     await page.goto(invite.href);
     await expect(page.getByRole('heading', {name: 'Temporary test world'})).toBeVisible();
-    await expect(page.getByRole('button', {name: 'World map'})).toHaveCount(0);
+    const map = page.getByRole('group', {name: 'World map'});
+    await expect(map).toHaveCount(0);
     await activate(page, page.locator('#participation-age'), 'Space');
     await activate(page, page.locator('#participation-agree'), 'Space');
     await activate(page, page.getByRole('button', {name: 'Agree and continue'}));
@@ -64,8 +65,12 @@ test('a traveler uses the map, Speak, Puzzle and Act by keyboard and returns to 
     const place = page.locator('#node-name');
     await expect(place).toHaveText(displayName(region));
     await expect.poll(() => welcomes.length).toBe(1);
-    await activate(page, page.getByRole('button', {name: 'World map', exact: true}));
-    const map = page.getByRole('group', {name: 'World map'});
+    if (route === '/app') {
+      await expect(page.getByRole('region', {name: 'Living scene'})).toBeVisible();
+      await activate(page, page.getByRole('button', {name: 'World map', exact: true}));
+    }
+    await expect(map).toBeVisible();
+    await expect(page).toHaveURL(server.url + route);
     const regionMarker = map.getByRole('button', {name: new RegExp(displayName(region))});
     const galleryMarker = map.getByRole('button', {name: new RegExp(displayName(gallery))});
     await expect(galleryMarker).toBeVisible();
@@ -109,7 +114,7 @@ test('a traveler uses the map, Speak, Puzzle and Act by keyboard and returns to 
     expect(await action.json()).toMatchObject({accepted: true});
     await expect(composer.getByRole('status')).toContainText('Shade');
     expect(welcomes).toHaveLength(1);
-    await expect(page).toHaveURL(server.url + '/app');
+    await expect(page).toHaveURL(server.url + route);
 
     // Break the live connection while the map is open, then separately
     // exercise a full page reload. Each must join the same traveler and place.
@@ -127,6 +132,14 @@ test('a traveler uses the map, Speak, Puzzle and Act by keyboard and returns to 
     await activate(page, act);
     await activate(page, composer.getByText('Actions still echoing', {exact: true}));
     await expect(composer.getByText(player + ' · Shade', {exact: true})).toBeVisible();
+
+    if (route === '/') {
+      await activate(page, page.getByRole('button', {name: 'Living scene', exact: true}));
+      await page.reload();
+      await expect(page.getByRole('region', {name: 'Living scene'})).toBeVisible();
+      await expect(place).toHaveText(displayName(gallery));
+      await expect(page).toHaveURL(server.url + route);
+    }
   } finally {
     await server.close();
   }

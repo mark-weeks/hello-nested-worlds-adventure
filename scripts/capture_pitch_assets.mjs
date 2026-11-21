@@ -48,6 +48,7 @@ const server = spawn(python, [
   "--database", databasePath,
   "--manifest", manifestPath,
   "--heartbeat-summary", heartbeatPath,
+  "--heartbeat-on-stdin",
   "--port", String(port),
 ], {
   cwd: repoDir,
@@ -60,7 +61,7 @@ const server = spawn(python, [
     NESTED_WORLDS_DISABLE_AI: "1",
     NESTED_WORLDS_DISABLE_IMAGES: "1",
   },
-  stdio: ["ignore", "inherit", "inherit"],
+  stdio: ["pipe", "inherit", "inherit"],
 });
 
 async function waitForServer() {
@@ -95,7 +96,7 @@ async function waitForServer() {
   throw new Error("pitch capture server did not become healthy");
 }
 
-async function waitForFile(path, timeoutMs = 20_000) {
+async function waitForFile(path, timeoutMs = 40_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (existsSync(path)) return;
@@ -118,7 +119,7 @@ async function openExplorer(browser, viewport, playerName) {
   const context = await browser.newContext({ viewport });
   await primeContext(context, playerName);
   const page = await context.newPage();
-  await page.goto(`${baseURL}/?name=${encodeURIComponent(playerName)}`,
+  await page.goto(`${baseURL}/map?name=${encodeURIComponent(playerName)}`,
                   { waitUntil: "networkidle" });
   await page.waitForFunction(() => {
     const text = document.querySelector("#node-name")?.textContent || "";
@@ -148,14 +149,14 @@ try {
   if (manifest.seed !== 382) {
     throw new Error(`capture manifest used seed ${manifest.seed}, expected 382`);
   }
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, executablePath: process.env.PW_CHROMIUM_PATH });
 
   // 1. A real name-derived middle-world arrival in the canonical world.
   const drop = await openExplorer(browser, { width: 1280, height: 800 }, "Archivist");
   await drop.page.waitForTimeout(700);
   const dropin = {
     player: "Archivist",
-    node: await drop.page.locator("#node-name").textContent(),
+    node: await drop.page.locator("#node-name").getAttribute("title"),
     level: await drop.page.locator("#node-level").textContent(),
   };
   await drop.page.screenshot({ path: join(assetsDir, "dropin.png") });
@@ -172,20 +173,24 @@ try {
       chain.push(node);
       node = node.children?.[0] || null;
     }
-    document.body.innerHTML = '<main id="capture-grid"><header><h1>ELEVEN ENFOLDED SCALES</h1><p>canonical world · seed 382 · one living chain</p></header><section id="cards"></section></main>';
+    // Keep the live explorer mounted; its D3 resize observer still owns the SVG.
+    const sheet = document.createElement("main");
+    sheet.id = "capture-grid";
+    sheet.innerHTML = '<header><h1>ELEVEN ENFOLDED SCALES</h1><p>canonical world · seed 382 · one living chain</p></header><section id="cards"></section>';
+    document.body.appendChild(sheet);
     const style = document.createElement("style");
     style.textContent = `
-      * { box-sizing: border-box; } html, body { margin:0; width:1280px; height:792px; overflow:hidden; }
-      body { background:#07080f; color:#b0bcd0; font-family:'Courier New',monospace; }
+      #capture-grid, #capture-grid * { box-sizing:border-box; }
+      #capture-grid { color:#b0bcd0; font-family:'Courier New',monospace; }
       #capture-grid { width:1280px; height:792px; padding:16px; background:radial-gradient(circle at 50% 0%,#101832,#07080f 55%); }
-      header { height:56px; display:flex; align-items:baseline; gap:18px; border-bottom:1px solid #1a2038; }
-      h1 { margin:0; color:#5a9cff; letter-spacing:3px; font-size:16px; }
-      header p { margin:0; color:#40557a; font-size:11px; letter-spacing:1px; }
+      #capture-grid header { height:56px; display:flex; align-items:baseline; gap:18px; border-bottom:1px solid #1a2038; }
+      #capture-grid h1 { margin:0; color:#5a9cff; letter-spacing:3px; font-size:16px; }
+      #capture-grid header p { margin:0; color:#40557a; font-size:11px; letter-spacing:1px; }
       #cards { display:grid; grid-template-columns:repeat(4, 1fr); grid-template-rows:repeat(3, 1fr); gap:10px; height:704px; padding-top:10px; }
-      article { min-width:0; border:1px solid #1a2038; background:#0b0d1acc; padding:8px; display:flex; flex-direction:column; }
-      canvas { width:100%; flex:1; min-height:0; background:#07080f; border:1px solid #141b30; }
-      .level { margin-top:6px; color:#668bd0; font-size:9px; text-transform:uppercase; letter-spacing:2px; }
-      .name { color:#a8bad5; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      #capture-grid article { min-width:0; border:1px solid #1a2038; background:#0b0d1acc; padding:8px; display:flex; flex-direction:column; }
+      #capture-grid canvas { width:100%; flex:1; min-height:0; background:#07080f; border:1px solid #141b30; }
+      #capture-grid .level { margin-top:6px; color:#668bd0; font-size:9px; text-transform:uppercase; letter-spacing:2px; }
+      #capture-grid .name { color:#a8bad5; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     `;
     document.head.appendChild(style);
     const cards = document.querySelector("#cards");
@@ -214,42 +219,43 @@ try {
   // drives the same D3 handler without fabricating application state.
   await target.dispatchEvent("click");
   await cascade.page.waitForFunction(
-    expected => document.querySelector("#node-name")?.textContent === expected,
+    expected => document.querySelector("#node-name")?.title === expected,
     manifest.cascade_node,
   );
-  // The deliberately short GIF viewport clips the lower control panel. The
-  // controls are still live in the page; dispatching their normal click events
-  // avoids Playwright trying to scroll the fixed-height application shell.
-  await cascade.page.locator("#btn-puzzle").dispatchEvent("click");
-  await cascade.page.locator("#btn-do-puzzle").dispatchEvent("click");
-  await cascade.page.locator("#puzzle-answer").waitFor();
-  await cascade.page.locator("#puzzle-answer").evaluate((input, answer) => {
-    input.value = answer;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  }, manifest.cascade_answer);
+  const feed = cascade.page.locator("#event-feed");
+  await cascade.page.getByText("History & journal", { exact: true }).click();
+  await cascade.page.locator("#btn-puzzle").click();
+  const answer = cascade.page.locator("#puzzle-answer");
+  await answer.waitFor();
+  await feed.scrollIntoViewIfNeeded();
   await cascade.page.screenshot({ path: join(framesDir, "frame-000.png") });
-  await cascade.page.locator("#puzzle-submit").dispatchEvent("click");
+  await answer.fill(manifest.cascade_answer);
+  await cascade.page.locator("#puzzle-submit").click();
+  await cascade.page.locator("#puzzle-result.correct").waitFor();
+  await cascade.page.locator("#btn-speak").click();
+  await feed.scrollIntoViewIfNeeded();
   for (let frame = 1; frame <= 24; frame += 1) {
     await cascade.page.waitForTimeout(500);
     await cascade.page.screenshot({
       path: join(framesDir, `frame-${String(frame).padStart(3, "0")}.png`),
     });
   }
-  const cascadeFeed = await cascade.page.locator("#event-feed").innerText();
+  const cascadeFeed = await feed.innerText();
   await cascade.context.close();
   encodeCascade();
 
   // 4. Capture the same-process deterministic heartbeat while Tessera is live.
   const heartbeat = await openExplorer(browser, { width: 1280, height: 800 }, "Stillwater");
-  await heartbeat.page.waitForFunction(() =>
-    [...document.querySelectorAll(".player-row .player-name")]
-      .some(element => element.textContent?.includes("Tessera")),
-    { timeout: 30_000 },
-  );
-  await heartbeat.page.waitForTimeout(1000);
+  await heartbeat.page.getByText("History & journal", { exact: true }).click();
+  await heartbeat.page.getByText("Travelers & chat", { exact: true }).click();
+  await heartbeat.page.waitForFunction(() => mySessionId !== null);
+  server.stdin.end("ready\n");
+  const traveler = heartbeat.page.locator('.player-row[title="follow Tessera"]:enabled');
+  await traveler.waitFor();
   const heartbeatPresence = await heartbeat.page.locator("#players-list").innerText();
   const heartbeatFeed = await heartbeat.page.locator("#event-feed").innerText();
   await heartbeat.page.locator(".sidebar").screenshot({ path: join(assetsDir, "heartbeat.png") });
+  if (!await traveler.isVisible()) throw new Error("Tessera left during the heartbeat capture");
   await heartbeat.context.close();
 
   await waitForFile(heartbeatPath);

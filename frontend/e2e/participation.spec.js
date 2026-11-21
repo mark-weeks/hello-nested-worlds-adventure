@@ -53,7 +53,7 @@ async function accept(page) {
   await submit.click();
 }
 
-for (const route of ['/', '/app']) {
+for (const route of ['/map', '/app']) {
   test(`${route}: an earlier intro never accepts staging consent; reload and a fresh device read server acceptance`, async ({ browser }) => {
     test.setTimeout(60_000);
     const server = await serveBrowser({ preseed: 382, invite: KEY, player: NAME, env: noticeEnv });
@@ -93,7 +93,7 @@ for (const route of ['/', '/app']) {
   });
 }
 
-for (const route of ['/', '/app']) for (const failure of [429, 502, 'network']) {
+for (const route of ['/map', '/app']) for (const failure of [429, 502, 'network']) {
   test(`${route}: an unknown ordinary-world metadata ${failure} does not block entry`, async ({ page }) => {
     const server = await serveBrowser({ preseed: 382 });
     try {
@@ -392,7 +392,7 @@ for command in sys.stdin:
   };
 }
 
-for (const route of ['/', '/app']) test(`${route}: a live notice revision resumes the current view without replaying refused speech`, async ({ page }) => {
+for (const route of ['/map', '/app']) test(`${route}: a live notice revision resumes the current view without replaying refused speech`, async ({ page }) => {
   test.setTimeout(60_000);
   const server = await mutableNoticeServer();
   try {
@@ -513,7 +513,7 @@ server.serve_forever()
   };
 }
 
-for (const route of ['/', '/app']) test(`${route}: a process restart with a new notice restores consent before reconnecting`, async ({ page }) => {
+for (const route of ['/map', '/app']) test(`${route}: a process restart with a new notice restores consent before reconnecting`, async ({ page }) => {
   test.setTimeout(60_000);
   const server = await restartableNoticeServer();
   try {

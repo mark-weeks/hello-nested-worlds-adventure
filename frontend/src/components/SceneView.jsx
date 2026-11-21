@@ -7,7 +7,7 @@ import "./scene.css";
 export default function SceneView({world, node, transients = [], parent, onJump, passageLoadStatus, onPassageRetry, wrapPassage, onWrapCross, seed}) {
   const navigation = useRef(null);
   const [view, setView] = useState(() => ({
-    map: history.state?.worldMap === true,
+    map: history.state?.worldMap ?? (location.pathname === "/"),
     lastScene: null,
   }));
   useEffect(() => {
@@ -15,7 +15,7 @@ export default function SceneView({world, node, transients = [], parent, onJump,
       node, parent, seed, jump: onJump, status: passageLoadStatus, retry: onPassageRetry,
       wrap: wrapPassage, cross: onWrapCross, view: view.map ? "Living scene" : "World map",
       switchView() {
-        // Reload resumes this view. A fresh /app link still opens the scene.
+        // Each history entry remembers the player's choice across reloads.
         history.replaceState({ ...history.state, worldMap: !view.map }, "");
         setView({ map: !view.map, lastScene: view.map ? null : { node, seed } });
       },

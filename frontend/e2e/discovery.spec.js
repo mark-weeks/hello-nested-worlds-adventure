@@ -115,8 +115,7 @@ test('320px GPU-free scene offers keyboard navigation and one action surface', a
     });
     await enter(page, server);
     await expect(page.getByRole('button', {name: 'Act',exact:true})).toBeVisible();
-    // Pixi can use its canvas renderer without a GPU; text passages remain
-    // keyboard accessible regardless of which renderer is available.
+    // The living scene's passages remain keyboard accessible without a GPU.
     const passage = page.getByRole('button', {name: 'Room ↘ Broken Ember Gallery', exact: true});
     await passage.focus(); await page.keyboard.press('Enter');
     await expect(page.locator('[title="Broken Ember Gallery-1111111"]').first()).toBeVisible();

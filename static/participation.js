@@ -86,7 +86,7 @@
     'guide-puzzles': 'Puzzles compose the way the world does. Constellations complete when every system of a galaxy, or every room of a region, is resolved. Completion is recorded and credited in this test world. Co-op attempts pool, so travelers can light a constellation together. Lineage sigils use three marks from three enclosing scales; bonds ask for the atom puzzle in the lattice that holds it.',
     'guide-sealed': 'Some rooms are sealed until their lock is answered. The key is a truth about the place that holds the room, readable one scale up. Speak the key from the threshold and the way opens for everyone, until the world\'s slow entropy re-arms the room.',
     'guide-history-title': 'Reading this test world\'s history',
-    'guide-history': 'This temporary world and its records follow the participation notice above. It may be reset or removed. While it exists, saved positions, conversations and marks can help you return. Open the Chronicle to read its recorded past, or Replay History (Wayback on the map) to inspect earlier state through today\'s art and sound. Looking leaves no new trace.',
+    'guide-history': 'This temporary world and its records follow the participation notice above. It may be reset or removed. While it exists, saved positions, conversations and marks can help you return. Open the Chronicle to read its recorded past, or Replay History to inspect earlier state through today\'s art and sound. Looking leaves no new trace.',
   };
   function temporaryCopy(required) {
     for (const node of document.querySelectorAll('[data-participation-copy]')) {
