@@ -17,7 +17,7 @@ controlled mode will dispatch.
 
 `build_request` posts JSON with `model`, `messages`, and one output-limit
 field. The output-limit name is `max_completion_tokens` unless
-`NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_TOKENS_PARAM` is `max_tokens`. When
+`NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` is `max_tokens`. When
 structured outputs are on and the caller passes a schema, the body sets
 `response_format` to `{ "type": "json_schema", "json_schema": { "name",
 "schema", "strict": true } }`. Intention and moderation always pass a schema.

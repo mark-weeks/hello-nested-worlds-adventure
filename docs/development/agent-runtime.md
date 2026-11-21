@@ -579,7 +579,7 @@ Existing local/fixture behavior outside controlled mode and the call-count caps
 remain. A valid policy is not provider evaluation or live activation approval.
 
 The checked-in watch example is refused until the owner fills it. The
-[endpoint-check record](../evaluation/2026-11-2x-chat-completions-endpoint-check.md)
+[endpoint-check record](../evaluation/2026-11-20-chat-completions-endpoint-check.md)
 is a desk recommendation for one Chat Completions endpoint. It does not approve
 a destination, a model id, a price or a dollar amount, and it does not change
 ADR-035's Status. The disposable twin may run the first live probe once the owner has signed

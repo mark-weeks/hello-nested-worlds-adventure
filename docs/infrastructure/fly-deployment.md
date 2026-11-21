@@ -413,6 +413,9 @@ fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
 #    name to the same unconfirmed integer in one secrets set. The names and
 #    the unconfirmed drafts are in the controlled model policy guide under
 #    "Watch call caps". Leave the image caps unset.
+#    This step does not set the provider credential. That value is
+#    NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY, set with the policy path in
+#    "Approved live controlled text". Never print it and never printenv it.
 
 # 7. Verify GET /community matches the selected enabled/off state and
 #    GET /participation serves the revised, ready test-world notice.
@@ -423,23 +426,29 @@ fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
 #    on a tester's behalf. Without acknowledgement a keyed /world or /ws
 #    is refused with 428; an incomplete notice refuses gameplay with 503.
 #    Check it with the check key from step 5, never a tester's: /health
-#    ok, the gate closed. For this AI-on watch, /speak answers "ai": true
-#    only after "Approved live controlled text" has loaded the policy and
-#    the text kill switch is 0. Until then the same request answers "ai": false, which is not a
-#    pass for this watch. A live answer writes a
+#    ok, the gate closed. STOP before the speak line. Both kill switches
+#    are still 1, so that grep cannot pass yet. Do not revoke the check
+#    key, and do not start step 8. Complete "Approved live controlled text"
+#    first (the policy file, the credential, the adapter settings, then
+#    the text kill switch at 0). Come back to the speak line. It must
+#    print "ai": true. A failed grep is a stop, not a pass. Only then
+#    revoke the check key. If this block was already run through and
+#    Stagingcheck was revoked, mint Stagingcheck2 the way "Teardown before
+#    launch" says, acknowledge that new key, and use it on the speak line.
+#    A revoked name stays taken. A live answer writes a
 #    PLAYER_SPEAK row to the staging chronicle under the check key's name,
 #    and the node's transcript is keyed on that key. Under a tester's key
-#    it would read as that tester speaking before they arrived. Then revoke
-#    the check key.
+#    it would read as that tester speaking before they arrived.
 curl https://enfolded-staging.fly.dev/health
 curl -i https://enfolded-staging.fly.dev/world        # 403 without a key
 curl -s -H 'X-Beta-Key: <check key>' 'https://enfolded-staging.fly.dev/world?depth=1' | python3 -c 'import json, sys; print(json.load(sys.stdin)["world"]["name"])'
 curl -s -X POST https://enfolded-staging.fly.dev/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<the place name printed above>"}' | grep -o '"ai": true'
 fly ssh console -a enfolded-staging -C "python main.py invite revoke <check key>"
 
-# 8. Only now, and only once protocol 2's prerequisites below are recorded,
-#    send each URL to its tester only: never in an issue, a PR, a chat
-#    channel or a CI log.
+# 8. Only after the speak line has printed "ai": true, and only once
+#    protocol 2's prerequisites below are recorded and the owner has
+#    recorded ADR-035 acceptance, send each URL to its tester only:
+#    never in an issue, a PR, a chat channel or a CI log.
 ```
 
 #### Private traveler chat and reports
@@ -587,7 +596,7 @@ the $150 spend limit is set on the provider account. That probe is the live
 evidence for accepting ADR-035 and does not wait for the acceptance record.
 Production, and any session a participant joins, also wait until the owner
 records that acceptance. ADR-035 stays Proposed until then. The
-[endpoint-check record](../evaluation/2026-11-2x-chat-completions-endpoint-check.md)
+[endpoint-check record](../evaluation/2026-11-20-chat-completions-endpoint-check.md)
 recommends a candidate; it does not sign the note or fill the file. No command
 below is authorization to choose an endpoint, set prices or amounts, or open
 the world to a participant.
@@ -632,7 +641,8 @@ Set `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` only when
 the file does not say `max_completion_tokens`. The timeout value must be no
 greater than every non-moderation route's `timeout_seconds`. Moderation's
 call uses 3 seconds, so that route's timeout must be at least 3. The values
-below are placeholders. Do not copy them in as the owner's choices.
+below are placeholders. Do not copy them in as the owner's choices. Never
+print `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` and never `printenv` it.
 
 ```bash
 fly secrets set -a enfolded-staging \
@@ -684,10 +694,14 @@ fly ssh console -a enfolded-staging -C "python main.py voice-health"
 `printenv` must print `0`. Confirm the controlled route policy in the plain CLI
 output and match it to the deployed release and restart evidence. The CLI freezes
 its own environment/file; it does not inspect the running server's earlier
-in-memory snapshot after a file edit. Then use step 7's authenticated gameplay probe under an acknowledged
-check identity and require `ai: true`. That probe is the live evidence for
-accepting ADR-035. It may run before the owner records the acceptance.
-Sending a tester URL waits for that record. Never use `models --probe` or
+in-memory snapshot after a file edit. Then return to step 7's speak line
+and run it while the check key is still live. Do not revoke that key first.
+If it was already revoked, mint `Stagingcheck2` as
+[Teardown before launch](#teardown-before-launch) says, acknowledge it, and
+use that key. The grep must print `"ai": true`. A failed grep stops the
+sequence. That probe is the live evidence for accepting ADR-035. It may run
+before the owner records the acceptance. Sending a tester URL waits for that
+record and for the passing grep. Never use `models --probe` or
 `voice-health --probe` in controlled mode: direct keyless probes are refused
 because they have no participant reservation. The same checks apply to any
 separately authorized production activation, naming that app explicitly.

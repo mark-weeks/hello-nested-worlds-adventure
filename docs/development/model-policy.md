@@ -12,7 +12,7 @@ settings. The provider console limit of $150 is not a field in the file.
 The code supports only the built-in `openai_compatible` Chat Completions path.
 ADR-035 stays Proposed until the owner records acceptance for one named
 endpoint. A desk check of the two candidate endpoints is in the
-[endpoint-check record](../evaluation/2026-11-2x-chat-completions-endpoint-check.md).
+[endpoint-check record](../evaluation/2026-11-20-chat-completions-endpoint-check.md).
 That record recommends one candidate. It does not sign a data-use note, fill
 the example, or accept the ADR. The disposable twin may run the first live
 probe once the owner has signed that note, filled the private policy, passed
