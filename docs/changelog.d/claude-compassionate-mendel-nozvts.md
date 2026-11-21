@@ -51,9 +51,10 @@ Section: Fixed
   co-viewer test's overall budget is now 60 s. Its 25 s delivery poll and 10 s
   visibility bound are unchanged.
   A second review found the duplicate read above and the rate-limit statement, both
-  corrected. **Verified:** Vitest `interventions.test.js` 18/18. The three
-  receipt, focus and disclosure cases fail on `b9f15f8`; the four notice-coverage
-  cases fail on `386e571`. Whole
+  corrected. **Verified:** Vitest `interventions.test.js` 19/19. The three
+  receipt, focus and disclosure cases fail on `b9f15f8`; the five notice-coverage
+  cases fail on `386e571`, including an own commit whose history read hit a 429 and
+  whose echo, reusing the intervention id, was then suppressed. Whole
   `delivery.spec.js` 17/17 unloaded. Frontend rebuilt. Co-viewer stress at the load
   above 40/40 with the 60 s budget (Node 20.19.0, Python 3.11, system Chromium via
   `PW_CHROMIUM_PATH`). The first version's `ENFOLDED_E2E=1 ./scripts/check.sh` was

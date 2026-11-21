@@ -297,6 +297,33 @@ describe("another player's accepted action", () => {
     c.disconnectedCallback();
   });
 
+  it("still reads for its own echo and later arrivals after its own history read failed", async () => {
+    vi.useFakeTimers();
+    const { c } = composer([
+      { id: "mine", accepted: true, flavor: "Bea begins Kindle." },                 // commit reply
+      Object.assign(new Error("The world keeps its own pace."), { status: 429 }),  // its history read
+      { participant: "p", recent: [{ performer: "Bea", summary: "Kindle", pending: 1, arrivals: [] }] },
+      { participant: "p", recent: [{ performer: "Bea", summary: "Kindle", pending: 0, arrivals: [{ event_id: 9 }] }] },
+    ]);
+    c.data = { participant: "p", recent: [], choices: [] };
+    c.storageKey = "nw_arrangement:test";
+    c.connectedCallback();
+    await c.commit({ steps: [{ op: "kindle", amount: 1 }], version: 3 });
+    expect(c.request).toHaveBeenCalledTimes(2);
+    // The socket echo reuses the intervention id; nothing is skipped by id.
+    globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "mine", event_id: 7, changed: {} });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(3);
+    expect(c.data.recent[0].performer).toBe("Bea");
+    clearTimeout(c.poll);
+    // A later arrival under the same id that changes nothing is read too.
+    globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "mine", event_id: 8, changed: {} });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(4);
+    expect(c.data.recent[0].arrivals).toHaveLength(1);
+    c.disconnectedCallback();
+  });
+
   it("keeps the receipt through polls that an announced read started", async () => {
     vi.useFakeTimers();
     const { c } = composer([
