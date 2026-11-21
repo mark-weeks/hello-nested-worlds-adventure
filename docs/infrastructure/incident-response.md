@@ -324,12 +324,16 @@ fails and leaves no empty database. It resolves each
 `reserved` row to `uncertain` at the same `accounted_microusd`, sets
 `settled_at`, clears `abandoned_at`, and deletes the latch row. It commits
 only when no reserved row remains and no row's money, day, or retention
-changed. Any refusal rolls back. Replace `throwaway-app-name` with this
-machine's app name, and `2026-11-20` with the comma-separated days from
-`reconcile days`. Do not set `FLY_APP_NAME` on the command.
+changed, and only when the reserved ids are exactly the ones from the
+listing. The money, day, and retention comparison is against the rows this
+transaction read, not against that listing. Any refusal rolls back. Replace
+`throwaway-app-name` with this machine's app name, `2026-11-20` with the
+comma-separated days from `reconcile days`, and `id1` with the reserved ids
+from the listing. If that listing printed `(none)`, leave
+`ENFOLDED_CLEAR_RESERVED` empty. Do not set `FLY_APP_NAME` on the command.
 
 ```bash
-cd /app && ENFOLDED_CLEAR_APP=throwaway-app-name ENFOLDED_CLEAR_DAYS=2026-11-20 python - <<'EOF'
+cd /app && ENFOLDED_CLEAR_APP=throwaway-app-name ENFOLDED_CLEAR_DAYS=2026-11-20 ENFOLDED_CLEAR_RESERVED=id1 python - <<'EOF'
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -361,6 +365,10 @@ try:
                   retention_days, retain_until
            FROM model_spend_reservations"""
     ).fetchall()
+    listed = {part.strip() for part in os.environ.get("ENFOLDED_CLEAR_RESERVED", "").split(",") if part.strip()}
+    seen = {row["id"] for row in before if row["status"] == "reserved"}
+    if listed != seen:
+        raise SystemExit("refusing: reserved ids do not match the listing: " + ",".join(sorted(listed ^ seen)))
     for row in before:
         if row["status"] == "reserved" and row["accounted_microusd"] != row["reserved_microusd"]:
             raise SystemExit("refusing: a reserved row's accounted total does not match")
@@ -522,19 +530,25 @@ fly secrets set -a "$ENFOLDED_CLEAR_APP" \
   NESTED_WORLDS_DISABLE_MODERATION=1
 ```
 
-This covers an allowance refusal, a missing row, a new latch, and a row
-whose status is `uncertain`, `reserved`, or `anomaly`. A usable reply can
-settle as `uncertain` when usage is missing: the full reservation stays, no
-latch is written, and paid routes would still accept another call. Leave
-the latch deleted if the clear already committed. Record the rows. Reconcile
-them before restoring the recorded switch values for another confirming
-call. Do not substitute `0`.
+What happens next depends on the rows.
 
-An allowance refusal is the case where today's accounted total leaves no
-room for one more full reservation. The ledger keeps no new reserved row,
-and that refusal is not a latch. Make the confirming call once the current
-UTC day can admit one reservation. Until a call's rows are all `settled`,
-the clear is not complete and the switches stay at `1`.
+An allowance refusal leaves no new row and no latch. Today's accounted
+total had no room for one more full reservation. A row whose status is
+`uncertain` also leaves no latch: a usable reply can settle that way when
+usage is missing, and the full reservation stays. Record the rows.
+Reconcile them, then restore the recorded switch values and make another
+confirming call once the current UTC day can admit one reservation. Do not
+substitute `0`. Until that call's rows are all `settled`, the clear is not
+complete and the switches stay at `1`.
+
+A `reserved` row does not stay unlatched. The `fly secrets set` above
+restarts the machine, and that boot's startup scan writes a new
+`unsettled_startup` latch while any `reserved` row remains. An `anomaly`
+row does not stay unlatched either: settlement writes a `billing_anomaly`
+latch as it settles. Another confirming call cannot succeed. Start again
+from [Evidence before the write](#evidence-before-the-write). That is a new
+incident. For `anomaly`, item 5's owner correction applies before the next
+write.
 
 ### Rehearsal on a throwaway app
 

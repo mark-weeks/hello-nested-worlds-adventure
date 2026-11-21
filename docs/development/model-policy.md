@@ -267,7 +267,8 @@ when the reason is `billing_anomaly`.
    because admission reserves the full context bound. Do not write the
    console's number into the ledger.
 2. The latch reason and `latched_at`.
-3. Every `reserved` row, listed before the write and resolved by the write.
+3. Every `reserved` row, listed before the write. The write refuses unless
+   those ids are exactly the reserved rows it sees, and then resolves them.
 4. The dated entry itself, completed with the backup path before the write.
 5. When the reason is `billing_anomaly`, each `anomaly` row's
    `resolved_model`, `usage_json`, `reserved_microusd`, and
@@ -342,10 +343,12 @@ place and throws away the ledger that recorded it.
    does not refund the ceiling. Rows already `settled`, `uncertain`, or
    `anomaly` stay as they are, including a `billing_anomaly` row that has
    already been settled at or above its reservation.
-3. **Clear the latch row,** in that same transaction, only after a count of
-   `status = 'reserved'` is zero and every row's `accounted_microusd`,
-   `day`, `retention_days`, and `retain_until` still match the pre-write
-   snapshot:
+3. **Clear the latch row,** in that same transaction, only after the
+   reserved ids match the listing and a count of `status = 'reserved'` is
+   zero. The transaction also reads its rows before and after the update
+   and refuses if `accounted_microusd`, `day`, `retention_days`, or
+   `retain_until` changed. That comparison is against its own read, not
+   against the listing:
 
    ```sql
    DELETE FROM model_spend_latch WHERE singleton = 1;
@@ -382,15 +385,16 @@ place and throws away the ledger that recorded it.
    `accounted_microusd` the clear refused to lower. The clear is complete
    only when every row that call creates is `settled`. If any created row
    is not `settled`, if no row was created, or if a latch row exists, set
-   both kill switches back to 1 before another paid call. That includes an
-   allowance refusal and a usable reply that settled as `uncertain` because
-   usage was missing: the full reservation stays, no latch is written, and
-   paid routes would still accept another call. Leave the latch deleted if
-   the clear already committed. Reconcile the rows, and make the confirming
-   call only once the current UTC day can admit one reservation and the
-   recorded switch values are restored again. Do not substitute `0`. Until
-   that call's rows are all `settled`,
-   the clear is not complete and the switches stay at 1.
+   both kill switches back to 1 before another paid call. An allowance
+   refusal and a usable reply that settled as `uncertain` write no latch.
+   Reconcile those rows, and make the confirming call only once the current
+   UTC day can admit one reservation and the recorded switch values are
+   restored again. Do not substitute `0`. A `reserved` row is latched again
+   as `unsettled_startup` by the restart that sets the switches back to 1.
+   An `anomaly` row is latched again as `billing_anomaly` by settlement.
+   Either one is a new incident: start again from the evidence, and for an
+   anomaly wait for the owner's route correction. Until a call's rows are
+   all `settled`, the clear is not complete and the switches stay at 1.
 
 The guarded script that performs steps 2 and 3, and the read-only listing
 for the evidence entry, are in the incident procedure. Before it opens the
@@ -398,8 +402,10 @@ database writable, Fly's `FLY_APP_NAME` must equal the app name the operator
 passes, that name must not be `enfolded-beta`, and
 `NESTED_WORLDS_TEST_WORLD` must be on. The operator does not assign
 `FLY_APP_NAME`. The write also refuses unless `ENFOLDED_CLEAR_DAYS` names
-every reconcile day, including an anomaly row's original day. It opens only
-`/data/.nested-worlds/worlds.db`, read-write without creating the file. A
+every reconcile day, including an anomaly row's original day, and unless
+`ENFOLDED_CLEAR_RESERVED` is exactly the reserved ids in that transaction.
+It opens only `/data/.nested-worlds/worlds.db`, read-write without creating
+the file. A
 `billing_anomaly` latch stays until the owner has corrected the route. The
 off-machine backup goes into a fresh `0700` directory, and the downloaded
 file is mode `0600`.
