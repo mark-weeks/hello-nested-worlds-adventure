@@ -19,8 +19,10 @@ Section: Fixed
   Both hosts now announce each `intervention_changed` broadcast. The composer re-reads
   `/interventions` for its own node as a background read, with no `/node` read. Each
   notice is owed until a read that began after it succeeds. Any such read covers it,
-  including the host's node-revision reload and a commit's reload. One debounced
-  (1 s) background read runs only if none did, so a burst costs one read. These reads
+  including the host's node-revision reload and a commit's reload. One background
+  read runs at most 1 s after the first owed notice, only if none did, so a burst or a
+  steady stream costs at most one read per second. A background read that the server
+  refuses (4xx other than 429) is not retried; the notice stays owed for the next one. These reads
   count against the per-IP read limiter (120 GETs/min; `/interventions` is not
   exempt). A first version skipped reads by guessing which reload would cover them.
   Codex's second review reproduced three ways that lost rows or receipts: a notice
@@ -51,7 +53,10 @@ Section: Fixed
   co-viewer test's overall budget is now 60 s. Its 25 s delivery poll and 10 s
   visibility bound are unchanged.
   A second review found the duplicate read above and the rate-limit statement, both
-  corrected. **Verified:** Vitest `interventions.test.js` 19/19. The three
+  corrected. Its re-review added two nits, both fixed: a refused background read
+  retried forever (13 GETs in 10 min), and a restarting debounce gave no read during a
+  steady stream (0 reads in 18 s at one notice per 900 ms). **Verified:** Vitest
+  `interventions.test.js` 21/21; the two nit cases fail on `cdcd09a`. The three
   receipt, focus and disclosure cases fail on `b9f15f8`; the five notice-coverage
   cases fail on `386e571`, including an own commit whose history read hit a 429 and
   whose echo, reusing the intervention id, was then suppressed. Whole

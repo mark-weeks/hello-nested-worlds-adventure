@@ -40,11 +40,14 @@ class InterventionComposer extends HTMLElement {
     };
     globalThis.addEventListener?.(INTERVENTION_EVENT, this.onIntervention);
   }
-  disconnectedCallback() { this.generation++; clearTimeout(this.poll); clearTimeout(this.noticeTimer); globalThis.removeEventListener?.(INTERVENTION_EVENT, this.onIntervention); }
+  disconnectedCallback() { this.generation++; clearTimeout(this.poll); clearTimeout(this.noticeTimer); this.noticeTimer = null; globalThis.removeEventListener?.(INTERVENTION_EVENT, this.onIntervention); }
   noticesOwed() { return (this.noticeSeq || 0) > (this.coveredNotice || 0); }
   scheduleNoticeRead() {
-    clearTimeout(this.noticeTimer);
+    // An armed timer is not restarted: a steady stream of notices still gets
+    // a read within one window of the first, rather than none until it stops.
+    if (this.noticeTimer) return;
     this.noticeTimer = setTimeout(() => {
+      this.noticeTimer = null;
       // A read in flight or a submission settles first; each re-checks on settling.
       if (this.isConnected && this.noticesOwed() && !this.busy && !this.loading) this.load(false, true);
     }, NOTICE_DEBOUNCE_MS);
@@ -68,7 +71,7 @@ class InterventionComposer extends HTMLElement {
     this.loading = (this.loading || 0) + 1;
     // Outcome polling must survive a failed poll: keep the last known pending
     // count so the timer is re-armed from it, and slow down after a failure.
-    let pending = this.data?.recent?.reduce((n,r) => n+r.pending,0) || 0, failed = false;
+    let pending = this.data?.recent?.reduce((n,r) => n+r.pending,0) || 0, failed = false, failedStatus = null;
     try {
       const data = await this.request('/interventions');
       if (generation !== this.generation || sequence !== this.loadSequence || !this.isConnected) return;
@@ -92,15 +95,19 @@ class InterventionComposer extends HTMLElement {
       // request them when it discovers a missed outcome notification.
       if (fromPoll && had != null && (had !== pending || priorObserved !== observed(data.recent))) this.ctx.changed?.();
     } catch (error) {
-      failed = true;
+      failed = true; failedStatus = error.status || null;
       if (generation === this.generation && sequence === this.loadSequence && !background) { this.message=this.pollError=error.status ? error.message : 'This place could not be heard. Listen again.'; this.render(); }
     } finally {
       this.loading--;
       if (generation === this.generation && sequence === this.loadSequence && this.isConnected) {
         clearTimeout(this.poll);
         if (failed && background) {
-          this.backgroundRetry = (this.backgroundRetry || 0) + 1;
-          this.poll=setTimeout(() => this.load(fromPoll, true), Math.min(8000 * 2 ** (this.backgroundRetry - 1), 60000));
+          // Only a transient failure is retried. A refusal (a guarded place, a
+          // revoked key) leaves the notice owed for the next notice or action.
+          if (!failedStatus || failedStatus === 429 || failedStatus >= 500) {
+            this.backgroundRetry = (this.backgroundRetry || 0) + 1;
+            this.poll=setTimeout(() => this.load(fromPoll, true), Math.min(8000 * 2 ** (this.backgroundRetry - 1), 60000));
+          }
         } else if (pending) this.poll=setTimeout(() => this.load(true, background), failed ? 8000 : 4000);
         // A notice that arrived after this read began is still owed.
         if (!failed && this.noticesOwed()) this.scheduleNoticeRead();

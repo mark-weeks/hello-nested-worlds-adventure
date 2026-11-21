@@ -324,6 +324,43 @@ describe("another player's accepted action", () => {
     c.disconnectedCallback();
   });
 
+  it("does not retry a background read the server refuses, and reads again on the next notice", async () => {
+    vi.useFakeTimers();
+    const refused = () => Object.assign(new Error("The seal still guards this place."), { status: 403 });
+    const { c } = composer([refused(), refused()]);
+    c.message = "Bea acts: the stars kindle.";
+    c.connectedCallback();
+    const announce = id => globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id, changed: {} });
+    announce("a");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);   // no retry loop
+    expect(c.request).toHaveBeenCalledTimes(1);
+    expect(c.message).toBe("Bea acts: the stars kindle.");
+    announce("b");                                       // the notice is still owed
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(2);
+    c.disconnectedCallback();
+  });
+
+  it("reads within one window of the first notice under a steady stream", async () => {
+    vi.useFakeTimers();
+    const { c } = composer(Array.from({ length: 30 }, () => ({ participant: "p", recent: [] })));
+    c.connectedCallback();
+    const announce = id => globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id, changed: {} });
+    announce("0");
+    for (let i = 1; i <= 20; i++) { await vi.advanceTimersByTimeAsync(900); announce(String(i)); } // 18 s of notices
+    // A restarting debounce gave 0 reads here; one read per window is expected.
+    expect(c.request.mock.calls.length).toBeGreaterThanOrEqual(9);
+    expect(c.request.mock.calls.length).toBeLessThanOrEqual(19);
+    const during = c.request.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(5000);             // the last notice is covered once
+    expect(c.request.mock.calls.length).toBe(during + 1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(c.request.mock.calls.length).toBe(during + 1);
+    c.disconnectedCallback();
+  });
+
   it("keeps the receipt through polls that an announced read started", async () => {
     vi.useFakeTimers();
     const { c } = composer([
