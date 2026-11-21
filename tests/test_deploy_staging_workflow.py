@@ -1424,6 +1424,9 @@ def test_runbook_voice_probes_remain_controlled_off_and_check_key_only(live_serv
     # The probe itself, as §3a step 7 and §8 write it.
     probes = [c for c in commands if c.startswith("curl ") and "/speak" in c]
     assert len(probes) >= 2, probes
+    staging_speaks = [c for c in probes if "enfolded-staging.fly.dev/speak" in c]
+    assert staging_speaks == [c for c in staging_speaks if '"ai": true' in c]
+    assert len(staging_speaks) == 1, staging_speaks
     # Replay the gated activation example's actual assignment and its
     # remote printenv command locally; no Fly service is contacted.
     activations = [shlex.split(c) for c in commands
@@ -1447,10 +1450,18 @@ def test_runbook_voice_probes_remain_controlled_off_and_check_key_only(live_serv
             status, raw, rest = _replay_curl(
                 command, live_server, place=place, **keys)
             assert status == 200, raw
-            assert rest == ["grep", "-o", '"ai": false'], rest
-            printed = subprocess.run(rest, input=raw, text=True, capture_output=True, check=True)
-            assert printed.stdout.strip() == '"ai": false'
             assert json.loads(raw)["ai"] is False
+            if '"ai": true' in command:
+                # Step 7's AI-on probe. An all-off server cannot satisfy it.
+                assert rest == ["grep", "-o", '"ai": true'], rest
+                printed = subprocess.run(
+                    rest, input=raw, text=True, capture_output=True, check=False)
+                assert printed.returncode != 0 and printed.stdout == ""
+            else:
+                assert rest == ["grep", "-o", '"ai": false'], rest
+                printed = subprocess.run(
+                    rest, input=raw, text=True, capture_output=True, check=True)
+                assert printed.stdout.strip() == '"ai": false'
         assert model_policy.current() is frozen
 
     # A future live predicate cannot pass against the present all-off

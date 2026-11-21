@@ -1,18 +1,25 @@
 # Controlled staging model calls
 
-This batch implements a closed-by-default control boundary, not live activation.
+This guide describes a closed-by-default control boundary, not live activation.
 No provider, endpoint, numeric spending limit, token price or ledger-retention
-period is selected by the checked-in configuration. The owner's earlier ceiling
-proposals remain proposals; they are not forecasts or approved settings.
+period is approved by a checked-in file. The
+[watch example](../../config/model-policy.watch.example.json) is the enabled
+shape with every owner value left as a placeholder the offline check refuses.
+The amounts written inside those placeholders ($15 a day global, $3 a day per
+participant, a retention draft of 35 days) are unconfirmed. They are not
+settings. The provider console limit of $150 is not a field in the file.
 
-The first controlled adapter/vendor remains an open owner decision. The code
-currently supports only the built-in `openai_compatible` Chat Completions path;
-ADR-035 is still Proposed. Live voice on Fly, production included, is blocked
-until ADR-035 is accepted or a controlled Anthropic path exists, and the
-destination/account terms, models, prices, dollar amounts and retention have
-scoped approval. An implementation request in the working session is not
-independent ratification of ADR-039 or approval of those values. This batch does
-not implement chat retention.
+The code supports only the built-in `openai_compatible` Chat Completions path.
+ADR-035 stays Proposed until the owner records acceptance for one named
+endpoint. A desk check of the two candidate endpoints is in the
+[endpoint-check record](../evaluation/2026-11-20-chat-completions-endpoint-check.md).
+That record recommends one candidate. It does not sign a data-use note, fill
+the example, or accept the ADR. The disposable twin may run the first live
+probe once the owner has signed that note, filled the private policy, passed
+`model-policy --check`, and set the $150 spend limit on the provider account.
+That probe is the live evidence for the acceptance record and does not wait
+for it. Production, and any session a participant joins, also wait until the
+owner records the acceptance. This guide does not implement chat retention.
 
 `NESTED_WORLDS_REQUIRE_MODEL_POLICY=1` requires controlled mode. A declared
 temporary test world also requires it (including a misspelled test-world flag,
@@ -45,6 +52,28 @@ It parses and checks enabled routes against effective task/provider/model/option
 without API calls or a database. It does not prove provider availability, token
 bounds, current prices, account settings, retention terms or owner approval.
 No credentials belong in the policy. Use the existing separate credential env var.
+
+The all-off file above is a valid quiet policy. The watch example is not:
+
+```sh
+python main.py model-policy --check --policy config/model-policy.watch.example.json
+```
+
+That command exits 1 until every `<OWNER: ...>` value is replaced. The message
+is the generic invalid-configuration line; it does not echo the file. A passing
+check prints, per enabled route, the full-context reservation in microUSD and
+at least how many such reservations fit under the participant ceiling and under
+the global ceiling. Dispatch can admit more when the call's output bound is
+shorter than the route maximum. A remainder smaller than one reservation does not count. The
+owner confirms the dollar amounts against that report before the file is
+approved. The report names tasks only. It does not print endpoints, model ids,
+prices or approval text.
+
+The $150 provider-account limit is a separate owner step, set on the provider
+console before any paid probe or rubric run. The strict parse refuses an
+unknown key, so the file has nowhere to put it and the server does not enforce
+it. If the account offers only an alert, stop and record a replacement decision
+before any paid call.
 
 `python main.py models` and `python main.py voice-health` report controlled policy
 state when controlled mode is required or active, rather than presenting the
@@ -129,6 +158,10 @@ requirement to work around a refusal.
 
 ## Reservations and usage
 
+The offline check's `reservations` rows report that full-context figure at each
+route's maximum output, and how many whole reservations fit under each ceiling.
+That count is a floor. Dispatch reserves the per-call output bound, which is
+no larger, so a shorter call can be admitted more times than the report shows.
 Admission reserves the **full verified provider context maximum** at the highest input/cache
 price plus the requested output bound, rounded up to integer microUSD. A smaller
 daily allowance may refuse a typical short prompt because that full reservation
@@ -191,3 +224,70 @@ activity, remote billing changes or an older database restore. Disable AI and
 images before restore and reconcile the current UTC day's external spend before
 re-enabling them. Do not describe the ledger as a provider-account-wide cap or an
 estimate of annual player cost.
+
+## Watch call caps
+
+These are deploy secrets, not policy fields. Each value below is an unconfirmed
+placeholder. The owner sets the integer. A neutral name and its legacy name are
+set to that same integer in one `fly secrets set`, which restarts once
+([runbook](../infrastructure/fly-deployment.md), "Adjust a runtime cap"). A
+leftover lower legacy value is what a request enforces.
+
+| Secret | Placeholder |
+| --- | --- |
+| `NESTED_WORLDS_VOICE_DAILY_CALLS` and `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` | `<OWNER: integer, unconfirmed draft 1000>` |
+| `NESTED_WORLDS_VOICE_DAILY_CALLS_PER_USER` and `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` | `<OWNER: integer, unconfirmed draft 150>` |
+| `NESTED_WORLDS_MODERATION_DAILY_CALLS` | `<OWNER: integer, unconfirmed draft 2000>` |
+| `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER` | `<OWNER: integer, unconfirmed draft 120>` |
+| `NESTED_WORLDS_MODEL_ACTIONS_PER_USER` | `<OWNER: integer, unconfirmed draft 200>` |
+
+`server/guard.py` is where those names are read. Moderation and model-actions
+have no legacy alias. One further legacy pair exists and stays unset for this
+watch, because images stay off and no image provider key is set:
+`NESTED_WORLDS_IMAGE_DAILY_CALLS` with `NESTED_WORLDS_FAL_DAILY_CALLS`, and
+`NESTED_WORLDS_IMAGE_DAILY_CALLS_PER_USER` with
+`NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER`.
+`NESTED_WORLDS_MODERATION_ACTIONS_PER_USER` is a separate cap, not a legacy
+alias of the names above, and no integer is adopted for it. Leaving it unset
+does not remove the cap: `server/guard.py` then applies its default of 600
+per user per day.
+
+## Single-grader live rubric run
+
+This is the operator brief for one live rubric run. It was not run to write
+this page. Do not point it at the twin.
+
+Controlled mode refuses live eval wrappers. The run is therefore a separate
+process on an operator workstation: no `NESTED_WORLDS_MODEL_POLICY`, and no
+copy of the twin's database. Use the same endpoint and the same pinned model
+ids the owner confirmed in the policy file. The policy ledger does not count
+this spend. Reconcile it against the $150 provider console limit, which is
+itself an owner step and not a policy field.
+
+The run is one grader. That is a recorded deviation from the two-grader rule.
+The owner sets the call ceiling and the dollar ceiling. Both are placeholders:
+
+```sh
+python scripts/model_eval.py run \
+  --live \
+  --candidate <OWNER: candidate file for the pinned ids> \
+  --output <OWNER: private output directory> \
+  --brief <OWNER: private copy of evals/selection-brief.template.json> \
+  --max-usd <OWNER: USD for this run> \
+  --max-calls <OWNER: integer> \
+  --allow-destination <OWNER: exact host, no wildcard>
+```
+
+A live run without `--brief` exits 2 with `live comparison requires a frozen
+selection brief`, before any provider call. Copy
+`evals/selection-brief.template.json` to a private path, replace its
+`REPLACE` strings and nulls, including `frozen_on` and every selected task's
+gates, and pass that path. The checked-in template is not a filled brief.
+
+`--allow-destination` is the hostname only, exactly the host of the base URL
+the candidate's adapter will call. No scheme, no path, and no wildcard. There
+is no default host for this adapter. `--max-usd` and `--max-calls` are both
+required; omitting either refuses the live run. They stop the run at those
+ceilings.
+Leave the twin's kill switches and policy file untouched while this process
+runs. Do not pass a twin URL, a check key, or a database path.

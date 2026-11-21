@@ -9,6 +9,7 @@ from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
 from decimal import Decimal
 import json
+from pathlib import Path
 import socket
 import urllib.request
 
@@ -623,3 +624,163 @@ def test_out_of_bound_usage_or_model_drift_is_never_treated_as_ordinary(tmp_path
     route = policy.check_file(_write(tmp_path, _document("node"))).routes["node"]
     _cost, anomaly, _encoded = policy.settlement(route, result, 5)
     assert anomaly is True
+
+
+_WATCH_EXAMPLE = Path(__file__).resolve().parents[1] / "config" / "model-policy.watch.example.json"
+_ENABLED_ROUTE_KEYS = {
+    "enabled", "adapter", "endpoint", "model", "resolved_models",
+    "max_input_tokens", "input_bound_kind", "input_bound_evidence",
+    "max_output_tokens", "timeout_seconds", "options", "prices",
+    "data_use_note", "approval_reference",
+}
+_WATCH_FILL = {
+    "global_daily_usd": "0.000012",
+    "participant_daily_usd": "0.000006",
+    "ledger_retention_days": 2,
+    "endpoint": _ENDPOINT,
+    "model": "fixture-watch",
+    "resolved_models": "fixture-watch-v1",
+    "max_input_tokens": 10,
+    "max_output_tokens": 5,
+    "timeout_seconds": "30",
+    "max_tokens_param": "max_completion_tokens",
+    "input_per_million_usd": "0.2",
+    "output_per_million_usd": "0.3",
+    "cache_read_per_million_usd": "0.1",
+    "cache_write_per_million_usd": "0.4",
+    "input_bound_evidence": "Synthetic bound for an offline test only.",
+    "data_use_note": "Synthetic fixture terms.",
+    "approval_reference": "Test fixture, not an approval.",
+}
+
+
+def _fill_watch(value, key=None):
+    if isinstance(value, dict):
+        return {name: _fill_watch(item, name) for name, item in value.items()}
+    if isinstance(value, list):
+        return [_fill_watch(item, key) for item in value]
+    if isinstance(value, str) and "<OWNER:" in value:
+        assert key in _WATCH_FILL, key
+        return _WATCH_FILL[key]
+    return value
+
+
+def test_watch_example_is_the_enabled_shape_and_is_refused_until_filled(tmp_path):
+    text = _WATCH_EXAMPLE.read_text(encoding="utf-8")
+    document = json.loads(text)
+    assert set(document) == {
+        "schema_version", "policy_id", "currency", "reset", "routes",
+        "limits", "ledger_retention_days",
+    }
+    assert document["limits"]["global_daily_usd"].startswith("<OWNER:")
+    assert "unconfirmed" in document["limits"]["global_daily_usd"]
+    assert "15" in document["limits"]["global_daily_usd"]
+    assert document["limits"]["participant_daily_usd"].startswith("<OWNER:")
+    assert "unconfirmed" in document["limits"]["participant_daily_usd"]
+    assert "3" in document["limits"]["participant_daily_usd"]
+    assert isinstance(document["ledger_retention_days"], str)
+    assert "<OWNER:" in document["ledger_retention_days"]
+    assert "150" not in text
+    for task in (*runtime.TASKS, "images"):
+        route = document["routes"][task]
+        if task == "images":
+            assert route == {"enabled": False}
+            continue
+        assert set(route) == _ENABLED_ROUTE_KEYS
+        assert route["enabled"] is True
+        assert route["adapter"] == "openai_compatible"
+        assert route["input_bound_kind"] == "provider_context_maximum"
+        assert route["options"]["send_store_false"] is True
+        assert route["endpoint"].startswith("<OWNER:")
+    with pytest.raises(policy.ModelPolicyError):
+        policy.check_file(_WATCH_EXAMPLE)
+
+    filled = _fill_watch(document)
+    checked = policy.check_file(_write(tmp_path, filled))
+    assert checked.enabled_routes == runtime.TASKS
+    report = policy.summary(checked)
+    assert report["global_limit_microusd"] == 12
+    assert report["participant_limit_microusd"] == 6
+    assert [row["task"] for row in report["reservations"]] == list(runtime.TASKS)
+    for row in report["reservations"]:
+        # 10 * 0.4 + 5 * 0.3 = 5.5 microUSD, rounded up once to 6.
+        assert row["full_context_reservation_microusd"] == 6
+        assert row["participant_reservations"] == 1  # 6 // 6
+        assert row["global_reservations"] == 2  # 12 // 6
+    encoded = json.dumps(report)
+    for private in (_ENDPOINT, "fixture-watch", "Synthetic fixture terms", "not an approval"):
+        assert private not in encoded
+
+
+@pytest.mark.parametrize("field", (
+    "input_bound_evidence", "data_use_note", "approval_reference",
+))
+def test_one_remaining_owner_marker_in_a_reference_field_is_refused(tmp_path, field):
+    document = _fill_watch(json.loads(_WATCH_EXAMPLE.read_text(encoding="utf-8")))
+    document["routes"]["intent"][field] = "<OWNER: still unfilled>"
+    with pytest.raises(policy.ModelPolicyError):
+        policy.check_file(_write(tmp_path, document))
+
+
+def test_console_limit_is_not_a_policy_field(tmp_path):
+    document = _fill_watch(json.loads(_WATCH_EXAMPLE.read_text(encoding="utf-8")))
+    document["provider_console_limit_usd"] = "150"
+    with pytest.raises(policy.ModelPolicyError):
+        policy.check_file(_write(tmp_path, document))
+
+
+def test_reservation_report_floors_partial_reservations_and_counts_zero(tmp_path):
+    document = _document("node", "intent")
+    document["routes"]["intent"]["max_input_tokens"] = 4
+    document["limits"] = {"global_daily_usd": "0.000020", "participant_daily_usd": "0.000013"}
+    checked = policy.check_file(_write(tmp_path, document))
+    rows = {row["task"]: row for row in policy.reservations(checked)}
+    assert set(rows) == {"node", "intent"}
+    assert rows["node"]["full_context_reservation_microusd"] == 6
+    assert rows["node"]["participant_reservations"] == 2  # 13 // 6
+    assert rows["node"]["global_reservations"] == 3  # 20 // 6
+    # 4 * 0.4 + 5 * 0.3 = 3.1, ceil 4. A 5-microUSD ceiling admits one; 3 admits none.
+    tight = _document("node")
+    tight["routes"]["node"]["max_input_tokens"] = 4
+    tight["limits"] = {"global_daily_usd": "0.000005", "participant_daily_usd": "0.000003"}
+    tight_row = policy.reservations(policy.check_file(_write(tmp_path, tight, name="tight.json")))[0]
+    assert tight_row["full_context_reservation_microusd"] == 4
+    assert tight_row["global_reservations"] == 1
+    assert tight_row["participant_reservations"] == 0
+
+
+def test_watch_example_check_refuses_without_echoing_placeholders(capsys):
+    from main import main
+
+    with pytest.raises(SystemExit) as caught:
+        main(["model-policy", "--check", "--policy", str(_WATCH_EXAMPLE)])
+    assert caught.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: model policy configuration is invalid\n"
+    assert "<OWNER:" not in captured.err
+
+
+def test_filled_watch_example_check_prints_reservation_counts(tmp_path, monkeypatch, capsys):
+    from main import main
+
+    path = _write(tmp_path, _fill_watch(json.loads(_WATCH_EXAMPLE.read_text(encoding="utf-8"))))
+    monkeypatch.setenv(compat.BASE_URL_ENV, _ENDPOINT.removesuffix("/chat/completions"))
+    monkeypatch.setenv(compat.STRUCTURED_OUTPUTS_ENV, "1")
+    monkeypatch.setenv(compat.SEND_STORE_FALSE_ENV, "1")
+    monkeypatch.setenv(compat.TIMEOUT_ENV, "12")
+    for index, _task in enumerate(runtime.TASKS):
+        monkeypatch.setenv(runtime.TASK_PROVIDER_ENVS[index], "openai_compatible")
+        monkeypatch.setenv(_MODEL_ENVS[index], "fixture-watch")
+    main(["model-policy", "--check", "--policy", str(path)])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["remote_verified"] is False
+    assert payload["live_calls"] is False
+    rows = payload["configuration"]["reservations"]
+    assert [row["task"] for row in rows] == list(runtime.TASKS)
+    assert {row["full_context_reservation_microusd"] for row in rows} == {6}
+    assert {row["participant_reservations"] for row in rows} == {1}
+    assert {row["global_reservations"] for row in rows} == {2}
+    encoded = json.dumps(payload)
+    for private in (_ENDPOINT, "fixture-watch", "Synthetic", "<OWNER:"):
+        assert private not in encoded
