@@ -17,11 +17,16 @@ Section: Fixed
   budget with no load. Under load (8 busy loops on 4 cores, 4 workers) it hit the
   45 s test timeout; the poll's "438" was its last value, not a slow arrival.
   Both hosts now announce each `intervention_changed` broadcast. The composer re-reads
-  `/interventions` for its own node as a background read, with no `/node` read. It
-  skips the read when the broadcast carries a served change (the node revision
-  reloads it), for its own accepted id, and while its own commit is in flight (the
-  reply reloads it). That leaves at most one read per broadcast, counted against the
-  per-IP read limiter (120 GETs/min; `/interventions` is not exempt). Codex's review
+  `/interventions` for its own node as a background read, with no `/node` read. Each
+  notice is owed until a read that began after it succeeds. Any such read covers it,
+  including the host's node-revision reload and a commit's reload. One debounced
+  (1 s) background read runs only if none did, so a burst costs one read. These reads
+  count against the per-IP read limiter (120 GETs/min; `/interventions` is not
+  exempt). A first version skipped reads by guessing which reload would cover them.
+  Codex's second review reproduced three ways that lost rows or receipts: a notice
+  during a submission that was not accepted, or during an in-flight read; two
+  opposite changes that restored the served revision; and a follow-up poll that
+  dropped the background rule. Codex's review
   of the first version (PR #185) found four more defects, all reproduced in Chromium
   and fixed here:
   - With a control focused, the first record never appeared, because `renderRecent()`
@@ -46,8 +51,9 @@ Section: Fixed
   co-viewer test's overall budget is now 60 s. Its 25 s delivery poll and 10 s
   visibility bound are unchanged.
   A second review found the duplicate read above and the rate-limit statement, both
-  corrected. **Verified:** Vitest `interventions.test.js` 15/15; the three
-  receipt, focus and disclosure cases fail on the reviewed head `b9f15f8`. Whole
+  corrected. **Verified:** Vitest `interventions.test.js` 18/18. The three
+  receipt, focus and disclosure cases fail on `b9f15f8`; the four notice-coverage
+  cases fail on `386e571`. Whole
   `delivery.spec.js` 17/17 unloaded. Frontend rebuilt. Co-viewer stress at the load
   above 40/40 with the 60 s budget (Node 20.19.0, Python 3.11, system Chromium via
   `PW_CHROMIUM_PATH`). The first version's `ENFOLDED_E2E=1 ./scripts/check.sh` was

@@ -4,6 +4,8 @@ const STYLE = `:host{display:block;color:var(--text);font:1rem/1.5 system-ui}*{b
 
 function el(tag, text, props = {}) { const n = document.createElement(tag); if (text != null) n.textContent = text; Object.assign(n, props); return n; }
 const INTERVENTION_EVENT = 'enfolded:intervention';
+// Long enough for the host's own node refresh to start the covering read.
+const NOTICE_DEBOUNCE_MS = 1000;
 globalThis.EnfoldedInterventions = {
   // Called by both hosts for every intervention_changed broadcast.
   announce(message) { globalThis.dispatchEvent?.(new CustomEvent(INTERVENTION_EVENT, {detail: message})); },
@@ -28,17 +30,25 @@ class InterventionComposer extends HTMLElement {
   // revision cannot reveal another player's new pending work. Hosts announce
   // each accepted action; a co-viewer re-reads outcomes for its own place.
   connectedCallback() {
+    // Each notice stays owed until a read that began after it succeeds. Any
+    // later read covers it (a node-revision reload, a commit's reload); one
+    // background read runs only if none did.
     this.onIntervention ||= event => {
-      const notice = event.detail;
-      if (!this.ctx?.node || notice?.node !== this.ctx.node.name) return;
-      // One read per broadcast. A served change reloads through the node
-      // revision; this viewer's own commit reloads after its reply.
-      if (this.busy || (notice.id != null && this.ownAccepted?.has(notice.id)) || Object.keys(notice.changed || {}).length) return;
-      this.load(false, true);
+      if (!this.ctx?.node || event.detail?.node !== this.ctx.node.name) return;
+      this.noticeSeq = (this.noticeSeq || 0) + 1;
+      this.scheduleNoticeRead();
     };
     globalThis.addEventListener?.(INTERVENTION_EVENT, this.onIntervention);
   }
-  disconnectedCallback() { this.generation++; clearTimeout(this.poll); globalThis.removeEventListener?.(INTERVENTION_EVENT, this.onIntervention); }
+  disconnectedCallback() { this.generation++; clearTimeout(this.poll); clearTimeout(this.noticeTimer); globalThis.removeEventListener?.(INTERVENTION_EVENT, this.onIntervention); }
+  noticesOwed() { return (this.noticeSeq || 0) > (this.coveredNotice || 0); }
+  scheduleNoticeRead() {
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => {
+      // A read in flight or a submission settles first; each re-checks on settling.
+      if (this.isConnected && this.noticesOwed() && !this.busy && !this.loading) this.load(false, true);
+    }, NOTICE_DEBOUNCE_MS);
+  }
   async request(path, body) {
     const ctx = this.ctx;
     const response = await fetch(path + (body ? '' : '?' + new URLSearchParams({seed:ctx.seed,node:ctx.node.name})), {
@@ -49,11 +59,13 @@ class InterventionComposer extends HTMLElement {
     if (!response.ok || data.error) { const error = new Error(data.error || 'The arrangement could not be heard.'); error.status = response.status; throw error; }
     return data;
   }
-  // A background read (another player's announced action) never replaces this
-  // viewer's own status line; a failed one retries with backoff on its own.
+  // A background read (another player's announced action), and every poll it
+  // starts, never replaces this viewer's own status line; a failed one retries
+  // with backoff on its own.
   async load(fromPoll = false, background = false) {
     if (!this.ctx.key) { this.message='Enter with an invite to compose lasting changes.'; this.render(); return; }
-    const generation = this.generation, sequence = ++this.loadSequence;
+    const generation = this.generation, sequence = ++this.loadSequence, startNotice = this.noticeSeq || 0;
+    this.loading = (this.loading || 0) + 1;
     // Outcome polling must survive a failed poll: keep the last known pending
     // count so the timer is re-armed from it, and slow down after a failure.
     let pending = this.data?.recent?.reduce((n,r) => n+r.pending,0) || 0, failed = false;
@@ -74,6 +86,7 @@ class InterventionComposer extends HTMLElement {
       if (!this.busy && (!this.shadowRoot.activeElement || !this.shadowRoot.querySelector('.choices'))) this.render();
       else { this.ensureHistory(); this.renderRecent(); }
       this.backgroundRetry = 0;
+      this.coveredNotice = Math.max(this.coveredNotice || 0, startNotice);
       pending = data.recent.reduce((n,r) => n+r.pending,0);
       // A node-triggered read already has fresh properties; only polling must
       // request them when it discovers a missed outcome notification.
@@ -82,12 +95,15 @@ class InterventionComposer extends HTMLElement {
       failed = true;
       if (generation === this.generation && sequence === this.loadSequence && !background) { this.message=this.pollError=error.status ? error.message : 'This place could not be heard. Listen again.'; this.render(); }
     } finally {
+      this.loading--;
       if (generation === this.generation && sequence === this.loadSequence && this.isConnected) {
         clearTimeout(this.poll);
         if (failed && background) {
           this.backgroundRetry = (this.backgroundRetry || 0) + 1;
           this.poll=setTimeout(() => this.load(fromPoll, true), Math.min(8000 * 2 ** (this.backgroundRetry - 1), 60000));
-        } else if (pending) this.poll=setTimeout(() => this.load(true), failed ? 8000 : 4000);
+        } else if (pending) this.poll=setTimeout(() => this.load(true, background), failed ? 8000 : 4000);
+        // A notice that arrived after this read began is still owed.
+        if (!failed && this.noticesOwed()) this.scheduleNoticeRead();
       }
     }
   }
@@ -123,8 +139,6 @@ class InterventionComposer extends HTMLElement {
       if(generation!==this.generation) return;
       this.pending=null; this.submission=null; this.message=result.flavor || result.response;
       if(result.accepted) {
-        (this.ownAccepted ||= new Set()).add(result.id);
-        if(this.ownAccepted.size > 32) this.ownAccepted.delete(this.ownAccepted.values().next().value);
         this.steps=[]; this.compose=false; this.intention='';
         ctx.changed?.(result); await this.load();
       } else this.intentionOpen=true;
@@ -135,7 +149,7 @@ class InterventionComposer extends HTMLElement {
         try { localStorage.removeItem(storage); } catch (_) { /* unavailable storage */ }
       }
       this.message=this.pending && !error.status ? 'The reply was lost. Recover this attempt to learn whether it was accepted.' : error.message;
-    } finally { if(generation===this.generation) { this.busy=false; this.render(); } }
+    } finally { if(generation===this.generation) { this.busy=false; this.render(); if(this.noticesOwed()) this.scheduleNoticeRead(); } }
   }
   renderPending() {
     const target=this.shadowRoot.querySelector('.pending');

@@ -209,6 +209,7 @@ describe("another player's accepted action", () => {
   afterAll(() => { delete globalThis.addEventListener; delete globalThis.removeEventListener; delete globalThis.dispatchEvent; });
 
   it("re-reads outcomes for this place only, without asking the host for the node again", async () => {
+    vi.useFakeTimers();
     const { c, changed } = composer([
       { participant: "p", recent: [{ performer: "Ada", summary: "Kindle", pending: 1 }] },
       { participant: "p", recent: [] },
@@ -217,30 +218,103 @@ describe("another player's accepted action", () => {
     // A delayed acceptance leaves the served revision unchanged: only the
     // announcement can tell this viewer that new work is pending here.
     globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Elsewhere-9", id: "x" });
+    await vi.advanceTimersByTimeAsync(1000);
     expect(c.request).not.toHaveBeenCalled();
     globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "a" });
-    await vi.waitFor(() => expect(c.data?.recent?.[0]?.performer).toBe("Ada"));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.data?.recent?.[0]?.performer).toBe("Ada");
     expect(c.request).toHaveBeenCalledTimes(1);
     expect(c.request).toHaveBeenCalledWith("/interventions");
     expect(changed).not.toHaveBeenCalled();
     c.disconnectedCallback();
     globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "b" });
+    await vi.advanceTimersByTimeAsync(5000);
     expect(c.request).toHaveBeenCalledTimes(1);
   });
 
-  it("reads once per broadcast: not for a served change, an own commit, or while committing", async () => {
-    const { c } = composer([{ participant: "p", recent: [] }]);
+  it("owes each notice until a read that began after it succeeds, and reads once for a burst", async () => {
+    vi.useFakeTimers();
+    const { c } = composer([{ participant: "p", recent: [] }, { participant: "p", recent: [] }, { participant: "p", recent: [] }]);
     c.connectedCallback();
-    const announce = notice => globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", ...notice });
-    announce({ id: "immediate", changed: { star_density: 438 } }); // the node revision reloads this
-    c.ownAccepted = new Set(["mine"]);
-    announce({ id: "mine", changed: {} });                          // the commit reloaded after its reply
-    c.busy = true;
-    announce({ id: "during", changed: {} });                        // the reply's reload will include it
+    const announce = notice => globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", changed: {}, ...notice });
+    // Two opposite material changes can leave the served revision where it
+    // was: both notices still get one history read between them.
+    announce({ id: "a", changed: { star_density: 438 } });
+    announce({ id: "b", changed: { star_density: 418 } });
+    await vi.advanceTimersByTimeAsync(999);
     expect(c.request).not.toHaveBeenCalled();
-    c.busy = false;
-    announce({ id: "peer", changed: {} });
-    await vi.waitFor(() => expect(c.request).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(c.request).toHaveBeenCalledTimes(1);
+    // A read that starts after the notice (the host's node-revision reload)
+    // covers it, so no second read follows.
+    announce({ id: "c" });
+    await c.load();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(c.request).toHaveBeenCalledTimes(2);
+    c.disconnectedCallback();
+  });
+
+  it("reads again for a notice that arrived while an earlier read was in flight", async () => {
+    vi.useFakeTimers();
+    let release;
+    const { c } = composer([]);
+    c.request = vi.fn()
+      .mockImplementationOnce(() => new Promise(resolve => { release = () => resolve({ participant: "p", recent: [] }); }))
+      .mockResolvedValue({ participant: "p", recent: [{ performer: "Ada", summary: "Kindle", pending: 1 }] });
+    c.connectedCallback();
+    const inFlight = c.load();
+    globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "a", changed: {} });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(1); // waits for the read in flight
+    release(); await inFlight;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(2);
+    expect(c.data.recent[0].performer).toBe("Ada");
+    c.disconnectedCallback();
+  });
+
+  it("keeps a notice received during a submission that is not accepted", async () => {
+    vi.useFakeTimers();
+    let reply;
+    const { c } = composer([]);
+    c.request = vi.fn()
+      .mockImplementationOnce(() => new Promise(resolve => { reply = resolve; }))
+      .mockResolvedValue({ participant: "p", recent: [{ performer: "Ada", summary: "Kindle", pending: 1 }] });
+    c.data = { participant: "p", recent: [], choices: [] };
+    c.storageKey = "nw_arrangement:test";
+    c.connectedCallback();
+    const submitting = c.commit({ intention: "kindle what", version: 3 });
+    await vi.advanceTimersByTimeAsync(0);
+    globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "peer", changed: {} });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(1); // the submission is still open
+    reply({ accepted: false, response: "Which stars do you mean?" });
+    await submitting;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(2);
+    expect(c.request.mock.calls[1][0]).toBe("/interventions");
+    expect(c.message).toBe("Which stars do you mean?");
+    c.disconnectedCallback();
+  });
+
+  it("keeps the receipt through polls that an announced read started", async () => {
+    vi.useFakeTimers();
+    const { c } = composer([
+      { participant: "p", recent: [{ performer: "Ada", summary: "Kindle", pending: 1 }] },
+      Object.assign(new Error("This place could not be heard."), { status: 503 }),
+      { participant: "p", recent: [{ performer: "Ada", summary: "Kindle", pending: 0 }] },
+    ]);
+    c.message = "Bea acts: the stars kindle.";
+    c.connectedCallback();
+    globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "a", changed: {} });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(c.request).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(4000);   // the pending poll fails
+    expect(c.request).toHaveBeenCalledTimes(2);
+    expect(c.message).toBe("Bea acts: the stars kindle.");
+    await vi.advanceTimersByTimeAsync(8000);   // and recovers
+    expect(c.request).toHaveBeenCalledTimes(3);
+    expect(c.message).toBe("Bea acts: the stars kindle.");
     c.disconnectedCallback();
   });
 
@@ -254,7 +328,7 @@ describe("another player's accepted action", () => {
     c.message = "Bea acts: the stars kindle.";
     c.connectedCallback();
     globalThis.EnfoldedInterventions.announce({ type: "intervention_changed", node: "Mire-112", id: "a" });
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(c.request).toHaveBeenCalledTimes(1);
     expect(c.message).toBe("Bea acts: the stars kindle.");
     // Nothing was pending before, yet the failed announced read is retried: 8 s, then 16 s.
