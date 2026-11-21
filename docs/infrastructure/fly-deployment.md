@@ -27,10 +27,10 @@ Same-schema rollback is [below](#same-schema-release-rollback). Incidents
   ```
 - For a later approved live rehearsal, a reviewed controlled adapter and
   provider account/key, model, endpoint, prices, dollar amounts and retention.
-  The first adapter/vendor is an open owner decision. This build supports
-  only the built-in Chat Completions transport, while ADR-035 remains Proposed;
-  live hosted voice is blocked until ADR-035 is accepted or a controlled
-  Anthropic path exists, plus the other live approvals. See
+  This build supports only the built-in Chat Completions transport.
+  ADR-035 stays Proposed until the owner records acceptance. The gate for the
+  disposable twin's first probe, and the later gate for production and for
+  any session a participant joins, are both in
   [approved live controlled text](#approved-live-controlled-text).
 - Leave `FAL_KEY` unset. Images are unsupported in controlled mode and answer
   the authored quiet line with `images: false`; built-in node art still renders.
@@ -263,14 +263,14 @@ the default is a behavior change, not implicit approval of a chat-off watch.
 Run these from the repo root.
 
 ```bash
-# Create the app (no deploy yet), matching the name you set in fly.toml.
+# 1. Create the app (no deploy yet), matching the name you set in fly.toml.
 fly apps create enfolded-beta
 
-# Provision the persistent volume in the same region as the app.
+# 2. Provision the persistent volume in the same region as the app.
 fly volumes create enfolded_data --region iad --size 1
 
-# Optional error reporting. Keep provider credentials absent and both
-# committed external kill switches at 1 for this first, all-off deploy.
+# 3. Optional error reporting. Keep provider credentials absent and both
+#    committed external kill switches at 1 for this first, all-off deploy.
 fly secrets set SENTRY_DSN=https://...ingest.sentry.io/...
 
 # REQUIRED for any public deployment: close the invite gate. There is no
@@ -281,12 +281,14 @@ fly secrets set SENTRY_DSN=https://...ingest.sentry.io/...
 # caps are not an access gate. The first key is step 5, after this deploy,
 # and it is minted from a terminal. Do not share the URL until then.
 
-# Deploy. (--first-deploy skips the pre-deploy backup — nothing to back
-# up yet. Every subsequent deploy goes through scripts/deploy.sh plain.)
+# 4. Deploy. (--first-deploy skips the pre-deploy backup — nothing to back
+#    up yet. Every subsequent deploy goes through scripts/deploy.sh plain.)
 scripts/deploy.sh --first-deploy
 
 # 5. Mint the first key at once. This closes the invite gate. Never mint a
 #    key in CI. '<operator>' stands in until the operator supplies the name.
+#    The command uses the app name in fly.toml (enfolded-beta). It does not
+#    pass -a, and it is not the staging check-key mint.
 fly ssh console -C "python main.py invite mint --name '<operator>' --note 'first key, gate closed'"
 ```
 
@@ -578,14 +580,17 @@ reporting and provider gates.
 
 #### Approved live controlled text
 
-This procedure stays blocked until the owner signs one data-use note for one
-account at one endpoint, fills a private copy of
-`config/model-policy.watch.example.json`, and `model-policy --check` passes.
-ADR-035 stays Proposed until the owner records acceptance. The
+The disposable twin may run the first live probe once the owner signs one
+data-use note for one account at one endpoint, fills a private copy of
+`config/model-policy.watch.example.json`, `model-policy --check` passes, and
+the $150 spend limit is set on the provider account. That probe is the live
+evidence for accepting ADR-035 and does not wait for the acceptance record.
+Production, and any session a participant joins, also wait until the owner
+records that acceptance. ADR-035 stays Proposed until then. The
 [endpoint-check record](../evaluation/2026-11-2x-chat-completions-endpoint-check.md)
-recommends a candidate; it does not sign the note or fill the file. The
-restriction applies to production as well as staging. No command below is
-authorization to choose an endpoint, set prices or amounts, or activate a route.
+recommends a candidate; it does not sign the note or fill the file. No command
+below is authorization to choose an endpoint, set prices or amounts, or open
+the world to a participant.
 
 Before activation, record the signed data-use note, the model and
 resolved-model allowlist, the verified input bound, the reviewed prices, the
@@ -615,9 +620,15 @@ check in that same environment first.
 The base URL is the policy endpoint with `/chat/completions` removed. Set
 each task's provider to `openai_compatible`; the process default is a
 different adapter. Set each task's model variable to that route's `model`
-id. Moderation does not inherit `NESTED_WORLDS_MODEL`. Leave
-`NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` unset when the file says
-null, and set `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` only when
+id. Moderation does not inherit `NESTED_WORLDS_MODEL`. The adapter has one
+reasoning effort for the process, and every enabled route's
+`reasoning_effort` must match it or `initialize()` refuses the file.
+Leave `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` unset only when
+every enabled route says null. For the recommended candidate, do not leave
+that null: the model page's default effort is medium, and reasoning tokens
+count against `max_completion_tokens`. Set every enabled route to `none` and
+set the env to that same token, unless the owner records a different effort.
+Set `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` only when
 the file does not say `max_completion_tokens`. The timeout value must be no
 greater than every non-moderation route's `timeout_seconds`. Moderation's
 call uses 3 seconds, so that route's timeout must be at least 3. The values

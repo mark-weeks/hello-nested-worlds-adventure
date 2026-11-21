@@ -441,7 +441,9 @@ def reservations(policy: Policy) -> list[dict]:
     """Per enabled route: the full-context reservation, and how many fit.
 
     The reservation is ``reserve_microusd`` at the route's maximum output.
-    A remainder smaller than one reservation does not count: admission
+    Dispatch reserves the per-call output bound, which is no larger, so these
+    counts are a floor: at least this many calls fit, and a shorter call can
+    fit more. A remainder smaller than one reservation does not count: admission
     refuses once less than one reservation of a ceiling remains. Counts are
     integer microUSD. The rows name the task only — no endpoint, model id,
     price or approval text — so the CLI summary can carry them.

@@ -14,9 +14,12 @@ ADR-035 stays Proposed until the owner records acceptance for one named
 endpoint. A desk check of the two candidate endpoints is in the
 [endpoint-check record](../evaluation/2026-11-2x-chat-completions-endpoint-check.md).
 That record recommends one candidate. It does not sign a data-use note, fill
-the example, or accept the ADR. Live voice on Fly, production included, waits
-on that signature, the filled file, and the owner's acceptance. This guide
-does not implement chat retention.
+the example, or accept the ADR. The disposable twin may run the first live
+probe once the owner has signed that note, filled the private policy, passed
+`model-policy --check`, and set the $150 spend limit on the provider account.
+That probe is the live evidence for the acceptance record and does not wait
+for it. Production, and any session a participant joins, also wait until the
+owner records the acceptance. This guide does not implement chat retention.
 
 `NESTED_WORLDS_REQUIRE_MODEL_POLICY=1` requires controlled mode. A declared
 temporary test world also requires it (including a misspelled test-world flag,
@@ -59,8 +62,9 @@ python main.py model-policy --check --policy config/model-policy.watch.example.j
 That command exits 1 until every `<OWNER: ...>` value is replaced. The message
 is the generic invalid-configuration line; it does not echo the file. A passing
 check prints, per enabled route, the full-context reservation in microUSD and
-how many such reservations fit under the participant ceiling and under the
-global ceiling. A remainder smaller than one reservation does not count. The
+at least how many such reservations fit under the participant ceiling and under
+the global ceiling. Dispatch can admit more when the call's output bound is
+shorter than the route maximum. A remainder smaller than one reservation does not count. The
 owner confirms the dollar amounts against that report before the file is
 approved. The report names tasks only. It does not print endpoints, model ids,
 prices or approval text.
@@ -156,6 +160,8 @@ requirement to work around a refusal.
 
 The offline check's `reservations` rows report that full-context figure at each
 route's maximum output, and how many whole reservations fit under each ceiling.
+That count is a floor. Dispatch reserves the per-call output bound, which is
+no larger, so a shorter call can be admitted more times than the report shows.
 Admission reserves the **full verified provider context maximum** at the highest input/cache
 price plus the requested output bound, rounded up to integer microUSD. A smaller
 daily allowance may refuse a typical short prompt because that full reservation
@@ -242,7 +248,9 @@ watch, because images stay off and no image provider key is set:
 `NESTED_WORLDS_IMAGE_DAILY_CALLS_PER_USER` with
 `NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER`.
 `NESTED_WORLDS_MODERATION_ACTIONS_PER_USER` is a separate cap, not a legacy
-alias of the names above, and no integer is adopted for it. Leave it unset.
+alias of the names above, and no integer is adopted for it. Leaving it unset
+does not remove the cap: `server/guard.py` then applies its default of 600
+per user per day.
 
 ## Single-grader live rubric run
 

@@ -240,8 +240,26 @@ requested per organization. **Neither page was confirmed against an account.
 Reduced retention for the watch account is unverified. The owner requests it
 where the account offers it, and records the answer in the note.**
 
+`max_completion_tokens` includes reasoning tokens. GPT-6 Luna's page says the
+model's default effort is medium, and the watch example leaves
+`reasoning_effort` null, which means this adapter sends no effort and the
+provider default applies. Moderation asks for 32 output tokens and intention
+for 500. At medium effort a strict-schema answer can come back empty or cut
+off, and a probe can fail for that reason rather than for the endpoint.
+The adapter has one reasoning effort for the whole process, so every enabled
+route has to name the same value or the startup check refuses the file.
+Before the first probe, set `reasoning_effort` to `none` on every enabled
+route in the private file, and set
+`NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` to that same token, unless
+the owner records a different effort. The Luna page lists `none` as a
+supported effort. The G3 probe should use the real per-task output bounds,
+32 and 500 included, not only a short sample.
+
 ## Still unverified
 
+- Whether a default or medium reasoning effort consumes the 32-token
+  moderation bound or the 500-token intention bound on this endpoint. No live
+  call was made.
 - Every live response body: usage, `model`, schema conformance, and whether
   `store: false` changes what the account retains.
 - Whether an unscoped incumbent key is rejected for lack of
