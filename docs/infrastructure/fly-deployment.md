@@ -808,7 +808,9 @@ What keeps it on staging:
   repository is public, and refuses if `origin` cannot be read. So a re-run
   of an old run cannot put an older commit over a newer deploy.
 - It reads one token, `FLY_API_TOKEN_STAGING`, in the `staging` environment
-  (step 3). It never reads `FLY_API_TOKEN`, the token `backup.yml` uses.
+  (step 3). The backup job's secret is `BACKUP_FLY_SSH_TOKEN`, which
+  `backup.yml` passes to flyctl as `FLY_API_TOKEN`. This workflow does not
+  read `BACKUP_FLY_SSH_TOKEN`.
 - It refuses a commit that does not descend from `f3ead74` (#152), the
   first commit whose `scripts/deploy.sh` checks the schema and whose binary
   refuses a newer chronicle. On any commit it accepts, `scripts/deploy.sh`
@@ -846,11 +848,18 @@ What the file cannot stop:
   app scope (step 3) is what stops such a change from reaching another app.
 - A copy of this workflow edited on another branch and dispatched with
   `--ref`. GitHub runs that branch's copy, which can drop every guard above.
-  It can also read every repository secret, `backup.yml`'s `FLY_API_TOKEN`
-  included. That is true of any workflow file on any branch, for anyone with
-  write access, and not something this file adds. The `staging`
-  environment's main-only branch rule is what keeps `FLY_API_TOKEN_STAGING`
-  out of such a run.
+  It can also read every repository secret. That is true of any workflow
+  file on any branch, for anyone with write access, and not something this
+  file adds. The `staging` environment's main-only branch rule is what keeps
+  `FLY_API_TOKEN_STAGING` out of such a run. The backup job reads
+  `BACKUP_FLY_SSH_TOKEN` from the `backup` environment and passes it to
+  flyctl as `FLY_API_TOKEN`. That environment's main-only branch rule
+  withholds the environment secret
+  ([backup-bucket.md](backup-bucket.md)). If the environment secret is
+  missing, `secrets.<NAME>` falls back to a repository secret of the same
+  name. `BACKUP_FLY_SSH_TOKEN` does not match a repository `FLY_API_TOKEN`.
+  The six `ENFOLDED_BACKUP_S3_*` names still would, so those repository
+  copies, and any repository `FLY_API_TOKEN`, are deleted.
 
 `tests/test_deploy_staging_workflow.py` checks the guards and runs the
 workflow's step scripts against a stub `fly` and small git histories.
@@ -862,8 +871,13 @@ fly.io or github.com):
   refused by every other app. The first residual path above rests on it.
 - That such a token permits `fly ssh console`. `scripts/deploy.sh` uses it
   for the backup, the schema probe and the prune on every deploy except
-  `--first-deploy`. `backup.yml` already assumes the same for its own token.
-  If it does not, the backup step fails and `deploy.sh` refuses to deploy,
+  `--first-deploy`. The off-host job does not use this deploy token. Its token
+  is `fly tokens create ssh -a <app>` on flyctl 0.5.1
+  ([backup-bucket.md](backup-bucket.md#fly-token)).
+  That token can add a WireGuard peer on the app's organization, which
+  reaches every app in the org, not only the named app.
+  If the deploy token does not permit a console, the backup step fails and
+  `deploy.sh` refuses to deploy,
   so nothing changes on Fly. The fallback is to redeploy from the owner's
   machine (`FLY_APP=enfolded-staging scripts/deploy.sh`). Another is to move
   staging into a Fly organization of its own and store a token for that
@@ -1222,9 +1236,10 @@ chronicle text, `redact` does not reach them. Write reasons you would be
 content to see restored from a backup. Keep them short and factual, with no
 contact details and no other player's private data. The player-facing
 privacy notice (checklist L3) must name this record: that sanction decisions
-and their reasons are kept, privately, for as long as backups are. The
-backup retention period is not decided yet (decision I in the
-[Q4 plan](../roadmap/next-steps-2026-q4.md)).
+and their reasons are kept, privately, for as long as backups are. Backup
+retention is 30 days, recorded on 2026-11-20 (O7). The player notice does
+not state that date until the erasure check in
+[backup-bucket.md](backup-bucket.md#erasure-check) is recorded.
 
 **Erasing a sanction reason (break-glass).** No application command edits
 or deletes a sanction. If a reason must be erased, for example on an erasure
@@ -1333,10 +1348,10 @@ at most one hour of lost history. A schedule alone does not establish that bound
 [GitHub documents delayed and dropped scheduled jobs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 The workflow takes an online backup, downloads a self-contained SQLite file,
 checks integrity and required tables, and stores it in a private S3-compatible
-bucket. Cloudflare R2 is an example of that store, and a 30-day retention is
-the example used when the retention variable is unset. Mark has not recorded
-either choice. Setup, the token, retention, and the rehearsal list are in
-[backup-bucket.md](backup-bucket.md).
+bucket. Cloudflare R2 is that store, and retention is 30 days, both recorded
+on 2026-11-20 (O7). The workflow writes 30. There is no retention variable.
+Setup, the token, the bucket lock, the lifecycle, and the rehearsal list are
+in [backup-bucket.md](backup-bucket.md).
 
 GitHub's artifact list is available to anyone with read access to the
 repository ([artifact API](https://docs.github.com/en/rest/actions/artifacts#list-artifacts-for-a-repository)).
@@ -1349,35 +1364,59 @@ salvage. A healthy object is
 count as healthy backups. A successful upload is not yet a restore rehearsal.
 
 The bucket is private: no public `r2.dev` URL and no custom domain. The job
-reads secrets and variables. `FLY_API_TOKEN` is a deploy token for one app
-(`fly tokens create deploy -a <app>`), not an organization token. The S3
-access key, secret, bucket, and endpoint are secrets. The endpoint contains
-the account id, and a bucket stored as a variable would appear in the public
-job log. Region, retention, the app name, and `ENFOLDED_BACKUP_REQUIRED` are
-variables. Until the token and the bucket settings are set, the scheduled run
-is an inactive no-op and uploads nothing. The job log does not print the
-object key.
+runs in the `backup` environment. It reads `BACKUP_FLY_SSH_TOKEN` from that
+environment and passes it to flyctl as `FLY_API_TOKEN`. For the twin that
+token is `fly tokens create ssh -a enfolded-staging --expiry 720h` on flyctl
+0.5.1. It is not a deploy token and not an organization token. It can SSH
+to that app. It can also add a WireGuard peer on the app's Fly
+organization, and that peer reaches the private addresses of every app in
+the org, not only the app named with `-a`. A missing environment secret
+falls back to a repository secret of the same name. This token's name does
+not match a repository `FLY_API_TOKEN`. Confirm it as
+[backup-bucket.md](backup-bucket.md#fly-token) says: paste the printed line
+into `BACKUP_FLY_SSH_TOKEN` with no added quotes, set `FLY_CONFIG_DIR` to an
+empty directory, read the token with `read -rs` so it is not on a command
+line, decode it with `fly tokens debug`, and run the SSH commands with
+`-a`. Remove any WireGuard peer that check added. Do not test it with
+`fly deploy` from this checkout. The committed `fly.toml` selects
+`enfolded-beta`. The first manual dispatch from `main` is the proof that
+the stored secret works on a runner with no saved flyctl state. How far a
+peer can reach was not tried. If the twin and production share an
+organization, the owner puts the twin in its own organization or records
+that this reach is accepted before storing the token.
 
-Before a separately authorized launch, configure the repository as in the
-bucket runbook, then:
+The S3 access key, secret, bucket, endpoint, and the
+read-only list pair are environment secrets the same way. The endpoint
+contains the account id, and a bucket stored as a variable would appear in
+the public job log. The repository variables are only `ENFOLDED_BACKUP_APP`,
+`ENFOLDED_BACKUP_S3_REGION`, and `ENFOLDED_BACKUP_REQUIRED`. Until the token
+and the bucket settings are set, the scheduled run is an inactive no-op and
+uploads nothing. The job log does not print the object key.
 
-- Variable `ENFOLDED_BACKUP_APP`: the exact app name (default `enfolded-beta`).
-  Use the staging app during rehearsal; switch deliberately before production.
-- Variable `ENFOLDED_BACKUP_REQUIRED`: exactly `true` before permanent history is
-  accepted. Missing credentials or bucket settings then fail the workflow.
-  Before activation, a missing value with the variable unset or exactly `false`
-  produces an explicit inactive warning and no recovery claim. Any other value
-  fails configuration; a typo cannot silently turn enforcement off.
-- Variable `ENFOLDED_BACKUP_RETENTION_DAYS`: optional. When it is unset the
-  workflow uses **30** as an example, not as a recorded retention period. It
-  deletes this app's backup objects whose snapshot-start is at least that many
-  days old, and it never deletes the newest validated object. Prune runs only
-  after the store step succeeded. A lifecycle rule on prefix `offhost/` must
-  be the retention plus 7 days or more. That rule expires by age and does not
-  keep the newest copy, so it is an outer bound, not a substitute for the
-  keep-newest prune. This replaces the old 90-day artifact expiry. The
-  replacement of that expiry is not itself a decision to keep copies for 30
-  days.
+Before a separately authorized launch, configure the `backup` environment as
+in the bucket runbook, then:
+
+- Variable `ENFOLDED_BACKUP_APP`: the exact app name. Unset, the workflow uses
+  `enfolded-beta`. Set `enfolded-staging` while the watch twin is the app
+  being backed up. Leave it unset, or set `enfolded-beta`, only in the
+  production re-arm order in the bucket runbook. Deleting this variable while
+  a staging token is still stored aims the job at `enfolded-beta`.
+- Variable `ENFOLDED_BACKUP_S3_REGION`: `auto`.
+- Variable `ENFOLDED_BACKUP_REQUIRED`: exactly `true` only after a manual
+  dispatch has stored a validated object. For production, that dispatch is
+  after the first production deploy (O14). Missing credentials or bucket
+  settings then fail the workflow. Before activation, a missing value with
+  the variable unset or exactly `false` produces an explicit inactive warning
+  and no recovery claim. Any other value fails configuration; a typo cannot
+  silently turn enforcement off.
+- Retention is 30 days. The workflow deletes this app's backup objects whose
+  snapshot-start is at least that many days old, and it never deletes the
+  newest validated object. Prune runs only after the store step succeeded. A
+  bucket lock of 7 days on prefix `offhost/` blocks an earlier delete. A
+  lifecycle rule on that prefix expires objects at 37 days. It does not keep
+  the newest copy, and once the schedule has stopped it removes the last copy
+  after 37 days. It is an operator backstop, not a date promised to players
+  until the erasure check in the bucket runbook is recorded.
 
 Manually dispatch `backup.yml` and confirm the object, not just the job badge.
 Staging keys cannot satisfy the production check. Run this read-only check
@@ -1699,12 +1738,12 @@ run `scripts/backup_store.py delete` for one key, or `delete-before` with
 `--dry-run` prints that window and deletes nothing. A future cutoff is
 refused. `delete` of one named key can remove the newest validated object.
 `delete-before` and the retention prune cannot: both keep the newest
-nonempty validated object. The example retention when the variable is unset
-is 30 days, which Mark has not adopted as a decision. Any lifecycle rule
-deletes the last copy once the schedule has been stopped that many days;
-retention + 7 only delays it by 7 days. The rule does not keep the newest
-object. Expiry is not a substitute for deleting a copy you were asked to
-remove.
+nonempty validated object. Retention is 30 days (O7). The lifecycle rule on
+`offhost/` is 37 days and deletes the last copy once the schedule has been
+stopped that long; it does not keep the newest object. Expiry is not a
+substitute for deleting a copy you were asked to remove. A 7-day bucket lock
+can refuse that deletion until the lock age has passed
+([backup-bucket.md](backup-bucket.md)).
 
 Redaction removes words from the chronicle. It does not keep their author
 out: suspend or ban them for that (§6, "Suspending or banning a player").
