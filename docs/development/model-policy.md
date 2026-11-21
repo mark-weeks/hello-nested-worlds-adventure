@@ -250,10 +250,11 @@ has accepted the ADR-039 revision.
 
 ### What a clear requires
 
-Record all four of these before the write, in a dated private operator entry
+Record every item below before the write, in a dated private operator entry
 kept outside the world database and outside player-visible history. The entry
 names the Fly app, the backup path, and the UTC time. It is not a chronicle
-row and not a chat line.
+row and not a chat line. Items 1 to 4 are O9's evidence. Item 5 is required
+when the reason is `billing_anomaly`.
 
 1. The provider console's spend for every UTC day the read-only listing
    prints under `reconcile days`. That set is the UTC day of `latched_at`,
@@ -268,6 +269,18 @@ row and not a chat line.
 2. The latch reason and `latched_at`.
 3. Every `reserved` row, listed before the write and resolved by the write.
 4. The dated entry itself, completed with the backup path before the write.
+5. When the reason is `billing_anomaly`, each `anomaly` row's
+   `resolved_model`, `usage_json`, `reserved_microusd`, and
+   `accounted_microusd`, and the cause. Settlement flags an anomaly when
+   the resolved model is outside the route, the provider is not the route's
+   adapter, the billing evidence is inconsistent, or a token count exceeds
+   the route's bound. A priceable count above that bound can account more
+   than the reservation. That is the case where the ceiling does not hold.
+   Leave the latch until the owner corrects the route's resolved-model
+   list, token bounds, or prices. Those amounts are the owner's under O4
+   and O5. This procedure does not change them. With the same policy, the
+   next confirming call latches again, or charges above the reservation
+   again.
 
 If the console total is higher than this installation's ledger in a way the
 recorded calls do not explain, leave the latch in place and keep external
@@ -295,8 +308,9 @@ place and throws away the ledger that recorded it.
 
 ### The five steps
 
-1. **Quiesce dispatch.** Set `NESTED_WORLDS_DISABLE_AI=1` and
-   `NESTED_WORLDS_DISABLE_MODERATION=1` on that app, and confirm
+1. **Quiesce dispatch.** Record the current `NESTED_WORLDS_DISABLE_AI` and
+   `NESTED_WORLDS_DISABLE_MODERATION` values, including a name that is
+   unset. Then set both to `1` on that app, and confirm
    `NESTED_WORLDS_DISABLE_IMAGES=1`. One `fly secrets set` restarts the
    machine. That restart is not a clear. Wait until `/health` is ok and
    `python main.py models`, run on the machine, shows every route
@@ -347,9 +361,14 @@ place and throws away the ledger that recorded it.
    stop: no`, `model accounting unresolved reservations: 0`, and
    `model controls: no recorded stop`, and must not report `STOPPED`.
    Those commands read the database and their own process, not the server's
-   memory. The restart is what drops the server's event. Restore the
-   approved voice and moderation switches only after that report. That set
-   restarts the machine again and is not a clear. Re-read the same lines.
+   memory. The restart is what drops the server's event. Restore the voice
+   and moderation values recorded in step 1, or unset a name that was unset.
+   Do not write `0` unless that was the recorded value. A `0` secret
+   overrides `fly.toml`, whose `NESTED_WORLDS_DISABLE_AI` is `1`. Unsetting
+   that name restores the committed `1`. If the restored voice value does
+   not admit a call, leave it. The clear stays incomplete until the owner
+   records the live value to restore. That set restarts the machine again
+   and is not a clear. Re-read the same lines.
    Then make one ordinary authenticated gameplay call that is expected to
    dispatch: a place line, an agent line, or an Act free-text intention.
    Do not use an identity question, and do not use `--probe` (controlled
@@ -369,7 +388,8 @@ place and throws away the ledger that recorded it.
    paid routes would still accept another call. Leave the latch deleted if
    the clear already committed. Reconcile the rows, and make the confirming
    call only once the current UTC day can admit one reservation and the
-   switches are restored again. Until that call's rows are all `settled`,
+   recorded switch values are restored again. Do not substitute `0`. Until
+   that call's rows are all `settled`,
    the clear is not complete and the switches stay at 1.
 
 The guarded script that performs steps 2 and 3, and the read-only listing
@@ -379,16 +399,21 @@ passes, that name must not be `enfolded-beta`, and
 `NESTED_WORLDS_TEST_WORLD` must be on. The operator does not assign
 `FLY_APP_NAME`. The write also refuses unless `ENFOLDED_CLEAR_DAYS` names
 every reconcile day, including an anomaly row's original day. It opens only
-`/data/.nested-worlds/worlds.db`. The off-machine backup goes into a fresh
-`0700` directory, and the downloaded file is mode `0600`.
+`/data/.nested-worlds/worlds.db`, read-write without creating the file. A
+`billing_anomaly` latch stays until the owner has corrected the route. The
+off-machine backup goes into a fresh `0700` directory, and the downloaded
+file is mode `0600`.
 
 ### Rehearsal
 
 By Friday 4 December 2026, before the first watch session, rehearse this
-procedure on a separate throwaway Fly app. The rehearsal covers one settled
-reservation, one stop produced by the application (a reserved row left by
-process death, then a restart that records the latch), the four evidence
-items, the hand-SQL clear, the restart, and one settled call after it.
+procedure on a separate throwaway Fly app with
+`NESTED_WORLDS_TEST_WORLD=1` set before first boot. The gameplay calls use
+a credential that has accepted the current participation notice. The
+rehearsal covers one settled reservation, one stop produced by the
+application (a reserved row left by process death, then a restart that
+records the latch), the evidence items, the hand-SQL clear, the restart,
+and one settled call after it.
 Inserting a latch row by hand does not count as that stop. The steps are
 written in the incident procedure and are not run from this repository.
 ADR-039 is accepted only after that rehearsal passes, and only in the

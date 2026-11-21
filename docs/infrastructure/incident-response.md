@@ -106,9 +106,11 @@ not a clear: the provider has already billed that UTC day.
 
 ### Evidence before the write
 
-Record all four items in a dated private operator entry kept outside the
+Record every item below in a dated private operator entry kept outside the
 world database and outside player-visible history. Name the app, the backup
-path, and the UTC time. Do not write a chronicle row or a chat line.
+path, and the UTC time. Do not write a chronicle row or a chat line. Items
+1 to 4 are O9's evidence. Item 5 is required when the reason is
+`billing_anomaly`.
 
 1. The provider console's spend for every UTC day the read-only listing
    prints under `reconcile days`. That set is the UTC day of `latched_at`,
@@ -122,6 +124,23 @@ path, and the UTC time. Do not write a chronicle row or a chat line.
 2. The latch reason and `latched_at`.
 3. Every `reserved` row, from the read-only listing below.
 4. This entry, including the backup path, finished before the write.
+5. When the reason is `billing_anomaly`, each `anomaly` row's
+   `resolved_model`, `usage_json`, `reserved_microusd`, and
+   `accounted_microusd`, and the cause. `settlement` in
+   `consciousness/model_policy.py` flags an anomaly in four cases: the
+   provider's resolved model is not in the route's `resolved_models`, the
+   provider is not the route's adapter, the billing evidence is
+   inconsistent, or a token count exceeds the route's bound. A priceable
+   count above that bound can account more than `reserved_microusd`. That
+   is the case where the ceiling does not hold. Leave the latch. Do not
+   run the write until the owner has corrected the route's resolved-model
+   list, token bounds, or prices, and that correction is in this entry.
+   Those amounts are the owner's under
+   [O4](../roadmap/owner-decisions-2026-11-20.md#o4-dollar-amounts-ledger-retention-and-the-reservation-rule)
+   and
+   [O5](../roadmap/owner-decisions-2026-11-20.md#o5-call-and-cap-integers-item-29).
+   This procedure does not change them. With the same policy, the next
+   confirming call latches again, or charges above the reservation again.
 
 ### 1. Quiesce dispatch
 
@@ -134,9 +153,20 @@ ENFOLDED_CLEAR_APP=throwaway-app-name
 curl -fsS "https://${ENFOLDED_CLEAR_APP}.fly.dev/health"
 ```
 
-`/health` returns `{"status":"ok"}` before you continue. Then set the voice
-and moderation switches in one command. Confirm the image switch is already
-`1`. Setting secrets restarts the machine. That restart is not a clear.
+`/health` returns `{"status":"ok"}` before you continue. Record the voice
+and moderation switches before changing them. `printenv` prints the current
+value. A command that prints nothing means that name is unset. Write both
+results into the private entry. Step 5 restores these values. It does not
+invent `0`.
+
+```bash
+fly ssh console -a "$ENFOLDED_CLEAR_APP" -C "printenv NESTED_WORLDS_DISABLE_AI"
+fly ssh console -a "$ENFOLDED_CLEAR_APP" -C "printenv NESTED_WORLDS_DISABLE_MODERATION"
+```
+
+Then set both switches to `1` in one command. Confirm the image switch is
+already `1`. Setting secrets restarts the machine. That restart is not a
+clear.
 
 ```bash
 fly secrets set -a "$ENFOLDED_CLEAR_APP" \
@@ -217,7 +247,8 @@ for row in reserved:
     print("  " + " ".join(f"{key}={row[key]}" for key in row.keys()))
 print("anomaly:")
 anomaly = db.execute(
-    """SELECT id, day, task, reserved_microusd, accounted_microusd, settled_at
+    """SELECT id, day, task, reserved_microusd, accounted_microusd, settled_at,
+              resolved_model, usage_json
        FROM model_spend_reservations WHERE status='anomaly' ORDER BY day, id"""
 ).fetchall()
 if not anomaly:
@@ -284,9 +315,12 @@ restore abandons everything recorded after the backup.
 
 ### 3. Clear the latch
 
-Still on the machine, from `cd /app`, and only after the four evidence items
-and the backup path are in the private entry. The script opens
-`/data/.nested-worlds/worlds.db` and no other file. It resolves each
+Still on the machine, from `cd /app`, and only after the evidence items
+and the backup path are in the private entry. If the reason is
+`billing_anomaly`, stop here until item 5 names the cause and the owner's
+correction. The script opens `/data/.nested-worlds/worlds.db` and no other
+file. It opens that file read-write and does not create it. A missing file
+fails and leaves no empty database. It resolves each
 `reserved` row to `uncertain` at the same `accounted_microusd`, sets
 `settled_at`, clears `abandoned_at`, and deletes the latch row. It commits
 only when no reserved row remains and no row's money, day, or retention
@@ -311,7 +345,7 @@ if os.environ.get("NESTED_WORLDS_TEST_WORLD", "").strip().casefold() not in {"1"
 
 path = "/data/.nested-worlds/worlds.db"
 reasons = {"billing_anomaly", "accounting_fault", "unsettled_startup"}
-db = sqlite3.connect(path, timeout=5, isolation_level=None)
+db = sqlite3.connect("file:" + path + "?mode=rw", uri=True, timeout=5, isolation_level=None)
 db.row_factory = sqlite3.Row
 started = False
 try:
@@ -438,14 +472,31 @@ a durable stop hiding behind it.
 These commands read the database and their own process. They do not read the
 server's memory. The restart in step 4 is what replaces that process.
 
-Only then restore the approved voice and moderation switches. Leave the
-image switch at `1`. This set restarts the machine again and is not a clear.
-Re-read the three lines after `/health` returns.
+Only then restore the voice and moderation values recorded in step 1.
+Leave the image switch at `1`. Do not write `0` unless step 1 recorded `0`.
+A secret set to `0` overrides `fly.toml`, whose
+`NESTED_WORLDS_DISABLE_AI` is `1`. For a name that step 1 found unset, use
+`fly secrets unset` with that name and no `=`. Unsetting
+`NESTED_WORLDS_DISABLE_AI` restores the committed `1`.
+`NESTED_WORLDS_DISABLE_MODERATION` is not in `fly.toml`; unsetting it leaves
+the name absent, and an absent value does not disable moderation
+(`fly-deployment.md` records the `unset` form). Restoring a voice value of
+`1`, or unsetting it, means the confirming call will not dispatch. Leave it
+that way. The clear stays incomplete until the owner records the live value
+to restore. This set restarts the machine again and is not a clear. Re-read
+the three lines after `/health` returns.
 
 ```bash
 fly secrets set -a "$ENFOLDED_CLEAR_APP" \
-  NESTED_WORLDS_DISABLE_AI=0 \
-  NESTED_WORLDS_DISABLE_MODERATION=0
+  NESTED_WORLDS_DISABLE_AI="$RECORDED_AI" \
+  NESTED_WORLDS_DISABLE_MODERATION="$RECORDED_MODERATION"
+```
+
+`$RECORDED_AI` and `$RECORDED_MODERATION` are the strings step 1 printed.
+Omit a name that was unset, and unset that name instead:
+
+```bash
+fly secrets unset -a "$ENFOLDED_CLEAR_APP" NESTED_WORLDS_DISABLE_AI
 ```
 
 Take a UTC stamp in the ledger's form (`2026-11-20T23:40:00.000000Z`) after
@@ -476,7 +527,8 @@ whose status is `uncertain`, `reserved`, or `anomaly`. A usable reply can
 settle as `uncertain` when usage is missing: the full reservation stays, no
 latch is written, and paid routes would still accept another call. Leave
 the latch deleted if the clear already committed. Record the rows. Reconcile
-them before turning the switches off again for another confirming call.
+them before restoring the recorded switch values for another confirming
+call. Do not substitute `0`.
 
 An allowance refusal is the case where today's accounted total leaves no
 room for one more full reservation. The ledger keeps no new reserved row,
@@ -488,7 +540,11 @@ the clear is not complete and the switches stay at `1`.
 
 Do not run this rehearsal from the repository, against the twin, or against
 a kept world. The owner brings the throwaway app up with its own volume, its
-own approved policy, and its own key. This page does not mint that key.
+own approved policy, its own key, and `NESTED_WORLDS_TEST_WORLD=1` before
+the first boot. Without that setting the write refuses. With it on, the
+participation notice is required, so the ordinary calls below, and the
+confirming call in step 5, need a credential that has accepted the current
+notice. This page does not mint that key.
 
 1. One ordinary call settles. The read-only listing shows that row
    `settled` and no latch row.
@@ -498,7 +554,7 @@ own approved policy, and its own key. This page does not mint that key.
    reserved row was left, the application did not produce the stop. Do not
    insert a latch row by hand. Record that and try the interrupted call
    once more.
-3. Run this procedure: the four evidence items, the backup, the hand-SQL
+3. Run this procedure: the evidence items, the backup, the hand-SQL
    clear, the restart, and one settled call after it.
 4. Record the result for the owner. ADR-039 is accepted only after this
    rehearsal passes, and only in the records or status pull request the
