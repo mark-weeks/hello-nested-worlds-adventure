@@ -27,10 +27,10 @@ Same-schema rollback is [below](#same-schema-release-rollback). Incidents
   ```
 - For a later approved live rehearsal, a reviewed controlled adapter and
   provider account/key, model, endpoint, prices, dollar amounts and retention.
-  The first adapter/vendor is an open owner decision. This build supports
-  only the built-in Chat Completions transport, while ADR-035 remains Proposed;
-  live hosted voice is blocked until ADR-035 is accepted or a controlled
-  Anthropic path exists, plus the other live approvals. See
+  This build supports only the built-in Chat Completions transport.
+  ADR-035 stays Proposed until the owner records acceptance. The gate for the
+  disposable twin's first probe, and the later gate for production and for
+  any session a participant joins, are both in
   [approved live controlled text](#approved-live-controlled-text).
 - Leave `FAL_KEY` unset. Images are unsupported in controlled mode and answer
   the authored quiet line with `images: false`; built-in node art still renders.
@@ -245,8 +245,11 @@ the default is a behavior change, not implicit approval of a chat-off watch.
 > A production boot births the world at its first heartbeat tick,
 > about three minutes in, or at the first `/world` request if that comes
 > sooner. From that tick the cast starts pinning puzzles and writing history.
-> Mint your own key at once to close the gate (§6). Give a key or an invite to
-> someone else only when you mean it.
+> Mint the first key in step 5 of the commands below, from a terminal, before
+> the URL is shared. [Section 6](#6-mint-invite-keys) is the form of that
+> command. A workflow does not mint it:
+> `.github/workflows/deploy-staging.yml` mints no invite keys. Give a key or
+> an invite to someone else only when you mean it.
 
 > **Hold: the puzzle salt comes first.** Do not run the first production deploy
 > below until the salt's code is on `main` and the audited production salt is
@@ -260,14 +263,14 @@ the default is a behavior change, not implicit approval of a chat-off watch.
 Run these from the repo root.
 
 ```bash
-# Create the app (no deploy yet), matching the name you set in fly.toml.
+# 1. Create the app (no deploy yet), matching the name you set in fly.toml.
 fly apps create enfolded-beta
 
-# Provision the persistent volume in the same region as the app.
+# 2. Provision the persistent volume in the same region as the app.
 fly volumes create enfolded_data --region iad --size 1
 
-# Optional error reporting. Keep provider credentials absent and both
-# committed external kill switches at 1 for this first, all-off deploy.
+# 3. Optional error reporting. Keep provider credentials absent and both
+#    committed external kill switches at 1 for this first, all-off deploy.
 fly secrets set SENTRY_DSN=https://...ingest.sentry.io/...
 
 # REQUIRED for any public deployment: close the invite gate. There is no
@@ -275,13 +278,18 @@ fly secrets set SENTRY_DSN=https://...ingest.sentry.io/...
 # until the first per-user key or registration invite is issued (§6);
 # from then on it stays closed, even if every key is later revoked. An ungated server is an open
 # proxy if external routes are later enabled. The daily
-# caps are not an access gate. Mint the
-# first per-user key in §6 BEFORE you announce the URL, and do not share the
-# URL until then.
+# caps are not an access gate. The first key is step 5, after this deploy,
+# and it is minted from a terminal. Do not share the URL until then.
 
-# Deploy. (--first-deploy skips the pre-deploy backup — nothing to back
-# up yet. Every subsequent deploy goes through scripts/deploy.sh plain.)
+# 4. Deploy. (--first-deploy skips the pre-deploy backup — nothing to back
+#    up yet. Every subsequent deploy goes through scripts/deploy.sh plain.)
 scripts/deploy.sh --first-deploy
+
+# 5. Mint the first key at once. This closes the invite gate. Never mint a
+#    key in CI. '<operator>' stands in until the operator supplies the name.
+#    The command uses the app name in fly.toml (enfolded-beta). It does not
+#    pass -a, and it is not the staging check-key mint.
+fly ssh console -C "python main.py invite mint --name '<operator>' --note 'first key, gate closed'"
 ```
 
 `fly deploy` builds the Docker image remotely, ships it to the region,
@@ -387,17 +395,27 @@ fly secrets set -a enfolded-staging SENTRY_ENVIRONMENT=staging
 fly ssh console -a enfolded-staging -C "printenv SENTRY_ENVIRONMENT"
 fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
 #    This build requires an immutable model policy on hosted/test worlds.
-#    Keep both external kill switches at 1 for the no-provider watch.
-#    A provider key alone cannot activate a route. The former Anthropic
-#    activation command is deliberately removed: this first controlled
-#    slice supports only the built-in Chat Completions transport and
-#    refuses Anthropic, direct probes, wrappers and images.
-#    Live staging and production voice is blocked until ADR-035 is
-#    accepted or a controlled Anthropic path exists, and the destination,
-#    prices, amounts and retention are approved. The first controlled
-#    adapter/vendor is an open owner decision. Follow "Approved live
-#    controlled text" below only after those gates; do not remove the
-#    requirement or assume installing a provider key completes them.
+#    Keep both external kill switches at 1 until "Approved live controlled
+#    text" below is complete. A provider key alone cannot activate a route.
+#    This controlled slice dispatches only through the built-in Chat
+#    Completions transport. It refuses any other adapter, direct probes,
+#    eval wrappers and images.
+#    The watch is AI-on only after the owner fills
+#    config/model-policy.watch.example.json, the offline check passes, and
+#    the approved file is on the machine. The checked-in example is refused
+#    until those owner values are filled. ADR-035 stays Proposed until the
+#    owner records acceptance. Do not remove the policy requirement.
+#    Before any paid call, set a $150 spend limit on the provider account
+#    itself. That limit is not a policy field: the strict parse refuses an
+#    unknown key, and the server neither knows nor enforces it. If the
+#    account offers only an alert, stop and record a replacement decision.
+#    Call caps are separate secrets. Set each neutral name and its legacy
+#    name to the same unconfirmed integer in one secrets set. The names and
+#    the unconfirmed drafts are in the controlled model policy guide under
+#    "Watch call caps". Leave the image caps unset.
+#    This step does not set the provider credential. That value is
+#    NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY, set with the policy path in
+#    "Approved live controlled text". Never print it and never printenv it.
 
 # 7. Verify GET /community matches the selected enabled/off state and
 #    GET /participation serves the revised, ready test-world notice.
@@ -408,22 +426,29 @@ fly secrets set -a enfolded-staging SENTRY_DSN=https://...ingest.sentry.io/...
 #    on a tester's behalf. Without acknowledgement a keyed /world or /ws
 #    is refused with 428; an incomplete notice refuses gameplay with 503.
 #    Check it with the check key from step 5, never a tester's: /health
-#    ok, the gate closed, and the voice authored/quiet for the default
-#    no-provider watch. Only after separately approved live activation
-#    must /speak answer "ai": true. A live answer writes a
+#    ok, the gate closed. STOP before the speak line. Both kill switches
+#    are still 1, so that grep cannot pass yet. Do not revoke the check
+#    key, and do not start step 8. Complete "Approved live controlled text"
+#    first (the policy file, the credential, the adapter settings, then
+#    the text kill switch at 0). Come back to the speak line. It must
+#    print "ai": true. A failed grep is a stop, not a pass. Only then
+#    revoke the check key. If this block was already run through and
+#    Stagingcheck was revoked, mint Stagingcheck2 the way "Teardown before
+#    launch" says, acknowledge that new key, and use it on the speak line.
+#    A revoked name stays taken. A live answer writes a
 #    PLAYER_SPEAK row to the staging chronicle under the check key's name,
 #    and the node's transcript is keyed on that key. Under a tester's key
-#    it would read as that tester speaking before they arrived. Then revoke
-#    the check key.
+#    it would read as that tester speaking before they arrived.
 curl https://enfolded-staging.fly.dev/health
 curl -i https://enfolded-staging.fly.dev/world        # 403 without a key
 curl -s -H 'X-Beta-Key: <check key>' 'https://enfolded-staging.fly.dev/world?depth=1' | python3 -c 'import json, sys; print(json.load(sys.stdin)["world"]["name"])'
-curl -s -X POST https://enfolded-staging.fly.dev/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<the place name printed above>"}' | grep -o '"ai": false'
+curl -s -X POST https://enfolded-staging.fly.dev/speak -H 'X-Beta-Key: <check key>' -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<the place name printed above>"}' | grep -o '"ai": true'
 fly ssh console -a enfolded-staging -C "python main.py invite revoke <check key>"
 
-# 8. Only now, and only once protocol 2's prerequisites below are recorded,
-#    send each URL to its tester only: never in an issue, a PR, a chat
-#    channel or a CI log.
+# 8. Only after the speak line has printed "ai": true, and only once
+#    protocol 2's prerequisites below are recorded and the owner has
+#    recorded ADR-035 acceptance, send each URL to its tester only:
+#    never in an issue, a PR, a chat channel or a CI log.
 ```
 
 #### Private traveler chat and reports
@@ -513,7 +538,7 @@ placeholder descriptions as policy:
 | `NESTED_WORLDS_TEST_CONTACT` | The research owner or facilitator and a way to contact them. |
 | `NESTED_WORLDS_TEST_RETENTION` | The approved retention/deletion treatment of the world database, consent records, research records and backups. State how to request deletion or leave the study and that backup copies are removed when those backups are deleted. This setting displays a statement; it does not schedule deletion. |
 | `NESTED_WORLDS_TEST_MIN_AGE` | Optional compatibility setting: `18` only. The owner-set minimum is 18; an absent value keeps 18, and any conflicting value leaves the notice not ready. |
-| `NESTED_WORLDS_TEST_DATA_USE` | The approved explanation of who receives study data, which model providers are used, and why. A no-provider watch must have no provider credentials set. |
+| `NESTED_WORLDS_TEST_DATA_USE` | The approved explanation of who receives study data, which model provider is used, and why. For this AI-on watch the sentence is the owner's signed data-use note: `<OWNER: provider name>`, not used to train a model, and the classes of text that note lists. Leave provider credentials unset until the approved policy file is installed. Do not copy this placeholder into the secret. |
 
 The canonical setting is `1`. Case-insensitive `true`, `on` and `yes` also
 enable it; absent/empty, `0`, `false`, `off` and `no` turn temporary mode off.
@@ -554,34 +579,102 @@ decisions, separate from authored world voices. Continuing worlds keep their
 standing shared-history disclosure alongside any required study notice;
 temporary copy is selected only when metadata reports `temporary: true`.
 
-The default staging watch remains without provider keys. The step 6 provider
-setup and step 7 `ai: true` probe apply only after the provider-data review and
-the adapter/vendor, prices, amounts and retention decisions are complete,
-and ADR-035 is accepted or a controlled Anthropic path exists. An authored-silence watch instead verifies
-`ai: false`. Keep the AI and image kill switches on until the corresponding
-live-provider path is approved and configured. These notices do not decide
-production chat permanence, replace research consent, or close the beta's
-terms, privacy, reporting and provider gates.
+The staging watch runs AI-on only after the approved policy file is on the
+machine. Until then, leave provider credentials unset and keep both kill
+switches at 1. Step 6 is where those secrets are set, and step 7's `/speak`
+check requires `"ai": true` only after that activation. ADR-035 stays Proposed
+until the owner records acceptance. These notices do not decide production chat
+permanence, replace research consent, or close the beta's terms, privacy,
+reporting and provider gates.
 
 #### Approved live controlled text
 
-This procedure is blocked while the first controlled adapter/vendor decision
-remains open. ADR-035 is still Proposed; either accept it before choosing its
-Chat Completions path or implement and review a controlled Anthropic path.
-The restriction applies to production as well as staging. No command below is
-authorization to choose an endpoint, set prices or amounts, or activate a route.
+The disposable twin may run the first live probe once the owner signs one
+data-use note for one account at one endpoint, fills a private copy of
+`config/model-policy.watch.example.json`, `model-policy --check` passes, and
+the $150 spend limit is set on the provider account. That probe is the live
+evidence for accepting ADR-035 and does not wait for the acceptance record.
+Production, and any session a participant joins, also wait until the owner
+records that acceptance. ADR-035 stays Proposed until then. The
+[endpoint-check record](../evaluation/2026-11-20-chat-completions-endpoint-check.md)
+recommends a candidate; it does not sign the note or fill the file. No command
+below is authorization to choose an endpoint, set prices or amounts, or open
+the world to a participant.
 
-Before activation, record the selected destination/account data-use approval,
-model and resolved-model allowlist, verified input bound, reviewed prices,
-global/per-participant USD ceilings, ledger retention and backup treatment.
-Install the approved immutable policy file and task configuration; use a
-staging-only account/key for rehearsal. Run
-`python main.py model-policy --check --policy <approved file>` in the intended
-process environment. A few full-context
-reservations can exhaust a small allowance even on short prompts; check that
-admission is useful before activating. Keep the committed requirement and
-`NESTED_WORLDS_DISABLE_IMAGES=1`. A disabled moderation route holds text needing
-classification; enabling voice is not permission for its screen to call a model.
+Before activation, record the signed data-use note, the model and
+resolved-model allowlist, the verified input bound, the reviewed prices, the
+global and per-participant USD ceilings, ledger retention and backup treatment.
+Read the reservation rows from the offline check and confirm the amounts
+against them. Set the $150 spend limit on the provider account before the
+first paid call. That limit is not a field in the policy file.
+
+The approved file is a private copy. It is not the checked-in example, and it
+is not baked into the image. On the operator's machine, in the environment the
+process will use:
+
+```sh
+python main.py model-policy --check --policy <approved file>
+```
+
+Copy that file onto the machine, for example with sftp
+(`fly ssh sftp shell -a enfolded-staging`) into `/data/model-policy.json`.
+A fresh twin has no Chat Completions base URL, no explicit model id, and no
+adapter options in `fly.toml`. `initialize()` checks the enabled file against
+that environment even while both kill switches stay at 1. A secrets set that
+names only the file path restarts at once, and that boot fails the check.
+Put the reviewed routing, model, and adapter settings in the same secrets set
+as the path, so the one restart sees one matching environment. Run the offline
+check in that same environment first.
+
+The base URL is the policy endpoint with `/chat/completions` removed. Set
+each task's provider to `openai_compatible`; the process default is a
+different adapter. Set each task's model variable to that route's `model`
+id. Moderation does not inherit `NESTED_WORLDS_MODEL`. The adapter has one
+reasoning effort for the process, and every enabled route's
+`reasoning_effort` must match it or `initialize()` refuses the file.
+Leave `NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` unset only when
+every enabled route says null. For the recommended candidate, do not leave
+that null: the model page's default effort is medium, and reasoning tokens
+count against `max_completion_tokens`. Set every enabled route to `none` and
+set the env to that same token, unless the owner records a different effort.
+Set `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` only when
+the file does not say `max_completion_tokens`. The timeout value must be no
+greater than every non-moderation route's `timeout_seconds`. Moderation's
+call uses 3 seconds, so that route's timeout must be at least 3. The values
+below are placeholders. Do not copy them in as the owner's choices. Never
+print `NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY` and never `printenv` it.
+
+```bash
+fly secrets set -a enfolded-staging \
+  NESTED_WORLDS_MODEL_POLICY=/data/model-policy.json \
+  NESTED_WORLDS_PROVIDER=openai_compatible \
+  NESTED_WORLDS_NODE_PROVIDER=openai_compatible \
+  NESTED_WORLDS_INHABITANT_PROVIDER=openai_compatible \
+  NESTED_WORLDS_INTENT_PROVIDER=openai_compatible \
+  NESTED_WORLDS_MODERATION_PROVIDER=openai_compatible \
+  NESTED_WORLDS_NODE_MODEL='<OWNER: model id>' \
+  NESTED_WORLDS_INHABITANT_MODEL='<OWNER: model id>' \
+  NESTED_WORLDS_INTENT_MODEL='<OWNER: model id>' \
+  NESTED_WORLDS_MODERATION_MODEL='<OWNER: model id>' \
+  NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL='<OWNER: base URL>' \
+  NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY='<OWNER: staging key>' \
+  NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS=1 \
+  NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE=1 \
+  NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS='<OWNER: seconds>'
+```
+
+The CLI freezes its own environment and file; it does not inspect the running
+server's earlier snapshot. This restart leaves both kill switches at 1. The
+check-key probe below may run once the owner has signed the note and this
+check passes. It does not wait for the owner to record ADR-035 acceptance.
+Sending a tester URL does.
+
+Use a staging-only account and key for rehearsal. Keep the committed
+requirement and `NESTED_WORLDS_DISABLE_IMAGES=1`. A disabled moderation route
+holds text needing classification; enabling voice is not permission for its
+screen to call a model. A few full-context reservations can exhaust a small
+allowance even on short prompts; the reservation report is how you see that
+before activating.
 
 Fly's [configuration reference](https://docs.fly.io/reference/configuration#the-env-variables-section)
 says a secret overrides an `[env]` value of the same name, and its
@@ -601,8 +694,14 @@ fly ssh console -a enfolded-staging -C "python main.py voice-health"
 `printenv` must print `0`. Confirm the controlled route policy in the plain CLI
 output and match it to the deployed release and restart evidence. The CLI freezes
 its own environment/file; it does not inspect the running server's earlier
-in-memory snapshot after a file edit. Then use step 7's authenticated gameplay probe under an acknowledged
-check identity and require `ai: true`. Never use `models --probe` or
+in-memory snapshot after a file edit. Then return to step 7's speak line
+and run it while the check key is still live. Do not revoke that key first.
+If it was already revoked, mint `Stagingcheck2` as
+[Teardown before launch](#teardown-before-launch) says, acknowledge it, and
+use that key. The grep must print `"ai": true`. A failed grep stops the
+sequence. That probe is the live evidence for accepting ADR-035. It may run
+before the owner records the acceptance. Sending a tester URL waits for that
+record and for the passing grep. Never use `models --probe` or
 `voice-health --probe` in controlled mode: direct keyless probes are refused
 because they have no participant reservation. The same checks apply to any
 separately authorized production activation, naming that app explicitly.
@@ -709,7 +808,9 @@ What keeps it on staging:
   repository is public, and refuses if `origin` cannot be read. So a re-run
   of an old run cannot put an older commit over a newer deploy.
 - It reads one token, `FLY_API_TOKEN_STAGING`, in the `staging` environment
-  (step 3). It never reads `FLY_API_TOKEN`, the token `backup.yml` uses.
+  (step 3). The backup job's secret is `BACKUP_FLY_SSH_TOKEN`, which
+  `backup.yml` passes to flyctl as `FLY_API_TOKEN`. This workflow does not
+  read `BACKUP_FLY_SSH_TOKEN`.
 - It refuses a commit that does not descend from `f3ead74` (#152), the
   first commit whose `scripts/deploy.sh` checks the schema and whose binary
   refuses a newer chronicle. On any commit it accepts, `scripts/deploy.sh`
@@ -747,11 +848,18 @@ What the file cannot stop:
   app scope (step 3) is what stops such a change from reaching another app.
 - A copy of this workflow edited on another branch and dispatched with
   `--ref`. GitHub runs that branch's copy, which can drop every guard above.
-  It can also read every repository secret, `backup.yml`'s `FLY_API_TOKEN`
-  included. That is true of any workflow file on any branch, for anyone with
-  write access, and not something this file adds. The `staging`
-  environment's main-only branch rule is what keeps `FLY_API_TOKEN_STAGING`
-  out of such a run.
+  It can also read every repository secret. That is true of any workflow
+  file on any branch, for anyone with write access, and not something this
+  file adds. The `staging` environment's main-only branch rule is what keeps
+  `FLY_API_TOKEN_STAGING` out of such a run. The backup job reads
+  `BACKUP_FLY_SSH_TOKEN` from the `backup` environment and passes it to
+  flyctl as `FLY_API_TOKEN`. That environment's main-only branch rule
+  withholds the environment secret
+  ([backup-bucket.md](backup-bucket.md)). If the environment secret is
+  missing, `secrets.<NAME>` falls back to a repository secret of the same
+  name. `BACKUP_FLY_SSH_TOKEN` does not match a repository `FLY_API_TOKEN`.
+  The six `ENFOLDED_BACKUP_S3_*` names still would, so those repository
+  copies, and any repository `FLY_API_TOKEN`, are deleted.
 
 `tests/test_deploy_staging_workflow.py` checks the guards and runs the
 workflow's step scripts against a stub `fly` and small git histories.
@@ -763,8 +871,13 @@ fly.io or github.com):
   refused by every other app. The first residual path above rests on it.
 - That such a token permits `fly ssh console`. `scripts/deploy.sh` uses it
   for the backup, the schema probe and the prune on every deploy except
-  `--first-deploy`. `backup.yml` already assumes the same for its own token.
-  If it does not, the backup step fails and `deploy.sh` refuses to deploy,
+  `--first-deploy`. The off-host job does not use this deploy token. Its token
+  is `fly tokens create ssh -a <app>` on flyctl 0.5.1
+  ([backup-bucket.md](backup-bucket.md#fly-token)).
+  That token can add a WireGuard peer on the app's organization, which
+  reaches every app in the org, not only the named app.
+  If the deploy token does not permit a console, the backup step fails and
+  `deploy.sh` refuses to deploy,
   so nothing changes on Fly. The fallback is to redeploy from the owner's
   machine (`FLY_APP=enfolded-staging scripts/deploy.sh`). Another is to move
   staging into a Fly organization of its own and store a token for that
@@ -1123,9 +1236,10 @@ chronicle text, `redact` does not reach them. Write reasons you would be
 content to see restored from a backup. Keep them short and factual, with no
 contact details and no other player's private data. The player-facing
 privacy notice (checklist L3) must name this record: that sanction decisions
-and their reasons are kept, privately, for as long as backups are. The
-backup retention period is not decided yet (decision I in the
-[Q4 plan](../roadmap/next-steps-2026-q4.md)).
+and their reasons are kept, privately, for as long as backups are. Backup
+retention is 30 days, recorded on 2026-11-20 (O7). The player notice does
+not state that date until the erasure check in
+[backup-bucket.md](backup-bucket.md#erasure-check) is recorded.
 
 **Erasing a sanction reason (break-glass).** No application command edits
 or deletes a sanction. If a reason must be erased, for example on an erasure
@@ -1234,10 +1348,10 @@ at most one hour of lost history. A schedule alone does not establish that bound
 [GitHub documents delayed and dropped scheduled jobs](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 The workflow takes an online backup, downloads a self-contained SQLite file,
 checks integrity and required tables, and stores it in a private S3-compatible
-bucket. Cloudflare R2 is an example of that store, and a 30-day retention is
-the example used when the retention variable is unset. Mark has not recorded
-either choice. Setup, the token, retention, and the rehearsal list are in
-[backup-bucket.md](backup-bucket.md).
+bucket. Cloudflare R2 is that store, and retention is 30 days, both recorded
+on 2026-11-20 (O7). The workflow writes 30. There is no retention variable.
+Setup, the token, the bucket lock, the lifecycle, and the rehearsal list are
+in [backup-bucket.md](backup-bucket.md).
 
 GitHub's artifact list is available to anyone with read access to the
 repository ([artifact API](https://docs.github.com/en/rest/actions/artifacts#list-artifacts-for-a-repository)).
@@ -1250,35 +1364,59 @@ salvage. A healthy object is
 count as healthy backups. A successful upload is not yet a restore rehearsal.
 
 The bucket is private: no public `r2.dev` URL and no custom domain. The job
-reads secrets and variables. `FLY_API_TOKEN` is a deploy token for one app
-(`fly tokens create deploy -a <app>`), not an organization token. The S3
-access key, secret, bucket, and endpoint are secrets. The endpoint contains
-the account id, and a bucket stored as a variable would appear in the public
-job log. Region, retention, the app name, and `ENFOLDED_BACKUP_REQUIRED` are
-variables. Until the token and the bucket settings are set, the scheduled run
-is an inactive no-op and uploads nothing. The job log does not print the
-object key.
+runs in the `backup` environment. It reads `BACKUP_FLY_SSH_TOKEN` from that
+environment and passes it to flyctl as `FLY_API_TOKEN`. For the twin that
+token is `fly tokens create ssh -a enfolded-staging --expiry 720h` on flyctl
+0.5.1. It is not a deploy token and not an organization token. It can SSH
+to that app. It can also add a WireGuard peer on the app's Fly
+organization, and that peer reaches the private addresses of every app in
+the org, not only the app named with `-a`. A missing environment secret
+falls back to a repository secret of the same name. This token's name does
+not match a repository `FLY_API_TOKEN`. Confirm it as
+[backup-bucket.md](backup-bucket.md#fly-token) says: paste the printed line
+into `BACKUP_FLY_SSH_TOKEN` with no added quotes, set `FLY_CONFIG_DIR` to an
+empty directory, read the token with `read -rs` so it is not on a command
+line, decode it with `fly tokens debug`, and run the SSH commands with
+`-a`. Remove any WireGuard peer that check added. Do not test it with
+`fly deploy` from this checkout. The committed `fly.toml` selects
+`enfolded-beta`. The first manual dispatch from `main` is the proof that
+the stored secret works on a runner with no saved flyctl state. How far a
+peer can reach was not tried. If the twin and production share an
+organization, the owner puts the twin in its own organization or records
+that this reach is accepted before storing the token.
 
-Before a separately authorized launch, configure the repository as in the
-bucket runbook, then:
+The S3 access key, secret, bucket, endpoint, and the
+read-only list pair are environment secrets the same way. The endpoint
+contains the account id, and a bucket stored as a variable would appear in
+the public job log. The repository variables are only `ENFOLDED_BACKUP_APP`,
+`ENFOLDED_BACKUP_S3_REGION`, and `ENFOLDED_BACKUP_REQUIRED`. Until the token
+and the bucket settings are set, the scheduled run is an inactive no-op and
+uploads nothing. The job log does not print the object key.
 
-- Variable `ENFOLDED_BACKUP_APP`: the exact app name (default `enfolded-beta`).
-  Use the staging app during rehearsal; switch deliberately before production.
-- Variable `ENFOLDED_BACKUP_REQUIRED`: exactly `true` before permanent history is
-  accepted. Missing credentials or bucket settings then fail the workflow.
-  Before activation, a missing value with the variable unset or exactly `false`
-  produces an explicit inactive warning and no recovery claim. Any other value
-  fails configuration; a typo cannot silently turn enforcement off.
-- Variable `ENFOLDED_BACKUP_RETENTION_DAYS`: optional. When it is unset the
-  workflow uses **30** as an example, not as a recorded retention period. It
-  deletes this app's backup objects whose snapshot-start is at least that many
-  days old, and it never deletes the newest validated object. Prune runs only
-  after the store step succeeded. A lifecycle rule on prefix `offhost/` must
-  be the retention plus 7 days or more. That rule expires by age and does not
-  keep the newest copy, so it is an outer bound, not a substitute for the
-  keep-newest prune. This replaces the old 90-day artifact expiry. The
-  replacement of that expiry is not itself a decision to keep copies for 30
-  days.
+Before a separately authorized launch, configure the `backup` environment as
+in the bucket runbook, then:
+
+- Variable `ENFOLDED_BACKUP_APP`: the exact app name. Unset, the workflow uses
+  `enfolded-beta`. Set `enfolded-staging` while the watch twin is the app
+  being backed up. Leave it unset, or set `enfolded-beta`, only in the
+  production re-arm order in the bucket runbook. Deleting this variable while
+  a staging token is still stored aims the job at `enfolded-beta`.
+- Variable `ENFOLDED_BACKUP_S3_REGION`: `auto`.
+- Variable `ENFOLDED_BACKUP_REQUIRED`: exactly `true` only after a manual
+  dispatch has stored a validated object. For production, that dispatch is
+  after the first production deploy (O14). Missing credentials or bucket
+  settings then fail the workflow. Before activation, a missing value with
+  the variable unset or exactly `false` produces an explicit inactive warning
+  and no recovery claim. Any other value fails configuration; a typo cannot
+  silently turn enforcement off.
+- Retention is 30 days. The workflow deletes this app's backup objects whose
+  snapshot-start is at least that many days old, and it never deletes the
+  newest validated object. Prune runs only after the store step succeeded. A
+  bucket lock of 7 days on prefix `offhost/` blocks an earlier delete. A
+  lifecycle rule on that prefix expires objects at 37 days. It does not keep
+  the newest copy, and once the schedule has stopped it removes the last copy
+  after 37 days. It is an operator backstop, not a date promised to players
+  until the erasure check in the bucket runbook is recorded.
 
 Manually dispatch `backup.yml` and confirm the object, not just the job badge.
 Staging keys cannot satisfy the production check. Run this read-only check
@@ -1600,12 +1738,12 @@ run `scripts/backup_store.py delete` for one key, or `delete-before` with
 `--dry-run` prints that window and deletes nothing. A future cutoff is
 refused. `delete` of one named key can remove the newest validated object.
 `delete-before` and the retention prune cannot: both keep the newest
-nonempty validated object. The example retention when the variable is unset
-is 30 days, which Mark has not adopted as a decision. Any lifecycle rule
-deletes the last copy once the schedule has been stopped that many days;
-retention + 7 only delays it by 7 days. The rule does not keep the newest
-object. Expiry is not a substitute for deleting a copy you were asked to
-remove.
+nonempty validated object. Retention is 30 days (O7). The lifecycle rule on
+`offhost/` is 37 days and deletes the last copy once the schedule has been
+stopped that long; it does not keep the newest object. Expiry is not a
+substitute for deleting a copy you were asked to remove. A 7-day bucket lock
+can refuse that deletion until the lock age has passed
+([backup-bucket.md](backup-bucket.md)).
 
 Redaction removes words from the chronicle. It does not keep their author
 out: suspend or ban them for that (§6, "Suspending or banning a player").

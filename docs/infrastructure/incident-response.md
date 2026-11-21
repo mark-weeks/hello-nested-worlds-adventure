@@ -4,8 +4,10 @@ One page for the pilot. Mark Weeks is the sole maintainer and the sole
 operator. He decides kill switches, throttling, revocation, suspension,
 bans, redaction, and whether an incident is a release rollback or a
 restore. This page records no policy. Minimum age, chat permanence,
-external destinations, world status, and backup retention stay open
-owner decisions (checklist S4, S5, S2/L4, world status, and Q4 decision I).
+external destinations, and world status stay open owner decisions
+(checklist S4, S5, S2/L4, and world status). Backup retention is 30 days,
+recorded on 2026-11-20 (O7), with a 7-day bucket lock counted from upload
+and a 37-day lifecycle backstop.
 
 Community juries are not active. Corroboration (G3), the consequence
 ladder (G4), rotating juries (G6), trust standing (G7), and notice and
@@ -134,13 +136,17 @@ path, and the UTC time. Do not write a chronicle row or a chat line. Items
    count above that bound can account more than `reserved_microusd`. That
    is the case where the ceiling does not hold. Leave the latch. Do not
    run the write until the owner has corrected the route's resolved-model
-   list, token bounds, or prices, and that correction is in this entry.
-   Those amounts are the owner's under
+   list, token bounds, or prices in the policy on the machine, and that
+   correction is in this entry. The checked-in watch example still leaves
+   dollar amounts, prices, and call caps as unconfirmed placeholders.
+   Editing that example does not change the policy on the machine, and
+   this procedure does not fill it.
    [O4](../roadmap/owner-decisions-2026-11-20.md#o4-dollar-amounts-ledger-retention-and-the-reservation-rule)
    and
-   [O5](../roadmap/owner-decisions-2026-11-20.md#o5-call-and-cap-integers-item-29).
-   This procedure does not change them. With the same policy, the next
-   confirming call latches again, or charges above the reservation again.
+   [O5](../roadmap/owner-decisions-2026-11-20.md#o5-call-and-cap-integers-item-29)
+   are the decision record for those amounts. They are not a checked-in
+   setting. With the same deployed policy, the next confirming call
+   latches again, or charges above the reservation again.
 
 ### 1. Quiesce dispatch
 
