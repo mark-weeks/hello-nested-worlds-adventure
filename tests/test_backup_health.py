@@ -334,7 +334,7 @@ def test_backup_job_keeps_secrets_in_the_main_only_environment():
     names = [step.get('name') for step in job['steps']]
     assert names[0] == 'Refuse any ref but main'
     secret_steps = {
-        'Check for the Fly token and the private bucket': {'FLY_API_TOKEN', *_WRITE_SECRETS},
+        'Check for the Fly token and the private bucket': {'FLY_API_TOKEN', *_WRITE_SECRETS, *_LIST_SECRETS},
         'Take an online backup on the machine': {'FLY_API_TOKEN'},
         'Download the backup off-host': {'FLY_API_TOKEN'},
         'Store the snapshot in the private bucket': {'VALIDATE_OUTCOME', *_WRITE_SECRETS},
@@ -404,21 +404,49 @@ def test_backup_refuses_every_ref_but_main_and_calls_no_flyctl(tmp_path):
             assert 'Off-host backup runs only from main.' in result.stdout
 
 
+def test_gate_rejects_a_half_set_read_pair_before_upload(tmp_path):
+    for extra in (
+            {'ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID': 'list-key-half'},
+            {'ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY': 'list-secret-half'}):
+        result, ready, summary = _gate(
+            tmp_path, BACKUP_REQUIRED='true', FLY_API_TOKEN='fixture-token', **S3_READY, **extra)
+        assert result.returncode == 2
+        assert ready == ''
+        assert 'incomplete' in result.stderr
+        assert 'list-key-half' not in result.stdout + result.stderr + summary
+        assert 'list-secret-half' not in result.stdout + result.stderr + summary
+    both, ready, _summary = _gate(
+        tmp_path, BACKUP_REQUIRED='true', FLY_API_TOKEN='fixture-token', **S3_READY,
+        ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID='list-key',
+        ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY='list-secret-value')
+    assert both.returncode == 0
+    assert ready == 'ready=yes'
+    assert 'list-secret-value' not in both.stdout + both.stderr
+
+
 def test_backup_runbook_confirms_the_token_without_a_deploy():
-    """The operator steps must not store quotes or deploy this checkout."""
+    """The operator steps must not store quotes, deploy this checkout, or hide the peer."""
     root = Path(__file__).resolve().parents[1]
     bucket = (root / 'docs/infrastructure/backup-bucket.md').read_text()
     runbook = (root / 'docs/infrastructure/fly-deployment.md').read_text()
+    workflow = (root / '.github/workflows/backup.yml').read_text()
     assert 'Quote it.' not in bucket
     assert 'plus one `fly deploy` that must be' not in bucket
+    assert "FLY_API_TOKEN='<exact printed token>'" not in bucket
     assert 'with no characters added' in bucket
     assert 'a quote mark becomes part of the token' in bucket
     assert 'Do not run `fly deploy` here.' in bucket
-    assert "unset FLY_ACCESS_TOKEN" in bucket
-    assert "FLY_API_TOKEN='<exact printed token>' fly tokens debug" in bucket
+    assert 'read -rs FLY_API_TOKEN' in bucket
+    assert 'unset FLY_API_TOKEN' in bucket
     assert "fly ssh console -a <OWNER: Fly app name>" in bucket
     assert "fly ssh sftp get -a <OWNER: Fly app name>" in bucket
     assert 'issueCertificate' in bucket and 'addWireGuardPeer' in bucket
+    assert 'not evidence that a peer cannot reach another app' in bucket
+    assert 'private addresses of every app in the org' in bucket
     assert 'Do not use `enfolded-beta`.' in bucket
+    assert 'A manual prune must pass `--retention-days 30`' in bucket
+    assert 'the retention,' not in bucket
     assert 'backup-bucket.md#fly-token' in runbook
     assert 'Do not test it with `fly deploy` from this' in runbook
+    assert 'every app in the org' in runbook
+    assert 'every app in the org, not only the app named with -a' in workflow

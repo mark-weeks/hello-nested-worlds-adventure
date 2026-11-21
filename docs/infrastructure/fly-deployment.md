@@ -767,7 +767,9 @@ fly.io or github.com):
   for the backup, the schema probe and the prune on every deploy except
   `--first-deploy`. The off-host job does not use this deploy token. Its token
   is `fly tokens create ssh -a <app>` on flyctl 0.5.1
-  ([backup-bucket.md](backup-bucket.md)).
+  ([backup-bucket.md](backup-bucket.md#fly-token)).
+  That token can add a WireGuard peer on the app's organization, which
+  reaches every app in the org, not only the named app.
   If the deploy token does not permit a console, the backup step fails and
   `deploy.sh` refuses to deploy,
   so nothing changes on Fly. The fallback is to redeploy from the owner's
@@ -1128,9 +1130,10 @@ chronicle text, `redact` does not reach them. Write reasons you would be
 content to see restored from a backup. Keep them short and factual, with no
 contact details and no other player's private data. The player-facing
 privacy notice (checklist L3) must name this record: that sanction decisions
-and their reasons are kept, privately, for as long as backups are. The
-backup retention period is not decided yet (decision I in the
-[Q4 plan](../roadmap/next-steps-2026-q4.md)).
+and their reasons are kept, privately, for as long as backups are. Backup
+retention is 30 days, recorded on 2026-11-20 (O7). The player notice does
+not state that date until the erasure check in
+[backup-bucket.md](backup-bucket.md#erasure-check) is recorded.
 
 **Erasing a sanction reason (break-glass).** No application command edits
 or deletes a sanction. If a reason must be erased, for example on an erasure
@@ -1256,13 +1259,21 @@ count as healthy backups. A successful upload is not yet a restore rehearsal.
 
 The bucket is private: no public `r2.dev` URL and no custom domain. The job
 runs in the `backup` environment and reads that environment's secrets.
-`FLY_API_TOKEN` is an SSH token for one app (`fly tokens create ssh -a <app>`
-on flyctl 0.5.1), not a deploy token, not an organization token, and not a
-repository secret. Confirm it as [backup-bucket.md](backup-bucket.md#fly-token)
-says: paste the printed line into the secret with no added quotes, decode
-that token with `fly tokens debug`, and run the SSH commands with the
-candidate token and `-a`. Do not test it with `fly deploy` from this
-checkout. The committed `fly.toml` selects `enfolded-beta`. The S3 access key, secret, bucket, endpoint, and the
+`FLY_API_TOKEN` is `fly tokens create ssh -a <app>` on flyctl 0.5.1, not a
+deploy token, not an organization token, and not a repository secret. It
+can SSH to that app. It can also add a WireGuard peer on the app's Fly
+organization, and that peer reaches the private addresses of every app in
+the org, not only the app named with `-a`. Confirm it as
+[backup-bucket.md](backup-bucket.md#fly-token) says: paste the printed line
+into the secret with no added quotes, read the token with `read -rs` so it
+is not on a command line, decode it with `fly tokens debug`, and run the
+SSH commands with `-a`. Do not test it with `fly deploy` from this
+checkout. The committed `fly.toml` selects `enfolded-beta`. How far a peer
+can reach was not tried. If the twin and production share an organization,
+the owner puts the twin in its own organization or records that this reach
+is accepted before storing the token.
+
+The S3 access key, secret, bucket, endpoint, and the
 read-only list pair are environment secrets the same way. The endpoint
 contains the account id, and a bucket stored as a variable would appear in
 the public job log. The repository variables are only `ENFOLDED_BACKUP_APP`,

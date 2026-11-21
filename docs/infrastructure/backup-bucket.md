@@ -177,8 +177,10 @@ days.
 | `ENFOLDED_BACKUP_S3_REGION` | `auto` |
 | `ENFOLDED_BACKUP_REQUIRED` | Leave unset until a manual dispatch has stored a validated object. Then `<OWNER: set ENFOLDED_BACKUP_REQUIRED=true>` exactly. For production, that is after the first production deploy |
 
-A typo in the required flag, the region, the retention, the endpoint, or the
-bucket fails the job. It does not turn the backup off. Unset bucket settings
+A typo in the required flag, the region, the endpoint, or the bucket fails
+the job. It does not turn the backup off. Retention is the literal 30 in the
+workflow, so there is no retention value to mistype. A read-only list pair
+with exactly one half set fails the gate before a snapshot is stored. Unset bucket settings
 with the required flag unset or `false` make an inactive run: no snapshot is
 taken and nothing is uploaded. Setting only `FLY_API_TOKEN` does not upload
 anywhere.
@@ -187,6 +189,11 @@ anywhere.
 
 The job runs `flyctl ssh console` and `flyctl ssh sftp get` against one app.
 A token that can do that can read participant chat and reports on that app.
+The same token can add a WireGuard peer on that app's Fly organization. A
+peer joins the organization's private network. That network reaches the
+private addresses of every app in the org, not only the app named with `-a`.
+If `enfolded-staging` and `enfolded-beta` share an organization, the twin's
+backup token can reach production that way, without the public edge.
 
 **Verified, from source, not from a live call.** flyctl 0.5.1 is the version
 the workflow installs. Its `fly tokens create` command, in
@@ -196,14 +203,15 @@ SSH to an app, this token is also allowed to connect to the org's wireguard
 network." The implementation mints an app deploy-profile token and then
 prints a different token: read on the org and app, plus mutations limited
 to `issueCertificate` and `addWireGuardPeer`. That second mutation is what
-the help text calls connecting to the org's WireGuard network; it can add a
-peer. The unattenuated deploy token is not what the command prints. The same file's
+the help text calls connecting to the org's WireGuard network. It can add a
+peer, and that peer is not limited to the app named with `-a`. The unattenuated deploy token is not what the command prints. The same file's
 `deploy` subcommand prints the unattenuated app token, which can manage the
 app. `machine-exec` can limit shell commands, but this job uses `ssh console`
 and `ssh sftp get`, which are the SSH token's commands, not `machine exec`.
 
 **Not verified.** This change does not call Fly. It does not show that the
-SSH token can complete `ssh console` and `ssh sftp get`. The default expiry
+SSH token can complete `ssh console` and `ssh sftp get`, and it does not
+show how far a peer created with this token can reach. The default expiry
 in that source is 20 years (`time.Hour * 24 * 365 * 20`).
 
 `<OWNER: create the backup Fly token>` From a terminal, for the app this job
@@ -224,6 +232,11 @@ the secret field. Do not use `fly tokens create deploy`,
 when a shorter life is wanted. Revoke the token when the twin is destroyed,
 and again when production backups are retired.
 
+`<OWNER: put the twin in its own Fly organization, or record that this org-wide WireGuard reach is accepted>`
+Do not store this token for a twin that shares production's organization
+until that choice is recorded. A token that can reach the production
+organization is still never a fallback for the staging deploy workflow.
+
 `<OWNER: confirm the SSH token on the app>` Confirm the printed token. Do
 not confirm it by deploying.
 
@@ -242,28 +255,36 @@ set and otherwise `FLY_API_TOKEN`, then `-t` when that flag is passed
 token:
 
 ```bash
-unset FLY_ACCESS_TOKEN
-FLY_API_TOKEN='<exact printed token>' fly tokens debug
+unset FLY_ACCESS_TOKEN FLY_API_TOKEN
+read -rs FLY_API_TOKEN
+export FLY_API_TOKEN
+fly tokens debug
 ```
 
-The quotes are shell syntax. They are not part of the value. Read the JSON
-on that terminal and delete it. Do not paste it into a log, a ticket, or
-this repository. One decoded macaroon lists mutations `issueCertificate`
-and `addWireGuardPeer` and no others. Another is the read attenuation
-`runSSH` adds (`resset.ActionRead`). Stop if the mutations list is anything
-else, or if the output is the single unattenuated token
-`fly tokens create deploy` prints. The app id in that JSON is numeric
+At the silent prompt, paste the printed token and press Enter. Do not type
+the token after `FLY_API_TOKEN=`. A command that includes the token is saved
+in shell history and can appear in the process list. `read -rs` does not
+echo it and does not put it on a command line. The token is in the process
+environment while the commands below run. Read the JSON on that terminal
+and delete it. Do not paste it into a log, a ticket, or this repository.
+One decoded macaroon lists mutations `issueCertificate` and `addWireGuardPeer`
+and no others. Another is the read attenuation `runSSH` adds
+(`resset.ActionRead`). Stop if the mutations list is anything else, or if
+the output is the single unattenuated token `fly tokens create deploy`
+prints. Seeing exactly those two mutations is the expected SSH token. It is
+not evidence that a peer cannot reach another app: `addWireGuardPeer` is
+the organization-wide permission. The app id in that JSON is numeric
 (`Apps` in macaroon v0.3.2, the module flyctl 0.5.1 requires). Matching
 that number to a name is not this check.
 
-The SSH checks use the same token and name the app. Quoting is again only
-the shell assignment. `-a` is required. Omitting it follows `fly.toml` to
-`enfolded-beta`.
+The SSH checks use the same shell and name the app. `-a` is required.
+Omitting it follows `fly.toml` to `enfolded-beta`. Do not pass the token
+with `-t`.
 
 ```bash
-unset FLY_ACCESS_TOKEN
-FLY_API_TOKEN='<exact printed token>' fly ssh console -a <OWNER: Fly app name> -C "echo backup-token-ok"
-FLY_API_TOKEN='<exact printed token>' fly ssh sftp get -a <OWNER: Fly app name> /data/backups/<disposable>.db <local-file>
+fly ssh console -a <OWNER: Fly app name> -C "echo backup-token-ok"
+fly ssh sftp get -a <OWNER: Fly app name> /data/backups/<disposable>.db <local-file>
+unset FLY_API_TOKEN
 ```
 
 Use a disposable file, not the live chronicle. If either SSH command fails,
@@ -350,8 +371,9 @@ shares that list prefix. `enfolded-beta` and `enfolded-staging` do not.
 
 The workflow deletes this app's validated and quarantine objects whose
 snapshot-start is at least 30 days old (30×24 hours from the stamp). The
-workflow sets that number. A shell that runs `backup_gate.sh` without
-`ENFOLDED_BACKUP_RETENTION_DAYS` uses the same 30.
+workflow passes `30` to `backup_store.py prune --retention-days`.
+`backup_gate.sh` only checks `ENFOLDED_BACKUP_RETENTION_DAYS` when it is
+set. A manual prune must pass `--retention-days 30`.
 It never deletes the newest validated object for the app, even when that
 object is older than the retention period, so a stretch of failed backups
 cannot empty the bucket of the last good copy. Quarantine objects are not

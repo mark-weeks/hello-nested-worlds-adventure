@@ -30,8 +30,11 @@ name: Off-host backup
 # keeps the branch rule and does not record a GitHub deployment.
 #
 # The Fly token is `fly tokens create ssh -a <app>` on the flyctl 0.5.1 this
-# job installs: SSH to that one app, plus the WireGuard peer that SSH needs,
-# and not a deploy token. Live use was not tried from this change.
+# job installs. It is not a deploy token. The printed token can SSH to that
+# app and can add a WireGuard peer on the app's Fly organization. That peer
+# joins the organization's private network, which reaches the private
+# addresses of every app in the org, not only the app named with -a. Live
+# use, and how far such a peer can reach, was not tried from this change.
 #
 # Until those secrets are set, the gate leaves the job as an inactive no-op
 # and uploads nothing. Set ENFOLDED_BACKUP_REQUIRED=true only after a manual
@@ -93,6 +96,8 @@ jobs:
           ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY }}
           ENFOLDED_BACKUP_S3_BUCKET: ${{ secrets.ENFOLDED_BACKUP_S3_BUCKET }}
           ENFOLDED_BACKUP_S3_ENDPOINT: ${{ secrets.ENFOLDED_BACKUP_S3_ENDPOINT }}
+          ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID: ${{ secrets.ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID }}
+          ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY: ${{ secrets.ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY }}
         run: bash scripts/backup_gate.sh
 
       - name: Install AWS CLI

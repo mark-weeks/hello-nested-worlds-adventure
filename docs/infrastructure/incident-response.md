@@ -4,8 +4,10 @@ One page for the pilot. Mark Weeks is the sole maintainer and the sole
 operator. He decides kill switches, throttling, revocation, suspension,
 bans, redaction, and whether an incident is a release rollback or a
 restore. This page records no policy. Minimum age, chat permanence,
-external destinations, world status, and backup retention stay open
-owner decisions (checklist S4, S5, S2/L4, world status, and Q4 decision I).
+external destinations, and world status stay open owner decisions
+(checklist S4, S5, S2/L4, and world status). Backup retention is 30 days,
+recorded on 2026-11-20 (O7), with a 7-day bucket lock counted from upload
+and a 37-day lifecycle backstop.
 
 Community juries are not active. Corroboration (G3), the consequence
 ladder (G4), rotating juries (G6), trust standing (G7), and notice and

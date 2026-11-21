@@ -3,9 +3,9 @@
 Object names keep the app and the UTC snapshot-start. A validation failure uses
 the unvalidated prefix; that name never satisfies the freshness check. The
 client shells out to a pinned AWS CLI and talks to whatever endpoint the
-operator configured. Cloudflare R2 is an example, not a chosen vendor, and a
-30-day retention is the example used when the variable is unset. Neither is a
-recorded decision. Credentials stay in the environment and are never printed.
+operator configured. Cloudflare R2 is that store, and retention is 30 days,
+both recorded on 2026-11-20 (owner decision O7). Credentials stay in the
+environment and are never printed.
 Error text drops the endpoint, the bucket, and object keys.
 """
 import argparse
@@ -92,7 +92,17 @@ def gate_problems(env):
          validate_credential, 'ENFOLDED_BACKUP_S3_ACCESS_KEY_ID is malformed.'),
         ('ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY', env.get('ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY', ''),
          validate_credential, 'ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY is malformed.'),
+        ('ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID', env.get('ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID', ''),
+         validate_credential, 'ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID is malformed.'),
+        ('ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY',
+         env.get('ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY', ''),
+         validate_credential, 'ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY is malformed.'),
     )
+    list_id = env.get('ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID', '')
+    list_secret = env.get('ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY', '')
+    if bool(list_id) != bool(list_secret):
+        problems.append(
+            'A backup read credential is incomplete. Set both read variables or neither.')
     for _name, value, check, message in checks:
         if not value:
             continue
