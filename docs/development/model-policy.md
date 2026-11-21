@@ -255,12 +255,16 @@ kept outside the world database and outside player-visible history. The entry
 names the Fly app, the backup path, and the UTC time. It is not a chronicle
 row and not a chat line.
 
-1. The provider console's spend for each UTC day that has a `reserved` row,
-   and for the UTC day of `latched_at`. Beside each figure, the ledger's
-   summed `accounted_microusd` for that day. One USD is 1,000,000 microUSD.
-   The console total and the ledger total are both evidence. A lower console
-   total is the usual case, because admission reserves the full context bound.
-   Do not write the console's number into the ledger.
+1. The provider console's spend for every UTC day the read-only listing
+   prints under `reconcile days`. That set is the UTC day of `latched_at`,
+   every day that still has a `reserved` row, and every day that has an
+   `anomaly` row. An anomalous settlement after midnight keeps the charge
+   on the reservation's original day, so `latched_at` alone can miss it.
+   Beside each figure, the ledger's summed `accounted_microusd` for that
+   day. One USD is 1,000,000 microUSD. The console total and the ledger
+   total are both evidence. A lower console total is the usual case,
+   because admission reserves the full context bound. Do not write the
+   console's number into the ledger.
 2. The latch reason and `latched_at`.
 3. Every `reserved` row, listed before the write and resolved by the write.
 4. The dated entry itself, completed with the backup path before the write.
@@ -356,17 +360,27 @@ place and throws away the ledger that recorded it.
    Those reservations count against the current UTC day's ceiling at their
    full admission bound. Rows resolved onto an earlier `day` do not consume
    today's ceiling. Rows whose `day` is today still do, at the full
-   `accounted_microusd` the clear refused to lower. If today's ceiling
-   cannot admit one more reservation, the confirming call is denied for the
-   allowance and no new reserved row is kept. That denial is not a latch.
-   Set the kill switches back to 1, leave the latch deleted, and make the
-   confirming call once the current UTC day can admit one reservation.
-   Until that call settles, the clear is not complete.
+   `accounted_microusd` the clear refused to lower. The clear is complete
+   only when every row that call creates is `settled`. If any created row
+   is not `settled`, if no row was created, or if a latch row exists, set
+   both kill switches back to 1 before another paid call. That includes an
+   allowance refusal and a usable reply that settled as `uncertain` because
+   usage was missing: the full reservation stays, no latch is written, and
+   paid routes would still accept another call. Leave the latch deleted if
+   the clear already committed. Reconcile the rows, and make the confirming
+   call only once the current UTC day can admit one reservation and the
+   switches are restored again. Until that call's rows are all `settled`,
+   the clear is not complete and the switches stay at 1.
 
 The guarded script that performs steps 2 and 3, and the read-only listing
-for the evidence entry, are in the incident procedure. It refuses to run
-unless the operator names `throwaway-rehearsal` or `watch-twin`, and it
-opens only `/data/.nested-worlds/worlds.db`.
+for the evidence entry, are in the incident procedure. Before it opens the
+database writable, Fly's `FLY_APP_NAME` must equal the app name the operator
+passes, that name must not be `enfolded-beta`, and
+`NESTED_WORLDS_TEST_WORLD` must be on. The operator does not assign
+`FLY_APP_NAME`. The write also refuses unless `ENFOLDED_CLEAR_DAYS` names
+every reconcile day, including an anomaly row's original day. It opens only
+`/data/.nested-worlds/worlds.db`. The off-machine backup goes into a fresh
+`0700` directory, and the downloaded file is mode `0600`.
 
 ### Rehearsal
 

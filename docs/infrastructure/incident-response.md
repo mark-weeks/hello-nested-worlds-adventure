@@ -94,8 +94,11 @@ Use this procedure in two places only:
 A kept world that will serve any live model route needs an audited clear
 command first (an ADR-039 revision and a migration). Hand SQL on that volume
 is not acceptable. Do not run the statements below against `enfolded-beta`
-or any other kept world. The script cannot see the Fly app name. The check
-is the `-a` on the shell command in front of you.
+or any other kept world. The write script checks the machine before it opens
+the database: Fly's `FLY_APP_NAME` must equal the app name you pass, that
+name must not be `enfolded-beta`, and `NESTED_WORLDS_TEST_WORLD` must be on
+(`1`, `true`, `on`, or `yes`). Do not assign `FLY_APP_NAME` yourself. Fly
+sets it on the machine.
 
 A clear never refunds the day's spend and never shortens ledger retention.
 A restart is not a clear. A new app, a new volume, or a re-created twin is
@@ -107,12 +110,15 @@ Record all four items in a dated private operator entry kept outside the
 world database and outside player-visible history. Name the app, the backup
 path, and the UTC time. Do not write a chronicle row or a chat line.
 
-1. The provider console's spend for each UTC day that has a `reserved` row,
-   and for the UTC day of `latched_at`. Beside it, the ledger sum of
-   `accounted_microusd` for that day. One USD is 1,000,000 microUSD. Record
-   both figures. Do not copy the console total into the ledger. If the
-   console total is higher than this installation's calls explain, stop
-   here, leave the latch, and keep the routes off.
+1. The provider console's spend for every UTC day the read-only listing
+   prints under `reconcile days`. That set is the UTC day of `latched_at`,
+   every day that still has a `reserved` row, and every day that has an
+   `anomaly` row. An anomalous settlement after midnight keeps the charge
+   on the reservation's original day, so `latched_at` alone can miss it.
+   Beside each day, the ledger sum of `accounted_microusd`. One USD is
+   1,000,000 microUSD. Record both figures. Do not copy the console total
+   into the ledger. If the console total is higher than this installation's
+   calls explain, stop here, leave the latch, and keep the routes off.
 2. The latch reason and `latched_at`.
 3. Every `reserved` row, from the read-only listing below.
 4. This entry, including the backup path, finished before the write.
@@ -209,6 +215,28 @@ if not reserved:
     print("  (none)")
 for row in reserved:
     print("  " + " ".join(f"{key}={row[key]}" for key in row.keys()))
+print("anomaly:")
+anomaly = db.execute(
+    """SELECT id, day, task, reserved_microusd, accounted_microusd, settled_at
+       FROM model_spend_reservations WHERE status='anomaly' ORDER BY day, id"""
+).fetchall()
+if not anomaly:
+    print("  (none)")
+for row in anomaly:
+    print("  " + " ".join(f"{key}={row[key]}" for key in row.keys()))
+days = set()
+for row in latch:
+    stamp = row["latched_at"]
+    if len(stamp) < 10 or stamp[4] != "-" or stamp[7] != "-":
+        raise SystemExit("refusing: latched_at is not a UTC date")
+    days.add(stamp[:10])
+for row in list(reserved) + list(anomaly):
+    days.add(row["day"])
+print("reconcile days:")
+if not days:
+    print("  (none)")
+for day in sorted(days):
+    print(f"  {day}")
 if since:
     print(f"created after {since}:")
     created = db.execute(
@@ -235,10 +263,19 @@ deploy prunes machine-local backups to the newest five
 ```bash
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 fly ssh console -a "$ENFOLDED_CLEAR_APP" -C "python main.py backup --to /data/backups/worlds-clear-${STAMP}.db"
-mkdir -p "${TMPDIR:-/tmp}/enfolded-clear-${STAMP}"
-cd "${TMPDIR:-/tmp}/enfolded-clear-${STAMP}"
+umask 077
+CLEAR_DIR="$(mktemp -d "${TMPDIR:-/tmp}/enfolded-clear.XXXXXXXX")"
+cd "$CLEAR_DIR"
 fly ssh sftp get "/data/backups/worlds-clear-${STAMP}.db" -a "$ENFOLDED_CLEAR_APP"
+chmod 600 "worlds-clear-${STAMP}.db"
 ```
+
+`mktemp -d` creates that directory at mode `0700`. flyctl 0.5.1 opens the
+downloaded file with mode `0644`. The shell `umask 077` masks that creation
+to `0600`, and `chmod 600` sets the same mode again. Do not use `mkdir -p`
+under `/tmp`: with umask `022` that directory is `0755`, and other accounts
+on a shared machine can then read the backup, including participant chat.
+Keep the file out of the checkout.
 
 Write the backup path into the private entry. If the write below has to be
 undone, restore this backup with
@@ -253,16 +290,24 @@ and the backup path are in the private entry. The script opens
 `reserved` row to `uncertain` at the same `accounted_microusd`, sets
 `settled_at`, clears `abandoned_at`, and deletes the latch row. It commits
 only when no reserved row remains and no row's money, day, or retention
-changed. Any refusal rolls back.
+changed. Any refusal rolls back. Replace `throwaway-app-name` with this
+machine's app name, and `2026-11-20` with the comma-separated days from
+`reconcile days`. Do not set `FLY_APP_NAME` on the command.
 
 ```bash
-cd /app && ENFOLDED_CLEAR_TARGET=throwaway-rehearsal python - <<'EOF'
+cd /app && ENFOLDED_CLEAR_APP=throwaway-app-name ENFOLDED_CLEAR_DAYS=2026-11-20 python - <<'EOF'
+import os
 import sqlite3
 from datetime import datetime, timezone
 
-target = __import__("os").environ.get("ENFOLDED_CLEAR_TARGET", "")
-if target not in {"throwaway-rehearsal", "watch-twin"}:
-    raise SystemExit("refusing: set ENFOLDED_CLEAR_TARGET to throwaway-rehearsal or watch-twin")
+app = os.environ.get("FLY_APP_NAME", "").strip()
+intended = os.environ.get("ENFOLDED_CLEAR_APP", "").strip()
+if not app or app != intended:
+    raise SystemExit("refusing: FLY_APP_NAME does not match ENFOLDED_CLEAR_APP")
+if app == "enfolded-beta":
+    raise SystemExit("refusing: the kept world named in fly.toml")
+if os.environ.get("NESTED_WORLDS_TEST_WORLD", "").strip().casefold() not in {"1", "true", "on", "yes"}:
+    raise SystemExit("refusing: NESTED_WORLDS_TEST_WORLD is not on")
 
 path = "/data/.nested-worlds/worlds.db"
 reasons = {"billing_anomaly", "accounting_fault", "unsettled_startup"}
@@ -285,6 +330,17 @@ try:
     for row in before:
         if row["status"] == "reserved" and row["accounted_microusd"] != row["reserved_microusd"]:
             raise SystemExit("refusing: a reserved row's accounted total does not match")
+    stamp = latch[0]["latched_at"]
+    if len(stamp) < 10 or stamp[4] != "-" or stamp[7] != "-":
+        raise SystemExit("refusing: latched_at is not a UTC date")
+    needed = {stamp[:10]}
+    for row in before:
+        if row["status"] in {"reserved", "anomaly"}:
+            needed.add(row["day"])
+    given = {part.strip() for part in os.environ.get("ENFOLDED_CLEAR_DAYS", "").split(",") if part.strip()}
+    missing = sorted(needed - given)
+    if missing:
+        raise SystemExit("refusing: reconcile these UTC days in the provider console first: " + ",".join(missing))
     now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
     db.execute(
         """UPDATE model_spend_reservations
@@ -325,7 +381,7 @@ try:
         raise SystemExit("refusing: the latch row remains")
     db.execute("COMMIT")
     started = False
-    print(f"cleared target={target} reason={latch[0]['reason']} latched_at={latch[0]['latched_at']} resolved={resolved} at {now}")
+    print(f"cleared app={app} reason={latch[0]['reason']} latched_at={latch[0]['latched_at']} resolved={resolved} at {now}")
 except BaseException:
     if started:
         db.execute("ROLLBACK")
@@ -335,7 +391,9 @@ finally:
 EOF
 ```
 
-On the watch twin, set `ENFOLDED_CLEAR_TARGET=watch-twin` instead. If the
+Use the app's real name for `ENFOLDED_CLEAR_APP` on the watch twin as well,
+and set `ENFOLDED_CLEAR_DAYS` to every day the read-only listing printed
+under `reconcile days`. Do not set `FLY_APP_NAME` on this command. If the
 script exits with `database is locked`, a writer still holds the file. Wait
 until the switches are on and `/health` is ok, and run it again. Do not
 delete the database file. A second successful clear is a new incident: the
@@ -404,11 +462,27 @@ or equal to `reserved_microusd`. The latch section is `(no row)`. At least
 one such row exists. The clear is complete only then. Write the reservation
 ids and statuses into the private entry.
 
-If the day's accounted total leaves no room for one more full reservation,
-the call is refused for the allowance and the ledger keeps no new reserved
-row. That refusal is not a latch. Set both kill switches back to `1`, leave
-the latch deleted, and make the confirming call once the current UTC day can
-admit one reservation. Until that call settles, the clear is not complete.
+If that is not what the listing shows, set both kill switches back to `1`
+before another paid call:
+
+```bash
+fly secrets set -a "$ENFOLDED_CLEAR_APP" \
+  NESTED_WORLDS_DISABLE_AI=1 \
+  NESTED_WORLDS_DISABLE_MODERATION=1
+```
+
+This covers an allowance refusal, a missing row, a new latch, and a row
+whose status is `uncertain`, `reserved`, or `anomaly`. A usable reply can
+settle as `uncertain` when usage is missing: the full reservation stays, no
+latch is written, and paid routes would still accept another call. Leave
+the latch deleted if the clear already committed. Record the rows. Reconcile
+them before turning the switches off again for another confirming call.
+
+An allowance refusal is the case where today's accounted total leaves no
+room for one more full reservation. The ledger keeps no new reserved row,
+and that refusal is not a latch. Make the confirming call once the current
+UTC day can admit one reservation. Until a call's rows are all `settled`,
+the clear is not complete and the switches stay at `1`.
 
 ### Rehearsal on a throwaway app
 
