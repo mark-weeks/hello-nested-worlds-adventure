@@ -712,6 +712,16 @@ def test_watch_example_is_the_enabled_shape_and_is_refused_until_filled(tmp_path
         assert private not in encoded
 
 
+@pytest.mark.parametrize("field", (
+    "input_bound_evidence", "data_use_note", "approval_reference",
+))
+def test_one_remaining_owner_marker_in_a_reference_field_is_refused(tmp_path, field):
+    document = _fill_watch(json.loads(_WATCH_EXAMPLE.read_text(encoding="utf-8")))
+    document["routes"]["intent"][field] = "<OWNER: still unfilled>"
+    with pytest.raises(policy.ModelPolicyError):
+        policy.check_file(_write(tmp_path, document))
+
+
 def test_console_limit_is_not_a_policy_field(tmp_path):
     document = _fill_watch(json.loads(_WATCH_EXAMPLE.read_text(encoding="utf-8")))
     document["provider_console_limit_usd"] = "150"

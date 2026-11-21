@@ -127,8 +127,12 @@ def safe_reported_model(value: object) -> str | None:
 
 
 def _reference(value: object) -> str:
+    # ``<OWNER:`` is the unfilled-template marker. A note, approval, or bound
+    # citation that still contains it has not been signed, so a passing check
+    # would not mean what the runbook says it means.
     if (not isinstance(value, str) or not 1 <= len(value) <= 1000
-            or value != value.strip() or any(ord(x) < 32 for x in value)):
+            or value != value.strip() or any(ord(x) < 32 for x in value)
+            or "<OWNER:" in value):
         raise ModelPolicyError()
     return value
 

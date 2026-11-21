@@ -604,13 +604,49 @@ python main.py model-policy --check --policy <approved file>
 
 Copy that file onto the machine, for example with sftp
 (`fly ssh sftp shell -a enfolded-staging`) into `/data/model-policy.json`.
-Then point the process at it. An ordinary secrets set restarts the machine,
-which loads the file. The CLI freezes its own environment and file; it does
-not inspect the running server's earlier snapshot.
+A fresh twin has no Chat Completions base URL, no explicit model id, and no
+adapter options in `fly.toml`. `initialize()` checks the enabled file against
+that environment even while both kill switches stay at 1. A secrets set that
+names only the file path restarts at once, and that boot fails the check.
+Put the reviewed routing, model, and adapter settings in the same secrets set
+as the path, so the one restart sees one matching environment. Run the offline
+check in that same environment first.
+
+The base URL is the policy endpoint with `/chat/completions` removed. Set
+each task's provider to `openai_compatible`; the process default is a
+different adapter. Set each task's model variable to that route's `model`
+id. Moderation does not inherit `NESTED_WORLDS_MODEL`. Leave
+`NESTED_WORLDS_OPENAI_COMPATIBLE_REASONING_EFFORT` unset when the file says
+null, and set `NESTED_WORLDS_OPENAI_COMPATIBLE_MAX_OUTPUT_PARAM` only when
+the file does not say `max_completion_tokens`. The timeout value must be no
+greater than every non-moderation route's `timeout_seconds`. Moderation's
+call uses 3 seconds, so that route's timeout must be at least 3. The values
+below are placeholders. Do not copy them in as the owner's choices.
 
 ```bash
-fly secrets set -a enfolded-staging NESTED_WORLDS_MODEL_POLICY=/data/model-policy.json
+fly secrets set -a enfolded-staging \
+  NESTED_WORLDS_MODEL_POLICY=/data/model-policy.json \
+  NESTED_WORLDS_PROVIDER=openai_compatible \
+  NESTED_WORLDS_NODE_PROVIDER=openai_compatible \
+  NESTED_WORLDS_INHABITANT_PROVIDER=openai_compatible \
+  NESTED_WORLDS_INTENT_PROVIDER=openai_compatible \
+  NESTED_WORLDS_MODERATION_PROVIDER=openai_compatible \
+  NESTED_WORLDS_NODE_MODEL='<OWNER: model id>' \
+  NESTED_WORLDS_INHABITANT_MODEL='<OWNER: model id>' \
+  NESTED_WORLDS_INTENT_MODEL='<OWNER: model id>' \
+  NESTED_WORLDS_MODERATION_MODEL='<OWNER: model id>' \
+  NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL='<OWNER: base URL>' \
+  NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY='<OWNER: staging key>' \
+  NESTED_WORLDS_OPENAI_COMPATIBLE_STRUCTURED_OUTPUTS=1 \
+  NESTED_WORLDS_OPENAI_COMPATIBLE_SEND_STORE_FALSE=1 \
+  NESTED_WORLDS_OPENAI_COMPATIBLE_TIMEOUT_SECONDS='<OWNER: seconds>'
 ```
+
+The CLI freezes its own environment and file; it does not inspect the running
+server's earlier snapshot. This restart leaves both kill switches at 1. The
+check-key probe below may run once the owner has signed the note and this
+check passes. It does not wait for the owner to record ADR-035 acceptance.
+Sending a tester URL does.
 
 Use a staging-only account and key for rehearsal. Keep the committed
 requirement and `NESTED_WORLDS_DISABLE_IMAGES=1`. A disabled moderation route
@@ -638,7 +674,9 @@ fly ssh console -a enfolded-staging -C "python main.py voice-health"
 output and match it to the deployed release and restart evidence. The CLI freezes
 its own environment/file; it does not inspect the running server's earlier
 in-memory snapshot after a file edit. Then use step 7's authenticated gameplay probe under an acknowledged
-check identity and require `ai: true`. Never use `models --probe` or
+check identity and require `ai: true`. That probe is the live evidence for
+accepting ADR-035. It may run before the owner records the acceptance.
+Sending a tester URL waits for that record. Never use `models --probe` or
 `voice-health --probe` in controlled mode: direct keyless probes are refused
 because they have no participant reservation. The same checks apply to any
 separately authorized production activation, naming that app explicitly.

@@ -582,10 +582,13 @@ The checked-in watch example is refused until the owner fills it. The
 [endpoint-check record](../evaluation/2026-11-2x-chat-completions-endpoint-check.md)
 is a desk recommendation for one Chat Completions endpoint. It does not approve
 a destination, a model id, a price or a dollar amount, and it does not change
-ADR-035's Status. Live hosted voice stays blocked until the owner signs the
-data-use note for one account at that endpoint, the filled policy passes
-`model-policy --check`, and the owner records acceptance of ADR-035. The all-off
-defaults apply until then, production included. Do not remove the hosted policy
+ADR-035's Status. The owner can run the first live probe on the disposable twin
+after signing the data-use note for one account at that endpoint and after the
+filled policy passes `model-policy --check`. That probe is the live half of
+accepting ADR-035 for that endpoint; it does not wait for the acceptance
+record. Sending the twin to participants waits until the owner records that
+acceptance. Until the signed note and the passing policy are in place, the
+all-off defaults apply, production included. Do not remove the hosted policy
 requirement to recover another adapter.
 
 `models` and `voice-health` report the controlled route policy rather than

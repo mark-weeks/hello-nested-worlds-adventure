@@ -185,10 +185,19 @@ does not. The id named below is therefore `gpt-6-luna`.
 | Intention | `gpt-6-luna` | Same reservation. Voice and intention share this result, so the per-participant draft stays $3 rather than rising to $5. |
 | Moderation | `gpt-6-luna` | O4 does not choose moderation by the reservation rule. This page lists structured outputs and Chat Completions. The calls are short and capped. |
 
-`resolved_models` must list the string the response's `model` field reports.
-The Luna page lists the snapshot `gpt-6-luna` and no second snapshot. Put
-`<OWNER: resolved model id>` in the file until a live response shows the
-string. If that string is a dated snapshot, list it too. Do not treat this
+`resolved_models` has to be an id the checker accepts before the first probe.
+The checked-in example's `<OWNER: resolved model id>` contains spaces, and
+`check_file` refuses it, so leaving that marker in place means the twin never
+starts the call that would show the reported id. For this candidate the
+owner-reviewed starting allowlist is the documented snapshot `gpt-6-luna`:
+the model page lists that one snapshot and no second one. It is still an
+unconfirmed desk name. The owner writes it into the private policy file, not
+into the checked-in example.
+
+If the first response's `model` field is a different string, add that string
+to `resolved_models`, keep the reviewed snapshot as well when both should be
+allowed, run `model-policy --check` again, and only then retry the probe. Do
+not retry on an allowlist the response has already missed. Do not treat this
 table as the filled file.
 
 These ids are a desk result for this watch. They are not a standing model

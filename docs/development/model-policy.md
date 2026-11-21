@@ -264,10 +264,17 @@ python scripts/model_eval.py run \
   --live \
   --candidate <OWNER: candidate file for the pinned ids> \
   --output <OWNER: private output directory> \
+  --brief <OWNER: private copy of evals/selection-brief.template.json> \
   --max-usd <OWNER: USD for this run> \
   --max-calls <OWNER: integer> \
   --allow-destination <OWNER: exact host, no wildcard>
 ```
+
+A live run without `--brief` exits 2 with `live comparison requires a frozen
+selection brief`, before any provider call. Copy
+`evals/selection-brief.template.json` to a private path, replace its
+`REPLACE` strings and nulls, including `frozen_on` and every selected task's
+gates, and pass that path. The checked-in template is not a filled brief.
 
 `--allow-destination` is the hostname only, exactly the host of the base URL
 the candidate's adapter will call. No scheme, no path, and no wildcard. There
