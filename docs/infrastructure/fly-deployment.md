@@ -1069,7 +1069,9 @@ Take what the research record needs before this point (the
    `ENFOLDED_BACKUP_REQUIRED=true` every later run fails.
    1. Stop the external dispatcher.
    2. Disable the "Off-host backup" workflow (Actions → Off-host backup →
-      Disable workflow, or `gh workflow disable backup.yml`).
+      Disable workflow, or `gh workflow disable backup.yml`). Disabling does
+      not cancel a run already queued or in progress: wait until the
+      workflow's run list shows none, so no snapshot can still upload.
    3. Delete the `ENFOLDED_BACKUP_REQUIRED` and `ENFOLDED_BACKUP_APP`
       repository variables. Unset, `ENFOLDED_BACKUP_APP` falls back to
       `enfolded-beta`, so nothing may be left that could aim a staging token
@@ -1106,29 +1108,39 @@ Take what the research record needs before this point (the
    hold private chat and reports. Wait until the 7-day bucket lock allows a
    delete of the newest object; `<OWNER: bucket versioning and what the 7-day
    delete lock counts from>`. O7 adopts no versioning and counts the lock from
-   each object's upload; neither has been tried against the bucket. From a
-   shell with the write key, the bucket and the endpoint, outside the
-   checkout. `<cutoff>` is a UTC stamp (`YYYYMMDDTHHMMSSZ`) taken after the
-   schedule stopped and not in the future; `<kept-key>` is the `key` that
-   the first `backup_health.py` run prints, the twin's newest validated
-   object (it reports `"status": "stale"` once the schedule has stopped, and
-   exits nonzero):
+   each object's upload; neither has been tried against the bucket. Run
+   these from the root of an up-to-date checkout (`backup_health.py` imports
+   `scripts.backup_store`, so a shell elsewhere cannot run them), with the
+   write key, the bucket and the endpoint in the environment. `<cutoff>` is a
+   UTC stamp (`YYYYMMDDTHHMMSSZ`) taken after the last run in step 1 has
+   finished and not in the future; `<verify-at>` is a second stamp taken when
+   you verify, after the deletions. `<kept-key>` is the `key` that the first
+   `backup_health.py` run prints, the twin's newest validated object (it
+   reports `"status": "stale"` once the schedule has stopped, and exits
+   nonzero):
 
    ```bash
    python scripts/backup_health.py --app enfolded-staging
    python scripts/backup_store.py delete-before --app enfolded-staging --before <cutoff> --dry-run
    python scripts/backup_store.py delete-before --app enfolded-staging --before <cutoff>
    python scripts/backup_store.py delete --app enfolded-staging --key <kept-key>
-   python scripts/backup_store.py delete-before --app enfolded-staging --before <cutoff> --dry-run
+   python scripts/backup_store.py delete-before --app enfolded-staging --before <verify-at> --dry-run
    python scripts/backup_health.py --app enfolded-staging
    ```
 
    `delete-before` removes every validated and quarantine object at or
    before `<cutoff>` except the newest validated one, which it always keeps;
-   `delete` then removes that one by name. The last dry run must print
-   "No matching backup objects." and the health check must report
-   `"status": "missing"` (it exits nonzero). A lock still in force refuses a
-   delete; wait and run it again.
+   `delete` then removes that one by name. The last dry run, stamped at
+   `<verify-at>`, lists every validated and quarantine object of the twin
+   stamped up to that moment, so it must print "No matching backup objects."
+   If it lists a key, delete it and repeat. The health check counts only
+   validated objects; it must also report `"status": "missing"` (it exits
+   nonzero). An object stamped after `<verify-at>`, which only a wrong clock
+   could produce, is outside both checks: confirm in the bucket's own object
+   listing that nothing remains under
+   `offhost/worlds-backup-enfolded-staging-` or
+   `offhost/unvalidated-worlds-backup-enfolded-staging-`. A lock still in
+   force refuses a delete; wait and run it again.
 
    These commands delete objects by key. That is not erasure: on a bucket
    that keeps object versions, a delete by key hides an object and leaves its

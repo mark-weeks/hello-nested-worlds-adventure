@@ -202,30 +202,50 @@ deleted on the stated date.
    for turning it on; this kit does not restate them. G1's
    [endpoint check](2026-11-20-chat-completions-endpoint-check.md) recommends
    OpenAI's Chat Completions endpoint and lists what the data-use note must
-   cover. As of 2026-11-22 these gates are open:
-   - the owner's data-use note for that one account and endpoint is **not
-     signed** (O3); no tester's text goes to a provider before it is;
-   - the private policy file is not filled or checked, and the $150 limit on
-     the provider account is not recorded;
-   - ADR-035 stays Proposed. G3's live success, hold and failure probes on the
-     twin are the evidence for the owner's acceptance; G3 has not merged.
+   cover. AI comes on in two stages, in the order the policy guide and
+   [O3](../roadmap/owner-decisions-2026-11-20.md#o3-watch-model-route-data-use-note-and-models)
+   give:
+   - **The operator's probe.** Once the owner has signed the data-use note
+     for that one account and endpoint, the private policy file passes
+     `model-policy --check`, and the $150 limit is set on the provider
+     account, the operator turns the text kill switch to 0 and runs the
+     check-key probes with no tester in the world: runbook section 3a step 7,
+     then G3's success, hold and failure probes. That live run is the
+     evidence for ADR-035's acceptance, so it does not wait for it.
+   - **Testers.** Admitted only after the owner records ADR-035's acceptance
+     for that endpoint, together with O17's other admission conditions
+     ([O17](../roadmap/owner-decisions-2026-11-20.md#o17-recruiting-admission-and-the-read-out)).
 
-   Until every gate holds, the twin stays all-off, with both kill switches at
-   1, and no tester is admitted
-   ([O17](../roadmap/owner-decisions-2026-11-20.md#o17-recruiting-admission-and-the-read-out)).
+   As of 2026-11-22 neither stage can start: the data-use note is **not
+   signed**, the private policy file is not filled or checked, the $150 limit
+   is not recorded, G3 has not merged, and ADR-035 stays Proposed. Until the
+   probe's three conditions hold, both kill switches stay at 1.
+
    If the accounting stop latches during the watch, the live routes stay off:
    voices fall silent and shared lines the local screen cannot clear are held.
-   A restart or a re-created twin is not a clear. O9 adopts a documented hand
-   clear for the twin, run only after a fresh backup; that procedure (G2) has
-   not merged, so until it has, a latch ends the AI-on watch (item 3). Record
-   in the research basics the endpoint, the policy revision, the deployed
-   commit, and any latch with its time.
+   A restart or a re-created twin is not a clear. O9 adopts a hand clear for
+   the twin, run only after a fresh backup. Use it to resume the watch only
+   when both hold: G2's written procedure has merged, and O9's rehearsal has
+   passed on a separate throwaway Fly app, covering the reservation,
+   settlement, the stop, the clear with its four evidence items, the restart
+   and a settled call after it (due Friday 4 December;
+   [O9](../roadmap/owner-decisions-2026-11-20.md#o9-clearing-the-latched-spend-stop-items-3-28)).
+   Never attempt a first clear during a participant session. Until both hold,
+   a latch ends the AI-on watch (item 3). Record in the research basics the
+   endpoint, the policy revision, the deployed commit, and any latch with its
+   time.
 
    What reaches the provider, and what never does, is the data-use note's
-   list (G1's record, "Recommendation"): words to places and inhabitants,
-   free-text intentions, shared text the local screen sends for
-   classification, and world content in prompts. Report text, private
-   journal notes and unpublished profile text are never sent. The provider
+   list (O3; G1's record, "Recommendation"):
+   - Speak and agent-voice exchanges, and free-text intentions;
+   - every shared Speak, every Ideas submission and every published-profile
+     line, sent for classification;
+   - chat lines and puzzle answers, only when the local screen marks them
+     ambiguous;
+   - world content in prompts: node names, properties and history.
+
+   Report text, private journal notes and unpublished profile text are never
+   sent. The provider
    keeps its own copies under its own terms, which destroying the twin does
    not reach.
 4. **Images.** Keep the image key (`FAL_KEY`, `server/handlers.py:1402`) off
@@ -311,8 +331,10 @@ superseded; that adapter is refused in controlled mode. For this watch:
   install the community policy from the
   [watch policy template](../development/community-reporting.md#watch-policy-template).
 - Turn AI on only through the runbook's
-  ["Approved live controlled text"](../infrastructure/fly-deployment.md#approved-live-controlled-text),
-  after the gates in item 3 of "Decide before session one" hold. O12's
+  ["Approved live controlled text"](../infrastructure/fly-deployment.md#approved-live-controlled-text):
+  first for the operator's check-key probes, once the three probe conditions
+  in item 3 of "Decide before session one" hold, and for testers only after
+  the owner records ADR-035's acceptance. O12's
   deploy-time steps, due by Thursday 3 December, install both policy files in
   one secrets change and check `GET /community`, `GET /participation` and the
   live `"ai": true` probe with the check key
@@ -343,8 +365,8 @@ playbook and the backup workflow do (`docs/infrastructure/incident-response.md:4
    runbook's "Approved live controlled text" checks have passed on the
    deployed commit: `printenv NESTED_WORLDS_DISABLE_AI` prints `0` and
    `python main.py models` shows the controlled routes (O12, steps 3 and 4).
-   Before the gates in item 3 hold, both kill switches stay at 1 and no
-   tester is admitted. Either way, if `FAL_KEY` is set, run
+   Before the operator-probe conditions in item 3 hold, both kill switches
+   stay at 1; no tester is admitted before ADR-035's acceptance. Either way, if `FAL_KEY` is set, run
    `fly secrets unset -a enfolded-staging FAL_KEY` (item 4 there).
 3. Mint a check key under a one-word check name:
    `fly ssh console -a enfolded-staging -C "python main.py invite mint --name Watchcheck"`.
@@ -407,12 +429,16 @@ confusion.
 
 ### Inviting testers
 
-Two or three adults on desktop Chromium, who have not seen Enfolded before,
-lined up by Tuesday 1 December
+Two or three adults aged 18 or older in the owner's own country
+(`<OWNER: country>`;
+[O6](../roadmap/owner-decisions-2026-11-20.md#o6-notice-and-community-policy-values-item-6)),
+on desktop Chromium, who have not seen Enfolded before, lined up by Tuesday
+1 December
 ([O8](../roadmap/owner-decisions-2026-11-20.md#o8-people-and-dates)). Their
 names and dates are `<OWNER: tester names/dates>`, kept in the restricted
-research record only. Lining testers up may start before the conditions
-below; invitations and admission may not
+research record only. The app asks only for age, so check the country privately when
+lining a tester up, before any invitation. Lining testers up may start
+before the conditions below; invitations and admission may not
 ([O17](../roadmap/owner-decisions-2026-11-20.md#o17-recruiting-admission-and-the-read-out)).
 
 - **An invitation goes out only once** the second operator is named (item 31);
@@ -492,7 +518,8 @@ A tester's request to delete their chat, or to leave, is handled with
    [Teardown before launch](../infrastructure/fly-deployment.md#teardown-before-launch)
    in its order:
    1. retire the twin's backup schedule after its final snapshot (stop the
-      external dispatcher, disable the "Off-host backup" workflow, delete the
+      external dispatcher, disable the "Off-host backup" workflow and wait
+      until no run is queued or in progress, delete the
       `ENFOLDED_BACKUP_REQUIRED` and `ENFOLDED_BACKUP_APP` variables, revoke
       the backup token and delete its secret, pause the heartbeat monitor);
    2. revoke the deploy token and destroy the app, which removes its volume
@@ -562,9 +589,11 @@ Open with protocol 2's explanation
 - On the twin: "Other testers in this temporary world can read what you say
   in chat and to places."
 - With AI on: "Places and inhabitants answer through an AI model from
-  <OWNER: provider name>. What you say to them, an intention you describe in
-  Act, and shared text that needs a safety check, chat included, are sent to
-  that provider only to run the game. It is not used to train models. Your
+  <OWNER: provider name>. What you say to them and any intention you describe
+  in Act are sent to that provider. Every Idea you submit and any profile you
+  publish are also sent to it for a safety check, and so are chat lines and
+  puzzle answers when an automatic screen cannot clear them. All of it is
+  sent only to run the game, and it is not used to train models. Your
   reports, private journal notes and unpublished profile are never sent. The
   provider keeps its own copies under its own terms; destroying this world
   does not delete them." Before the first session, check this wording
