@@ -1,6 +1,6 @@
 """Contract guards for the shipped browser client.
 
-REGRESSION (P0): the React/Pixi app served at /app — the client the invite URL
+REGRESSION (P0): the React app served at /app — the client the invite URL
 used to point testers at — never called /speak or /puzzle, so the two headline
 mechanics (talk to a Claude-voiced node, solve a node's puzzle) were unreachable
 in the marketed client. No test caught it because nothing asserted a
@@ -185,7 +185,7 @@ class TestCrossDeviceResume:
 
 
 class TestExplorerShellResilience:
-    """REGRESSION (P1-1/P1-2/P1-3): the alternate world map (`/`, the D3
+    """REGRESSION (P1-1/P1-2/P1-3): the alternate world map (`/map`, the D3
     explorer) must (a) load D3 same-origin, not from the d3js.org CDN, (b) carry
     a mobile viewport meta so it isn't an unusable desktop crush on a phone, and
     (c) show first-run onboarding to INVITED users — who arrive with ?name= and

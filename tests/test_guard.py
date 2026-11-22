@@ -15,6 +15,7 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -857,12 +858,17 @@ class TestStaticAssetGate:
     invite key so the browser can boot the SPA, which then forwards the key
     on data calls. Data endpoints must stay gated."""
 
-    def test_app_shell_ungated_but_world_gated(self, srv):
+    def test_client_shells_ungated_but_world_gated(self, srv):
         persistence.mint_invite_key("nw_gate", "Gatekeeper")
         _acknowledge_study("nw_gate")
         base, _ = srv
-        # Shell loads with no key (browser can't send one on the <script> tag).
-        assert _get_status(f"{base}/app") == 200
+        # A fresh visitor can load either shell before presenting a credential.
+        static = Path(__file__).resolve().parents[1] / "static"
+        for route, shell in (("/", "app/index.html"), ("/app", "app/index.html"), ("/map", "index.html")):
+            with urllib.request.urlopen(base + route) as response:
+                assert response.status == 200 and response.geturl() == base + route
+                assert response.headers.get_content_type() == "text/html"
+                assert response.read() == (static / shell).read_bytes(), route
         # But the data endpoint the SPA fetches is still gated.
         assert _get_status(f"{base}/world?seed=1&depth=3") == 403
         # ...and works once the key is forwarded (as the fixed SPA does).
@@ -870,6 +876,9 @@ class TestStaticAssetGate:
 
     def test_is_public_asset_unit(self):
         from server.handlers import Handler
+        assert Handler._is_public_asset("/")
+        assert Handler._is_public_asset("/map")
+        assert not Handler._is_public_asset("/map/places")
         assert Handler._is_public_asset("/app")
         assert Handler._is_public_asset("/app/assets/index-abc.js")
         assert not Handler._is_public_asset("/health")
@@ -998,7 +1007,7 @@ class TestReadRateLimit:
         monkeypatch.setenv(guard.READ_RATE_LIMIT_ENV, "1")
         base, port = srv
         assert _get_status(f"{base}/history?seed=42") == 200
-        for path in ("/health", "/", "/app", "/journal", "/journal.js",
+        for path in ("/health", "/", "/app", "/map", "/journal", "/journal.js",
                      "/clientlogic.js", "/position", "/worlds"):
             assert _get_status(base + path) == 200, path
         code, sock = _ws_upgrade(port, "/ws?seed=42&name=ReadQuota", hold=True)

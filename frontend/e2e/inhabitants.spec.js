@@ -97,7 +97,7 @@ async function stop(server) {
   }
 }
 
-for (const route of ['/', '/app']) {
+for (const route of ['/map', '/app']) {
   test(`${route} familiar inhabitant action keeps response ownership and survives restart`, async ({ page, request }) => {
     const directory = await mkdtemp(path.join(tmpdir(), 'enfolded-m4-browser-'));
     const db = path.join(directory, 'world.db');
@@ -139,7 +139,7 @@ for (const route of ['/', '/app']) {
       const done = notices.find(m => m.type === 'agent_done');
       expect(done.nodes_visited).toBe(tick.work.visited);
       expect(done.nodes_visited).toBeGreaterThan(0);
-      const visitText = route === '/' ? `Agent: ${done.nodes_visited} nodes from`
+      const visitText = route === '/map' ? `Agent: ${done.nodes_visited} nodes from`
         : `Agent visited ${done.nodes_visited} nodes from`;
       await expect(page.getByText(visitText, { exact: false }).first()).toBeVisible();
       await expect.poll(() => notices.find(m => m.type === 'scale_act' && m.actor === 'Tessera')).toBeTruthy();
@@ -172,7 +172,7 @@ for (const route of ['/', '/app']) {
       const node = await (await request.get(`${server.url}/node?node_name=${encodeURIComponent(target.name)}`)).json();
       expect(node.node.pending_actions).toEqual([]);
       expect(node.node.properties.star_density).toBe(459);
-      await page.screenshot({ path: path.join(tmpdir(), `enfolded-m4-${route === '/' ? 'explorer' : 'scene'}.png`) });
+      await page.screenshot({ path: path.join(tmpdir(), `enfolded-m4-${route === '/map' ? 'explorer' : 'scene'}.png`) });
     } finally {
       await page.goto('about:blank').catch(() => {});
       await stop(server);

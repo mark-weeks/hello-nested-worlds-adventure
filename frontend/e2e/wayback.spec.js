@@ -40,7 +40,7 @@ test("explorer scrubs a node from present to birth", async ({ page }) => {
   page.on("request", request => {
     if (new URL(request.url()).pathname === "/wayback") waybackRequests += 1;
   });
-  await page.goto("/");
+  await page.goto("/map");
   await expect(page.locator("#node-name")).not.toHaveText("Select a node");
   await expect.poll(()=>page.evaluate(()=>ws?.readyState)).toBe(1);
   await waitForFirstWitness(page);
@@ -166,7 +166,7 @@ test("explorer clears an old snapshot before a failed reopen", async ({ page }) 
     localStorage.setItem("nw_player_name", "WaybackFailureViewer");
   });
   const errors = collectErrors(page);
-  await page.goto("/");
+  await page.goto("/map");
   await expect(page.locator("#node-name")).not.toHaveText("Select a node");
   await waitForFirstWitness(page);
 

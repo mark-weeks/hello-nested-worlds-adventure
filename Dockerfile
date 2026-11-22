@@ -1,11 +1,11 @@
 # Enfolded — production image for the Fly.io beta.
 # See docs/infrastructure/fly-deployment.md for the full deploy runbook.
 #
-# Two stages: a Node stage compiles the React + PixiJS frontend into
+# A Node stage compiles the React frontend into
 # static/app, then a slim Python stage installs the package and serves
 # everything. HOME=/data puts the SQLite store on the mounted volume.
 
-# --- Stage 1: build the React + PixiJS frontend ---
+# --- Stage 1: build the React frontend ---
 FROM node:20.19-slim AS frontend
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./frontend/

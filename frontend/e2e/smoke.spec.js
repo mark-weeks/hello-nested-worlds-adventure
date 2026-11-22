@@ -14,7 +14,7 @@ function collectErrors(page) {
   return errors;
 }
 
-test("explorer (/) renders the world and the node sigil", async ({ page }) => {
+test("explorer (/map) renders the world and the node sigil", async ({ page }) => {
   const errors = collectErrors(page);
   let historyLoads = 0;
   let socketOpens = 0;
@@ -25,7 +25,7 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
     }
   });
   page.on("websocket", () => { socketOpens += 1; });
-  await page.goto("/");
+  await page.goto("/map");
 
   // Real first-run onboarding: intro → name → world.
   await page.click("#btn-begin");
@@ -136,7 +136,7 @@ test("/register runs its logic under the production CSP", async ({ page }) => {
   expect(errors.filter(e => !/Failed to load resource/.test(e))).toEqual([]);
 });
 
-test("/app mounts the Pixi scene under the production CSP", async ({ page }) => {
+test("/app mounts the living scene under the production CSP", async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto("/app");
 
@@ -145,7 +145,7 @@ test("/app mounts the Pixi scene under the production CSP", async ({ page }) => 
   await page.getByPlaceholder("Your name").fill("SmokeTester");
   await page.getByRole("button", { name: "Enter" }).click();
 
-  // PixiJS must initialize despite script-src 'self' (pixi.js/unsafe-eval).
+  // The scene draws its canvas under the same CSP as the deployed client.
   const canvas = page.locator("canvas").first();
   await expect(canvas).toBeVisible({ timeout: 15_000 });
   const size = await canvas.boundingBox();
@@ -368,7 +368,7 @@ test("explorer restores server-saved depth across devices", async ({ page, reque
   });
 
   const errors = collectErrors(page);
-  await page.goto("/");
+  await page.goto("/map");
   await expect(page.locator("#status")).toContainText("depth 8");
   await expect(page.locator("#node-name")).toHaveText(position.node.replace(/-\d+$/, ""));
   await expect(page.locator("#node-name")).toHaveAttribute("title", position.node);

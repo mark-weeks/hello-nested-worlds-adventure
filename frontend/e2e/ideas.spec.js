@@ -79,8 +79,8 @@ async function keyboardTo(page, target) {
 }
 
 for (const mobile of [false,true]) {
-  for (const route of ['/','/app']) {
-    test(`Ideas returns from ${route === '/' ? 'map' : 'scene'} in the same tab on ${mobile ? 'mobile' : 'desktop'}`, async ({page,context}) => {
+  for (const route of ['/map','/app']) {
+    test(`Ideas returns from ${route === '/map' ? 'the original explorer' : 'the scene'} in the same tab on ${mobile ? 'mobile' : 'desktop'}`, async ({page,context}) => {
       const server = await start();
       try {
         await page.setViewportSize(mobile ? {width:390,height:844} : {width:1440,height:1000});
@@ -92,7 +92,7 @@ for (const mobile of [false,true]) {
         await expect(link).toHaveAttribute('href','/ideas');
         await expect.poll(() => page.evaluate(() => localStorage.getItem('nw_last_node'))).not.toBeNull();
         const priorNode = await page.evaluate(() => localStorage.getItem('nw_last_node'));
-        await capture(page,`${route === '/' ? 'map' : 'scene'}-${mobile ? 'mobile' : 'desktop'}`);
+        await capture(page,`${route === '/map' ? 'map' : 'scene'}-${mobile ? 'mobile' : 'desktop'}`);
         await keyboardTo(page,link);
         await page.keyboard.press('Enter');
         await expect(page.locator('#board')).toBeVisible();

@@ -76,7 +76,7 @@ async function twoTravelers(browser, server, route) {
   const other = await browser.newContext();
   const page = await context.newPage(), bea = await other.newPage();
   const relay = await enter(page, server, route);
-  await enter(bea, server, '/', beaKey, 'Bea');
+  await enter(bea, server, '/map', beaKey, 'Bea');
   await expect(page.getByRole('button', {name: 'Report Bea', exact: true})).toBeVisible();
   return {page, bea, relay, async close() { await context.close(); await other.close(); }};
 }
@@ -99,7 +99,7 @@ async function expectChatDescription(page, paused = false) {
   else await expect(availability).toBeHidden();
 }
 
-for (const route of ['/', '/app']) {
+for (const route of ['/map', '/app']) {
   test(`${route}: roster and chat reports use private server receipts and opaque evidence`, async ({browser}) => {
     const server = await fixture();
     let people;

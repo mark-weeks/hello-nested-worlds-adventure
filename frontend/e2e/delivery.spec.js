@@ -71,7 +71,7 @@ async function kill(server) {
   await exited;
 }
 
-for (const [route, maturationScale] of [["/", "0.02"], ["/app", "0.02"], ["/", "0.001"], ["/app", "0.001"], ["/", "0"]]) {
+for (const [route, maturationScale] of [["/map", "0.02"], ["/app", "0.02"], ["/map", "0.001"], ["/app", "0.001"], ["/map", "0"]]) {
   test(`${route} preserves act timing (scale ${maturationScale}) across server death and reload`, async ({ page, request }) => {
     const directory = await mkdtemp(path.join(tmpdir(), "enfolded-delivery-"));
     const db = path.join(directory, "worlds.db");
@@ -88,7 +88,7 @@ for (const [route, maturationScale] of [["/", "0.02"], ["/app", "0.02"], ["/", "
         localStorage.setItem("nw_last_node", name);
       }, galaxy.name);
       await page.goto(`${server.url}${route}`);
-      if (route === "/") {
+      if (route === "/map") {
         await page.locator("#btn-act").click();
         await expect.poll(()=>page.evaluate(()=>ws?.readyState)).toBe(1);
       }
@@ -106,7 +106,7 @@ for (const [route, maturationScale] of [["/", "0.02"], ["/app", "0.02"], ["/", "
       else expect(accepted.matures_in).toBeGreaterThan(0);
       if (immediate) {
         await expect(page.locator("#node-props")).toContainText(String(expectedDensity));
-      } else if (route === "/") {
+      } else if (route === "/map") {
         await expect(page.locator("enfolded-interventions")).toContainText("still traveling");
         await expect(page.locator("#node-props")).toContainText(String(bornDensity));
       }
@@ -125,7 +125,7 @@ for (const [route, maturationScale] of [["/", "0.02"], ["/app", "0.02"], ["/", "
       page.on("pageerror", error => errors.push(error.message));
       await page.goto(`${server.url}${route}`);
       const phrase = galaxy.name.replace(/-\d+$/, "");
-      if (route === "/") {
+      if (route === "/map") {
         await expect(page.locator("#node-name")).toContainText(phrase);
         await expect(page.locator("#node-props")).toContainText(String(expectedDensity));
       } else {
@@ -162,14 +162,12 @@ async function enter(page,url,route,node,name='Ada') {
     sessionStorage.setItem('nw_sound_invited','1');
   },{node,name,key:credentials[name]});
   await page.goto(url+route);
-  if(route==='/') {
+  if(route==='/map') {
     await page.locator('#btn-act').click();
     // The explorer reads /position before it opens the world, so its /world
     // read can land after enter() returns. Wait for the drawn world's status
     // ("Opening the shared world…" comes earlier) so later request counts and
-    // actions start from a loaded page. This branch belongs to whichever route
-    // serves static/explorer.js: when X2 moves the explorer (planned /map),
-    // move this wait with it.
+    // actions start from a loaded page.
     await expect(page.locator('#status')).toHaveText(/^\d+ nodes · shared world · depth \d+$/);
   }
   else await page.getByRole('button',{name:'Act',exact:true}).click();
@@ -183,7 +181,7 @@ async function kindle(page,act) {
   return reply.json();
 }
 
-for(const route of ['/','/app']) {
+for(const route of ['/map','/app']) {
   test(`${route} keeps new delayed contributions through restart and changed conditions`,async({page,request})=>{
     const directory=await mkdtemp(path.join(tmpdir(),'enfolded-v2-delivery-')),db=path.join(directory,'worlds.db');let server;
     try {
@@ -196,7 +194,7 @@ for(const route of ['/','/app']) {
       expect(first.accepted).toBe(true);expect(first.changed).toEqual({});expect(second.id).not.toBe(first.id);
       await act.getByText('Actions still echoing',{exact:true}).click();
       await expect(act).toContainText('Consequences pending');
-      await page.reload();if(route==='/')await page.locator('#btn-act').click();else await page.getByRole('button',{name:'Act',exact:true}).click();
+      await page.reload();if(route==='/map')await page.locator('#btn-act').click();else await page.getByRole('button',{name:'Act',exact:true}).click();
       await act.getByText('Actions still echoing',{exact:true}).click();await expect(act).toContainText('Consequences pending');
       await page.goto('about:blank');const port=server.port;await kill(server);
       // Another action lands during the wait. Each contribution acts on that
@@ -212,7 +210,7 @@ for(const route of ['/','/app']) {
       await page.goto(server.url+route);
       await disclose(page,'History & journal');
       // The settled work reads as fiction in both chronicles, never as a bare row label.
-      if(route==='/'){
+      if(route==='/map'){
         await expect(page.locator('#node-props')).toContainText(String(expected));
         await page.locator('#btn-chronicle').click();
         await expect(page.locator('#chronicle-entries')).toContainText('Ada attempts Kindle');
@@ -227,7 +225,7 @@ for(const route of ['/','/app']) {
   });
 }
 
-for(const route of ['/','/app']) for(const endpoint of ['/interventions/commit','/node']) {
+for(const route of ['/map','/app']) for(const endpoint of ['/interventions/commit','/node']) {
   test(`${route} keeps a late ${endpoint} reply attached to its original place`,async({page,request})=>{
     const directory=await mkdtemp(path.join(tmpdir(),'enfolded-v2-navigation-')),db=path.join(directory,'worlds.db');let server,release;
     try {
@@ -298,7 +296,7 @@ for(const order of ['HTTP first','socket first']) {
   });
 }
 
-for(const route of ['/','/app']) {
+for(const route of ['/map','/app']) {
   test(`${route} co-viewers keep their own action replies while the shared state updates`,async({browser,request})=>{
     // Page entry under load (up to ~19 s) plus one 15 s maturation and a 5 s
     // pump tick; the delivery and visibility bounds below stay as tight as before.
@@ -330,7 +328,7 @@ for(const route of ['/','/app']) {
       await expect(a.getByRole('status')).toHaveText(own.flavor);await expect(b.getByRole('status')).toHaveText(other.flavor);
       await expect.poll(async()=> (await(await request.get(server.url+'/node?node_name='+encodeURIComponent(galaxy.name))).json()).node.properties.star_density,{timeout:25000}).toBe(459);
       for(const page of pages) {
-        if(route==='/')await expect(page.locator('#node-props')).toContainText('459');
+        if(route==='/map')await expect(page.locator('#node-props')).toContainText('459');
         else {await page.getByText('Conditions here',{exact:true}).click();await expect(page.getByText('459',{exact:true}).first()).toBeVisible();}
       }
       await expect(a.getByRole('status')).toHaveText(own.flavor);await expect(b.getByRole('status')).toHaveText(other.flavor);
@@ -339,7 +337,7 @@ for(const route of ['/','/app']) {
   });
 }
 
-for(const route of ['/','/app']) {
+for(const route of ['/map','/app']) {
   test(`${route}: another player's action changes an accepted delayed combination`,async({page,request})=>{
     const directory=await mkdtemp(path.join(tmpdir(),'enfolded-live-conditions-')),db=path.join(directory,'worlds.db');let server;
     try {
@@ -370,7 +368,7 @@ for(const route of ['/','/app']) {
       const node=await(await request.get(server.url+'/node?node_name='+encodeURIComponent(galaxy.name))).json();
       expect(node.node.properties.shape).toBe('spiral');expect(node.node.properties.star_density).toBe(360);
       await page.goto(server.url+route);
-      if(route==='/')await page.locator('#btn-act').click();else await page.getByRole('button',{name:'Act',exact:true}).click();
+      if(route==='/map')await page.locator('#btn-act').click();else await page.getByRole('button',{name:'Act',exact:true}).click();
       await act.getByText('Actions still echoing',{exact:true}).click();
       await expect(act).toContainText('Attempt accepted');await expect(act).toContainText('Observed ·');
       await expect(act).toContainText('Spiral: No new material change remains');

@@ -16,8 +16,8 @@ A shared persistent multiverse inhabited simultaneously by human players and AI 
 ```
 ┌──────────────────────────┐  ┌──────────────────────────┐
 │        interface/        │  │        frontend/         │
-│  terminal REPL · spatial │  │  React + PixiJS browser  │
-│  conversation · ambient  │  │  scenes · presence       │
+│  terminal REPL · spatial │  │  React map and scene     │
+│  conversation · ambient  │  │  passages · presence     │
 └────────────┬─────────────┘  └────────────┬─────────────┘
              │                             │
              └──────────────┬──────────────┘
@@ -115,14 +115,14 @@ Threaded `http.server` with REST + WebSocket (HTTP/1.1 handshake), security head
 - **REST (core):** `/health`, `/worlds`, `/world`, `/node`, `/history`, `/chronicle`, `/wayback`, `/agent`, `/observe` (SSE), `/puzzle`, `/puzzle/evidence`, `/image`, `GET`/`POST /position`, plus `POST /speak`, `/puzzle/attempt`, `/act`, `/agent/voice`, `/register`, `/client-error`
 - **WebSocket** (`/ws`): presence, player-to-player chat, broadcast of causal and delivery events, ping/keepalive — `websocket.py` (upgrade + loop), `protocol.py` (RFC 6455 framing), `rooms.py` (presence + co-op `PuzzleSession`)
 - **`world_mechanics.py`** — constellations, particle entanglement, canonical node hydration; **`imageprompt.py`** — per-level prompt assembly + style-signature cache key; **`history.py`** — post-commit presentation that never invalidates accepted work
-- **Pages and static:** `/` (explorer), `/app` (React bundle), `/guide`, `/register`, `/journal`, `/ideas`, `/media/*`, the shared static modules, easter-egg routes under `/easter-egg/`
+- **Pages and static:** `/` and `/app` (React bundle), `/map` (original explorer), `/guide`, `/register`, `/journal`, `/ideas`, `/media/*`, the shared static modules, easter-egg routes under `/easter-egg/`
 
 ### `interface/` — Terminal Interaction Layer
 Interactive terminal session (`run_session`) with three modes — spatial (`go`/`up`/`map`), conversational (`speak`), and ambient (`observe`) — plus inline puzzles and the original scale-native verbs. Each scale level renders in a distinct ANSI colour.
 
 ### `frontend/` — Browser Clients
-- **`/app`** — React + PixiJS + Vite app (`frontend/src`, built into `static/app/`): scene rendering, hotspots, the Act surface (`Interventions.jsx`), Replay History (`Wayback.jsx`), chronicle, presence, journal links. Primary development surface since the ADR-005 2026-09-12 revision
-- **`/`** — the vanilla D3 map explorer (`static/index.html` + `static/explorer.js`); still the invite destination; the only client with ambient `/observe`
+- **`/` and `/app`** serve one React client (`frontend/src`, built by Vite into `static/app/`). A fresh visit to `/` opens its D3 map. Invitations and registration open the living scene at `/app`. Switching views preserves the place, interaction panel and WebSocket session.
+- **`/map`** serves the original D3 explorer (`static/index.html` and `static/explorer.js`). It also offers ambient observation over `/observe`.
 - **Shared modules** (`static/`): `clientlogic.js` (entry, passage affordances, chronicle rendering), `interface.js` + `navigation.js` (identity block, Speak | Puzzle | Act, named passages, return trail), `intents.js` (request-ID receipts), `interventions.js` (the Act surface), `sensory.js` (deterministic scene from served senses), `score.js` (eleven sampled musical forms). `nodeart.js` is the explorer's fallback renderer. Curated plates and samples live in `static/media/`
 
 ### `puzzles/` — Embedded Challenges

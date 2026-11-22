@@ -100,7 +100,7 @@ async function enter(page, server, route = '/app', node = '') {
   await page.goto(server.url + route);
 }
 
-for(const route of ['/app','/']) {
+for(const route of ['/app','/map']) {
   test(`${route}: compose, recover a lost acknowledgement, receive and return`,async({page})=>{
     const server=await start();
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -110,7 +110,7 @@ for(const route of ['/app','/']) {
       const composer=page.locator('enfolded-interventions');
       await expect(page.getByRole('region',{name:'Investigation'})).toHaveCount(0);
       await expect(page.getByText('Shape this place',{exact:true})).toHaveCount(0);
-      if(route==='/') await page.locator('#btn-act').click();
+      if(route==='/map') await page.locator('#btn-act').click();
       else await page.getByRole('button',{name:'Act',exact:true}).click();
       await expect(composer).toHaveCount(1);
       await expect(composer.getByRole('button',{name:'Charge',exact:true})).toHaveCount(0);
@@ -124,7 +124,7 @@ for(const route of ['/app','/']) {
       await composer.getByRole('button',{name:'Engrave',exact:true}).click();
       await expect(composer.getByRole('button',{name:'Recover earlier attempt',exact:true})).toBeEnabled();
       await page.reload();
-      if(route==='/') await page.locator('#btn-act').click();
+      if(route==='/map') await page.locator('#btn-act').click();
       else await page.getByRole('button',{name:'Act',exact:true}).click();
       await expect(composer.getByRole('button',{name:'Recover earlier attempt',exact:true})).toBeVisible();
       await composer.getByRole('button',{name:'Recover earlier attempt',exact:true}).click();
@@ -146,7 +146,7 @@ for(const route of ['/app','/']) {
 test('recorded score loads, stays on one transport and changes its harmony',async({page})=>{
   const server=await start();
   try {
-    await enter(page,server,'/',names.instrument);
+    await enter(page,server,'/map',names.instrument);
     await expect(page.locator('#node-name')).toHaveText(phrase(names.instrument));
     await disclose(page,'Sound & help');
     await page.click('#btn-sound');
@@ -167,7 +167,7 @@ test('recorded score loads, stays on one transport and changes its harmony',asyn
 
 
 test('the complete sampled graph renders non-silent audio without clipping', async({page})=>{
-  await page.goto('/');
+  await page.goto('/map');
   const metrics=await page.evaluate(async()=>{
     const {NodeAmbience}=await import('/score.js');
     const offline=new OfflineAudioContext(2,44100*18,44100);
@@ -211,7 +211,7 @@ test('unavailable recovery storage prevents an ambiguous commitment',async({page
   }finally{await server.close();}
 });
 
-for(const route of ['/app','/']) {
+for(const route of ['/app','/map']) {
   test(`${route}: failed action loading can be retried and moot attempts are observed`,async({page})=>{
     const server=await start(); let reads=0, loaded;
     try {
@@ -224,7 +224,7 @@ for(const route of ['/app','/']) {
         await request.fulfill({response});
       });
       await enter(page,server,route,names.instrument);
-      if(route==='/') await page.locator('#btn-act').click();
+      if(route==='/map') await page.locator('#btn-act').click();
       else await page.getByRole('button',{name:'Act',exact:true}).click();
       const composer=page.locator('enfolded-interventions');
       await expect(composer).toContainText('The world keeps its own pace.');
@@ -281,13 +281,13 @@ for(const route of ['/app','/']) {
   });
 }
 
-for(const route of ['/','/app']) {
+for(const route of ['/map','/app']) {
   test(`${route}: intention clarification, refusal and lost receipt use the same Act surface`,async({page})=>{
     const server=await start(true), submissions=[];
     page.on('request',r=>{if(new URL(r.url()).pathname==='/interventions/commit')submissions.push(r.postDataJSON());});
     try {
       await enter(page,server,route,names.instrument);
-      if(route==='/')await page.locator('#btn-act').click();else await page.getByRole('button',{name:'Act',exact:true}).click();
+      if(route==='/map')await page.locator('#btn-act').click();else await page.getByRole('button',{name:'Act',exact:true}).click();
       const act=page.locator('enfolded-interventions');
       await expect(act.locator('.choices button')).toHaveCount(4);
       await act.getByText('Describe an intention',{exact:true}).click();
@@ -309,7 +309,7 @@ for(const route of ['/','/app']) {
       await input.fill('cut a pattern in this surface');await submit.click();
       await expect(act.getByRole('button',{name:'Recover earlier attempt'})).toBeEnabled();
       await page.reload();
-      if(route==='/')await page.locator('#btn-act').click();else await page.getByRole('button',{name:'Act',exact:true}).click();
+      if(route==='/map')await page.locator('#btn-act').click();else await page.getByRole('button',{name:'Act',exact:true}).click();
       await act.getByRole('button',{name:'Recover earlier attempt'}).click();
       await expect(act.getByRole('status')).toContainText('Ada attempts Engrave');
       expect(submissions[2]).toEqual(submissions[3]);
@@ -327,12 +327,12 @@ for(const route of ['/','/app']) {
 }
 
 
-for (const route of ['/app','/']) {
+for (const route of ['/app','/map']) {
   test(`${route}: empty intentions stay local and partial outcomes stay truthful`, async ({page}) => {
     const server=await start(false,true);
     try {
       await enter(page,server,route,names.region);
-      if(route==='/') await page.locator('#btn-act').click();
+      if(route==='/map') await page.locator('#btn-act').click();
       else await page.getByRole('button',{name:'Act',exact:true}).click();
       const act=page.locator('enfolded-interventions');
       await expect(act.getByRole('button',{name:'Cultivate',exact:true})).toBeEnabled();
@@ -354,7 +354,7 @@ for (const route of ['/app','/']) {
       const current=await(await page.request.get(server.url+'/node?node_name='+encodeURIComponent(names.region),{headers})).json();
       expect(current.node.properties.danger_level).toBe(1);
       await page.reload();
-      if(route==='/') await page.locator('#btn-act').click();
+      if(route==='/map') await page.locator('#btn-act').click();
       else await page.getByRole('button',{name:'Act',exact:true}).click();
       await act.getByText('Actions still echoing',{exact:true}).click();
       await expect(act).toContainText('Cultivate: The land settles into terraces.');
