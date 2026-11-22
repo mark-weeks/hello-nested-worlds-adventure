@@ -7,9 +7,12 @@ Status: Checklist L5: mark Done when merged. Both clients and the Guide identify
   follow what the canvas actually draws, including the four generated backgrounds
   shipped with the game. The Guide explains authored replies, traveler chat,
   free-text action interpretation and the effects drawn from world conditions.
-  **Verified:** Ruff, all 262 client unit tests and the installed-wheel smoke
-  passed. Six focused Chromium checks covered both clients, including a late
-  answer after changing speakers, failed image loads and accessible captions.
+  **Verified:** Ruff passed, 4,342 Python tests passed with one skip, and all
+  262 client unit tests passed. The bundle rebuilt byte for byte and the
+  installed-wheel smoke passed. Six focused Chromium checks covered late replies
+  after changing speakers, failed image loads and accessible captions in both
+  clients. The [PR verification record](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/194)
+  covers the full 223-case Chromium suite.
   **Irreversibility check:** These reversible client and Guide edits read existing
   response flags and canvas state. They introduce no provider call, stored actor
   label, world-history write, migration, generator change or authentication change.
