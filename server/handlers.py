@@ -235,7 +235,7 @@ def _screen_voice_line(message: str, user_key: str | None, surface: str,
     """
     verdict = moderation.screen(message, user_key=user_key, surface=surface,
                                 shared=recorded, private_fallback=honest)
-    if verdict.outcome == "unshared":
+    if getattr(verdict, "outcome", None) == "unshared":
         recorded = False
     return verdict, recorded
 
