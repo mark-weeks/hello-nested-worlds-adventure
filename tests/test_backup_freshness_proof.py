@@ -41,8 +41,28 @@ def stored(moment, *, quarantine=False, size=1024, app=APP, arrived=None, last_m
     return item
 
 
-def page(*items):
-    return {'Prefix': 'offhost/', 'Contents': list(items)}
+def page(*items, sealed=True):
+    """One listing page. A sealed page adds the finish marker for each snapshot.
+
+    The marker carries that snapshot's ``LastModified``, which is the finish
+    evidence the proof requires before it will pass.
+    """
+    contents = []
+    for item in items:
+        contents.append(item)
+        if not sealed:
+            continue
+        key = item.get('Key')
+        modified = item.get('LastModified')
+        prefix = 'offhost/worlds-backup-'
+        if (not isinstance(key, str) or not isinstance(modified, str) or not key.endswith('.db')
+                or not key.startswith(prefix)):
+            continue
+        body = key[len(prefix):-3]
+        if len(body) < 17 or body[-17] != '-':
+            continue
+        contents.append({'Key': f'{prefix}{body}.ready', 'Size': 1, 'LastModified': modified})
+    return {'Prefix': 'offhost/', 'Contents': contents}
 
 
 def series(start, stop, step=timedelta(minutes=30), omit=()):
@@ -203,7 +223,7 @@ def test_a_hole_entirely_before_the_window_does_not_fail_the_window():
     anchor_at = START - timedelta(minutes=30)
     older = stored(START - timedelta(hours=5))
     middle = stored(START - timedelta(hours=3))
-    report = report_for([older, middle, stored(anchor_at), *series(START, NOW)])
+    report = report_for([older, middle, stored(anchor_at), *series(START + timedelta(minutes=30), NOW)])
     assert report['result'] == 'pass'
     assert report['anchor']['key'] == object_key(APP, stamp(anchor_at))
     assert older['Key'] not in json.dumps(report['violations'])
@@ -318,6 +338,64 @@ def test_since_ignores_a_manual_object_that_from_first_keeps():
     assert later['first']['snapshot_at'] == iso(first_dispatch)
     assert later['count'] >= 2
     assert items[0]['Key'] not in json.dumps(later)
+
+
+def test_since_reports_the_first_measured_snapshot_not_the_filter():
+    since = NOW - timedelta(days=7)
+    first = NOW - timedelta(minutes=40)
+    second = NOW - timedelta(minutes=5)
+    report = prove(page(stored(first), stored(second)), app=APP, since=since, now=NOW)
+    assert report['result'] == 'pass', report['violations']
+    assert report['since'] == iso(since)
+    assert report['window_start'] == iso(first)
+    assert report['window_end'] == iso(NOW)
+    assert report['count'] == 2
+    assert report['anchor'] is None
+
+
+def test_the_anchor_is_the_snapshot_that_covered_the_opening():
+    early = START - timedelta(minutes=30)
+    decoy = START - timedelta(minutes=2)
+    report = report_for([
+        stored(early),
+        stored(decoy, arrived=START + timedelta(minutes=2)),
+        *series(START + timedelta(minutes=30), NOW),
+    ])
+    assert report['result'] == 'pass', report['violations']
+    assert report['anchor']['snapshot_at'] == iso(early)
+    assert report['anchor']['key'] == object_key(APP, stamp(early))
+    assert report['anchor']['key'] != object_key(APP, stamp(decoy))
+    uncovered = report_for([
+        stored(decoy, arrived=START + timedelta(minutes=2)),
+        *series(START + timedelta(minutes=30), NOW),
+    ])
+    assert uncovered['anchor'] is None
+    assert uncovered['violations'][0]['kind'] == 'window_start'
+
+
+def test_a_snapshot_timestamp_inside_the_bound_is_not_a_pass_without_a_finish_marker():
+    previous = NOW - timedelta(minutes=70)
+    border = previous + timedelta(minutes=59, seconds=55)
+    unproven = prove(page(stored(previous), stored(border), sealed=False),
+                     app=APP, from_first=True, now=NOW)
+    assert unproven['result'] == 'unresolved'
+    assert unproven['result'] != 'pass'
+    assert any(item['kind'] == 'unresolved' and item['to_key'] == object_key(APP, stamp(border))
+               for item in unproven['violations'])
+    assert 'unproven finish' in render_summary(unproven)
+    late = previous + timedelta(minutes=60, seconds=15)
+    proven_late = prove(page(stored(previous), stored(late, arrived=late), sealed=False),
+                        app=APP, from_first=True, now=NOW)
+    assert proven_late['result'] == 'fail'
+    assert any(item['kind'] == 'successive' and item['gap_seconds'] == 3615
+               for item in proven_late['violations'])
+    marked_late = prove(page(stored(previous), stored(late, arrived=late)),
+                        app=APP, from_first=True, now=NOW)
+    assert marked_late['result'] == 'fail'
+    assert any(item['kind'] == 'successive' and item['gap_seconds'] == 3615
+               for item in marked_late['violations'])
+    marked = prove(page(stored(previous), stored(border)), app=APP, from_first=True, now=NOW)
+    assert marked['result'] == 'pass', marked['violations']
 
 
 def test_an_upload_after_the_window_end_is_not_yet_available():

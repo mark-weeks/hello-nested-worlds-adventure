@@ -1,7 +1,9 @@
 """Private S3-compatible storage for off-host world backups.
 
-Object names keep the app and the UTC snapshot-start. A validation failure uses
-the unvalidated prefix; that name never satisfies the freshness check. The
+Object names keep the app and the UTC snapshot-start. A validated upload then
+writes a `.ready` marker, and that marker's listing time is the finish
+evidence for the one-hour proof. A validation failure uses the unvalidated
+prefix; that name never satisfies the freshness check. The
 client shells out to a pinned AWS CLI and talks to whatever endpoint the
 operator configured. Cloudflare R2 is that store, and retention is 30 days,
 both recorded on 2026-11-20 (owner decision O7). Credentials stay in the
@@ -120,6 +122,20 @@ def object_key(app, stamp, *, quarantine=False):
     return f'{PREFIX}{role}-{app}-{stamp}.db'
 
 
+def ready_key(app, stamp):
+    """Marker written after a validated snapshot PUT has returned.
+
+    Its listing time is later than the moment that snapshot became readable.
+    """
+    validate_app(app)
+    validate_stamp(stamp)
+    return f'{PREFIX}{VALIDATED_ROLE}-{app}-{stamp}.ready'
+
+
+def _stamp_text(moment):
+    return moment.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+
+
 def classify(key, app):
     """Return (role, snapshot time). Quarantine is never reported as validated."""
     if not isinstance(key, str):
@@ -135,6 +151,25 @@ def classify(key, app):
             return None
         return ('quarantine' if role == QUARANTINE_ROLE else 'validated'), taken
     return None
+
+
+def classify_ready(key, app):
+    """Snapshot-start of a finish marker, or None when the key is not one."""
+    if not isinstance(key, str):
+        return None
+    validate_app(app)
+    prefix = f'{PREFIX}{VALIDATED_ROLE}-{app}-'
+    suffix = '.ready'
+    if not key.startswith(prefix) or not key.endswith(suffix):
+        return None
+    try:
+        return validate_stamp(key[len(prefix):-len(suffix)])
+    except ValueError:
+        return None
+
+
+def owned_backup_key(key, app):
+    return classify(key, app) is not None or classify_ready(key, app) is not None
 
 
 def page_contents(page):
@@ -193,9 +228,11 @@ def keys_older_than(pages, *, app, cutoff):
     chosen = []
     for item in iter_objects(pages):
         classified = classify(item.get('Key'), app)
-        if classified is None or classified[1] > cutoff:
+        ready_at = classify_ready(item.get('Key'), app)
+        taken = classified[1] if classified is not None else ready_at
+        if taken is None or taken > cutoff:
             continue
-        chosen.append((classified[1], item['Key']))
+        chosen.append((taken, item['Key']))
     return [key for _taken, key in sorted(chosen)]
 
 
@@ -231,7 +268,8 @@ def expired_keys(pages, *, app, retention_days, now=None):
     keep = newest_validated_key(pages, app=app, now=now)
     if keep is None:
         return expired
-    return [key for key in expired if key != keep]
+    kept = {keep, ready_key(app, _stamp_text(classify(keep, app)[1]))}
+    return [key for key in expired if key not in kept]
 
 
 def load_object_pages(path):
@@ -424,6 +462,21 @@ def _command_timeout(args, env):
     return int(raw)
 
 
+def _put_ready_marker(app, stamp, env):
+    """Write the finish marker only after the snapshot PUT has returned."""
+    key = ready_key(app, stamp)
+    bucket, _endpoint, _region = _target(env)
+    handle = tempfile.NamedTemporaryFile(prefix='backup-ready-', delete=False)
+    try:
+        handle.write(b'1')
+        handle.close()
+        run_aws(['s3api', 'put-object', '--bucket', bucket, '--key', key,
+                 '--body', handle.name, '--output', 'json'], env=env, purpose='write')
+    finally:
+        Path(handle.name).unlink(missing_ok=True)
+    return key
+
+
 def put_object(app, stamp, body, *, quarantine=False, env=None):
     key = object_key(app, stamp, quarantine=quarantine)
     path = Path(body)
@@ -433,6 +486,8 @@ def put_object(app, stamp, body, *, quarantine=False, env=None):
     bucket, _endpoint, _region = _target(source)
     run_aws(['s3api', 'put-object', '--bucket', bucket, '--key', key,
              '--body', str(path), '--output', 'json'], env=source, purpose='write')
+    if not quarantine:
+        _put_ready_marker(app, stamp, source)
     return key
 
 
@@ -465,7 +520,7 @@ def get_object(app, key, dest, *, env=None):
 
 
 def delete_object(app, key, *, env=None):
-    if classify(key, app) is None:
+    if not owned_backup_key(key, app):
         raise StoreError("Refusing to delete a key outside this app's backup names.")
     return _delete_many(app, [key], os.environ if env is None else env)[0]
 
@@ -478,7 +533,7 @@ def _delete_many(app, keys, env):
     for start in range(0, len(keys), _DELETE_BATCH):
         batch = list(keys[start:start + _DELETE_BATCH])
         for key in batch:
-            if classify(key, app) is None:
+            if not owned_backup_key(key, app):
                 raise StoreError("Refusing to delete a key outside this app's backup names.")
         payload = json.dumps({'Objects': [{'Key': key} for key in batch], 'Quiet': True},
                              separators=(',', ':'))
@@ -525,7 +580,8 @@ def delete_before(app, stamp, *, env=None, now=None, dry_run=False, after=None):
         keys = [key for key in keys if classify(key, app)[1] >= after_time]
     keep = newest_validated_key(pages, app=app, now=now)
     if keep is not None:
-        keys = [key for key in keys if key != keep]
+        kept = {keep, ready_key(app, _stamp_text(classify(keep, app)[1]))}
+        keys = [key for key in keys if key not in kept]
     if dry_run:
         return keys
     return _delete_many(app, keys, source)

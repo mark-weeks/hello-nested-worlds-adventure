@@ -8,7 +8,8 @@ import sys
 import pytest
 
 from scripts.backup_store import (
-    MAX_LIST_PAGES, classify, expired_keys, get_object, list_object_pages, object_key, validate_endpoint,
+    MAX_LIST_PAGES, classify, classify_ready, expired_keys, get_object, list_object_pages, object_key,
+    ready_key, validate_endpoint,
 )
 
 APP = 'enfolded-beta'
@@ -180,6 +181,9 @@ def test_put_uploads_the_named_object_with_write_credentials_not_on_the_command_
     argv = recorded[0]['argv']
     assert argv[:4] == ['--endpoint-url', ENDPOINT, 's3api', 'put-object']
     assert '--key' in argv and object_key(APP, '20261003T113000Z') in argv
+    assert len(recorded) == 2
+    assert recorded[1]['argv'][recorded[1]['argv'].index('--key') + 1] == ready_key(APP, '20261003T113000Z')
+    assert recorded[1]['access_key_id'] == 'write-key'
     assert WRITE_SECRET not in result.stdout + result.stderr
     assert LIST_SECRET not in json.dumps(recorded)
 
@@ -193,6 +197,7 @@ def test_quarantine_upload_uses_the_unvalidated_key_and_an_empty_snapshot_is_ref
     assert quarantined.returncode == 0, quarantined.stderr
     assert quarantined.stdout.strip() == object_key(APP, '20261003T113000Z', quarantine=True)
     assert recorded[0]['argv'].count(object_key(APP, '20261003T113000Z', quarantine=True)) == 1
+    assert len(recorded) == 1
 
     empty = tmp_path / 'empty.db'
     empty.write_bytes(b'')
@@ -373,6 +378,25 @@ def test_get_uses_the_write_key_when_a_list_key_is_also_set(tmp_path):
     assert dest.read_bytes() == b'sqlite-bytes'
     assert recorded[0]['access_key_id'] == 'write-key'
     assert LIST_SECRET not in json.dumps(recorded)
+
+
+def test_retention_deletes_an_old_finish_marker_and_keeps_the_newest_ones():
+    now = datetime(2026, 10, 3, 12, tzinfo=timezone.utc)
+    old = (now - timedelta(days=40)).strftime('%Y%m%dT%H%M%SZ')
+    kept = (now - timedelta(days=31)).strftime('%Y%m%dT%H%M%SZ')
+    pages = [{'Contents': [
+        {'Key': object_key(APP, old), 'Size': 8},
+        {'Key': ready_key(APP, old), 'Size': 1},
+        {'Key': object_key(APP, kept), 'Size': 8},
+        {'Key': ready_key(APP, kept), 'Size': 1},
+    ]}]
+    expired = expired_keys(pages, app=APP, retention_days=30, now=now)
+    assert ready_key(APP, old) in expired
+    assert object_key(APP, old) in expired
+    assert ready_key(APP, kept) not in expired
+    assert object_key(APP, kept) not in expired
+    assert classify_ready(ready_key(APP, kept), APP) == datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    assert classify(ready_key(APP, kept), APP) is None
 
 
 def test_prune_deletes_expired_keys_in_one_batch_and_keeps_the_newest(tmp_path):

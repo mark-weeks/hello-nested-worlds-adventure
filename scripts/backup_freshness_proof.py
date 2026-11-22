@@ -7,20 +7,20 @@ fallback. ``--objects`` reads a saved listing and does not contact the bucket.
 
 A day is 24 hours. The window ends at ``--now`` for a saved listing, and at
 the clock otherwise. Age is the snapshot-start in the object name. The
-upload time is ``LastModified``. S3-compatible stores set that at about the
-start of the PUT, so each landing gap undercounts by that upload's duration.
-Pass means that, throughout the window, the newest validated object already
-in the bucket was never more than the bound old (60 minutes unless
-``--max-gap-minutes`` says otherwise). That holds when an object is already
-in the bucket at the window's start, each later object lands within the
-bound of the previous snapshot-start, and the last snapshot-start is within
-the bound of the window's end. A missing upload time, or one before the
-snapshot-start, cannot support a pass. An upload time after the window end
-means the object was not yet available. ``--from-first`` starts at the first
-validated object and requires two of them. ``--since`` ignores objects
-before a UTC instant and then does the same, so a manual snapshot from
-before the dispatcher does not stay in the production check. Quarantine
-names, empty objects, other apps, and future stamps do not count.
+finish evidence is the ``LastModified`` of the ``.ready`` marker written
+after that snapshot's PUT returned. That time is later than the moment the
+snapshot became readable, so a landing measured to it is an upper bound.
+``LastModified`` on the snapshot itself is about when its PUT started. It
+can prove a breach. It cannot prove a pass. A landing that is still inside
+the bound on that earlier time, with no marker, is ``unresolved`` and is
+not a pass. Pass means an object was provably already in the bucket at the
+window's start, each later marker is within the bound of the previous
+snapshot-start, and the last snapshot-start is within the bound of the
+window's end (60 minutes unless ``--max-gap-minutes`` says otherwise).
+``--from-first`` starts at the first validated object and requires two.
+``--since`` ignores objects before a UTC instant. The measured interval
+then starts at the first snapshot-start that remains. Quarantine names,
+empty objects, other apps, and future stamps do not count.
 
 JSON goes to stdout. A short summary goes to stderr. Exit 0 passes, 1 fails
 the bound, and 2 means the listing or the credentials could not be read.
@@ -35,8 +35,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.backup_store import (
-    StoreError, classify, iter_objects, list_object_pages, load_object_pages, validate_app,
-    validate_stamp,
+    StoreError, classify, classify_ready, iter_objects, list_object_pages, load_object_pages,
+    validate_app, validate_stamp,
 )
 
 _WRITE_CREDENTIALS = (
@@ -60,9 +60,10 @@ def _seconds(raw):
 
 
 def _ref(item):
-    taken, arrived, key, size = item
-    return {'key': key, 'snapshot_at': _iso(taken), 'arrived_at': _iso(arrived),
-            'size_in_bytes': size}
+    arrived = item['arrived']
+    return {'key': item['key'], 'snapshot_at': _iso(item['taken']),
+            'arrived_at': None if arrived is None else _iso(arrived),
+            'size_in_bytes': item['size']}
 
 
 def _parse_arrived(value):
@@ -124,89 +125,132 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False,
             raise ValueError('since must not be after the window end.')
     bound = max_gap_minutes * 60
     bounded = from_first or since is not None
-    found = {}
+    snapshots = {}
+    markers = {}
     arrival_violations = []
-    seen = set()
     for item in iter_objects(pages):
-        classified = classify(item.get('Key'), app)
+        key = item.get('Key')
         size = item.get('Size')
+        ready_at = classify_ready(key, app)
+        if ready_at is not None:
+            if type(size) is not int or size <= 0 or ready_at > now:
+                continue
+            if since is not None and ready_at < since:
+                continue
+            arrived = _parse_arrived(item.get('LastModified'))
+            if arrived is None or arrived < ready_at or arrived > now:
+                continue
+            markers.setdefault(ready_at, []).append(arrived)
+            continue
+        classified = classify(key, app)
         if classified is None or classified[0] != 'validated' or type(size) is not int or size <= 0:
             continue
         taken = classified[1]
-        if taken > now:
+        if taken > now or key in snapshots:
             continue
-        key = item['Key']
-        if key in seen:
-            continue
-        seen.add(key)
         if since is not None and taken < since:
             continue
-        arrived = _parse_arrived(item.get('LastModified'))
-        if arrived is not None and arrived > now:
+        lower = _parse_arrived(item.get('LastModified'))
+        if lower is not None and lower > now:
             continue
-        if arrived is None or arrived < taken:
-            arrival_violations.append((taken, _arrival_violation(taken, key, arrived)))
+        if lower is not None and lower < taken:
+            arrival_violations.append((taken, _arrival_violation(taken, key, lower)))
             continue
-        found[key] = (taken, arrived, key, size)
-    objects = sorted(found.values())
+        snapshots[key] = {'taken': taken, 'key': key, 'size': size, 'lower': lower}
+    objects = []
+    for snap in snapshots.values():
+        candidates = [moment for moment in markers.get(snap['taken'], [])
+                      if snap['lower'] is None or moment >= snap['lower']]
+        snap['upper'] = min(candidates) if candidates else None
+        snap['arrived'] = snap['upper'] if snap['upper'] is not None else snap['lower']
+        if snap['upper'] is None and snap['lower'] is None:
+            arrival_violations.append((snap['taken'], _arrival_violation(snap['taken'], snap['key'], None)))
+            continue
+        objects.append(snap)
+    objects.sort(key=lambda snap: (snap['taken'], snap['key']))
     if since is not None:
-        window_start = since
+        window_start = objects[0]['taken'] if objects else since
     elif from_first:
-        window_start = objects[0][0] if objects else now
+        window_start = objects[0]['taken'] if objects else now
     else:
         window_start = now - timedelta(days=days)
-    in_window = [item for item in objects if item[0] >= window_start]
+    in_window = [item for item in objects if item['taken'] >= window_start]
     cover = None
     for item in objects:
-        if item[1] <= window_start and (cover is None or item[0] > cover[0]):
+        if item['upper'] is not None and item['upper'] <= window_start and (
+                cover is None or item['taken'] > cover['taken']):
             cover = item
     measured = []
+    unresolved = []
     uncovered = False
     if not bounded:
         if cover is None:
-            uncovered = True
+            possible = [item for item in objects if item['taken'] <= window_start and (
+                item['lower'] is None or item['lower'] <= window_start)]
+            if possible:
+                unresolved.append({'kind': 'unresolved', 'from': None, 'to': _iso(window_start),
+                                   'gap_seconds': None, 'from_key': None, 'to_key': None})
+            else:
+                uncovered = True
         else:
-            measured.append(_gap('window_start', cover[0], window_start, cover[2], None))
-    newest = cover
-    later = sorted((item for item in objects if item[1] > window_start), key=lambda item: (item[1], item[0]))
-    for item in later:
-        if newest is not None and item[0] < newest[0]:
-            continue
-        if newest is None:
-            measured.append(_gap('successive', item[0], item[1], item[2], item[2]))
-            newest = item
-            continue
-        measured.append(_gap('successive', newest[0], item[1], newest[2], item[2]))
-        newest = item
-    if newest is not None:
-        measured.append(_gap('window_end', newest[0], now, newest[2], None))
-    elif not bounded:
-        uncovered = True
+            measured.append(_gap('window_start', cover['taken'], window_start, cover['key'], None))
+
+    def _land(origin, origin_key, snap):
+        if snap['upper'] is not None:
+            measured.append(_gap('successive', origin, snap['upper'], origin_key, snap['key']))
+            return
+        if snap['lower'] is not None and (snap['lower'] - origin).total_seconds() > bound:
+            measured.append(_gap('successive', origin, snap['lower'], origin_key, snap['key']))
+            return
+        unresolved.append({
+            'kind': 'unresolved', 'from': _iso(origin),
+            'to': None if snap['lower'] is None else _iso(snap['lower']),
+            'gap_seconds': None if snap['lower'] is None else _seconds(
+                (snap['lower'] - origin).total_seconds()),
+            'from_key': origin_key, 'to_key': snap['key'],
+        })
+
     violations = []
+    if not bounded and cover is not None:
+        pending = [item for item in objects if item['taken'] > cover['taken']]
+        previous = cover
+    else:
+        pending = list(objects) if bounded else [
+            item for item in objects if item['taken'] >= window_start]
+        previous = None
+    for item in pending:
+        origin = item['taken'] if previous is None else previous['taken']
+        origin_key = item['key'] if previous is None else previous['key']
+        _land(origin, origin_key, item)
+        previous = item
+    if previous is not None:
+        measured.append(_gap('window_end', previous['taken'], now, previous['key'], None))
+    elif not bounded and not unresolved:
+        uncovered = True
     if bounded and len(objects) < 2:
         only = objects[0] if objects else None
-        violations.append({'kind': 'count', 'from': None if only is None else _iso(only[0]),
+        violations.append({'kind': 'count', 'from': None if only is None else _iso(only['taken']),
                            'to': None, 'gap_seconds': None,
-                           'from_key': None if only is None else only[2], 'to_key': None})
+                           'from_key': None if only is None else only['key'], 'to_key': None})
     if uncovered:
         violations.append({'kind': 'window_start', 'from': None, 'to': _iso(window_start),
                            'gap_seconds': None, 'from_key': None, 'to_key': None})
     for gap in measured:
-        if gap['kind'] == 'window_start' and not uncovered and gap['_raw'] > bound:
-            violations.append(_public_gap(gap))
-        elif gap['kind'] != 'window_start' and gap['_raw'] > bound:
+        if gap['_raw'] > bound and not (gap['kind'] == 'window_start' and uncovered):
             violations.append(_public_gap(gap))
     for taken, violation in sorted(arrival_violations):
         if bounded or taken >= window_start:
             violations.append(violation)
+    if not violations:
+        violations.extend(unresolved)
     widest = None
     for gap in measured:
         if widest is None or gap['_raw'] > widest['_raw']:
             widest = gap
-    before = [item for item in objects if item[0] < window_start]
-    anchor = before[-1] if before and not bounded else None
+    result = 'fail' if any(item['kind'] != 'unresolved' for item in violations) else (
+        'unresolved' if violations else 'pass')
     report = {
-        'result': 'fail' if violations else 'pass',
+        'result': result,
         'app': app,
         'window_days': None if bounded else days,
         'from_first': from_first,
@@ -218,7 +262,8 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False,
         'count': len(in_window),
         'first': _ref(in_window[0]) if in_window else None,
         'last': _ref(in_window[-1]) if in_window else None,
-        'anchor': _ref(anchor) if anchor is not None else None,
+        'anchor': _ref(cover) if (
+            cover is not None and not bounded and cover['taken'] < window_start) else None,
         'max_gap_seconds': None if widest is None else widest['gap_seconds'],
         'max_gap': None if widest is None else _public_gap(widest),
         'violations': violations,
@@ -272,6 +317,9 @@ def render_summary(report):
             lines.append(f"missing arrival time: {item['from']}  {item['from_key']}")
         elif item['kind'] == 'count':
             lines.append('fewer than two validated snapshots')
+        elif item['kind'] == 'unresolved':
+            lines.append(
+                f"unproven finish: {item['from']} -> {item['to']}  {item['to_key']}")
     first = report['first']
     last = report['last']
     lines.append('first  none' if first is None else f"first  {first['snapshot_at']}  {first['key']}")

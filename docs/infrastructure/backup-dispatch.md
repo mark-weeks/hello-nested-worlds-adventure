@@ -166,28 +166,33 @@ command fail before it calls the store. The write key alone is not accepted.
 
 A day is 24 hours. The default window is 7 days, ending at the clock, which
 is the twin's seven-day run. The default bound is 60 minutes. Age is the
-snapshot-start in the object name. The upload time is `LastModified`, which
-S3-compatible stores set at about the start of the PUT. Each landing gap
-therefore undercounts by that upload's duration. The store step's duration
-in the run log bounds that undercount. Pass means all of these:
+snapshot-start in the object name. After a validated snapshot PUT returns,
+`backup_store.py put` writes a `.ready` marker beside it. That marker's
+`LastModified` is later than the moment the snapshot became readable, so a
+landing measured to the marker is an upper bound. `LastModified` on the
+snapshot itself is about when its PUT started. A listing can use that
+earlier time to prove a breach. It cannot use it to prove a pass. Pass
+means all of these, using the marker time:
 
-- a validated, nonempty snapshot for this app is already in the bucket at
-  the window's start, and its snapshot-start is within the bound of that
-  instant;
-- each later object lands within the bound of the previous snapshot-start
-  (the gap is the later object's upload time minus the earlier snapshot-start);
+- a validated, nonempty snapshot for this app was already readable at the
+  window's start, and its snapshot-start is within the bound of that
+  instant. The anchor named in the report is that snapshot;
+- each later marker falls within the bound of the previous snapshot-start;
 - the last snapshot-start is within the bound of the window's end.
 
-An object with no `LastModified`, or an upload time before its snapshot-start,
-does not count and the proof fails. An upload time after the window's end
-means the object was not yet available. It is left out, and the closing gap
-uses the newest object that had already landed. Quarantine names, empty
-objects, other apps, and stamps in the future do not count. An exact gap of
-60 minutes passes. One second over fails. Hourly snapshot-starts that finish
-uploading two minutes later fail: just before the next upload the previous
-snapshot-start is 62 minutes old. Retention is 30 days, and prune deletes
-older copies of this app, so a window longer than that cannot pass once
-those copies are gone. `--days` accepts 1 to 366.
+A snapshot with no marker, whose own `LastModified` is still inside the
+bound, is `unresolved`. That is not a pass. A snapshot `LastModified` before
+its snapshot-start fails the proof. A time after the window's end means that
+object was not yet available. It is left out, and the closing gap uses the
+newest object that had already landed. Quarantine names, empty objects,
+other apps, and stamps in the future do not count. An exact gap of 60
+minutes passes. One second over fails. Hourly snapshot-starts whose marker
+is two minutes later fail: just before the next marker the previous
+snapshot-start is 62 minutes old. Snapshots stored before this marker
+existed stay unresolved until the checked window is made of marked objects.
+Retention is 30 days, and prune deletes older copies of this app, including
+their markers, so a window longer than that cannot pass once those copies
+are gone. `--days` accepts 1 to 366.
 
 `--from-first` starts at the oldest validated object, requires at least two,
 and applies the same landing rule between them and at the window's end. A
@@ -195,15 +200,19 @@ manual snapshot that is more than an hour before the dispatcher's first
 object stays in that check, so the gate keeps failing. `--since` is the
 production check for that interval. It ignores every object whose
 snapshot-start is before the UTC instant you pass, then starts at the first
-snapshot-start at or after that instant and requires at least two. Pass only
-one of `--days`, `--from-first`, and `--since`. The twin's rehearsal stays
-the seven-day default.
+snapshot-start at or after that instant and requires at least two. The
+report's `window_start` is that first snapshot-start. `since` is the filter,
+not the start of the measured interval. Pass only one of `--days`,
+`--from-first`, and `--since`. The twin's rehearsal stays the seven-day
+default.
 
-JSON goes to stdout. The summary goes to stderr: pass or fail, the count of
-validated snapshots inside the window, the widest gap, every gap over the
-bound with both UTC timestamps, and the first and last object. Exit 0
-passes. Exit 1 fails the bound, including an empty listing. Exit 2 means the
-listing or the credentials could not be read.
+JSON goes to stdout. The summary goes to stderr: pass, fail, or unresolved,
+the count of validated snapshots inside the measured interval, the widest
+gap, every gap over the bound with both UTC timestamps, and the first and
+last object. The anchor is the snapshot that covered the opening, which is
+the same object the opening gap uses. Exit 0 passes. Exit 1 fails the bound
+or withholds certification, including an empty listing and an unresolved
+landing. Exit 2 means the listing or the credentials could not be read.
 
 ```bash
 python scripts/backup_freshness_proof.py --app enfolded-staging
