@@ -9,10 +9,12 @@ shared line is held when the classifier cannot be reached, a cap is spent or AI
 is off. The recommendation he adopted was worded "when the classifier is
 unreachable"; the spent-cap and AI-off cases are the record's wider wording,
 the agent's reading, which a merge adopts unless he corrects it (D-F and
-item 30 of that record). Today a locally clean line still publishes during a classifier outage,
-once a classify cap is spent and, on Ideas and published profiles, while AI is
-off; a player's spent moderation action cap and the moderation switch already
-hold it.
+item 30 of that record). The section 2 change is implemented by the C1 pull
+request of the 20 November batch plan, on hosted worlds only: a world deployed
+with `NESTED_WORLDS_REQUIRE_MODEL_POLICY=1` (production and the staging twin,
+both from `fly.toml`) or with a `NESTED_WORLDS_MODEL_POLICY` file. A local world
+and the automated tests set neither, so a locally clean line still publishes
+there with no classifier, as before.
 Private notes and
 unpublished profile text stay unscreened, report text is never sent to a model,
 and chat and registered names stay on their current screens (item 30).
@@ -199,8 +201,9 @@ cheapest first (`server/moderation.py`, `content_screen.py`):
   sequences (spaced/leet slurs or threats), and long digit runs (doxxing shape) mark
   the input *ambiguous* instead, so a heuristic can never censor a player
   ("sniggering", the river Niger). The earlier filter measured **12–38 µs per
-  call**; that measurement predates the expanded signals. Clean input still
-  makes **zero API calls**. The target rule allows only a short sequence of
+  call**; that measurement predates the expanded signals. Clean input
+  makes **zero API calls** wherever the local-first rule applies; on a hosted
+  world the every-line surfaces below are classified even when clean. The target rule allows only a short sequence of
   determiners/modifiers before a person reference, plus explicit passive,
   death and retribution shapes. It does not join arbitrary harm words and
   pronouns across a message: "Can you kill the dragon for me?" stays clean,
@@ -220,7 +223,13 @@ cheapest first (`server/moderation.py`, `content_screen.py`):
   Operators, backups, and redaction can see it. Browsers do not serve that
   seed while a canonical seed is set.
 - **Configured classifier** — ambiguous inputs may make one short
-  classification call. Moderation is a task any configured provider may
+  classification call. **Every-line surfaces (2026-11-18, item 30):** on a
+  hosted world, every shared line on Speak, agent voice, Ideas and a
+  published profile makes that call, locally clean or not, and only a clear
+  ALLOW publishes it. A line the route neither stores nor shows to anyone
+  else (an identity answer given while no voice can answer) keeps the
+  local-first rule. Chat, puzzle free text, CLI speech and registered names
+  keep the local-first rule too. Moderation is a task any configured provider may
   perform ([ADR-034](ADR-034-provider-and-model-optionality.md)). No
   provider, model, or vendor is the policy. The call is charged to
   moderation's own budget line (`NESTED_WORLDS_MODERATION_DAILY_CALLS`,
@@ -256,6 +265,11 @@ shared world or chronicle — each of these fails closed:
 - a provider outage
 - disabled moderation
 - an exhausted moderation budget
+- a spent per-player classify cap, model-action cap or dollar ceiling
+  (2026-11-18, item 30)
+- on the every-line surfaces of a hosted world, the AI kill switch
+  (`NESTED_WORLDS_DISABLE_AI=1`), which then also stops Ideas and published
+  profiles (2026-11-18, item 30). A spent voice cap holds nothing.
 
 The text is held or declined. It is not written where others can see it: no
 chronicle row, no broadcast, no visible idea, and no published profile. On
@@ -311,6 +325,8 @@ chosen to be measured, not tuned:
   `NESTED_WORLDS_MODERATION_DAILY_CALLS` bucket (`moderation`, default 2000).
 - `NESTED_WORLDS_MODEL_ACTIONS_PER_USER` (default 200) caps model-calling
   actions (voice, inhabitant voice, intention, and a moderation classify).
+  On a hosted world a recorded Speak or agent-voice exchange spends two: the
+  classify and the voice reply.
   `runtime.generate` charges it, once per completion. The screen reserves
   that same charge before the moderation budget and passes it through, so
   a classify is not charged twice. It does not rename or touch the
@@ -326,9 +342,12 @@ This amendment adds no chronicle mechanism.
 
 The running screen implements this rule. Shared text is held when
 moderation is disabled, when the moderation reserve is not `ok`, when
-classification raises, and when the verdict is undecided. A local clean
-verdict is a completed judgment and still publishes during a provider
-outage; a local block still declines without a model call. Registered
+classification raises, and when the verdict is undecided. Where the
+local-first rule applies, a local clean verdict is a completed judgment and
+still publishes during a provider outage. On a hosted world a clean shared
+line on the every-line surfaces is held instead, and it is held without a
+classify call while the AI kill switch is on. A local block still declines
+without a model call. Registered
 names are refused when moderation is disabled, with a choose-another
 line, except local multi-world `play --name` and `invite mint
 --unscreened`. Ideas use the same screen. `moderation_call` logs

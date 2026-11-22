@@ -1871,8 +1871,10 @@ not this restore.
 - [ ] Watch the voice, not only `/health` or the `/guide` ping. Plain
       `voice-health` reads configuration, the controlled stop and the recorded
       voice/shared-text outcomes without a provider call. Provider, screen,
-      busy and accounting failures need operator attention; locally clean text
-      is not a classifier call, and content declines are policy, not outages.
+      busy and accounting failures need operator attention. Locally clean chat
+      and puzzle text is not a classifier call; on this hosted app every
+      shared Speak, agent-voice, Ideas and published-profile line is one.
+      Content declines are policy, not outages.
       A per-day counted failure remains visible for its UTC day (or its
       `--days` window), and a persistent controlled stop survives that window.
       The existing once-per-UTC-day notification rule for counted failures

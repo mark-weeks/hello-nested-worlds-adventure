@@ -38,7 +38,8 @@ from the world's own memory:
     chronicle), so "didn't talk" and "talked to silence" stay separable
   * whether shared text could be screened: screens by surface and
     outcome (the daily moderation-outcome counters; a locally clean line
-    is not counted)
+    is counted only where it was classified: on a hosted world, Speak,
+    agent voice, Ideas and published profiles)
   * optionally, a per-participant timeline: seconds from first join to
     first move (not a connect-time announcement), first Act commit, first
     puzzle attempt and first solve, under ordinal pseudonyms (P1, P2, ...)
@@ -780,7 +781,7 @@ def render(m: dict) -> str:
                 f"  {surface:<12} {counts.get('ok', 0):>5} / {sum(quiet.values()):<5}"
                 + (f"  ({detail})" if detail else ""))
     if m.get("moderation_outcomes"):
-        lines += ["", "shared-text screens (by UTC day; screened / not allowed; locally clean lines not counted):"]
+        lines += ["", "shared-text screens (by UTC day; screened / not allowed; locally clean lines counted only where classified):"]
         for surface, counts in sorted(m["moderation_outcomes"].items()):
             held = {o: n for o, n in counts.items() if o != "allow" and n}
             detail = ", ".join(f"{o} {n}" for o, n in sorted(held.items()))

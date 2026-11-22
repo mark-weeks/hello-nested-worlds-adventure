@@ -544,7 +544,7 @@ class TestBetaMetrics:
         assert metrics["voice_outcomes"] == {"speak": {"ok": 1}}
         rendered = beta_metrics.render(metrics)
         assert ("shared-text screens (by UTC day; screened / not allowed; "
-                "locally clean lines not counted):") in rendered
+                "locally clean lines counted only where classified):") in rendered
         assert "  chat             2 / 1      (busy 1)" in rendered
         assert "  ideas            1 / 1      (block 1)" in rendered
 
