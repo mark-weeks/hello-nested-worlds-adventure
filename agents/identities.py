@@ -20,6 +20,8 @@ through ``canonical``, and every other path names its agent itself.
 """
 from __future__ import annotations
 
+import sqlite3
+
 from typing import Any
 
 from consciousness import WANDERER_CAST
@@ -97,6 +99,12 @@ def voiced(raw: Any) -> str | None:
     """`canonical`, except that a cast member whose name a registered
     player holds is not an agent this world can voice."""
     name = canonical(raw)
-    if name is not None and name in cast_held_by_players():
+    if name is None:
         return None
-    return name
+    try:
+        held = cast_held_by_players()
+    except sqlite3.Error:
+        # A failed collision read must not turn a quiet-line path into a
+        # 5xx (failure stays in fiction): answer as the roster alone says.
+        return name
+    return None if name in held else name

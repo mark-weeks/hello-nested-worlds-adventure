@@ -686,3 +686,19 @@ def test_a_tick_with_no_one_free_to_walk_is_idle_not_an_error(monkeypatch):
     summary = heartbeat.run_tick(seed=4614, rng=random.Random(1), max_nodes=2, pace=0.0)
     assert summary["status"] == "no_cast"
     assert persistence.get_mutations(4614) == []
+
+
+def test_a_failed_collision_read_still_names_a_cast_member(monkeypatch):
+    """`voiced` falls back to the roster when the registered-names read fails,
+    so `/agent/voice` keeps answering in fiction, never with a 5xx."""
+    import sqlite3
+
+    import persistence
+    from agents import identities
+
+    def broken(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(persistence, "list_invite_keys", broken)
+    assert identities.voiced("Tessera") == "Tessera"
+    assert identities.voiced("nobody the world knows") is None
