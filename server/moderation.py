@@ -211,6 +211,11 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared",
     route will neither store nor show to anyone, such as an identity answer
     given while no voice can answer; it keeps the local-first rule.
 
+    Two accepted costs on a hosted world: a Speak line is classified even
+    when the voice cap is spent and the place will answer with its quiet
+    line, and the spend ceiling is checked inside the dispatch, so a line
+    it holds has already spent one moderation action and one model action.
+
     Text is allowed only for a local clean verdict where the local-first
     rule applies, or for a clear ALLOW. Every other result holds or declines
     it.

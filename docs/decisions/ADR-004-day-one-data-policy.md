@@ -228,8 +228,12 @@ cheapest first (`server/moderation.py`, `content_screen.py`):
   published profile makes that call, locally clean or not, and only a clear
   ALLOW publishes it. A line the route neither stores nor shows to anyone
   else (an identity answer given while no voice can answer) keeps the
-  local-first rule. Chat, puzzle free text, CLI speech and registered names
-  keep the local-first rule too. Moderation is a task any configured provider may
+  local-first rule, and so does a sincere identity question the classifier
+  holds (rather than declines): it gets its authored answer and is not
+  recorded. Chat, puzzle free text, CLI speech (`main.py speak`, an
+  operator path) and registered names keep the local-first rule too. With
+  the AI kill switch on, a hosted shared line is held with outcome
+  `disabled`, the same outcome the moderation kill switch logs. Moderation is a task any configured provider may
   perform ([ADR-034](ADR-034-provider-and-model-optionality.md)). No
   provider, model, or vendor is the policy. The call is charged to
   moderation's own budget line (`NESTED_WORLDS_MODERATION_DAILY_CALLS`,

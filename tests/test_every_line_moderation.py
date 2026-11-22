@@ -376,7 +376,70 @@ def test_required_policy_marker_alone_counts_as_hosted_and_holds(monkeypatch, ac
                         lambda *a, **k: calls.append(1) or "allow")
     assert moderation.every_line_required()
     verdict = moderation.screen(_CLEAN, user_key=accounts[0], surface="speak")
-    assert not verdict.allowed and verdict.outcome != "block"
+    # No policy file under a required marker is an invalid policy: a control stop.
+    assert not verdict.allowed and verdict.outcome == "control_stop"
     assert calls == []
     # The local-first surfaces are unaffected by the marker.
     assert moderation.screen(_CLEAN, user_key=accounts[0], surface="chat").tier == "clean"
+
+
+# ── 9. A sincere identity question always gets its authored answer ──────────
+
+_ASK = "Are you human?"
+
+
+def _identity_rows(state):
+    return _rows(state, "PLAYER_SPEAK") + _rows(state, "AGENT_VOICE")
+
+
+def test_hosted_allowed_identity_question_is_answered_and_recorded(hosted):
+    status, data = _speak(hosted, _ASK)
+    assert status == 200 and data["ai"] is False, data
+    assert data["response"] == honesty.place_answer(hosted.root.level)
+    status, data = _agent(hosted, _ASK)
+    assert status == 200 and data["ai"] is False, data
+    assert data["response"] == honesty.agent_answer(data["persona"])
+    # Classified once each, answered without a voice call, and kept (O16(c)).
+    assert len(hosted.classify) == 2 and hosted.voice == []
+    assert len(_rows(hosted, "PLAYER_SPEAK")) == 1
+    assert len(_rows(hosted, "AGENT_VOICE")) == 1
+
+
+@pytest.mark.parametrize("verdict", ["UNDECIDED", "unreachable"])
+def test_hosted_held_identity_question_is_answered_but_not_recorded(hosted, verdict):
+    hosted.verdict = verdict
+    status, data = _speak(hosted, _ASK)
+    assert status == 200 and data.get("held") is not True, data
+    assert data == {"response": honesty.place_answer(hosted.root.level), "ai": False}
+    status, data = _agent(hosted, _ASK)
+    assert status == 200 and data.get("held") is not True, data
+    assert data["ai"] is False and data["response"] == honesty.agent_answer(data["persona"])
+    # One classify attempt each; the fallback is local-first and stores nothing.
+    assert len(hosted.classify) == 2 and hosted.voice == []
+    assert _identity_rows(hosted) == []
+
+
+def test_hosted_shared_classify_budget_spent_still_answers_identity(hosted, monkeypatch):
+    monkeypatch.setenv(guard.MODERATION_CAP_ENV, "0")
+    status, data = _speak(hosted, _ASK)
+    assert status == 200 and data == {
+        "response": honesty.place_answer(hosted.root.level), "ai": False}
+    assert hosted.requests == [] and _identity_rows(hosted) == []
+
+
+def test_hosted_blocked_identity_question_stays_declined(hosted):
+    hosted.verdict = "BLOCK"
+    for route in (_speak, _agent):
+        status, data = route(hosted, _ASK)
+        assert status == 200 and data.get("declined") is True, data
+        assert data["response"] == moderation.DECLINE_LINE
+    assert len(hosted.classify) == 2
+    assert _identity_rows(hosted) == []
+
+
+def test_hosted_moderation_disabled_holds_identity_too(hosted, monkeypatch):
+    """The moderation kill switch holds every shared and unshared line alike."""
+    monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
+    status, data = _speak(hosted, _ASK)
+    assert status == 200 and data.get("held") is True, data
+    assert hosted.requests == [] and _identity_rows(hosted) == []

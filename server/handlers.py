@@ -220,6 +220,28 @@ _SCREEN_HOLD_REASONS = {
 }
 
 
+def _screen_voice_line(message: str, user_key: str | None, surface: str,
+                       recorded: bool, honest: bool) -> tuple[Any, bool]:
+    """Screen a /speak or /agent/voice line; return ``(verdict, recorded)``.
+
+    A sincere identity question is owed its authored answer whatever the
+    classifier does (AGENTS.md "No voice pretends to be human"). When the
+    hosted every-line screen holds such a line — classifier unreachable or
+    undecided, a cap or the spend ceiling — it is screened again under the
+    local-first rule and, if that passes, answered without being recorded,
+    so nothing unclassified is kept or shown to anyone else. A decline
+    stays a decline.
+    """
+    verdict = moderation.screen(message, user_key=user_key, surface=surface,
+                                shared=recorded)
+    if (not verdict.allowed and honest and recorded
+            and verdict.outcome != "block"):
+        verdict = moderation.screen(message, user_key=user_key,
+                                    surface=surface, shared=False)
+        recorded = False
+    return verdict, recorded
+
+
 def _record_screen_hold(surface: str, verdict: Any) -> None:
     reason = _SCREEN_HOLD_REASONS.get(verdict.outcome)
     if reason:
@@ -1298,9 +1320,8 @@ class Handler(BaseHTTPRequestHandler):
             # screen keeps the local-first rule for it (item 30 covers
             # shared lines).
             recorded = not ai_off and runtime.configured(runtime.NODE_TASK)
-            verdict = moderation.screen(
-                message, user_key=user_key or None, surface="speak",
-                shared=recorded)
+            verdict, recorded = _screen_voice_line(
+                message, user_key or None, "speak", recorded, honest)
             if not verdict.allowed:
                 _record_screen_hold("speak", verdict)
                 return self._send_json(moderation.http_body(verdict))
@@ -1612,9 +1633,8 @@ class Handler(BaseHTTPRequestHandler):
         # have answered, so not with the kill switch on or no provider
         # configured for this route; an unrecorded line is not shared.
         recorded = not ai_off and runtime.configured(runtime.INHABITANT_TASK)
-        verdict = moderation.screen(
-            message, user_key=user_key or None, surface="agent",
-            shared=recorded)
+        verdict, recorded = _screen_voice_line(
+            message, user_key or None, "agent", recorded, honest)
         if not verdict.allowed:
             _record_screen_hold("agent_voice", verdict)
             return self._send_json(moderation.http_body(
