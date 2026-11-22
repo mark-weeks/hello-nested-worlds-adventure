@@ -412,7 +412,7 @@ def test_the_heartbeat_step_is_gated_on_a_validated_store():
     assert text.count("cron: '17,47 * * * *'") == 1
 
 
-def _ping(tmp_path, script, url, code='200'):
+def _ping(tmp_path, script, url, code='200', status='0'):
     log = tmp_path / 'curl.jsonl'
     bindir = tmp_path / 'bin'
     bindir.mkdir()
@@ -423,14 +423,17 @@ with open(os.environ['CURL_LOG'], 'a') as fh:
     fh.write(json.dumps(sys.argv) + '\n')
 sys.stderr.write('stderr-leaked ' + sys.argv[-1] + '\n')
 code = os.environ.get('CURL_FAKE_CODE', '200')
+status = int(os.environ.get('CURL_FAKE_STATUS', '0'))
 if code == 'missing':
     raise SystemExit(127)
 print(code)
+raise SystemExit(status)
 ''')
     fake.chmod(0o755)
     summary = tmp_path / 'summary'
     env = {'PATH': str(bindir) + os.pathsep + '/usr/bin:/bin', 'CURL_LOG': str(log),
-           'CURL_FAKE_CODE': code, 'GITHUB_STEP_SUMMARY': str(summary)}
+           'CURL_FAKE_CODE': code, 'CURL_FAKE_STATUS': status,
+           'GITHUB_STEP_SUMMARY': str(summary)}
     if url is not None:
         env['ENFOLDED_BACKUP_HEARTBEAT_URL'] = url
     result = subprocess.run(['bash', '--noprofile', '--norc', '-c', script],
@@ -469,14 +472,29 @@ def test_a_successful_ping_posts_once_and_hides_the_url(tmp_path, code):
     assert HEARTBEAT_URL not in visible
 
 
-@pytest.mark.parametrize('code', ['302', '404', '500', '000', 'missing'])
-def test_a_failed_ping_fails_the_step_without_printing_the_url(tmp_path, code):
+@pytest.mark.parametrize('code,status,detail', [
+    ('302', '0', 'HTTP 302'),
+    ('404', '0', 'HTTP 404'),
+    ('500', '0', 'HTTP 500'),
+    ('000', '0', 'HTTP 000'),
+    ('missing', '0', 'HTTP 000, curl'),
+    ('000', '6', 'HTTP 000, dns'),
+    ('000', '7', 'HTTP 000, connect'),
+    ('000', '28', 'HTTP 000, timeout'),
+    ('000', '35', 'HTTP 000, tls'),
+    ('000', '47', 'HTTP 000, redirect'),
+    (HEARTBEAT_URL, '0', 'HTTP 000'),
+])
+def test_a_failed_ping_names_the_status_and_hides_the_url(tmp_path, code, status, detail):
     _identity, _condition, script, _step = _heartbeat_script()
-    result, recorded, summary = _ping(tmp_path, script, HEARTBEAT_URL, code)
+    result, recorded, summary = _ping(tmp_path, script, HEARTBEAT_URL, code, status)
     assert result.returncode == 1
-    assert 'Backup heartbeat ping failed.' in result.stderr
+    assert f'Backup heartbeat ping failed ({detail}).' in result.stderr
     assert 'Pinged the backup heartbeat.' not in summary
-    assert TOKEN not in result.stdout + result.stderr + summary
+    visible = result.stdout + result.stderr + summary
+    assert TOKEN not in visible
+    assert 'stderr-leaked' not in visible
+    assert HEARTBEAT_URL not in visible
     assert recorded
 
 

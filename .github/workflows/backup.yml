@@ -198,8 +198,9 @@ jobs:
 
       # After a validated upload only. Quarantine does not ping. An empty URL
       # sends nothing and exits 0. The URL is not written to the log. A failed
-      # ping fails this step; prune still runs because its condition is the
-      # store step, which has already succeeded.
+      # ping names the HTTP status and, when curl itself failed, a fixed cause
+      # word. It does not write curl's message. Prune still runs because its
+      # condition is the store step, which has already succeeded.
       - name: Ping the backup heartbeat
         if: steps.validate.outcome == 'success' && steps.store.outcome == 'success'
         env:
@@ -222,19 +223,40 @@ jobs:
           case "$url" in
             *[[:space:]]*) echo "::error::Backup heartbeat URL must be an https URL." >&2; exit 1 ;;
           esac
-          err="$(mktemp)"
-          code="$(curl -q --silent --show-error --output /dev/null --write-out '%{http_code}' \
+          status=0
+          code="$(curl -q --silent --output /dev/null --write-out '%{http_code}' \
             --max-time 20 --retry 3 --retry-all-errors --max-redirs 0 \
             --proto '=https' --proto-redir '=https' \
-            -X POST --data-binary '' -- "$url" 2>"$err" || true)"
-          rm -f "$err"
+            -X POST --data-binary '' -- "$url" 2>/dev/null)" || status=$?
+          # A three-digit status only. Anything else is "no response", so a
+          # write-out that carried the URL cannot reach the log.
+          case "$code" in
+            [0-9][0-9][0-9]) ;;
+            *) code=000 ;;
+          esac
           case "$code" in
             2[0-9][0-9])
               if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
                 echo "Pinged the backup heartbeat." >> "$GITHUB_STEP_SUMMARY"
               fi
               ;;
-            *) echo "::error::Backup heartbeat ping failed." >&2; exit 1 ;;
+            *)
+              cause=curl
+              case "$status" in
+                0) cause=response ;;
+                6) cause=dns ;;
+                7) cause=connect ;;
+                28) cause=timeout ;;
+                35|51|58|60|77) cause=tls ;;
+                47) cause=redirect ;;
+              esac
+              if [ "$status" -eq 0 ]; then
+                echo "::error::Backup heartbeat ping failed (HTTP ${code})." >&2
+              else
+                echo "::error::Backup heartbeat ping failed (HTTP ${code}, ${cause})." >&2
+              fi
+              exit 1
+              ;;
           esac
 
       - name: Prune private-bucket objects past retention

@@ -132,10 +132,14 @@ environment secret is missing
 
 When the value is set it must be an `https://` URL with no spaces. The step
 sends one HTTP POST with an empty body and does not follow redirects. A
-response in 200–299 is success. Anything else fails the step. The URL is not
-written to the job log or the step summary. `curl -q` ignores a curl config
-file. The runner's process list can still see the URL while the request
-runs, so treat the URL as a secret.
+response in 200–299 is success. Anything else fails the step. The error line
+names the HTTP status. `000` means there was no response. When curl itself
+exits non-zero, the same line adds one fixed word: `dns`, `connect`,
+`timeout`, `tls`, `redirect`, or `curl`. Curl's own message is discarded,
+because it can name the host. A write-out that is not three digits is logged
+as `000`. The URL is not written to the job log or the step summary.
+`curl -q` ignores a curl config file. The runner's process list can still
+see the URL while the request runs, so treat the URL as a secret.
 
 Set the secret only after the monitor's URL answers 2xx to that empty POST.
 A failed ping fails the job after the object is already stored. Prune still
