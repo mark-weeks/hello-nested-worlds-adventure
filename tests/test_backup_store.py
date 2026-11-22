@@ -87,6 +87,9 @@ if os.environ.get('AWS_FAKE_LEAK'):
     sys.stderr.write(
         host.upper() + ' ' + account + ' offhost%2Fworlds-backup-enfolded-beta-secret.db boom ' + secret)
     sys.exit(1)
+if os.environ.get('AWS_FAKE_FAIL_READY') and '--key' in argv and argv[argv.index('--key') + 1].endswith('.ready'):
+    sys.stderr.write('marker write failed')
+    sys.exit(1)
 if os.environ.get('AWS_FAKE_FAIL'):
     endpoint = argv[argv.index('--endpoint-url') + 1]
     bucket = argv[argv.index('--bucket') + 1]
@@ -186,6 +189,20 @@ def test_put_uploads_the_named_object_with_write_credentials_not_on_the_command_
     assert recorded[1]['access_key_id'] == 'write-key'
     assert WRITE_SECRET not in result.stdout + result.stderr
     assert LIST_SECRET not in json.dumps(recorded)
+
+
+def test_a_failed_finish_marker_still_reports_the_stored_snapshot(tmp_path):
+    body = tmp_path / 'offhost.db'
+    body.write_bytes(b'not-empty')
+    result, recorded = run_store(tmp_path, [
+        'put', '--app', APP, '--stamp', '20261003T113000Z', '--body', str(body)], [{'Contents': []}],
+        AWS_FAKE_FAIL_READY='1')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == object_key(APP, '20261003T113000Z')
+    assert result.stderr.strip() == 'snapshot stored; finish marker not written'
+    assert WRITE_SECRET not in result.stderr
+    assert 'example.r2' not in result.stderr
+    assert len(recorded) == 2
 
 
 def test_quarantine_upload_uses_the_unvalidated_key_and_an_empty_snapshot_is_refused(tmp_path):
@@ -484,6 +501,33 @@ def test_keep_newest_skips_an_empty_or_invalid_size():
             {'Key': empty, 'Size': size} if size is not None else {'Key': empty},
         ]}]
         assert expired_keys(pages, app=APP, retention_days=30, now=NOW) == [empty]
+
+
+def test_delete_before_after_includes_finish_markers_in_the_window(tmp_path):
+    early = '20261120T080000Z'
+    later = '20261120T100000Z'
+    newest = '20261120T120000Z'
+    pages = [{'Contents': [
+        {'Key': object_key(APP, early), 'Size': 8},
+        {'Key': ready_key(APP, early), 'Size': 1},
+        {'Key': object_key(APP, later), 'Size': 8},
+        {'Key': ready_key(APP, later), 'Size': 1},
+        {'Key': object_key(APP, newest), 'Size': 8},
+        {'Key': ready_key(APP, newest), 'Size': 1},
+    ]}]
+    listed, _recorded = run_store(tmp_path, [
+        'delete-before', '--app', APP, '--before', newest, '--dry-run'], pages)
+    assert listed.returncode == 0, listed.stderr
+    assert listed.stdout.split() == [
+        object_key(APP, early), ready_key(APP, early),
+        object_key(APP, later), ready_key(APP, later),
+    ]
+    window, _recorded = run_store(tmp_path, [
+        'delete-before', '--app', APP, '--after', '20261120T090000Z',
+        '--before', newest, '--dry-run'], pages)
+    assert window.returncode == 0, window.stderr
+    assert 'Traceback' not in window.stderr
+    assert window.stdout.split() == [object_key(APP, later), ready_key(APP, later)]
 
 
 def test_delete_before_refuses_a_future_cutoff_and_keeps_the_newest(tmp_path):

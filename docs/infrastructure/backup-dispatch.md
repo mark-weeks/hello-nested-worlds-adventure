@@ -147,7 +147,11 @@ A failed ping fails the job after the object is already stored. Prune still
 runs: its condition is the store step, which has already succeeded. The step
 summary line "Stored a validated snapshot." is written only after `put`
 returns success. That line is the sign that the object is in the bucket and
-the red step is the monitor. A failed upload writes no such line.
+the red step is the monitor. A failed upload writes no such line. If the
+snapshot PUT succeeded and the finish-marker PUT did not, `put` still
+returns the snapshot key and writes `snapshot stored; finish marker not
+written` to stderr. The summary line is still written. The snapshot is in
+the bucket, and the proof does not certify it until a marker exists.
 
 `<OWNER: heartbeat URL>` is the whole request target, token included, stored
 as `ENFOLDED_BACKUP_HEARTBEAT_URL`. The workflow does not append a query or

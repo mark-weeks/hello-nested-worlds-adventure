@@ -172,6 +172,12 @@ def owned_backup_key(key, app):
     return classify(key, app) is not None or classify_ready(key, app) is not None
 
 
+def owned_backup_time(key, app):
+    """Snapshot-start of a backup object or its finish marker."""
+    classified = classify(key, app)
+    return classified[1] if classified is not None else classify_ready(key, app)
+
+
 def page_contents(page):
     if not isinstance(page, dict):
         raise ValueError('Invalid S3 listing page.')
@@ -224,12 +230,10 @@ def assess_objects(pages, *, app, max_age_minutes=60, now=None):
 
 
 def keys_older_than(pages, *, app, cutoff):
-    """Validated and quarantine keys whose snapshot-start is at or before cutoff."""
+    """Backup keys, including finish markers, at or before cutoff."""
     chosen = []
     for item in iter_objects(pages):
-        classified = classify(item.get('Key'), app)
-        ready_at = classify_ready(item.get('Key'), app)
-        taken = classified[1] if classified is not None else ready_at
+        taken = owned_backup_time(item.get('Key'), app)
         if taken is None or taken > cutoff:
             continue
         chosen.append((taken, item['Key']))
@@ -487,7 +491,10 @@ def put_object(app, stamp, body, *, quarantine=False, env=None):
     run_aws(['s3api', 'put-object', '--bucket', bucket, '--key', key,
              '--body', str(path), '--output', 'json'], env=source, purpose='write')
     if not quarantine:
-        _put_ready_marker(app, stamp, source)
+        try:
+            _put_ready_marker(app, stamp, source)
+        except (StoreError, OSError):
+            print('snapshot stored; finish marker not written', file=sys.stderr)
     return key
 
 
@@ -577,7 +584,7 @@ def delete_before(app, stamp, *, env=None, now=None, dry_run=False, after=None):
     pages = list_object_pages(source, app=app)
     keys = keys_older_than(pages, app=app, cutoff=cutoff)
     if after_time is not None:
-        keys = [key for key in keys if classify(key, app)[1] >= after_time]
+        keys = [key for key in keys if owned_backup_time(key, app) >= after_time]
     keep = newest_validated_key(pages, app=app, now=now)
     if keep is not None:
         kept = {keep, ready_key(app, _stamp_text(classify(keep, app)[1]))}
