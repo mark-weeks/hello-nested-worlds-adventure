@@ -18,8 +18,10 @@ Status: checklist entry requirement 4 evidence: safe holds for unjudged shared t
   hosted exchange now spends two model actions. Incident response, the
   deployment guide and the README rows for `DISABLE_AI` and
   `MODERATION_MODEL` now say so.
-  **Verified:** `tests/test_every_line_moderation.py` 29 passed; the full
-  `./scripts/check.sh` gate (see the pull request for counts).
+  **Verified:** `tests/test_every_line_moderation.py` 29 passed;
+  `./scripts/check.sh` exit 0 at the fragment's parent commit: Ruff clean,
+  4,371 Python passed and 1 skipped, Vitest 258 of 258 in 21 files, frontend
+  build and bundle freshness, installed-wheel smoke; browser E2E not run.
   **Irreversibility check:** no one-way door — no migration, no stored-row
   rewrite, no birth or pin change; the rule is read from environment markers at
   request time and reverts with the code. It changes moderation, so it waits for
