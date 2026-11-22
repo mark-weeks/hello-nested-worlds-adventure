@@ -777,7 +777,7 @@ function Intro({ onBegin }) {
         </div>
         <ul style={s.introList}>
           <li style={s.introItem}><b style={s.introVerb}>Explore</b> — step through the passages; every place contains worlds.</li>
-          <li style={s.introItem}><b style={s.introVerb}>Speak</b> — talk to any place. It answers in character, and it remembers.</li>
+          <li style={s.introItem}><b style={s.introVerb}>Speak</b> — talk to a place or an inhabitant. AI can write the reply.</li>
           <li style={s.introItem}><b style={s.introVerb}>Act</b> — change what matters to you. Each scale offers different possibilities; combine actions and follow their consequences.</li>
           <li style={s.introItem}><b style={s.introVerb}>Solve</b> — crack a node's puzzle; the ripple settles places far above and below.</li>
         </ul>

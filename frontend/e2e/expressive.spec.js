@@ -257,7 +257,7 @@ for(const route of ['/app','/map']) {
         const scene=page.getByRole('region',{name:'Living scene'});
         await expect(scene.getByRole('heading')).toHaveCount(0);
         await expect(page.getByText(phrase(names.instrument),{exact:true})).toHaveCount(1);
-        await expect(scene.locator('canvas')).toHaveAttribute('aria-describedby','node-description');
+        await expect(scene.getByRole('img')).toHaveAccessibleDescription(/surface is/);
         await page.getByText('Conditions here',{exact:true}).click();
         await expect(page.getByText('aspect',{exact:true})).toHaveCount(0);
       }

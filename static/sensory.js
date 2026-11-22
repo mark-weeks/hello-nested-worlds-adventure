@@ -4,18 +4,17 @@ import './interface.js';
 // Motion runs on a frame counter, never the wall clock: the same served node
 // draws the same frame N everywhere, so screenshots follow the served state.
 const FRAMES_PER_SECOND = 60;
-export function startSensory(canvas, node, {transients = () => [], imageUrl} = {}) {
+export function startSensory(canvas, node, {transients = () => [], imageUrl, onArtSource} = {}) {
   const ctx = canvas.getContext('2d');
-  if (!ctx) return () => {};
+  if (!ctx) {
+    onArtSource?.('');
+    return () => {};
+  }
   const tokens=globalThis.EnfoldedInterface.resolve(node);
   const s = {...node.senses, atmosphere:globalThis.EnfoldedInterface.atmosphere(node), light:tokens['--world-light'], shadow:tokens['--world-shadow']}, motion = matchMedia('(prefers-reduced-motion: reduce)');
   let stopped = false, raf, image, loaded = false, frame = 0;
   const seen = new WeakMap();  // transient -> the frame it first appeared on
   const url = imageUrl || s.plate;
-  if (url) {
-    image = new Image(); image.onload = () => { loaded = true; if (!stopped) draw(); };
-    image.src = url;
-  }
   function resize() {
     const box = canvas.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 1.5);
     canvas.width = Math.max(1, Math.round(box.width * dpr));
@@ -104,6 +103,20 @@ export function startSensory(canvas, node, {transients = () => [], imageUrl} = {
   function motionChanged() { cancelAnimationFrame(raf); draw(); if (!motion.matches) raf = requestAnimationFrame(loop); }
   motion.addEventListener('change', motionChanged);
   const observer = new ResizeObserver(resize); observer.observe(canvas);
-  resize(); if (!motion.matches) raf = requestAnimationFrame(loop);
+  resize();
+  onArtSource?.('Scene drawn from this place’s conditions.');
+  if (url) {
+    image = new Image();
+    image.onload = () => {
+      if (stopped) return;
+      loaded = true;
+      draw();
+      // A cached or newly generated URL can still fail to load. Credit the
+      // background only after the canvas has drawn it.
+      onArtSource?.(imageUrl ? 'AI-generated background for this place.' : 'AI-generated background, included with the game.');
+    };
+    image.src = url;
+  }
+  if (!motion.matches) raf = requestAnimationFrame(loop);
   return () => { stopped = true; cancelAnimationFrame(raf); observer.disconnect(); motion.removeEventListener('change', motionChanged); if (image) image.onload = null; };
 }

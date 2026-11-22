@@ -39,7 +39,7 @@ export default function Interact({ node, seed, depth, playerName, onSolved, onNo
         )}
       </div>
       {tab === "speak" &&
-        <Speak key={`sp-${nodeKey}`} node={node} seed={seed} playerName={playerName} />}
+        <Speak key={`sp-${seed}-${nodeKey}`} node={node} seed={seed} playerName={playerName} />}
       {tab === "puzzle" &&
         <Puzzle key={`pz-${nodeKey}`} node={node} seed={seed} depth={depth} playerName={playerName} onSolved={onSolved} />}
       {tab === "act" && verb &&
@@ -52,16 +52,14 @@ export default function Interact({ node, seed, depth, playerName, onSolved, onNo
 
 function Speak({ node, seed, playerName }) {
   const [message, setMessage] = useState("Describe yourself to a traveler who has just arrived.");
-  const [response, setResponse] = useState("");
-  const [state, setState] = useState("idle"); // idle | loading | ok | error
+  const [response, setResponse] = useState(null);
+  const loading = response?.kind === "loading";
   // Who can be addressed here: the place itself, plus any agents whose
   // traces are in this node's history — the presences you found evidence of.
   const [target, setTarget] = useState("node");
   const [presences, setPresences] = useState([]);
 
   useEffect(() => {
-    setTarget("node");
-    setPresences([]);
     fetch(withKey(`/history?seed=${seed ?? 0}&node_name=${encodeURIComponent(node.name)}`))
       .then(r => r.json())
       .then(d => {
@@ -75,11 +73,17 @@ function Speak({ node, seed, playerName }) {
       .catch(() => {});
   }, [node?.name, seed]);
 
+  function chooseTarget(nextTarget) {
+    if (nextTarget === target) return;
+    setTarget(nextTarget);
+    setResponse(null);
+  }
+
   const send = useCallback(async () => {
     const text = message.trim();
-    if (!text || state === "loading") return;
-    setState("loading");
-    setResponse("…");
+    if (!text || loading) return;
+    const waiting = { kind: "loading", line: "…" };
+    setResponse(waiting);
     const addressingAgent = target !== "node";
     // Never rejects: a failed request resolves to an authored line.
     const heard = await hearSpeech(url => fetch(url, {
@@ -98,9 +102,9 @@ function Speak({ node, seed, playerName }) {
         player_name: playerName || undefined,
       }),
     }), withKey(addressingAgent ? "/agent/voice" : "/speak"), !!betaKey());
-    setResponse(heard.line || "(no response)");
-    setState(heard.kind === "reply" ? "ok" : "error");
-  }, [message, node, seed, playerName, state, target]);
+    // A target change ends the exchange, even if the player later switches back.
+    setResponse(current => current === waiting ? heard : current);
+  }, [message, node, seed, playerName, loading, target]);
 
   return (
     <div style={s.panel}>
@@ -108,14 +112,16 @@ function Speak({ node, seed, playerName }) {
         <div style={s.targetRow}>
           <button
             style={target === "node" ? s.targetActive : s.target}
-            onClick={() => setTarget("node")}
+            aria-pressed={target === "node"}
+            onClick={() => chooseTarget("node")}
           >the place</button>
           {presences.map(p => (
             <button
               key={p.name}
               style={target === p.name ? s.targetActive : s.target}
+              aria-pressed={target === p.name}
               title={p.persona ? `a ${p.persona} whose traces are here` : "traces found here"}
-              onClick={() => setTarget(p.name)}
+              onClick={() => chooseTarget(p.name)}
             >{p.name}{p.persona ? ` · ${p.persona}` : ""}</button>
           ))}
         </div>
@@ -129,12 +135,13 @@ function Speak({ node, seed, playerName }) {
         onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }}
         placeholder="What do you want to say?"
       />
-      <button style={s.btn} onClick={send} disabled={state === "loading"}>
-        {state === "loading" ? "…" : (target === "node" ? "Speak to node" : `Speak to ${target}`)}
+      <button style={s.btn} onClick={send} disabled={loading}>
+        {loading ? "…" : (target === "node" ? "Speak to node" : `Speak to ${target}`)}
       </button>
-      {response && (
-        <div style={state === "error" ? s.respError : s.resp}>{response}</div>
-      )}
+      <div role="status" style={response && !loading && response.kind !== "reply" ? s.respError : s.resp}>
+        {response?.disclosure && <p className="metadata">{response.disclosure}</p>}
+        {response && <span>{response.line || "(no response)"}</span>}
+      </div>
     </div>
   );
 }

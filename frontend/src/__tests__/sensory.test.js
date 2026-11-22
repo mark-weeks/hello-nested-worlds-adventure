@@ -43,6 +43,48 @@ function render(frames, transients = () => []) {
   return log;
 }
 
+describe("scene artwork credits", () => {
+  it.each([
+    [undefined, "/media/places/gallery-v1.png", "AI-generated background, included with the game."],
+    ["https://art.example/scene.png", null, "AI-generated background for this place."],
+  ])("credits the painted background for image URL %s and bundled plate %s", (imageUrl, plate, expected) => {
+    const images = [];
+    vi.stubGlobal("Image", class {
+      width = 320;
+      height = 180;
+      constructor() { images.push(this); }
+    });
+    const log = [];
+    const credits = [];
+    const place = { ...node, senses: { ...node.senses, plate } };
+    const stop = startSensory(canvasFor(log), place, {
+      imageUrl,
+      onArtSource: text => credits.push({ text, painted: log.some(([op]) => op === "drawImage") }),
+    });
+    try {
+      // An image still loading or one that never loads leaves the local art.
+      expect(images[0].src).toBe(imageUrl || plate);
+      expect(credits).toEqual([{ text: "Scene drawn from this place’s conditions.", painted: false }]);
+      const loaded = images[0].onload;
+      loaded();
+      expect(credits.at(-1)).toEqual({ text: expected, painted: true });
+      nextFrame();
+      stop();
+      loaded();  // A late callback from a closed scene cannot change its credit.
+      expect(credits).toHaveLength(2);
+    } finally {
+      stop();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("clears the credit when there is no drawing context", () => {
+    const onArtSource = vi.fn();
+    startSensory({ getContext: () => null }, node, { onArtSource })();
+    expect(onArtSource).toHaveBeenCalledWith("");
+  });
+});
+
 describe("scene renderer determinism", () => {
   it("draws the same frame for the same served node without reading the clock", () => {
     const first = render(0), again = render(0);

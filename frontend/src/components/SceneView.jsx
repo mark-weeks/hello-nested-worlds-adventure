@@ -56,6 +56,7 @@ function WorldMap({navigation, ...props}) {
 
 function SceneArt({node, seed, visible, transients}) {
   const canvas = useRef(null), liveTransients = useRef(transients);
+  const caption = useRef(null);
   liveTransients.current = transients;
   const [image, setImage] = useState(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -69,17 +70,31 @@ function SceneArt({node, seed, visible, transients}) {
     if (!plated) fetch(withKey("/image"), {
       method: 'POST', headers: {'Content-Type': 'application/json'}, signal: abort.signal,
       body: JSON.stringify({node_name: node.name, seed: seed ?? 0}),
-    }).then(r => r.json()).then(data => { if (current && data.url) setImage(data.url); }).catch(() => {});
+    }).then(r => r.ok ? r.json() : null).then(data => {
+      if (current && typeof data?.url === 'string' && data.url) setImage(data.url);
+    }).catch(() => {});
     return () => { current = false; abort.abort(); };
   }, [seed, node.name, plated]);
   useEffect(() => {
     if (!visible) return;
-    if (!canvas.current.getContext('2d')) { setUnavailable(true); return; }
+    const credit = caption.current;
+    if (!canvas.current.getContext('2d')) {
+      credit.textContent = '';
+      setUnavailable(true);
+      return;
+    }
     setUnavailable(false);
-    return startSensory(canvas.current, node, {imageUrl: image, transients: () => liveTransients.current});
-  }, [node, image, visible]);
-  return visible && <div className="scene-art">
-    <canvas ref={canvas} className="living-canvas" role="img" aria-labelledby="node-name" aria-describedby="node-description" />
-    {unavailable && <p className="scene-fallback">The view is quiet. The passages remain open to exploration.</p>}
-  </div>;
+    return startSensory(canvas.current, node, {
+      imageUrl: plated ? null : image,
+      transients: () => liveTransients.current,
+      onArtSource: text => { credit.textContent = text; },
+    });
+  }, [node, plated, image, visible]);
+  return visible && <figure className="scene-figure">
+    <div className="scene-art">
+      <canvas ref={canvas} className="living-canvas" role="img" aria-labelledby="node-name" aria-describedby="node-description scene-art-source" />
+      {unavailable && <p className="scene-fallback">The view is quiet. The passages remain open to exploration.</p>}
+    </div>
+    <figcaption id="scene-art-source" ref={caption} className="art-source" />
+  </figure>;
 }

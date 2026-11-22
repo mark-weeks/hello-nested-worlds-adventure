@@ -15,6 +15,7 @@ export default function Wayback({ seed, node, onClose, onListen }) {
   const [listening, setListening] = useState(false);
   const [requestedStep, setRequestedStep] = useState(null);
   const canvasRef = useRef(null);
+  const captionRef = useRef(null);
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const requestRef = useRef(null);
@@ -131,7 +132,10 @@ export default function Wayback({ seed, node, onClose, onListen }) {
   useEffect(() => {
     if (!snapshot || !canvasRef.current) return;
     const historical = waybackNode(node, snapshot.node);
-    return startSensory(canvasRef.current, historical);
+    const credit = captionRef.current;
+    return startSensory(canvasRef.current, historical, {
+      onArtSource: text => { credit.textContent = text; },
+    });
   }, [node, seed, snapshot]);
 
   // Once a player chooses to hear the archive, each scrubbed state retunes the
@@ -209,14 +213,18 @@ export default function Wayback({ seed, node, onClose, onListen }) {
           <button ref={closeButtonRef} style={w.close} onClick={close} aria-label="Close history replay">×</button>
         </div>
 
-        <canvas
-          ref={canvasRef}
-          width="640"
-          height="300"
-          role="img"
-          aria-label={`${displayName(node.name)} at ${stepLabel}`}
-          style={w.canvas}
-        />
+        {snapshot && <figure className="scene-figure">
+          <canvas
+            ref={canvasRef}
+            width="640"
+            height="300"
+            role="img"
+            aria-label={`${displayName(node.name)} at ${stepLabel}`}
+            aria-describedby="wayback-art-source"
+            style={w.canvas}
+          />
+          <figcaption id="wayback-art-source" ref={captionRef} className="art-source" />
+        </figure>}
 
         {error ? <div style={w.error}>{error}</div> : snapshot ? (
           <>
