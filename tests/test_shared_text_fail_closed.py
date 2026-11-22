@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -1116,3 +1117,42 @@ def test_ideas_budget_and_cap_publish_nothing(http, monkeypatch):
     assert capped[1]["error"] == moderation.IDEAS_HOLD
     assert http("/ideas/list")[1]["ideas"] == []
     assert ideas.Held.__name__ == "Held"
+
+
+def test_cli_speak_command_screens_lines_into_the_canonical_world(monkeypatch, capsys):
+    """`python main.py speak` follows the same rule as interactive play."""
+    import consciousness
+    import main
+    from multiverse import store
+    spoken = []
+    monkeypatch.setattr(consciousness, "speak", lambda *a, **k: spoken.append(a[1]) or "a reply")
+    monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "382")
+    root = store.world_tree(382)
+
+    # A locally blocked line: declined in fiction, no voice call, no row.
+    main.cmd_speak(SimpleNamespace(seed=382, node=None, message=f"you {_SLUR}"))
+    assert moderation.DECLINE_LINE in capsys.readouterr().out
+    assert spoken == []
+    assert _rows(382, root.name, "PLAYER_SPEAK") == []
+
+    # A line the screen cannot judge is held, not recorded.
+    monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
+    main.cmd_speak(SimpleNamespace(seed=382, node=None, message="a held line"))
+    assert moderation.HOLD_LINE in capsys.readouterr().out
+    assert spoken == []
+    assert _rows(382, root.name, "PLAYER_SPEAK") == []
+
+    # A clean line still reaches the voice and records.
+    monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "0")
+    main.cmd_speak(SimpleNamespace(seed=382, node=None, message="a clean shared line"))
+    assert spoken == ["a clean shared line"]
+    rows = _rows(382, root.name, "PLAYER_SPEAK")
+    assert len(rows) == 1 and rows[0]["data"]["message"] == "a clean shared line"
+
+    # Local multi-world mode stays the unscreened operator terminal.
+    monkeypatch.setenv("NESTED_WORLDS_CANONICAL_SEED", "")
+    monkeypatch.setenv(moderation.DISABLE_MODERATION_ENV, "1")
+    local = store.world_tree(42)
+    main.cmd_speak(SimpleNamespace(seed=42, node=None, message="hello from the terminal"))
+    assert spoken[-1] == "hello from the terminal"
+    assert _rows(42, local.name, "PLAYER_SPEAK")
