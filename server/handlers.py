@@ -1285,6 +1285,7 @@ class Handler(BaseHTTPRequestHandler):
                     # Hosted: the line cannot be classified, so it is held,
                     # as Ideas and profiles are (item 30). The quiet line
                     # stays for a spent voice allowance after a screen.
+                    moderation.record_ai_off_hold("speak")
                     return self._send_json(moderation.http_body(moderation.AI_OFF_HOLD))
                 return self._send_json({"response": guard.QUIET_RESPONSE,
                                         "ai": False})
@@ -1600,6 +1601,7 @@ class Handler(BaseHTTPRequestHandler):
         if not honest and ai_off:
             observability.voice_outcome("agent_voice", "disabled")
             if moderation.every_line_required():
+                moderation.record_ai_off_hold("agent")
                 return self._send_json(moderation.http_body(
                     moderation.AI_OFF_HOLD, agent="", persona="", node=""))
             return self._send_json({"response": guard.QUIET_RESPONSE,

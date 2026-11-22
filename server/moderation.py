@@ -260,14 +260,23 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared",
     if escalate:
         # An intentional route refusal or accounting stop sends no classify
         # request and must not spend any of the legacy call allowances.
-        stop = _preflight_stop(surface, user_key)
+        stop = _preflight_stop(user_key)
         if stop is not None:
             if not private:
+                _moderation_log(stop.outcome, surface)
                 return stop
             escalate = False
+    else:
+        stop = None
     if not guard.consume_moderation_action(user_key):
+        # One outcome per screen: a private identity question that also
+        # met a route stop is counted once, at the cap that refused it.
         _moderation_log("user_cap", surface)
         return Verdict(False, "user_cap", "user_cap")
+    if stop is not None:
+        # The route could not classify this private identity question; it
+        # is answered unrecorded, and the stop is its one counted outcome.
+        _moderation_log(stop.outcome, surface)
     if not escalate:
         return UNSHARED_CLEAN if private else _ALLOW_CLEAN
 
@@ -330,23 +339,32 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared",
     return held(Verdict(False, "undecided", "undecided"))
 
 
-def _preflight_stop(surface: str, user_key: str | None) -> Verdict | None:
-    """The hold for a moderation route that cannot take a call, else None."""
+def _preflight_stop(user_key: str | None) -> Verdict | None:
+    """The hold for a moderation route that cannot take a call, else None.
+
+    Not logged here: the caller records exactly one outcome per screen.
+    """
     from consciousness import model_dispatch, runtime
     try:
         model_dispatch.preflight(runtime.MODERATION_TASK, user_key, max_tokens=32)
     except model_dispatch.ModelControlStopped:
-        _moderation_log("control_stop", surface)
         return Verdict(False, "control_stop", "control_stop")
     except runtime.VoiceBudgetLimited:
         outcome = "disabled" if model_dispatch.task_disabled(runtime.MODERATION_TASK) else "budget"
-        _moderation_log(outcome, surface)
         return Verdict(False, outcome, outcome)
     except (Exception, SystemExit) as exc:
         _log.warning("moderation model preflight unavailable (%s)", type(exc).__name__)
-        _moderation_log("error", surface)
         return Verdict(False, "error", "error")
     return None
+
+
+def record_ai_off_hold(surface: str) -> None:
+    """Count a hosted voice line held by the AI kill switch before any screen.
+
+    Logged like any other screen outcome (``disabled``) so the reports that
+    count holds include it; nothing is charged.
+    """
+    _moderation_log(AI_OFF_HOLD.outcome, surface)
 
 
 def needs_model(text: str) -> bool:

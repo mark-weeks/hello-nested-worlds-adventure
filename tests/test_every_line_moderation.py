@@ -260,6 +260,9 @@ def test_hosted_kill_switch_holds_ideas_and_profile_without_a_classify_call(
     status, data = _agent(hosted)
     assert status == 200 and data["held"] is True and data["ai"] is False, data
     assert data["response"] == moderation.HOLD_LINE
+    # Each held voice line is counted once in the screen reports.
+    assert _outcomes(caplog) == [("ideas", "disabled"), ("profile", "disabled"),
+                                 ("speak", "disabled"), ("agent", "disabled")]
     assert hosted.requests == []
     assert _rows(hosted, "PLAYER_SPEAK") == [] and _rows(hosted, "AGENT_VOICE") == []
 
@@ -483,3 +486,31 @@ def test_unhosted_kill_switch_keeps_the_quiet_line(http, monkeypatch, accounts):
         "node_name": root.name, "seed": _SEED, "message": _CLEAN,
         "player_name": "Ada"})[:2]
     assert status == 200 and data == {"response": guard.QUIET_RESPONSE, "ai": False}
+
+
+def _moderation_route_off(tmp_path, monkeypatch):
+    tasks = [task for task in runtime.TASKS if task != runtime.MODERATION_TASK]
+    monkeypatch.setenv(model_policy.POLICY_ENV, str(_policy_file(tmp_path, *tasks)))
+    model_policy.reset_for_tests()
+
+
+def test_identity_question_with_route_stop_is_counted_once(
+        hosted, tmp_path, monkeypatch, caplog):
+    _moderation_route_off(tmp_path, monkeypatch)
+    caplog.set_level(logging.INFO)
+    status, data = _speak(hosted, _ASK)
+    assert status == 200 and data == {
+        "response": honesty.place_answer(hosted.root.level), "ai": False}, data
+    assert _outcomes(caplog) == [("speak", "disabled")]
+    assert hosted.requests == [] and _identity_rows(hosted) == []
+
+
+def test_identity_question_with_route_stop_at_the_cap_is_counted_once(
+        hosted, tmp_path, monkeypatch, caplog):
+    _moderation_route_off(tmp_path, monkeypatch)
+    monkeypatch.setenv(guard.MODERATION_ACTIONS_PER_USER_ENV, "0")
+    caplog.set_level(logging.INFO)
+    status, data = _speak(hosted, _ASK)
+    assert status == 200 and data.get("held") is True, data
+    assert _outcomes(caplog) == [("speak", "user_cap")]
+    assert hosted.requests == []
