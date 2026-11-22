@@ -36,6 +36,14 @@ name: Off-host backup
 # no secrets. deployment: false keeps the branch rule and does not record a
 # GitHub deployment.
 #
+# ENFOLDED_BACKUP_HEARTBEAT_URL is an optional backup environment secret, not
+# one of the six bucket secrets. The ping step below runs only after a
+# validated snapshot has been stored. An empty value sends no request and the
+# step succeeds, so a run with the secret unset behaves as before. A
+# quarantined snapshot does not ping. The dispatcher and the monitor are in
+# docs/infrastructure/backup-dispatch.md. Do not also create a repository
+# secret of this name: a missing environment secret falls back to it.
+#
 # The Fly token is `fly tokens create ssh -a enfolded-staging --expiry 720h`
 # on the flyctl 0.5.1 this job installs. It is not a deploy token. The
 # printed token can SSH to that app and can add a WireGuard peer on the
@@ -187,6 +195,47 @@ jobs:
             echo "Stored a validated snapshot." >> "$GITHUB_STEP_SUMMARY"
           fi
           "${args[@]}" >/dev/null
+
+      # After a validated upload only. Quarantine does not ping. An empty URL
+      # sends nothing and exits 0. The URL is not written to the log. A failed
+      # ping fails this step; prune still runs because its condition is the
+      # store step, which has already succeeded.
+      - name: Ping the backup heartbeat
+        if: steps.validate.outcome == 'success' && steps.store.outcome == 'success'
+        env:
+          ENFOLDED_BACKUP_HEARTBEAT_URL: ${{ secrets.ENFOLDED_BACKUP_HEARTBEAT_URL }}
+        run: |
+          set -euo pipefail
+          url="${ENFOLDED_BACKUP_HEARTBEAT_URL:-}"
+          url="${url#"${url%%[![:space:]]*}"}"
+          url="${url%"${url##*[![:space:]]}"}"
+          if [ -z "$url" ]; then
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              echo "Backup heartbeat is unset; no ping was sent." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 0
+          fi
+          case "$url" in
+            https://*) ;;
+            *) echo "::error::Backup heartbeat URL must be an https URL." >&2; exit 1 ;;
+          esac
+          case "$url" in
+            *[[:space:]]*) echo "::error::Backup heartbeat URL must be an https URL." >&2; exit 1 ;;
+          esac
+          err="$(mktemp)"
+          code="$(curl -q --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --max-time 20 --retry 3 --retry-all-errors --max-redirs 0 \
+            --proto '=https' --proto-redir '=https' \
+            -X POST --data-binary '' -- "$url" 2>"$err" || true)"
+          rm -f "$err"
+          case "$code" in
+            2[0-9][0-9])
+              if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+                echo "Pinged the backup heartbeat." >> "$GITHUB_STEP_SUMMARY"
+              fi
+              ;;
+            *) echo "::error::Backup heartbeat ping failed." >&2; exit 1 ;;
+          esac
 
       - name: Prune private-bucket objects past retention
         if: always() && steps.store.outcome == 'success'

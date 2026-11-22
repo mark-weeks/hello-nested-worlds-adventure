@@ -297,6 +297,7 @@ _BACKUP_SECRETS = {
     'secrets.ENFOLDED_BACKUP_S3_ENDPOINT',
     'secrets.ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID',
     'secrets.ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY',
+    'secrets.ENFOLDED_BACKUP_HEARTBEAT_URL',
 }
 _WRITE_SECRETS = {
     'ENFOLDED_BACKUP_S3_ACCESS_KEY_ID',
@@ -340,6 +341,7 @@ def test_backup_job_keeps_secrets_in_the_main_only_environment():
         'Store the snapshot in the private bucket': {'VALIDATE_OUTCOME', *_WRITE_SECRETS},
         'Prune private-bucket objects past retention': _WRITE_SECRETS | _LIST_SECRETS,
         'Prune old machine-local off-host copies': {'FLY_API_TOKEN'},
+        'Ping the backup heartbeat': {'ENFOLDED_BACKUP_HEARTBEAT_URL'},
     }
     seen = {}
     for step in job['steps']:
@@ -353,7 +355,7 @@ def test_backup_job_keeps_secrets_in_the_main_only_environment():
                 assert value == '${{ steps.validate.outcome }}'
             elif key == 'FLY_API_TOKEN':
                 assert value == '${{ secrets.BACKUP_FLY_SSH_TOKEN }}'
-            elif key.startswith('ENFOLDED_BACKUP_S3_'):
+            elif key.startswith('ENFOLDED_BACKUP_S3_') or key == 'ENFOLDED_BACKUP_HEARTBEAT_URL':
                 assert value == '${{ secrets.' + key + ' }}'
     assert seen['Refuse any ref but main'] == set()
     assert seen[None] == set()

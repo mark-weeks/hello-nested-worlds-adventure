@@ -157,6 +157,7 @@ player chat included.
 | `ENFOLDED_BACKUP_S3_ENDPOINT` | `<OWNER: ENFOLDED_BACKUP_S3_ENDPOINT>` `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`. The account id is not a variable |
 | `ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID` | `<OWNER: ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID>` The read-only pair. Set both list secrets or neither |
 | `ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY` | `<OWNER: ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY>` |
+| `ENFOLDED_BACKUP_HEARTBEAT_URL` | Optional. `<OWNER: heartbeat URL>`. Only the ping step reads it. An empty value sends no request. [Backup dispatch and the heartbeat](backup-dispatch.md). Not one of the six bucket secrets |
 
 `<OWNER: delete the repository copies of the backup secrets>`
 If an environment secret is missing, `secrets.<NAME>` falls back to a
@@ -551,6 +552,12 @@ the bucket:
 python scripts/backup_health.py --app enfolded-beta --objects listing.json
 ```
 
+One fresh object is not the seven-day bound. Successive validated
+snapshot-start times are
+[`scripts/backup_freshness_proof.py`](backup-dispatch.md#the-seven-day-bound-proof).
+The external scheduler and the separately hosted heartbeat are
+[Backup dispatch and the heartbeat](backup-dispatch.md).
+
 ## Re-arming production backups
 
 A separate owner act, from
@@ -581,7 +588,8 @@ After the first production deploy, before any invitation:
 2. Only then `<OWNER: set ENFOLDED_BACKUP_REQUIRED=true>`.
 3. Enable the external dispatcher. GitHub's own schedule alone has shown
    five-hour gaps against the one-hour bound.
-4. Confirm successive validated production snapshots meet the one-hour bound.
+4. Confirm successive validated production snapshots meet the one-hour bound
+   (`python scripts/backup_freshness_proof.py --app enfolded-beta`).
 5. Point a new heartbeat monitor at production. Alerts go to the project
    address, with the second operator copied (O14). The monitor is hosted
    separately from the dispatcher.
@@ -618,6 +626,7 @@ Do this on the staging app before any production history.
 - [ ] `<OWNER: create the backup Fly token>` with `fly tokens create ssh -a enfolded-staging --expiry 720h`. Paste the printed line into `BACKUP_FLY_SSH_TOKEN` with no added quotes. `<OWNER: confirm the SSH token on the app>` with `FLY_CONFIG_DIR` set to an empty directory, `fly tokens debug`, and the two SSH commands bound to that token and `-a`. Remove any WireGuard peer that check added. Do not run `fly deploy` from this checkout.
 - [ ] Manual dispatch of `backup.yml` from `main` stores a validated snapshot. The job summary does not print the object key, the bucket, or the account id, and the log has no artifact upload.
 - [ ] `python scripts/backup_health.py --app <staging-app>` exits 0. `--max-age-minutes 1` against an old stamp exits 1.
+- [ ] The [dispatcher and the heartbeat](backup-dispatch.md) are the two hosts from O14. After seven days of validated snapshots, `python scripts/backup_freshness_proof.py --app <staging-app>` exits 0. A green workflow run is not that proof.
 - [ ] Download, `validate_backup.py`, checksum, and `python main.py restore` on the isolated staging machine. Every backup containing `private_chat_messages` requires `--deletions <latest-export>` with the latest independently preserved operator deletion record, even when a current database exists; a fresh-boot empty export is not authoritative. Follow the [restore procedure](fly-deployment.md#restoring-from-a-backup), then record the checksum, snapshot time, app, release SHA, and elapsed time.
 - [ ] A deliberately invalid snapshot (or a failed validation) is stored only under `offhost/unvalidated-worlds-backup-...` and the run is red. The health check does not count it.
 - [ ] With `ENFOLDED_BACKUP_REQUIRED=true` and one required value removed, a dispatch fails and uploads nothing. Restore the value afterward.
