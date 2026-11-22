@@ -23,8 +23,8 @@ Status: checklist entry requirement 4 evidence: safe holds for unjudged shared t
   `MODERATION_MODEL` now say so, and the metrics and `voice-health` headings
   say which screens they count.
   **Verified:** `tests/test_every_line_moderation.py` 32 passed (three of
-  them fail on the previous server code); `./scripts/check.sh` exit 0: Ruff clean,
-  4,371 Python passed and 1 skipped, Vitest 258 of 258 in 21 files, frontend
+  them fail on the previous server code); `./scripts/check.sh` exit 0 at `3fb27d2`: Ruff clean,
+  4,375 Python passed, Vitest 258 of 258 in 21 files, frontend
   build and bundle freshness, installed-wheel smoke; browser E2E not run.
   **Irreversibility check:** no one-way door — no migration, no stored-row
   rewrite, no birth or pin change; the rule is read from environment markers at
