@@ -1,4 +1,4 @@
-"""Prove successive validated snapshot-start times meet the one-hour bound.
+"""Prove the newest validated snapshot stayed inside the one-hour bound.
 
 The check reads the off-host listing and never uploads, downloads, or deletes.
 Live runs use the read-only list pair (ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID
@@ -6,12 +6,18 @@ and ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY). The write pair is not a
 fallback. ``--objects`` reads a saved listing and does not contact the bucket.
 
 A day is 24 hours. The window ends at ``--now`` for a saved listing, and at
-the clock otherwise. Pass means every successive snapshot-start gap in that
-window is within the bound (60 minutes unless ``--max-gap-minutes`` says
-otherwise), a validated snapshot is already current at the window's start,
-and the last snapshot-start is within the bound of the window's end.
-Quarantine names, empty objects, other apps, and future stamps do not count.
-Age is the stamp in the object name, not LastModified.
+the clock otherwise. Age is the snapshot-start in the object name. Whether
+the object was recoverable is its ``LastModified`` upload time. Pass means
+that, throughout the window, the newest validated object already in the
+bucket was never more than the bound old (60 minutes unless
+``--max-gap-minutes`` says otherwise). That holds when an object is already
+in the bucket at the window's start, each later object lands within the
+bound of the previous snapshot-start, and the last snapshot-start is within
+the bound of the window's end. A missing or unusable upload time cannot
+support a pass. ``--from-first`` starts at the first validated object and
+requires two of them, for a production bucket that did not exist seven days
+ago. Quarantine names, empty objects, other apps, and future stamps do not
+count.
 
 JSON goes to stdout. A short summary goes to stderr. Exit 0 passes, 1 fails
 the bound, and 2 means the listing or the credentials could not be read.
@@ -51,8 +57,27 @@ def _seconds(raw):
 
 
 def _ref(item):
-    taken, key, size = item
-    return {'key': key, 'snapshot_at': _iso(taken), 'size_in_bytes': size}
+    taken, arrived, key, size = item
+    return {'key': key, 'snapshot_at': _iso(taken), 'arrived_at': _iso(arrived),
+            'size_in_bytes': size}
+
+
+def _parse_arrived(value):
+    """UTC upload time, or None when the listing does not prove one."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if text.endswith('+00:00'):
+        text = text[:-6] + 'Z'
+    if not text.endswith('Z'):
+        return None
+    body = text[:-1]
+    for fmt in ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f'):
+        try:
+            return datetime.strptime(body, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
 
 
 def _gap(kind, start, end, start_key, end_key):
@@ -67,20 +92,29 @@ def _public_gap(gap):
     return {key: value for key, value in gap.items() if key != '_raw'}
 
 
-def prove(pages, *, app, days=7, max_gap_minutes=60, now=None):
+def _arrival_violation(taken, key, arrived):
+    return {'kind': 'arrival', 'from': _iso(taken),
+            'to': None if arrived is None else _iso(arrived),
+            'gap_seconds': None, 'from_key': key, 'to_key': None}
+
+
+def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False):
     """Return the bound report for one app. Raises ValueError on a bad listing."""
     validate_app(app)
     if type(days) is not int or days < 1 or days > 366:
         raise ValueError('days must be an integer from 1 to 366.')
     if type(max_gap_minutes) is not int or max_gap_minutes <= 0:
         raise ValueError('max-gap-minutes must be a positive integer.')
+    if type(from_first) is not bool:
+        raise ValueError('from_first must be true or false.')
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         raise ValueError('now must be timezone-aware.')
     now = now.astimezone(timezone.utc)
-    window_start = now - timedelta(days=days)
     bound = max_gap_minutes * 60
     found = {}
+    arrival_violations = []
+    seen = set()
     for item in iter_objects(pages):
         classified = classify(item.get('Key'), app)
         size = item.get('Size')
@@ -90,43 +124,74 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None):
         if taken > now:
             continue
         key = item['Key']
-        if key not in found:
-            found[key] = (taken, key, size)
+        if key in seen:
+            continue
+        seen.add(key)
+        arrived = _parse_arrived(item.get('LastModified'))
+        if arrived is None or arrived < taken or arrived > now:
+            arrival_violations.append((taken, _arrival_violation(taken, key, arrived)))
+            continue
+        found[key] = (taken, arrived, key, size)
     objects = sorted(found.values())
+    if from_first:
+        window_start = objects[0][0] if objects else now
+    else:
+        window_start = now - timedelta(days=days)
     in_window = [item for item in objects if item[0] >= window_start]
-    before = [item for item in objects if item[0] < window_start]
-    anchor = before[-1] if before else None
+    cover = None
+    for item in objects:
+        if item[1] <= window_start and (cover is None or item[0] > cover[0]):
+            cover = item
     measured = []
     uncovered = False
-    if in_window:
-        if in_window[0][0] > window_start:
-            if anchor is None:
-                uncovered = True
-            else:
-                measured.append(_gap('successive', anchor[0], in_window[0][0], anchor[1], in_window[0][1]))
-        for earlier, later in zip(in_window, in_window[1:]):
-            measured.append(_gap('successive', earlier[0], later[0], earlier[1], later[1]))
-        last = in_window[-1]
-        measured.append(_gap('window_end', last[0], now, last[1], None))
-    elif anchor is not None:
-        measured.append(_gap('window_end', anchor[0], now, anchor[1], None))
-    else:
+    if not from_first:
+        if cover is None:
+            uncovered = True
+        else:
+            measured.append(_gap('window_start', cover[0], window_start, cover[2], None))
+    newest = cover
+    later = sorted((item for item in objects if item[1] > window_start), key=lambda item: (item[1], item[0]))
+    for item in later:
+        if newest is not None and item[0] < newest[0]:
+            continue
+        if newest is None:
+            measured.append(_gap('successive', item[0], item[1], item[2], item[2]))
+            newest = item
+            continue
+        measured.append(_gap('successive', newest[0], item[1], newest[2], item[2]))
+        newest = item
+    if newest is not None:
+        measured.append(_gap('window_end', newest[0], now, newest[2], None))
+    elif not from_first:
         uncovered = True
     violations = []
+    if from_first and len(objects) < 2:
+        only = objects[0] if objects else None
+        violations.append({'kind': 'count', 'from': None if only is None else _iso(only[0]),
+                           'to': None, 'gap_seconds': None,
+                           'from_key': None if only is None else only[2], 'to_key': None})
     if uncovered:
         violations.append({'kind': 'window_start', 'from': None, 'to': _iso(window_start),
                            'gap_seconds': None, 'from_key': None, 'to_key': None})
     for gap in measured:
-        if gap['_raw'] > bound:
+        if gap['kind'] == 'window_start' and not uncovered and gap['_raw'] > bound:
             violations.append(_public_gap(gap))
+        elif gap['kind'] != 'window_start' and gap['_raw'] > bound:
+            violations.append(_public_gap(gap))
+    for taken, violation in sorted(arrival_violations):
+        if from_first or taken >= window_start:
+            violations.append(violation)
     widest = None
     for gap in measured:
         if widest is None or gap['_raw'] > widest['_raw']:
             widest = gap
+    before = [item for item in objects if item[0] < window_start]
+    anchor = before[-1] if before and not from_first else None
     report = {
         'result': 'fail' if violations else 'pass',
         'app': app,
-        'window_days': days,
+        'window_days': None if from_first else days,
+        'from_first': from_first,
         'max_gap_minutes': max_gap_minutes,
         'bound_seconds': bound,
         'window_start': _iso(window_start),
@@ -164,7 +229,7 @@ def render_summary(report):
     if widest is not None:
         lines.append(
             f"max_gap  {widest['from']} -> {widest['to']}  ({format_gap(widest['gap_seconds'])})")
-    over = [item for item in report['violations'] if item['kind'] != 'window_start']
+    over = [item for item in report['violations'] if item['kind'] in ('successive', 'window_end')]
     uncovered = [item for item in report['violations'] if item['kind'] == 'window_start']
     if over:
         lines.append('gaps over the bound:')
@@ -176,7 +241,18 @@ def render_summary(report):
                 lines.append(
                     f"  {item['from']} -> {item['to']}  ({format_gap(item['gap_seconds'])})")
     for item in uncovered:
-        lines.append(f"uncovered window start: {item['to']} has no validated snapshot within the bound")
+        if item['gap_seconds'] is None:
+            lines.append(
+                f"uncovered window start: {item['to']} has no validated snapshot within the bound")
+        else:
+            lines.append(
+                f"uncovered window start: {item['from']} -> {item['to']}  "
+                f"({format_gap(item['gap_seconds'])})")
+    for item in report['violations']:
+        if item['kind'] == 'arrival':
+            lines.append(f"missing arrival time: {item['from']}  {item['from_key']}")
+        elif item['kind'] == 'count':
+            lines.append('fewer than two validated snapshots')
     first = report['first']
     last = report['last']
     lines.append('first  none' if first is None else f"first  {first['snapshot_at']}  {first['key']}")
@@ -226,7 +302,9 @@ def parse_now(value):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--app', required=True)
-    parser.add_argument('--days', type=int, default=7)
+    parser.add_argument('--days', type=int, default=None)
+    parser.add_argument('--from-first', action='store_true',
+                        help='start at the first validated object and require at least two')
     parser.add_argument('--max-gap-minutes', type=int, default=60)
     parser.add_argument('--objects', type=Path,
                         help='offline JSON: one ListObjectsV2 page, a list of pages, or {"object_pages": [...]}')
@@ -235,13 +313,16 @@ def main():
     if args.now and args.objects is None:
         parser.exit(2, 'Pass --now only with --objects.\n')
     try:
+        if args.from_first and args.days is not None:
+            parser.exit(2, 'Pass either --from-first or --days, not both.\n')
         moment = parse_now(args.now) if args.now else None
         if args.objects:
             pages = load_object_pages(args.objects)
         else:
             pages = list_object_pages(listing_env(os.environ), app=args.app)
-        report = prove(pages, app=args.app, days=args.days,
-                       max_gap_minutes=args.max_gap_minutes, now=moment)
+        report = prove(pages, app=args.app, days=7 if args.days is None else args.days,
+                       max_gap_minutes=args.max_gap_minutes, now=moment,
+                       from_first=args.from_first)
     except StoreError as exc:
         parser.exit(2, f'Backup bound proof unavailable: {exc}\n')
     except (OSError, ValueError, TypeError, KeyError, AttributeError):

@@ -131,21 +131,23 @@ environment secret is missing
 ([secrets](https://docs.github.com/en/actions/reference/security/secrets)).
 
 When the value is set it must be an `https://` URL with no spaces. The step
-sends one HTTP POST with an empty body and does not follow redirects. A
-response in 200–299 is success. Anything else fails the step. The error line
-names the HTTP status. `000` means there was no response. When curl itself
-exits non-zero, the same line adds one fixed word: `dns`, `connect`,
-`timeout`, `tls`, `redirect`, or `curl`. Curl's own message is discarded,
-because it can name the host. A write-out that is not three digits is logged
-as `000`. The URL is not written to the job log or the step summary.
-`curl -q` ignores a curl config file. The runner's process list can still
-see the URL while the request runs, so treat the URL as a secret.
+sends one HTTP POST with an empty body and does not follow redirects. It does
+not retry. A response in 200–299 is success. Anything else, including a 503,
+fails the step. The next backup is the next ping. The error line names the
+HTTP status. `000` means there was no response. When curl itself exits
+non-zero, the same line adds one fixed word: `dns`, `connect`, `timeout`,
+`tls`, `redirect`, or `curl`. Curl's own message is discarded, because it
+can name the host. A write-out that is not three digits is logged as `000`.
+The URL is not written to the job log or the step summary. `curl -q` ignores
+a curl config file. The runner's process list can still see the URL while
+the request runs, so treat the URL as a secret.
 
 Set the secret only after the monitor's URL answers 2xx to that empty POST.
 A failed ping fails the job after the object is already stored. Prune still
 runs: its condition is the store step, which has already succeeded. The step
-summary line "Stored a validated snapshot." is the sign that the object is
-in the bucket and the red step is the monitor.
+summary line "Stored a validated snapshot." is written only after `put`
+returns success. That line is the sign that the object is in the bucket and
+the red step is the monitor. A failed upload writes no such line.
 
 `<OWNER: heartbeat URL>` is the whole request target, token included, stored
 as `ENFOLDED_BACKUP_HEARTBEAT_URL`. The workflow does not append a query or
@@ -155,29 +157,40 @@ production when production is re-armed. One monitor does not serve both.
 ## The seven-day bound proof
 
 `scripts/backup_freshness_proof.py` reads the bucket listing and reports
-whether successive validated snapshot-start times meet the bound. It lists
-objects and does not upload, download, or delete. It does not use the write
-key. Set both `ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID` and
+whether the newest validated object already in the bucket stayed inside the
+bound. It lists objects and does not upload, download, or delete. It does
+not use the write key. Set both `ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID` and
 `ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY`, plus the bucket, the endpoint,
 and `ENFOLDED_BACKUP_S3_REGION`. One of the list values alone makes the
 command fail before it calls the store. The write key alone is not accepted.
 
 A day is 24 hours. The default window is 7 days, ending at the clock, which
-is the twin's seven-day run. The default bound is 60 minutes. Pass means all
-three of these:
+is the twin's seven-day run. The default bound is 60 minutes. Age is the
+snapshot-start in the object name. The moment the object became recoverable
+is `LastModified`. Pass means all of these:
 
-- a validated, nonempty snapshot for this app is already current at the
-  window's start (its snapshot-start is inside the bound of that instant, or
-  a snapshot sits on the start);
-- every later successive snapshot-start gap through the last snapshot in the
-  window is within the bound;
+- a validated, nonempty snapshot for this app is already in the bucket at
+  the window's start, and its snapshot-start is within the bound of that
+  instant;
+- each later object lands within the bound of the previous snapshot-start
+  (the gap is the later object's upload time minus the earlier snapshot-start);
 - the last snapshot-start is within the bound of the window's end.
 
-Quarantine names, empty objects, other apps, and stamps in the future do not
-count. The time is the stamp in the object name. `LastModified` is not the
-clock. An exact gap of 60 minutes passes. One second over fails. Retention
-is 30 days, and prune deletes older copies of this app, so a window longer
-than that cannot pass once those copies are gone. `--days` accepts 1 to 366.
+An object with no `LastModified`, or an upload time before its snapshot-start
+or after the window's end, does not count and the proof fails. Quarantine
+names, empty objects, other apps, and stamps in the future do not count. An
+exact gap of 60 minutes passes. One second over fails. Hourly snapshot-starts
+that finish uploading two minutes later fail: just before the next upload the
+previous snapshot-start is 62 minutes old. Retention is 30 days, and prune
+deletes older copies of this app, so a window longer than that cannot pass
+once those copies are gone. `--days` accepts 1 to 366.
+
+`--from-first` is the production check in the interval after the first
+deploy, before seven days of objects exist. It starts at the first validated
+object, requires at least two, and applies the same landing rule between
+them and at the window's end. It does not ask for an object from before
+production existed. Do not pass `--days` with it. The twin's rehearsal stays
+the seven-day default.
 
 JSON goes to stdout. The summary goes to stderr: pass or fail, the count of
 validated snapshots inside the window, the widest gap, every gap over the
@@ -187,7 +200,7 @@ listing or the credentials could not be read.
 
 ```bash
 python scripts/backup_freshness_proof.py --app enfolded-staging
-python scripts/backup_freshness_proof.py --app enfolded-beta --days 7
+python scripts/backup_freshness_proof.py --app enfolded-beta --from-first
 ```
 
 Run it for the app whose objects you mean. `enfolded-staging` does not
@@ -205,31 +218,35 @@ python scripts/backup_freshness_proof.py \
   --now 2026-11-22T12:00:00Z
 ```
 
-This is the check for the rehearsal and for production after the dispatcher
-is enabled. A passing `backup_health.py` shows only the newest object at
-that moment. A green workflow run shows that one job finished.
-
-The 2026-11-11 cadence record also describes a stricter reading: each object
-has to land in the bucket within 60 minutes of the previous snapshot-start,
-which needs the upload time. This tool does not read `LastModified`. The
-pass/fail above is snapshot-start to snapshot-start, the same clock
-`backup_health.py` uses for age.
+The seven-day command is the twin rehearsal. `--from-first` is the
+production check before a week of objects exists. A passing
+`backup_health.py` shows only the newest object at that moment. A green
+workflow run shows that one job finished.
 
 ## Retirement and re-arming
 
-Follow O14's order. This page does not restate it.
+Follow O14's order. This page does not restate it. The heartbeat URL is an
+extra step, because that secret did not exist when O14 was written. Staging
+and production read the same `backup` environment secret.
 
 - Twin retirement, after the final snapshot:
   [O14](../roadmap/owner-decisions-2026-11-20.md#o14-observability-and-alerts-items-11-13).
   The operator copy is
   [Retiring the twin's backup schedule](backup-bucket.md#retiring-the-twins-backup-schedule).
+  After the final twin ping, delete `ENFOLDED_BACKUP_HEARTBEAT_URL` from the
+  `backup` environment. Do that before the workflow is enabled for production.
+  Pausing the twin's monitor and leaving the URL set makes a later production
+  run post to the old monitor, and a deleted endpoint fails the ping on a
+  backup that was stored.
 - Production re-arm, a separate owner act:
   [O14](../roadmap/owner-decisions-2026-11-20.md#o14-observability-and-alerts-items-11-13)
   and
   [Re-arming production backups](backup-bucket.md#re-arming-production-backups).
   O14's "successive validated production snapshots meet the one-hour bound"
-  is this proof tool, run against the production app's listing. A new
-  heartbeat monitor is pointed at production. The twin's monitor is not
+  is `backup_freshness_proof.py --app enfolded-beta --from-first` until seven
+  days of production objects exist, and the seven-day command after that. Set
+  `ENFOLDED_BACKUP_HEARTBEAT_URL` only when the production monitor is armed,
+  and only after the twin's URL has been deleted. The twin's monitor is not
   reused.
 
 `<OWNER: retire the twin backup schedule>` and

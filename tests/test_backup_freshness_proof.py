@@ -32,9 +32,13 @@ def iso(moment):
     return moment.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
-def stored(moment, *, quarantine=False, size=1024, app=APP):
-    return {'Key': object_key(app, stamp(moment), quarantine=quarantine), 'Size': size,
-            'LastModified': '2020-01-01T00:00:00Z'}
+def stored(moment, *, quarantine=False, size=1024, app=APP, arrived=None, last_modified=True):
+    item = {'Key': object_key(app, stamp(moment), quarantine=quarantine), 'Size': size}
+    if last_modified is True:
+        item['LastModified'] = iso(moment if arrived is None else arrived)
+    elif last_modified:
+        item['LastModified'] = last_modified
+    return item
 
 
 def page(*items):
@@ -178,6 +182,14 @@ def test_a_gap_that_crosses_the_window_start_fails():
     report = report_for([stored(anchor_at), *series(first, NOW)])
     assert report['result'] == 'fail'
     assert report['violations'][0] == {
+        'kind': 'window_start',
+        'from': iso(anchor_at),
+        'to': iso(START),
+        'gap_seconds': 90 * 60,
+        'from_key': object_key(APP, stamp(anchor_at)),
+        'to_key': None,
+    }
+    assert report['violations'][1] == {
         'kind': 'successive',
         'from': iso(anchor_at),
         'to': iso(first),
@@ -229,6 +241,65 @@ def test_the_exact_bound_passes_and_one_extra_second_fails():
     assert closing['from'] == iso(early)
     assert closing['to'] == iso(NOW)
     assert closing['to_key'] is None
+
+
+def test_an_hourly_chain_that_lands_two_minutes_late_is_over_the_bound():
+    items = [stored(START)]
+    cursor = START + timedelta(hours=1)
+    last = NOW - timedelta(hours=1)
+    while cursor <= last:
+        items.append(stored(cursor, arrived=cursor + timedelta(minutes=2)))
+        cursor += timedelta(hours=1)
+    report = report_for(items)
+    assert report['result'] == 'fail'
+    assert report['max_gap_seconds'] == 62 * 60
+    late = report['violations'][0]
+    assert late['kind'] == 'successive'
+    assert late['gap_seconds'] == 62 * 60
+    assert late['to'] == iso(START + timedelta(hours=1, minutes=2))
+
+
+def test_a_missing_upload_time_cannot_pass():
+    items = series(START, NOW)
+    dropped = items[4]
+    dropped.pop('LastModified')
+    report = report_for(items)
+    assert report['result'] == 'fail'
+    assert report['violations'][-1] == {
+        'kind': 'arrival',
+        'from': iso(START + timedelta(minutes=30 * 4)),
+        'to': None,
+        'gap_seconds': None,
+        'from_key': dropped['Key'],
+        'to_key': None,
+    }
+    assert dropped['Key'] in render_summary(report)
+    assert '2020-01-01' not in json.dumps(report)
+
+
+def test_from_first_accepts_two_production_objects_inside_a_new_bucket():
+    first = NOW - timedelta(minutes=30)
+    second = NOW - timedelta(minutes=1)
+    items = [stored(first), stored(second)]
+    report = prove(page(*items), app=APP, from_first=True, now=NOW)
+    assert report['result'] == 'pass'
+    assert report['from_first'] is True
+    assert report['window_days'] is None
+    assert report['count'] == 2
+    assert report['window_start'] == iso(first)
+    assert report['anchor'] is None
+    wide = prove(page(*items), app=APP, days=7, now=NOW)
+    assert wide['result'] == 'fail'
+    assert wide['from_first'] is False
+    assert wide['violations'][0]['kind'] == 'window_start'
+
+
+def test_from_first_requires_two_validated_objects():
+    report = prove(page(stored(NOW - timedelta(minutes=5))), app=APP, from_first=True, now=NOW)
+    assert report['result'] == 'fail'
+    assert report['count'] == 1
+    assert report['violations'][0]['kind'] == 'count'
+    assert 'fewer than two validated snapshots' in render_summary(report)
 
 
 def test_a_window_that_opens_with_no_snapshot_fails_even_when_later_gaps_are_short():
@@ -315,7 +386,8 @@ def test_cli_rejects_a_live_clock_override_and_a_bad_listing(tmp_path):
     assert garbage.stdout == ''
     assert 'unavailable' in garbage.stderr
 
-    for args in (('--days', '0'), ('--max-gap-minutes', '0'), ('--days', '367')):
+    for args in (('--days', '0'), ('--max-gap-minutes', '0'), ('--days', '367'),
+                 ('--from-first', '--days', '1')):
         rejected, _called = _run(tmp_path, page(stored(NOW)), '--now', iso(NOW), *args)
         assert rejected.returncode == 2
         assert rejected.stdout == ''
@@ -463,6 +535,8 @@ def test_a_successful_ping_posts_once_and_hides_the_url(tmp_path, code):
     argv = recorded[0]
     assert argv[-1] == HEARTBEAT_URL
     assert argv[1] == '-q'
+    assert '--retry' not in argv
+    assert '--retry-all-errors' not in argv
     assert 'POST' in argv
     assert '--max-redirs' in argv and argv[argv.index('--max-redirs') + 1] == '0'
     assert '--data-binary' in argv

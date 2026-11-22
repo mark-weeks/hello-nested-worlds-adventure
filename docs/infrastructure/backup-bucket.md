@@ -576,7 +576,8 @@ Before the first production boot:
    environment. `<OWNER: production backup token rotation>` replaces that
    secret before the 720 hours run out.
 2. Leave `ENFOLDED_BACKUP_APP` unset, or set it to `enfolded-beta`.
-3. Re-enable the "Off-host backup" workflow if it was disabled.
+3. Confirm `ENFOLDED_BACKUP_HEARTBEAT_URL` is unset, then re-enable the
+   "Off-host backup" workflow if it was disabled.
 4. Retarget the external dispatcher to production, and leave it paused.
 
 The pre-boot recovery evidence is the staging restore.
@@ -589,8 +590,13 @@ After the first production deploy, before any invitation:
 3. Enable the external dispatcher. GitHub's own schedule alone has shown
    five-hour gaps against the one-hour bound.
 4. Confirm successive validated production snapshots meet the one-hour bound
-   (`python scripts/backup_freshness_proof.py --app enfolded-beta`).
-5. Point a new heartbeat monitor at production. Alerts go to the project
+   with `python scripts/backup_freshness_proof.py --app enfolded-beta --from-first`.
+   That check starts at the first validated production object and requires at
+   least two. The seven-day window fails until those seven days exist, so it
+   is not this gate. The twin's rehearsal stays the seven-day command.
+5. Point a new heartbeat monitor at production, and only then set
+   `ENFOLDED_BACKUP_HEARTBEAT_URL` to that monitor. The twin's URL has to be
+   gone already (the retirement step below). Alerts go to the project
    address, with the second operator copied (O14). The monitor is hosted
    separately from the dispatcher.
 
@@ -609,6 +615,10 @@ in place would be aimed at production.
 3. Delete the `ENFOLDED_BACKUP_REQUIRED` and `ENFOLDED_BACKUP_APP` variables.
 4. Revoke the backup token and delete its `backup` environment secret.
 5. Pause or delete the twin's heartbeat monitor.
+6. After the final twin ping, delete the `backup` environment secret
+   `ENFOLDED_BACKUP_HEARTBEAT_URL`. Do this before the workflow is enabled
+   for production. The secret is shared by both apps. O14's five steps
+   predate it; this is the extra step.
 
 Deleting the twin's objects by hand waits until the 7-day lock allows it.
 Emptying the bucket is refused while a bucket lock rule is still configured

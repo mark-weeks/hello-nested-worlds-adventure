@@ -282,6 +282,37 @@ print('offhost/worlds-backup-should-not-be-logged')
         assert summary.read_text().strip() == summary_line
 
 
+def test_a_failed_upload_does_not_claim_the_snapshot_was_stored(tmp_path):
+    text = (Path(__file__).resolve().parents[1] / '.github/workflows/backup.yml').read_text()
+    _store_id, _store_if, script, _store_step = _workflow_step(text, 'Store the snapshot in the private bucket')
+    assert script.index('"${args[@]}"') < script.index('Stored a validated snapshot.')
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    recorder = tmp_path / 'argv.jsonl'
+    fake = fake_bin / 'python3'
+    fake.write_text(f'#!{sys.executable}\n' + r'''
+import json, os, sys
+with open(os.environ['ARGV_LOG'], 'a') as fh:
+    fh.write(json.dumps(sys.argv) + '\n')
+raise SystemExit(1)
+''')
+    fake.chmod(0o755)
+    summary = tmp_path / 'summary'
+    result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, env={
+        'PATH': str(fake_bin) + os.pathsep + '/usr/bin:/bin',
+        'ARGV_LOG': str(recorder),
+        'FLY_APP': 'enfolded-beta',
+        'STAMP': '20261003T113000Z',
+        'VALIDATE_OUTCOME': 'success',
+        'GITHUB_STEP_SUMMARY': str(summary),
+    })
+    assert result.returncode == 1
+    assert json.loads(recorder.read_text().strip())[1:5] == [
+        'scripts/backup_store.py', 'put', '--app', 'enfolded-beta']
+    assert not summary.exists()
+    assert 'Stored a validated snapshot.' not in result.stdout + result.stderr
+
+
 _BACKUP_WORKFLOW = Path(__file__).resolve().parents[1] / '.github/workflows/backup.yml'
 _BACKUP_EXPR = re.compile(r'\$\{\{\s*(.*?)\s*\}\}')
 _BACKUP_VARIABLES = {

@@ -190,11 +190,13 @@ jobs:
           args=(python3 scripts/backup_store.py put --app "$FLY_APP" --stamp "$STAMP" --body "offhost-$STAMP.db")
           if [ "$VALIDATE_OUTCOME" != "success" ]; then
             args+=(--quarantine)
+          fi
+          "${args[@]}" >/dev/null
+          if [ "$VALIDATE_OUTCOME" != "success" ]; then
             echo "Stored a quarantine snapshot." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Stored a validated snapshot." >> "$GITHUB_STEP_SUMMARY"
           fi
-          "${args[@]}" >/dev/null
 
       # After a validated upload only. Quarantine does not ping. An empty URL
       # sends nothing and exits 0. The URL is not written to the log. A failed
@@ -225,7 +227,7 @@ jobs:
           esac
           status=0
           code="$(curl -q --silent --output /dev/null --write-out '%{http_code}' \
-            --max-time 20 --retry 3 --retry-all-errors --max-redirs 0 \
+            --max-time 20 --max-redirs 0 \
             --proto '=https' --proto-redir '=https' \
             -X POST --data-binary '' -- "$url" 2>/dev/null)" || status=$?
           # A three-digit status only. Anything else is "no response", so a
