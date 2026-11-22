@@ -129,8 +129,10 @@ spends anything.
     model-written chronicle rows record provider and resolved model,
     migration `0028_model_provenance` (#123); provider and model optionality
     under ADR-034, with task-specific evaluations (#112, #113).
-  - *Operations and measurement:* the off-host backup job reads its Fly token
-    and bucket secrets only in a main-only `backup` environment (G4, #188);
+  - *Operations and measurement:* the off-host backup job runs in a `backup`
+    environment and reads its Fly token and bucket secrets there (G4, #188);
+    they stay out of repository scope only once the owner limits that
+    environment to `main` and deletes the repository copies;
     disposable staging requires the current
     participant notice before play, migration `0031_participation_consents`,
     with a `0.1.2rc1` candidate (no tag published) and a hosted WebSocket
@@ -352,15 +354,27 @@ which survives edits that move lines.
 Still open when the ensemble action plan was archived; its item numbers are
 kept so the archived text can be cross-read.
 
-- **1.2** Activate hosted backups: create the main-only `backup` environment
-  and set its secrets (`BACKUP_FLY_SSH_TOKEN` and the private-bucket secrets in
-  [backup-bucket.md](../infrastructure/backup-bucket.md)); set the repository
-  variables `ENFOLDED_BACKUP_APP` and, before permanent history,
-  `ENFOLDED_BACKUP_REQUIRED=true`; dispatch `.github/workflows/backup.yml`
-  (SQLite validation, private bucket, no GitHub artifact), and prove freshness
-  with `scripts/backup_health.py` (runbook §7–§8; readiness record "Remaining
-  gates"). Since #188 the job reads its token and bucket secrets only in that
-  environment (G4). O7 names Cloudflare R2 with 30 days' retention. Item 11
+- **1.2** Activate hosted backups, in this order:
+  1. Create the `backup` environment and limit its deployment branches to
+     `main`.
+  2. Set its secrets: `BACKUP_FLY_SSH_TOKEN` and the private-bucket secrets in
+     [backup-bucket.md](../infrastructure/backup-bucket.md).
+  3. Delete the repository copies of those secrets and any repository
+     `FLY_API_TOKEN`. GitHub falls back to a same-named repository secret when
+     an environment secret is missing (`.github/workflows/backup.yml`), so the
+     job reads its credentials only from the `backup` environment (G4, #188)
+     once this step is done.
+  4. Set the repository variable `ENFOLDED_BACKUP_APP`.
+  5. Dispatch `.github/workflows/backup.yml` by hand (SQLite validation,
+     private bucket, no GitHub artifact) and confirm a validated snapshot was
+     stored.
+  6. Only then, before permanent history, set `ENFOLDED_BACKUP_REQUIRED=true`
+     and enable the external schedule.
+  7. Prove freshness with `scripts/backup_health.py` (runbook §7–§8;
+     readiness record "Remaining gates").
+
+  For production, O14 sets the same order after the first production deploy;
+  the staging restore is the evidence before that boot. O7 names Cloudflare R2 with 30 days' retention. Item 11
   directs an outside scheduler to dispatch the backup every 30 minutes and
   requires the one-hour bound to be proven over seven consecutive days on the
   twin. The scheduler service is still the owner's to name, and the workflow
