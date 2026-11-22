@@ -376,7 +376,7 @@ function drawSigil(data) {
   } else if (window.NodeArt) {
     try {
       window.NodeArt.drawNodeArt(sigil, worldParams.seed, data);
-      if (sigil.getContext('2d')) source.textContent = 'Scene drawn from this place’s conditions.';
+      if (sigil.getContext('2d')) source.textContent = window.ART_SOURCE.drawn;
     } catch (_) {}
   } else {
     // The art ships as a deferred ES module, so the initial entry selection

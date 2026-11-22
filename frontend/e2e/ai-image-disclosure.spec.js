@@ -89,9 +89,25 @@ test('the explorer credits art in Conditions and Replay History', async ({page})
     page.on('request', request => {
       if (imageApi(new URL(request.url()))) requests.push(request.url());
     });
+    // Select the place before the deferred art module is available. Loading
+    // the real module below exercises the explorer's first NodeArt-only paint.
+    await page.route('**/nodeart-global.js', route => route.fulfill({
+      contentType: 'text/javascript', body: '',
+    }));
     await enterUX(page, server, '/map', gallery);
+    await expect(page.locator('#node-name')).toHaveText('Broken Ember Gallery');
     await disclose(page, 'Conditions here');
     const caption = page.locator('#node-art-source');
+    await expect(caption).toBeEmpty();
+    const firstCaption = await page.evaluate(async () => {
+      let captionAtReady;
+      window.addEventListener('nodeart-ready', () => {
+        captionAtReady = document.getElementById('node-art-source').textContent;
+      }, {once: true});
+      await import('/nodeart-global.js?late');
+      return captionAtReady;
+    });
+    expect(firstCaption).toBe(drawn);
     await expect(caption).toBeVisible();
     await expect(caption).toHaveText(bundled);
     await expect(page.locator('#node-sigil')).toHaveAccessibleDescription(/AI-generated background, included with the game\./);

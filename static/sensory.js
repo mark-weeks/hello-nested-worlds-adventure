@@ -1,4 +1,11 @@
 import './interface.js';
+
+export const ART_SOURCE = Object.freeze({
+  drawn: 'Scene drawn from this place’s conditions.',
+  bundled: 'AI-generated background, included with the game.',
+  generated: 'AI-generated background for this place.',
+});
+
 // Shared scene renderer: property-driven weather and material, with persistent
 // structures and remembered motifs. Media is never authoritative world state.
 // Motion runs on a frame counter, never the wall clock: the same served node
@@ -104,7 +111,7 @@ export function startSensory(canvas, node, {transients = () => [], imageUrl, onA
   motion.addEventListener('change', motionChanged);
   const observer = new ResizeObserver(resize); observer.observe(canvas);
   resize();
-  onArtSource?.('Scene drawn from this place’s conditions.');
+  onArtSource?.(ART_SOURCE.drawn);
   if (url) {
     image = new Image();
     image.onload = () => {
@@ -113,7 +120,7 @@ export function startSensory(canvas, node, {transients = () => [], imageUrl, onA
       draw();
       // A cached or newly generated URL can still fail to load. Credit the
       // background only after the canvas has drawn it.
-      onArtSource?.(imageUrl ? 'AI-generated background for this place.' : 'AI-generated background, included with the game.');
+      onArtSource?.(imageUrl ? ART_SOURCE.generated : ART_SOURCE.bundled);
     };
     image.src = url;
   }

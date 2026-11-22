@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { withKey } from "../auth.js";
 import { displayName } from "../names.js";
 import { waybackMomentLine, waybackNode } from "../wayback.js";
@@ -49,12 +49,12 @@ export default function Wayback({ seed, node, onClose, onListen }) {
       const url = `/wayback?seed=${seed}&node_name=${encodeURIComponent(node.name)}${cursor}`;
       const response = await fetch(withKey(url), { signal: controller.signal });
       const data = await response.json();
-      if (!response.ok || data.error) throw new Error(data.error || "archive unavailable");
-      if (requestRef.current !== controller) return;
+      if (controller.signal.aborted) return;
+      if (!response.ok || data.error || !data.node || !data.timeline) throw new Error("archive unavailable");
       setSnapshot(data);
       setRequestedStep(data.timeline.step);
     } catch (err) {
-      if (err?.name !== "AbortError") {
+      if (!controller.signal.aborted && err?.name !== "AbortError") {
         setError("The archive is unreadable right now.");
         setSnapshot(null);
         setRequestedStep(null);
@@ -129,11 +129,15 @@ export default function Wayback({ seed, node, onClose, onListen }) {
     };
   }, [close]);
 
-  useEffect(() => {
-    if (!snapshot || !canvasRef.current) return;
-    const historical = waybackNode(node, snapshot.node);
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
     const credit = captionRef.current;
-    return startSensory(canvasRef.current, historical, {
+    if (!snapshot) {
+      canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+      credit.textContent = "";
+      return;
+    }
+    return startSensory(canvas, waybackNode(node, snapshot.node), {
       onArtSource: text => { credit.textContent = text; },
     });
   }, [node, seed, snapshot]);
@@ -208,23 +212,23 @@ export default function Wayback({ seed, node, onClose, onListen }) {
         <div style={w.headingRow}>
           <div>
             <div id="wayback-title-react" style={w.title}>Replay History · {displayName(node.name)}</div>
-            <div style={w.meta}>{firstWitness} · {stepLabel}</div>
+            {timeline && <div style={w.meta}>{firstWitness} · {stepLabel}</div>}
           </div>
           <button ref={closeButtonRef} style={w.close} onClick={close} aria-label="Close history replay">×</button>
         </div>
 
-        {snapshot && <figure className="scene-figure">
+        <figure className="scene-figure" aria-hidden={snapshot ? undefined : true}>
           <canvas
             ref={canvasRef}
             width="640"
             height="300"
             role="img"
-            aria-label={`${displayName(node.name)} at ${stepLabel}`}
-            aria-describedby="wayback-art-source"
+            aria-label={snapshot ? `${displayName(node.name)} at ${stepLabel}` : undefined}
+            aria-describedby={snapshot ? "wayback-art-source" : undefined}
             style={w.canvas}
           />
           <figcaption id="wayback-art-source" ref={captionRef} className="art-source" />
-        </figure>}
+        </figure>
 
         {error ? <div style={w.error}>{error}</div> : snapshot ? (
           <>

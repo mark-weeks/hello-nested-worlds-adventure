@@ -2,8 +2,9 @@
 // so the same served node draws the same frame everywhere and nothing reads
 // the wall clock. The browser surface is stubbed with a recording 2D context.
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { ART_SOURCE, startSensory } from "../../../static/sensory.js";
 
-let startSensory, nextFrame;
+let nextFrame;
 function recordingContext(log) {
   const gradient = () => ({ addColorStop: (...a) => log.push(["stop", ...a]) });
   return new Proxy({}, {
@@ -17,7 +18,7 @@ function canvasFor(log) {
   return { width: 0, height: 0, getContext: () => recordingContext(log),
            getBoundingClientRect: () => ({ width: 320, height: 180 }) };
 }
-beforeAll(async () => {
+beforeAll(() => {
   const frames = [];
   nextFrame = () => { const pending = frames.splice(0); for (const cb of pending) cb(); };
   globalThis.requestAnimationFrame = cb => { frames.push(cb); return frames.length; };
@@ -28,7 +29,6 @@ beforeAll(async () => {
   globalThis.devicePixelRatio = 1;
   globalThis.Image = class { set src(_) {} };
   globalThis.performance = { now: () => { throw new Error("the renderer read the wall clock"); } };
-  ({ startSensory } = await import("../../../static/sensory.js"));
 });
 
 const node = { name: "Elder River Instrument-11111111", level: "Object", senses: {
@@ -45,8 +45,8 @@ function render(frames, transients = () => []) {
 
 describe("scene artwork credits", () => {
   it.each([
-    [undefined, "/media/places/gallery-v1.png", "AI-generated background, included with the game."],
-    ["https://art.example/scene.png", null, "AI-generated background for this place."],
+    [undefined, "/media/places/gallery-v1.png", ART_SOURCE.bundled],
+    ["https://art.example/scene.png", null, ART_SOURCE.generated],
   ])("credits the painted background for image URL %s and bundled plate %s", (imageUrl, plate, expected) => {
     const images = [];
     vi.stubGlobal("Image", class {
@@ -64,7 +64,7 @@ describe("scene artwork credits", () => {
     try {
       // An image still loading or one that never loads leaves the local art.
       expect(images[0].src).toBe(imageUrl || plate);
-      expect(credits).toEqual([{ text: "Scene drawn from this place’s conditions.", painted: false }]);
+      expect(credits).toEqual([{ text: ART_SOURCE.drawn, painted: false }]);
       const loaded = images[0].onload;
       loaded();
       expect(credits.at(-1)).toEqual({ text: expected, painted: true });
