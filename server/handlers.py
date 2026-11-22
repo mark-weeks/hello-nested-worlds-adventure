@@ -226,18 +226,16 @@ def _screen_voice_line(message: str, user_key: str | None, surface: str,
 
     A sincere identity question is owed its authored answer whatever the
     classifier does (AGENTS.md "No voice pretends to be human"). When the
-    hosted every-line screen holds such a line — classifier unreachable or
-    undecided, a cap or the spend ceiling — it is screened again under the
-    local-first rule and, if that passes, answered without being recorded,
-    so nothing unclassified is kept or shown to anyone else. A decline
-    stays a decline.
+    hosted every-line screen cannot judge a locally clean one — classifier
+    unreachable or undecided, a cap or the spend ceiling — the screen
+    allows it as ``unshared``: it is answered without being recorded, so
+    nothing unclassified is kept or shown to anyone else. One screen, one
+    moderation action, at most one classify attempt. A decline stays a
+    decline.
     """
     verdict = moderation.screen(message, user_key=user_key, surface=surface,
-                                shared=recorded)
-    if (not verdict.allowed and honest and recorded
-            and verdict.outcome != "block"):
-        verdict = moderation.screen(message, user_key=user_key,
-                                    surface=surface, shared=False)
+                                shared=recorded, private_fallback=honest)
+    if verdict.outcome == "unshared":
         recorded = False
     return verdict, recorded
 
@@ -1283,6 +1281,11 @@ class Handler(BaseHTTPRequestHandler):
             honest = _asks_identity(message, ai_off)
             if not honest and ai_off:
                 observability.voice_outcome("speak", "disabled")
+                if moderation.every_line_required():
+                    # Hosted: the line cannot be classified, so it is held,
+                    # as Ideas and profiles are (item 30). The quiet line
+                    # stays for a spent voice allowance after a screen.
+                    return self._send_json(moderation.http_body(moderation.AI_OFF_HOLD))
                 return self._send_json({"response": guard.QUIET_RESPONSE,
                                         "ai": False})
             node_name = str(body.get("node_name", ""))[:128]
@@ -1596,6 +1599,9 @@ class Handler(BaseHTTPRequestHandler):
         honest = _asks_identity(message, ai_off, (agent_name,) if agent_name else ())
         if not honest and ai_off:
             observability.voice_outcome("agent_voice", "disabled")
+            if moderation.every_line_required():
+                return self._send_json(moderation.http_body(
+                    moderation.AI_OFF_HOLD, agent="", persona="", node=""))
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})

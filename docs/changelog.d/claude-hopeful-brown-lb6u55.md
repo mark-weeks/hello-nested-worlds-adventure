@@ -11,15 +11,19 @@ Status: checklist entry requirement 4 evidence: safe holds for unjudged shared t
   local tier finds it clean. A clear ALLOW publishes it; BLOCK declines it; an
   undecided verdict, an unreachable classifier, a spent moderation or
   model-action cap, or the dollar ceiling holds it. With the AI kill switch on,
-  hosted Ideas and profiles are held before any charge. Chat, puzzle free text,
+  hosted Speak and agent voice answer the hold (HTTP 200, `held: true`), not
+  the quiet line, and hosted Ideas and profiles are held, all before any
+  charge. Chat, puzzle free text,
   CLI speech, names and every local world keep the local-first rule. A sincere
-  identity question is never silenced by a hold: it is answered under the
-  local-first rule and not recorded; a decline still declines. A recorded
+  identity question the classifier cannot judge is still answered, privately
+  and unrecorded, on the same single moderation action and classify attempt;
+  a decline still declines. A recorded
   hosted exchange now spends two model actions. Incident response, the
   deployment guide and the README rows for `DISABLE_AI` and
-  `MODERATION_MODEL` now say so.
-  **Verified:** `tests/test_every_line_moderation.py` 29 passed;
-  `./scripts/check.sh` exit 0 at the fragment's parent commit: Ruff clean,
+  `MODERATION_MODEL` now say so, and the metrics and `voice-health` headings
+  say which screens they count.
+  **Verified:** `tests/test_every_line_moderation.py` 32 passed (three of
+  them fail on the previous server code); `./scripts/check.sh` exit 0: Ruff clean,
   4,371 Python passed and 1 skipped, Vitest 258 of 258 in 21 files, frontend
   build and bundle freshness, installed-wheel smoke; browser E2E not run.
   **Irreversibility check:** no one-way door — no migration, no stored-row

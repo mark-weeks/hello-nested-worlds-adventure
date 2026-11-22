@@ -709,9 +709,9 @@ separately authorized production activation, naming that app explicitly.
 To restore the committed quiet posture, set the override to `1`, or unset it and
 check again. **Unsetting it restores the committed `1`; it does not enable AI.**
 Restart/redeployment reloads the frozen policy; do not edit a live file or remove
-`NESTED_WORLDS_REQUIRE_MODEL_POLICY` to bypass review. `DISABLE_AI` quiets voice
-and intention and holds hosted Ideas and published profiles without classifying
-them; chat and puzzle text can still be classified, so use the moderation kill
+`NESTED_WORLDS_REQUIRE_MODEL_POLICY` to bypass review. `DISABLE_AI` holds hosted voice
+lines (`"held":true`, not the quiet line), quiets intention, and holds hosted
+Ideas and published profiles without classifying them; chat and puzzle text can still be classified, so use the moderation kill
 switch as well when all classifier traffic must stop. Images remain unsupported regardless of their switch.
 
 **Before step 8.** Protocol 2's prerequisites apply on staging as they do

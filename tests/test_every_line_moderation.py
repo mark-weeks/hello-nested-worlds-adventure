@@ -252,11 +252,14 @@ def test_hosted_kill_switch_holds_ideas_and_profile_without_a_classify_call(
     assert status == 422 and data["held"] is True and data["error"] == moderation.PROFILE_HOLD
     assert _ideas(hosted) == [] and _published(hosted) is False
     assert _outcomes(caplog) == [("ideas", "disabled"), ("profile", "disabled")]
-    # An ordinary Speak line keeps the quiet line, unchanged.
+    # An ordinary Speak or agent line is held too, not answered quietly: the
+    # quiet line means a spent voice allowance after a screen (G3's probe).
     status, data = _speak(hosted)
-    assert status == 200 and data == {"response": guard.QUIET_RESPONSE, "ai": False}
+    assert status == 200 and data == {
+        "response": moderation.HOLD_LINE, "ai": False, "held": True}, data
     status, data = _agent(hosted)
-    assert status == 200 and data["response"] == guard.QUIET_RESPONSE and data["ai"] is False
+    assert status == 200 and data["held"] is True and data["ai"] is False, data
+    assert data["response"] == moderation.HOLD_LINE
     assert hosted.requests == []
     assert _rows(hosted, "PLAYER_SPEAK") == [] and _rows(hosted, "AGENT_VOICE") == []
 
@@ -443,3 +446,40 @@ def test_hosted_moderation_disabled_holds_identity_too(hosted, monkeypatch):
     status, data = _speak(hosted, _ASK)
     assert status == 200 and data.get("held") is True, data
     assert hosted.requests == [] and _identity_rows(hosted) == []
+
+
+def test_hosted_held_identity_question_spends_one_moderation_action(hosted, monkeypatch):
+    """With one moderation action left, an undecided identity question is
+    still answered: the fallback does not screen, or charge, a second time."""
+    monkeypatch.setenv(guard.MODERATION_ACTIONS_PER_USER_ENV, "1")
+    hosted.verdict = "UNDECIDED"
+    status, data = _speak(hosted, _ASK)
+    assert status == 200 and data == {
+        "response": honesty.place_answer(hosted.root.level), "ai": False}, data
+    assert len(hosted.classify) == 1 and _identity_rows(hosted) == []
+    # That was the last action: the next line is held at the cap, unclassified.
+    status, data = _speak(hosted, _ASK)
+    assert status == 200 and data.get("held") is True, data
+    assert len(hosted.classify) == 1
+
+
+def test_hosted_ambiguous_identity_question_gets_one_classify_attempt(hosted, monkeypatch):
+    """A locally ambiguous identity question is not privately allowed when
+    the classifier cannot judge it, and is never classified twice."""
+    monkeypatch.setenv(moderation.EXTRA_WATCH_ENV, "human")
+    assert moderation._local_tier(_ASK) == "escalate"
+    hosted.verdict = "UNDECIDED"
+    status, data = _speak(hosted, _ASK)
+    assert status == 200 and data.get("held") is True, data
+    assert len(hosted.classify) == 1 and _identity_rows(hosted) == []
+
+
+def test_unhosted_kill_switch_keeps_the_quiet_line(http, monkeypatch, accounts):
+    monkeypatch.delenv(model_policy.POLICY_ENV, raising=False)
+    monkeypatch.delenv(model_policy.REQUIRED_ENV, raising=False)
+    monkeypatch.setenv(guard.DISABLE_AI_ENV, "1")
+    root = store.world_tree(_SEED)
+    status, data = http("/speak", body={
+        "node_name": root.name, "seed": _SEED, "message": _CLEAN,
+        "player_name": "Ada"})[:2]
+    assert status == 200 and data == {"response": guard.QUIET_RESPONSE, "ai": False}

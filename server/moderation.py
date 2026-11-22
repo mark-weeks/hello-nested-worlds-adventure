@@ -153,10 +153,15 @@ def writes_shared_chronicle(seed: int) -> bool:
 class Verdict:
     allowed: bool
     tier: str  # clean | blocklist | classify | undecided | error | busy | disabled | budget | user_cap
-    outcome: str  # allow | block | undecided | error | busy | disabled | budget | user_cap
+    outcome: str  # allow | unshared | block | undecided | error | busy | disabled | budget | user_cap
 
 
 _ALLOW_CLEAN = Verdict(True, "clean", "allow")
+# A clean line allowed only on condition that it is neither stored nor shown
+# to anyone else: an identity question the hosted classifier could not judge.
+UNSHARED_CLEAN = Verdict(True, "clean", "unshared")
+# The AI kill switch on a hosted world: a shared voice line is held.
+AI_OFF_HOLD = Verdict(False, "disabled", "disabled")
 _BLOCK_LOCAL = Verdict(False, "blocklist", "block")
 
 
@@ -194,7 +199,7 @@ def _moderation_log(outcome: str, surface: str, elapsed_ms: float | None = None)
 
 
 def screen(text: str, *, user_key: str | None = None, surface: str = "shared",
-           shared: bool = True) -> Verdict:
+           shared: bool = True, private_fallback: bool = False) -> Verdict:
     """Screen player-authored text before anyone else can see it.
 
     Empty text is allowed before the kill switch, so a blank published
@@ -210,6 +215,14 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared",
     when the local tier finds it clean. ``shared=False`` is for a line the
     route will neither store nor show to anyone, such as an identity answer
     given while no voice can answer; it keeps the local-first rule.
+
+    ``private_fallback`` is for a sincere identity question, which is owed
+    its authored answer. When the hosted classifier cannot judge a locally
+    clean line (a stop, a cap, a budget, an error or an undecided verdict),
+    the line is allowed as :data:`UNSHARED_CLEAN` instead of held: the caller
+    answers it and records nothing. The moderation action is charged once
+    either way, there is at most one classify attempt, and a BLOCK, a spent
+    moderation-action cap or a locally ambiguous line still refuses.
 
     Two accepted costs on a hosted world: a Speak line is classified even
     when the voice cap is spent and the place will answer with its quiet
@@ -238,28 +251,25 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared",
         _moderation_log("disabled", surface)
         return Verdict(False, "disabled", "disabled")
     escalate = every_line or tier != "clean"
+    private = private_fallback and every_line and tier == "clean"
+
+    def held(verdict: Verdict) -> Verdict:
+        return UNSHARED_CLEAN if private else verdict
+
     from consciousness import model_dispatch, runtime
     if escalate:
         # An intentional route refusal or accounting stop sends no classify
         # request and must not spend any of the legacy call allowances.
-        try:
-            model_dispatch.preflight(runtime.MODERATION_TASK, user_key, max_tokens=32)
-        except model_dispatch.ModelControlStopped:
-            _moderation_log("control_stop", surface)
-            return Verdict(False, "control_stop", "control_stop")
-        except runtime.VoiceBudgetLimited:
-            outcome = "disabled" if model_dispatch.task_disabled(runtime.MODERATION_TASK) else "budget"
-            _moderation_log(outcome, surface)
-            return Verdict(False, outcome, outcome)
-        except (Exception, SystemExit) as exc:
-            _log.warning("moderation model preflight unavailable (%s)", type(exc).__name__)
-            _moderation_log("error", surface)
-            return Verdict(False, "error", "error")
+        stop = _preflight_stop(surface, user_key)
+        if stop is not None:
+            if not private:
+                return stop
+            escalate = False
     if not guard.consume_moderation_action(user_key):
         _moderation_log("user_cap", surface)
         return Verdict(False, "user_cap", "user_cap")
     if not escalate:
-        return _ALLOW_CLEAN
+        return UNSHARED_CLEAN if private else _ALLOW_CLEAN
 
     # A missing moderation id must not spend a model budget. generate()
     # raises the same error before its own charges. Any other failure while
@@ -269,13 +279,13 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared",
         runtime.require_model_id(runtime.model_for(runtime.MODERATION_TASK))
     except runtime.VoiceBudgetLimited:
         _moderation_log("budget", surface)
-        return Verdict(False, "budget", "budget")
+        return held(Verdict(False, "budget", "budget"))
     except Exception as exc:
         # The class only. The message can carry a pasted credential, and
         # the player text never belongs on this line.
         _log.warning("moderation model id unavailable (%s)", type(exc).__name__)
         _moderation_log("error", surface)
-        return Verdict(False, "error", "error")
+        return held(Verdict(False, "error", "error"))
 
     # Ambiguous → one classify call. The model-action cap is charged first,
     # through the same reservation generate() accepts, so a refusal does not
@@ -291,11 +301,11 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared",
         reservation = runtime.reserve_model_action(user_key)
     except runtime.ModelActionLimited:
         _moderation_log("user_cap", surface)
-        return Verdict(False, "user_cap", "user_cap")
+        return held(Verdict(False, "user_cap", "user_cap"))
     budget = guard.moderation_reserve(reservation.key)
     if budget != "ok":
         _moderation_log(budget, surface)
-        return Verdict(False, budget, budget)
+        return held(Verdict(False, budget, budget))
     started = _time.monotonic()
     try:
         import consciousness
@@ -303,21 +313,40 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared",
             text, surface=surface, user_key=reservation.key, reservation=reservation)
     except runtime.ProviderBusy:
         _moderation_log("busy", surface, (_time.monotonic() - started) * 1000.0)
-        return Verdict(False, "busy", "busy")
+        return held(Verdict(False, "busy", "busy"))
     except model_dispatch.ModelControlStopped:
         _moderation_log("control_stop", surface, (_time.monotonic() - started) * 1000.0)
-        return Verdict(False, "control_stop", "control_stop")
+        return held(Verdict(False, "control_stop", "control_stop"))
     except runtime.VoiceBudgetLimited:
         _moderation_log("budget", surface, (_time.monotonic() - started) * 1000.0)
-        return Verdict(False, "budget", "budget")
+        return held(Verdict(False, "budget", "budget"))
     except Exception:
         _moderation_log("error", surface, (_time.monotonic() - started) * 1000.0)
-        return Verdict(False, "error", "error")
+        return held(Verdict(False, "error", "error"))
     if outcome == "allow":
         return Verdict(True, "classify", "allow")
     if outcome == "block":
         return Verdict(False, "classify", "block")
-    return Verdict(False, "undecided", "undecided")
+    return held(Verdict(False, "undecided", "undecided"))
+
+
+def _preflight_stop(surface: str, user_key: str | None) -> Verdict | None:
+    """The hold for a moderation route that cannot take a call, else None."""
+    from consciousness import model_dispatch, runtime
+    try:
+        model_dispatch.preflight(runtime.MODERATION_TASK, user_key, max_tokens=32)
+    except model_dispatch.ModelControlStopped:
+        _moderation_log("control_stop", surface)
+        return Verdict(False, "control_stop", "control_stop")
+    except runtime.VoiceBudgetLimited:
+        outcome = "disabled" if model_dispatch.task_disabled(runtime.MODERATION_TASK) else "budget"
+        _moderation_log(outcome, surface)
+        return Verdict(False, outcome, outcome)
+    except (Exception, SystemExit) as exc:
+        _log.warning("moderation model preflight unavailable (%s)", type(exc).__name__)
+        _moderation_log("error", surface)
+        return Verdict(False, "error", "error")
+    return None
 
 
 def needs_model(text: str) -> bool:
