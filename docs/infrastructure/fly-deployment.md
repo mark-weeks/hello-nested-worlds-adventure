@@ -545,6 +545,73 @@ enable it; absent/empty, `0`, `false`, `off` and `no` turn temporary mode off.
 The continuing-study condition above still applies. An unknown value keeps
 participation required but not ready, so a typo cannot silently open staging.
 
+**Watch notice text (template).** For the disposable watch on
+`enfolded-staging`, the served notice is assembled from five operator values:
+the three `TEST_` secrets above (`server/participation.py`) and the community
+policy's `contact` and `backup_notice`
+([watch policy template](../development/community-reporting.md#watch-policy-template)).
+The server writes the other lines itself: the temporary-world line, shared
+history, AI travelers, and the 18-or-older limit, plus the chat-log and
+90-day report lines it derives from the policy. It shows them in this order:
+the fixed lines and the chat and report lines; "Community questions and reports:" with the policy `contact`; "Copies in
+backups are removed when those backups are deleted." followed by the
+`backup_notice`; the age limit; then "Questions or concerns:",
+"Retention and deletion, including backups:" and "Use of data and model
+providers:" with the three `TEST_` values. Each value is one line. The template
+below leaves every owner value as a named placeholder. Do not copy a
+placeholder into a secret, and do not set these until each one is filled.
+
+- **Contact.** `NESTED_WORLDS_TEST_CONTACT` and the policy `contact` are both
+  `<OWNER: contact address>`: the project address the owner reads daily, not a
+  personal inbox
+  ([O6](../roadmap/owner-decisions-2026-11-20.md#o6-notice-and-community-policy-values-item-6)).
+  The test contact names the facilitator, for example
+  "The facilitator, Enfolded's owner: `<OWNER: contact address>`".
+- **Retention.** `NESTED_WORLDS_TEST_RETENTION`, with the destroy date from
+  O6 (seven days after the last watch session: 17 December 2026 with O8's
+  sessions, 18 December if the spare day is used, 15 December if both
+  testers sit on 8 December) and the research record's deletion date from
+  protocol 2's pre-recruitment record
+  ([O17](../roadmap/owner-decisions-2026-11-20.md#o17-recruiting-admission-and-the-read-out)):
+
+  > This test world, with its private chat log and reports, will be
+  > destroyed on `<OWNER: twin destroy date>`. If a report is still open or
+  > acknowledged then, the world and the chat lines that report cites are
+  > kept until the operator closes it, and the world is destroyed after that.
+  > Reports are kept for 90 days from when they are made, or until the world
+  > is destroyed if that comes first; an open report, and the lines it cites,
+  > are kept until it is closed. Closing a report does not restart its 90
+  > days and does not delete the lines it cited. To delete your chat messages
+  > or leave the study at any time, write to `<OWNER: contact address>`. The
+  > facilitator's research notes and the record of your acknowledgement are
+  > kept privately, without your chat or reports, and deleted on
+  > `<OWNER: research record deletion date>`. Backup copies are removed when
+  > those backups are deleted, as the backup statement above says.
+
+- **Data use.** `NESTED_WORLDS_TEST_DATA_USE` is the owner's signed data-use
+  note, as its row in the table above says. For the AI-on watch it names the
+  provider, `<OWNER: provider name>`, and says that tester text is sent to it
+  only to run the game and is not used to train models. This template does not
+  write that sentence. O14 adds a line about error reports to Sentry (item 13);
+  that line is also the owner's.
+- **Backup copies.** The policy `backup_notice` is O6's adopted wording, in
+  the [watch policy template](../development/community-reporting.md#watch-policy-template).
+  It covers the private bucket, which keeps copies until the operator deletes
+  them after the world is destroyed, with no deletion date promised; the
+  host's own disk snapshots, kept for about five days; and any copy the
+  operator downloaded. Neither statement gives a backup age or a deletion date
+  until the bucket's
+  [erasure check](backup-bucket.md#erasure-check) is recorded
+  ([O6](../roadmap/owner-decisions-2026-11-20.md#o6-notice-and-community-policy-values-item-6),
+  [item 12](../roadmap/owner-decisions-2026-11-18.md#2-adopted-answers)).
+- **Testers and dates.** `<OWNER: tester names/dates>` goes in the restricted
+  research record (protocol 2), never in a secret: every tester reads the same
+  notice. The session dates are
+  [O8](../roadmap/owner-decisions-2026-11-20.md#o8-people-and-dates)'s.
+
+Filling these values changes the notice revision. Every tester, and the check
+identity, acknowledges the new revision before play.
+
 Fly's [secrets documentation](https://docs.fly.io/apps/secrets) documents
 `--stage` as deferring machine updates until a later deploy. That contract was
 checked on 2026-11-10 for step 4's ordering; this batch did not run a live Fly
@@ -974,24 +1041,131 @@ with step 5's check-key line under a new one-word name each time, for
 example `Stagingcheck2`, then `Stagingcheck3`. A revoked name stays taken,
 so step 5's line as written mints nothing once step 7 has revoked
 `Stagingcheck`. Never use a tester's key, and revoke the check key after the
-probe, as step 7 does. Then:
+probe, as step 7 does.
+
+**When.** The twin is destroyed on the destroy date in its notice (seven days
+after the last watch session,
+[O6](../roadmap/owner-decisions-2026-11-20.md#o6-notice-and-community-policy-values-item-6)),
+and only once every report from the watch is closed
+([item 5](../roadmap/owner-decisions-2026-11-18.md#2-adopted-answers)). An
+open or acknowledged report holds the twin, with the chat lines it cites,
+until the owner closes it; exporting a report does not keep that evidence, and
+no tool moves a case elsewhere. Both queues must be empty first:
 
 ```bash
-# 1. Revoke the deploy token, in case destroying the app does not.
-#    (The exact subcommand and its arguments were not verified; check
-#    fly tokens --help.)
-fly tokens list -a enfolded-staging
-fly tokens revoke <token-id>
-
-# 2. Destroy the app.
-fly apps destroy enfolded-staging --yes
+fly ssh console -a enfolded-staging -C "python main.py report list"
+fly ssh console -a enfolded-staging -C "python main.py report list --state acknowledged"
 ```
+
+Take what the research record needs before this point (the
+[watch kit](../evaluation/2026-11-02-newcomer-watch-kit.md#after-the-watch-twin),
+"After the watch, twin"). Then, in this order:
+
+1. **Retire the twin's backup schedule** after its final snapshot
+   ([O14](../roadmap/owner-decisions-2026-11-20.md#o14-observability-and-alerts-items-11-13);
+   [bucket runbook](backup-bucket.md#retiring-the-twins-backup-schedule)).
+   Stopping the outside dispatcher is not enough: `backup.yml` also runs on
+   its own cron at :17 and :47 each hour, and with
+   `ENFOLDED_BACKUP_REQUIRED=true` every later run fails.
+   1. Stop the external dispatcher.
+   2. Disable the "Off-host backup" workflow (Actions → Off-host backup →
+      Disable workflow, or `gh workflow disable backup.yml`).
+   3. Delete the `ENFOLDED_BACKUP_REQUIRED` and `ENFOLDED_BACKUP_APP`
+      repository variables. Unset, `ENFOLDED_BACKUP_APP` falls back to
+      `enfolded-beta`, so nothing may be left that could aim a staging token
+      at production.
+   4. Revoke the backup Fly token (`fly tokens list -a enfolded-staging`, then
+      `fly tokens revoke` with its id) and delete the `BACKUP_FLY_SSH_TOKEN`
+      secret from the `backup` environment.
+   5. Pause or delete the twin's heartbeat monitor. The external uptime check
+      on `/guide` (§8) alerts once the app is gone, so pause it as well.
+2. **Revoke the deploy token and destroy the app.**
+
+   ```bash
+   # Revoke the deploy token, in case destroying the app does not.
+   # (The exact subcommand and its arguments were not verified; check
+   # fly tokens --help.)
+   fly tokens list -a enfolded-staging
+   fly tokens revoke <token-id>
+
+   # Destroy the app. Its volume, with the private chat log, reports and
+   # the /data/backups copies, is expected to go with it (not verified from
+   # this session). Fly's own volume snapshots are covered in step 5.
+   fly apps destroy enfolded-staging --yes
+   ```
 
 3. Delete the `staging` environment's `FLY_API_TOKEN_STAGING` secret, or the
    whole environment. Without it the workflow stops at its token step and
    deploys nothing.
 4. Revoke the staging provider key (step 6) in the provider's console, and
    archive any workspace made for staging.
+5. **Remove the twin's off-host snapshots by hand**
+   ([item 12](../roadmap/owner-decisions-2026-11-18.md#2-adopted-answers)).
+   The workflow prunes only the app it is backing up and always keeps that
+   app's newest copy, so after step 1 nothing prunes the twin's objects. They
+   hold private chat and reports. Wait until the 7-day bucket lock allows a
+   delete of the newest object; `<OWNER: bucket versioning and what the 7-day
+   delete lock counts from>`. O7 adopts no versioning and counts the lock from
+   each object's upload; neither has been tried against the bucket. From a
+   shell with the write key, the bucket and the endpoint, outside the
+   checkout. `<cutoff>` is a UTC stamp (`YYYYMMDDTHHMMSSZ`) taken after the
+   schedule stopped and not in the future; `<kept-key>` is the `key` that
+   the first `backup_health.py` run prints, the twin's newest validated
+   object (it reports `"status": "stale"` once the schedule has stopped, and
+   exits nonzero):
+
+   ```bash
+   python scripts/backup_health.py --app enfolded-staging
+   python scripts/backup_store.py delete-before --app enfolded-staging --before <cutoff> --dry-run
+   python scripts/backup_store.py delete-before --app enfolded-staging --before <cutoff>
+   python scripts/backup_store.py delete --app enfolded-staging --key <kept-key>
+   python scripts/backup_store.py delete-before --app enfolded-staging --before <cutoff> --dry-run
+   python scripts/backup_health.py --app enfolded-staging
+   ```
+
+   `delete-before` removes every validated and quarantine object at or
+   before `<cutoff>` except the newest validated one, which it always keeps;
+   `delete` then removes that one by name. The last dry run must print
+   "No matching backup objects." and the health check must report
+   `"status": "missing"` (it exits nonzero). A lock still in force refuses a
+   delete; wait and run it again.
+
+   These commands delete objects by key. That is not erasure: on a bucket
+   that keeps object versions, a delete by key hides an object and leaves its
+   versions retrievable. Do not call this step erasure, and promise no backup
+   deletion date in any notice, until the bucket's
+   [erasure check](backup-bucket.md#erasure-check) is recorded (O7). O7's
+   37-day lifecycle rule on `offhost/` is an operator backstop, not a
+   promise. Fly's own volume snapshots, about five days, and how long they
+   outlive a destroyed app, are not controlled by these commands and were not
+   checked. Any copy downloaded for testing is deleted by the operator who
+   made it. Once no backup that holds the twin's chat can be restored, the
+   private deletion-ledger exports for the twin
+   ([community guide](../development/community-reporting.md#retention-and-backups))
+   have nothing left to protect and may be deleted too.
+
+**Re-arming backups for production** is a separate owner act, in the order O14
+gives ([bucket runbook](backup-bucket.md#re-arming-production-backups)). A
+manual dispatch snapshots the running app over `flyctl ssh`, so no production
+object can exist before the first production deploy.
+
+- Before the first production boot:
+  1. Store the production Fly SSH token and the bucket secrets in the
+     protected `backup` environment.
+  2. Leave `ENFOLDED_BACKUP_APP` unset, or set it to `enfolded-beta`.
+  3. Re-enable the "Off-host backup" workflow.
+  4. Retarget the external dispatcher to production, and leave it paused.
+
+  The pre-boot recovery evidence is the staging restore (§7).
+- After the first production deploy, before any invitation:
+  1. Run one manual dispatch from `main` and confirm that a validated
+     production snapshot is stored, not a quarantined one.
+  2. Only then set `ENFOLDED_BACKUP_REQUIRED=true`.
+  3. Enable the external dispatcher. GitHub's own schedule alone has shown
+     five-hour gaps against the one-hour bound.
+  4. Confirm that successive validated production snapshots meet the
+     one-hour bound, from the store's own listing (§8).
+  5. Point a new heartbeat monitor at production.
 
 Fix what the rehearsal surfaces and prepare the retained/cohort rollout for
 separate owner instruction before running §3 against a production app.

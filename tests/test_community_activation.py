@@ -10,11 +10,13 @@ import uuid
 import pytest
 
 import consciousness
+import main
 from consciousness import model_check, model_policy
 import persistence
-from persistence import community
+from persistence import community, participants
 import server
-from server import community_policy, guard, heartbeat, observability, websocket
+from server import block_targets, community_policy, guard, heartbeat, observability, websocket
+from tests import watch_policy_template as template
 
 
 _PRIVATE = "private chat, report detail or credential in an exception"
@@ -219,3 +221,61 @@ def test_stopping_retention_interrupts_the_idle_wait_without_a_cleanup_tick():
     stopped.set()
     worker.join(timeout=1)
     assert not worker.is_alive() and calls == []
+
+
+# The watch template, activated the way O12 orders it: offline check, the
+# environment variable, a restart, then GET /community against the checked
+# revision. The template and its backup wording are read from the guide.
+
+@pytest.fixture
+def watch_template_policy(tmp_path, monkeypatch, capsys):
+    path = template.write_filled(tmp_path)
+    main.main(["community-policy", "--check", "--policy", str(path)])
+    checked = json.loads(capsys.readouterr().out)
+    assert checked["activated"] is checked["database_opened"] is checked["live_calls"] is False
+    assert not community_policy.chat_enabled() and not community_policy.reports_enabled()
+    community_policy.reset_for_tests()
+    monkeypatch.setenv(community_policy.POLICY_ENV, str(path))
+    return checked["configuration"]
+
+
+def test_activated_watch_template_serves_its_checked_revision_and_takes_a_report(
+        watch_template_policy, http, accounts):
+    assert watch_template_policy["chat_retention_mode"] == "until_deleted"
+    assert watch_template_policy["report_retention_days"] == 90
+    status, served, _ = http("/community", key="")
+    assert status == 200
+    assert served["revision"] == watch_template_policy["revision"]
+    assert served["chat"]["enabled"] is True and served["chat"]["retention_mode"] == "until_deleted"
+    assert served["chat"]["retention_days"] is None
+    assert served["reports"]["enabled"] is True and served["reports"]["retention_days"] == 90
+    assert served["contact"] == template.TEST_CONTACT
+    assert served["backup_notice"] == template.backup_wording()
+
+    status, notice, _ = http("/participation", key="")
+    assert status == 200 and notice["required"] is True and notice["ready"] is True
+    assert any(line.endswith("Backup copies and deletion: " + template.backup_wording())
+               for line in notice["paragraphs"])
+
+    reporter, target = (participants.identify(key) for key in accounts)
+    status, receipt, _ = http("/reports", body={
+        "request_id": str(uuid.uuid4()), "evidence_ref": None, "reason": "other",
+        "participant": block_targets.handle(reporter["id"], target["id"]),
+        "detail": "Synthetic watch-template report."})
+    assert status == 200 and receipt["status"] == "received"
+    stored = community.show_report(receipt["report_id"])
+    assert stored["status"] == "open" and stored["retention_days"] == 90
+    created, expires = (datetime.fromisoformat(stored[name].replace("Z", "+00:00"))
+                        for name in ("created_at", "expires_at"))
+    assert expires - created == timedelta(days=90)
+
+
+def test_watch_template_chat_line_is_kept_until_deleted(watch_template_policy, accounts):
+    declared = community_policy.current()
+    assert community_policy.chat_enabled()
+    line = community.append_chat(
+        user_key=accounts[0], session_id=uuid.uuid4().hex, world_seed=382,
+        node_name="Synthetic place", text="Synthetic watch line.", display_name="Ada",
+        retention_days=declared.chat_days, retention_mode=declared.chat_retention_mode,
+        policy_snapshot=declared.snapshot_json)
+    assert line["expires_at"] is None

@@ -14,10 +14,45 @@ on the twin itself, which needs the held Fly account (checklist F1), and on
 the research basics that protocol 2 requires before anyone is approached
 (facilitator, observation dates, devices, client, consent wording, and the
 retention and deletion date: [protocol 2](2026-09-12-pilot-protocol.md),
-"Scope and venue"). The watch runs in per-scale silence, with no provider
-key, until the owner signs off the named provider's L4 data use note (voice
-mode below). This kit recruits nobody, deploys nothing and promises no
+"Scope and venue"). The watch runs with AI on, through the controlled
+`openai_compatible` route, once its gates hold (2026-11-22 update below; voice
+mode, item 3). This kit recruits nobody, deploys nothing and promises no
 persistence.
+
+**2026-11-22 update (C2).** The owner decisions of
+[18 November](../roadmap/owner-decisions-2026-11-18.md) and
+[20 November](../roadmap/owner-decisions-2026-11-20.md) settle what this kit
+left open. This update supersedes the earlier text below wherever they differ;
+the dated notes that follow it are kept as history.
+
+- **Voice: AI on** (D-A, item 3). Place voices, agent voices, free-text
+  intentions and moderation run live through the controlled
+  `openai_compatible` Chat Completions route, not in per-scale silence and not
+  through the Anthropic adapter, which controlled mode refuses. The
+  [controlled model policy guide](../development/model-policy.md) governs the
+  policy file and its gates; G1's
+  [endpoint check](2026-11-20-chat-completions-endpoint-check.md) recommends
+  OpenAI's Chat Completions endpoint. The owner's data-use note for that
+  endpoint is **not yet signed** ("Decide before session one", item 3).
+- **Honesty.** The honesty rule exists: asked sincerely, an agent or a place
+  says plainly that it is an AI, with AI on or off (`consciousness/honesty.py`;
+  AGENTS.md, "No voice pretends to be human"). The facilitator script now
+  says so.
+- **Venue and dates** (item 5, O8). The Fly staging twin, `enfolded-staging`.
+  Sessions on Tuesday 8 December 2026 (two testers overlapping, so chat,
+  co-solving and Report are exercised once, item 4) and Thursday
+  10 December (a third tester, if there is one); Friday 11 December is spare.
+  If G3 has not merged by Wednesday 2 December, the 8 December session moves
+  to the 10 and 11 December slots. Read-out on Monday 14 December.
+- **Chat and Report on** (item 4), under the
+  [watch policy template](../development/community-reporting.md#watch-policy-template).
+- **Invitations and admission** follow O17 ("Inviting testers" below).
+- **Teardown** (items 5 and 12, O14) is rewritten in "After the watch, twin"
+  and in the runbook's
+  [Teardown before launch](../infrastructure/fly-deployment.md#teardown-before-launch).
+- **Scrub.** The archive scrub now also removes the private chat log, report
+  text and report notes, which schema 33 added; the copy kept for research
+  holds neither.
 
 **2026-11-10 review update:** An owner-requested review of this kit at
 `7eb5bc9` changed it as follows.
@@ -140,11 +175,12 @@ deleted on the stated date.
 
 ## Decide before session one
 
-1. **Venue.** The Fly staging twin is preferred (2026-11-07). Falling back
-   to the local world is a judgement the facilitator records, best confirmed
-   with the owner first: for example, when the twin cannot be up in time for
-   an expedited watch because the Fly account (F1) is still held. Record the
-   venue and the reason in the research basics.
+1. **Venue.** Decided: the Fly staging twin, `enfolded-staging`, on the dates
+   in [O8](../roadmap/owner-decisions-2026-11-20.md#o8-people-and-dates)
+   (2026-11-22 update above). The owner is lead, facilitator and operator
+   (item 5). The local fallback cannot run the AI-on watch (item 3), so
+   moving to it is the owner's decision, not the facilitator's. Record the
+   venue in the research basics.
 2. **Research basics.** Recorded in the restricted research record
    (`docs/evaluation/2026-09-12-pilot-protocol.md:41-45`): facilitator,
    dates, each tester's device and browser (on the twin) or the machine and
@@ -153,106 +189,45 @@ deleted on the stated date.
    the deletion date. On the twin, also record the commit it runs and what
    else ran on it before the watch (check names, any soak or probe), because
    their traces stay in the shared world.
-3. **Voice mode.** Per-scale silence unless the owner has signed off live
-   voice. Record the mode in the research basics.
-   - *Live voice*, which the owner's 2026-11-07 policy may permit
-     (*inferred*). The policy is a test a provider must pass, not an
-     allowlist (checklist S2 is still Partial), and ADR-034 §5 requires a
-     scoped decision for each new data destination. So no tester's text goes
-     to a provider until the owner has signed off that named provider's L4
-     data use note: the sign-off is the owner's scoped decision (proposed in
-     packet decision 10, awaiting the owner's acceptance). The operator
-     prepares the note: (a) reads the configured provider's current terms
-     for API inputs, checks them against both sentences of the policy,
-     records them, with what they say about training and the provider's
-     retention and deletion terms, in the research basics, and writes the
-     provider's L4 data use note from them (the session that wrote this kit
-     could not open them); if the terms let Enfolded data train a model that
-     is not plainly a frontier model, the note says so for the owner (packet
-     decision 10, still open); (b) confirms that the Enfolded provider
-     account is in no training or data-sharing programme; (c) submits no
-     feedback that contains Enfolded data; and (d) checks the consent line's
-     training clause (facilitator script) against the recorded terms. Items
-     (b) and (c) follow operating rules proposed in packet decision 10,
-     which await the owner's acceptance. Then the owner signs the note off,
-     or does not. With the sign-off recorded, use the default adapter:
-     leave `NESTED_WORLDS_PROVIDER` unset
-     (`consciousness/runtime.py:48-49`, `consciousness/runtime.py:595-596`),
-     and on a build with #153 the four per-task provider variables too, so no
-     `openai_compatible` base URL, which has not been checked against the
-     policy, receives player text. On such a build `main.py models` must show
-     `provider=anthropic provider_source=default` on every task row; a set
-     task variable shows `provider_source=task env` (executed at `3200eed` on
-     a scratch `HOME`, 2026-11-07).
-     Those rows name the adapter, not the address it sends to. The default
-     adapter builds the SDK client with no arguments
-     (`consciousness/anthropic_provider.py:188-193`), so the pinned SDK
-     (anthropic 0.120.2, `requirements.lock:7`) sends every call to
-     `ANTHROPIC_BASE_URL` when it is set, and otherwise, when no API key or
-     bearer token is set, to any `base_url` in the profile config that
-     `ANTHROPIC_PROFILE` or `ANTHROPIC_CONFIG_DIR` selects
-     (`anthropic/_client.py:224-232`, `anthropic/_client.py:261-267`). The
-     operator's checks above test the default provider's terms against the
-     owner's 2026-11-07 policy; a gateway at another address receives the
-     same player text under terms nobody has checked. So, before the live
-     credential is set, unset `ANTHROPIC_BASE_URL`, and with it
-     `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL`
-     (`consciousness/openai_compat_provider.py:55`), which only a task routed
-     to `openai_compatible` uses, a routing the rows above rule out. Then
-     confirm the destination where the server runs:
-     `.venv/bin/python -c 'import anthropic; print(anthropic.Anthropic().base_url)'`
-     must print `https://api.anthropic.com`. Executed at `7762bb4` on a
-     scratch `HOME`, 2026-11-07, with a placeholder key and no request sent:
-     with `ANTHROPIC_BASE_URL` set to a test address, `main.py models`
-     printed the same four `provider=anthropic provider_source=default` rows
-     as without it, and the probe printed the test address; with a scratch
-     profile whose config named a `base_url` and no key, the probe printed
-     that address; with `ANTHROPIC_API_KEY` also set, it printed
-     `https://api.anthropic.com`.
-     A participant's words to places and inhabitants, and chat lines at a
-     node, are quoted into later prompts to the provider
-     (`consciousness/__init__.py:870-875`). An intention they describe in Act
-     is sent to the provider to be read
-     (`consciousness/interventions.py:57-81`). Any shared text the local
-     screen cannot clear goes to the provider's classifier
-     (`server/moderation.py:190-236`), from every screened surface: chat
-     lines (`server/websocket.py:621-622`), words to places and inhabitants
-     (`server/handlers.py:1238-1239`, `server/handlers.py:1515-1516`), an
-     incorrect puzzle guess the attempt will store
-     (`server/handlers.py:2063-2066`), Ideas submissions
-     (`server/ideas_api.py:80`), and profile text saved as published
-     (`server/participant_api.py:33-37`). Disclose all of these in consent.
-     The provider keeps its own copies under its own terms, which deleting
-     the world and the research archive does not reach. Set low caps on
-     every text-model budget the session can spend: voice and intention with
-     `NESTED_WORLDS_VOICE_DAILY_CALLS` and
-     `NESTED_WORLDS_VOICE_DAILY_CALLS_PER_USER` (`server/guard.py:55`,
-     `server/guard.py:64`; the legacy names
-     `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` and
-     `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER`, `server/guard.py:57`
-     and `server/guard.py:66`, are still read, and when a neutral and a
-     legacy value disagree the lower holds, `server/guard.py:909-920`), and
-     classifier calls with
-     `NESTED_WORLDS_MODERATION_DAILY_CALLS` and
-     `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER`, whose defaults are
-     2,000 and 60 a day (`server/guard.py:102-108`). Record the values.
-   - *Per-scale silence* (no provider): the default, and the mode for every
-     session until the owner has signed off the provider's L4 note. No provider
-     credential is in the server's environment, no provider variable is set
-     (on a build with #153, none of the four per-task ones either), and
-     `NESTED_WORLDS_DISABLE_AI` is unset. A place answers its scale's
-     authored line of silence with `"ai": false`
-     (`server/handlers.py:1244-1248`, `consciousness/__init__.py:742-797`),
-     an addressed agent answers that it does not answer
-     (`server/handlers.py:1521-1524`, `server/handlers.py:1451-1462`), and an
-     Act intention the local parser cannot read gets the authored "clearer
-     shape" line (`server/intervention_api.py:34-37`). Speak can then be
-     observed as an action, not as a conversation. The classifier cannot
-     run, so a chat line or other shared text that the local screen cannot
-     clear is held in fiction (setup facts in the fallback below). Do not use
-     `NESTED_WORLDS_DISABLE_AI=1` for the watch: its line, "The worlds are
-     quiet today. Try again tomorrow." (`server/handlers.py:1207-1210`,
-     `server/guard.py:1193`), tells a newcomer to leave.
+3. **Voice mode: AI on** (owner decision D-A,
+   [18 November item 3](../roadmap/owner-decisions-2026-11-18.md#2-adopted-answers)).
+   Place voices, agent voices, free-text intentions and moderation run live
+   through the controlled `openai_compatible` Chat Completions route. It is
+   the only transport controlled mode dispatches; it refuses the Anthropic
+   adapter, direct probes and images. The
+   [controlled model policy guide](../development/model-policy.md) is the
+   source for the policy file, its offline check, the kill switches, the call
+   caps and the dollar ceilings, and the runbook's
+   ["Approved live controlled text"](../infrastructure/fly-deployment.md#approved-live-controlled-text)
+   for turning it on; this kit does not restate them. G1's
+   [endpoint check](2026-11-20-chat-completions-endpoint-check.md) recommends
+   OpenAI's Chat Completions endpoint and lists what the data-use note must
+   cover. As of 2026-11-22 these gates are open:
+   - the owner's data-use note for that one account and endpoint is **not
+     signed** (O3); no tester's text goes to a provider before it is;
+   - the private policy file is not filled or checked, and the $150 limit on
+     the provider account is not recorded;
+   - ADR-035 stays Proposed. G3's live success, hold and failure probes on the
+     twin are the evidence for the owner's acceptance; G3 has not merged.
+
+   Until every gate holds, the twin stays all-off, with both kill switches at
+   1, and no tester is admitted
+   ([O17](../roadmap/owner-decisions-2026-11-20.md#o17-recruiting-admission-and-the-read-out)).
+   If the accounting stop latches during the watch, the live routes stay off:
+   voices fall silent and shared lines the local screen cannot clear are held.
+   A restart or a re-created twin is not a clear. O9 adopts a documented hand
+   clear for the twin, run only after a fresh backup; that procedure (G2) has
+   not merged, so until it has, a latch ends the AI-on watch (item 3). Record
+   in the research basics the endpoint, the policy revision, the deployed
+   commit, and any latch with its time.
+
+   What reaches the provider, and what never does, is the data-use note's
+   list (G1's record, "Recommendation"): words to places and inhabitants,
+   free-text intentions, shared text the local screen sends for
+   classification, and world content in prompts. Report text, private
+   journal notes and unpublished profile text are never sent. The provider
+   keeps its own copies under its own terms, which destroying the twin does
+   not reach.
 4. **Images.** Keep the image key (`FAL_KEY`, `server/handlers.py:1402`) off
    the twin for this watch, as the local setup does: no image provider's L4
    note is written, and none is signed off. On the twin, "Before the first
@@ -264,7 +239,9 @@ deleted on the stated date.
    properties, which are Enfolded data, so the policy applies to the image
    provider as it does to the text provider (packet decision 10). If its
    terms let prompts train an image model, that is the owner's open question
-   in decision 10.
+   in decision 10. Controlled mode refuses images even with a key, and the
+   twin keeps `NESTED_WORLDS_DISABLE_IMAGES=1`
+   ([O12](../roadmap/owner-decisions-2026-11-20.md#o12-deploy-time-steps-on-the-twin)).
 5. **Display names.** The facilitator assigns each participant a neutral world
    name: not their real name, not their P-code, not one of the twelve cast
    names (`consciousness/__init__.py:309-313`), and not Observer or Scout,
@@ -325,36 +302,32 @@ this documentation batch.
 
 ### Bringing the twin up for this watch
 
-Runbook section 3a, as it reads on `main`, sets `ANTHROPIC_API_KEY` ("+
-FAL_KEY / SENTRY_DSN as desired") before the first deploy, and then runs the
-section 8 live-voice probe. A live answer is built from the place's world
-content, so the probe sends Enfolded data to the provider before any L4 data
-use note exists, and none does yet (checklist L4). For this watch:
+Runbook section 3a brings the twin up all-off: both external kill switches at
+1, no provider credential, and a frozen all-off model policy. The earlier
+version of this section, which kept `ANTHROPIC_API_KEY` off the twin, is
+superseded; that adapter is refused in controlled mode. For this watch:
 
-- Bring the twin up with no provider key: leave out `ANTHROPIC_API_KEY` and
-  `FAL_KEY` from section 3a's `fly secrets set`, and skip the live-voice
-  probe.
-- Set `ANTHROPIC_API_KEY` only after the provider's L4 note is written, and
-  for a session with testers only after the owner has signed that note off
-  (voice mode, item 3 of "Decide before session one"). Checklist F1's exit
-  criterion includes `/speak` answering `"ai": true`, so F1 cannot close
-  before the key is set.
+- Bring the twin up as section 3a says, through step 7's all-off checks, and
+  install the community policy from the
+  [watch policy template](../development/community-reporting.md#watch-policy-template).
+- Turn AI on only through the runbook's
+  ["Approved live controlled text"](../infrastructure/fly-deployment.md#approved-live-controlled-text),
+  after the gates in item 3 of "Decide before session one" hold. O12's
+  deploy-time steps, due by Thursday 3 December, install both policy files in
+  one secrets change and check `GET /community`, `GET /participation` and the
+  live `"ai": true` probe with the check key
+  ([O12](../roadmap/owner-decisions-2026-11-20.md#o12-deploy-time-steps-on-the-twin)).
 - Never set `FAL_KEY` for this watch (item 4); step 5 below checks that it
   is absent.
-- Section 3a also offers `SENTRY_DSN`. Whether the twin reports errors to
-  Sentry during a watch is an open observability question for the owner:
-  the pinned sentry-sdk 2.66.1 (`requirements.lock:19`) defaults
-  `include_local_variables` to true and `server/observability.py:58-63`
-  does not change it, so the local variables on an unhandled error, which
-  can hold a tester's text, would reach Sentry; leave `SENTRY_DSN` unset for
-  the watch unless the owner decides otherwise.
-
-Open PR #157 (branch `claude/staging-deploy-workflow`) rewrites section 3a
-in the same direction: it moves the provider terms check ahead of the step
-that sets the key, probes the live voice with its own one-word check key
-(`Stagingcheck`), which it revokes before testers arrive, and adds
-`node_name` to the probe's body. This kit does not edit the runbook. Under
-either text, the order above holds for this watch.
+- Sentry is on for the twin with `SENTRY_ENVIRONMENT=staging` and frame
+  locals off, and the notice says so
+  ([O14](../roadmap/owner-decisions-2026-11-20.md#o14-observability-and-alerts-items-11-13)).
+  Follow the runbook's "Sentry environment" check before setting
+  `SENTRY_DSN`.
+- Off-host backups of the twin run before any tester arrives, under the
+  [bucket runbook](../infrastructure/backup-bucket.md), with
+  `ENFOLDED_BACKUP_APP=enfolded-staging`
+  ([O7](../roadmap/owner-decisions-2026-11-20.md#o7-backup-bucket-lifecycle-and-the-delete-lock-items-11-12)).
 
 ### Before the first session (operator)
 
@@ -366,49 +339,38 @@ playbook and the backup workflow do (`docs/infrastructure/incident-response.md:4
 1. Confirm the twin answers: `curl -s https://<staging app>.fly.dev/health`
    returns `{"status": "ok"}` (runbook section 4, "Smoke test").
    Record the commit it was deployed from.
-2. Set the voice mode. Per-scale silence, the default: no provider secret
-   on the app (`fly secrets unset -a enfolded-staging ANTHROPIC_API_KEY` if
-   the rehearsal set one under runbook section 3a). Live voice, only after
-   the owner has signed off the provider's L4 note (item 3 in "Decide
-   before session one"):
-   `ANTHROPIC_BASE_URL` and `NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL` are
-   unset before the key is set (`fly secrets unset -a enfolded-staging
-   <name>` for either one a secret sets; the `[env]` block in `fly.toml`
-   sets neither, `fly.toml:18-23`); the key is set as `ANTHROPIC_API_KEY`;
-   `NESTED_WORLDS_PROVIDER`, `NESTED_WORLDS_DISABLE_AI` and, on a build with
-   #153, the four per-task provider variables are unset; and the low caps
-   are set with `fly secrets set -a enfolded-staging …`. Either
-   way, if `FAL_KEY` is set, run `fly secrets unset -a enfolded-staging
-   FAL_KEY` (item 4 there).
+2. Confirm the voice mode the research basics record. With AI on, the
+   runbook's "Approved live controlled text" checks have passed on the
+   deployed commit: `printenv NESTED_WORLDS_DISABLE_AI` prints `0` and
+   `python main.py models` shows the controlled routes (O12, steps 3 and 4).
+   Before the gates in item 3 hold, both kill switches stay at 1 and no
+   tester is admitted. Either way, if `FAL_KEY` is set, run
+   `fly secrets unset -a enfolded-staging FAL_KEY` (item 4 there).
 3. Mint a check key under a one-word check name:
    `fly ssh console -a enfolded-staging -C "python main.py invite mint --name Watchcheck"`.
    `-C` is split into words and run without a shell (`scripts/deploy.sh:22`),
    so keep the name to one word.
 4. Gate: `curl -s -o /dev/null -w '%{http_code}\n' https://<staging app>.fly.dev/worlds`
-   returns `403`, and the same request with `-H "X-Beta-Key: $KEY"` returns
-   `200`.
-5. Voice: `fly ssh console -a enfolded-staging -C "python main.py models"`
-   prints `provider not configured` in per-scale silence and does not in
-   live voice (`main.py:428-436`). On a build with #153, every task row must
-   also show `provider=anthropic provider_source=default`. Those rows read
-   the same with a gateway set, so in live voice also run
-   `fly ssh console -a enfolded-staging -C "printenv ANTHROPIC_BASE_URL NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL"`,
-   which must print nothing. With `ANTHROPIC_API_KEY` as the credential the
-   SDK reads no profile's `base_url` (`anthropic/_client.py:261`), and
-   `ANTHROPIC_BASE_URL` is the only address it reads from the environment
-   (`anthropic/_client.py:224-225`), so these two are the address settings
-   left to check. Executed locally on 2026-11-07: `printenv` printed nothing
-   with both unset and the address with one set. Then send the
-   `/speak` request in the pre-session check below to
-   `https://<staging app>.fly.dev/speak`: live
-   voice must answer `"ai": true`; per-scale silence answers the place's
-   scale line with `"ai": false`. In live voice,
-   `fly ssh console -a enfolded-staging -C "python main.py voice-health"`
-   shows the day's answered lines and budget use (runbook section 8). In
-   either mode, `fly secrets list -a enfolded-staging` lists the app's
-   secret names, not their values (Fly's output is unverified here): it
-   must not list `FAL_KEY`, and in per-scale silence it must not list
-   `ANTHROPIC_API_KEY`. Record only the names.
+   returns `403`. The same request with `-H "X-Beta-Key: $KEY"` returns
+   `428` until the check identity has acknowledged the current notice: open
+   its share URL yourself and acknowledge it, as runbook section 3a step 7
+   does, never on a tester's behalf. Then it returns `200`.
+5. Voice and collection. Run
+   `fly ssh console -a enfolded-staging -C "python main.py voice-health"`,
+   which reports the five route states, ledger availability, any durable
+   stop and unresolved reservations, and exits nonzero on a stopped or
+   invalid control state
+   ([controlled model policy guide](../development/model-policy.md); it
+   refuses `--probe` in controlled mode). Confirm that `GET /community`
+   reports chat and reports enabled with the installed policy's revision,
+   and that `GET /participation` reports
+   `required: true` and `ready: true`
+   ([watch policy template](../development/community-reporting.md#activating-the-template-on-the-twin)).
+   Then send the `/speak` request in the pre-session check below to
+   `https://<staging app>.fly.dev/speak` with the check key: with AI on it
+   must answer `"ai": true`. `fly secrets list -a enfolded-staging` lists the
+   app's secret names, not their values (Fly's output is unverified here): it
+   must not list `FAL_KEY`. Record only the names.
 
 ### Pre-session check, twin
 
@@ -421,16 +383,19 @@ On a device of the facilitator's, never a tester's, with the check key:
 2. Commit one Act and see its pending or arrived state.
 3. Open the journal and save a note containing a marker word, such as
    `checkmarker`.
-4. Send `Hello there` in chat; it appears under the check name. In
-   per-scale silence, also send `Check 1234567`: it must be held, as in the
-   fallback's step 6.
+4. Send `Hello there` in chat; it appears under the check name. A chat line
+   is kept in the private log, which the teardown destroys with the twin.
+   Do not file a report from the check identity: an open report holds the
+   twin (item 5).
 5. Bookmark the page, open the bookmark in a private window, and record
    what this build shows there. Then open the check share URL in that
    window: it returns to the saved place.
 6. Run "After the watch, twin" steps 1 and 2 on this check world (step 1
    moves into its own scratch directory outside the checkout), but do not
-   move the copy to the restricted store. `grep -c checkmarker ./watch-raw.db` on the
-   scrubbed copy must print `0`; then delete the copy and its directory.
+   move the copy to the restricted store. On the scrubbed copy,
+   `grep -c checkmarker ./watch-raw.db` and
+   `grep -c 'Hello there' ./watch-raw.db` must each print `0`; then delete
+   the copy and its directory.
 7. Revoke the check key:
    `fly ssh console -a enfolded-staging -C "python main.py invite revoke <key>"`
    (runbook section 6). Its rows stay in the twin's world; record them in
@@ -442,15 +407,37 @@ confusion.
 
 ### Inviting testers
 
-- Mint one key per tester under their neutral display name, with item 3's
-  command. Send each share URL privately to that tester only: it is their
-  credential, and it is shown once. A leaked link is revoked with
+Two or three adults on desktop Chromium, who have not seen Enfolded before,
+lined up by Tuesday 1 December
+([O8](../roadmap/owner-decisions-2026-11-20.md#o8-people-and-dates)). Their
+names and dates are `<OWNER: tester names/dates>`, kept in the restricted
+research record only. Lining testers up may start before the conditions
+below; invitations and admission may not
+([O17](../roadmap/owner-decisions-2026-11-20.md#o17-recruiting-admission-and-the-read-out)).
+
+- **An invitation goes out only once** the second operator is named (item 31);
+  protocol 2's pre-recruitment record is written in the restricted research
+  record (facilitator or research owner, observation dates, supported
+  devices, client, consent wording, and the retention and deletion date); and
+  the operator has confirmed the correct world and its recovery status.
+- **A tester is admitted, with a playable key minted, only once** every
+  applicable Watch-column entry requirement
+  ([checklist, admission gate](../roadmap/beta-launch-checklist.md#admission-gate),
+  requirements 1 to 8) has dated evidence against the commit O12 names, or a
+  justified not-applicable decision naming the selected scope. That includes
+  C1, C2, G1, G4, X2 and L5 merged and deployed; O12's checks and the F2
+  selected-commit and installed-wheel record; O5's secrets; G3's live
+  success, hold and failure probes; and every O13 rehearsal logged.
+- Then mint one key per tester under their neutral display name, with item
+  3's command. Send each share URL privately to that tester only: it is
+  their credential, and it is shown once. A leaked link is revoked with
   `invite revoke` (runbook section 6).
 - Send no invite until the operator confirms that the key was minted on the
   twin (`docs/evaluation/2026-09-12-pilot-protocol.md:44-45`).
-- Schedule sessions so that two testers are not in the world at once unless
-  an encounter is intended, and record any overlap. Run no soak or probe
-  during a session.
+- Each tester acknowledges the served notice themselves before play. Do not
+  accept it on their behalf.
+- The 8 December session has two testers in the world at once, on purpose
+  (item 4); record the overlap. Run no soak or probe during a session.
 
 ### After each session, twin
 
@@ -458,6 +445,14 @@ Revoke that tester's key, because their browser keeps it in local storage
 (`frontend/src/auth.js:11`, `frontend/src/auth.js:31-37`):
 `fly ssh console -a enfolded-staging -C "python main.py invite revoke <key>"`.
 Never tell a tester their history will persist.
+
+From the first session until the twin is destroyed, the owner, as operator,
+checks both report queues at least twice a day (`report list` and
+`report list --state acknowledged`;
+[operator queue](../development/community-reporting.md#operator-queue)).
+A tester's request to delete their chat, or to leave, is handled with
+`chat-log delete-tester`, and the deletion record is exported afterwards
+([retention and backups](../development/community-reporting.md#retention-and-backups)).
 
 ### After the watch, twin
 
@@ -482,19 +477,46 @@ Never tell a tester their history will persist.
    "After each session", step 2, run as
    `/path/to/the/checkout/.venv/bin/python - ./watch-raw.db <<'EOF' … EOF`
    in place of `.venv/bin/python - "$HOME/session-raw.db"`, and check that
-   it prints `(0, 0)`. Then move it to the restricted store and delete the
-   scratch directory.
-3. The twin's database holds every tester's words, journal notes included,
-   until the twin is destroyed. Destroy it by the deletion date in the
-   research record (`fly apps destroy enfolded-staging --yes`,
-   runbook section 3a). If P4 still needs a twin
-   after that date, stand up a fresh one. Any copy taken from the twin,
-   including the `worlds-*.db` copies a deploy writes to its volume
-   (`scripts/deploy.sh:253-254`), follows the same date. Fly keeps volume
-   snapshots of its own (`docs/decisions/ADR-005-launch-operations.md:74-75`);
-   how long they outlive a destroyed app was not checked from this session.
-4. In live-voice mode, the provider's copies follow the terms recorded in
-   the research basics.
+   it prints `(0, 0, 0, 0, 0)`. Then move it to the restricted store and
+   delete the scratch directory. The kept copy holds no private chat, report
+   text or report notes, so the research record does not extend the twin's
+   chat and report retention.
+3. Destroy the twin on the destroy date in its notice, seven days after the
+   last watch session
+   ([O6](../roadmap/owner-decisions-2026-11-20.md#o6-notice-and-community-policy-values-item-6)),
+   and only once every report from the watch is closed
+   ([item 5](../roadmap/owner-decisions-2026-11-18.md#2-adopted-answers)).
+   An open or acknowledged report holds the twin, with the chat lines it
+   cites, until the owner closes it; exporting reports does not keep that
+   evidence, and no tool moves a case elsewhere. Then follow the runbook's
+   [Teardown before launch](../infrastructure/fly-deployment.md#teardown-before-launch)
+   in its order:
+   1. retire the twin's backup schedule after its final snapshot (stop the
+      external dispatcher, disable the "Off-host backup" workflow, delete the
+      `ENFOLDED_BACKUP_REQUIRED` and `ENFOLDED_BACKUP_APP` variables, revoke
+      the backup token and delete its secret, pause the heartbeat monitor);
+   2. revoke the deploy token and destroy the app, which removes its volume
+      and the `/data/backups` copies on it;
+   3. delete the `staging` environment's deploy secret and revoke the staging
+      provider key;
+   4. once the 7-day bucket lock allows it, remove the twin's off-host
+      snapshots by hand with `scripts/backup_store.py delete-before`, then
+      `delete` for the newest one.
+
+   Step 4 deletes objects by key. It is not erasure, and no deletion date is
+   promised for backup copies until the bucket's erasure check is recorded
+   ([O7](../roadmap/owner-decisions-2026-11-20.md#o7-backup-bucket-lifecycle-and-the-delete-lock-items-11-12),
+   [item 12](../roadmap/owner-decisions-2026-11-18.md#2-adopted-answers)).
+   Fly keeps volume snapshots of its own for about five days
+   (`docs/decisions/ADR-005-launch-operations.md:74-75`); how long they
+   outlive a destroyed app was not checked from this session. Any other copy
+   taken from the twin is deleted by the operator who made it. If P4 still
+   needs a twin after the destroy date, stand up a fresh one.
+4. With AI on, the provider's copies follow its own terms, as the signed
+   data-use note records them (G1's
+   [endpoint check](2026-11-20-chat-completions-endpoint-check.md) lists what
+   was read; reduced retention for the account is unverified there).
+   Destroying the twin does not reach them.
 
 ## Facilitator script (protocol 2, steps 1 to 3)
 
@@ -504,9 +526,13 @@ to wear headphones, at a comfortable level. Do not describe the score.
 Open with protocol 2's explanation
 (`docs/evaluation/2026-09-12-pilot-protocol.md:49-51`), then say:
 
-- "This world is temporary. This world, and everything the research team keeps
-  from this session, will be deleted on <date>." Protocol 2 requires this
-  (`docs/evaluation/2026-09-12-pilot-protocol.md:18-19`).
+- "This world is temporary. This world will be destroyed on <the twin's
+  destroy date>, later only if a report is still open then. What the
+  research team keeps from this session will be deleted on <the research
+  record's deletion date>." Protocol 2 requires this
+  (`docs/evaluation/2026-09-12-pilot-protocol.md:18-19`). Use the dates in
+  the served notice (runbook,
+  ["Participation notice and adult confirmation"](../infrastructure/fly-deployment.md#participation-notice-and-adult-confirmation)).
   If the participant opens the guide, its permanence lines (the opening,
   `static/guide.html:39-42`, and the "Nothing is lost" section,
   `static/guide.html:161-169`) do not apply to this session.
@@ -516,31 +542,38 @@ Open with protocol 2's explanation
   other traveler you meet here is an AI character." On the twin, when
   sessions overlap: "Another tester may be here too."
 
+  Then: "If you ask one of them plainly whether it is an AI, it will tell
+  you."
+
   This follows the world-level notice the owner accepted on 2026-11-06
-  (guardrail b in the [2026-11-06 evaluation](2026-11-06-next-build.md)), with
-  one part held back. That notice also says an AI traveler will answer
-  truthfully if asked. Do not promise that on today's build: the honesty rule
-  does not exist yet, the agent prompt still tells agents never to reveal
-  that they are an AI (`consciousness/__init__.py:421`), and with no
-  provider an addressed agent does not answer
-  (`server/handlers.py:1521-1524`). If a participant
-  asks whether someone is a person, answer for the session yourself. Today's
-  build also still marks the cast in the Travelers panel while their
-  conversation reads like human chat (setup facts in the fallback below).
+  (guardrail b in the [2026-11-06 evaluation](2026-11-06-next-build.md)), and
+  the served notice says the same. The honesty rule now exists: a line that
+  is itself a sincere question whether the addressee is human or an AI, put
+  to a place on Speak or to a known agent, gets an authored answer that says
+  plainly it is an AI, with AI on or off (`consciousness/honesty.py`,
+  `server/handlers.py` `_asks_identity`; AGENTS.md, "No voice pretends to be
+  human"). A question folded into a longer line takes the voice's normal
+  path, where the model's instruction carries the rule; when voices are
+  silent it gets the quiet line, as the notice warns. Agents do not answer in
+  traveler chat on this build, so if a participant asks there whether
+  someone is a person, answer for the session yourself. Today's build also
+  still marks the cast in the Travelers panel while their conversation reads
+  like human chat (setup facts in the fallback below).
 - On the twin: "Other testers in this temporary world can read what you say
   in chat and to places."
-- Live voice only: "Places and inhabitants answer through an AI model. What you
-  type to them and an intention you describe in Act are sent to that model's
-  provider. Chat lines can be sent to it too, because a place quotes chat said
-  there when someone speaks to it. Chat lines, wrong puzzle guesses, Ideas you
-  submit and a profile you publish may also be sent to the same provider for
-  a safety check. It is sent only to run the game. <One sentence stating
-  what the provider's terms, as recorded for this watch, say about training
-  on what it receives.> The provider keeps its own copies under its own
-  terms, which are <the retention terms recorded in the research basics>;
-  deleting this world does not delete them." The operator's check (d) in
-  "Decide before session one" confirms this wording against the recorded
-  terms before the first session.
+- With AI on: "Places and inhabitants answer through an AI model from
+  <OWNER: provider name>. What you say to them, an intention you describe in
+  Act, and shared text that needs a safety check, chat included, are sent to
+  that provider only to run the game. It is not used to train models. Your
+  reports, private journal notes and unpublished profile are never sent. The
+  provider keeps its own copies under its own terms; destroying this world
+  does not delete them." Before the first session, check this wording
+  against the owner's signed data-use note, which the served notice also
+  shows ("Use of data and model providers"). Until that note is signed,
+  there is no AI-on session to describe (item 3 in "Decide before session
+  one").
+- "You can report anything that worries you with Report, beside a traveler
+  or a chat line. Reports go privately to the operator."
 - "Participation and observation are voluntary."
 
 Then follow script steps 1 to 3
@@ -585,7 +618,7 @@ Facilitator notes for today's build, from the
   accepts guesses, and the shown answer then solves it (finding 3:
   `server/handlers.py:2114`, `server/handlers.py:2169`). Record any
   confusion it causes; do not explain it during the session.
-- In live voice, a spent cap answers the "Try again tomorrow" line
+- With AI on, a spent cap answers the "Try again tomorrow" line
   (`server/handlers.py:1279-1281`). Record when it happens.
 
 ## What to capture, and where
@@ -637,6 +670,18 @@ The owner prefers the twin (2026-11-07); this setup is the fallback. Each
 participant plays on the facilitator's machine. The facilitator script and
 the capture list above apply, except the twin-only lines. A session here
 gives no device evidence (Y5).
+
+**2026-11-22: not refreshed.** This section was not brought up to date with
+the 2026-11-22 update. It predates the participation notice (an invited
+local world now requires the three `NESTED_WORLDS_TEST_` notice values and
+each participant's acknowledgement), the community policy (chat and Report
+stay off without one) and controlled model mode. It cannot run the AI-on
+watch: the controlled route, its policy file and its spend ceilings are set
+up on the twin only. Its live-voice text describes the superseded Anthropic
+default-adapter path and is kept only as dated evidence. Use the fallback
+only on the owner's decision, in per-scale silence, after re-checking it
+against current `main`. The archive scrub in "After each session", step 2,
+is current; the twin's teardown uses it.
 
 ### Setup facts, verified against the code
 
@@ -783,17 +828,8 @@ unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_PROFILE \
   NESTED_WORLDS_PROVIDER NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY \
   NESTED_WORLDS_NODE_PROVIDER NESTED_WORLDS_INHABITANT_PROVIDER \
   NESTED_WORLDS_INTENT_PROVIDER NESTED_WORLDS_MODERATION_PROVIDER
-# Live voice only (packet decision 10: the provider's L4 note written and
-# signed off by the owner; see "Decide before session one", item 3): replace
-# the unset above with
-#   unset ANTHROPIC_BASE_URL NESTED_WORLDS_OPENAI_COMPATIBLE_BASE_URL \
-#     NESTED_WORLDS_PROVIDER NESTED_WORLDS_OPENAI_COMPATIBLE_API_KEY \
-#     NESTED_WORLDS_NODE_PROVIDER NESTED_WORLDS_INHABITANT_PROVIDER \
-#     NESTED_WORLDS_INTENT_PROVIDER NESTED_WORLDS_MODERATION_PROVIDER
-# keep the default provider's credential in this terminal, export the low
-# caps ("Decide before session one", item 3), and, after the cd below, run
-#   .venv/bin/python -c 'import anthropic; print(anthropic.Anthropic().base_url)'
-# which must print https://api.anthropic.com before the server starts.
+# No live-voice variant: the AI-on watch runs only on the twin
+# ("Decide before session one", item 3).
 cd /path/to/the/checkout
 .venv/bin/python main.py serve > "$HOME/serve.log" 2>&1 &
 SERVER_PID=$!                            # stop this process, and only this one
@@ -864,9 +900,12 @@ not in the repository.
    journal access is not research consent
    (`docs/evaluation/2026-09-12-pilot-protocol.md:71-73`). The step deletes
    every journal note and blanks profile text that was never published
-   (`persistence/migrations/0021_participants.sql:16-25`), then rewrites the
-   file with `VACUUM`, because an SQLite build without secure delete leaves
-   deleted text in free pages:
+   (`persistence/migrations/0021_participants.sql:16-25`). It also deletes
+   the private chat log, the reports and the operator's report notes
+   (`persistence/migrations/0033_private_chat_reports.sql`), which the
+   notice says are destroyed with the world. Then it rewrites the file with
+   `VACUUM`, because an SQLite build without secure delete leaves deleted
+   text in free pages:
 
    ```bash
    .venv/bin/python - "$HOME/session-raw.db" <<'EOF'
@@ -874,16 +913,22 @@ not in the repository.
    c = sqlite3.connect(sys.argv[1])
    c.execute("DELETE FROM journal_notes")
    c.execute("UPDATE participant_profiles SET bio='', goals='' WHERE published=0")
+   for table in ("report_actions", "private_reports", "private_chat_messages"):
+       c.execute(f"DELETE FROM {table}")
    c.commit()
    c.execute("VACUUM")
    print(c.execute("SELECT (SELECT COUNT(*) FROM journal_notes), (SELECT COUNT(*)"
-                   " FROM participant_profiles WHERE published=0 AND bio||goals<>'')").fetchone())
+                   " FROM participant_profiles WHERE published=0 AND bio||goals<>''),"
+                   " (SELECT COUNT(*) FROM private_chat_messages),"
+                   " (SELECT COUNT(*) FROM private_reports),"
+                   " (SELECT COUNT(*) FROM report_actions)").fetchone())
    c.close()
    EOF
    ```
 
-   It must print `(0, 0)`. The pre-session check's marker test shows, on the
-   facilitator's own machine, that the text is gone from the file itself.
+   It must print `(0, 0, 0, 0, 0)`. The pre-session check's marker test
+   shows, on the facilitator's own machine, that the text is gone from the
+   file itself.
    Then move the copy to the restricted store:
    `mv "$HOME/session-raw.db" /restricted/store/<session>.db`. This only
    edits the archived copy, never a running world. Executed on 2026-11-02
@@ -891,15 +936,20 @@ not in the repository.
    unpublished-profile marker; after this step `grep -c` found neither, a
    published profile's text remained, and `PRAGMA integrity_check` returned
    `ok`. With secure delete off, a deleted row's text stayed in the file
-   until `VACUUM` removed it.
+   until `VACUUM` removed it. Executed again on 2026-11-22, with the snippet
+   as printed here, against a scratch schema-33 database holding one marked
+   chat line, a report citing it, an acknowledgement note, a journal note
+   and an unpublished profile: the raw snapshot held all five markers; after
+   the step it printed `(0, 0, 0, 0, 0)`, `grep -c` found none of the five,
+   `PRAGMA integrity_check` returned `ok`, and the participant and
+   acknowledgement rows remained.
 3. Stop the server you launched: `kill "$SERVER_PID"`, then confirm that
    `kill -0 "$SERVER_PID"` now fails. Revoking the key is not needed.
 4. Delete the scratch `HOME` once the archive is confirmed, and close the
    private window or discard the browser profile.
 5. Keep the archive only until the deletion date in the research record, then
    delete it with the rest of the raw notes. This deletes the research team's
-   copies only. In live-voice mode, the provider's copies follow the terms
-   disclosed in consent.
+   copies only.
 6. Never restore an archived session into a running world to repair it. Restore
    is the disaster path, not an edit path. If a puzzle fails and seals a room
    (packet decision 3), note it as a confusion and let the participant go
