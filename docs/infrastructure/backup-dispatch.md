@@ -166,8 +166,10 @@ command fail before it calls the store. The write key alone is not accepted.
 
 A day is 24 hours. The default window is 7 days, ending at the clock, which
 is the twin's seven-day run. The default bound is 60 minutes. Age is the
-snapshot-start in the object name. The moment the object became recoverable
-is `LastModified`. Pass means all of these:
+snapshot-start in the object name. The upload time is `LastModified`, which
+S3-compatible stores set at about the start of the PUT. Each landing gap
+therefore undercounts by that upload's duration. The store step's duration
+in the run log bounds that undercount. Pass means all of these:
 
 - a validated, nonempty snapshot for this app is already in the bucket at
   the window's start, and its snapshot-start is within the bound of that
@@ -176,20 +178,25 @@ is `LastModified`. Pass means all of these:
   (the gap is the later object's upload time minus the earlier snapshot-start);
 - the last snapshot-start is within the bound of the window's end.
 
-An object with no `LastModified`, or an upload time before its snapshot-start
-or after the window's end, does not count and the proof fails. Quarantine
-names, empty objects, other apps, and stamps in the future do not count. An
-exact gap of 60 minutes passes. One second over fails. Hourly snapshot-starts
-that finish uploading two minutes later fail: just before the next upload the
-previous snapshot-start is 62 minutes old. Retention is 30 days, and prune
-deletes older copies of this app, so a window longer than that cannot pass
-once those copies are gone. `--days` accepts 1 to 366.
+An object with no `LastModified`, or an upload time before its snapshot-start,
+does not count and the proof fails. An upload time after the window's end
+means the object was not yet available. It is left out, and the closing gap
+uses the newest object that had already landed. Quarantine names, empty
+objects, other apps, and stamps in the future do not count. An exact gap of
+60 minutes passes. One second over fails. Hourly snapshot-starts that finish
+uploading two minutes later fail: just before the next upload the previous
+snapshot-start is 62 minutes old. Retention is 30 days, and prune deletes
+older copies of this app, so a window longer than that cannot pass once
+those copies are gone. `--days` accepts 1 to 366.
 
-`--from-first` is the production check in the interval after the first
-deploy, before seven days of objects exist. It starts at the first validated
-object, requires at least two, and applies the same landing rule between
-them and at the window's end. It does not ask for an object from before
-production existed. Do not pass `--days` with it. The twin's rehearsal stays
+`--from-first` starts at the oldest validated object, requires at least two,
+and applies the same landing rule between them and at the window's end. A
+manual snapshot that is more than an hour before the dispatcher's first
+object stays in that check, so the gate keeps failing. `--since` is the
+production check for that interval. It ignores every object whose
+snapshot-start is before the UTC instant you pass, then starts at the first
+snapshot-start at or after that instant and requires at least two. Pass only
+one of `--days`, `--from-first`, and `--since`. The twin's rehearsal stays
 the seven-day default.
 
 JSON goes to stdout. The summary goes to stderr: pass or fail, the count of
@@ -200,7 +207,8 @@ listing or the credentials could not be read.
 
 ```bash
 python scripts/backup_freshness_proof.py --app enfolded-staging
-python scripts/backup_freshness_proof.py --app enfolded-beta --from-first
+python scripts/backup_freshness_proof.py \
+  --app enfolded-beta --since 2026-11-22T12:00:00Z
 ```
 
 Run it for the app whose objects you mean. `enfolded-staging` does not
@@ -218,8 +226,10 @@ python scripts/backup_freshness_proof.py \
   --now 2026-11-22T12:00:00Z
 ```
 
-The seven-day command is the twin rehearsal. `--from-first` is the
-production check before a week of objects exists. A passing
+The seven-day command is the twin rehearsal. `--since` is the production
+check before a week of dispatcher objects exists. Pass the snapshot-start of
+the dispatcher's first validated object, not the manual dispatch before it.
+A passing
 `backup_health.py` shows only the newest object at that moment. A green
 workflow run shows that one job finished.
 
@@ -243,8 +253,10 @@ and production read the same `backup` environment secret.
   and
   [Re-arming production backups](backup-bucket.md#re-arming-production-backups).
   O14's "successive validated production snapshots meet the one-hour bound"
-  is `backup_freshness_proof.py --app enfolded-beta --from-first` until seven
-  days of production objects exist, and the seven-day command after that. Set
+  is `backup_freshness_proof.py --app enfolded-beta --since <UTC snapshot-start of the dispatcher's first validated object>`
+  until seven days of those objects exist, and the seven-day command after
+  that. `--from-first` would keep a manual object from before the dispatcher.
+  Set
   `ENFOLDED_BACKUP_HEARTBEAT_URL` only when the production monitor is armed,
   and only after the twin's URL has been deleted. The twin's monitor is not
   reused.

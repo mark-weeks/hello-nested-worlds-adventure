@@ -590,9 +590,11 @@ After the first production deploy, before any invitation:
 3. Enable the external dispatcher. GitHub's own schedule alone has shown
    five-hour gaps against the one-hour bound.
 4. Confirm successive validated production snapshots meet the one-hour bound
-   with `python scripts/backup_freshness_proof.py --app enfolded-beta --from-first`.
-   That check starts at the first validated production object and requires at
-   least two. The seven-day window fails until those seven days exist, so it
+   with `python scripts/backup_freshness_proof.py --app enfolded-beta --since <UTC snapshot-start of the dispatcher's first validated object>`.
+   That check ignores the manual dispatch and any older object, starts at the
+   first snapshot-start at or after that instant, and requires at least two.
+   `--from-first` keeps the manual object, so a gap of more than an hour
+   before the dispatcher fails until seven days exist. The seven-day window
    is not this gate. The twin's rehearsal stays the seven-day command.
 5. Point a new heartbeat monitor at production, and only then set
    `ENFOLDED_BACKUP_HEARTBEAT_URL` to that monitor. The twin's URL has to be

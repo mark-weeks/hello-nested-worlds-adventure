@@ -6,18 +6,21 @@ and ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY). The write pair is not a
 fallback. ``--objects`` reads a saved listing and does not contact the bucket.
 
 A day is 24 hours. The window ends at ``--now`` for a saved listing, and at
-the clock otherwise. Age is the snapshot-start in the object name. Whether
-the object was recoverable is its ``LastModified`` upload time. Pass means
-that, throughout the window, the newest validated object already in the
-bucket was never more than the bound old (60 minutes unless
+the clock otherwise. Age is the snapshot-start in the object name. The
+upload time is ``LastModified``. S3-compatible stores set that at about the
+start of the PUT, so each landing gap undercounts by that upload's duration.
+Pass means that, throughout the window, the newest validated object already
+in the bucket was never more than the bound old (60 minutes unless
 ``--max-gap-minutes`` says otherwise). That holds when an object is already
 in the bucket at the window's start, each later object lands within the
 bound of the previous snapshot-start, and the last snapshot-start is within
-the bound of the window's end. A missing or unusable upload time cannot
-support a pass. ``--from-first`` starts at the first validated object and
-requires two of them, for a production bucket that did not exist seven days
-ago. Quarantine names, empty objects, other apps, and future stamps do not
-count.
+the bound of the window's end. A missing upload time, or one before the
+snapshot-start, cannot support a pass. An upload time after the window end
+means the object was not yet available. ``--from-first`` starts at the first
+validated object and requires two of them. ``--since`` ignores objects
+before a UTC instant and then does the same, so a manual snapshot from
+before the dispatcher does not stay in the production check. Quarantine
+names, empty objects, other apps, and future stamps do not count.
 
 JSON goes to stdout. A short summary goes to stderr. Exit 0 passes, 1 fails
 the bound, and 2 means the listing or the credentials could not be read.
@@ -98,7 +101,7 @@ def _arrival_violation(taken, key, arrived):
             'gap_seconds': None, 'from_key': key, 'to_key': None}
 
 
-def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False):
+def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False, since=None):
     """Return the bound report for one app. Raises ValueError on a bad listing."""
     validate_app(app)
     if type(days) is not int or days < 1 or days > 366:
@@ -107,11 +110,20 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False)
         raise ValueError('max-gap-minutes must be a positive integer.')
     if type(from_first) is not bool:
         raise ValueError('from_first must be true or false.')
+    if since is not None and (not isinstance(since, datetime) or since.tzinfo is None):
+        raise ValueError('since must be a timezone-aware UTC time.')
+    if from_first and since is not None:
+        raise ValueError('Pass either from_first or since, not both.')
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         raise ValueError('now must be timezone-aware.')
     now = now.astimezone(timezone.utc)
+    if since is not None:
+        since = since.astimezone(timezone.utc)
+        if since > now:
+            raise ValueError('since must not be after the window end.')
     bound = max_gap_minutes * 60
+    bounded = from_first or since is not None
     found = {}
     arrival_violations = []
     seen = set()
@@ -127,13 +139,19 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False)
         if key in seen:
             continue
         seen.add(key)
+        if since is not None and taken < since:
+            continue
         arrived = _parse_arrived(item.get('LastModified'))
-        if arrived is None or arrived < taken or arrived > now:
+        if arrived is not None and arrived > now:
+            continue
+        if arrived is None or arrived < taken:
             arrival_violations.append((taken, _arrival_violation(taken, key, arrived)))
             continue
         found[key] = (taken, arrived, key, size)
     objects = sorted(found.values())
-    if from_first:
+    if since is not None:
+        window_start = since
+    elif from_first:
         window_start = objects[0][0] if objects else now
     else:
         window_start = now - timedelta(days=days)
@@ -144,7 +162,7 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False)
             cover = item
     measured = []
     uncovered = False
-    if not from_first:
+    if not bounded:
         if cover is None:
             uncovered = True
         else:
@@ -162,10 +180,10 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False)
         newest = item
     if newest is not None:
         measured.append(_gap('window_end', newest[0], now, newest[2], None))
-    elif not from_first:
+    elif not bounded:
         uncovered = True
     violations = []
-    if from_first and len(objects) < 2:
+    if bounded and len(objects) < 2:
         only = objects[0] if objects else None
         violations.append({'kind': 'count', 'from': None if only is None else _iso(only[0]),
                            'to': None, 'gap_seconds': None,
@@ -179,19 +197,20 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False)
         elif gap['kind'] != 'window_start' and gap['_raw'] > bound:
             violations.append(_public_gap(gap))
     for taken, violation in sorted(arrival_violations):
-        if from_first or taken >= window_start:
+        if bounded or taken >= window_start:
             violations.append(violation)
     widest = None
     for gap in measured:
         if widest is None or gap['_raw'] > widest['_raw']:
             widest = gap
     before = [item for item in objects if item[0] < window_start]
-    anchor = before[-1] if before and not from_first else None
+    anchor = before[-1] if before and not bounded else None
     report = {
         'result': 'fail' if violations else 'pass',
         'app': app,
-        'window_days': None if from_first else days,
+        'window_days': None if bounded else days,
         'from_first': from_first,
+        'since': None if since is None else _iso(since),
         'max_gap_minutes': max_gap_minutes,
         'bound_seconds': bound,
         'window_start': _iso(window_start),
@@ -305,6 +324,8 @@ def main():
     parser.add_argument('--days', type=int, default=None)
     parser.add_argument('--from-first', action='store_true',
                         help='start at the first validated object and require at least two')
+    parser.add_argument('--since',
+                        help='UTC instant; ignore earlier objects and require at least two after it')
     parser.add_argument('--max-gap-minutes', type=int, default=60)
     parser.add_argument('--objects', type=Path,
                         help='offline JSON: one ListObjectsV2 page, a list of pages, or {"object_pages": [...]}')
@@ -313,16 +334,20 @@ def main():
     if args.now and args.objects is None:
         parser.exit(2, 'Pass --now only with --objects.\n')
     try:
-        if args.from_first and args.days is not None:
-            parser.exit(2, 'Pass either --from-first or --days, not both.\n')
+        chosen = [name for name, selected in (
+            ('--from-first', args.from_first), ('--days', args.days is not None),
+            ('--since', args.since is not None)) if selected]
+        if len(chosen) > 1:
+            parser.exit(2, 'Pass only one of --from-first, --days, or --since.\n')
         moment = parse_now(args.now) if args.now else None
+        since = parse_now(args.since) if args.since else None
         if args.objects:
             pages = load_object_pages(args.objects)
         else:
             pages = list_object_pages(listing_env(os.environ), app=args.app)
         report = prove(pages, app=args.app, days=7 if args.days is None else args.days,
                        max_gap_minutes=args.max_gap_minutes, now=moment,
-                       from_first=args.from_first)
+                       from_first=args.from_first, since=since)
     except StoreError as exc:
         parser.exit(2, f'Backup bound proof unavailable: {exc}\n')
     except (OSError, ValueError, TypeError, KeyError, AttributeError):

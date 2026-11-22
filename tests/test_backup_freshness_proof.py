@@ -294,6 +294,42 @@ def test_from_first_accepts_two_production_objects_inside_a_new_bucket():
     assert wide['violations'][0]['kind'] == 'window_start'
 
 
+def test_since_ignores_a_manual_object_that_from_first_keeps():
+    manual = NOW - timedelta(hours=6, minutes=90)
+    first_dispatch = manual + timedelta(minutes=90)
+    items = [stored(manual, arrived=manual + timedelta(minutes=4), last_modified='not-a-time')]
+    cursor = first_dispatch
+    while cursor + timedelta(minutes=4) <= NOW:
+        items.append(stored(cursor, arrived=cursor + timedelta(minutes=4)))
+        cursor += timedelta(minutes=30)
+    early = prove(page(*items), app=APP, from_first=True, now=NOW)
+    assert early['result'] == 'fail'
+    assert early['violations'][0]['kind'] == 'arrival'
+    kept = prove(page(*[stored(manual, arrived=manual + timedelta(minutes=4)), *items[1:]]),
+                 app=APP, from_first=True, now=NOW)
+    assert kept['result'] == 'fail'
+    successive = next(item for item in kept['violations'] if item['kind'] == 'successive')
+    assert successive['gap_seconds'] == 94 * 60
+    later = prove(page(*items), app=APP, since=first_dispatch, now=NOW)
+    assert later['result'] == 'pass', later['violations']
+    assert later['since'] == iso(first_dispatch)
+    assert later['from_first'] is False
+    assert later['window_days'] is None
+    assert later['first']['snapshot_at'] == iso(first_dispatch)
+    assert later['count'] >= 2
+    assert items[0]['Key'] not in json.dumps(later)
+
+
+def test_an_upload_after_the_window_end_is_not_yet_available():
+    landed = series(START, NOW - timedelta(minutes=30))
+    inflight = stored(NOW, arrived=NOW + timedelta(minutes=2))
+    report = report_for([*landed, inflight])
+    assert report['result'] == 'pass'
+    assert report['last']['snapshot_at'] == iso(NOW - timedelta(minutes=30))
+    assert inflight['Key'] not in json.dumps(report)
+    assert not any(item['kind'] == 'arrival' for item in report['violations'])
+
+
 def test_from_first_requires_two_validated_objects():
     report = prove(page(stored(NOW - timedelta(minutes=5))), app=APP, from_first=True, now=NOW)
     assert report['result'] == 'fail'
@@ -387,7 +423,8 @@ def test_cli_rejects_a_live_clock_override_and_a_bad_listing(tmp_path):
     assert 'unavailable' in garbage.stderr
 
     for args in (('--days', '0'), ('--max-gap-minutes', '0'), ('--days', '367'),
-                 ('--from-first', '--days', '1')):
+                 ('--from-first', '--days', '1'), ('--since', iso(START), '--days', '1'),
+                 ('--since', iso(START), '--from-first')):
         rejected, _called = _run(tmp_path, page(stored(NOW)), '--now', iso(NOW), *args)
         assert rejected.returncode == 2
         assert rejected.stdout == ''
