@@ -61,7 +61,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8299)
     parser.add_argument("--heartbeat-delay", type=float, default=25.0)
     parser.add_argument("--heartbeat-on-stdin", action="store_true",
-                        help="start the tick when the capture browser signals it is ready")
+                        help="wait for the capture browser and use 2 seconds per hop "
+                             "to keep Tessera visible for the screenshot (normally 0.8 seconds per hop)")
     args = parser.parse_args()
 
     # Redirect before the first persistence operation.  The capture may solve

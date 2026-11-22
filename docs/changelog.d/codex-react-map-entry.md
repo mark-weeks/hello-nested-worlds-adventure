@@ -1,6 +1,7 @@
-Section: Added
+Section: Changed
 Status: Roadmap D7: record the shared React map at /, the living scene at /app and the original explorer at /map through the cohort read-out.
 Status: Watch entry requirement 2: X1 and X2 implement the public Map switch. Selected-build, venue and access evidence still belongs to the Watch record.
+Status: Fly runbook §2: record the shipped PixiJS removal in the Dockerfile example. Its first stage builds the React frontend served at / and /app.
 
 - **New arrivals at the public root open the shared world map.** Invitations
   and registration open the living scene at `/app`. Map and scene share

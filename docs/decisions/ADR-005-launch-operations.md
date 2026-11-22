@@ -153,6 +153,10 @@ throwaway phase simply never touches the production volume.
 
 ### 3. Browser entry and the original explorer
 
+On 2026-11-20 the owner adopted decision O10 for item 2. X1 added the shared
+React map and X2 switches the public entry to it.
+[Owner decision O10](../roadmap/owner-decisions-2026-11-20.md#o10-the-old-maps-path-and-the-map-view-reading-item-2) · [X1 (#190)](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/190) · [X2 (#191)](https://github.com/mark-weeks/hello-nested-worlds-adventure/pull/191)
+
 A fresh visit to `/` opens the shared React world map. Invitations,
 registration and journal return links open the living scene at `/app`.
 The player can switch views at the same place with one session, one
@@ -166,7 +170,6 @@ changes from batches the owner already ratified. Its HTML shell can load
 before a player supplies an invite key. World data and play still use the
 invite and participation checks. The cohort's device, accessibility and
 newcomer checks remain part of admission.
-[Owner decision O10](../roadmap/owner-decisions-2026-11-20.md#o10-the-old-maps-path-and-the-map-view-reading-item-2)
 
 #### Original 2026-07-19 client decision (superseded)
 
