@@ -187,8 +187,12 @@ means all of these, using the marker time:
 - each later marker falls within the bound of the previous snapshot-start;
 - the last snapshot-start is within the bound of the window's end.
 
-A snapshot with no marker, whose own `LastModified` is still inside the
-bound, is `unresolved`. That is not a pass. A snapshot `LastModified` before
+A snapshot with no marker is `unresolved` when the bound actually depends
+on it. An extra snapshot the marked ones already cover does not change a
+pass. A marker past the bound, while the snapshot's own `LastModified` is
+still inside it, is `unresolved`: the finish may have landed on either
+side. A `LastModified` that itself is past the bound is a breach. Neither
+unresolved result is a pass. A snapshot `LastModified` before
 its snapshot-start fails the proof. A time after the window's end means that
 object was not yet available. It is left out, and the closing gap uses the
 newest object that had already landed. Quarantine names, empty objects,
@@ -196,7 +200,8 @@ other apps, and stamps in the future do not count. An exact gap of 60
 minutes passes. One second over fails. Hourly snapshot-starts whose marker
 is two minutes later fail: just before the next marker the previous
 snapshot-start is 62 minutes old. Snapshots stored before this marker
-existed stay unresolved until the checked window is made of marked objects.
+existed do not certify a landing. The window passes when the marked
+objects already cover it.
 Retention is 30 days, and prune deletes older copies of this app, including
 their markers, so a window longer than that cannot pass once those copies
 are gone. `--days` accepts 1 to 366.

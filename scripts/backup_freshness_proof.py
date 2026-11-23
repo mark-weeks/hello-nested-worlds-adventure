@@ -11,12 +11,15 @@ finish evidence is the ``LastModified`` of the ``.ready`` marker written
 after that snapshot's PUT returned. That time is later than the moment the
 snapshot became readable, so a landing measured to it is an upper bound.
 ``LastModified`` on the snapshot itself is about when its PUT started. It
-can prove a breach. It cannot prove a pass. A landing that is still inside
-the bound on that earlier time, with no marker, is ``unresolved`` and is
-not a pass. Pass means an object was provably already in the bucket at the
-window's start, each later marker is within the bound of the previous
-snapshot-start, and the last snapshot-start is within the bound of the
-window's end (60 minutes unless ``--max-gap-minutes`` says otherwise).
+can prove a breach. It cannot prove a pass. A missing marker withholds
+certification only when the bound depends on that object. A marker past
+the bound is ``unresolved`` while the snapshot's own upload time is still
+inside it, and a confirmed breach requires that upload time to be late.
+Pass means an object was provably already in the bucket at the window's
+start, each later marker the bound depends on is within the bound of the
+previous snapshot-start, and the last snapshot-start is within the bound
+of the window's end (60 minutes unless ``--max-gap-minutes`` says
+otherwise).
 ``--from-first`` starts at the first validated object and requires two.
 ``--since`` ignores objects before a UTC instant. The measured interval
 then starts at the first snapshot-start that remains. Quarantine names,
@@ -195,18 +198,20 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False,
         else:
             measured.append(_gap('window_start', cover['taken'], window_start, cover['key'], None))
 
-    def _land(origin, origin_key, snap):
-        if snap['upper'] is not None:
-            measured.append(_gap('successive', origin, snap['upper'], origin_key, snap['key']))
-            return
-        if snap['lower'] is not None and (snap['lower'] - origin).total_seconds() > bound:
-            measured.append(_gap('successive', origin, snap['lower'], origin_key, snap['key']))
-            return
+    def _later_marker_covers(origin, snap):
+        """A later finish marker already keeps this origin inside the bound."""
+        for nxt in pending:
+            if nxt['taken'] <= snap['taken'] or nxt['upper'] is None:
+                continue
+            if (nxt['upper'] - origin).total_seconds() <= bound:
+                return True
+        return False
+
+    def _unproven(origin, origin_key, snap, moment):
         unresolved.append({
             'kind': 'unresolved', 'from': _iso(origin),
-            'to': None if snap['lower'] is None else _iso(snap['lower']),
-            'gap_seconds': None if snap['lower'] is None else _seconds(
-                (snap['lower'] - origin).total_seconds()),
+            'to': None if moment is None else _iso(moment),
+            'gap_seconds': None if moment is None else _seconds((moment - origin).total_seconds()),
             'from_key': origin_key, 'to_key': snap['key'],
         })
 
@@ -221,7 +226,24 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False,
     for item in pending:
         origin = item['taken'] if previous is None else previous['taken']
         origin_key = item['key'] if previous is None else previous['key']
-        _land(origin, origin_key, item)
+        if item['upper'] is not None and (item['upper'] - origin).total_seconds() <= bound:
+            measured.append(_gap('successive', origin, item['upper'], origin_key, item['key']))
+            previous = item
+            continue
+        # Another marker that already keeps this origin inside the bound makes
+        # this object unnecessary, whether its own finish is missing or late.
+        if previous is not None and _later_marker_covers(origin, item):
+            continue
+        if (previous is not None and not any(nxt['taken'] > item['taken'] for nxt in pending)
+                and (now - previous['taken']).total_seconds() <= bound):
+            continue
+        late = item['lower'] is not None and (item['lower'] - origin).total_seconds() > bound
+        if late:
+            measured.append(_gap('successive', origin, item['lower'], origin_key, item['key']))
+            previous = item
+            continue
+        finish = item['upper'] if item['upper'] is not None else item['lower']
+        _unproven(origin, origin_key, item, finish)
         previous = item
     if previous is not None:
         measured.append(_gap('window_end', previous['taken'], now, previous['key'], None))

@@ -404,10 +404,11 @@ def run_aws(args, *, env=None, purpose='write'):
     return result.stdout
 
 
-# 3,650 days at 48 snapshots a day is 175,200 keys. One thousand keys per page
-# needs 176 pages for a single app prefix. 250 leaves margin past the old
+# 3,650 days at 48 snapshots a day is 175,200 backups. Each validated backup
+# is the snapshot plus its finish marker: 350,400 keys. One thousand keys per
+# page needs 351 pages for that prefix. 400 leaves margin past the old
 # 100-page stop, which failed closed forever once a bucket crossed 100,000 keys.
-MAX_LIST_PAGES = 250
+MAX_LIST_PAGES = 400
 _DELETE_BATCH = 1000
 
 

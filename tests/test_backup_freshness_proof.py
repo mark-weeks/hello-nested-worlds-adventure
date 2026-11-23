@@ -398,6 +398,52 @@ def test_a_snapshot_timestamp_inside_the_bound_is_not_a_pass_without_a_finish_ma
     assert marked['result'] == 'pass', marked['violations']
 
 
+def test_an_unmarked_snapshot_does_not_spoil_coverage_the_markers_already_prove():
+    marked = page(*series(START, NOW))
+    extra = stored(START + timedelta(minutes=15))
+    marked['Contents'].append(extra)
+    report = prove(marked, app=APP, days=1, now=NOW)
+    assert report['result'] == 'pass', report['violations']
+    assert extra['Key'] not in json.dumps(report['violations'])
+    hole = page(
+        stored(START),
+        stored(START + timedelta(minutes=90), arrived=START + timedelta(minutes=90)),
+    )
+    hole['Contents'].append(stored(START + timedelta(minutes=40)))
+    needed = prove(hole, app=APP, from_first=True, now=START + timedelta(minutes=95))
+    assert needed['result'] == 'unresolved'
+    assert any(item['to_key'] == object_key(APP, stamp(START + timedelta(minutes=40)))
+               for item in needed['violations'])
+
+
+def test_a_marker_past_the_bound_is_unresolved_when_the_upload_start_is_inside_it():
+    origin = datetime(2026, 11, 22, 12, 0, tzinfo=timezone.utc)
+    deadline = origin + timedelta(hours=1)
+    started = deadline - timedelta(seconds=10)
+    marked_late = deadline + timedelta(seconds=11)
+    moment = deadline + timedelta(minutes=5)
+    first = stored(origin)
+    second = stored(origin + timedelta(minutes=50), arrived=started)
+    listing = page(first, second)
+    for item in listing['Contents']:
+        if item['Key'].endswith('.ready') and item['LastModified'] == iso(started):
+            item['LastModified'] = iso(marked_late)
+    crossing = prove(listing, app=APP, from_first=True, now=moment)
+    assert crossing['result'] == 'unresolved', crossing['violations']
+    assert not any(item['kind'] == 'successive' for item in crossing['violations'])
+    confirmed = prove(page(
+        stored(origin),
+        stored(origin + timedelta(minutes=50), arrived=deadline + timedelta(seconds=5)),
+    ), app=APP, from_first=True, now=moment)
+    assert confirmed['result'] == 'fail'
+    assert any(item['kind'] == 'successive' for item in confirmed['violations'])
+    inside = prove(page(
+        stored(origin),
+        stored(origin + timedelta(minutes=50), arrived=deadline - timedelta(seconds=2)),
+    ), app=APP, from_first=True, now=moment)
+    assert inside['result'] == 'pass', inside['violations']
+
+
 def test_an_upload_after_the_window_end_is_not_yet_available():
     landed = series(START, NOW - timedelta(minutes=30))
     inflight = stored(NOW, arrived=NOW + timedelta(minutes=2))

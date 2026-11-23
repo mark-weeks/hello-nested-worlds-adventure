@@ -459,7 +459,7 @@ def test_prune_splits_a_thousand_deletes_and_a_refused_batch_hides_the_key(tmp_p
 
 def test_listing_passes_one_hundred_pages_and_stops_at_the_cap(tmp_path):
     assert MAX_LIST_PAGES > 100
-    assert MAX_LIST_PAGES * 1000 >= 3650 * 48
+    assert MAX_LIST_PAGES * 1000 >= 3650 * 48 * 2
     calls = install_fake_aws(tmp_path, [])
     env = bucket_env(tmp_path, calls, AWS_FAKE_PAGE_COUNT='3')
     pages = list_object_pages(env, app=APP, max_pages=3)
