@@ -14,7 +14,8 @@ snapshot became readable, so a landing measured to it is an upper bound.
 can prove a breach. It cannot prove a pass. A missing marker withholds
 certification only when the bound depends on that object. A marker past
 the bound is ``unresolved`` while the snapshot's own upload time is still
-inside it, and a confirmed breach requires that upload time to be late.
+inside it, and a confirmed breach requires that upload time to be late
+and to fall inside the requested window.
 Pass means an object was provably already in the bucket at the window's
 start, each later marker the bound depends on is within the bound of the
 previous snapshot-start, and the last snapshot-start is within the bound
@@ -258,8 +259,14 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False,
         if previous is not None and (now - previous['taken']).total_seconds() <= bound:
             continue
         late = item['lower'] is not None and (item['lower'] - origin).total_seconds() > bound
-        if late:
+        if late and (bounded or item['lower'] > window_start):
             measured.append(_gap('successive', origin, item['lower'], origin_key, item['key']))
+            previous = item
+            continue
+        if late:
+            # The proven lateness ends at or before the opening, so it is
+            # not a breach of this window. Later snapshots are measured from
+            # this one, which may already have covered the opening.
             previous = item
             continue
         finish = item['upper'] if item['upper'] is not None else item['lower']

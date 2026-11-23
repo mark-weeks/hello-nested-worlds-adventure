@@ -485,6 +485,34 @@ def test_an_opening_upload_that_might_have_finished_is_unresolved():
     assert any(item['kind'] == 'window_start' for item in missed['violations'])
 
 
+def test_a_pre_window_gap_does_not_decide_the_opening():
+    noon = datetime(2026, 11, 23, 12, 0, tzinfo=timezone.utc)
+    now = noon + timedelta(days=7)
+    older = datetime(2026, 11, 23, 10, 30, tzinfo=timezone.utc)
+    newer = datetime(2026, 11, 23, 11, 20, tzinfo=timezone.utc)
+    started = datetime(2026, 11, 23, 11, 50, tzinfo=timezone.utc)
+    later_hole = (noon + timedelta(hours=2, minutes=40), noon + timedelta(hours=3, minutes=10))
+
+    def listing(arrived, marker, omit=()):
+        built = page(stored(older), stored(newer, arrived=arrived),
+                     *series(noon + timedelta(minutes=10), now, omit=omit))
+        _set_marker(built, newer, marker)
+        return built
+
+    crossing = prove(listing(started, noon + timedelta(minutes=2)), app=APP, days=7, now=now)
+    assert crossing['result'] == 'unresolved', crossing['violations']
+    assert not any(item['kind'] in ('window_start', 'successive') for item in crossing['violations'])
+    early = prove(listing(started, noon - timedelta(minutes=1)), app=APP, days=7, now=now)
+    assert early['result'] == 'pass', early['violations']
+    late_put = noon + timedelta(minutes=1)
+    missed = prove(listing(late_put, late_put + timedelta(minutes=1)), app=APP, days=7, now=now)
+    assert missed['result'] == 'fail'
+    holed = prove(listing(started, noon + timedelta(minutes=2), omit=later_hole),
+                  app=APP, days=7, now=now)
+    assert holed['result'] == 'fail'
+    assert any(item['kind'] == 'successive' and item['to'] > iso(noon) for item in holed['violations'])
+
+
 def test_the_production_check_counts_confirmed_snapshots():
     start = datetime(2026, 11, 23, 12, 0, tzinfo=timezone.utc)
     end = start + timedelta(minutes=30)

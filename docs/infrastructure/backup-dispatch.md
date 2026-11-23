@@ -198,8 +198,12 @@ the window's start. A newer snapshot whose upload had started, and whose
 marker falls after the opening, may already have been readable then. That
 opening is `unresolved`. A marker that itself is before the opening makes
 it the cover. An upload that had not started by the opening leaves the
-older gap as a breach. A `LastModified` that itself is past the bound is a
-breach. Neither unresolved result is a pass. A snapshot `LastModified` before
+older gap as a breach. A gap that ends before the opening does not decide
+that verdict: the older snapshot can already be past the bound of the newer
+upload's start, and the opening stays `unresolved` while that newer snapshot
+might have finished in time. A breach the listing proves inside the window
+still fails it. A `LastModified` past the bound, when that time falls inside
+the window, is a breach. Neither unresolved result is a pass. A snapshot `LastModified` before
 its snapshot-start fails the proof. A time after the window's end means that
 object was not yet available. It is left out, and the closing gap uses the
 newest object that had already landed. Quarantine names, empty objects,
