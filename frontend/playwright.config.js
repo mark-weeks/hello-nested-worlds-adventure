@@ -31,6 +31,12 @@ export default defineConfig({
       NESTED_WORLDS_CAUSAL_PUMP: "0",
       NESTED_WORLDS_DISABLE_AI: "1",
       NESTED_WORLDS_DISABLE_IMAGES: "1",
+      // Every spec on this shared server arrives from 127.0.0.1, so
+      // together they spend one player's read budget (120 GETs a minute).
+      // smoke, wayback and wrap make about 130 between them and fail with
+      // 429s whenever they land in the same minute. The limiter itself is
+      // covered by the Python suite.
+      NESTED_WORLDS_RATE_LIMIT_GET_PER_MIN: "600",
     },
   },
 });
