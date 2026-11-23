@@ -53,7 +53,7 @@ print(json.dumps({'node':root.name}))
   }
 }
 
-for (const client of ['/', '/app']) for (const legacy of [false, true]) {
+for (const client of ['/map', '/app']) for (const legacy of [false, true]) {
   test(`${client}: an exhausted real pool keeps its answer hidden${legacy ? ', including an old response field' : ''}`, async ({page}) => {
     const server = await fixture();
     const upstreamResults = [];
@@ -81,7 +81,7 @@ for (const client of ['/', '/app']) for (const legacy of [false, true]) {
       await expect(page.locator('#node-name')).toHaveAttribute('title', server.node);
       await page.getByRole('button', {name: 'Puzzle', exact: true}).click();
       await expect(page.getByText('The Fixture Question', {exact: true})).toBeVisible();
-      const input = client === '/' ? page.locator('#puzzle-answer') : page.getByLabel('Puzzle answer', {exact: true});
+      const input = client === '/map' ? page.locator('#puzzle-answer') : page.getByLabel('Puzzle answer', {exact: true});
       for (const [index, guess] of ['first guess', 'second guess'].entries()) {
         await input.fill(guess);
         const [response] = await Promise.all([
@@ -118,7 +118,7 @@ for (const client of ['/', '/app']) for (const legacy of [false, true]) {
       await expect(input).toBeVisible();
       // Preserve the current reload divergence explicitly. Correcting the
       // reopened scene input is part of batch 1b, not answer withdrawal.
-      if (client === '/') {
+      if (client === '/map') {
         await expect(input).toBeDisabled();
         await expect(page.locator('#puzzle-submit')).toBeDisabled();
       } else {

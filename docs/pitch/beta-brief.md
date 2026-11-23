@@ -33,12 +33,15 @@ is exactly the top of that same stored depth-11 world.
 **How to enter.** You'll get a one-click invite URL of the form
 `https://enfolded.world/app?key=nw_…&name=<you>` — minted per person with
 `python main.py invite mint --name <you>` and revocable individually
-(`main.py::invite_share_url`, `main.py::cmd_invite`). This entry instruction was
-updated on 2026-11-04 for the owner-approved `/app` pilot default
-([ADR-005](../decisions/ADR-005-launch-operations.md)); the historical tour below
-was not re-run. The scene uses a 2D canvas; `/` remains the named World map
-alternate. Cohort device and onboarding evidence remain open. On first arrival you are **dropped in
-at a node in the middle of the world, chosen deterministically from your name**
+(`main.py::invite_share_url`, `main.py::cmd_invite`). The invite opens the
+living scene. Choose **World map** to see where you are in the hierarchy
+without leaving your session. A fresh visit to `/` opens that map directly.
+The original explorer used for the captures below is at `/map`. Cohort device
+and onboarding evidence remain open.
+[Client decision](../decisions/ADR-005-launch-operations.md#3-browser-entry-and-the-original-explorer)
+
+On first arrival you are **dropped in at a node in the middle of the world,
+chosen deterministically from your name**
 — same name, same arrival point, every time (`frontend/src/entry.js`,
 mirrored in `static/explorer.js`). Return later and you resume exactly where you
 left off, across devices, keyed on your invite credential.
@@ -141,8 +144,8 @@ score is one of eleven sampled musical forms directed by scale and state
 (`static/score.js`, CC0 VSCO 2 Community Edition recordings shipped locally).
 Causal pressure, danger, condition, atmosphere, material and retained traces bend
 both senses. Art is always present; in `/app` sound is the intended default once
-the browser has its activation gesture (an explicit mute persists), and the map
-view keeps a toggle. Both cost zero API spend; a fal.ai image, when enabled, is
+the browser has its activation gesture (an explicit mute persists), and the
+original explorer has a sound toggle. Both cost zero API spend; a fal.ai image, when enabled, is
 only a translucent wash over the local rendering, and four curated plates ship
 for the first situation's places (`docs/media/expressive-world.md`).
 
@@ -204,12 +207,11 @@ is reproducible.** A partner running curated launch seed 382 sees the same
 materialized world, pixel-family for pixel-family, so a screenshot or GIF can be
 a faithful, checkable artifact rather than a marketing composite.
 
-The captures below are current launch-world proof: generator v2, seed 382,
-captured 2026-08-04 by headless Chromium against a real isolated server and
-temporary materialized database — no production state, no retouching. Run
-`npm --prefix frontend run capture:pitch` to reproduce them; exact nodes,
-puzzle, agent, and observed feed lines are recorded in
-`assets/capture-metadata.json`.
+The images below show the original explorer on 2026-08-04. Headless Chromium
+captured generator v2, seed 382, on an isolated server with a temporary
+database. Run `npm --prefix frontend run capture:pitch` to repeat the tour
+at `/map` with the current interface. Each run writes its images and the
+observed places, puzzle, traveler and feed lines to `docs/pitch/assets/`.
 
 ![Drop-in — a mid-world node, art already painted](./assets/dropin.png)
 *Tour step 1: Archivist's deterministic arrival at Planet · Golden Pilgrim

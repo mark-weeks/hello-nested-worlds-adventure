@@ -43,7 +43,7 @@ async function enter(page, server, route, credential=key, name='Ada') {
   await page.getByText('Travelers & chat',{exact:true}).click();
 }
 
-for (const route of ['/', '/app']) test(`${route}: block chat and presence across tabs, reload, and unblock an offline traveler`, async ({browser})=>{
+for (const route of ['/map', '/app']) test(`${route}: block chat and presence across tabs, reload, and unblock an offline traveler`, async ({browser})=>{
   test.setTimeout(60_000);
   const server=await start();
   const owner=await browser.newContext();
@@ -53,7 +53,7 @@ for (const route of ['/', '/app']) test(`${route}: block chat and presence acros
     const sibling=await owner.newPage();
     const bea=await other.newPage();
     await enter(page,server,route);
-    await enter(sibling,server,route==='/'?'/app':'/');
+    await enter(sibling,server,route==='/map'?'/app':'/map');
     await enter(bea,server,'/app',otherKey,'Bea');
     await expect(page.getByRole('button',{name:'Block Bea',exact:true})).toBeVisible();
     await expect(sibling.getByRole('button',{name:'Block Bea',exact:true})).toBeVisible();
@@ -133,7 +133,7 @@ function expectNamed(controls, verb) {
   }
 }
 
-for (const route of ['/', '/app']) test(`${route}: a quoted traveler name stays text in roster, feed and blocked-list controls`, async ({browser})=>{
+for (const route of ['/map', '/app']) test(`${route}: a quoted traveler name stays text in roster, feed and blocked-list controls`, async ({browser})=>{
   test.setTimeout(60_000);
   const server=await start(quotedName);
   const owner=await browser.newContext();
@@ -223,14 +223,14 @@ for command in sys.stdin:
     }};
 }
 
-for(const route of ['/','/app'])test(`${route}: the same block controls hide an inhabitant's live speech and presence`,async({browser})=>{
+for(const route of ['/map','/app'])test(`${route}: the same block controls hide an inhabitant's live speech and presence`,async({browser})=>{
   test.setTimeout(60_000);
   const server=await startCast();
   const owner=await browser.newContext();
   try {
     const page=await owner.newPage(),sibling=await owner.newPage();
     await enter(page,server,route);
-    await enter(sibling,server,route==='/'?'/app':'/');
+    await enter(sibling,server,route==='/map'?'/app':'/map');
     await disclose(page,'History & journal');
     const feed=page.getByLabel('Recent events');
     await expect(page.getByRole('button',{name:'Block Tessera',exact:true})).toBeVisible();

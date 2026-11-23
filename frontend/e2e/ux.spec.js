@@ -12,7 +12,7 @@ const act=page=>page.locator('enfolded-interventions');
 async function capture(page,name){await mkdir(evidence,{recursive:true});await page.screenshot({path:path.join(evidence,name+'.jpg'),type:'jpeg',quality:82,fullPage:true});}
 async function fits(page){expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
 
-for(const route of ['/app','/']){
+for(const route of ['/app','/map']){
   const client=route==='/app'?'scene':'map';
   test(`${client}: navigation, return, identity and 200% text at narrow and wide widths`,async({page})=>{
     const server=await serveUX();const errors=[];page.on('pageerror',e=>errors.push(e.message));

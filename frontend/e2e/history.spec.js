@@ -11,7 +11,7 @@ const serve=database=>serveBrowser({database,pump:true,env:{
   NESTED_WORLDS_HOP_DELAY:'0',NESTED_WORLDS_MATURATION_SCALE:'0.03',
 }});
 
-for (const route of ["/", "/app"]) {
+for (const route of ["/map", "/app"]) {
   for (const mode of ["immediate", "delayed"]) {
     test(`${route} traces ${mode} actions through live arrival, chronicle and missed-notice reload`, async ({ page, request }) => {
       const directory = await mkdtemp(path.join(tmpdir(), "enfolded-m3-browser-"));
@@ -84,13 +84,13 @@ for (const route of ["/", "/app"]) {
         await page.goto(server.url + route);
         await disclose(page,"History & journal");
         await expect(page.getByText(outcome.narration.text, { exact: false }).first()).toBeVisible();
-        if (route === "/") await page.locator("#btn-chronicle").click();
+        if (route === "/map") await page.locator("#btn-chronicle").click();
         else await page.getByRole("button", { name: "View full chronicle" }).click();
         await expect(page.getByText(outcome.narration.text, { exact: false }).last()).toBeVisible();
         // The earlier ripple must be in the chronicle as the same arrival,
         // even if the bounded recent feed no longer includes it.
         await expect(page.getByText(arrival.narration.text, { exact: false }).last()).toBeVisible();
-        await page.screenshot({ path: path.join(tmpdir(), `enfolded-m3-${route === "/" ? "explorer" : "scene"}-${mode}.png`) });
+        await page.screenshot({ path: path.join(tmpdir(), `enfolded-m3-${route === "/map" ? "explorer" : "scene"}-${mode}.png`) });
         expect(errors).toEqual([]);
       } finally {
         await page.goto("about:blank").catch(() => {});

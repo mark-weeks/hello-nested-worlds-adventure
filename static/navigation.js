@@ -35,7 +35,11 @@
       const row=el('div');row.className='top';nav.append(row);
       if(parent) row.append(button(`↑ ${text(parent.name)}`,parent.name,()=>this.ctx.jump(parent.name,parent.address)));
       if(wrap){const b=button(wrap.direction==='inward'?'Descend into the whole ↓':'Ascend beyond ↑',wrap.target,()=>this.ctx.cross(wrap));b.id=wrap.direction==='inward'?'btn-wrap-down':'btn-wrap-up';row.append(b);}
-      const link=el('a',view);link.href=href;link.dataset.target='view';row.append(link);
+      if (this.ctx.switchView) {
+        row.append(button(view, 'view', () => this.ctx.switchView()));
+      } else {
+        const link=el('a',view);link.href=href;link.dataset.target='view';row.append(link);
+      }
       if(status==='loading') {const p=el('p','Opening the passages within…');p.setAttribute('role','status');nav.append(p);}
       if(status==='error')nav.append(button('Retry passages','retry',retry));
       if(deepen){const b=button('Look within ↓','deepen',deepen);b.id='btn-deepen';nav.append(b);}

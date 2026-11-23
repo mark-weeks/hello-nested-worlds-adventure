@@ -1,18 +1,25 @@
 # Controlled staging model calls
 
-This batch implements a closed-by-default control boundary, not live activation.
+This guide describes a closed-by-default control boundary, not live activation.
 No provider, endpoint, numeric spending limit, token price or ledger-retention
-period is selected by the checked-in configuration. The owner's earlier ceiling
-proposals remain proposals; they are not forecasts or approved settings.
+period is approved by a checked-in file. The
+[watch example](../../config/model-policy.watch.example.json) is the enabled
+shape with every owner value left as a placeholder the offline check refuses.
+The amounts written inside those placeholders ($15 a day global, $3 a day per
+participant, a retention draft of 35 days) are unconfirmed. They are not
+settings. The provider console limit of $150 is not a field in the file.
 
-The first controlled adapter/vendor remains an open owner decision. The code
-currently supports only the built-in `openai_compatible` Chat Completions path;
-ADR-035 is still Proposed. Live voice on Fly, production included, is blocked
-until ADR-035 is accepted or a controlled Anthropic path exists, and the
-destination/account terms, models, prices, dollar amounts and retention have
-scoped approval. An implementation request in the working session is not
-independent ratification of ADR-039 or approval of those values. This batch does
-not implement chat retention.
+The code supports only the built-in `openai_compatible` Chat Completions path.
+ADR-035 stays Proposed until the owner records acceptance for one named
+endpoint. A desk check of the two candidate endpoints is in the
+[endpoint-check record](../evaluation/2026-11-20-chat-completions-endpoint-check.md).
+That record recommends one candidate. It does not sign a data-use note, fill
+the example, or accept the ADR. The disposable twin may run the first live
+probe once the owner has signed that note, filled the private policy, passed
+`model-policy --check`, and set the $150 spend limit on the provider account.
+That probe is the live evidence for the acceptance record and does not wait
+for it. Production, and any session a participant joins, also wait until the
+owner records the acceptance. This guide does not implement chat retention.
 
 `NESTED_WORLDS_REQUIRE_MODEL_POLICY=1` requires controlled mode. A declared
 temporary test world also requires it (including a misspelled test-world flag,
@@ -45,6 +52,28 @@ It parses and checks enabled routes against effective task/provider/model/option
 without API calls or a database. It does not prove provider availability, token
 bounds, current prices, account settings, retention terms or owner approval.
 No credentials belong in the policy. Use the existing separate credential env var.
+
+The all-off file above is a valid quiet policy. The watch example is not:
+
+```sh
+python main.py model-policy --check --policy config/model-policy.watch.example.json
+```
+
+That command exits 1 until every `<OWNER: ...>` value is replaced. The message
+is the generic invalid-configuration line; it does not echo the file. A passing
+check prints, per enabled route, the full-context reservation in microUSD and
+at least how many such reservations fit under the participant ceiling and under
+the global ceiling. Dispatch can admit more when the call's output bound is
+shorter than the route maximum. A remainder smaller than one reservation does not count. The
+owner confirms the dollar amounts against that report before the file is
+approved. The report names tasks only. It does not print endpoints, model ids,
+prices or approval text.
+
+The $150 provider-account limit is a separate owner step, set on the provider
+console before any paid probe or rubric run. The strict parse refuses an
+unknown key, so the file has nowhere to put it and the server does not enforce
+it. If the account offers only an alert, stop and record a replacement decision
+before any paid call.
 
 `python main.py models` and `python main.py voice-health` report controlled policy
 state when controlled mode is required or active, rather than presenting the
@@ -129,6 +158,10 @@ requirement to work around a refusal.
 
 ## Reservations and usage
 
+The offline check's `reservations` rows report that full-context figure at each
+route's maximum output, and how many whole reservations fit under each ceiling.
+That count is a floor. Dispatch reserves the per-call output bound, which is
+no larger, so a shorter call can be admitted more times than the report shows.
 Admission reserves the **full verified provider context maximum** at the highest input/cache
 price plus the requested output bound, rounded up to integer microUSD. A smaller
 daily allowance may refuse a typical short prompt because that full reservation
@@ -191,3 +224,311 @@ activity, remote billing changes or an older database restore. Disable AI and
 images before restore and reconcile the current UTC day's external spend before
 re-enabling them. Do not describe the ledger as a provider-account-wide cap or an
 estimate of annual player cost.
+
+## Watch call caps
+
+These are deploy secrets, not policy fields. Each value below is an unconfirmed
+placeholder. The owner sets the integer. A neutral name and its legacy name are
+set to that same integer in one `fly secrets set`, which restarts once
+([runbook](../infrastructure/fly-deployment.md), "Adjust a runtime cap"). A
+leftover lower legacy value is what a request enforces.
+
+| Secret | Placeholder |
+| --- | --- |
+| `NESTED_WORLDS_VOICE_DAILY_CALLS` and `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS` | `<OWNER: integer, unconfirmed draft 1000>` |
+| `NESTED_WORLDS_VOICE_DAILY_CALLS_PER_USER` and `NESTED_WORLDS_ANTHROPIC_DAILY_CALLS_PER_USER` | `<OWNER: integer, unconfirmed draft 150>` |
+| `NESTED_WORLDS_MODERATION_DAILY_CALLS` | `<OWNER: integer, unconfirmed draft 2000>` |
+| `NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER` | `<OWNER: integer, unconfirmed draft 120>` |
+| `NESTED_WORLDS_MODEL_ACTIONS_PER_USER` | `<OWNER: integer, unconfirmed draft 200>` |
+
+`server/guard.py` is where those names are read. Moderation and model-actions
+have no legacy alias. One further legacy pair exists and stays unset for this
+watch, because images stay off and no image provider key is set:
+`NESTED_WORLDS_IMAGE_DAILY_CALLS` with `NESTED_WORLDS_FAL_DAILY_CALLS`, and
+`NESTED_WORLDS_IMAGE_DAILY_CALLS_PER_USER` with
+`NESTED_WORLDS_FAL_DAILY_CALLS_PER_USER`.
+`NESTED_WORLDS_MODERATION_ACTIONS_PER_USER` is a separate cap, not a legacy
+alias of the names above, and no integer is adopted for it. Leaving it unset
+does not remove the cap: `server/guard.py` then applies its default of 600
+per user per day.
+
+## Single-grader live rubric run
+
+This is the operator brief for one live rubric run. It was not run to write
+this page. Do not point it at the twin.
+
+Controlled mode refuses live eval wrappers. The run is therefore a separate
+process on an operator workstation: no `NESTED_WORLDS_MODEL_POLICY`, and no
+copy of the twin's database. Use the same endpoint and the same pinned model
+ids the owner confirmed in the policy file. The policy ledger does not count
+this spend. Reconcile it against the $150 provider console limit, which is
+itself an owner step and not a policy field.
+
+The run is one grader. That is a recorded deviation from the two-grader rule.
+The owner sets the call ceiling and the dollar ceiling. Both are placeholders:
+
+```sh
+python scripts/model_eval.py run \
+  --live \
+  --candidate <OWNER: candidate file for the pinned ids> \
+  --output <OWNER: private output directory> \
+  --brief <OWNER: private copy of evals/selection-brief.template.json> \
+  --max-usd <OWNER: USD for this run> \
+  --max-calls <OWNER: integer> \
+  --allow-destination <OWNER: exact host, no wildcard>
+```
+
+A live run without `--brief` exits 2 with `live comparison requires a frozen
+selection brief`, before any provider call. Copy
+`evals/selection-brief.template.json` to a private path, replace its
+`REPLACE` strings and nulls, including `frozen_on` and every selected task's
+gates, and pass that path. The checked-in template is not a filled brief.
+
+`--allow-destination` is the hostname only, exactly the host of the base URL
+the candidate's adapter will call. No scheme, no path, and no wildcard. There
+is no default host for this adapter. `--max-usd` and `--max-calls` are both
+required; omitting either refuses the live run. They stop the run at those
+ceilings.
+Leave the twin's kill switches and policy file untouched while this process
+runs. Do not pass a twin URL, a check key, or a database path.
+
+## Clearing the stop
+
+There is still no unlatch command, no audit table, and no migration. The only
+application write to `model_spend_latch` is an insert that does nothing when
+the row is already there (`persistence/model_spend.py`, `_latch`). Nothing in
+application code deletes that row. [ADR-039](../decisions/ADR-039-controlled-model-spend.md)
+stays Proposed. Its decision text still stands: no automatic refund or unlatch,
+and an explicit tool is a "Revisit when" trigger, not this section.
+
+[Owner decision O9](../roadmap/owner-decisions-2026-11-20.md#o9-clearing-the-latched-spend-stop-items-3-28)
+(2026-11-20) adopts a hand-SQL clear for the disposable watch twin only. The
+machine commands and the guarded script are in
+[Clearing the stop](../infrastructure/incident-response.md#clearing-the-stop).
+This section is the accounting contract those steps implement.
+
+### What is true on this revision
+
+The stop is one row in `model_spend_latch`. The table's primary key allows
+only `singleton = 1`, and `reason` is one of `billing_anomaly`,
+`accounting_fault`, or `unsettled_startup`
+(`persistence/migrations/0032_model_spend.sql`). The migration states the
+consequence: a restart, a new UTC day, a policy replacement, or expired-row
+cleanup never clears the circuit, and there is no application reset operation.
+
+`check_unsettled_on_startup` runs inside the server's boot when controlled
+mode has a policy, including when the kill switches are on
+(`server/__init__.py` calls `initialize_accounting`). If any
+`model_spend_reservations` row still has `status = 'reserved'`, that function
+inserts `unsettled_startup` (leaving an existing reason in place) and sets
+`abandoned_at` on those rows. It does not change `accounted_microusd`. The
+same scan runs once per process and database (`_initialized_databases` in
+`consciousness/model_dispatch.py`). A later call in that process does not
+scan again.
+
+An `unsettled_startup` latch therefore leaves `status = 'reserved'` rows.
+Those rows latch again at the next start until they leave that status.
+`settle` refuses a row whose `abandoned_at` is set, so the application cannot
+finish them. Hand SQL is the resolution on the twin.
+
+`_settlement_fault` (`consciousness/model_dispatch.py`) is an event in the
+server process. A database clear does not reset it. The process keeps
+refusing controlled dispatch until the machine is restarted and a new process
+takes its place.
+
+### Where this procedure applies
+
+Run it on the disposable watch twin, and rehearse it first on a separate
+throwaway Fly app. Both need a fresh backup immediately before the write.
+
+The single-grader rubric run above is not a clear. It leaves the
+twin's kill switches and policy file untouched. This procedure changes
+the voice and moderation switches on the app being cleared, and it does
+not edit the policy file.
+
+A kept world that will serve any live model route needs an audited clear
+command first. That command is an ADR-039 revision and its own migration.
+Hand SQL on a kept world's volume is not acceptable. This section does not
+add the command. It waits until ADR-041 naming's migration has merged,
+because one migration pull request is open at a time, and until the owner
+has accepted the ADR-039 revision.
+
+### What a clear requires
+
+Record every item below before the write, in a dated private operator entry
+kept outside the world database and outside player-visible history. The entry
+names the Fly app, the backup path, and the UTC time. It is not a chronicle
+row and not a chat line. Items 1 to 4 are O9's evidence. Item 5 is required
+when the reason is `billing_anomaly`.
+
+1. The provider console's spend for every UTC day the read-only listing
+   prints under `reconcile days`. That set is the UTC day of `latched_at`,
+   every day that still has a `reserved` row, and every day that has an
+   `anomaly` row. An anomalous settlement after midnight keeps the charge
+   on the reservation's original day, so `latched_at` alone can miss it.
+   Beside each figure, the ledger's summed `accounted_microusd` for that
+   day. One USD is 1,000,000 microUSD. The console total and the ledger
+   total are both evidence. A lower console total is the usual case,
+   because admission reserves the full context bound. Do not write the
+   console's number into the ledger.
+2. The latch reason and `latched_at`.
+3. Every `reserved` row, listed before the write. The write refuses unless
+   those ids are exactly the reserved rows it sees, and then resolves them.
+4. The dated entry itself, completed with the backup path before the write.
+5. When the reason is `billing_anomaly`, each `anomaly` row's
+   `resolved_model`, `usage_json`, `reserved_microusd`, and
+   `accounted_microusd`, and the cause. Settlement flags an anomaly when
+   the resolved model is outside the route, the provider is not the route's
+   adapter, the billing evidence is inconsistent, or a token count exceeds
+   the route's bound. A priceable count above that bound can account more
+   than the reservation. That is the case where the ceiling does not hold.
+   Leave the latch until the owner corrects the deployed route's
+   resolved-model list, token bounds, or prices. The checked-in watch
+   example still leaves dollar amounts, prices, and call caps as
+   unconfirmed placeholders. Editing that example does not change the
+   policy on the machine, and this procedure does not fill it. O4 and O5
+   are the decision record for those amounts. They are not a checked-in
+   setting. With the same deployed policy, the next confirming call
+   latches again, or charges above the reservation again.
+
+If the console total is higher than this installation's ledger in a way the
+recorded calls do not explain, leave the latch in place and keep external
+routes off. The gap is a separate reconciliation. ADR-039 already treats
+other tools, console activity, and a restored older database as outside this
+ledger.
+
+A clear never refunds the day's spend. The write does not lower
+`accounted_microusd`, does not change `day`, and does not delete a
+reservation. Those columns are what the daily ceilings sum.
+
+A clear never shortens retention. The write does not change
+`retention_days` or `retain_until`, and it does not delete a row to make
+the latch disappear.
+
+A restart is not a clear. `fly machine restart`, `fly secrets set`, and a
+crash start a new process. That process runs the startup scan. An existing
+latch row stays. `reserved` rows are marked abandoned and, when no latch
+existed yet, become `unsettled_startup`. The old process's
+`_settlement_fault` dies with the process; the database latch remains.
+
+A new app, a new volume, or a re-created twin is not a clear. The provider
+has already billed the UTC day. Replacing the database leaves that bill in
+place and throws away the ledger that recorded it.
+
+### The five steps
+
+1. **Quiesce dispatch.** Record the current `NESTED_WORLDS_DISABLE_AI` and
+   `NESTED_WORLDS_DISABLE_MODERATION` values, including a name that is
+   unset. Then set both to `1` on that app, and confirm
+   `NESTED_WORLDS_DISABLE_IMAGES=1`. One `fly secrets set` restarts the
+   machine. That restart is not a clear. Wait until `/health` is ok and
+   `python main.py models`, run on the machine, shows every route
+   `disabled (intentional)`. The switches stay on until the post-write
+   restart has been confirmed. Between the commit and that restart, a
+   running process whose in-memory fault is clear would admit a new
+   reservation the moment the latch row is gone, and the next boot would
+   latch `unsettled_startup` again.
+2. **Reconcile outstanding reservations.** Take the fresh backup, copy it
+   off the machine, and record its path. Then resolve every `reserved` row
+   inside the same immediate transaction as the latch delete. Resolution
+   keeps the money and the retention columns, and moves the row to the
+   status the application already uses when usage is unknown:
+
+   ```sql
+   UPDATE model_spend_reservations
+   SET status = 'uncertain',
+       settled_at = :utc,
+       abandoned_at = NULL
+   WHERE status = 'reserved';
+   ```
+
+   `:utc` is a UTC stamp in the ledger's own form,
+   `2026-11-20T23:40:00.000000Z`. `settled_at` has to be set because a
+   non-reserved row must have it. `abandoned_at` has to become NULL because
+   the table allows that column only while `status = 'reserved'`.
+   `accounted_microusd` is already equal to `reserved_microusd` on a
+   reserved row; leaving it untouched satisfies the `uncertain` check and
+   does not refund the ceiling. Rows already `settled`, `uncertain`, or
+   `anomaly` stay as they are, including a `billing_anomaly` row that has
+   already been settled at or above its reservation.
+3. **Clear the latch row,** in that same transaction, only after the
+   reserved ids match the listing and a count of `status = 'reserved'` is
+   zero. The transaction also reads its rows before and after the update
+   and refuses if `accounted_microusd`, `day`, `retention_days`, or
+   `retain_until` changed. That comparison is against its own read, not
+   against the listing:
+
+   ```sql
+   DELETE FROM model_spend_latch WHERE singleton = 1;
+   ```
+
+   If any check fails, roll the transaction back. The latch stays. Do not
+   delete reservations, do not vacuum, and do not edit any other table.
+4. **Restart the machine.** The new process runs the startup scan. With no
+   reserved row and no latch row, the scan does not stop dispatch. The new
+   process's `_settlement_fault` starts clear.
+5. **Confirm, then one settled call.** On the machine, `python main.py models`
+   and `python main.py voice-health` must report `model accounting durable
+   stop: no`, `model accounting unresolved reservations: 0`, and
+   `model controls: no recorded stop`, and must not report `STOPPED`.
+   Those commands read the database and their own process, not the server's
+   memory. The restart is what drops the server's event. Restore the voice
+   and moderation values recorded in step 1, or unset a name that was unset.
+   Do not write `0` unless that was the recorded value. A `0` secret
+   overrides `fly.toml`, whose `NESTED_WORLDS_DISABLE_AI` is `1`. Unsetting
+   that name restores the committed `1`. If the restored voice value does
+   not admit a call, leave it. The clear stays incomplete until the owner
+   records the live value to restore. That set restarts the machine again
+   and is not a clear. Re-read the same lines.
+   Then make one ordinary authenticated gameplay call that is expected to
+   dispatch: a place line, an agent line, or an Act free-text intention.
+   Do not use an identity question, and do not use `--probe` (controlled
+   mode refuses it). Every reservation that call creates is `settled`, with
+   `accounted_microusd` less than or equal to `reserved_microusd`, and the
+   latch table is still empty. The clear is complete only then.
+
+   Those reservations count against the current UTC day's ceiling at their
+   full admission bound. Rows resolved onto an earlier `day` do not consume
+   today's ceiling. Rows whose `day` is today still do, at the full
+   `accounted_microusd` the clear refused to lower. The clear is complete
+   only when every row that call creates is `settled`. If any created row
+   is not `settled`, if no row was created, or if a latch row exists, set
+   both kill switches back to 1 before another paid call. An allowance
+   refusal and a usable reply that settled as `uncertain` write no latch.
+   Reconcile those rows, and make the confirming call only once the current
+   UTC day can admit one reservation and the recorded switch values are
+   restored again. Do not substitute `0`. A `reserved` row is latched again
+   as `unsettled_startup` by the restart that sets the switches back to 1.
+   An `anomaly` row is latched again as `billing_anomaly` by settlement.
+   Either one is a new incident: start again from the evidence, and for an
+   anomaly wait for the owner's route correction. Until a call's rows are
+   all `settled`, the clear is not complete and the switches stay at 1.
+
+The guarded script that performs steps 2 and 3, and the read-only listing
+for the evidence entry, are in the incident procedure. Before it opens the
+database writable, Fly's `FLY_APP_NAME` must equal the app name the operator
+passes, that name must not be `enfolded-beta`, and
+`NESTED_WORLDS_TEST_WORLD` must be on. The operator does not assign
+`FLY_APP_NAME`. The write also refuses unless `ENFOLDED_CLEAR_DAYS` names
+every reconcile day, including an anomaly row's original day, and unless
+`ENFOLDED_CLEAR_RESERVED` is exactly the reserved ids in that transaction.
+It opens only `/data/.nested-worlds/worlds.db`, read-write without creating
+the file. A `billing_anomaly` latch stays until the owner has corrected
+the deployed route. The
+off-machine backup goes into a fresh `0700` directory, and the downloaded
+file is mode `0600`.
+
+### Rehearsal
+
+By Friday 4 December 2026, before the first watch session, rehearse this
+procedure on a separate throwaway Fly app with
+`NESTED_WORLDS_TEST_WORLD=1` set before first boot. The gameplay calls use
+a credential that has accepted the current participation notice. The
+rehearsal covers one settled reservation, one stop produced by the
+application (a reserved row left by process death, then a restart that
+records the latch), the evidence items, the hand-SQL clear, the restart,
+and one settled call after it.
+Inserting a latch row by hand does not count as that stop. The steps are
+written in the incident procedure and are not run from this repository.
+ADR-039 is accepted only after that rehearsal passes, and only in the
+records or status pull request the owner names.

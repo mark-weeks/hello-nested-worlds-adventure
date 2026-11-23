@@ -105,7 +105,7 @@ def test_incomplete_notice_keeps_shells_available_but_gameplay_and_acceptance_cl
     status, metadata, _ = http("/participation", "")
     assert status == 200 and metadata["required"] and not metadata["ready"]
     assert metadata["revision"] == ""
-    for path in ("/health", "/app", "/", "/register", "/guide"):
+    for path in ("/health", "/app", "/", "/map", "/register", "/guide"):
         assert http(path, "")[0] == 200
     assert http("/world")[0] == 503
     assert http("/participation", body={"accepted": True, "revision": ""})[0] == 503
@@ -293,6 +293,7 @@ def test_self_service_registration_mints_no_implicit_acknowledgement(http, confi
     status, response, _ = http("/register", "", {"invite": "nwr_participation_test", "name": "Cara", "age_confirmed": True})
     assert status == 200
     key = response["key"]
+    assert http(response["url"], "")[0] == 200
     assert _rows("participation_consents") == []
     assert http("/participation", key)[1]["accepted"] is False
     assert http("/world", key)[0] == 428

@@ -1,7 +1,5 @@
-// Browser E2E smoke: load both real clients from the real Python server —
-// the committed/built bundle, the production CSP, an actual Chromium.
-// This is the layer that would have caught the CSP-blocked-PixiJS blank
-// scene that unit tests and vite dev-server checks structurally cannot see.
+// Chromium loads both clients from the Python server so these tests exercise
+// the committed bundle under the production Content Security Policy.
 import { defineConfig } from "@playwright/test";
 
 const PORT = 8199;

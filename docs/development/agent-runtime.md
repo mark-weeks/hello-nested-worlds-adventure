@@ -578,12 +578,19 @@ The all-off example selects no destination, price, cap or retention period.
 Existing local/fixture behavior outside controlled mode and the call-count caps
 remain. A valid policy is not provider evaluation or live activation approval.
 
-The first controlled adapter/vendor is an open owner decision. ADR-035 remains
-Proposed, so live hosted voice is blocked until that ADR is accepted or a
-controlled Anthropic path exists, and the chosen destination/account terms,
-models, prices, dollar amounts and retention are approved. The all-off defaults
-apply to production as well as staging. Do not remove the hosted policy
-requirement to recover the legacy Anthropic path.
+The checked-in watch example is refused until the owner fills it. The
+[endpoint-check record](../evaluation/2026-11-20-chat-completions-endpoint-check.md)
+is a desk recommendation for one Chat Completions endpoint. It does not approve
+a destination, a model id, a price or a dollar amount, and it does not change
+ADR-035's Status. The disposable twin may run the first live probe once the owner has signed
+the data-use note for one account at that endpoint, filled the private policy,
+passed `model-policy --check`, and set the $150 spend limit on the provider
+account. That probe is the live evidence for accepting ADR-035 and does not
+wait for the acceptance record. Production, and any session a participant
+joins, also wait until the owner records that acceptance. Until the signed
+note and the passing policy are in place, the all-off defaults apply,
+production included. Do not remove the hosted policy requirement to recover
+another adapter.
 
 `models` and `voice-health` report the controlled route policy rather than
 legacy adapter readiness. They refuse `--probe` in controlled mode, including

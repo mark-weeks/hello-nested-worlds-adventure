@@ -56,7 +56,7 @@ async function enter(page, url, route, socket) {
 
 const feed = (page, route) => page.locator(route === "/app" ? ".feed" : "#event-feed");
 
-for (const route of ["/", "/app"]) {
+for (const route of ["/map", "/app"]) {
   test(`${route} gives a held or declined chat line back to the empty input`, async ({ page }) => {
     const server = await serve();
     const errors = [];
@@ -192,7 +192,7 @@ test("/app gives a line back when its hold arrives during a deep traveler jump",
 // has marked the client disconnected) reaches nobody. Neither client may
 // clear the line then. This drives the page's own socket, with no relay,
 // because the relay replaces it and cannot show the closing state.
-for (const route of ["/", "/app"]) {
+for (const route of ["/map", "/app"]) {
   test(`${route} keeps a line sent while the socket is closing`, async ({ page }) => {
     const server = await serve();
     try {

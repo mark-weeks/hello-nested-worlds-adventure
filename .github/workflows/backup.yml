@@ -3,13 +3,16 @@ name: Off-host backup
 # The volume holding worlds.db is the only live copy of the permanent
 # chronicle; Fly's automatic snapshots retain just 5 days and live on the
 # same platform. This schedule asks for an application-level backup off-host
-# every 30 minutes into a private S3-compatible bucket. Cloudflare R2 is an
-# example of that store, and 30 days is the example retention when
-# ENFOLDED_BACKUP_RETENTION_DAYS is unset. Mark has not recorded either
-# choice. The repository is public, and GitHub's artifact list is available
-# to anyone with read access, so this workflow must never upload the database
-# with actions/upload-artifact, including when validation fails or the bucket
-# is not configured.
+# every 30 minutes into a private S3-compatible bucket. Cloudflare R2 is that
+# store, and retention is 30 days, both recorded on 2026-11-20 (owner
+# decision O7). The account, bucket and endpoint stay secrets. A 7-day bucket
+# lock counted from upload, and a 37-day lifecycle on offhost/, are bucket
+# settings in docs/infrastructure/backup-bucket.md, not steps in this file.
+#
+# The repository is public, and GitHub's artifact list is available to anyone
+# with read access, so this workflow must never upload the database with
+# actions/upload-artifact, including when validation fails or the bucket is
+# not configured.
 #
 # Scheduling can be delayed or dropped; object freshness and a restore
 # rehearsal establish readiness, not a green workflow badge. ADR-005's
@@ -17,16 +20,46 @@ name: Off-host backup
 # replication remains the post-launch follow-up. This cron alone does not
 # meet that limit: the measured cadence is in the note that ends this file.
 #
-# Until FLY_API_TOKEN and the ENFOLDED_BACKUP_S3_* values are set, the gate
-# leaves the job as an inactive no-op and uploads nothing. Before launch set
-# ENFOLDED_BACKUP_REQUIRED=true: missing configuration then fails the job.
-# The S3 endpoint and bucket are secrets: the endpoint contains the account
-# id, and neither value is masked when it is only a repository variable.
+# The one job runs in the backup environment. The Fly token is the
+# environment secret BACKUP_FLY_SSH_TOKEN, passed to flyctl as FLY_API_TOKEN.
+# The six ENFOLDED_BACKUP_S3_* values are environment secrets of those names.
+# GitHub's secrets reference: when the same name exists at more than one
+# level, the lowest level wins. A missing environment secret therefore
+# resolves to a repository secret of that name, and the run looks the same.
+# BACKUP_FLY_SSH_TOKEN does not match a repository FLY_API_TOKEN, so a
+# leftover deploy token is not what this job receives. The six bucket names
+# still would. Delete those repository copies, and any repository
+# FLY_API_TOKEN, before this file runs on main. A workflow on any branch can
+# read a repository secret, and this token can read participant chat through
+# ssh. The owner creates the environment and limits its deployment branches
+# to main. GitHub otherwise creates the named environment with no rules and
+# no secrets. deployment: false keeps the branch rule and does not record a
+# GitHub deployment.
+#
+# The Fly token is `fly tokens create ssh -a enfolded-staging --expiry 720h`
+# on the flyctl 0.5.1 this job installs. It is not a deploy token. The
+# printed token can SSH to that app and can add a WireGuard peer on the
+# app's Fly organization. That peer joins the organization's private
+# network, which reaches the private addresses of every app in the org, not
+# only the app named with -a. Live use, and how far such a peer can reach,
+# was not tried from this change. The ref check below stops an accidental
+# dispatch of this unedited file. A branch that edits the file and is
+# dispatched with --ref can delete that step. The environment's main-only
+# branch rule is what withholds the secrets.
+#
+# Until those secrets are set, the gate leaves the job as an inactive no-op
+# and uploads nothing. Set ENFOLDED_BACKUP_REQUIRED=true only after a manual
+# dispatch has stored a validated object: missing configuration then fails
+# the job. For production, that is after the first production deploy (O14).
+# The repository variables are ENFOLDED_BACKUP_APP, ENFOLDED_BACKUP_S3_REGION
+# and ENFOLDED_BACKUP_REQUIRED. Retention is written below, not a fourth
+# variable. The S3 endpoint and bucket are secrets: the endpoint contains
+# the account id, and neither value is masked when it is only a variable.
 # Object keys are not written to the job log.
 on:
   schedule:
     - cron: '17,47 * * * *'   # off the top-of-hour congestion
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -39,19 +72,30 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    environment:
+      name: backup
+      deployment: false
     env:
-      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       FLY_APP: ${{ vars.ENFOLDED_BACKUP_APP || 'enfolded-beta' }}
       # Preserve typos so the gate can reject them instead of silently disabling backups.
       BACKUP_REQUIRED: ${{ vars.ENFOLDED_BACKUP_REQUIRED }}
       ENFOLDED_BACKUP_S3_REGION: ${{ vars.ENFOLDED_BACKUP_S3_REGION || 'auto' }}
-      # Example only; Mark has not chosen a retention (ADR-034 §5).
-      ENFOLDED_BACKUP_RETENTION_DAYS: ${{ vars.ENFOLDED_BACKUP_RETENTION_DAYS || '30' }}
+      # Retention is 30 days (owner decision O7, 2026-11-20), not an example.
+      ENFOLDED_BACKUP_RETENTION_DAYS: '30'
       # Pinned installer zips. SHA-256 computed 2026-11-02 from those exact URLs.
       AWS_CLI_VERSION: '2.39.3'
       AWS_CLI_SHA256_X86_64: 14cb35809ad7547dd3c69fa9899a3975fbd850b6a6791f3fe264856490cd9a63
       AWS_CLI_SHA256_AARCH64: f6eb845fbacb11bee87de3f5fbe8043773cbe89d0414607b44b71e216eb9226b
     steps:
+      # Defence against accidental dispatch only; the environment's branch rule withholds the secrets.
+      - name: Refuse any ref but main
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF-}" != "refs/heads/main" ]; then
+            echo "::error::Off-host backup runs only from main."
+            exit 1
+          fi
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
@@ -59,10 +103,13 @@ jobs:
       - name: Check for the Fly token and the private bucket
         id: gate
         env:
+          FLY_API_TOKEN: ${{ secrets.BACKUP_FLY_SSH_TOKEN }}
           ENFOLDED_BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.ENFOLDED_BACKUP_S3_ACCESS_KEY_ID }}
           ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY }}
           ENFOLDED_BACKUP_S3_BUCKET: ${{ secrets.ENFOLDED_BACKUP_S3_BUCKET }}
           ENFOLDED_BACKUP_S3_ENDPOINT: ${{ secrets.ENFOLDED_BACKUP_S3_ENDPOINT }}
+          ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID: ${{ secrets.ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID }}
+          ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY: ${{ secrets.ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY }}
         run: bash scripts/backup_gate.sh
 
       - name: Install AWS CLI
@@ -94,6 +141,8 @@ jobs:
 
       - name: Take an online backup on the machine
         if: steps.gate.outputs.ready == 'yes'
+        env:
+          FLY_API_TOKEN: ${{ secrets.BACKUP_FLY_SSH_TOKEN }}
         run: |
           STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
@@ -103,6 +152,8 @@ jobs:
       - name: Download the backup off-host
         id: download
         if: steps.gate.outputs.ready == 'yes'
+        env:
+          FLY_API_TOKEN: ${{ secrets.BACKUP_FLY_SSH_TOKEN }}
         run: |
           flyctl ssh sftp get "/data/backups/offhost-$STAMP.db" -a "$FLY_APP"
           ls -la "offhost-$STAMP.db"
@@ -144,6 +195,8 @@ jobs:
           ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.ENFOLDED_BACKUP_S3_SECRET_ACCESS_KEY }}
           ENFOLDED_BACKUP_S3_BUCKET: ${{ secrets.ENFOLDED_BACKUP_S3_BUCKET }}
           ENFOLDED_BACKUP_S3_ENDPOINT: ${{ secrets.ENFOLDED_BACKUP_S3_ENDPOINT }}
+          ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID: ${{ secrets.ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID }}
+          ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY: ${{ secrets.ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
           python3 scripts/backup_store.py prune --app "$FLY_APP" --retention-days "$ENFOLDED_BACKUP_RETENTION_DAYS" \
@@ -152,6 +205,8 @@ jobs:
 
       - name: Prune old machine-local off-host copies
         if: always() && steps.gate.outputs.ready == 'yes'
+        env:
+          FLY_API_TOKEN: ${{ secrets.BACKUP_FLY_SSH_TOKEN }}
         run: |
           flyctl ssh console -a "$FLY_APP" -C \
             "sh -c 'ls -t /data/backups/offhost-*.db 2>/dev/null | tail -n +7 | xargs -r rm'" \

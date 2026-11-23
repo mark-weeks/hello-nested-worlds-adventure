@@ -184,7 +184,11 @@ new ResizeObserver(() => {
   svg.interrupt().call(zoom.transform,d3.zoomIdentity.translate(w/2-d.y*t.k,h/2-d.x*t.k).scale(t.k));
 }).observe(container);
 
-function setStatus(msg) { document.getElementById('status').textContent = msg; }
+let statusSource = null;
+function setStatus(msg, source = null) {
+  document.getElementById('status').textContent = msg;
+  statusSource = source;
+}
 
 // The line of a world that has not opened while nothing is drawn (the invite
 // line, a refused invitation or a retry). No place can be chosen until the
@@ -376,15 +380,18 @@ let stopSensory = null;
 function drawSigil(data) {
   const sigil = document.getElementById('node-sigil');
   if (!sigil) return;
-  // The art is meaning, not decoration — give non-visual users its content.
-  sigil.setAttribute('role', 'img');
-  sigil.setAttribute('aria-labelledby', 'node-name');
-  sigil.setAttribute('aria-describedby', 'node-description');
+  const source = document.getElementById('node-art-source');
+  stopSensory?.();
+  source.textContent = '';
   if (window.startSensory) {
-    stopSensory?.();
-    stopSensory = window.startSensory(sigil, data);
+    stopSensory = window.startSensory(sigil, data, {
+      onArtSource: caption => { source.textContent = caption; },
+    });
   } else if (window.NodeArt) {
-    try { window.NodeArt.drawNodeArt(sigil, worldParams.seed, data); } catch (_) {}
+    try {
+      window.NodeArt.drawNodeArt(sigil, worldParams.seed, data);
+      if (sigil.getContext('2d')) source.textContent = window.ART_SOURCE.drawn;
+    } catch (_) {}
   } else {
     // The art ships as a deferred ES module, so the initial entry selection
     // can beat it; redraw whatever is selected once it announces itself.
@@ -441,8 +448,7 @@ function selectNode(data, { refresh = false } = {}) {
 
   refreshActPanel(data);
   if (!refresh) {
-    document.getElementById('speak-response').textContent = '';
-    document.getElementById('speak-response').className = 'response-box';
+    clearSpeechResponse();
     document.getElementById('observe-rows').innerHTML = '';
     document.getElementById('puzzle-content').innerHTML = '';
     loadPresences(data.name);
@@ -596,6 +602,7 @@ function _resetWaybackView() {
   const canvas = document.getElementById('wayback-preview');
   canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
   canvas.removeAttribute('aria-label');
+  document.getElementById('wayback-art-source').textContent = '';
   document.getElementById('wayback-title').textContent = selected
     ? `Wayback · ${displayName(selected.name)}` : 'Wayback';
   document.getElementById('wayback-meta').textContent = '';
@@ -618,8 +625,12 @@ function renderWayback(data) {
   const historical = _waybackHistoricalNode();
   const timeline = data.timeline;
   const canvas = document.getElementById('wayback-preview');
+  const source = document.getElementById('wayback-art-source');
   stopWaybackSensory?.();
-  stopWaybackSensory = window.startSensory?.(canvas, historical);
+  source.textContent = '';
+  stopWaybackSensory = window.startSensory?.(canvas, historical, {
+    onArtSource: caption => { source.textContent = caption; },
+  });
   canvas.setAttribute('aria-label',
     `${displayName(historical.name)} at ${timeline.step === 0 ? 'birth' :
       timeline.present ? 'present' : `trace ${timeline.step}`}`);
@@ -785,10 +796,20 @@ function toggleWaybackListen() {
 
 let speakTarget = null;  // null = the node itself; otherwise an agent name
 
+function clearSpeechResponse() {
+  const box = document.getElementById('speak-response');
+  box.replaceChildren();
+  box.className = 'response-box';
+  if (statusSource === 'speech') setStatus('Ready');
+}
+
 function _setSpeakTarget(name) {
+  if (name !== speakTarget) clearSpeechResponse();
   speakTarget = name;
   document.querySelectorAll('#speak-presences .presence-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.target === (name || ''));
+    const active = btn.dataset.target === (name || '');
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
   });
   document.getElementById('btn-do-speak').textContent =
     name ? `Speak to ${name}` : 'Speak to Node';
@@ -814,6 +835,7 @@ async function loadPresences(nodeName) {
       const btn = document.createElement('button');
       btn.className = 'presence-btn' + (target ? '' : ' active');
       btn.dataset.target = target || '';
+      btn.setAttribute('aria-pressed', String(!target));
       btn.textContent = label;
       btn.addEventListener('click', () => _setSpeakTarget(target));
       el.appendChild(btn);
@@ -832,9 +854,10 @@ async function speak() {
   const message = document.getElementById('message').value.trim();
   if (!message) return;
   const box = document.getElementById('speak-response');
-  box.textContent = '…';
+  const waiting = document.createTextNode('…');
+  box.replaceChildren(waiting);
   box.className = 'response-box dim';
-  setStatus('Awaiting response…');
+  setStatus('Awaiting response…', 'speech');
   const addressingAgent = !!speakTarget;
   // The shared rule keeps a raw refusal or server error out of the place's
   // voice; it never rejects.
@@ -847,11 +870,22 @@ async function speak() {
       : { node_name: selected.name, message,
           seed: worldParams.seed, player_name: playerName }),
   }), withKey(addressingAgent ? '/agent/voice' : '/speak'), !!betaKey());
-  box.textContent = heard.line;
+  // Changing place or addressee, or sending again, replaces the waiting line.
+  if (waiting.parentNode !== box) return;
+  const line = document.createElement('span');
+  line.textContent = heard.line;
+  if (heard.disclosure) {
+    const label = document.createElement('p');
+    label.className = 'metadata';
+    label.textContent = heard.disclosure;
+    box.replaceChildren(label, line);
+  } else {
+    box.replaceChildren(line);
+  }
   box.className   = heard.kind === 'reply' ? 'response-box' : 'response-box error';
   // The server's own lines (a reply, the pace line, a refused message) stay
   // in the box; a line about the request itself also takes the status bar.
-  setStatus(heard.kind === 'reply' || heard.kind === 'server' ? 'Ready' : heard.line);
+  setStatus(heard.kind === 'reply' || heard.kind === 'server' ? 'Ready' : heard.line, 'speech');
 }
 
 function observe() {
@@ -1385,6 +1419,7 @@ function handleWsMsg(msg) {
     }
     case 'intervention_changed':
       pushFeed(msg.flavor || 'A new arrangement arrives.');
+      globalThis.EnfoldedInterventions?.announce(msg);
       if (selected?.name === msg.node) refreshPendingAct(msg.node, msg);
       break;
     case 'scale_act': {

@@ -209,6 +209,24 @@ describe("speech that is not answered", () => {
     expect(await hear(answering(200, held))).toEqual({ kind: "reply", line: held.response });
   });
 
+  it("discloses a confirmed generated reply without changing the speaker's words", async () => {
+    const response = "The orchard remembers your footsteps.";
+    expect(await hear(answering(200, { response, ai: true }))).toEqual({
+      kind: "reply", line: response, disclosure: "AI-generated reply",
+    });
+    for (const payload of [
+      { response },
+      { response, ai: "true" },
+      { response, ai: true, held: true },
+      { response, ai: true, declined: true },
+      { response: "", ai: true },
+    ]) {
+      expect(await hear(answering(200, payload))).toEqual({ kind: "reply", line: payload.response });
+    }
+    expect(await hear(answering(200, { error: "Please try again.", ai: true })))
+      .toEqual({ kind: "server", line: "Please try again." });
+  });
+
   it("answers the gate's own 403 with the invitation lines, never its bare word", async () => {
     // A key revoked or sanctioned mid-session meets {"error": "forbidden"}.
     const refused = await hear(answering(403, { error: "forbidden" }), true);

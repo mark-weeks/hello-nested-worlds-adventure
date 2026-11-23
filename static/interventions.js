@@ -3,6 +3,13 @@
 const STYLE = `:host{display:block;color:var(--text);font:1rem/1.5 system-ui}*{box-sizing:border-box;overflow-wrap:anywhere}section{padding:0}.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr));gap:8px;margin:12px 0}.choices button{display:flex;flex-direction:column;gap:8px}.choices small{font-size:.875rem;color:var(--muted);font-weight:normal}.selected{border:2px solid var(--accent)}p{margin:8px 0;color:var(--muted)}button,input,select,textarea{font:inherit;color:var(--text);background:var(--raised);border:1px solid var(--line);border-radius:var(--contour);padding:12px;max-width:100%}button{cursor:pointer;text-align:left;min-height:44px}button:hover{background:var(--canvas)}button:disabled{border-style:dashed;color:var(--muted);cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:3px}textarea{width:100%;min-height:100px;resize:vertical}textarea::placeholder{color:var(--muted)}.primary{background:var(--accent);color:var(--on-accent);font-weight:600;width:100%;margin:12px 0}.primary:hover{background:var(--text)}.caption{font-size:.8125rem;color:var(--muted)}.recent{margin-top:12px}.recent article{margin:16px 0;font-size:.875rem}.recent strong{color:var(--text)}summary{cursor:pointer;min-height:44px;padding:12px 0}.intention{border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:16px 0}.intention summary{color:var(--accent);font-weight:600}.quiet{font-size:.875rem;color:var(--muted)}.status:not(:empty){border-left:3px solid var(--attention);padding:12px;margin:16px 0;color:var(--text);background:var(--raised)}.combine{font-size:.875rem;background:transparent}@media(max-width:360px){.choices{grid-template-columns:1fr}}`;
 
 function el(tag, text, props = {}) { const n = document.createElement(tag); if (text != null) n.textContent = text; Object.assign(n, props); return n; }
+const INTERVENTION_EVENT = 'enfolded:intervention';
+// Long enough for the host's own node refresh to start the covering read.
+const NOTICE_DEBOUNCE_MS = 1000;
+globalThis.EnfoldedInterventions = {
+  // Called by both hosts for every intervention_changed broadcast.
+  announce(message) { globalThis.dispatchEvent?.(new CustomEvent(INTERVENTION_EVENT, {detail: message})); },
+};
 const display = name => globalThis.EnfoldedClient.displayName(name || '');
 class InterventionComposer extends HTMLElement {
   constructor() { super(); this.attachShadow({mode:'open'}); this.steps = []; this.generation = 0; this.loadSequence = 0; }
@@ -19,7 +26,32 @@ class InterventionComposer extends HTMLElement {
     this.renderPending();
     this.revision = value.node.senses?.revision;
   }
-  disconnectedCallback() { this.generation++; clearTimeout(this.poll); }
+  // A delayed action changes no served property until it lands, so a node
+  // revision cannot reveal another player's new pending work. Hosts announce
+  // each accepted action; a co-viewer re-reads outcomes for its own place.
+  connectedCallback() {
+    // Each notice stays owed until a read that began after it succeeds. Any
+    // later read covers it (a node-revision reload, a commit's reload); one
+    // background read runs only if none did.
+    this.onIntervention ||= event => {
+      if (!this.ctx?.node || event.detail?.node !== this.ctx.node.name) return;
+      this.noticeSeq = (this.noticeSeq || 0) + 1;
+      this.scheduleNoticeRead();
+    };
+    globalThis.addEventListener?.(INTERVENTION_EVENT, this.onIntervention);
+  }
+  disconnectedCallback() { this.generation++; clearTimeout(this.poll); clearTimeout(this.noticeTimer); this.noticeTimer = null; globalThis.removeEventListener?.(INTERVENTION_EVENT, this.onIntervention); }
+  noticesOwed() { return (this.noticeSeq || 0) > (this.coveredNotice || 0); }
+  scheduleNoticeRead() {
+    // An armed timer is not restarted: a steady stream of notices still gets
+    // a read within one window of the first, rather than none until it stops.
+    if (this.noticeTimer) return;
+    this.noticeTimer = setTimeout(() => {
+      this.noticeTimer = null;
+      // A read in flight or a submission settles first; each re-checks on settling.
+      if (this.isConnected && this.noticesOwed() && !this.busy && !this.loading) this.load(false, true);
+    }, NOTICE_DEBOUNCE_MS);
+  }
   async request(path, body) {
     const ctx = this.ctx;
     const response = await fetch(path + (body ? '' : '?' + new URLSearchParams({seed:ctx.seed,node:ctx.node.name})), {
@@ -30,12 +62,16 @@ class InterventionComposer extends HTMLElement {
     if (!response.ok || data.error) { const error = new Error(data.error || 'The arrangement could not be heard.'); error.status = response.status; throw error; }
     return data;
   }
-  async load(fromPoll = false) {
+  // A background read (another player's announced action), and every poll it
+  // starts, never replaces this viewer's own status line; a failed one retries
+  // with backoff on its own.
+  async load(fromPoll = false, background = false) {
     if (!this.ctx.key) { this.message='Enter with an invite to compose lasting changes.'; this.render(); return; }
-    const generation = this.generation, sequence = ++this.loadSequence;
+    const generation = this.generation, sequence = ++this.loadSequence, startNotice = this.noticeSeq || 0;
+    this.loading = (this.loading || 0) + 1;
     // Outcome polling must survive a failed poll: keep the last known pending
     // count so the timer is re-armed from it, and slow down after a failure.
-    let pending = this.data?.recent?.reduce((n,r) => n+r.pending,0) || 0, failed = false;
+    let pending = this.data?.recent?.reduce((n,r) => n+r.pending,0) || 0, failed = false, failedStatus = null;
     try {
       const data = await this.request('/interventions');
       if (generation !== this.generation || sequence !== this.loadSequence || !this.isConnected) return;
@@ -51,19 +87,35 @@ class InterventionComposer extends HTMLElement {
       }
       // Poll outcomes without replacing focused controls or an in-progress draft.
       if (!this.busy && (!this.shadowRoot.activeElement || !this.shadowRoot.querySelector('.choices'))) this.render();
-      else this.renderRecent();
+      else { this.ensureHistory(); this.renderRecent(); }
+      this.backgroundRetry = 0;
+      this.coveredNotice = Math.max(this.coveredNotice || 0, startNotice);
       pending = data.recent.reduce((n,r) => n+r.pending,0);
       // A node-triggered read already has fresh properties; only polling must
       // request them when it discovers a missed outcome notification.
       if (fromPoll && had != null && (had !== pending || priorObserved !== observed(data.recent))) this.ctx.changed?.();
     } catch (error) {
-      failed = true;
-      if (generation === this.generation && sequence === this.loadSequence) { this.message=this.pollError=error.status ? error.message : 'This place could not be heard. Listen again.'; this.render(); }
+      failed = true; failedStatus = error.status || null;
+      if (generation === this.generation && sequence === this.loadSequence && !background) { this.message=this.pollError=error.status ? error.message : 'This place could not be heard. Listen again.'; this.render(); }
     } finally {
-      if (generation === this.generation && sequence === this.loadSequence && this.isConnected) {
+      this.loading--;
+      const current = generation === this.generation && sequence === this.loadSequence;
+      if (current && this.isConnected) {
         clearTimeout(this.poll);
-        if (pending) this.poll=setTimeout(() => this.load(true), failed ? 8000 : 4000);
+        if (failed && background) {
+          // Only a transient failure is retried. A refusal (a guarded place, a
+          // revoked key) leaves the notice owed for the next notice or action.
+          if (!failedStatus || failedStatus === 429 || failedStatus >= 500) {
+            this.backgroundRetry = (this.backgroundRetry || 0) + 1;
+            this.poll=setTimeout(() => this.load(fromPoll, true), Math.min(8000 * 2 ** (this.backgroundRetry - 1), 60000));
+          }
+        } else if (pending) this.poll=setTimeout(() => this.load(true, background), failed ? 8000 : 4000);
       }
+      // The notice timer waits while any read is in flight, superseded ones
+      // included. When the last one settles, a notice no successful read has
+      // covered gets its read, unless this was a current background read that
+      // failed: that one already retries with backoff, or stopped on a refusal.
+      if (this.isConnected && !this.loading && !(current && failed && background) && this.noticesOwed()) this.scheduleNoticeRead();
     }
   }
   retry() { this.message=''; this.render(); return this.load(); }
@@ -108,7 +160,7 @@ class InterventionComposer extends HTMLElement {
         try { localStorage.removeItem(storage); } catch (_) { /* unavailable storage */ }
       }
       this.message=this.pending && !error.status ? 'The reply was lost. Recover this attempt to learn whether it was accepted.' : error.message;
-    } finally { if(generation===this.generation) { this.busy=false; this.render(); } }
+    } finally { if(generation===this.generation) { this.busy=false; this.render(); if(this.noticesOwed()) this.scheduleNoticeRead(); } }
   }
   renderPending() {
     const target=this.shadowRoot.querySelector('.pending');
@@ -121,15 +173,29 @@ class InterventionComposer extends HTMLElement {
     await this.ctx.jump?.(name, address);
     if(focused)requestAnimationFrame(()=>document.getElementById('node-name')?.focus());
   }
+  historyElement() {
+    const history=el('details',null,{open:!!this.historyOpen});history.ontoggle=()=>this.historyOpen=history.open;
+    history.append(el('summary','Actions still echoing'),el('div',null,{className:'recent'}));
+    return history;
+  }
+  // The first record can arrive while a control is focused: add the disclosure
+  // in place rather than re-rendering over the focused control or a draft.
+  ensureHistory() {
+    if(!this.data?.recent?.length || this.shadowRoot.querySelector('.recent')) return;
+    this.shadowRoot.querySelector('section')?.append(this.historyElement());
+  }
   renderRecent() {
     const root=this.shadowRoot.querySelector('.recent'); if(!root) return;
+    const active=this.shadowRoot.activeElement, focusKey=root.contains?.(active) ? active.getAttribute('data-focus-key') : null;
     root.replaceChildren(el('span','YOUR THREADS THROUGH THE WORLD',{className:'caption'}));
     for(const r of this.data?.recent || []) {
       const item=el('article'); item.append(el('strong',`${r.performer} · ${r.summary}`),el('p',`${display(r.origin)} · Attempt accepted. ${r.pending ? 'Consequences pending' : 'All consequences settled'}`));
-      for(const a of r.arrivals) { const b=el('button',`Observed · ${display(a.node)}`); b.onclick=()=>this.jumpToObserved(a.node,this.data?.addresses?.[a.node]); item.append(b,el('p',a.flavor || 'A consequence was observed.')); }
+      for(const a of r.arrivals) { const b=el('button',`Observed · ${display(a.node)}`); b.setAttribute('data-focus-key',`observed:${a.event_id}`); b.onclick=()=>this.jumpToObserved(a.node,this.data?.addresses?.[a.node]); item.append(b,el('p',a.flavor || 'A consequence was observed.')); }
       root.append(item);
     }
     if(!this.data?.recent?.length) root.append(el('p','What you set in motion will remain here when you return.'));
+    // Keep keyboard focus on the same arrival across a history refresh.
+    if(focusKey) [...root.querySelectorAll('button')].find(b=>b.getAttribute('data-focus-key')===focusKey)?.focus({preventScroll:true});
   }
   render() {
     const active=this.shadowRoot.activeElement;
@@ -184,15 +250,13 @@ class InterventionComposer extends HTMLElement {
     natural.ontoggle=()=>this.intentionOpen=natural.open;
     const input=el('textarea',null,{value:this.intention,maxLength:600,placeholder:'What do you want to attempt here?'});input.setAttribute('aria-label','Your intention');input.disabled=blocked;input.oninput=()=>{this.intention=input.value;act.disabled=blocked || !this.intention.trim();};natural.append(input);
     const act=el('button','Act on this intention',{disabled:blocked || !this.intention?.trim()});act.onclick=()=>this.commit({intention:this.intention,version:3});
-    natural.append(act,el('p','Submitting authorizes the attempt. Name actions in order, or describe your purpose with a connected model. If the action, target, scope or order is unclear, you can revise it here.',{className:'quiet'}));section.append(natural,combine);
+    natural.append(act,el('p','Submitting authorizes the attempt. You can name actions in order. AI can interpret other wording when enabled. If the action, target, scope or order is unclear, you can revise it here.',{className:'quiet'}));section.append(natural,combine);
     if(this.pending) {
       const recover=el('button','Recover earlier attempt',{className:'primary',disabled:this.busy});
       recover.onclick=()=>this.commit();section.append(recover);
     }
     const status=el('p',this.message,{className:'status',tabIndex:-1});status.setAttribute('role','status');status.setAttribute('aria-live','polite');section.append(status);
-    if(this.data.recent?.length) {
-      const history=el('details',null,{open:!!this.historyOpen});history.ontoggle=()=>this.historyOpen=history.open;history.append(el('summary','Actions still echoing'),el('div',null,{className:'recent'}));section.append(history);this.renderRecent();
-    }
+    if(this.data.recent?.length) { section.append(this.historyElement()); this.renderRecent(); }
   }
 }
 if(!customElements.get('enfolded-interventions')) customElements.define('enfolded-interventions',InterventionComposer);

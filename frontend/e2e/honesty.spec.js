@@ -49,7 +49,7 @@ test('the map view and the guide carry the same notice, and the map gets the sam
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   try {
-    await page.goto(server.url + '/');
+    await page.goto(server.url + '/map');
     await expect(page.locator('#intro-modal')).toBeVisible();
     await expect(page.locator('#intro-modal').getByText(NOTICE, {exact: true})).toBeVisible();
     await page.click('#btn-begin');

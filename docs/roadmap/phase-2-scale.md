@@ -91,11 +91,11 @@ procedure both change), so it gets a full blind-spot pass and a restore
 rehearsal of its own, not a launch-week rush. When it lands, revisit that
 cadence (those copies may drop back to daily as a second net).
 
-`backup.yml` now runs every 30 minutes and can store the copy in a private
-S3-compatible bucket. Cloudflare R2 is an example of such a store. A 30-day
-retention is the example used when the retention variable is unset. The
-vendor and the retention period are pending Mark's decision. ADR-005 still
-describes hour-stamped artifacts kept for 90 days, and it was not amended.
+`backup.yml` now runs every 30 minutes and stores the copy in a private
+S3-compatible bucket. Cloudflare R2 is that store, and retention is 30 days,
+both recorded on 2026-11-20 (O7). The workflow writes 30. There is no
+retention variable. ADR-005 still describes hour-stamped artifacts kept for
+90 days, and it was not amended.
 
 ---
 

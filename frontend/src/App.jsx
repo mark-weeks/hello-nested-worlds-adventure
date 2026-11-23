@@ -103,8 +103,9 @@ export default function App() {
   const liveViewerId = useRef(null);
   const [agents, setAgents]       = useState({});  // name → { node, persona }
   const [events, setEvents]       = useState([]);
-  // The fetched world tree, retained so jump-to-traveler can rebuild a real
-  // ancestry stack from a place's name or, outside the tree, its address.
+  // The fetched world tree, shared by the map, passages and traveler jumps:
+  // a real ancestry stack is rebuilt from a place's name or, outside the
+  // tree, the address the server sent beside it.
   const worldRootRef = useRef(null);
   // A node whose seal we just opened: walk through once the solve lands.
   const [walkThrough, setWalkThrough] = useState(null);
@@ -182,6 +183,7 @@ export default function App() {
     targetAddress = null,
     preserveSession = false,
     background = false,
+    signal,
   } = {}) => {
     // The address comes from the same source as the node it describes.
     const link = new URLSearchParams(location.search);
@@ -205,11 +207,13 @@ export default function App() {
     try {
       const opened = await openWorld(
         async url => {
-          let response = await fetch(url);
-          if (await globalThis.EnfoldedParticipation.recover(response)) response = await fetch(url);
+          let response = await fetch(url, { signal });
+          if (await globalThis.EnfoldedParticipation.recover(response)) response = await fetch(url, { signal });
           return response;
         }, withKey(`/world?depth=${requestedDepth}`), !!betaKey(),
       );
+      // A player can leave a horizon while its wider tree is being read.
+      if (signal?.aborted) return false;
       if (opened.unopened) {
         // The arrival screens show this only while no place is in hand; a
         // horizon read keeps its own retry beside the scene.
@@ -269,6 +273,7 @@ export default function App() {
 
   const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
   const currentAddress = nodeAddress(nodeStack[nodeStack.length - 1]);
+  const redirectedThreshold = useRef(null);
   const positionQueue = useRef(Promise.resolve());
   const latestPosition = useRef(null);
   const queuePosition = useCallback((node, world, depth) => {
@@ -366,11 +371,19 @@ export default function App() {
     }),
     onMoveDenied: (msg) => {
       if (msg.reason === "sealed") {
-        // The scene stays on the sealed node — you stand at the threshold;
-        // the server keeps your true position outside until the key is
-        // spoken (solving the room's puzzle re-sends the move).
+        if (msg.node !== currentNodeName) return;
+        const room = msg.sealed_by || msg.node;
+        // A jump can target anything below a seal. Show the room whose
+        // puzzle opens it, using the ancestry already in the current view.
+        if (room !== currentNodeName) {
+          const threshold = nodeStack.findIndex(place => place.name === room);
+          if (threshold >= 0) {
+            redirectedThreshold.current = room;
+            setNodeStack(nodeStack.slice(0, threshold + 1));
+          }
+        }
         pushEvent({ type: "system",
-                    text: `▦ ${displayName(msg.node)} is sealed — its key is written in ${displayName(msg.keeper) || "the scale above"}` });
+                    text: `▦ ${displayName(room)} is sealed — its key is written in ${displayName(msg.keeper) || "the scale above"}` });
         if (msg.prompt) pushEvent({ type: "system", text: msg.prompt });
       } else {
         pushEvent({ type: "system", text: `✕ no way to ${displayName(msg.node)} — ${msg.reason}` });
@@ -441,6 +454,7 @@ export default function App() {
     },
     onIntervention: (msg) => {
       pushEvent({type: 'system', text: msg.flavor || 'A new arrangement arrives.'});
+      globalThis.EnfoldedInterventions?.announce(msg);
       // Like scale acts: only the place this client stands on is re-read.
       if (msg.node === currentNodeName) {
         refreshCurrentNode(msg.node, msg);
@@ -516,7 +530,13 @@ export default function App() {
   // players see us where we actually are — including the initial drop-in /
   // resume node, which may arrive through a restored position.
   useEffect(() => {
-    if (connected && currentNodeName) sendMessage({ type: "move", node: currentNodeName });
+    // Showing the threshold after a refusal is the result of the original
+    // move. Solving its puzzle or reconnecting will try the move again.
+    const threshold = redirectedThreshold.current;
+    redirectedThreshold.current = null;
+    if (connected && currentNodeName && currentNodeName !== threshold) {
+      sendMessage({ type: "move", node: currentNodeName });
+    }
   }, [connected, currentNodeName, sendMessage]);
 
   // Persist the current node so a returning player resumes here next session —
@@ -584,11 +604,11 @@ export default function App() {
   // "look within" click.
   const horizonChildren = nodeStack[nodeStack.length - 1]?.children?.length ?? 0;
   useEffect(() => {
-    if (!currentNodeName || horizonChildren > 0 || worldDepth >= MAX_WORLD_DEPTH) {
+    if (loading || !currentNodeName || horizonChildren > 0 || worldDepth >= MAX_WORLD_DEPTH) {
       setPassageLoadStatus("idle");
       return undefined;
     }
-    let active = true;
+    const read = new AbortController();
     setPassageLoadStatus("loading");
     loadWorld({
       depth: worldDepth + 1,
@@ -596,11 +616,12 @@ export default function App() {
       targetAddress: currentAddress,
       preserveSession: true,
       background: true,
+      signal: read.signal,
     }).then(ok => {
-      if (active) setPassageLoadStatus(ok ? "idle" : "error");
+      if (!read.signal.aborted) setPassageLoadStatus(ok ? "idle" : "error");
     });
-    return () => { active = false; };
-  }, [currentNodeName, currentAddress, horizonChildren, loadWorld, passageRetry, worldDepth]);
+    return () => read.abort();
+  }, [currentNodeName, currentAddress, horizonChildren, loading, loadWorld, passageRetry, worldDepth]);
 
   const sendChat = useCallback(
     (text) => community?.chat.enabled && sendMessage({ type: "chat", text, ref: chatDraft.sent(text) }),
@@ -733,6 +754,7 @@ export default function App() {
     <main className="world-layout" style={globalThis.EnfoldedInterface.resolve(currentNode)}>
       <a className="skip-link" href="#interactions">Skip to interactions</a>
       <SceneView
+        world={worldRootRef.current}
         node={currentNode}
         transients={transients}
         parent={nodeStack.at(-2)}
@@ -781,7 +803,7 @@ function Intro({ onBegin }) {
         </div>
         <ul style={s.introList}>
           <li style={s.introItem}><b style={s.introVerb}>Explore</b> — step through the passages; every place contains worlds.</li>
-          <li style={s.introItem}><b style={s.introVerb}>Speak</b> — talk to any place. It answers in character, and it remembers.</li>
+          <li style={s.introItem}><b style={s.introVerb}>Speak</b> — talk to a place or an inhabitant. AI can write the reply.</li>
           <li style={s.introItem}><b style={s.introVerb}>Act</b> — change what matters to you. Each scale offers different possibilities; combine actions and follow their consequences.</li>
           <li style={s.introItem}><b style={s.introVerb}>Solve</b> — crack a node's puzzle; the ripple settles places far above and below.</li>
         </ul>

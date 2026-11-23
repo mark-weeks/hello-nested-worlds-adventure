@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import sys
 import threading
 import time
 from pathlib import Path
@@ -59,6 +60,9 @@ def main() -> None:
     parser.add_argument("--heartbeat-summary", type=Path, required=True)
     parser.add_argument("--port", type=int, default=8299)
     parser.add_argument("--heartbeat-delay", type=float, default=25.0)
+    parser.add_argument("--heartbeat-on-stdin", action="store_true",
+                        help="wait for the capture browser and use 2 seconds per hop "
+                             "to keep Tessera visible for the screenshot (normally 0.8 seconds per hop)")
     args = parser.parse_args()
 
     # Redirect before the first persistence operation.  The capture may solve
@@ -77,12 +81,16 @@ def main() -> None:
     heartbeat._PUMP_INTERVAL = 0.4
 
     def demo_heartbeat() -> None:
-        time.sleep(args.heartbeat_delay)
+        if args.heartbeat_on_stdin:
+            if not sys.stdin.readline():
+                return
+        else:
+            time.sleep(args.heartbeat_delay)
         summary = heartbeat.run_tick(
             seed=seed,
             rng=random.Random(2),  # Tessera, reproducibly
             max_nodes=10,
-            pace=0.8,
+            pace=2.0 if args.heartbeat_on_stdin else 0.8,
         )
         args.heartbeat_summary.write_text(
             json.dumps(summary, indent=2) + "\n", encoding="utf-8"

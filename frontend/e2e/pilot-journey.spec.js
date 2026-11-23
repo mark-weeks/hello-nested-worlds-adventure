@@ -145,18 +145,21 @@ test('self-service entry and auxiliary-page returns keep the registered pilot id
 
     await disclose(page, 'Sound & help');
     await page.getByRole('link', {name: "Player's Guide ↗", exact: true}).click();
+    await expect(page.getByRole('navigation', {name: 'World navigation'}).getByRole('link', {name: 'Original explorer'})).toHaveAttribute('href', '/map');
     await page.getByRole('link', {name: /back to (the )?world/i}).click();
     await expect(page.locator('#node-name')).toHaveAttribute('title', place);
     await arrived(page, sockets);
     expect((await identity(page, 'Clara', key)).participant).toEqual(first.participant);
 
     await openJournal(page);
+    await expect(page.getByRole('link', {name: 'Original explorer'})).toHaveAttribute('href', '/map');
     await page.getByRole('link', {name: 'Back to world', exact: true}).click();
     await expect(page.locator('#node-name')).toHaveAttribute('title', place);
     await arrived(page, sockets);
     await disclose(page, 'Sound & help');
     await page.getByRole('link', {name: 'Ideas', exact: true}).click();
     await expect(page).toHaveURL(url => url.pathname === '/ideas');
+    await expect(page.getByRole('link', {name: 'Original explorer'})).toHaveAttribute('href', '/map');
     await page.getByRole('link', {name: 'Enfolded — back to world', exact: true}).click();
     await expect(page.locator('#node-name')).toHaveAttribute('title', place);
     await arrived(page, sockets);
@@ -282,14 +285,46 @@ test('an invited traveler explores, acts and returns through a private journal t
   }
 });
 
+test('the guide’s World map link opens a fresh map at the traveler’s place after using the scene', async ({page}) => {
+  const server = await pilot();
+  try {
+    const invite = new URL(server.invites.ada, server.url);
+    invite.pathname = '/';
+    invite.searchParams.set('node', region);
+    await page.goto(invite.href);
+    await agreeToStudy(page);
+    await page.getByRole('button', {name: 'Begin', exact: true}).click();
+    await page.getByRole('button', {name: 'Living scene', exact: true}).click();
+    await expect(page.getByRole('region', {name: 'Living scene'})).toBeVisible();
+    const [position] = await Promise.all([
+      page.waitForResponse(reply => new URL(reply.url()).pathname === '/position'
+        && reply.request().method() === 'POST' && reply.request().postDataJSON().node === gallery),
+      page.locator('enfolded-navigation').getByRole('button', {name: /Broken Ember Gallery/}).click(),
+    ]);
+    expect((await position.json()).saved).toBe(true);
+    await expect(page.locator('#node-name')).toHaveAttribute('title', gallery);
+
+    await disclose(page, 'Sound & help');
+    await page.getByRole('link', {name: "Player's Guide ↗", exact: true}).click();
+    await page.getByRole('link', {name: 'World map', exact: true}).click();
+    await expect(page).toHaveURL(server.url + '/');
+    const map = page.getByRole('group', {name: 'World map'});
+    await expect(map.getByRole('button', {name: /Broken Ember Gallery/})).toHaveAttribute('aria-current', 'location');
+    await expect(page.locator('#node-name')).toHaveAttribute('title', gallery);
+  } finally {
+    await server.close();
+  }
+});
+
 test('a legacy map invitation returns through the journal to the scene without another name prompt', async ({page}) => {
   const server = await pilot();
   const sockets = watchSockets(page);
   try {
-    await page.goto(server.url + server.invites.ada.replace(/^\/app/, '/'));
+    await page.goto(server.url + server.invites.ada.replace(/^\/app/, '/map'));
     await agreeToStudy(page);
     await page.locator('#btn-begin').click();
     await expect(page.locator('#graph svg')).toBeVisible();
+    await expect(page).toHaveURL(server.url + '/map');
     await expect(page.locator('#node-name')).toHaveAttribute('title', /\S/);
     await expect.poll(() => sockets.welcomes.length).toBeGreaterThan(0);
     const place = await page.locator('#node-name').getAttribute('title');

@@ -81,7 +81,7 @@ test("explorer crosses the wrap in both directions", async ({ page, request }) =
   const rootPhrase = wrap.root;
 
   const errors = collectErrors(page);
-  await page.goto("/");
+  await page.goto("/map");
   await expect(page.locator("#status")).toContainText("depth 11");
   // The name in the sidebar and as hover title; the address in the same
   // identity block.

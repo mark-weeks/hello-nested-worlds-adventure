@@ -14,7 +14,7 @@ function collectErrors(page) {
   return errors;
 }
 
-test("explorer (/) renders the world and the node sigil", async ({ page }) => {
+test("explorer (/map) renders the world and the node sigil", async ({ page }) => {
   const errors = collectErrors(page);
   let historyLoads = 0;
   let socketOpens = 0;
@@ -25,7 +25,7 @@ test("explorer (/) renders the world and the node sigil", async ({ page }) => {
     }
   });
   page.on("websocket", () => { socketOpens += 1; });
-  await page.goto("/");
+  await page.goto("/map");
 
   // Real first-run onboarding: intro → name → world.
   await page.click("#btn-begin");
@@ -136,7 +136,7 @@ test("/register runs its logic under the production CSP", async ({ page }) => {
   expect(errors.filter(e => !/Failed to load resource/.test(e))).toEqual([]);
 });
 
-test("/app mounts the Pixi scene under the production CSP", async ({ page }) => {
+test("/app mounts the living scene under the production CSP", async ({ page }) => {
   const errors = collectErrors(page);
   await page.goto("/app");
 
@@ -145,7 +145,7 @@ test("/app mounts the Pixi scene under the production CSP", async ({ page }) => 
   await page.getByPlaceholder("Your name").fill("SmokeTester");
   await page.getByRole("button", { name: "Enter" }).click();
 
-  // PixiJS must initialize despite script-src 'self' (pixi.js/unsafe-eval).
+  // The scene draws its canvas under the same CSP as the deployed client.
   const canvas = page.locator("canvas").first();
   await expect(canvas).toBeVisible({ timeout: 15_000 });
   const size = await canvas.boundingBox();
@@ -278,6 +278,43 @@ test("/app opens a depth horizon automatically without losing the current node",
   expect(errors).toEqual([]);
 });
 
+test("/app keeps the chosen destination when the previous horizon finishes opening", async ({ page, request }) => {
+  const {world} = await (await request.get("/world?depth=6")).json();
+  let parent = world;
+  while (parent.children[0].children?.length) parent = parent.children[0];
+  const horizon = parent.children[0];
+
+  await page.addInitScript((name) => {
+    localStorage.setItem("nw_seen_intro", "1");
+    localStorage.setItem("nw_player_name", "Map traveler");
+    localStorage.setItem("nw_last_node", name);
+
+    // Pause a real, fully read world just before the client uses its data.
+    const read = Response.prototype.json;
+    Response.prototype.json = async function (...args) {
+      const data = await read.apply(this, args);
+      const url = new URL(this.url || location.href);
+      if (url.pathname === "/world" && url.searchParams.get("depth") === "7") {
+        await new Promise(resolve => { window.releaseHorizon = resolve; });
+      }
+      return data;
+    };
+  }, horizon.name);
+  await page.goto("/app");
+  await page.waitForFunction(() => typeof window.releaseHorizon === "function");
+  const parentPassage = page.locator("enfolded-navigation .top button").first();
+  await parentPassage.click();
+  const heading = page.locator("#node-name");
+  await expect(heading).toHaveAttribute("title", parent.name);
+  await page.evaluate(async () => {
+    window.releaseHorizon();
+    // Let React paint the result of the released read before checking location.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  await expect(heading).toHaveAttribute("title", parent.name);
+  expect(await page.evaluate(() => localStorage.getItem("nw_last_node"))).toBe(parent.name);
+});
+
 async function mockSavedPosition(page, position) {
   // This fixture supplies only a position credential, not a minted participant.
   // Composition ownership is exercised with real invites in expressive.spec.js.
@@ -331,7 +368,7 @@ test("explorer restores server-saved depth across devices", async ({ page, reque
   });
 
   const errors = collectErrors(page);
-  await page.goto("/");
+  await page.goto("/map");
   await expect(page.locator("#status")).toContainText("depth 8");
   await expect(page.locator("#node-name")).toHaveText(position.node.replace(/-\d+$/, ""));
   await expect(page.locator("#node-name")).toHaveAttribute("title", position.node);

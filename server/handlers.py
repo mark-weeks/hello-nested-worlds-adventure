@@ -633,7 +633,7 @@ class Handler(BaseHTTPRequestHandler):
         shell; its token-authenticated POST is listed separately above.
         """
         stripped = path.rstrip("/")
-        if stripped in ("", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
+        if stripped in ("", "/map", "/clientlogic.js", "/intents.js", "/explorer.js", "/d3.v7.min.js",
                         "/nodeart.js", "/nodeart-global.js",
                         "/score.js", "/sensory.js", "/interventions.js", "/interface.js", "/navigation.js", "/interface.css", "/map.css",
                         "/guide", "/register", "/register.js", "/favicon.ico",
@@ -733,7 +733,7 @@ class Handler(BaseHTTPRequestHandler):
         self._resp_len = len(body)
 
     def _serve_frontend(self, path: str) -> None:
-        """Serve the built React+PixiJS app from static/app/."""
+        """Serve the built React app from static/app/."""
         rel = path[len("/app"):].lstrip("/")
         file_path = _FRONTEND_DIR / rel if rel else _FRONTEND_DIR / "index.html"
         try:
@@ -938,6 +938,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/journal.js":
             self._send_file(_STATIC_DIR / "journal.js", content_type="application/javascript; charset=utf-8")
         elif path in ("", "/"):
+            self._serve_frontend("/app")
+        elif path == "/map":
             self._send_file(_STATIC_DIR / "index.html")
 
         elif path == "/guide":

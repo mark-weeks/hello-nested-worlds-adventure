@@ -11,7 +11,7 @@ async function capture(page,name,fullPage=true){const dir=path.join(tmpdir(),'en
 async function start(page,route){const server=await serveUX();await page.setViewportSize({width:1440,height:900});await enterUX(page,server,route,region);await expect(page.locator('#node-name')).toHaveText('Emberlit Orchard Terraces');return server;}
 async function ratio(locator){return locator.evaluate(el=>{const s=getComputedStyle(el),hex=v=>'#'+v.match(/[\d.]+/g).slice(0,3).map(x=>Math.round(Number(x)).toString(16).padStart(2,'0')).join('');return EnfoldedInterface.contrast(hex(s.color),hex(s.backgroundColor));});}
 
-for(const route of ['/app','/']){
+for(const route of ['/app','/map']){
  const client=route==='/app'?'scene':'map';
  test(`${client} puzzle preserves an authored HTTP refusal and retries`,async({page})=>{
   const server=await start(page,route);try{
@@ -68,7 +68,7 @@ test('Wayback play and listen labels have readable rendered contrast',async({pag
 });
 
 test('map puzzle tab preserves a partial answer and reloads recorded completion',async({page})=>{
- const server=await start(page,'/');let reads=0,solved=false;
+ const server=await start(page,'/map');let reads=0,solved=false;
  try{
   await page.route('**/puzzle?*',r=>{reads++;return r.fulfill({json:{found:true,name:'Remembered question',kind:'RIDDLE',prompt:'A remembered question.',max_attempts:3,attempt:solved?2:1,solved,solver:solved?'Traveler':null,epoch:0}});});
   await page.route('**/puzzle/attempt*',r=>{solved=true;return r.fulfill({json:{correct:true,attempt:2,result:'SOLVED'}});});
@@ -86,7 +86,7 @@ test('map puzzle tab preserves a partial answer and reloads recorded completion'
 });
 
 test('map presence has non-color distinctions and an observation meter has geometry',async({page})=>{
- const server=await start(page,'/');try{
+ const server=await start(page,'/map');try{
   await expect.poll(()=>page.evaluate(()=>ws?.readyState)).toBe(1);
   await page.evaluate(()=>{handleWsMsg({type:'player_join',session_id:'other',name:'Fellow traveler'});handleWsMsg({type:'player_move',session_id:'other',node:selected.name});handleWsMsg({type:'agent_enter',name:'Tessera',persona:'curious'});handleWsMsg({type:'agent_move',name:'Tessera',node:selected.name});});
   await disclose(page,'Travelers & chat');await page.locator('#btn-observe').click();
@@ -103,7 +103,7 @@ test('map presence has non-color distinctions and an observation meter has geome
 });
 
 test('map resize preserves an in-view pan and zoom, and identifies the selected marker',async({page})=>{
- const server=await start(page,'/');try{
+ const server=await start(page,'/map');try{
   await page.evaluate(()=>{const d=hierLayout.descendants().find(d=>d.data.name===selected.name);svg.interrupt().call(zoom.transform,d3.zoomIdentity.translate(300-d.y*.6,220-d.x*.6).scale(.6));});
   const prior=await page.locator('#graph > svg > g').getAttribute('transform');
   await page.setViewportSize({width:1480,height:940});
@@ -114,7 +114,7 @@ test('map resize preserves an in-view pan and zoom, and identifies the selected 
 });
 
 test('map transport failures use authored status copy',async({page})=>{
- const server=await start(page,'/');try{
+ const server=await start(page,'/map');try{
   await page.route('**/world?*',r=>r.abort('failed'));await page.evaluate(()=>loadWorld());
   await expect(page.locator('#status')).toHaveText('The world could not be reached. Try opening the view again.');
   await page.getByRole('button',{name:'Puzzle',exact:true}).click();await expect(page.locator('#puzzle-answer')).toBeVisible();
@@ -126,7 +126,7 @@ test('map transport failures use authored status copy',async({page})=>{
 // A probe on the exported resolver must see every resolution on the styling path,
 // including the one apply() performs for a caller that did not resolve already.
 test('applying interface tokens resolves through the observable reference',async({page})=>{
- const server=await start(page,'/');try{
+ const server=await start(page,'/map');try{
   const counts=await page.evaluate(()=>{
    const original=EnfoldedInterface.resolve;let calls=0;
    EnfoldedInterface.resolve=node=>{calls++;return original(node);};
@@ -145,7 +145,7 @@ test('applying interface tokens resolves through the observable reference',async
 
 // Counts resolver work on the real 4,208-node world, including selected refresh.
 test('map resolves its evolving palette once per rendered node',async({page})=>{
- const server=await start(page,'/');try{
+ const server=await start(page,'/map');try{
   const metrics=await page.evaluate(()=>{
    const original=EnfoldedInterface.resolve;let calls=0,milliseconds=0;
    EnfoldedInterface.resolve=node=>{const start=performance.now();const result=original(node);milliseconds+=performance.now()-start;calls++;return result;};
@@ -163,7 +163,7 @@ test('map resolves its evolving palette once per rendered node',async({page})=>{
 // A presence row is a door only once its traveler has somewhere to be. Making
 // these rows keyboard-reachable must not expose a control that does nothing.
 test('map presence rows are inert until their traveler has a destination',async({page})=>{
- const server=await start(page,'/');try{
+ const server=await start(page,'/map');try{
   await disclose(page,'Travelers & chat');
   await page.evaluate(()=>{
    players={arriving:{name:'Arriving traveler',node:'',color:'var(--accent)'}};
@@ -190,7 +190,7 @@ test('map presence rows are inert until their traveler has a destination',async(
 // Combination appends a step; it does not toggle one. The controls must not
 // announce a pressed state that activating them never releases.
 test('map combination choices announce no pressed state they cannot release',async({page})=>{
- const server=await start(page,'/');try{
+ const server=await start(page,'/map');try{
   await page.getByRole('button',{name:'Act',exact:true}).click();
   await act(page).getByRole('button',{name:'Combine actions',exact:true}).click();
   const choice=act(page).getByRole('button',{name:'Channel',exact:true});
@@ -206,7 +206,7 @@ test('map combination choices announce no pressed state they cannot release',asy
 
 // A retry control removed by a status change must not strand the keyboard.
 // The navigation element is shared, so both clients are covered.
-for(const route of ['/app','/'])
+for(const route of ['/app','/map'])
 test(`${route==='/app'?'scene':'map'} navigation keeps the player located when a focused control disappears`,async({page})=>{
  const server=await start(page,route);try{
   const nav=page.locator('enfolded-navigation');
@@ -224,7 +224,7 @@ test(`${route==='/app'?'scene':'map'} navigation keeps the player located when a
 test('map observe tells a turned-away watcher the Observer is busy',async({page})=>{
  // Review of #141: one Observer walks a world at a time; a watcher who cannot
  // get a turn receives {done, nodes_visited:0, busy} and must be told so.
- const server=await start(page,'/');try{
+ const server=await start(page,'/map');try{
   await page.route('**/observe?*',r=>r.fulfill({status:200,headers:{'Content-Type':'text/event-stream','Cache-Control':'no-cache'},
    body:'data: {"done": true, "nodes_visited": 0, "busy": true}\n\n'}));
   await disclose(page,'Travelers & chat');await page.locator('#btn-observe').click();

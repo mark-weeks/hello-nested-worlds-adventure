@@ -4,7 +4,7 @@ import {disclose} from './disclosures.js';
 
 const place = 'Emberlit Orchard Terraces';
 
-for (const route of ['/', '/app']) {
+for (const route of ['/map', '/app']) {
   test(`${route}: joins show their place and restarted handles retire only live buffers`, async ({page}) => {
     const server = await serveUX();
     let send, welcome;
