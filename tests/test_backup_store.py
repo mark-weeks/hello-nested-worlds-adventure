@@ -8,7 +8,8 @@ import sys
 import pytest
 
 from scripts.backup_store import (
-    MAX_LIST_PAGES, classify, expired_keys, get_object, list_object_pages, object_key, validate_endpoint,
+    MAX_LIST_PAGES, classify, classify_ready, expired_keys, get_object, list_object_pages, object_key,
+    ready_key, validate_endpoint,
 )
 
 APP = 'enfolded-beta'
@@ -85,6 +86,9 @@ if os.environ.get('AWS_FAKE_LEAK'):
     account = host.split('.')[0]
     sys.stderr.write(
         host.upper() + ' ' + account + ' offhost%2Fworlds-backup-enfolded-beta-secret.db boom ' + secret)
+    sys.exit(1)
+if os.environ.get('AWS_FAKE_FAIL_READY') and '--key' in argv and argv[argv.index('--key') + 1].endswith('.ready'):
+    sys.stderr.write('marker write failed')
     sys.exit(1)
 if os.environ.get('AWS_FAKE_FAIL'):
     endpoint = argv[argv.index('--endpoint-url') + 1]
@@ -180,8 +184,25 @@ def test_put_uploads_the_named_object_with_write_credentials_not_on_the_command_
     argv = recorded[0]['argv']
     assert argv[:4] == ['--endpoint-url', ENDPOINT, 's3api', 'put-object']
     assert '--key' in argv and object_key(APP, '20261003T113000Z') in argv
+    assert len(recorded) == 2
+    assert recorded[1]['argv'][recorded[1]['argv'].index('--key') + 1] == ready_key(APP, '20261003T113000Z')
+    assert recorded[1]['access_key_id'] == 'write-key'
     assert WRITE_SECRET not in result.stdout + result.stderr
     assert LIST_SECRET not in json.dumps(recorded)
+
+
+def test_a_failed_finish_marker_still_reports_the_stored_snapshot(tmp_path):
+    body = tmp_path / 'offhost.db'
+    body.write_bytes(b'not-empty')
+    result, recorded = run_store(tmp_path, [
+        'put', '--app', APP, '--stamp', '20261003T113000Z', '--body', str(body)], [{'Contents': []}],
+        AWS_FAKE_FAIL_READY='1')
+    assert result.returncode == 3, result.stderr
+    assert result.stdout.strip() == object_key(APP, '20261003T113000Z')
+    assert result.stderr.strip() == 'snapshot stored; finish marker not written'
+    assert WRITE_SECRET not in result.stderr
+    assert 'example.r2' not in result.stderr
+    assert len(recorded) == 2
 
 
 def test_quarantine_upload_uses_the_unvalidated_key_and_an_empty_snapshot_is_refused(tmp_path):
@@ -193,6 +214,7 @@ def test_quarantine_upload_uses_the_unvalidated_key_and_an_empty_snapshot_is_ref
     assert quarantined.returncode == 0, quarantined.stderr
     assert quarantined.stdout.strip() == object_key(APP, '20261003T113000Z', quarantine=True)
     assert recorded[0]['argv'].count(object_key(APP, '20261003T113000Z', quarantine=True)) == 1
+    assert len(recorded) == 1
 
     empty = tmp_path / 'empty.db'
     empty.write_bytes(b'')
@@ -375,6 +397,25 @@ def test_get_uses_the_write_key_when_a_list_key_is_also_set(tmp_path):
     assert LIST_SECRET not in json.dumps(recorded)
 
 
+def test_retention_deletes_an_old_finish_marker_and_keeps_the_newest_ones():
+    now = datetime(2026, 10, 3, 12, tzinfo=timezone.utc)
+    old = (now - timedelta(days=40)).strftime('%Y%m%dT%H%M%SZ')
+    kept = (now - timedelta(days=31)).strftime('%Y%m%dT%H%M%SZ')
+    pages = [{'Contents': [
+        {'Key': object_key(APP, old), 'Size': 8},
+        {'Key': ready_key(APP, old), 'Size': 1},
+        {'Key': object_key(APP, kept), 'Size': 8},
+        {'Key': ready_key(APP, kept), 'Size': 1},
+    ]}]
+    expired = expired_keys(pages, app=APP, retention_days=30, now=now)
+    assert ready_key(APP, old) in expired
+    assert object_key(APP, old) in expired
+    assert ready_key(APP, kept) not in expired
+    assert object_key(APP, kept) not in expired
+    assert classify_ready(ready_key(APP, kept), APP) == datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+    assert classify(ready_key(APP, kept), APP) is None
+
+
 def test_prune_deletes_expired_keys_in_one_batch_and_keeps_the_newest(tmp_path):
     now = datetime.now(timezone.utc)
     oldest = object_key(APP, (now - timedelta(days=40)).strftime('%Y%m%dT%H%M%SZ'))
@@ -418,7 +459,7 @@ def test_prune_splits_a_thousand_deletes_and_a_refused_batch_hides_the_key(tmp_p
 
 def test_listing_passes_one_hundred_pages_and_stops_at_the_cap(tmp_path):
     assert MAX_LIST_PAGES > 100
-    assert MAX_LIST_PAGES * 1000 >= 3650 * 48
+    assert MAX_LIST_PAGES * 1000 >= 3650 * 48 * 2
     calls = install_fake_aws(tmp_path, [])
     env = bucket_env(tmp_path, calls, AWS_FAKE_PAGE_COUNT='3')
     pages = list_object_pages(env, app=APP, max_pages=3)
@@ -460,6 +501,33 @@ def test_keep_newest_skips_an_empty_or_invalid_size():
             {'Key': empty, 'Size': size} if size is not None else {'Key': empty},
         ]}]
         assert expired_keys(pages, app=APP, retention_days=30, now=NOW) == [empty]
+
+
+def test_delete_before_after_includes_finish_markers_in_the_window(tmp_path):
+    early = '20261120T080000Z'
+    later = '20261120T100000Z'
+    newest = '20261120T120000Z'
+    pages = [{'Contents': [
+        {'Key': object_key(APP, early), 'Size': 8},
+        {'Key': ready_key(APP, early), 'Size': 1},
+        {'Key': object_key(APP, later), 'Size': 8},
+        {'Key': ready_key(APP, later), 'Size': 1},
+        {'Key': object_key(APP, newest), 'Size': 8},
+        {'Key': ready_key(APP, newest), 'Size': 1},
+    ]}]
+    listed, _recorded = run_store(tmp_path, [
+        'delete-before', '--app', APP, '--before', newest, '--dry-run'], pages)
+    assert listed.returncode == 0, listed.stderr
+    assert listed.stdout.split() == [
+        object_key(APP, early), ready_key(APP, early),
+        object_key(APP, later), ready_key(APP, later),
+    ]
+    window, _recorded = run_store(tmp_path, [
+        'delete-before', '--app', APP, '--after', '20261120T090000Z',
+        '--before', newest, '--dry-run'], pages)
+    assert window.returncode == 0, window.stderr
+    assert 'Traceback' not in window.stderr
+    assert window.stdout.split() == [object_key(APP, later), ready_key(APP, later)]
 
 
 def test_delete_before_refuses_a_future_cutoff_and_keeps_the_newest(tmp_path):
