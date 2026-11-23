@@ -550,14 +550,27 @@ participation required but not ready, so a typo cannot silently open staging.
 the three `TEST_` secrets above (`server/participation.py`) and the community
 policy's `contact` and `backup_notice`
 ([watch policy template](../development/community-reporting.md#watch-policy-template)).
-The server writes the other lines itself: the temporary-world line, shared
-history, AI travelers, and the 18-or-older limit, plus the chat-log and
-90-day report lines it derives from the policy. It shows them in this order:
-the fixed lines and the chat and report lines; "Community questions and reports:" with the policy `contact`; "Copies in
-backups are removed when those backups are deleted." followed by the
-`backup_notice`; the age limit; then "Questions or concerns:",
-"Retention and deletion, including backups:" and "Use of data and model
-providers:" with the three `TEST_` values. Each value is one line. The template
+The server writes the other lines itself (`server/participation.py`,
+`community_policy.disclosure()`):
+
+- the temporary-world line;
+- the shared-history line (your name, exchanges and gameplay are recorded);
+- the AI-travelers line;
+- the acknowledgement-copy line: the operator keeps a private copy of the
+  notice and the time you acknowledged it with the study records and their
+  backups, under the retention statement. This line is why the retention
+  template needs a research-record deletion date;
+- the chat-log and 90-day report lines, derived from the policy;
+- the recorded-exchanges line: place and inhabitant exchanges, and authored
+  ambient conversations, stay in shared world history;
+- the 18-or-older limit.
+
+It shows them in this order: the fixed lines, then the chat, report and
+recorded-exchanges lines; "Community questions and reports:" with the policy
+`contact`; "Copies in backups are removed when those backups are deleted."
+followed by the `backup_notice`; the age limit; then "Questions or
+concerns:", "Retention and deletion, including backups:" and "Use of data and
+model providers:" with the three `TEST_` values. Each value is one line. The template
 below leaves every owner value as a named placeholder. Do not copy a
 placeholder into a secret, and do not set these until each one is filled.
 
@@ -1082,6 +1095,12 @@ Take what the research record needs before this point (the
       secret from the `backup` environment.
    5. Pause or delete the twin's heartbeat monitor. The external uptime check
       on `/guide` (§8) alerts once the app is gone, so pause it as well.
+   6. After the final twin ping, delete the `backup` environment secret
+      `ENFOLDED_BACKUP_HEARTBEAT_URL`. Staging and production share it, so a
+      URL left in place would have production's first backups ping the
+      twin's monitor, and a deleted monitor endpoint can fail the heartbeat
+      step after a good snapshot is stored. O14's five steps predate the
+      secret; this is the bucket runbook's added step.
 2. **Revoke the deploy token and destroy the app.**
 
    ```bash
@@ -1166,7 +1185,8 @@ object can exist before the first production deploy.
   1. Store the production Fly SSH token and the bucket secrets in the
      protected `backup` environment.
   2. Leave `ENFOLDED_BACKUP_APP` unset, or set it to `enfolded-beta`.
-  3. Re-enable the "Off-host backup" workflow.
+  3. Confirm `ENFOLDED_BACKUP_HEARTBEAT_URL` is unset, then re-enable the
+     "Off-host backup" workflow.
   4. Retarget the external dispatcher to production, and leave it paused.
 
   The pre-boot recovery evidence is the staging restore (§7).
@@ -1177,8 +1197,12 @@ object can exist before the first production deploy.
   3. Enable the external dispatcher. GitHub's own schedule alone has shown
      five-hour gaps against the one-hour bound.
   4. Confirm that successive validated production snapshots meet the
-     one-hour bound, from the store's own listing (§8).
-  5. Point a new heartbeat monitor at production.
+     one-hour bound with `python scripts/backup_freshness_proof.py --app
+     enfolded-beta --since <UTC snapshot-start of the dispatcher's first
+     validated object>`, as the bucket runbook describes. It needs at least
+     two marker-confirmed snapshots and ignores the manual dispatch.
+  5. Point a new heartbeat monitor at production, and only then set
+     `ENFOLDED_BACKUP_HEARTBEAT_URL` to that monitor.
 
 Fix what the rehearsal surfaces and prepare the retained/cohort rollout for
 separate owner instruction before running §3 against a production app.

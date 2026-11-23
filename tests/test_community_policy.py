@@ -267,7 +267,12 @@ def test_adopted_backup_wording_is_served_after_the_fixed_backup_sentence(tmp_pa
     assert lines[-2] == f"Community questions and reports: {template.TEST_CONTACT}"
     # O6 and item 12: no deletion date or age limit until the erasure check.
     assert "no deletion date is promised" in template.backup_wording()
-    assert not re.search(r"\b\d+\s*days?\b", template.backup_wording().replace("about five days", ""))
+    # Counts in digits or words, and any day/week/month unit, are barred;
+    # only the host's own "about five days" is allowed.
+    rest = template.backup_wording().replace("about five days", "")
+    counts = r"\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|thirty|ninety"
+    assert not re.search(rf"\b({counts})[\s-]*(day|week|month|year)s?\b", rest, re.I)
+    assert not re.search(r"\b(days?|weeks?|months?|years?)\b", rest, re.I)
 
 
 @pytest.mark.parametrize("field", ["contact", "backup_notice"])

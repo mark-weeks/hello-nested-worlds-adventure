@@ -219,19 +219,22 @@ deleted on the stated date.
    As of 2026-11-22 neither stage can start: the data-use note is **not
    signed**, the private policy file is not filled or checked, the $150 limit
    is not recorded, G3 has not merged, and ADR-035 stays Proposed. Until the
-   probe's three conditions hold, both kill switches stay at 1.
+   probe's three conditions hold, `NESTED_WORLDS_DISABLE_AI` stays at 1;
+   `NESTED_WORLDS_DISABLE_IMAGES` stays at 1 throughout the watch.
 
    If the accounting stop latches during the watch, the live routes stay off:
    voices fall silent and shared lines the local screen cannot clear are held.
    A restart or a re-created twin is not a clear. O9 adopts a hand clear for
-   the twin, run only after a fresh backup. Use it to resume the watch only
-   when both hold: G2's written procedure has merged, and O9's rehearsal has
-   passed on a separate throwaway Fly app, covering the reservation,
-   settlement, the stop, the clear with its four evidence items, the restart
-   and a settled call after it (due Friday 4 December;
+   the twin, run only after a fresh backup. Its written procedure merged in
+   #186 (G2;
+   [Clearing the stop](../development/model-policy.md#clearing-the-stop)).
+   Use it to resume the watch only after O9's rehearsal has passed on a
+   separate throwaway Fly app, covering the reservation, settlement, the
+   stop, the clear with its four evidence items, the restart and a settled
+   call after it (due Friday 4 December;
    [O9](../roadmap/owner-decisions-2026-11-20.md#o9-clearing-the-latched-spend-stop-items-3-28)).
-   Never attempt a first clear during a participant session. Until both hold,
-   a latch ends the AI-on watch (item 3). Record in the research basics the
+   Never attempt a first clear during a participant session. Until that
+   rehearsal has passed, a latch ends the AI-on watch (item 3). Record in the research basics the
    endpoint, the policy revision, the deployed commit, and any latch with its
    time.
 
@@ -365,8 +368,10 @@ playbook and the backup workflow do (`docs/infrastructure/incident-response.md:4
    runbook's "Approved live controlled text" checks have passed on the
    deployed commit: `printenv NESTED_WORLDS_DISABLE_AI` prints `0` and
    `python main.py models` shows the controlled routes (O12, steps 3 and 4).
-   Before the operator-probe conditions in item 3 hold, both kill switches
-   stay at 1; no tester is admitted before ADR-035's acceptance. Either way, if `FAL_KEY` is set, run
+   Before the operator-probe conditions in item 3 hold,
+   `NESTED_WORLDS_DISABLE_AI` stays at 1; `NESTED_WORLDS_DISABLE_IMAGES`
+   stays at 1 throughout the watch. No tester is admitted before ADR-035's
+   acceptance. Either way, if `FAL_KEY` is set, run
    `fly secrets unset -a enfolded-staging FAL_KEY` (item 4 there).
 3. Mint a check key under a one-word check name:
    `fly ssh console -a enfolded-staging -C "python main.py invite mint --name Watchcheck"`.
@@ -388,9 +393,16 @@ playbook and the backup workflow do (`docs/infrastructure/incident-response.md:4
    and that `GET /participation` reports
    `required: true` and `ready: true`
    ([watch policy template](../development/community-reporting.md#activating-the-template-on-the-twin)).
-   Then send the `/speak` request in the pre-session check below to
-   `https://<staging app>.fly.dev/speak` with the check key: with AI on it
-   must answer `"ai": true`. `fly secrets list -a enfolded-staging` lists the
+   Then, with the check key acknowledged, send an ordinary greeting to the
+   place shown in the panel, as runbook section 3a step 7 does:
+
+   ```bash
+   curl -s -X POST https://<staging app>.fly.dev/speak -H "X-Beta-Key: $KEY" -H 'Content-Type: application/json' -d '{"message":"hello","node_name":"<the place in the panel>"}'
+   ```
+
+   With AI on it must answer `"ai": true`. Use a greeting, not an identity
+   question: the authored answer to "are you an AI?" returns `"ai": false`
+   whatever the route. `fly secrets list -a enfolded-staging` lists the
    app's secret names, not their values (Fly's output is unverified here): it
    must not list `FAL_KEY`. Record only the names.
 
@@ -521,9 +533,13 @@ A tester's request to delete their chat, or to leave, is handled with
       external dispatcher, disable the "Off-host backup" workflow and wait
       until no run is queued or in progress, delete the
       `ENFOLDED_BACKUP_REQUIRED` and `ENFOLDED_BACKUP_APP` variables, revoke
-      the backup token and delete its secret, pause the heartbeat monitor);
-   2. revoke the deploy token and destroy the app, which removes its volume
-      and the `/data/backups` copies on it;
+      the backup token and delete its secret, pause the heartbeat monitor,
+      and after the final ping delete the shared
+      `ENFOLDED_BACKUP_HEARTBEAT_URL` secret);
+   2. revoke the deploy token and destroy the app; its volume and the
+      `/data/backups` copies on it are expected to go with it, which was not
+      verified, so confirm that `fly volumes list -a enfolded-staging`
+      returns nothing or that the app no longer exists;
    3. delete the `staging` environment's deploy secret and revoke the staging
       provider key;
    4. once the 7-day bucket lock allows it, remove the twin's off-host

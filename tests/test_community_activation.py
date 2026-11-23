@@ -270,12 +270,21 @@ def test_activated_watch_template_serves_its_checked_revision_and_takes_a_report
     assert expires - created == timedelta(days=90)
 
 
-def test_watch_template_chat_line_is_kept_until_deleted(watch_template_policy, accounts):
+def test_watch_template_chat_line_is_recorded_under_the_activated_policy(watch_template_policy, accounts):
+    # The schema forces a chat row's expiry to NULL, so the signal is which
+    # policy the line was stored under: the activated template's revision.
     declared = community_policy.current()
     assert community_policy.chat_enabled()
+    assert declared.revision == watch_template_policy["revision"]
     line = community.append_chat(
         user_key=accounts[0], session_id=uuid.uuid4().hex, world_seed=382,
         node_name="Synthetic place", text="Synthetic watch line.", display_name="Ada",
         retention_days=declared.chat_days, retention_mode=declared.chat_retention_mode,
         policy_snapshot=declared.snapshot_json)
-    assert line["expires_at"] is None
+    with persistence._connection() as conn:
+        digest = conn.execute("SELECT policy_digest FROM private_chat_messages WHERE evidence_ref=?",
+                              (line["evidence_ref"],)).fetchone()[0]
+        stored = conn.execute("SELECT snapshot_json FROM community_policies WHERE digest=?",
+                              (digest,)).fetchone()[0]
+    assert digest == watch_template_policy["revision"]
+    assert json.loads(stored) == json.loads(template.filled_template())
