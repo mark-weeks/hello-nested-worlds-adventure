@@ -4,11 +4,13 @@
 // ready event lets it redraw the sigil the moment the art is available.
 import * as NodeArt from "/nodeart.js";
 import * as NodeSound from "/score.js";
+import { ART_SOURCE, startSensory } from "/sensory.js";
+import "/interventions.js";
+
 window.NodeArt = NodeArt;
 window.NodeSound = NodeSound;
+window.ART_SOURCE = ART_SOURCE;
 window.dispatchEvent(new Event("nodeart-ready"));
 
-import { startSensory } from "/sensory.js";
-import "/interventions.js";
 window.startSensory = startSensory;
 window.dispatchEvent(new Event("senses-ready"));

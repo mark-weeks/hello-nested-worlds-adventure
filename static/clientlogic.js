@@ -541,7 +541,8 @@
   // ── Speech that is not answered ─────────────────────────────────────────
   // What a player reads after speaking to a place or a presence (/speak and
   // /agent/voice), by the same rule as a world read. Resolves to
-  // `{ kind, line }` and never rejects. `kind` is:
+  // `{ kind, line }` and never rejects. A confirmed model reply also carries
+  // its disclosure, separate from the speaker's words. `kind` is:
   //   "reply"   the answer itself: any 2xx (a voice, the authored fallback,
   //             a hold or a decline), with the server's line;
   //   "invite" / "refused"  the invite gate's own 403 (a key revoked or
@@ -563,7 +564,12 @@
     if (!data || typeof data !== "object") return SPEECH_UNREACHED;
     const { status } = response;
     if (status >= 200 && status < 300) {
-      return { kind: data.error ? "server" : "reply", line: data.error || data.response };
+      if (data.error) return { kind: "server", line: data.error };
+      const reply = { kind: "reply", line: data.response };
+      if (data.ai === true && !data.held && !data.declined && typeof reply.line === "string" && reply.line.trim()) {
+        reply.disclosure = "AI-generated reply";
+      }
+      return reply;
     }
     if (isGateRefusal(status, data)) return worldUnopened(403, hasKey);
     if (status === 403 || status >= 500) return SPEECH_UNREACHED;
