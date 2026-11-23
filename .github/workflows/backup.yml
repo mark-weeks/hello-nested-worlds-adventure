@@ -191,20 +191,39 @@ jobs:
           if [ "$VALIDATE_OUTCOME" != "success" ]; then
             args+=(--quarantine)
           fi
-          "${args[@]}" >/dev/null
-          if [ "$VALIDATE_OUTCOME" != "success" ]; then
-            echo "Stored a quarantine snapshot." >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          "${args[@]}" >/dev/null || status=$?
+          # Exit 3 means the snapshot is stored and its finish marker is not.
+          # The step stays green so prune still runs. The warning is the
+          # signal that this snapshot cannot count toward the bound proof.
+          if [ "$status" -eq 0 ]; then
+            if [ "$VALIDATE_OUTCOME" != "success" ]; then
+              echo "Stored a quarantine snapshot." >> "$GITHUB_STEP_SUMMARY"
+            else
+              if [ -n "${GITHUB_OUTPUT:-}" ]; then
+                echo "marker=ready" >> "$GITHUB_OUTPUT"
+              fi
+              echo "Stored a validated snapshot." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          elif [ "$status" -eq 3 ]; then
+            echo "::warning::Finish marker not written; this snapshot cannot count toward the bound proof."
+            if [ -n "${GITHUB_OUTPUT:-}" ]; then
+              echo "marker=missing" >> "$GITHUB_OUTPUT"
+            fi
+            echo "Finish marker not written; this snapshot cannot count toward the bound proof." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Stored a validated snapshot." >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
           fi
 
-      # After a validated upload only. Quarantine does not ping. An empty URL
-      # sends nothing and exits 0. The URL is not written to the log. A failed
+      # After a validated upload whose finish marker was written. Quarantine
+      # does not ping. A missing marker does not ping, because that landing
+      # cannot count toward the bound proof. An empty URL sends nothing and
+      # exits 0. The URL is not written to the log. A failed
       # ping names the HTTP status and, when curl itself failed, a fixed cause
       # word. It does not write curl's message. Prune still runs because its
       # condition is the store step, which has already succeeded.
       - name: Ping the backup heartbeat
-        if: steps.validate.outcome == 'success' && steps.store.outcome == 'success'
+        if: steps.validate.outcome == 'success' && steps.store.outcome == 'success' && steps.store.outputs.marker == 'ready'
         env:
           ENFOLDED_BACKUP_HEARTBEAT_URL: ${{ secrets.ENFOLDED_BACKUP_HEARTBEAT_URL }}
         run: |

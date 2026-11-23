@@ -33,6 +33,10 @@ class StoreError(RuntimeError):
     """The object store could not be used. The message contains no credential."""
 
 
+class MarkerNotWritten(StoreError):
+    """The snapshot object is stored. Its finish marker is not."""
+
+
 def validate_app(value):
     if not isinstance(value, str) or not _APP.fullmatch(value):
         raise ValueError('Use the exact Fly app name.')
@@ -493,8 +497,8 @@ def put_object(app, stamp, body, *, quarantine=False, env=None):
     if not quarantine:
         try:
             _put_ready_marker(app, stamp, source)
-        except (StoreError, OSError):
-            print('snapshot stored; finish marker not written', file=sys.stderr)
+        except (StoreError, OSError) as exc:
+            raise MarkerNotWritten(key) from exc
     return key
 
 
@@ -626,7 +630,12 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == 'put':
-            print(put_object(args.app, args.stamp, args.body, quarantine=args.quarantine))
+            try:
+                print(put_object(args.app, args.stamp, args.body, quarantine=args.quarantine))
+            except MarkerNotWritten as missing:
+                print(missing)
+                print('snapshot stored; finish marker not written', file=sys.stderr)
+                parser.exit(3)
         elif args.command == 'get':
             print(get_object(args.app, args.key, args.dest))
         elif args.command == 'delete':

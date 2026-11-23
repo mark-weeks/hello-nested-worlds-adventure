@@ -197,7 +197,7 @@ def test_a_failed_finish_marker_still_reports_the_stored_snapshot(tmp_path):
     result, recorded = run_store(tmp_path, [
         'put', '--app', APP, '--stamp', '20261003T113000Z', '--body', str(body)], [{'Contents': []}],
         AWS_FAKE_FAIL_READY='1')
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 3, result.stderr
     assert result.stdout.strip() == object_key(APP, '20261003T113000Z')
     assert result.stderr.strip() == 'snapshot stored; finish marker not written'
     assert WRITE_SECRET not in result.stderr

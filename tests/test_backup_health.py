@@ -313,6 +313,33 @@ raise SystemExit(1)
     assert 'Stored a validated snapshot.' not in result.stdout + result.stderr
 
 
+def test_a_missing_finish_marker_warns_and_does_not_claim_a_proof(tmp_path):
+    text = (Path(__file__).resolve().parents[1] / '.github/workflows/backup.yml').read_text()
+    _store_id, _store_if, script, _store_step = _workflow_step(text, 'Store the snapshot in the private bucket')
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    fake = fake_bin / 'python3'
+    fake.write_text(f'#!{sys.executable}\nraise SystemExit(3)\n')
+    fake.chmod(0o755)
+    summary = tmp_path / 'summary'
+    outputs = tmp_path / 'outputs'
+    result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, env={
+        'PATH': str(fake_bin) + os.pathsep + '/usr/bin:/bin',
+        'FLY_APP': 'enfolded-beta',
+        'STAMP': '20261003T113000Z',
+        'VALIDATE_OUTCOME': 'success',
+        'GITHUB_STEP_SUMMARY': str(summary),
+        'GITHUB_OUTPUT': str(outputs),
+    })
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == (
+        '::warning::Finish marker not written; this snapshot cannot count toward the bound proof.')
+    assert summary.read_text().strip() == (
+        'Finish marker not written; this snapshot cannot count toward the bound proof.')
+    assert outputs.read_text().strip() == 'marker=missing'
+    assert 'Stored a validated snapshot.' not in summary.read_text()
+
+
 _BACKUP_WORKFLOW = Path(__file__).resolve().parents[1] / '.github/workflows/backup.yml'
 _BACKUP_EXPR = re.compile(r'\$\{\{\s*(.*?)\s*\}\}')
 _BACKUP_VARIABLES = {
