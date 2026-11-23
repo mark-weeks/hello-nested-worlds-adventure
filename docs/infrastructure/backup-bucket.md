@@ -592,7 +592,8 @@ After the first production deploy, before any invitation:
 4. Confirm successive validated production snapshots meet the one-hour bound
    with `python scripts/backup_freshness_proof.py --app enfolded-beta --since <UTC snapshot-start of the dispatcher's first validated object>`.
    That check ignores the manual dispatch and any older object, starts at the
-   first snapshot-start at or after that instant, and requires at least two.
+   first snapshot-start at or after that instant, and requires at least two
+   marker-confirmed snapshots. An unmarked object does not count toward that two.
    The printed window starts at that snapshot, not at the filter. Each
    checked snapshot needs the `.ready` marker the store writes after the
    snapshot PUT returns. A snapshot from before that marker existed does not

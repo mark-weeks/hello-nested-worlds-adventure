@@ -675,6 +675,21 @@ def _heartbeat_script():
     return _workflow_step(text, 'Ping the backup heartbeat')
 
 
+def test_retirement_clears_the_twin_heartbeat_url_and_production_uses_since():
+    handoff = (ROOT / 'docs' / 'infrastructure' / 'backup-dispatch.md').read_text()
+    bucket = (ROOT / 'docs' / 'infrastructure' / 'backup-bucket.md').read_text()
+    assert 'After the final twin ping, delete `ENFOLDED_BACKUP_HEARTBEAT_URL`' in handoff
+    assert 'only when the production monitor is armed' in handoff
+    assert 'After the final twin ping, delete the `backup` environment secret' in bucket
+    assert 'ENFOLDED_BACKUP_HEARTBEAT_URL' in bucket.split('After the final twin ping', 1)[1]
+    command = (
+        'python scripts/backup_freshness_proof.py --app enfolded-beta --since '
+        "<UTC snapshot-start of the dispatcher's first validated object>")
+    assert command in bucket
+    assert 'at least two\n   marker-confirmed snapshots' in bucket
+    assert 'An unmarked object does not count toward that two.' in bucket
+
+
 def test_the_heartbeat_step_is_gated_on_a_validated_store():
     from tests.test_backup_health import _backup_workflow
     text, workflow = _backup_workflow()
