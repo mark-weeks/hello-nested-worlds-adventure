@@ -38,13 +38,12 @@ def handle(handler, path, qs, body=None):
             else:
                 raise ValueError('This action requires a submission.')
         elif path == '/profile/save':
-            # Validate shape before moderation can consume its own bounded budget.
-            for field in ('bio', 'goals'):
-                if not isinstance(body.get(field, ''), str) or len(body.get(field, '')) > 500:
-                    raise ValueError('Bio and goals may each contain up to 500 characters.')
-            if body.get('published'):
+            # Validate the whole save before moderation, so no invalid request
+            # spends a screen or sends text anywhere; only Boolean true publishes.
+            bio, goals, _avatar, published = participants.validate_profile(body)
+            if published is True:
                 verdict = moderation.screen(
-                    body.get('bio', '') + '\n' + body.get('goals', ''),
+                    bio + '\n' + goals,
                     user_key=guard.supplied_key(handler.headers, qs) or None,
                     surface='profile')
                 if not verdict.allowed:

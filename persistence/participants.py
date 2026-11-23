@@ -146,13 +146,24 @@ def profile(participant: str, *, owner=False) -> dict:
     return result
 
 
-def save_profile(participant: str, data: dict) -> dict:
+def validate_profile(data: dict) -> tuple[str, str, str, bool]:
+    """``(bio, goals, avatar, published)`` for a profile save, or ValueError.
+
+    The one shape check for a save: the route runs it before any screen, so
+    only a valid request whose visibility is Boolean ``True`` can reach the
+    classifier, and :func:`save_profile` runs it again before writing.
+    """
     bio, goals = data.get("bio", ""), data.get("goals", "")
     avatar, published = data.get("avatar", "lantern"), data.get("published", False)
     if not isinstance(bio, str) or len(bio) > 500 or not isinstance(goals, str) or len(goals) > 500:
         raise ValueError("Bio and goals may each contain up to 500 characters.")
-    if avatar not in AVATARS or not isinstance(published, bool):
+    if not isinstance(avatar, str) or avatar not in AVATARS or not isinstance(published, bool):
         raise ValueError("Choose an available avatar and profile visibility.")
+    return bio, goals, avatar, published
+
+
+def save_profile(participant: str, data: dict) -> dict:
+    bio, goals, avatar, published = validate_profile(data)
     with db.transaction() as conn:
         conn.execute(f"""INSERT INTO participant_profiles(participant_id,bio,goals,avatar,published)
             VALUES (?,?,?,?,?) ON CONFLICT(participant_id) DO UPDATE SET

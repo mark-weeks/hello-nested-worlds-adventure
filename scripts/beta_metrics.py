@@ -37,8 +37,10 @@ from the world's own memory:
     surface and reason (the daily voice-outcome counters, never the
     chronicle), so "didn't talk" and "talked to silence" stay separable
   * whether shared text could be screened: screens by surface and
-    outcome (the daily moderation-outcome counters; a locally clean line
-    is not counted)
+    outcome (the daily moderation-outcome counters: every classifier
+    verdict and every hold or decline, including a hold decided before any
+    classifier call by a switch, a cap or a budget; a clean line allowed
+    without a classifier call is not counted)
   * optionally, a per-participant timeline: seconds from first join to
     first move (not a connect-time announcement), first Act commit, first
     puzzle attempt and first solve, under ordinal pseudonyms (P1, P2, ...)
@@ -780,7 +782,7 @@ def render(m: dict) -> str:
                 f"  {surface:<12} {counts.get('ok', 0):>5} / {sum(quiet.values()):<5}"
                 + (f"  ({detail})" if detail else ""))
     if m.get("moderation_outcomes"):
-        lines += ["", "shared-text screens (by UTC day; screened / not allowed; locally clean lines not counted):"]
+        lines += ["", "shared-text screens (by UTC day; screened / not allowed; classifier verdicts and all holds or declines, including holds before a call; a clean line allowed without a call is not counted):"]
         for surface, counts in sorted(m["moderation_outcomes"].items()):
             held = {o: n for o, n in counts.items() if o != "allow" and n}
             detail = ", ".join(f"{o} {n}" for o, n in sorted(held.items()))
