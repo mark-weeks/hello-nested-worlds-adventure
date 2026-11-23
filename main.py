@@ -286,7 +286,10 @@ def cmd_voice_health(args):
     (`server.observability.moderation_outcome`): per surface (speech, agent
     voice, chat, Ideas, a published profile, a registered name, puzzle text,
     the CLI), every screen that logged a `moderation_call` line, then its
-    outcomes other than allow. A locally clean line is not counted. Exits 1
+    outcomes other than allow. Classifier verdicts and every hold or decline
+    are counted, including a hold decided before any classifier call by a
+    switch, a cap or a budget; a clean line allowed without a classifier
+    call is not. Exits 1
     when the window holds a failure an operator must fix (a provider error,
     a failed moderation screen, no provider slot within the wait, a
     server with no usable voice, or no usable moderation provider), when
@@ -433,7 +436,8 @@ def _report_screens(days):
 
     summary = observability.moderation_outcome_summary(days=days)
     print(f"Shared-text screens, last {days} UTC day(s), today included "
-          "(a locally clean line is not counted)")
+          "(classifier verdicts and all holds or declines, including holds before "
+          "a call; a clean line allowed without a call is not counted)")
     if not summary:
         print("  (no screens recorded)")
     known = observability.MODERATION_SURFACES
