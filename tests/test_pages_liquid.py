@@ -134,7 +134,10 @@ def test_unexcluded_liquid_names_the_file_and_the_remedy(tmp_path: Path):
 
 def test_pages_config_excludes_the_changelog_and_nothing_nested():
     patterns = read_exclude(CONFIG.read_text(encoding="utf-8"))
-    assert patterns == ["CHANGELOG.md", "CNAME"]
+    # Membership, not an exact list: the liquid-guard message tells an author
+    # to add a file to exclude, and that remedy must not fail this test.
+    assert "CHANGELOG.md" in patterns
+    assert "CNAME" in patterns
     assert is_excluded("CHANGELOG.md", patterns)
     assert is_excluded("CNAME", patterns)
     assert not is_excluded("roadmap/README.md", patterns)
