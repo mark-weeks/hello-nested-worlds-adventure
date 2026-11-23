@@ -102,7 +102,9 @@ MODERATION_BUCKET = "moderation"
 MODERATION_CAP_ENV = "NESTED_WORLDS_MODERATION_DAILY_CALLS"
 _DEFAULT_MODERATION_DAILY = 2000
 # Per-credential classify calls. 60 is 3% of the shared 2000, so one account
-# cannot empty the cohort budget. Most lines never call the model. This is a
+# cannot empty the cohort budget. On a local world most lines never call the
+# model; on a hosted world every shared Speak, agent-voice, Ideas and
+# published-profile line does (item 30), so O5 sets 120 as a deploy secret. This is a
 # starting ceiling to measure, not a tuned rate. 0 refuses credentialed calls.
 MODERATION_PER_USER_CAP_ENV = "NESTED_WORLDS_MODERATION_DAILY_CALLS_PER_USER"
 _DEFAULT_MODERATION_PER_USER = 60

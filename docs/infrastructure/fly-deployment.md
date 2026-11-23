@@ -709,9 +709,10 @@ separately authorized production activation, naming that app explicitly.
 To restore the committed quiet posture, set the override to `1`, or unset it and
 check again. **Unsetting it restores the committed `1`; it does not enable AI.**
 Restart/redeployment reloads the frozen policy; do not edit a live file or remove
-`NESTED_WORLDS_REQUIRE_MODEL_POLICY` to bypass review. `DISABLE_AI` controls voice
-and intention only, so use the moderation kill switch as well when all classifier
-traffic must stop. Images remain unsupported regardless of their switch.
+`NESTED_WORLDS_REQUIRE_MODEL_POLICY` to bypass review. `DISABLE_AI` holds hosted voice
+lines (`"held":true`, not the quiet line), quiets intention, and holds hosted
+Ideas and published profiles without classifying them; chat and puzzle text can still be classified, so use the moderation kill
+switch as well when all classifier traffic must stop. Images remain unsupported regardless of their switch.
 
 **Before step 8.** Protocol 2's prerequisites apply on staging as they do
 anywhere ([pilot protocol](../evaluation/2026-09-12-pilot-protocol.md),
@@ -1871,8 +1872,10 @@ not this restore.
 - [ ] Watch the voice, not only `/health` or the `/guide` ping. Plain
       `voice-health` reads configuration, the controlled stop and the recorded
       voice/shared-text outcomes without a provider call. Provider, screen,
-      busy and accounting failures need operator attention; locally clean text
-      is not a classifier call, and content declines are policy, not outages.
+      busy and accounting failures need operator attention. Locally clean chat
+      and puzzle text is not a classifier call; on this hosted app every
+      shared Speak, agent-voice, Ideas and published-profile line is one.
+      Content declines are policy, not outages.
       A per-day counted failure remains visible for its UTC day (or its
       `--days` window), and a persistent controlled stop survives that window.
       The existing once-per-UTC-day notification rule for counted failures
