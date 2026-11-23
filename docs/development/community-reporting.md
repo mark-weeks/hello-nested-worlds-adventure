@@ -77,6 +77,86 @@ history/redaction tools retain access. Legacy aggregate art wear and the
 metadata-only legacy image-style calculation stay stable; the new private log
 does not feed either, so deletion cannot fade established art.
 
+## Watch policy template
+
+The owner turned chat and Report on for the newcomer watch on the disposable
+`enfolded-staging` twin
+([18 November, item 4](../roadmap/owner-decisions-2026-11-18.md#2-adopted-answers)).
+The watch keeps chat until it is deleted and keeps reports for 90 days. The
+template below is that policy with two owner values left open. It is a
+template, not a checked-in policy: nothing under `config/` selects it, and
+ADR-040 keeps the 90-day and 180-day windows as documented decisions rather
+than defaults. Do not commit a filled copy to the repository.
+
+```json
+{
+  "schema_version": 1,
+  "policy_id": "watch-twin-2026-12",
+  "chat": {"enabled": true, "retention_mode": "until_deleted"},
+  "reports": {"enabled": true, "retention_days": 90},
+  "contact": "<OWNER: contact>",
+  "backup_notice": "<OWNER: backup_notice>"
+}
+```
+
+Replace the two placeholders before the offline check:
+
+- `<OWNER: contact>`: the dedicated project address the owner reads daily
+  ([O6](../roadmap/owner-decisions-2026-11-20.md#o6-notice-and-community-policy-values-item-6)).
+  It is shown after "Community questions and reports:".
+- `<OWNER: backup_notice>`: O6's adopted wording, on one line. The served
+  notice shows it after "Copies in backups are removed when those backups are
+  deleted." Until the bucket's erasure check is recorded
+  ([backup bucket, "Erasure check"](../infrastructure/backup-bucket.md#erasure-check)),
+  the wording gives no date and no age limit:
+
+```text
+Backup copies of this test world are kept in a private storage bucket. They stay until the operator deletes them after the test world is destroyed; no deletion date is promised. The host also keeps its own snapshots of the world's disk for about five days, and the operator deletes any copy downloaded for testing.
+```
+
+Each value is one line of 1 to 1,000 characters, with no leading or trailing
+space and no control characters; the check refuses anything else. The check
+does **not** refuse a placeholder left in place: `<OWNER: contact>` is valid
+text, so an unfilled file passes and would be served to testers. Search for
+`<OWNER` in the filled file and find nothing before you run the check.
+`tests/test_community_policy.py` and `tests/test_community_activation.py` read
+the template and the wording from this section, fill in test text, and prove
+the file loads and that the server it configures enables chat and Report.
+
+### Activating the template on the twin
+
+The steps follow
+[O12](../roadmap/owner-decisions-2026-11-20.md#o12-deploy-time-steps-on-the-twin).
+`--policy` feeds only the offline check. It loads nothing into a running
+server; the environment variable and a restart do.
+
+1. Fill the template in a private location outside the checkout, confirm no
+   `<OWNER` text remains, and check it offline:
+
+   ```sh
+   python main.py community-policy --check --policy /private/community-policy.json
+   ```
+
+   Record `configuration.revision` from the output. The output must show
+   `chat_retention_mode` as `until_deleted` and `report_retention_days` as
+   `90`.
+2. Place the same file on the staging machine at a path that survives a
+   restart. The volume is mounted at `/data`; which path O12 uses is not
+   verified, and no copy command was run from the session that wrote this.
+3. Point `NESTED_WORLDS_COMMUNITY_POLICY` at that path with
+   `fly secrets set -a enfolded-staging`, in the same secrets change as the
+   model policy (runbook,
+   ["Approved live controlled text"](../infrastructure/fly-deployment.md#approved-live-controlled-text)).
+4. Setting the secret restarts the machine, and the restart freezes the file.
+   A later edit to the file changes nothing until the next restart.
+5. Check `GET /community` on the twin. Its `revision` must equal the revision
+   from step 1; `chat.enabled` and `reports.enabled` must be `true`;
+   `chat.retention_mode` must be `until_deleted` and `reports.retention_days`
+   `90`; `contact` and `backup_notice` must be the filled text. Then check
+   that `GET /participation` serves the new revision with `required: true` and
+   `ready: true` (runbook,
+   ["Participation notice and adult confirmation"](../infrastructure/fly-deployment.md#participation-notice-and-adult-confirmation)).
+
 ## Reporting in the existing interface
 
 Report sits beside Block on traveler rows and live chat lines in both clients.

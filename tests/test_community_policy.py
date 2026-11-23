@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+from pathlib import Path
+import re
 import socket
 import urllib.request
 
@@ -11,6 +13,7 @@ import pytest
 import persistence
 from persistence import participation as consents
 from server import community_policy as policy, participation
+from tests import watch_policy_template as template
 
 
 def _forbidden(*args, **kwargs):
@@ -227,3 +230,68 @@ def test_emergency_denials_change_availability_without_invalidating_consent(tmp_
     monkeypatch.setenv(policy.DISABLE_CHAT_ENV, "0")
     monkeypatch.setenv(policy.DISABLE_REPORTS_ENV, "0")
     assert policy.chat_enabled() and policy.reports_enabled()
+
+
+# The watch template in docs/development/community-reporting.md, filled as an
+# operator fills it. These load the guide's own text, so an edit there that
+# would refuse or mis-declare the twin's policy fails here first.
+
+def test_filled_watch_template_declares_until_deleted_chat_and_90_day_reports(tmp_path, monkeypatch):
+    path = template.write_filled(tmp_path)
+    checked = policy.check_file(path)
+    assert checked.chat_retention_mode == "until_deleted" and checked.chat_days is None
+    assert checked.report_days == 90
+    assert checked.contact == template.TEST_CONTACT
+    assert checked.backup_notice == template.backup_wording()
+    # The offline check activates nothing, and a running server keeps the
+    # policy it froze: setting the variable alone does not enable collection.
+    assert not policy.chat_enabled() and not policy.reports_enabled()
+    monkeypatch.setenv(policy.POLICY_ENV, str(path))
+    assert not policy.chat_enabled() and not policy.reports_enabled()
+    policy.reset_for_tests()  # the restart that `fly secrets set` causes
+    assert policy.initialize().revision == checked.revision
+    assert policy.chat_enabled() and policy.reports_enabled()
+    metadata = policy.metadata()
+    assert metadata["chat"] == {"enabled": True, "retention_days": None,
+                                "retention_mode": "until_deleted",
+                                "notice": metadata["chat"]["notice"]}
+    assert metadata["reports"]["enabled"] is True and metadata["reports"]["retention_days"] == 90
+    assert "kept for 90 days" in metadata["reports"]["notice"]
+
+
+def test_adopted_backup_wording_is_served_after_the_fixed_backup_sentence(tmp_path, monkeypatch):
+    monkeypatch.setenv(policy.POLICY_ENV, str(template.write_filled(tmp_path)))
+    lines = policy.disclosure()
+    assert lines[-1] == ("Copies in backups are removed when those backups are deleted. "
+                         "Backup copies and deletion: " + template.backup_wording())
+    assert lines[-2] == f"Community questions and reports: {template.TEST_CONTACT}"
+    # O6 and item 12: no deletion date or age limit until the erasure check.
+    assert "no deletion date is promised" in template.backup_wording()
+    # Counts in digits or words, and any day/week/month unit, are barred;
+    # only the host's own "about five days" is allowed.
+    rest = template.backup_wording().replace("about five days", "")
+    counts = r"\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|thirty|ninety"
+    assert not re.search(rf"\b({counts})[\s-]*(day|week|month|year)s?\b", rest, re.I)
+    assert not re.search(r"\b(days?|weeks?|months?|years?)\b", rest, re.I)
+
+
+@pytest.mark.parametrize("field", ["contact", "backup_notice"])
+def test_watch_template_refuses_an_empty_or_multiline_owner_value(tmp_path, field):
+    for bad in ("", "first line\nsecond line", " padded "):
+        values = {"contact": template.TEST_CONTACT, "backup_notice": template.backup_wording()}
+        values[field] = bad
+        path = template.write_filled(tmp_path, **values)
+        with pytest.raises(policy.CommunityPolicyError):
+            policy.check_file(path)
+
+
+def test_no_checked_in_community_policy_enables_collection():
+    # ADR-040: the 90- and 180-day windows are documented decisions, not
+    # checked-in selections. The watch file lives only on the twin.
+    config = Path(__file__).resolve().parents[1] / "config"
+    files = sorted(config.glob("community-policy*.json"))
+    assert files, "the disabled community policy file is missing"
+    for path in files:
+        checked = policy.check_file(path)
+        assert checked.chat_retention_mode is None and checked.report_days is None, path.name
+        assert checked.contact == checked.backup_notice == "", path.name
