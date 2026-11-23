@@ -45,7 +45,7 @@
     </div>
     <ul class="intro-steps">
       <li><b>Explore</b> — click a node in the map, then dive deeper into the worlds inside it.</li>
-      <li><b>Speak</b> — talk to any place and it answers in character.</li>
+      <li><b>Speak</b> — talk to a place or an inhabitant. AI can write the reply.</li>
       <li><b>Solve</b> — crack a node's puzzle; the ripple carries across scales.</li>
       <li><b>Act</b> — each scale offers different actions. Change a surface, reshape a molecule, or transform a landscape…</li>
     </ul>
@@ -105,7 +105,7 @@
         <div id="speak-presences"></div>
         <textarea aria-label="Message to this place" id="message" placeholder="What do you want to say?">Describe yourself to a traveler who has just arrived.</textarea>
         <button id="btn-do-speak">Speak to Node</button>
-        <div class="response-box" id="speak-response"></div>
+        <div class="response-box" id="speak-response" role="status"></div>
       </div>
 
       <!-- Puzzle -->
@@ -121,7 +121,7 @@
     </div>
 
     </section>
-    <details class="secondary"><summary>Conditions here</summary><p id="visual-cue" class="quiet"></p><div id="node-props"></div><canvas id="node-sigil" width="308" height="232" role="img" aria-labelledby="node-name" aria-describedby="node-description"></canvas></details>
+    <details class="secondary"><summary>Conditions here</summary><p id="visual-cue" class="quiet"></p><div id="node-props"></div><canvas id="node-sigil" width="308" height="232" role="img" aria-labelledby="node-name" aria-describedby="node-description node-art-source"></canvas><p class="quiet art-source" id="node-art-source"></p></details>
     <details class="secondary"><summary>History & journal</summary>
       <div class="control-row"><button id="btn-wayback">Replay History</button><a class="control" id="journal-link" href="/journal">Journal</a><button id="btn-chronicle">View full chronicle</button></div>
       <div id="event-feed" aria-label="Recent events"></div>
@@ -165,7 +165,8 @@
       </div>
       <button id="wayback-x" aria-label="Close wayback" style="border:0;background:none;font-size:20px;padding:0">×</button>
     </div>
-    <canvas id="wayback-preview" width="640" height="300" role="img"></canvas>
+    <canvas id="wayback-preview" width="640" height="300" role="img" aria-describedby="wayback-art-source"></canvas>
+    <p class="quiet art-source" id="wayback-art-source"></p>
     <div class="modal-desc" id="wayback-lens">the node as it was, seen with today's eyes</div>
     <div id="wayback-moment"></div>
     <input id="wayback-range" type="range" min="0" max="0" value="0" aria-label="Wayback time">
