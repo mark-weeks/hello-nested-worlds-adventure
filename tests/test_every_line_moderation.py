@@ -514,3 +514,60 @@ def test_identity_question_with_route_stop_at_the_cap_is_counted_once(
     assert status == 200 and data.get("held") is True, data
     assert _outcomes(caplog) == [("speak", "user_cap")]
     assert hosted.requests == []
+
+
+# ── 10. A profile save is validated before any screen ───────────────────────
+
+_BIO, _GOALS = "I map quiet rivers.", "find the hinge"
+
+
+def _save(state, **fields):
+    body = {"bio": _BIO, "goals": _GOALS, **fields}
+    return state.http("/profile/save", body=body)[:2]
+
+
+def _own_profile(state):
+    return state.http("/profile")[1]["profile"]
+
+
+@pytest.mark.parametrize("fields", [
+    {"published": "false"},
+    {"published": "true"},
+    {"published": 1},
+    {"published": True, "avatar": "not-an-avatar"},
+    {"published": True, "avatar": ["lantern"]},
+], ids=["string-false", "string-true", "integer", "bad-avatar", "list-avatar"])
+def test_hosted_invalid_profile_save_is_refused_before_any_classify_call(hosted, fields):
+    status, data = _save(hosted, **fields)
+    assert status == 400, data
+    assert hosted.classify == [] and hosted.requests == []
+    assert _published(hosted) is False
+
+
+@pytest.mark.parametrize("fields", [{}, {"published": False}], ids=["omitted", "false"])
+def test_hosted_private_profile_save_makes_no_classify_call(hosted, fields):
+    status, data = _save(hosted, **fields)
+    assert status == 200, data
+    assert data["profile"]["published"] is False
+    assert hosted.classify == [] and hosted.requests == []
+    assert _own_profile(hosted)["bio"] == _BIO
+
+
+def test_hosted_published_profile_save_is_classified_once_and_published(hosted):
+    status, data = _save(hosted, published=True, avatar="river")
+    assert status == 200 and data["profile"]["published"] is True, data
+    assert len(hosted.classify) == 1
+    assert _published(hosted) is True
+
+
+@pytest.mark.parametrize("verdict,status_code", [
+    ("BLOCK", 400), ("UNDECIDED", 422), ("unreachable", 422)])
+def test_hosted_refused_publication_leaves_a_private_profile_private(
+        hosted, verdict, status_code):
+    status, _ = _save(hosted, published=False)
+    assert status == 200 and hosted.classify == []
+    hosted.verdict = verdict
+    status, data = _save(hosted, published=True, avatar="river")
+    assert status == status_code, data
+    assert len(hosted.classify) == 1
+    assert _published(hosted) is False
