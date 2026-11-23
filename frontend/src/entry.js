@@ -23,8 +23,22 @@ export function resumeDepth(savedDepth, savedAddress, minDepth, maxDepth) {
   return shared.resumeDepth(savedDepth, savedAddress, minDepth, maxDepth);
 }
 
-export function readNodeAddress(read, url) {
-  return shared.readNodeAddress(read, url);
+// A place known only by its name: `{ status: "resolved", address }`,
+// `{ status: "missing" }` or `{ status: "retry" }` (static/clientlogic.js).
+export function lookupNodeAddress(read, url) {
+  return shared.lookupNodeAddress(read, url);
+}
+
+export function findNodeAddress(read, url, options) {
+  return shared.findNodeAddress(read, url, options);
+}
+
+export function destinationAddress(name, knownAddress, find) {
+  return shared.destinationAddress(name, knownAddress, find);
+}
+
+export function placeUnreachedLine(name) {
+  return shared.placeUnreachedLine(name);
 }
 
 export function rememberAddress(storage, name, address) {

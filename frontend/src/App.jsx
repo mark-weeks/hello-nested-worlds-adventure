@@ -5,7 +5,7 @@ import SceneView from "./components/SceneView.jsx";
 import TextPanel from "./components/TextPanel.jsx";
 import useWorldSocket from "./ws.js";
 import { withKey, urlName, betaKey } from "./auth.js";
-import { addressDepth, addressPath, entryPath, findNodeByName, findPath, readNodeAddress, rememberAddress, resumeDepth, savedAddress } from "./entry.js";
+import { addressDepth, addressPath, entryPath, findNodeByName, findPath, findNodeAddress, destinationAddress, placeUnreachedLine, rememberAddress, resumeDepth, savedAddress } from "./entry.js";
 import { describeMutation, scaleActLine, causalNoticeLine } from "./mutations.js";
 import { firstWrapCrossing, wrapAffordance } from "./wrap.js";
 import { displayName, nodeAddress } from "./names.js";
@@ -63,8 +63,15 @@ async function hydratePositionFromServer() {
 // A place known only by its name (`?node=` alone, or a position this
 // browser saved before it kept addresses): ask the server where it stands,
 // so the view opens deep enough to show it. A name says nothing about depth.
+// The answer says whether the place was found, is not in this world, or
+// could not be asked about; a read the participation notice held is asked
+// again once the notice is acknowledged.
 function readAddress(name) {
-  return readNodeAddress(fetch, withKey(`/node?node_name=${encodeURIComponent(name)}`));
+  return findNodeAddress(async url => {
+    let response = await fetch(url);
+    if (await globalThis.EnfoldedParticipation.recover(response)) response = await fetch(url);
+    return response;
+  }, withKey(`/node?node_name=${encodeURIComponent(name)}`));
 }
 
 async function savePositionToServer(node, seed, depth) {
@@ -508,8 +515,18 @@ export default function App() {
     // server's saved position, or this browser's cache.
     const known = linked ? link.get("at")
       : position?.node ? position.address : savedAddress(localStorage);
-    const targetAddress = known || (targetNode ? await readAddress(targetNode) : null);
+    const destination = await destinationAddress(targetNode, known, readAddress);
     if (cancelled()) return;
+    if (destination.status === "retry") {
+      // The place may well exist; its address could not be read just now. It
+      // stays the destination: no other place is shown in its stead, so the
+      // link is kept and nothing is saved over it. Opening the view again
+      // asks once more.
+      setUnopened({ kind: "retry", line: WORLD_UNREACHED_LINE });
+      setLoading(false);
+      return;
+    }
+    const targetAddress = destination.address || null;
     const targetDepth = resumeDepth(
       position?.depth ?? localStorage.getItem(LAST_DEPTH_KEY),
       targetAddress,
@@ -580,7 +597,13 @@ export default function App() {
     }
     // A place named without its address (a frame that carried only the
     // name): ask the server where it stands. A name says nothing of position.
-    if (!addressDepth(address)) address = await readAddress(nodeName);
+    const destination = await destinationAddress(nodeName, address, readAddress);
+    if (destination.status === "retry") {
+      // Not answered, so not refused: stay here and say so.
+      pushEvent({ type: "system", text: placeUnreachedLine(nodeName) });
+      return;
+    }
+    address = destination.address;
     const needed = addressDepth(address);
     if (!needed) return;
     if (needed > worldDepth) {

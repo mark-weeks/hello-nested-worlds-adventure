@@ -298,16 +298,76 @@
 
   // A place known only by its name (a link without an address, a position
   // saved before addresses were kept): ask the server where it stands, with
-  // one read of /node through `read` (fetch, in both clients). Resolves to
-  // the address or null and never rejects.
-  async function readNodeAddress(read, url) {
+  // one read of /node through `read` (fetch, in both clients). Never rejects.
+  // The answer is one of three, and a caller must tell the last two apart:
+  //   { status: "resolved", address }  the place stands here;
+  //   { status: "missing" }   the server answered and this world holds no
+  //             such place (a 404, any other client-shaped refusal, or a
+  //             place sent without an address): fall back as before;
+  //   { status: "retry" }     the question was not answered: a transport
+  //             failure, a cut-off body, a 5xx, the participation 428, or
+  //             the pace 408/429. The place may well exist, so it stays the
+  //             destination: nothing else is shown in its stead, its link is
+  //             kept, and no other position is saved over it.
+  const ADDRESS_MISSING = Object.freeze({ status: "missing" });
+  const ADDRESS_RETRY = Object.freeze({ status: "retry" });
+
+  function addressAnswerIsRetryable(httpStatus) {
+    return httpStatus >= 500 || httpStatus === 428 || httpStatus === 429 || httpStatus === 408;
+  }
+
+  async function lookupNodeAddress(read, url) {
+    let response;
     try {
-      const response = await read(url);
-      if (!response.ok) return null;
-      return nodeAddress((await response.json()).node);
+      response = await read(url);
     } catch (_) {
-      return null;
+      return ADDRESS_RETRY;
     }
+    if (!response.ok) {
+      return addressAnswerIsRetryable(response.status) ? ADDRESS_RETRY : ADDRESS_MISSING;
+    }
+    let body;
+    try {
+      body = await response.json();
+    } catch (_) {
+      return ADDRESS_RETRY;            // a proxy's page or a cut-off body
+    }
+    const address = nodeAddress(body && body.node);
+    return address ? { status: "resolved", address } : ADDRESS_MISSING;
+  }
+
+  // The same question asked up to a few times, a little further apart each
+  // time, so a restart of a second or two does not cost the destination.
+  // Stops at the first definite answer. `wait(ms)` is the pause between
+  // reads (a timer in the clients).
+  const ADDRESS_RETRY_WAITS = Object.freeze([300, 900]);
+  async function findNodeAddress(read, url, {
+    waits = ADDRESS_RETRY_WAITS,
+    wait = ms => new Promise(resolve => setTimeout(resolve, ms)),
+  } = {}) {
+    let found = await lookupNodeAddress(read, url);
+    for (const ms of waits) {
+      if (found.status !== "retry") break;
+      await wait(ms);
+      found = await lookupNodeAddress(read, url);
+    }
+    return found;
+  }
+
+  // Where an arrival or a jump is headed: the address that came with the
+  // name when there is one, else the server's answer through `find(name)`
+  // (findNodeAddress in the clients). No name is "missing": there is no
+  // destination to wait for, and the ordinary entry applies.
+  async function destinationAddress(name, knownAddress, find) {
+    if (!name) return ADDRESS_MISSING;
+    const known = addressDigits(knownAddress);
+    if (known) return { status: "resolved", address: known };
+    return find(name);
+  }
+
+  // What a player reads when a jump's destination could not be looked up.
+  function placeUnreachedLine(name) {
+    return `… ${displayName(name)} could not be found just now. Try again in a moment.`;
   }
 
   function displayName(name) {
@@ -656,15 +716,18 @@
     createSocketKeepalive,
     describeChronicleEntry,
     describeMutation,
+    destinationAddress,
     displayName,
     dropInNode,
     entryHash,
     entryPath,
+    findNodeAddress,
     findNodeByName,
     findPath,
     firstWrapCrossing,
     hearSpeech,
     KEEPALIVE_INTERVAL_MS,
+    lookupNodeAddress,
     mutationLine,
     scaleActLine,
     causalNoticeLine,
@@ -674,7 +737,7 @@
     observationRow,
     openWorld,
     passageBadges,
-    readNodeAddress,
+    placeUnreachedLine,
     rememberAddress,
     rememberInvite,
     restoreChatInput,

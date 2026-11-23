@@ -86,7 +86,9 @@ const {
   WORLD_UNREACHED_LINE,
   wrapAffordance,
   addressDepth,
-  readNodeAddress,
+  findNodeAddress,
+  destinationAddress,
+  placeUnreachedLine,
   rememberAddress,
   savedAddress,
 } = window.EnfoldedClient;
@@ -146,13 +148,31 @@ async function hydrateFromServer() {
   } catch (_) { /* offline or gate off — keep whatever this browser cached */ }
 }
 
+// A place known only by its name: ask the server where it stands. The
+// answer says whether it was found, is not in this world, or could not be
+// asked about; a read the participation notice held is asked again once
+// the notice is acknowledged.
+function readAddress(name) {
+  return findNodeAddress(async url => {
+    let response = await fetch(url);
+    if (await globalThis.EnfoldedParticipation.recover(response)) response = await fetch(url);
+    return response;
+  }, withKey('/node?node_name=' + encodeURIComponent(name)));
+}
+
 // A position this browser saved by name alone (before it kept addresses):
 // ask the server where that place stands, so the view opens deep enough.
+// False while the question is unanswered: the place may well exist, so the
+// world is not drawn (drawing it would select, and save, another place in
+// its stead) until a later read answers.
+let savedPlacePending = false;
 async function recoverSavedAddress() {
   const saved = localStorage.getItem(LAST_NODE_KEY);
-  if (!saved || savedAddress(localStorage)) return;
-  rememberAddress(localStorage, saved,
-    await readNodeAddress(fetch, withKey('/node?node_name=' + encodeURIComponent(saved))));
+  const found = await destinationAddress(saved, savedAddress(localStorage), readAddress);
+  savedPlacePending = found.status === 'retry';
+  if (savedPlacePending) return false;
+  if (saved) rememberAddress(localStorage, saved, found.address);
+  return true;
 }
 
 function savePositionToServer(name) {
@@ -217,6 +237,15 @@ function setMode(mode) {
 }
 
 async function loadWorld() {
+  if (savedPlacePending) {
+    // The saved place is still the destination; ask for it again first.
+    document.getElementById('gen-btn').disabled = true;
+    setStatus('Opening the shared world…');
+    const found = await recoverSavedAddress();
+    document.getElementById('gen-btn').disabled = false;
+    if (!found) return savedPlaceUnreached();
+    restoreWorldInputs();
+  }
   const previousSeed = worldParams.seed;
   worldParams = {
     seed:  worldParams.seed,
@@ -266,6 +295,14 @@ async function loadWorld() {
   } finally {
     document.getElementById('gen-btn').disabled = false;
   }
+}
+
+// The saved place could not be asked about: the retry line, where a world
+// that did not open says its own. "Apply view" asks again.
+function savedPlaceUnreached() {
+  setStatus(WORLD_UNREACHED_LINE);
+  worldClosedLine = WORLD_UNREACHED_LINE;
+  document.getElementById('node-description').textContent = WORLD_UNREACHED_LINE;
 }
 
 function renderTree(worldRoot, { preservePresence = false } = {}) {
@@ -1183,9 +1220,13 @@ async function jumpTo(nodeName, address) {
     // A place named without its address (a frame or a caller that carried
     // only the name): ask the server where it stands. A name says nothing
     // about position.
-    if (!addressDepth(address)) {
-      address = await readNodeAddress(fetch, withKey('/node?node_name=' + encodeURIComponent(nodeName)));
+    const destination = await destinationAddress(nodeName, address, readAddress);
+    if (destination.status === 'retry') {
+      // Not answered, so not refused: stay here and say so.
+      pushFeed(placeUnreachedLine(nodeName));
+      return;
     }
+    address = destination.address;
     // Below the rendered horizon: the address length IS the needed depth.
     const needed = addressDepth(address);
     if (needed && needed > worldParams.depth) {
@@ -1692,8 +1733,7 @@ function restoreWorldInputs() {
 
 async function boot() {
   await hydrateFromServer();   // cross-device resume takes precedence over the local cache
-  await recoverSavedAddress();
-  restoreWorldInputs();
+  if (await recoverSavedAddress()) restoreWorldInputs();
   if (playerName) {
     loadWorld();
   } else {
