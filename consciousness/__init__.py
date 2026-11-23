@@ -307,7 +307,7 @@ _AGENT_ARCHETYPES: dict[str, str] = {
 # also carries a trait sheet — persona, home scales, courage, banter tic —
 # in agents/roster.py, and tests/test_roster.py pins the two in sync.
 WANDERER_CAST = [
-    "Tessera", "Halden", "Mirrorbird", "Sela", "Cartographer-9",
+    "Tessera", "Halden", "Mirrorbird", "Sela", "Cartographer",
     "Vex", "Aunt Entropy", "The Locksmith",
     "Bellhollow", "Karst", "Marginalia", "Petrichor",
 ]

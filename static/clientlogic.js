@@ -18,6 +18,7 @@
     const previousName = normalize(storage.getItem("nw_player_name"));
     if (name ? name !== previousName : key !== previousKey) {
       storage.removeItem("nw_last_node");
+      storage.removeItem("nw_last_address");
       storage.removeItem("nw_view_depth");
     }
     storage.setItem("nw_beta_key", key);
@@ -141,13 +142,15 @@
     return findPath(rootNode, target.name) || [rootNode];
   }
 
-  function resumeDepth(savedDepth, savedNodeName, minDepth = 6, maxDepth = 11) {
+  // The view must reach the saved place: its address has one step for
+  // every scale, so the address length is the depth it needs. The address
+  // is the server's field; a name says nothing about depth.
+  function resumeDepth(savedDepth, savedAddress, minDepth = 6, maxDepth = 11) {
     const numericDepth = Number(savedDepth);
     const requested = Number.isFinite(numericDepth)
       ? Math.trunc(numericDepth)
       : minDepth;
-    const suffix = String(savedNodeName || "").split("-").pop() || "";
-    const nodeDepth = /^\d+$/.test(suffix) ? suffix.length : minDepth;
+    const nodeDepth = addressDepth(savedAddress) || minDepth;
     return Math.min(maxDepth, Math.max(minDepth, requested, nodeDepth));
   }
 
@@ -193,6 +196,7 @@
       return {
         direction: "inward",
         target: wrapInfo.root,
+        targetAddress: wrapInfo.root_address,
         passage: wrapInfo.descent_passage,
         line: wrapInfo.descent_line,
       };
@@ -201,6 +205,7 @@
       return {
         direction: "outward",
         target: wrapInfo.hinge,
+        targetAddress: wrapInfo.hinge_address,
         passage: wrapInfo.ascent_passage,
         line: wrapInfo.ascent_line,
       };
@@ -227,27 +232,148 @@
     }
   }
 
-  // ── Display names ──────────────────────────────────────────────────────
-  // A node's canonical name is `<three-word phrase>-<path digits>`: the
-  // phrase is the readable identity, the digit suffix is its ADDRESS (the
-  // path from the root — deterministic coordinates, not randomness). The
-  // display layer shows the phrase and keeps the address one gesture away
-  // (hover / a dedicated field); the canonical full name remains the sole
-  // identity everywhere data is keyed or sent. Mirrors the puzzle layer's
-  // own reading (puzzles/generators.py `_living_name`): answers were already
-  // the phrase, never the address.
+  // ── Names, addresses and keys (ADR-041) ───────────────────────────────
+  // A place's name is its three words. Its ADDRESS is its path from the
+  // root, written as digits ("121" is the root's second child's first
+  // child), and its KEY is the string every derivation keyed on identity
+  // hashes (art and sound here). The server sends both as fields of each
+  // node; a client reads them and never works a position or a key out of
+  // a name, and never joins a name and an address itself.
+  //
+  // A world born before names and addresses were separated stores names
+  // that end in "-<address digits>". Its key is that stored name, which
+  // the server sends, and displayName still shows such a name without the
+  // digits. A name born since never ends that way, so displayName returns
+  // it whole.
 
-  function nodeAddress(name) {
-    const s = String(name || "");
-    const cut = s.lastIndexOf("-");
-    if (cut <= 0) return null;   // no separator, or nothing before it
-    const suffix = s.slice(cut + 1);
-    return /^\d+$/.test(suffix) ? suffix : null;
+  function addressDigits(address) {
+    return typeof address === "string" && /^[1-9]+$/.test(address) ? address : null;
+  }
+
+  function addressDepth(address) {
+    const digits = addressDigits(address);
+    return digits ? digits.length : null;
+  }
+
+  function nodeAddress(node) {
+    return addressDigits(node && typeof node === "object" ? node.address : null);
+  }
+
+  function nodeKey(node) {
+    return (node && (node.key || node.name)) || "";
+  }
+
+  // The nodes from the root toward an address, as far as this tree reaches:
+  // each step after the first names a child by its ordinal.
+  function addressPath(rootNode, address) {
+    const digits = addressDigits(address);
+    if (!rootNode || !digits) return null;
+    const path = [rootNode];
+    for (const step of digits.slice(1)) {   // the leading 1 is the root itself
+      const next = (path[path.length - 1].children || [])[Number(step) - 1];
+      if (!next) break;                     // deeper than this view reaches
+      path.push(next);
+    }
+    return path;
+  }
+
+  // The saved place's address is kept beside its name (`nw_last_node`) and
+  // is written with the name it belongs to, so an address is never read
+  // for a different place than the one saved.
+  const LAST_NODE_KEY = "nw_last_node";
+  const LAST_ADDRESS_KEY = "nw_last_address";
+
+  function rememberAddress(storage, name, address) {
+    const digits = addressDigits(address);
+    if (digits && name) storage.setItem(LAST_ADDRESS_KEY, `${digits} ${name}`);
+    else storage.removeItem(LAST_ADDRESS_KEY);
+  }
+
+  function savedAddress(storage) {
+    const kept = storage.getItem(LAST_ADDRESS_KEY) || "";
+    const cut = kept.indexOf(" ");
+    if (cut < 0 || kept.slice(cut + 1) !== storage.getItem(LAST_NODE_KEY)) return null;
+    return addressDigits(kept.slice(0, cut));
+  }
+
+  // A place known only by its name (a link without an address, a position
+  // saved before addresses were kept): ask the server where it stands, with
+  // one read of /node through `read` (fetch, in both clients). Never rejects.
+  // The answer is one of three, and a caller must tell the last two apart:
+  //   { status: "resolved", address }  the place stands here;
+  //   { status: "missing" }   the server answered and this world holds no
+  //             such place (a 404, any other client-shaped refusal, or a
+  //             place sent without an address): fall back as before;
+  //   { status: "retry" }     the question was not answered: a transport
+  //             failure, a cut-off body, a 5xx, the participation 428, or
+  //             the pace 408/429. The place may well exist, so it stays the
+  //             destination: nothing else is shown in its stead, its link is
+  //             kept, and no other position is saved over it.
+  const ADDRESS_MISSING = Object.freeze({ status: "missing" });
+  const ADDRESS_RETRY = Object.freeze({ status: "retry" });
+
+  function addressAnswerIsRetryable(httpStatus) {
+    return httpStatus >= 500 || httpStatus === 428 || httpStatus === 429 || httpStatus === 408;
+  }
+
+  async function lookupNodeAddress(read, url) {
+    let response;
+    try {
+      response = await read(url);
+    } catch (_) {
+      return ADDRESS_RETRY;
+    }
+    if (!response.ok) {
+      return addressAnswerIsRetryable(response.status) ? ADDRESS_RETRY : ADDRESS_MISSING;
+    }
+    let body;
+    try {
+      body = await response.json();
+    } catch (_) {
+      return ADDRESS_RETRY;            // a proxy's page or a cut-off body
+    }
+    const address = nodeAddress(body && body.node);
+    return address ? { status: "resolved", address } : ADDRESS_MISSING;
+  }
+
+  // The same question asked up to a few times, a little further apart each
+  // time, so a restart of a second or two does not cost the destination.
+  // Stops at the first definite answer. `wait(ms)` is the pause between
+  // reads (a timer in the clients).
+  const ADDRESS_RETRY_WAITS = Object.freeze([300, 900]);
+  async function findNodeAddress(read, url, {
+    waits = ADDRESS_RETRY_WAITS,
+    wait = ms => new Promise(resolve => setTimeout(resolve, ms)),
+  } = {}) {
+    let found = await lookupNodeAddress(read, url);
+    for (const ms of waits) {
+      if (found.status !== "retry") break;
+      await wait(ms);
+      found = await lookupNodeAddress(read, url);
+    }
+    return found;
+  }
+
+  // Where an arrival or a jump is headed: the address that came with the
+  // name when there is one, else the server's answer through `find(name)`
+  // (findNodeAddress in the clients). No name is "missing": there is no
+  // destination to wait for, and the ordinary entry applies.
+  async function destinationAddress(name, knownAddress, find) {
+    if (!name) return ADDRESS_MISSING;
+    const known = addressDigits(knownAddress);
+    if (known) return { status: "resolved", address: known };
+    return find(name);
+  }
+
+  // What a player reads when a jump's destination could not be looked up.
+  function placeUnreachedLine(name) {
+    return `… ${displayName(name)} could not be found just now. Try again in a moment.`;
   }
 
   function displayName(name) {
     const s = String(name || "");
-    return nodeAddress(s) === null ? s : s.slice(0, s.lastIndexOf("-"));
+    const cut = s.lastIndexOf("-");
+    return cut > 0 && /^\d+$/.test(s.slice(cut + 1)) ? s.slice(0, cut) : s;
   }
 
   // Live narration builders, shared so both clients' feeds and observation
@@ -581,6 +707,8 @@
     withoutBlockedLiveEvents,
     liveEventsAfterWelcome,
     savePersonalBlock,
+    addressDepth,
+    addressPath,
     BADGE_RULES,
     causalFeedLine,
     createChatDraft,
@@ -588,26 +716,33 @@
     createSocketKeepalive,
     describeChronicleEntry,
     describeMutation,
+    destinationAddress,
     displayName,
     dropInNode,
     entryHash,
     entryPath,
+    findNodeAddress,
     findNodeByName,
     findPath,
     firstWrapCrossing,
     hearSpeech,
     KEEPALIVE_INTERVAL_MS,
+    lookupNodeAddress,
     mutationLine,
     scaleActLine,
     causalNoticeLine,
     nodeAddress,
+    nodeKey,
     nodeMark,
     observationRow,
     openWorld,
     passageBadges,
+    placeUnreachedLine,
+    rememberAddress,
     rememberInvite,
     restoreChatInput,
     resumeDepth,
+    savedAddress,
     SPEAK_UNREACHED_LINE,
     waybackMomentLine,
     waybackNode,

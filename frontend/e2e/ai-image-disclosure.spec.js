@@ -2,7 +2,7 @@ import {test, expect} from '@playwright/test';
 import {disclose} from './disclosures.js';
 import {enterUX, serveUX} from './ux-fixture.js';
 
-const gallery = 'Broken Ember Gallery-1111111';
+const gallery = 'Broken Ember Gallery';
 const bundled = 'AI-generated background, included with the game.';
 const generated = 'AI-generated background for this place.';
 const drawn = 'Scene drawn from this place’s conditions.';
@@ -47,7 +47,7 @@ test('the living scene credits only a background it can draw', async ({page}) =>
     releaseAsset();
     await expect(caption).toHaveText(generated);
     await expect(canvas).toHaveAccessibleDescription(/AI-generated background for this place\./);
-    expect(requests).toEqual(['Amber Ember Mechanism-11111112']);
+    expect(requests).toEqual(['Amber Ember Mechanism']);
 
     await disclose(page, 'History & journal');
     await page.getByRole('button', {name: 'Replay History'}).click();

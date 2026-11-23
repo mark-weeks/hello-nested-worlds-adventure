@@ -25,7 +25,9 @@
 #
 # The generator is a pure function of (node identity, node properties). It does
 # not touch the network or the RNG the caller happens to hold — it derives its
-# own deterministic RNG from the node name.
+# own deterministic RNG from the node's identity key (ADR-041): the name joined
+# to the address, which is the string a generator-version-2 world stored as the
+# name. A place's name is a label; nothing here reads a position out of it.
 from __future__ import annotations
 
 import copy
@@ -34,6 +36,7 @@ import random
 import re
 from typing import Callable
 
+from multiverse import naming
 from multiverse.node import SpatialNode
 from puzzles.data import LEVEL_POOLS
 from puzzles.types import Puzzle, PuzzleKind
@@ -70,7 +73,7 @@ def node_difficulty(node: SpatialNode) -> int:
     node's scale, so any given scale carries the full spread of difficulties.
     """
     digest = hashlib.sha256(
-        f"difficulty:{node.level}:{node.name}".encode("utf-8")
+        f"difficulty:{node.level}:{naming.node_key(node)}".encode("utf-8")
     ).digest()
     return 1 + digest[0] % _MAX_DIFFICULTY
 
@@ -245,12 +248,14 @@ _THEME_LABEL: dict[str, str] = {
 def node_rng(node: SpatialNode) -> random.Random:
     """A random.Random seeded from the node's identity.
 
-    Keyed on the node NAME (unique within a world and stable across rebuilds),
-    not on properties or traversal order, so the puzzle is a pure function of
-    which node this is — reproducible for co-op and unchanged when the server
-    rebuilds the tree, yet different from its neighbours.
+    Keyed on the node's identity KEY (`naming.node_key`: unique within a
+    world and stable across rebuilds), not on properties or traversal order,
+    so the puzzle is a pure function of which node this is — reproducible for
+    co-op and unchanged when the server rebuilds the tree, yet different from
+    its neighbours.
     """
-    digest = hashlib.sha256(f"{node.level}:{node.name}".encode("utf-8")).digest()
+    digest = hashlib.sha256(
+        f"{node.level}:{naming.node_key(node)}".encode("utf-8")).digest()
     return random.Random(int.from_bytes(digest[:8], "big"))
 
 
@@ -326,17 +331,40 @@ def _dress(node: SpatialNode, rng: random.Random) -> str:
     return rng.choice(clauses)
 
 
+def _shown_text(text: str, node: SpatialNode) -> str:
+    """`text` as the leak screen reads it: wherever it prints the name of
+    this place or of a place that holds it, the address digits are read
+    beside the name, joined the way the identity key joins them.
+
+    The address is served with every place (ADR-041 D3), so a numeric answer
+    equal to it is on show even though the name no longer carries it. Reading
+    the key in place of the name also keeps the screen's verdicts byte for
+    byte what they were when the name itself ended in those digits. A place
+    whose key is its name (a world born under generator version 2, or a
+    hand-built node) is read as written.
+    """
+    place: SpatialNode | None = node
+    while place is not None:
+        key = naming.node_key(place)
+        if key != place.name and place.name and place.name in text:
+            text = re.sub(re.escape(place.name) + r"(?![A-Za-z0-9-])",
+                          lambda _match, key=key: key, text)
+        place = place.parent
+    return text
+
+
 def _answer_leaks(puzzle: Puzzle, node: SpatialNode) -> bool:
     """True if the answer is recoverable without solving — as a standalone token
     in the prompt or any hint (e.g. the node name happened to contain it, or a
-    numeric answer collided with the name's index), or as a shipped property."""
+    numeric answer collided with the place's address digits, which are shown
+    with its name), or as a shipped property."""
     ans = " ".join(puzzle.answer.lower().split())
 
     def toks(s: str) -> set[str]:
-        return set(re.findall(r"[a-z0-9.]+", s.lower()))
+        return set(re.findall(r"[a-z0-9.]+", _shown_text(s, node).lower()))
 
     def contains_phrase(s: str) -> bool:
-        return ans in " ".join(s.lower().split())
+        return ans in " ".join(_shown_text(s, node).lower().split())
 
     if ans in _property_values(node):
         return True
@@ -539,7 +567,9 @@ def _ancestors(node: SpatialNode) -> list[SpatialNode]:
 
 
 def _living_name(node: SpatialNode) -> str:
-    """A node's human-readable name without its path-identity suffix."""
+    """A node's human-readable name, lower-cased. A name born under
+    generator version 2 or earlier ends in its path digits; those are not
+    part of the living name. A later name is its living name."""
     base, separator, suffix = node.name.rpartition("-")
     if separator and suffix.isdigit():
         return base.strip().lower()
@@ -586,6 +616,9 @@ def _make_keeper_witness(node: SpatialNode, rng: random.Random,
     if not ancestors:
         return None
     nearby = ancestors[-min(3, len(ancestors)):]
+    # A world born under generator version 2 keeps the wording that refers
+    # to the digits its names end in (ADR-041 D4).
+    suffixed = naming.name_carries_address(node)
 
     if difficulty <= 2:
         # One-star witnesses use the nearest enclosure; two-star witnesses can
@@ -602,11 +635,14 @@ def _make_keeper_witness(node: SpatialNode, rng: random.Random,
             f"{node.name} remembers a place that holds it. Climb "
             f"{folds} {fold_word} to its enclosing {keeper.level}. "
             "Return with that place's living name — the words "
-            "before its lineage mark."
+            + ("before its lineage mark." if suffixed
+               else "it is called by.")
         )
         hints = [
             f"Travel outward until the scale reads {keeper.level}.",
-            "Its living name is everything before the dash and digits.",
+            ("Its living name is everything before the dash and digits."
+             if suffixed else
+             "Its living name is its name in full, every word."),
             f"The first word begins with '{answer[0]}'.",
         ]
     else:
@@ -639,7 +675,9 @@ def _make_keeper_witness(node: SpatialNode, rng: random.Random,
         hints = [
             "The ancestor tree keeps every landmark visible; read the named "
             "scales in the order given.",
-            "Strip each dash and lineage digits before counting its words.",
+            ("Strip each dash and lineage digits before counting its words."
+             if suffixed else
+             "Count the words of each living name exactly as it is written."),
             f"The first gathered word begins with '{answer[0]}'.",
         ]
 
@@ -706,10 +744,11 @@ def _make_ancestral_compass(node: SpatialNode, rng: random.Random,
 # ("the key is written in the place that holds you"); an ENFOLD makes you
 # think about what a cosmic node IS — a container of containers — and
 # about your own position inside the fold. Every answer derives from the
-# node's NAME alone (its path suffix encodes its whole lineage), so the
+# node's ADDRESS alone (its path encodes its whole lineage), so the
 # puzzle is a pure function of node identity like every other family, and
-# solving one teaches the world's deepest structural secret: names are
-# maps.
+# solving one teaches the world's deepest structural secret: addresses are
+# maps. The address is read from the node (ADR-041 D3); a name born under
+# generator version 2 ends in the same digits, and its hints say so.
 
 _ENFOLD_LEVELS = ("Multiverse", "Universe", "Galaxy", "Planetary System")
 
@@ -818,9 +857,10 @@ def _make_bond(node: SpatialNode, rng: random.Random,
 
 def _make_enfold(node: SpatialNode, rng: random.Random,
                  difficulty: int) -> Puzzle | None:
-    suffix = node.name.rpartition("-")[2]
-    if not suffix.isdigit():
+    suffix = naming.node_address(node)
+    if not suffix or not suffix.isdigit():
         return None
+    suffixed = naming.name_carries_address(node)
     depth = len(suffix)
     forms: list[tuple[str, str, str, list[str]]] = []
 
@@ -836,8 +876,13 @@ def _make_enfold(node: SpatialNode, rng: random.Random,
             "touches it. How many hold it?",
             str(enclosures),
             ["Start from the largest thing there is and step inward.",
-             "A name carries its whole lineage — read what follows the dash.",
-             "Count the digits after the dash, then subtract this place itself."],
+             ("A name carries its whole lineage — read what follows the dash."
+              if suffixed else
+              "An address carries a whole lineage — one step for every scale."),
+             ("Count the digits after the dash, then subtract this place itself."
+              if suffixed else
+              "Count the steps in this place's address, then subtract this "
+              "place itself.")],
         ))
     if within > 0:
         forms.append((
@@ -858,9 +903,12 @@ def _make_enfold(node: SpatialNode, rng: random.Random,
             f"Of all the {child_word} its holder keeps, which one is "
             f"{node.name}? Speak its number.",
             ordinal,
-            ["Position in the fold is written where everything else is.",
+            [("Position in the fold is written where everything else is."
+              if suffixed else
+              "Position in the fold is written in this place's address."),
              "The last step of the lineage is the newest one.",
-             "Read the final digit after the dash."],
+             ("Read the final digit after the dash." if suffixed else
+              "Read the final step of this place's address.")],
         ))
     if not forms:
         return None
@@ -987,7 +1035,8 @@ _LAW_TEMPERAMENT: dict[str, str] = {
 
 def _augury_elected(node: SpatialNode) -> bool:
     digest = hashlib.sha256(
-        f"augury-election:{node.level}:{node.name}".encode("utf-8")).digest()
+        f"augury-election:{node.level}:{naming.node_key(node)}".encode(
+            "utf-8")).digest()
     return (int.from_bytes(digest[:8], "big") / 2**64) < _AUGURY_ELECTION_RATE
 
 
@@ -1024,6 +1073,9 @@ def _make_causal_augury(node: SpatialNode, rng: random.Random,
     # danger figure, say) must not cost the node its Augury — form validity
     # is epoch-independent, so a node that can serve cleanly serves at
     # EVERY renewal epoch, and the family survives renewal by contract.
+    living_words = ("before its lineage mark"
+                    if naming.name_carries_address(node)
+                    else "it is called by")
     forms = ["reach"] if difficulty == 1 else (
         ["reach", "terminus"] if difficulty == 2 else (
             ["terminus", "echo"] if echo is not None else ["terminus"]))
@@ -1065,7 +1117,7 @@ def _make_causal_augury(node: SpatialNode, rng: random.Random,
             hints = [
                 temperament,
                 f"The last scale it sounds in is a {terminus.node.level}; "
-                "its living name is the words before its lineage mark.",
+                f"its living name is the words {living_words}.",
                 f"The first word begins with '{answer[0]}'.",
             ]
         else:
@@ -1079,7 +1131,7 @@ def _make_causal_augury(node: SpatialNode, rng: random.Random,
             hints = [
                 temperament,
                 f"The undimmed ring sounds at a {echo.node.level}; its "
-                "living name is the words before its lineage mark.",
+                f"living name is the words {living_words}.",
                 f"The first word begins with '{answer[0]}'.",
             ]
 
@@ -1141,7 +1193,8 @@ def build_puzzle(node: SpatialNode, epoch: int = 0) -> Puzzle:
     """
     rng = node_rng(node) if epoch == 0 else random.Random(int.from_bytes(
         hashlib.sha256(
-            f"{node.level}:{node.name}:renewal:{epoch}".encode()).digest()[:8],
+            f"{node.level}:{naming.node_key(node)}:renewal:{epoch}".encode(
+            )).digest()[:8],
         "big"))
     difficulty = node_difficulty(node)
     families = list(_FAMILY_WEIGHTS.get(difficulty, _FAMILY_WEIGHTS[2]))
@@ -1164,8 +1217,8 @@ def build_puzzle(node: SpatialNode, epoch: int = 0) -> Puzzle:
     # nodes that serve the family.
     if node.level in _AUGURY_LEVELS and _augury_elected(node):
         augury_rng = random.Random(int.from_bytes(hashlib.sha256(
-            f"augury-content:{node.level}:{node.name}:{epoch}".encode(
-            )).digest()[:8], "big"))
+            f"augury-content:{node.level}:{naming.node_key(node)}:{epoch}"
+            .encode()).digest()[:8], "big"))
         augury = _make_causal_augury(node, augury_rng, difficulty)
         if augury is not None and not _answer_leaks(augury, node):
             return _finish(augury, node, augury_rng, epoch)

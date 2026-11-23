@@ -134,7 +134,7 @@ test("/app gives a line back when its hold arrives during a deep traveler jump",
   try {
     const world = await (await request.get(server.url + "/world?depth=8")).json();
     let deep = world.world;
-    while (deep.name.split("-").pop().length < 8) deep = deep.children[0];
+    while (deep.address.length < 8) deep = deep.children[0];
 
     // Record each frame the page's socket delivers, so the test knows the
     // client handled the verdict before the world read is let through.
@@ -175,7 +175,7 @@ test("/app gives a line back when its hold arrives during a deep traveler jump",
     await page.waitForFunction(() => window.__chatFrames.includes("chat_declined"));
     releaseWorld();
 
-    await expect(page.locator("#node-address")).toContainText(deep.name.split("-").pop());
+    await expect(page.locator("#node-address")).toContainText(deep.address);
     await disclose(page, "History & journal");
     await disclose(page, "Travelers & chat");
     await expect(feed(page, "/app")).toContainText(`✕ ${HOLD}`);

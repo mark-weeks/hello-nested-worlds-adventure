@@ -487,3 +487,27 @@ describe("another player's accepted action", () => {
     expect(section.append).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("observed arrivals", () => {
+  it("jumps to an arrival with the address the server sent beside its name", async () => {
+    await import("../../../static/clientlogic.js");
+    const c = new Composer();
+    const jump = vi.fn();
+    c.ctx = { key: "invite", seed: 382, node: { name: "Mire" }, jump };
+    c.data = {
+      recent: [{ performer: "Ada", summary: "kindle", origin: "Mire", pending: 0,
+        arrivals: [{ node: "Far Reed Atom", flavor: "A glow arrived." }, { node: "Lost Reed Atom" }] }],
+      addresses: { Mire: "112", "Far Reed Atom": "1121111111" },
+    };
+    const recent = { children: [], replaceChildren(...nodes) { this.children = nodes; }, append(...nodes) { this.children.push(...nodes); } };
+    c.shadowRoot.querySelector = selector => (selector === ".recent" ? recent : null);
+    c.renderRecent();
+    const buttons = recent.children.flatMap(node => node.children || []).filter(node => node.tag === "button");
+    expect(buttons.map(b => b.textContent)).toEqual(["Observed · Far Reed Atom", "Observed · Lost Reed Atom"]);
+    await buttons[0].onclick();
+    expect(jump).toHaveBeenLastCalledWith("Far Reed Atom", "1121111111");
+    // A place the server sent no address for is still named, never guessed at.
+    await buttons[1].onclick();
+    expect(jump).toHaveBeenLastCalledWith("Lost Reed Atom", undefined);
+  });
+});

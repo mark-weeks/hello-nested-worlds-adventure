@@ -462,9 +462,9 @@ class TestActEndpoint:
                 conn.execute(
                     "DELETE FROM node_property_cache_meta WHERE world_seed = ?", (seed,))
 
-        def place_depth(name):
-            suffix = name.rpartition("-")[2]
-            return len(suffix) if suffix.isdigit() else 1
+        def place_depth(node):
+            # Depth is the length of the address, never a reading of the name.
+            return len(node.address)
 
         def depths_for(own):
             wanted = {1, own, own + 1, 6, 7, 11}
@@ -475,7 +475,7 @@ class TestActEndpoint:
             assert set(by_level) == set(LEVELS), (seed, sorted(by_level))
             for level in LEVELS:
                 node = by_level[level]
-                own = place_depth(node.name)
+                own = place_depth(node)
                 depths = depths_for(own)
                 assert 11 in depths
                 if own <= 6:

@@ -66,7 +66,9 @@ test('a map jump under a seal opens the room’s puzzle and a late refusal leave
     await expect(childMarker).toHaveAccessibleName(/Beyond a seal/);
     await disclose(page, 'History & journal');
     const feed = page.getByLabel('Recent events');
-    const sealNotice = feed.getByText(/Mossbound Orchard Alcove is sealed/);
+    // The room's own prompt now reads its name as the feed shows it, so the
+    // notice is told apart by the line the client writes around that name.
+    const sealNotice = feed.getByText(/▦ Mossbound Orchard Alcove is sealed — its key is written in/);
     const sealPrompt = feed.getByText(denial.prompt, {exact: true});
     await expect(sealNotice).toHaveCount(1);
     await expect(sealPrompt).toHaveCount(1);

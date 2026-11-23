@@ -424,7 +424,7 @@ test("the original explorer asks again for a deeper view after a paced or undraw
   try {
     const world = await (await request.get(`${server.url}/world?depth=8&key=${KEY}`)).json();
     let deep = world.world;
-    while (deep.name.split("-").pop().length < 8) deep = deep.children[0];
+    while (deep.address.length < 8) deep = deep.children[0];
     await returning(page, KEY);
     await page.goto(server.url + "/map");
     await expect(page.locator("#status")).toContainText("depth 6");
@@ -468,7 +468,7 @@ test("the original explorer asks again for a deeper view after a paced or undraw
     await page.evaluate(name => jumpTo(name), deep.name);
     expect(reads).toBe(1);
     await expect(page.locator("#status")).toContainText("depth 8");
-    await expect(page.locator("#node-address")).toContainText(deep.name.split("-").pop());
+    await expect(page.locator("#node-address")).toContainText(deep.address);
     expect(errors).toEqual([]);
   } finally {
     await page.unrouteAll({ behavior: "wait" }).catch(() => {});

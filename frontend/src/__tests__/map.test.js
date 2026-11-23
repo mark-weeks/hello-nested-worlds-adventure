@@ -1,29 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { mapLayout, mapNeighbor, mapSealLabel } from "../components/MapView.jsx";
 
-// Identical display names in different branches still have distinct positions.
+// A place carries its name and, beside it, the address the server sent.
 function place(path, remaining) {
   return {
-    name: `Harbor-${path}`,
+    name: `Harbor ${path}`,
+    address: path,
     children: remaining ? [1, 2, 3, 4].map(i => place(path + i, remaining - 1)) : [],
   };
 }
 
 describe("browsing the shared world map", () => {
   const world = place("1", 6);
-  const here = "Harbor-1111111";
+  const here = "Harbor 1111111";
 
   it("opens the selected lineage and its siblings without drawing each of 5,461 places", () => {
     const map = mapLayout(world, here, here);
     expect(map.nodes).toHaveLength(25);
     expect(map.links).toHaveLength(24);
-    expect(map.nodes.map(node => node.data.name)).toContain("Harbor-1111114");
-    expect(map.nodes.map(node => node.data.name)).not.toContain("Harbor-1444444");
+    expect(map.nodes.map(node => node.data.name)).toContain("Harbor 1111114");
+    expect(map.nodes.map(node => node.data.name)).not.toContain("Harbor 1444444");
     expect(map.trail.size).toBe(7);
   });
 
   it("gives every marker in a column a full row, including across browsed branches", () => {
-    const map = mapLayout(world, here, "Harbor-1444444");
+    const map = mapLayout(world, here, "Harbor 1444444");
     for (let depth = 0; depth < map.columns; depth++) {
       const centers = map.nodes.filter(node => node.depth === depth)
         .map(node => node.top).sort((a, b) => a - b);
@@ -50,9 +51,9 @@ describe("browsing the shared world map", () => {
     browse("ArrowDown");
     browse("ArrowUp");
     for (let level = 0; level < 5; level++) browse("ArrowRight");
-    expect(browsing).toBe("Harbor-1211111");
+    expect(browsing).toBe("Harbor 1211111");
     browse("ArrowRight"); // No destination below a leaf.
-    expect(browsing).toBe("Harbor-1211111");
+    expect(browsing).toBe("Harbor 1211111");
   });
 
   it("marks the Room threshold and its descendants while keeping the whole branch navigable", () => {

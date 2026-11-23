@@ -25,7 +25,7 @@ import persistence
 from causality import CausalEvent, CausalityBus, EventKind, MIN_STRENGTH
 from causality.delivery import deliver_due
 from causality.wiring import wire_world_handlers
-from multiverse import store
+from multiverse import naming, store
 from multiverse.node import SpatialNode
 from multiverse.utils import find_node
 
@@ -138,7 +138,12 @@ def _apply_hop(row: dict, notifications: list, root: SpatialNode) -> str:
         if law is None:
             factor, tunneled = STAGED_DAMPENING, False
         else:
-            token = hop_token(law, origin_name, node.name, hop)
+            # The queued payload keeps the origin's NAME (it is recorded
+            # and shown); the roll takes identity keys (ADR-041 D4).
+            origin_born = find_node(root, origin_name)
+            origin_key = (naming.node_key(origin_born)
+                          if origin_born is not None else origin_name)
+            token = hop_token(law, origin_key, naming.node_key(node), hop)
             if law.drops(token):
                 return "law_dropped"
             tunneled = law.tunnels(token)

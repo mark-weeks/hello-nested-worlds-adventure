@@ -2,7 +2,7 @@ import {expect, test} from '@playwright/test';
 import {disclose} from './disclosures.js';
 import {enterUX, serveUX} from './ux-fixture.js';
 
-const orchard = 'Emberlit Orchard Terraces-111111';
+const orchard = 'Emberlit Orchard Terraces';
 const placeLine = 'The last frost left a silver seam in my bark.';
 const agentLine = 'I mend the orchard paths after the rain.';
 const delayedQuestion = 'How did the path look yesterday?';

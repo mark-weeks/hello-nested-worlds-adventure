@@ -90,7 +90,7 @@ def audit_world(seed: int) -> dict:
     for node in nodes:
         by_level[node.level].append(node)
 
-    bases = [node.name.rsplit("-", 1)[0] for node in nodes]
+    bases = [node.name for node in nodes]
     readable = [
         all(word in NAME_VOCABULARY for word in base.split())
         for base in bases

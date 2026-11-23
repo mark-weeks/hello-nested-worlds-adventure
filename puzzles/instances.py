@@ -5,7 +5,7 @@ import json
 
 import persistence
 from persistence import puzzle_content
-from multiverse import store
+from multiverse import naming, store
 from multiverse.utils import apply_property_patch
 from puzzles import generators
 from puzzles.types import Puzzle, PuzzleKind
@@ -62,7 +62,11 @@ def get_puzzle(seed, node, epoch=0):
         observations = []
         ancestor = live
         while ancestor is not None:
+            # The address is evidence too: a question may ask about it, and
+            # a name does not carry it (ADR-041 D3). Snapshots pinned before
+            # this have no 'address' key and are read as they are.
             observations.append({'node': ancestor.name, 'level': ancestor.level,
+                                 'address': naming.node_address(ancestor),
                                  'properties': ancestor.properties})
             ancestor = ancestor.parent
         row = puzzle_content.pin(seed, node.name, epoch, DEFINITION_VERSION, data, observations)

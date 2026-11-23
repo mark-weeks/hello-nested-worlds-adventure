@@ -113,5 +113,7 @@ def law_for(node: "SpatialNode") -> LawProfile | None:
 
 def hop_token(law: LawProfile, origin_name: str, node_name: str,
               hop: int) -> str:
-    """The deterministic identity of one hop, for tunnel/drop/draw rolls."""
+    """The deterministic identity of one hop, for tunnel/drop/draw rolls.
+    Both names are identity keys (`multiverse.naming.node_key`): the name
+    joined to the address, which is the name generator version 2 stored."""
     return f"{law.name}:{origin_name}:{node_name}:{hop}"

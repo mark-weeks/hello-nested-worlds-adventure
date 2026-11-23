@@ -26,6 +26,22 @@ describe('continuous orchestration',()=>{
 });
 
 
+describe('the score is seeded by the served identity key (ADR-041)',()=>{
+  it('a three-word name with its key sounds as the earlier stored name did',()=>{
+    const before=scoreDirection({name:'Elder River Instrument-11111111',level:'Object',senses:{family:1}});
+    const named=scoreDirection({name:'Elder River Instrument',address:'11111111',key:'Elder River Instrument-11111111',level:'Object',senses:{family:1}});
+    expect(named.variant).toBe(before.variant);expect(named.motif).toBe(before.motif);
+    expect({...named,name:before.name}).toEqual(before);
+  });
+  it('the key decides, and the address is never joined to the name',()=>{
+    const keys=['Elder River Instrument-11111111','Elder River Instrument-11111112','Elder River Instrument-111','Amber Ember Mechanism-11111112'];
+    const variants=keys.map(key=>scoreDirection({name:'Elder River Instrument',key,level:'Object'}).variant);
+    expect(new Set(variants).size).toBeGreaterThan(1);
+    const bare=scoreDirection({name:'Elder River Instrument',level:'Object'});
+    expect(scoreDirection({name:'Elder River Instrument',address:'11111111',level:'Object'})).toEqual(bare);
+  });
+});
+
 describe('audible scale and node identity',()=>{
   it('writes eleven distinct musical forms, rather than transposing one accompaniment',()=>{
     const signatures=Object.keys(SCORE_PROFILES).map(level=>{

@@ -19,6 +19,7 @@ import random
 from typing import TYPE_CHECKING
 
 from agents.roster import profile_for
+from multiverse.naming import node_key
 
 if TYPE_CHECKING:
     from multiverse.node import SpatialNode
@@ -224,7 +225,8 @@ def compose_exchange(seed: int, node: "SpatialNode",
     # Order-independent pair key: A meeting B is the same conversation as
     # B meeting A.
     pair = ":".join(sorted((agent_a, agent_b)))
-    key = f"talk:{seed}:{node.name}:{pair}"
+    # The place half is its identity key (ADR-041 D4), not its label.
+    key = f"talk:{seed}:{node_key(node)}:{pair}"
 
     detail = _detail(node, key, ordinal)
     fmt = {"detail": detail, "level_l": node.level.lower()}

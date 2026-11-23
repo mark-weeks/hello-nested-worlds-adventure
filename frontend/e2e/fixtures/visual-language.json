@@ -2,7 +2,7 @@
   {
     "operation": "channel",
     "before": {
-      "name": "Emberlit Orchard Terraces-111111",
+      "name": "Emberlit Orchard Terraces",
       "level": "Region",
       "properties": {
         "danger_level": 7,
@@ -39,7 +39,7 @@
       }
     },
     "after": {
-      "name": "Emberlit Orchard Terraces-111111",
+      "name": "Emberlit Orchard Terraces",
       "level": "Region",
       "properties": {
         "danger_level": 7,
@@ -79,7 +79,7 @@
   {
     "operation": "illuminate",
     "before": {
-      "name": "Broken Ember Gallery-1111111",
+      "name": "Broken Ember Gallery",
       "level": "Room",
       "properties": {
         "has_puzzle": true,
@@ -117,7 +117,7 @@
       }
     },
     "after": {
-      "name": "Broken Ember Gallery-1111111",
+      "name": "Broken Ember Gallery",
       "level": "Room",
       "properties": {
         "has_puzzle": true,
@@ -158,7 +158,7 @@
   {
     "operation": "fracture",
     "before": {
-      "name": "Elder River Instrument-11111111",
+      "name": "Elder River Instrument",
       "level": "Object",
       "properties": {
         "interactive": false,
@@ -195,7 +195,7 @@
       }
     },
     "after": {
-      "name": "Elder River Instrument-11111111",
+      "name": "Elder River Instrument",
       "level": "Object",
       "properties": {
         "interactive": false,
@@ -236,7 +236,7 @@
   {
     "operation": "engrave",
     "before": {
-      "name": "Amber Ember Mechanism-11111112",
+      "name": "Amber Ember Mechanism",
       "level": "Object",
       "properties": {
         "interactive": true,
@@ -273,7 +273,7 @@
       }
     },
     "after": {
-      "name": "Amber Ember Mechanism-11111112",
+      "name": "Amber Ember Mechanism",
       "level": "Object",
       "properties": {
         "interactive": true,
@@ -313,7 +313,7 @@
   {
     "operation": "branch",
     "before": {
-      "name": "Distant River Chain-111111111",
+      "name": "Distant River Chain",
       "level": "Molecule",
       "properties": {
         "compound_type": "photoreactive",
@@ -349,7 +349,7 @@
       }
     },
     "after": {
-      "name": "Distant River Chain-111111111",
+      "name": "Distant River Chain",
       "level": "Molecule",
       "properties": {
         "compound_type": "photoreactive",

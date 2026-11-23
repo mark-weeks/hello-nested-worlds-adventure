@@ -166,7 +166,7 @@ class TestSnapshot:
         sids = {p["session_id"] for p in snap}
         assert sids == {"a", "b"}
         for p in snap:
-            assert set(p.keys()) == {"name", "node", "session_id"}
+            assert set(p.keys()) == {"name", "node", "address", "session_id"}
 
 
 class TestPlayerSend:

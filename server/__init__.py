@@ -285,6 +285,9 @@ def run(host: str = "127.0.0.1", port: int = 8080) -> None:
     # The world heartbeat: ambient agent life that runs whether or not
     # anyone is connected. Disable with NESTED_WORLDS_HEARTBEAT=0.
     from server import heartbeat
+    # A cast name a registered player already holds (a row from before the
+    # name was reserved) keeps that cast member out; say so once, here.
+    heartbeat.report_benched_cast()
     heartbeat_stop = None
     if heartbeat.enabled():
         heartbeat_stop = heartbeat.start()

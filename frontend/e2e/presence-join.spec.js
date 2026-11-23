@@ -2,7 +2,7 @@ import {expect, test} from '@playwright/test';
 import {serveUX, enterUX} from './ux-fixture.js';
 import {disclose} from './disclosures.js';
 
-const place = 'Emberlit Orchard Terraces-111111';
+const place = 'Emberlit Orchard Terraces';
 
 for (const route of ['/map', '/app']) {
   test(`${route}: joins show their place and restarted handles retire only live buffers`, async ({page}) => {

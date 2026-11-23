@@ -33,7 +33,7 @@
       const nav=el('nav');nav.setAttribute('aria-label','Explore places');root.append(nav);
       const button=(label,target,act)=>{const b=el('button',label);b.dataset.target=target;b.onclick=act;return b;};
       const row=el('div');row.className='top';nav.append(row);
-      if(parent) row.append(button(`↑ ${text(parent.name)}`,parent.name,()=>this.ctx.jump(parent.name)));
+      if(parent) row.append(button(`↑ ${text(parent.name)}`,parent.name,()=>this.ctx.jump(parent.name,parent.address)));
       if(wrap){const b=button(wrap.direction==='inward'?'Descend into the whole ↓':'Ascend beyond ↑',wrap.target,()=>this.ctx.cross(wrap));b.id=wrap.direction==='inward'?'btn-wrap-down':'btn-wrap-up';row.append(b);}
       if (this.ctx.switchView) {
         row.append(button(view, 'view', () => this.ctx.switchView()));
@@ -47,7 +47,7 @@
         nav.append(el('p','Within this place'));
         const children=el('div');children.className='children';nav.append(children);
         for(const child of node.children){
-          const b=button('',child.name,()=>this.ctx.jump(child.name));
+          const b=button('',child.name,()=>this.ctx.jump(child.name,child.address));
           b.append(el('small',child.level+' ↘'),el('strong',text(child.name)));
           if(child.properties?.locked)b.append(el('small','Sealed · puzzle at the threshold'));
           const cues=conditions(child);
@@ -57,7 +57,7 @@
       }
       const prior=this.trail.filter(n=>n.name!==node.name && n.name!==parent?.name);
       if(prior.length){const details=el('details');details.open=!!open;const summary=el('summary','Return to a visited place');summary.dataset.target='trail';details.append(summary);
-        for(const n of prior)details.append(button(`${n.level} · ${text(n.name)}`,n.name,()=>this.ctx.jump(n.name)));
+        for(const n of prior)details.append(button(`${n.level} · ${text(n.name)}`,n.name,()=>this.ctx.jump(n.name,n.address)));
         nav.append(details);
       }
     }

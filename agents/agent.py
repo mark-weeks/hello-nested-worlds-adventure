@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from multiverse.naming import node_key
 from multiverse.node import SpatialNode
 from agents.behaviors import DEFAULT_DANGER_THRESHOLD, State, transition, should_preserve
 from agents.personas import Persona, for_name as _persona_for_name
@@ -89,7 +90,9 @@ class Agent:
         else:
             puzzle = peek_puzzle(self.world_seed, node, epoch)
         # Preserve the existing epoch-zero roll; renewal is a new opportunity.
-        token = f"attempt:{self.name}:{node.name}" + (f":{epoch}" if epoch else "")
+        # The roll is keyed on the place's identity key (ADR-041 D4), which
+        # is the string a version-2 name was, so no roll moved with the names.
+        token = f"attempt:{self.name}:{node_key(node)}" + (f":{epoch}" if epoch else "")
         digest = hashlib.sha256(
             token.encode("utf-8")
         ).digest()

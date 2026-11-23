@@ -540,3 +540,165 @@ def test_play_cli_refuses_an_agent_name(monkeypatch, name):
     with pytest.raises(SystemExit, match="reserved world name"):
         main.cmd_play(Args())
     assert started == []
+
+
+# ── A cast name a player registered before it was reserved (ADR-041 D5) ─────
+# Until the cast member "Cartographer-9" was renamed, "Cartographer" was a
+# name a player could register. The row survives the upgrade. The player
+# keeps it; the cast member stays out of the world.
+
+CARTOGRAPHER_KEY = "nw_" + "c" * 32
+
+
+def _register_under_the_old_rules(key=CARTOGRAPHER_KEY, name="Cartographer"):
+    """Mint as the base version did: its registry reserved "Cartographer-9",
+    so its reserved-name check let "Cartographer" through to this insert."""
+    old_registry = {persistence.name_key(n) for n in identities.SERVER_IDENTITIES
+                    if n != "Cartographer"} | {persistence.name_key("Cartographer-9")}
+    assert persistence.name_key(name) not in old_registry
+    persistence.mint_invite_key(key, name)
+    acknowledge_current_study(key)
+
+
+def _cast_seen_walking(seed, ticks=10):
+    """Names the heartbeat sends into the room over a run of seeded ticks."""
+    import random
+
+    from server import heartbeat, rooms
+    room = rooms.get_room(seed)
+    seen = []
+    watcher = rooms.Player(name="Watcher", seed=seed, current_node="",
+                           session_id="watch", sock=None)
+    watcher.send = lambda message, **_: seen.append(message) or True
+    with room.lock:
+        room.players["watch"] = watcher
+    summaries = [heartbeat.run_tick(seed=seed, rng=random.Random(i), max_nodes=2, pace=0.0)
+                 for i in range(ticks)]
+    return ({m["name"] for m in seen if m["type"] == "agent_enter"}, summaries)
+
+
+def test_a_cast_member_stays_out_while_a_registered_player_holds_its_name(
+        srv, voice, monkeypatch):
+    from server import heartbeat
+    stub, screens = voice
+    seed = 4613
+    _register_under_the_old_rules()
+    def held_row():
+        (row,) = [r for r in persistence.list_invite_keys(include_revoked=True)
+                  if r["name"] == "Cartographer"]
+        return row
+
+    before = held_row()
+    assert identities.cast_held_by_players() == {"Cartographer": ("Cartographer",)}
+    assert "Cartographer" not in identities.walking_cast()
+    assert identities.voiced("Cartographer") is None
+    assert identities.voiced(" tessera ") == "Tessera"
+
+    # The heartbeat never sends the member out, as walker or as companion.
+    monkeypatch.setattr(heartbeat, "WANDERER_ROSTER", ("Cartographer", "Tessera"))
+    walked, _ = _cast_seen_walking(seed)
+    assert walked == {"Tessera"}
+    assert "Cartographer" not in _chronicled_agents(seed)
+
+    # Asked for by name, it is an agent this world cannot voice: the quiet
+    # line, before the screen, the budget and any row.
+    node = generate_node_hierarchy(seed=seed, max_depth=1)
+    rows_before = len(persistence.get_mutations(seed))
+    for requested in ("Cartographer", " cartographer "):
+        status, data = _request(srv, "/agent/voice", body={
+            "seed": seed, "node_name": node.name, "agent_name": requested,
+            "message": "hello, old light"})
+        assert status == 200, data
+        # The quiet line echoes the name as it was asked, as for any name
+        # no agent answers to.
+        assert data == _quiet(requested.strip(), node.name, persona=data["persona"])
+    assert screens == [] and stub.calls == []
+    assert len(persistence.get_mutations(seed)) == rows_before
+
+    # The player is untouched: the same row, the same name, a working key.
+    assert held_row() == before
+    assert persistence.lookup_invite_key(CARTOGRAPHER_KEY)["name"] == "Cartographer"
+    status, data = _request(srv, "/agent/voice", key=CARTOGRAPHER_KEY, body={
+        "seed": seed, "node_name": node.name, "agent_name": "Tessera",
+        "message": "hello, old light"})
+    assert status == 200 and data["ai"] is True
+    (row,) = _agent_rows(seed, "AGENT_VOICE")
+    assert (row["player"], row["data"]["agent"]) == ("Cartographer", "Tessera")
+
+
+def test_the_operator_is_told_at_startup_and_by_the_duplicates_listing(caplog, capsys):
+    import logging
+
+    import main
+    from server import heartbeat
+    with caplog.at_level(logging.WARNING, logger="nested_worlds.heartbeat"):
+        assert heartbeat.report_benched_cast() == {}
+    assert caplog.records == []
+
+    _register_under_the_old_rules()
+    persistence.revoke_invite_key(persistence.list_invite_keys()[0]["key"][:12])
+    with caplog.at_level(logging.WARNING, logger="nested_worlds.heartbeat"):
+        held = heartbeat.report_benched_cast()
+    # A revoked name stays taken, and its rows stay in the chronicle.
+    assert held == {"Cartographer": ("Cartographer",)}
+    (record,) = caplog.records
+    message = record.getMessage()
+    assert "'Cartographer'" in message and "invite duplicates" in message
+
+    with pytest.raises(SystemExit) as exc:
+        main.main(["invite", "duplicates"])
+    assert exc.value.code == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert "  Cartographer          reserved: one of the world's own agents" in lines
+    assert any(ascii("Cartographer") in line and line.rstrip().endswith("revoked")
+               for line in lines)
+
+
+def test_the_startup_check_survives_an_unreadable_database(monkeypatch, caplog):
+    import logging
+    import sqlite3
+
+    from server import heartbeat
+
+    def broken(**_):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(persistence, "list_invite_keys", broken)
+    with caplog.at_level(logging.WARNING, logger="nested_worlds.heartbeat"):
+        assert heartbeat.report_benched_cast() == {}
+    assert "invite duplicates" in caplog.records[0].getMessage()
+
+
+def test_with_no_such_row_the_whole_cast_walks_in_roster_order():
+    persistence.mint_invite_key(ADA_KEY, "Ada")
+    assert identities.cast_held_by_players() == {}
+    assert identities.walking_cast() == list(WANDERER_CAST)
+    for name in WANDERER_CAST:
+        assert identities.voiced(name) == name
+
+
+def test_a_tick_with_no_one_free_to_walk_is_idle_not_an_error(monkeypatch):
+    import random
+
+    from server import heartbeat
+    _register_under_the_old_rules()
+    monkeypatch.setattr(heartbeat, "WANDERER_ROSTER", ("Cartographer",))
+    summary = heartbeat.run_tick(seed=4614, rng=random.Random(1), max_nodes=2, pace=0.0)
+    assert summary["status"] == "no_cast"
+    assert persistence.get_mutations(4614) == []
+
+
+def test_a_failed_collision_read_still_names_a_cast_member(monkeypatch):
+    """`voiced` falls back to the roster when the registered-names read fails,
+    so `/agent/voice` keeps answering in fiction, never with a 5xx."""
+    import sqlite3
+
+    import persistence
+    from agents import identities
+
+    def broken(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(persistence, "list_invite_keys", broken)
+    assert identities.voiced("Tessera") == "Tessera"
+    assert identities.voiced("nobody the world knows") is None

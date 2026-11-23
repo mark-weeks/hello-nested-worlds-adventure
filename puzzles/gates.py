@@ -27,14 +27,45 @@ client meets the same doors.
 from __future__ import annotations
 
 import persistence
+from multiverse import naming, store
 from multiverse.node import SpatialNode
 from multiverse.utils import apply_property_patch
 from puzzles.instances import get_puzzle
 
 
-def _path_suffix(name: str) -> str:
-    """The path digits a node name carries ("Vault-1121" → "1121")."""
-    return name.rpartition("-")[2]
+def inside_seal(seed: int | None, room: SpatialNode,
+                current_name: str | None) -> bool:
+    """Is the place named `current_name` the sealing `room` or beneath it?
+
+    A position is an address, never part of a name (ADR-041 D3). With a
+    world to ask, the mover's address is one indexed lookup of the stored
+    name, and it is inside when the room's address is a prefix of it (each
+    step is a single digit, so a prefix of the digits is a prefix of the
+    path). The lookup matches the stored name, so it serves a world born
+    under any generator version. A name the world does not hold is outside.
+
+    Without a world (`seed` is None: an in-memory tree), the name is looked
+    for in the room's own subtree; failing that, a name that ends in its
+    path digits (a version-2 name or a hand-built node) is read by them.
+    """
+    if not current_name:
+        return False
+    if current_name == room.name:
+        return True
+    room_address = naming.node_address(room)
+    if seed is not None:
+        address = store.address_of(seed, current_name)
+        return bool(address and room_address
+                    and address.startswith(room_address))
+    stack = list(room.children)
+    while stack:
+        node = stack.pop()
+        if node.name == current_name:
+            return True
+        stack.extend(node.children)
+    address = naming.legacy_address(current_name)
+    return bool(address and room_address
+                and address.startswith(room_address))
 
 
 def sealing_room(node: SpatialNode) -> SpatialNode | None:
@@ -77,8 +108,7 @@ def seal_check(seed: int, target: SpatialNode,
     room = sealing_room(target)
     if room is None:
         return None
-    room_path = _path_suffix(room.name)
-    if current_name and _path_suffix(current_name).startswith(room_path):
+    if inside_seal(seed, room, current_name):
         return None  # already inside — the seal never imprisons
     _overlaid(seed, room)
     epoch = persistence.count_node_mutations(seed, room.name, "PUZZLE_REARM")

@@ -115,7 +115,8 @@ export default function MapView({ world, currentNode, onJump, focusOnOpen = fals
           const { name, level } = node.data;
           const current = name === here;
           const active = name === map.cursor;
-          const address = nodeAddress(name);
+          // The address is the field the server sent with the place, never its name.
+          const address = nodeAddress(node.data);
           const seal = mapSealLabel(node);
           const row = Math.floor(node.top);
           return <button type="button" key={name} className="map-place"
@@ -128,7 +129,7 @@ export default function MapView({ world, currentNode, onJump, focusOnOpen = fals
               // Keep parents centered between their branches even at a fractional row.
               top: `${(node.top - row - 0.5) * 100}%`,
             }}
-            onKeyDown={event => browse(event, node)} onClick={() => onJump(name)}>
+            onKeyDown={event => browse(event, node)} onClick={() => onJump(name, address)}>
             <span className="map-scale">
               {level}{seal && ` · ${seal}`}{current && " · You are here"}
             </span>

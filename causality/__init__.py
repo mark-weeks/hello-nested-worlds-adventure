@@ -123,6 +123,7 @@ class CausalityBus:
             raise ValueError(f"direction must be down|up|both, got {direction!r}")
 
         from causality.laws import law_for
+        from multiverse import naming
 
         event = CausalEvent(
             kind=kind,
@@ -138,14 +139,16 @@ class CausalityBus:
         if law is not None and law.flip:
             arms = [{"down": "up", "up": "down"}[a] for a in arms]
 
+        # Hop rolls are keyed on identity keys, not names (ADR-041 D4).
+        origin_key = naming.node_key(origin)
         for arm in arms:
             if arm == "down":
                 for child in origin.children:
                     self._walk(child, event, "down", hop=1,
-                               origin_name=origin.name, fallback=dampening)
+                               origin_name=origin_key, fallback=dampening)
             elif origin.parent is not None:
                 self._walk(origin.parent, event, "up", hop=1,
-                           origin_name=origin.name, fallback=dampening)
+                           origin_name=origin_key, fallback=dampening)
 
         return event
 
@@ -153,14 +156,16 @@ class CausalityBus:
               hop: int, origin_name: str, fallback: float) -> None:
         """One cascade step onto `node`: dampen by the local law (or the
         caller's fallback), maybe tunnel through, maybe drop, fire, and
-        continue outward along the same arm."""
+        continue outward along the same arm. `origin_name` is the origin's
+        identity key (`naming.node_key`)."""
         from causality.laws import hop_token, law_for
+        from multiverse import naming
 
         law = law_for(node)
         if law is None:
             factor, tunneled = fallback, False
         else:
-            token = hop_token(law, origin_name, node.name, hop)
+            token = hop_token(law, origin_name, naming.node_key(node), hop)
             if law.drops(token):
                 return  # the thread frays; the cascade ends here
             tunneled = law.tunnels(token)

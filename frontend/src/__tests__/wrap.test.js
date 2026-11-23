@@ -5,8 +5,10 @@ import { describe, expect, it } from "vitest";
 import { firstWrapCrossing, wrapAffordance } from "../wrap.js";
 
 const WRAP = {
-  root: "Elder Reed Cosmos-1",
-  hinge: "Hidden Thorn Quark-11431112111",
+  root: "Elder Reed Cosmos",
+  root_address: "1",
+  hinge: "Hidden Thorn Quark",
+  hinge_address: "11431112111",
   descent_passage: "the way inward opens onto the whole",
   ascent_passage: "the way beyond narrows to a single particle",
   descent_line: "You lean into the particle…",
@@ -15,9 +17,10 @@ const WRAP = {
 
 describe("wrapAffordance", () => {
   it("offers every particle the descent onto the whole", () => {
-    const aff = wrapAffordance({ level: "SubatomicParticle", name: "Any Quark-12111111111" }, WRAP);
+    const aff = wrapAffordance({ level: "SubatomicParticle", name: "Any Quark", address: "12111111111" }, WRAP);
     expect(aff.direction).toBe("inward");
     expect(aff.target).toBe(WRAP.root);
+    expect(aff.targetAddress).toBe("1");
     expect(aff.passage).toBe(WRAP.descent_passage);
     expect(aff.line).toBe(WRAP.descent_line);
   });
@@ -26,6 +29,9 @@ describe("wrapAffordance", () => {
     const aff = wrapAffordance({ level: "Multiverse", name: WRAP.root }, WRAP);
     expect(aff.direction).toBe("outward");
     expect(aff.target).toBe(WRAP.hinge);
+    // The hinge lies eleven scales down; the crossing needs its address to
+    // open the view that deep, and the name does not carry it.
+    expect(aff.targetAddress).toBe("11431112111");
     expect(aff.passage).toBe(WRAP.ascent_passage);
     expect(aff.line).toBe(WRAP.ascent_line);
   });

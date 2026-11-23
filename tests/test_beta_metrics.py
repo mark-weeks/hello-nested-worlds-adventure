@@ -355,13 +355,13 @@ def _cli(capsys, *argv: str) -> str:
 
 # The universe under the root: a three-attempt navigation puzzle, so one
 # wrong guess leaves the pool open for the co-solve.
-COSOLVE_NODE = "Ashen Ember Sphere-11"
+COSOLVE_NODE = "Ashen Ember Sphere"
 # A galaxy beneath it, three attempts, for the failure pool.
-FAILING_NODE = "Mossbound Bell Disc-111"
+FAILING_NODE = "Mossbound Bell Disc"
 # A subatomic particle and its entangled twin: a solve at the first
 # resolves the second (server/world_mechanics.py).
-ENTANGLED_NODE = "Bright Dawn Spark-11112121111"
-ENTANGLED_TWIN = "Cedar Rain Point-11112121112"
+ENTANGLED_NODE = "Bright Dawn Spark"
+ENTANGLED_TWIN = "Cedar Rain Point"
 CHAT = "marker-chat-lantern by the reeds"
 REPLY = "marker-chat-reply on my way"
 GUESS = "marker-guess-nowhere"
@@ -436,7 +436,7 @@ class TestTwoTravelers:
         assert isinstance(target, str) and len(target) == 32
         assert target != participants.identify(s["bea_key"])["id"]
         assert s["bea_moves"] == {"type": "player_move", "name": "Zephyrine",
-                                  "node": COSOLVE_NODE,
+                                  "node": COSOLVE_NODE, "address": "11",
                                   "session_id": s["bea_moves"]["session_id"],
                                   "participant_id": target}
 
@@ -1140,6 +1140,52 @@ class TestAmbientMetricsSafeguards:
             "INTERVENTION_COMMITTED": 1, "SCALE_ACT": 1, "AGENT_VOICE": 1}
         assert len(metrics["timeline"]) == 1
         assert metrics["timeline"][0]["first_solve"] is None
+
+    def test_an_archive_from_before_the_cast_rename_keeps_its_counts(self, tmp_path, monkeypatch):
+        """ADR-041 D5 renamed the cast member "Cartographer-9". Its older
+        rows carry no agent tag, only that actor name, so the report must
+        still read them as the cast's: the same archive gives the counts it
+        gave before the rename."""
+        from agents.identities import SERVER_IDENTITIES
+        puzzle = {"puzzle": "The Sealed Room"}
+        for kind in ("PUZZLE_ATTEMPT", "PUZZLE_FAILED", "PUZZLE_SOLVED", "SCALE_ACT"):
+            _fixture_event(kind, actor="Cartographer-9", data=puzzle, ago="2 days")
+        _fixture_event("PUZZLE_ATTEMPT", data=puzzle)
+        _fixture_event("PUZZLE_FAILED", data=puzzle)
+        archive = tmp_path / "before-the-rename.db"
+        persistence.backup_to(archive)
+        archive.chmod(0o400)
+
+        def read():
+            return beta_metrics.compute_metrics(archive, days=7, timeline=True)
+
+        after = read()
+        # What the base version reported: its cast set held the old name.
+        base_cast = tuple("Cartographer-9" if name == "Cartographer" else name
+                          for name in SERVER_IDENTITIES)
+        with monkeypatch.context() as patch:
+            patch.setattr(beta_metrics, "_cast_names", lambda: base_cast)
+            before = read()
+        assert after == before
+        assert after["visitors"] == after["acting_visitors"] == 1
+        assert after["events_by_type"] == {"PUZZLE_ATTEMPT": 1, "PUZZLE_FAILED": 1}
+        assert after["puzzle_attempts"] == 1 and after["puzzle_solves"] == 0
+        assert after["puzzle_failures"] == after["puzzle_failed_rows"] == 1
+        assert after["scale_acts"] == 0
+
+    def test_a_player_registered_under_a_retired_cast_name_is_a_visitor(self):
+        """The retired name is released, and a registered player's rows carry
+        the credential's identity, never the name, so they still count."""
+        key = "nw_" + "9" * 32
+        persistence.mint_invite_key(key, "Cartographer-9")
+        puzzle = {"puzzle": "The Sealed Room"}
+        _fixture_event("PUZZLE_FAILED", actor="Cartographer-9", data=puzzle, ago="2 days")
+        _fixture_event("PUZZLE_ATTEMPT", actor=_identity(key), data=puzzle)
+        _fixture_event("PUZZLE_SOLVED", actor=_identity(key), data=puzzle)
+        metrics = _metrics(days=7)
+        assert metrics["visitors"] == metrics["acting_visitors"] == 1
+        assert metrics["puzzle_attempts"] == metrics["puzzle_solves"] == 1
+        assert metrics["puzzle_failures"] == metrics["puzzle_failed_rows"] == 0
 
     def test_ambient_failure_cannot_claim_the_first_human_failed_pool(self):
         puzzle = {"puzzle": "The Sealed Room"}

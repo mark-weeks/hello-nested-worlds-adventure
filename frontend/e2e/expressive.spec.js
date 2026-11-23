@@ -13,11 +13,11 @@ const python = process.env.ENFOLDED_PYTHON || 'python';
 const key = 'nw_' + 'a'.repeat(32);
 const headers = {'X-Beta-Key': key};
 const names = {
-  region: 'Emberlit Orchard Terraces-111111',
-  instrument: 'Elder River Instrument-11111111',
-  regulator: 'Amber Ember Mechanism-11111112',
-  fold: 'Elder Lantern Fold-111111112',
-  chain: 'Distant River Chain-111111111',
+  region: 'Emberlit Orchard Terraces',
+  instrument: 'Elder River Instrument',
+  regulator: 'Amber Ember Mechanism',
+  fold: 'Elder Lantern Fold',
+  chain: 'Distant River Chain',
 };
 const phrase = name => name.replace(/-\d+$/, '');
 const capture = name => path.join(tmpdir(), name);

@@ -3,6 +3,7 @@ from persistence import participants, situations
 from multiverse import store
 from puzzles.gates import seal_check
 from server import guard
+from server.world_mechanics import node_addresses
 import persistence
 
 
@@ -15,7 +16,10 @@ def handle(handler, path, qs, body=None):
         seed = guard.world_seed(body.get('seed') if body is not None else qs.get('seed', [''])[0])
         if body is None and path == '/situation':
             me = participants.identify(key) if persistence.lookup_invite_key(key) else None
-            handler._send_json({'situation': situations.view(seed, me['id'] if me else None)})
+            situation = situations.view(seed, me['id'] if me else None)
+            # The investigation's places with their addresses (ADR-041 D3).
+            handler._send_json({'situation': situation, 'addresses': node_addresses(
+                seed, [situation['entry'], *situation['nodes'].values()]) if situation else {}})
             return True
         if body is None:
             raise ValueError('This action requires a submission.')

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import persistence
 from agents.agent import Agent
-from multiverse import store, wrap
+from multiverse import naming, store, wrap
 from multiverse.generator import BREADTH_ENVELOPE, DEFAULT_WORLD_SEED
 from multiverse.utils import apply_property_overrides, count_nodes, find_node
 from puzzles.engine import PuzzleEngine
@@ -76,6 +76,11 @@ def cmd_puzzles(args):
     for node in nodes[:limit]:
         engine.attach_puzzles(node, epochs, persist=True, recursive=False)
         puzzle = engine.puzzle_for(node)
+        # A question may ask about the place's address, which its name does
+        # not carry (ADR-041 D3): show the place and its address first.
+        address = naming.node_address(node)
+        print(f"\n{node.name} ({node.level})"
+              + (f", address {address}" if address else ""))
         result = engine.run_puzzle(puzzle)
         persistence.save_puzzle_result(args.seed, puzzle.name, result.name, puzzle.attempts)
         if result == PuzzleResult.UNSOLVED and puzzle.attempts == 0:
