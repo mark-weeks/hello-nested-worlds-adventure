@@ -924,6 +924,17 @@ def cmd_speak(args):
         print(f"Node '{args.node}' not found in seed={args.seed}. Run 'world' to see available nodes.")
         return
 
+    # Same rule as interactive play (interface._speak_to): the operator
+    # terminal is unscreened only while it is not writing the hosted
+    # canonical world. Speech into that world is shared text, so it is
+    # screened before the voice is called or any row is written.
+    from server.moderation import player_line, screen, writes_shared_chronicle
+    if writes_shared_chronicle(args.seed):
+        verdict = screen(args.message, surface="cli")
+        if not verdict.allowed:
+            print(player_line(verdict))
+            return
+
     print(f"\n[{target.level}: {target.name}]")
     history = consciousness.history_for_voice(args.seed, target.name)
     try:
