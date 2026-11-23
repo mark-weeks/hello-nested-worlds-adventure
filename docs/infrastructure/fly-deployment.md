@@ -1840,15 +1840,71 @@ not this restore.
       Record all-off results as all-off evidence, not a live-model pass.
       Live quality gates remain blocked until
       [approved live controlled text](#approved-live-controlled-text) is complete.
-      Only then repeat the authenticated gameplay request and require `ai: true`,
-      and check intention success, clarification/refusal and an explicit-action
-      equivalent. Authored identity answers still have `ai: false` even when
-      voice is live, so use an ordinary place greeting for this check.
-      Never add `--probe` to a controlled CLI command; it is refused rather than
-      bypassing participant reservations. Keep credentials and private text out
-      of evidence. Mint a fresh check key for each rehearsal under a new one-word
-      name, following [§3a](#3a-staging-rehearsal--before-the-permanent-world-begins)
-      step 5. A revoked name stays taken. Never use a tester's key, and revoke the
+      Only then, on that disposable staging machine, run the authenticated
+      live-voice probe. It reads the volume ledger, so it has to run there.
+      The check key file stays off that volume, at `/tmp/check-key`, and is
+      removed after the last case. Do not pass the key to `fly ssh console -C`:
+      that puts it on the local command line and in shell history. The probe
+      has no `--key` argument. It reads `--key-file` or `ENFOLDED_LIVE_ROUTE_KEY`,
+      and only one of those. From an
+      interactive `fly ssh console -a enfolded-staging` shell, write the key
+      to `/tmp/check-key` and leave the shell. Or, from `fly ssh sftp shell`,
+      `put` a local file that is not committed to `/tmp/check-key`, then delete
+      the local file. Name the disposable app. From this repository, omitting
+      `-a` selects `enfolded-beta` through `fly.toml`. If the disposable app
+      has another name, pass that name to `-a` on every case:
+      `fly ssh console -a enfolded-staging -C "python scripts/live_route_probe.py --url http://127.0.0.1:8080 --key-file /tmp/check-key --db /data/.nested-worlds/worlds.db --case success"`
+      and the same command with `--case hold`, `--case quiet` and `--case identity`.
+      After those four cases:
+      `fly ssh console -a enfolded-staging -C "rm -f /tmp/check-key"`.
+      The probe refuses any world that is not declared temporary, before it
+      discovers a place. It does not acknowledge the notice. Before these
+      commands, open the check key's invite URL and acknowledge the current
+      notice, as
+      [§3a](#3a-staging-rehearsal--before-the-permanent-world-begins) step 7
+      says. The probe stops when that acknowledgement is missing. Run it only
+      as the operator who holds that key.
+      Prepare each case on the server before the command. Success needs the
+      approved routes, with allowances unspent and the shared line classified
+      as allowed. Hold is an unclassified shared line, the AI kill switch, a
+      spent dollar ceiling, or a spent classify or model-action cap. Quiet is
+      only the voice cap spent, with classification still succeeding. Identity
+      is the kill switch left on.
+      Success is each endpoint's own contract. `/speak` and `/agent/voice`
+      return HTTP 200 and `ai: true`: the shared line leaves one settled
+      moderation reservation and one settled voice reservation. An Act
+      free-text intention returns `accepted: true` and a receipt, with no
+      `ai` field, and one settled intent reservation. Each success run uses a
+      new Act request id, so a second run settles its own intention. Every
+      row is `settled`, never `uncertain`, `anomaly` or `reserved`; accounted
+      microUSD is at most the reserved amount; the usage carries the prompt,
+      completion and cached-token counts; and the resolved model is one of
+      that task's approved `resolved_models`. An `uncertain` row fails
+      ADR-035 requirement 4. The ledger read is limited to the check key's
+      participant. Hold also requires `--db`. Speak and agent voice return
+      HTTP 200 with the shared hold line, `held: true` and `ai: false`; Ideas
+      and a published profile return 422 with their hold lines. A completed
+      moderation charge must be `settled` under the same usage and model
+      checks. An `uncertain` or `anomaly` charge fails. A spent cap or dollar
+      ceiling may leave no reservation, and an unreachable classifier may
+      leave `reserved` moderation rows. No voice reservation is written.
+      Beside the probe, still check Act clarification (`accepted: false`,
+      `clarification: true`, `ai: true`), refusal (`accepted: false`,
+      `declined: true`, `ai: true`), and one explicit version-3 `steps`
+      commit (`accepted: true` and a receipt). The four probe cases accept
+      one free-text intention and do not cover those three, which checklist
+      M4 still requires. Quiet failure: HTTP 200, `ai: false`
+      and the quiet line, `held` absent or false, one settled moderation
+      reservation and no voice reservation. With the kill switch on,
+      `--case identity` still returns the authored honesty answer, HTTP 200
+      and `ai: false`. Use an ordinary place greeting for the all-off curl;
+      the probe sends its own shared line, so classification is part of the
+      live pass. Never add `--probe` to a controlled CLI command; it is
+      refused rather than bypassing participant reservations. Keep credentials
+      and private text out of evidence. Mint a fresh check key for each
+      rehearsal under a new one-word name, following
+      [§3a](#3a-staging-rehearsal--before-the-permanent-world-begins) step 5.
+      A revoked name stays taken. Never use a tester's key, and revoke the
       check key afterwards as step 7 does. Optional audio is separate.
 - [ ] Watch spend and control state as the cohort arrives. Run the plain
       `fly ssh console -C "python main.py models"` and
