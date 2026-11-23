@@ -190,11 +190,16 @@ means all of these, using the marker time:
 - the last snapshot-start is within the bound of the window's end.
 
 A snapshot with no marker is `unresolved` when the bound actually depends
-on it. An extra snapshot the marked ones already cover does not change a
-pass. A marker past the bound, while the snapshot's own `LastModified` is
-still inside it, is `unresolved`: the finish may have landed on either
-side. A `LastModified` that itself is past the bound is a breach. Neither
-unresolved result is a pass. A snapshot `LastModified` before
+on it. Extra snapshots after a confirmed snapshot that already reaches the
+window's end do not change a pass, however many there are. A marker past
+the bound, while the snapshot's own `LastModified` is still inside it, is
+`unresolved`: the finish may have landed on either side. The same holds at
+the window's start. A newer snapshot whose upload had started, and whose
+marker falls after the opening, may already have been readable then. That
+opening is `unresolved`. A marker that itself is before the opening makes
+it the cover. An upload that had not started by the opening leaves the
+older gap as a breach. A `LastModified` that itself is past the bound is a
+breach. Neither unresolved result is a pass. A snapshot `LastModified` before
 its snapshot-start fails the proof. A time after the window's end means that
 object was not yet available. It is left out, and the closing gap uses the
 newest object that had already landed. Quarantine names, empty objects,
@@ -208,13 +213,15 @@ Retention is 30 days, and prune deletes older copies of this app, including
 their markers, so a window longer than that cannot pass once those copies
 are gone. `--days` accepts 1 to 366.
 
-`--from-first` starts at the oldest validated object, requires at least two,
-and applies the same landing rule between them and at the window's end. A
-manual snapshot that is more than an hour before the dispatcher's first
-object stays in that check, so the gate keeps failing. `--since` is the
-production check for that interval. It ignores every object whose
-snapshot-start is before the UTC instant you pass, then starts at the first
-snapshot-start at or after that instant and requires at least two. The
+`--from-first` starts at the oldest validated object, requires at least two
+marker-confirmed snapshots, and applies the same landing rule between them
+and at the window's end. A manual snapshot that is more than an hour before
+the dispatcher's first object stays in that check, so the gate keeps failing.
+`--since` is the production check for that interval. It ignores every object
+whose snapshot-start is before the UTC instant you pass, then starts at the
+first snapshot-start at or after that instant and requires at least two
+marker-confirmed snapshots. An unmarked object does not count toward that
+two. The
 report's `window_start` is that first snapshot-start. `since` is the filter,
 not the start of the measured interval. Pass only one of `--days`,
 `--from-first`, and `--since`. The twin's rehearsal stays the seven-day

@@ -444,6 +444,60 @@ def test_a_marker_past_the_bound_is_unresolved_when_the_upload_start_is_inside_i
     assert inside['result'] == 'pass', inside['violations']
 
 
+def _set_marker(listing, snapshot_at, moment):
+    for item in listing['Contents']:
+        if item['Key'].endswith('.ready') and item['Key'].endswith(
+                f'-{stamp(snapshot_at)}.ready'):
+            item['LastModified'] = iso(moment)
+
+
+def test_extra_unmarked_snapshots_do_not_spoil_a_covered_window_end():
+    noon = datetime(2026, 11, 22, 12, 0, tzinfo=timezone.utc)
+    listing = page(*series(noon - timedelta(days=1), noon - timedelta(minutes=30)))
+    assert prove(listing, app=APP, days=1, now=noon)['result'] == 'pass'
+    listing['Contents'].append(stored(noon - timedelta(minutes=20)))
+    listing['Contents'].append(stored(noon - timedelta(minutes=5)))
+    report = prove(listing, app=APP, days=1, now=noon)
+    assert report['result'] == 'pass', report['violations']
+
+
+def test_an_opening_upload_that_might_have_finished_is_unresolved():
+    noon = datetime(2026, 11, 23, 12, 0, tzinfo=timezone.utc)
+    now = noon + timedelta(days=1)
+    older = datetime(2026, 11, 23, 10, 30, tzinfo=timezone.utc)
+    newer = datetime(2026, 11, 23, 11, 20, tzinfo=timezone.utc)
+    started = datetime(2026, 11, 23, 11, 24, tzinfo=timezone.utc)
+    rest = series(noon + timedelta(minutes=10), now)
+
+    def listing(arrived, marker):
+        built = page(stored(older), stored(newer, arrived=arrived), *rest)
+        _set_marker(built, newer, marker)
+        return built
+
+    crossing = prove(listing(started, noon + timedelta(minutes=2)), app=APP, days=1, now=now)
+    assert crossing['result'] == 'unresolved', crossing['violations']
+    assert not any(item['kind'] in ('window_start', 'successive') for item in crossing['violations'])
+    early = prove(listing(started, noon - timedelta(minutes=1)), app=APP, days=1, now=now)
+    assert early['result'] == 'pass', early['violations']
+    late_put = noon + timedelta(minutes=1)
+    missed = prove(listing(late_put, late_put + timedelta(minutes=1)), app=APP, days=1, now=now)
+    assert missed['result'] == 'fail'
+    assert any(item['kind'] == 'window_start' for item in missed['violations'])
+
+
+def test_the_production_check_counts_confirmed_snapshots():
+    start = datetime(2026, 11, 23, 12, 0, tzinfo=timezone.utc)
+    end = start + timedelta(minutes=30)
+    one = page(stored(start))
+    one['Contents'].append(stored(start + timedelta(minutes=15)))
+    held = prove(one, app=APP, since=start, now=end)
+    assert held['result'] == 'fail'
+    assert any(item['kind'] == 'count' for item in held['violations'])
+    both = prove(page(stored(start), stored(start + timedelta(minutes=15))),
+                 app=APP, since=start, now=end)
+    assert both['result'] == 'pass', both['violations']
+
+
 def test_an_upload_after_the_window_end_is_not_yet_available():
     landed = series(START, NOW - timedelta(minutes=30))
     inflight = stored(NOW, arrived=NOW + timedelta(minutes=2))
@@ -459,7 +513,7 @@ def test_from_first_requires_two_validated_objects():
     assert report['result'] == 'fail'
     assert report['count'] == 1
     assert report['violations'][0]['kind'] == 'count'
-    assert 'fewer than two validated snapshots' in render_summary(report)
+    assert 'fewer than two confirmed snapshots' in render_summary(report)
 
 
 def test_a_window_that_opens_with_no_snapshot_fails_even_when_later_gaps_are_short():

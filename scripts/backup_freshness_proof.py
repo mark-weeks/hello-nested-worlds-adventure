@@ -20,9 +20,10 @@ start, each later marker the bound depends on is within the bound of the
 previous snapshot-start, and the last snapshot-start is within the bound
 of the window's end (60 minutes unless ``--max-gap-minutes`` says
 otherwise).
-``--from-first`` starts at the first validated object and requires two.
-``--since`` ignores objects before a UTC instant. The measured interval
-then starts at the first snapshot-start that remains. Quarantine names,
+``--from-first`` starts at the first validated object and requires two
+marker-confirmed snapshots. ``--since`` ignores objects before a UTC
+instant and uses the same two-marker count. The measured interval then
+starts at the first snapshot-start that remains. Quarantine names,
 empty objects, other apps, and future stamps do not count.
 
 JSON goes to stdout. A short summary goes to stderr. Exit 0 passes, 1 fails
@@ -186,17 +187,35 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False,
     measured = []
     unresolved = []
     uncovered = False
+    opening_uncertain = False
     if not bounded:
-        if cover is None:
-            possible = [item for item in objects if item['taken'] <= window_start and (
-                item['lower'] is None or item['lower'] <= window_start)]
+        cover_gap = None if cover is None else (window_start - cover['taken']).total_seconds()
+        if cover is None or cover_gap > bound:
+            possible = []
+            for item in objects:
+                if item['taken'] > window_start:
+                    continue
+                if cover is not None and item['taken'] <= cover['taken']:
+                    continue
+                if item['lower'] is not None and item['lower'] > window_start:
+                    continue
+                if item['upper'] is not None and item['upper'] <= window_start:
+                    continue
+                if (window_start - item['taken']).total_seconds() > bound:
+                    continue
+                possible.append(item)
             if possible:
+                opening_uncertain = True
                 unresolved.append({'kind': 'unresolved', 'from': None, 'to': _iso(window_start),
                                    'gap_seconds': None, 'from_key': None, 'to_key': None})
-            else:
+            elif cover is None:
                 uncovered = True
+            else:
+                measured.append(_gap(
+                    'window_start', cover['taken'], window_start, cover['key'], None))
         else:
-            measured.append(_gap('window_start', cover['taken'], window_start, cover['key'], None))
+            measured.append(_gap(
+                'window_start', cover['taken'], window_start, cover['key'], None))
 
     def _later_marker_covers(origin, snap):
         """A later finish marker already keeps this origin inside the bound."""
@@ -234,8 +253,9 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False,
         # this object unnecessary, whether its own finish is missing or late.
         if previous is not None and _later_marker_covers(origin, item):
             continue
-        if (previous is not None and not any(nxt['taken'] > item['taken'] for nxt in pending)
-                and (now - previous['taken']).total_seconds() <= bound):
+        # Every later object is redundant once the last confirmed snapshot
+        # already reaches the window end. One extra must not be the limit.
+        if previous is not None and (now - previous['taken']).total_seconds() <= bound:
             continue
         late = item['lower'] is not None and (item['lower'] - origin).total_seconds() > bound
         if late:
@@ -249,8 +269,9 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False,
         measured.append(_gap('window_end', previous['taken'], now, previous['key'], None))
     elif not bounded and not unresolved:
         uncovered = True
-    if bounded and len(objects) < 2:
-        only = objects[0] if objects else None
+    confirmed = [item for item in objects if item['upper'] is not None]
+    if bounded and len(confirmed) < 2 and not unresolved:
+        only = confirmed[0] if confirmed else (objects[0] if objects else None)
         violations.append({'kind': 'count', 'from': None if only is None else _iso(only['taken']),
                            'to': None, 'gap_seconds': None,
                            'from_key': None if only is None else only['key'], 'to_key': None})
@@ -285,7 +306,8 @@ def prove(pages, *, app, days=7, max_gap_minutes=60, now=None, from_first=False,
         'first': _ref(in_window[0]) if in_window else None,
         'last': _ref(in_window[-1]) if in_window else None,
         'anchor': _ref(cover) if (
-            cover is not None and not bounded and cover['taken'] < window_start) else None,
+            cover is not None and not bounded and not opening_uncertain
+            and cover['taken'] < window_start) else None,
         'max_gap_seconds': None if widest is None else widest['gap_seconds'],
         'max_gap': None if widest is None else _public_gap(widest),
         'violations': violations,
@@ -338,7 +360,7 @@ def render_summary(report):
         if item['kind'] == 'arrival':
             lines.append(f"missing arrival time: {item['from']}  {item['from_key']}")
         elif item['kind'] == 'count':
-            lines.append('fewer than two validated snapshots')
+            lines.append('fewer than two confirmed snapshots')
         elif item['kind'] == 'unresolved':
             lines.append(
                 f"unproven finish: {item['from']} -> {item['to']}  {item['to_key']}")
