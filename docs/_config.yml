@@ -1,0 +1,9 @@
+# GitHub Pages builds this directory with Jekyll 3 (github-pages 232).
+# Liquid aborts that build when a markdown file contains {{ or {%.
+# CHANGELOG.md quotes both, which is the failure on every main push
+# since #157. Paths are relative to this directory.
+# Jekyll 3 replaces the Pages default exclude instead of extending it.
+# That default is CNAME; keep it so a later CNAME is still left out.
+exclude:
+  - CHANGELOG.md
+  - CNAME
