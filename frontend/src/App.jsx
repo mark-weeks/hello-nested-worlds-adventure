@@ -279,6 +279,10 @@ export default function App() {
   }, []);
 
   const currentNodeName = nodeStack[nodeStack.length - 1]?.name;
+  // Where the player stands now, for work that finishes after a wait.
+  const currentNodeNameRef = useRef(currentNodeName);
+  currentNodeNameRef.current = currentNodeName;
+  const jumpSerial = useRef(0);
   const currentAddress = nodeAddress(nodeStack[nodeStack.length - 1]);
   const redirectedThreshold = useRef(null);
   const positionQueue = useRef(Promise.resolve());
@@ -597,7 +601,12 @@ export default function App() {
     }
     // A place named without its address (a frame that carried only the
     // name): ask the server where it stands. A name says nothing of position.
+    // The answer can take a while. A player who has gone elsewhere, or asked
+    // for another jump, by then stays where they went.
+    const serial = ++jumpSerial.current;
+    const from = currentNodeNameRef.current;
     const destination = await destinationAddress(nodeName, address, readAddress);
+    if (serial !== jumpSerial.current || currentNodeNameRef.current !== from) return;
     if (destination.status === "retry") {
       // Not answered, so not refused: stay here and say so.
       pushEvent({ type: "system", text: placeUnreachedLine(nodeName) });
@@ -612,7 +621,7 @@ export default function App() {
       await loadWorld({ depth: targetDepth, targetNode: nodeName, targetAddress: address, preserveSession: true });
       return;
     }
-    const path = addressPath(root, address);
+    const path = addressPath(worldRootRef.current, address);
     const cur = path[path.length - 1];
     if (cur.name !== nodeName) {
       pushEvent({ type: "system",

@@ -164,15 +164,27 @@ function readAddress(name) {
 // ask the server where that place stands, so the view opens deep enough.
 // False while the question is unanswered: the place may well exist, so the
 // world is not drawn (drawing it would select, and save, another place in
-// its stead) until a later read answers.
-let savedPlacePending = false;
-async function recoverSavedAddress() {
-  const saved = localStorage.getItem(LAST_NODE_KEY);
-  const found = await destinationAddress(saved, savedAddress(localStorage), readAddress);
-  savedPlacePending = found.status === 'retry';
-  if (savedPlacePending) return false;
-  if (saved) rememberAddress(localStorage, saved, found.address);
-  return true;
+// its stead) until a later read answers. It is unanswered from the start,
+// so a view asked for before or during the first lookup waits for the same
+// answer; callers that overlap share one round of reads.
+let savedPlacePending = true;
+let savedPlaceLookup = null;
+function recoverSavedAddress() {
+  if (!savedPlaceLookup) {
+    savedPlaceLookup = (async () => {
+      try {
+        const saved = localStorage.getItem(LAST_NODE_KEY);
+        const found = await destinationAddress(saved, savedAddress(localStorage), readAddress);
+        savedPlacePending = found.status === 'retry';
+        if (savedPlacePending) return false;
+        if (saved) rememberAddress(localStorage, saved, found.address);
+        return true;
+      } finally {
+        savedPlaceLookup = null;
+      }
+    })();
+  }
+  return savedPlaceLookup;
 }
 
 function savePositionToServer(name) {
@@ -1213,14 +1225,22 @@ function deepestVisibleAncestor(address) {
   return null;
 }
 
+// A jump that has to wait (for an address, or for a deeper view) is dropped
+// when the player has chosen another place, or another jump, by the time
+// the wait ends: where they went since is where they stay.
+let jumpSerial = 0;
 async function jumpTo(nodeName, address) {
   if (!nodeName) return;
+  const serial = ++jumpSerial;
+  const from = selected && selected.name;
+  const movedOn = () => serial !== jumpSerial || (selected && selected.name) !== from;
   let hit = findNodeByName(hierLayout && hierLayout.data, nodeName);
   if (!hit) {
     // A place named without its address (a frame or a caller that carried
     // only the name): ask the server where it stands. A name says nothing
     // about position.
     const destination = await destinationAddress(nodeName, address, readAddress);
+    if (movedOn()) return;
     if (destination.status === 'retry') {
       // Not answered, so not refused: stay here and say so.
       pushFeed(placeUnreachedLine(nodeName));
@@ -1233,6 +1253,7 @@ async function jumpTo(nodeName, address) {
       document.getElementById('depth').value = Math.min(11, needed);
       pushFeed(`… deepening the view toward ${displayName(nodeName)}`);
       await loadWorld();
+      if (movedOn()) return;
       hit = findNodeByName(hierLayout && hierLayout.data, nodeName);
     }
   }
@@ -1732,10 +1753,22 @@ function restoreWorldInputs() {
 }
 
 async function boot() {
-  await hydrateFromServer();   // cross-device resume takes precedence over the local cache
-  if (await recoverSavedAddress()) restoreWorldInputs();
+  // "Apply view" waits until the saved place has been asked about once.
+  const apply = document.getElementById('gen-btn');
+  apply.disabled = true;
+  let found = false;
+  try {
+    await hydrateFromServer();   // cross-device resume takes precedence over the local cache
+    found = await recoverSavedAddress();
+  } finally {
+    apply.disabled = false;
+  }
+  if (found) restoreWorldInputs();
   if (playerName) {
-    loadWorld();
+    // An unanswered lookup was already asked its bounded number of times;
+    // "Apply view" asks again.
+    if (found) loadWorld();
+    else savedPlaceUnreached();
   } else {
     showJoinModal();
   }

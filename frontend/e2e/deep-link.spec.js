@@ -170,6 +170,9 @@ for (const route of ['/map', '/app']) {
       expect(held.refused).toBeGreaterThan(0);
       expect(await page.evaluate(() => localStorage.getItem('nw_last_node'))).toBe(DEEP);
       expect(await page.evaluate(() => document.getElementById('node-name')?.getAttribute('title') || '')).toBe('');
+      // One bounded round of reads, then none until the player asks again.
+      await page.waitForTimeout(2500);
+      expect(held.refused).toBe(3);
 
       held.open = true;
       if (route === '/map') {
@@ -204,5 +207,113 @@ test('/map: a jump to a place whose address cannot be read selects no other plac
     await page.evaluate(deep => jumpTo(deep), DEEP);
     await expect(page.locator('#node-name')).toHaveAttribute('title', DEEP);
     expect(before).not.toBe(DEEP);
+  } finally { await page.unrouteAll({ behavior: 'wait' }).catch(() => {}); await server.close(); }
+});
+
+// Refuse the first reads of /node, then let them through.
+async function refuseFirst(page, count) {
+  const reads = { count: 0 };
+  await page.route('**/node?*', async route => {
+    reads.count += 1;
+    if (reads.count > count) return route.continue();
+    return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"restarting"}' });
+  });
+  return reads;
+}
+
+test('/map: "Apply view" pressed while the saved place is still being looked up waits for it', async ({ page }) => {
+  const server = await serveBrowser({ preseed: 382, invite: KEY, player: NAME });
+  try {
+    await acknowledgeCurrentStudy(server.url, KEY);
+    await returning(page);
+    await savedByNameAlone(page);
+    const saved = savedPositions(page);
+    const reads = await refuseFirst(page, 1);
+    await page.goto(`${server.url}/map?key=${KEY}&name=${encodeURIComponent(NAME)}`);
+    await expect.poll(() => reads.count).toBeGreaterThan(0);
+    await page.locator('summary', { hasText: 'Sound & help' }).click();
+    await page.click('#btn-advanced');
+    await page.locator('#gen-btn').click();
+    await expect(page.locator('#node-name')).toHaveAttribute('title', DEEP);
+    await expect.poll(async () => (await serverPosition(page, server))?.node).toBe(DEEP);
+    await page.waitForTimeout(1500);
+    expect(saved.every(node => node === DEEP)).toBe(true);
+    expect(await page.evaluate(() => localStorage.getItem('nw_last_node'))).toBe(DEEP);
+  } finally { await page.unrouteAll({ behavior: 'wait' }).catch(() => {}); await server.close(); }
+});
+
+test('/map: a view asked for during the first lookup of the saved place draws no other place', async ({ page }) => {
+  const server = await serveBrowser({ preseed: 382 });
+  try {
+    await returning(page);
+    await savedByNameAlone(page);
+    const held = await holdAddress(page, 503);
+    await page.goto(server.url + '/map');
+    await expect.poll(() => held.refused).toBeGreaterThan(0);
+    expect(await page.evaluate(() => document.getElementById('gen-btn').disabled)).toBe(true);
+    // A caller that does not go through the button meets the same answer.
+    await page.evaluate(() => { loadWorld(); });
+    await expect(page.getByText('The world could not be reached.', { exact: false }).first()).toBeVisible();
+    await page.waitForTimeout(2500);
+    expect(held.refused).toBe(3);
+    expect(await page.evaluate(() => localStorage.getItem('nw_last_node'))).toBe(DEEP);
+    expect(await page.evaluate(() => document.getElementById('node-name')?.getAttribute('title') || '')).toBe('');
+    expect(await page.evaluate(() => document.getElementById('gen-btn').disabled)).toBe(false);
+  } finally { await page.unrouteAll({ behavior: 'wait' }).catch(() => {}); await server.close(); }
+});
+
+// A jump that had to ask for its address is dropped when the player has
+// gone elsewhere by the time the answer arrives.
+test('/app: a jump answered late does not pull the player back from where they went', async ({ page }) => {
+  const server = await serveBrowser({ preseed: 382, invite: KEY, player: NAME });
+  try {
+    await acknowledgeCurrentStudy(server.url, KEY);
+    await returning(page);
+    const saved = savedPositions(page);
+    await page.goto(`${server.url}/app?key=${KEY}&name=${encodeURIComponent(NAME)}`);
+    await expect(page.locator('#node-name')).toHaveAttribute('title', /.+/);
+    const start = await page.locator('#node-name').getAttribute('title');
+    const reads = await refuseFirst(page, 2);
+    await page.evaluate(deep => { document.querySelector('enfolded-navigation').ctx.jump(deep); }, DEEP);
+    await expect.poll(() => reads.count).toBeGreaterThan(0);
+    await page.locator('enfolded-navigation button', { hasText: '↑' }).first().click();
+    await expect(page.locator('#node-name')).not.toHaveAttribute('title', start);
+    const moved = await page.locator('#node-name').getAttribute('title');
+    await expect.poll(() => reads.count).toBe(3);
+    await page.waitForTimeout(1500);
+    await expect(page.locator('#node-name')).toHaveAttribute('title', moved);
+    expect(saved).not.toContain(DEEP);
+    expect((await serverPosition(page, server))?.node).toBe(moved);
+
+    // Left alone, the same jump still arrives.
+    await page.evaluate(deep => { document.querySelector('enfolded-navigation').ctx.jump(deep); }, DEEP);
+    await expect(page.locator('#node-name')).toHaveAttribute('title', DEEP);
+  } finally { await page.unrouteAll({ behavior: 'wait' }).catch(() => {}); await server.close(); }
+});
+
+test('/map: a jump answered late does not pull the player back from where they went', async ({ page }) => {
+  const server = await serveBrowser({ preseed: 382, invite: KEY, player: NAME });
+  try {
+    await acknowledgeCurrentStudy(server.url, KEY);
+    await returning(page);
+    const saved = savedPositions(page);
+    await page.goto(`${server.url}/map?key=${KEY}&name=${encodeURIComponent(NAME)}`);
+    await expect(page.locator('#node-name')).toHaveAttribute('title', /.+/);
+    const reads = await refuseFirst(page, 2);
+    await page.evaluate(deep => { jumpTo(deep); }, DEEP);
+    await expect.poll(() => reads.count).toBeGreaterThan(0);
+    const moved = await page.evaluate(() => {
+      const other = hierLayout.descendants().find(n => n.data.name !== selected.name && n.depth > 0);
+      selectNode(other.data);
+      return other.data.name;
+    });
+    await expect.poll(() => reads.count).toBe(3);
+    await page.waitForTimeout(1500);
+    await expect(page.locator('#node-name')).toHaveAttribute('title', moved);
+    expect(saved).not.toContain(DEEP);
+    expect(await page.evaluate(() => localStorage.getItem('nw_last_node'))).toBe(moved);
+
+    await page.evaluate(deep => jumpTo(deep), DEEP);
+    await expect(page.locator('#node-name')).toHaveAttribute('title', DEEP);
   } finally { await page.unrouteAll({ behavior: 'wait' }).catch(() => {}); await server.close(); }
 });
