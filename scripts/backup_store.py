@@ -1,7 +1,9 @@
 """Private S3-compatible storage for off-host world backups.
 
-Object names keep the app and the UTC snapshot-start. A validation failure uses
-the unvalidated prefix; that name never satisfies the freshness check. The
+Object names keep the app and the UTC snapshot-start. A validated upload then
+writes a `.ready` marker, and that marker's listing time is the finish
+evidence for the one-hour proof. A validation failure uses the unvalidated
+prefix; that name never satisfies the freshness check. The
 client shells out to a pinned AWS CLI and talks to whatever endpoint the
 operator configured. Cloudflare R2 is that store, and retention is 30 days,
 both recorded on 2026-11-20 (owner decision O7). Credentials stay in the
@@ -29,6 +31,10 @@ _BUCKET = re.compile(r'[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]')
 _REGION = re.compile(r'[a-z0-9][a-z0-9-]{0,31}')
 class StoreError(RuntimeError):
     """The object store could not be used. The message contains no credential."""
+
+
+class MarkerNotWritten(StoreError):
+    """The snapshot object is stored. Its finish marker is not."""
 
 
 def validate_app(value):
@@ -120,6 +126,20 @@ def object_key(app, stamp, *, quarantine=False):
     return f'{PREFIX}{role}-{app}-{stamp}.db'
 
 
+def ready_key(app, stamp):
+    """Marker written after a validated snapshot PUT has returned.
+
+    Its listing time is later than the moment that snapshot became readable.
+    """
+    validate_app(app)
+    validate_stamp(stamp)
+    return f'{PREFIX}{VALIDATED_ROLE}-{app}-{stamp}.ready'
+
+
+def _stamp_text(moment):
+    return moment.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+
+
 def classify(key, app):
     """Return (role, snapshot time). Quarantine is never reported as validated."""
     if not isinstance(key, str):
@@ -135,6 +155,31 @@ def classify(key, app):
             return None
         return ('quarantine' if role == QUARANTINE_ROLE else 'validated'), taken
     return None
+
+
+def classify_ready(key, app):
+    """Snapshot-start of a finish marker, or None when the key is not one."""
+    if not isinstance(key, str):
+        return None
+    validate_app(app)
+    prefix = f'{PREFIX}{VALIDATED_ROLE}-{app}-'
+    suffix = '.ready'
+    if not key.startswith(prefix) or not key.endswith(suffix):
+        return None
+    try:
+        return validate_stamp(key[len(prefix):-len(suffix)])
+    except ValueError:
+        return None
+
+
+def owned_backup_key(key, app):
+    return classify(key, app) is not None or classify_ready(key, app) is not None
+
+
+def owned_backup_time(key, app):
+    """Snapshot-start of a backup object or its finish marker."""
+    classified = classify(key, app)
+    return classified[1] if classified is not None else classify_ready(key, app)
 
 
 def page_contents(page):
@@ -189,13 +234,13 @@ def assess_objects(pages, *, app, max_age_minutes=60, now=None):
 
 
 def keys_older_than(pages, *, app, cutoff):
-    """Validated and quarantine keys whose snapshot-start is at or before cutoff."""
+    """Backup keys, including finish markers, at or before cutoff."""
     chosen = []
     for item in iter_objects(pages):
-        classified = classify(item.get('Key'), app)
-        if classified is None or classified[1] > cutoff:
+        taken = owned_backup_time(item.get('Key'), app)
+        if taken is None or taken > cutoff:
             continue
-        chosen.append((classified[1], item['Key']))
+        chosen.append((taken, item['Key']))
     return [key for _taken, key in sorted(chosen)]
 
 
@@ -231,7 +276,8 @@ def expired_keys(pages, *, app, retention_days, now=None):
     keep = newest_validated_key(pages, app=app, now=now)
     if keep is None:
         return expired
-    return [key for key in expired if key != keep]
+    kept = {keep, ready_key(app, _stamp_text(classify(keep, app)[1]))}
+    return [key for key in expired if key not in kept]
 
 
 def load_object_pages(path):
@@ -358,10 +404,11 @@ def run_aws(args, *, env=None, purpose='write'):
     return result.stdout
 
 
-# 3,650 days at 48 snapshots a day is 175,200 keys. One thousand keys per page
-# needs 176 pages for a single app prefix. 250 leaves margin past the old
+# 3,650 days at 48 snapshots a day is 175,200 backups. Each validated backup
+# is the snapshot plus its finish marker: 350,400 keys. One thousand keys per
+# page needs 351 pages for that prefix. 400 leaves margin past the old
 # 100-page stop, which failed closed forever once a bucket crossed 100,000 keys.
-MAX_LIST_PAGES = 250
+MAX_LIST_PAGES = 400
 _DELETE_BATCH = 1000
 
 
@@ -424,6 +471,21 @@ def _command_timeout(args, env):
     return int(raw)
 
 
+def _put_ready_marker(app, stamp, env):
+    """Write the finish marker only after the snapshot PUT has returned."""
+    key = ready_key(app, stamp)
+    bucket, _endpoint, _region = _target(env)
+    handle = tempfile.NamedTemporaryFile(prefix='backup-ready-', delete=False)
+    try:
+        handle.write(b'1')
+        handle.close()
+        run_aws(['s3api', 'put-object', '--bucket', bucket, '--key', key,
+                 '--body', handle.name, '--output', 'json'], env=env, purpose='write')
+    finally:
+        Path(handle.name).unlink(missing_ok=True)
+    return key
+
+
 def put_object(app, stamp, body, *, quarantine=False, env=None):
     key = object_key(app, stamp, quarantine=quarantine)
     path = Path(body)
@@ -433,6 +495,11 @@ def put_object(app, stamp, body, *, quarantine=False, env=None):
     bucket, _endpoint, _region = _target(source)
     run_aws(['s3api', 'put-object', '--bucket', bucket, '--key', key,
              '--body', str(path), '--output', 'json'], env=source, purpose='write')
+    if not quarantine:
+        try:
+            _put_ready_marker(app, stamp, source)
+        except (StoreError, OSError) as exc:
+            raise MarkerNotWritten(key) from exc
     return key
 
 
@@ -465,7 +532,7 @@ def get_object(app, key, dest, *, env=None):
 
 
 def delete_object(app, key, *, env=None):
-    if classify(key, app) is None:
+    if not owned_backup_key(key, app):
         raise StoreError("Refusing to delete a key outside this app's backup names.")
     return _delete_many(app, [key], os.environ if env is None else env)[0]
 
@@ -478,7 +545,7 @@ def _delete_many(app, keys, env):
     for start in range(0, len(keys), _DELETE_BATCH):
         batch = list(keys[start:start + _DELETE_BATCH])
         for key in batch:
-            if classify(key, app) is None:
+            if not owned_backup_key(key, app):
                 raise StoreError("Refusing to delete a key outside this app's backup names.")
         payload = json.dumps({'Objects': [{'Key': key} for key in batch], 'Quiet': True},
                              separators=(',', ':'))
@@ -522,10 +589,11 @@ def delete_before(app, stamp, *, env=None, now=None, dry_run=False, after=None):
     pages = list_object_pages(source, app=app)
     keys = keys_older_than(pages, app=app, cutoff=cutoff)
     if after_time is not None:
-        keys = [key for key in keys if classify(key, app)[1] >= after_time]
+        keys = [key for key in keys if owned_backup_time(key, app) >= after_time]
     keep = newest_validated_key(pages, app=app, now=now)
     if keep is not None:
-        keys = [key for key in keys if key != keep]
+        kept = {keep, ready_key(app, _stamp_text(classify(keep, app)[1]))}
+        keys = [key for key in keys if key not in kept]
     if dry_run:
         return keys
     return _delete_many(app, keys, source)
@@ -563,7 +631,12 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == 'put':
-            print(put_object(args.app, args.stamp, args.body, quarantine=args.quarantine))
+            try:
+                print(put_object(args.app, args.stamp, args.body, quarantine=args.quarantine))
+            except MarkerNotWritten as missing:
+                print(missing)
+                print('snapshot stored; finish marker not written', file=sys.stderr)
+                parser.exit(3)
         elif args.command == 'get':
             print(get_object(args.app, args.key, args.dest))
         elif args.command == 'delete':

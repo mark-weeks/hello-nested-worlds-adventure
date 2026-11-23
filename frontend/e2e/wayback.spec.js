@@ -107,12 +107,30 @@ test("/app scrubs a node from present to birth", async ({ page }) => {
 
   const trigger = page.getByRole("button", { name: "Replay History" });
   await disclose(page,"History & journal");
+  let release;
+  const opening = new Promise(resolve => { release = resolve; });
+  await page.route(/\/wayback\?/, async route => {
+    await opening;
+    await route.continue();
+  }, { times: 1 });
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: /Replay History/ });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Close history replay" })).toBeFocused();
+  const canvas = dialog.locator("canvas");
+  const caption = dialog.locator("figcaption");
+  const pixelAlpha = () => canvas.evaluate(el => el.getContext("2d").getImageData(0, 0, 1, 1).data[3]);
+  await expect(canvas).toBeVisible();
+  expect((await canvas.boundingBox()).height).toBeGreaterThanOrEqual(180);
+  await expect(caption).toBeEmpty();
+  await expect(dialog.getByRole("img")).toHaveCount(0);
+  expect(await pixelAlpha()).toBe(0);
+  const originalCanvas = await canvas.elementHandle();
+  release();
   await expect(dialog).toContainText("first witnessed");
   await expect(dialog).toContainText("the node as it was, seen with today's eyes");
+  await expect(dialog.getByRole("img")).toHaveAccessibleDescription(/.+/);
+  expect(await pixelAlpha()).toBe(255);
 
   const range = dialog.getByRole("slider", { name: "History replay time" });
   await expect.poll(async () => Number(await range.getAttribute("max")))
@@ -148,6 +166,11 @@ test("/app scrubs a node from present to birth", async ({ page }) => {
   }));
   await range.fill("0");
   await expect(dialog).toContainText("The archive is unreadable right now.");
+  await expect(canvas).toBeVisible();
+  expect(await originalCanvas.evaluate(el => el.isConnected)).toBe(true);
+  await expect(caption).toBeEmpty();
+  await expect(dialog.getByRole("img")).toHaveCount(0);
+  expect(await pixelAlpha()).toBe(0);
   await expect(dialog.getByRole("button", { name: "listen to this moment" }))
     .toBeDisabled();
 

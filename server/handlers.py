@@ -220,6 +220,26 @@ _SCREEN_HOLD_REASONS = {
 }
 
 
+def _screen_voice_line(message: str, user_key: str | None, surface: str,
+                       recorded: bool, honest: bool) -> tuple[Any, bool]:
+    """Screen a /speak or /agent/voice line; return ``(verdict, recorded)``.
+
+    A sincere identity question is owed its authored answer whatever the
+    classifier does (AGENTS.md "No voice pretends to be human"). When the
+    hosted every-line screen cannot judge a locally clean one — classifier
+    unreachable or undecided, a cap or the spend ceiling — the screen
+    allows it as ``unshared``: it is answered without being recorded, so
+    nothing unclassified is kept or shown to anyone else. One screen, one
+    moderation action, at most one classify attempt. A decline stays a
+    decline.
+    """
+    verdict = moderation.screen(message, user_key=user_key, surface=surface,
+                                shared=recorded, private_fallback=honest)
+    if getattr(verdict, "outcome", None) == "unshared":
+        recorded = False
+    return verdict, recorded
+
+
 def _record_screen_hold(surface: str, verdict: Any) -> None:
     reason = _SCREEN_HOLD_REASONS.get(verdict.outcome)
     if reason:
@@ -1261,6 +1281,12 @@ class Handler(BaseHTTPRequestHandler):
             honest = _asks_identity(message, ai_off)
             if not honest and ai_off:
                 observability.voice_outcome("speak", "disabled")
+                if moderation.every_line_required():
+                    # Hosted: the line cannot be classified, so it is held,
+                    # as Ideas and profiles are (item 30). The quiet line
+                    # stays for a spent voice allowance after a screen.
+                    moderation.record_ai_off_hold("speak")
+                    return self._send_json(moderation.http_body(moderation.AI_OFF_HOLD))
                 return self._send_json({"response": guard.QUIET_RESPONSE,
                                         "ai": False})
             node_name = str(body.get("node_name", ""))[:128]
@@ -1290,18 +1316,21 @@ class Handler(BaseHTTPRequestHandler):
             node = _resolve_node(seed, node_name)
             if node is None:
                 return self._send_error("no such place in this world", 404)
-            verdict = moderation.screen(
-                message, user_key=user_key or None, surface="speak")
+            # Recorded only where this place's voice could have answered:
+            # with the kill switch on, or with no provider configured for
+            # this route, every other line gets authored silence and writes
+            # no row, so the identity answer is given but not recorded. A
+            # line that is not recorded is shown to no one else, so the
+            # screen keeps the local-first rule for it (item 30 covers
+            # shared lines).
+            recorded = not ai_off and runtime.configured(runtime.NODE_TASK)
+            verdict, recorded = _screen_voice_line(
+                message, user_key or None, "speak", recorded, honest)
             if not verdict.allowed:
                 _record_screen_hold("speak", verdict)
                 return self._send_json(moderation.http_body(verdict))
 
             import consciousness
-            # Recorded only where this place's voice could have answered:
-            # with the kill switch on, or with no provider configured for
-            # this route, every other line gets authored silence and writes
-            # no row, so the identity answer is given but not recorded.
-            recorded = not ai_off and runtime.configured(runtime.NODE_TASK)
             if not (honest or recorded):
                 observability.voice_outcome(
                     "speak", model_dispatch.unavailable_reason(runtime.NODE_TASK))
@@ -1571,6 +1600,10 @@ class Handler(BaseHTTPRequestHandler):
         honest = _asks_identity(message, ai_off, (agent_name,) if agent_name else ())
         if not honest and ai_off:
             observability.voice_outcome("agent_voice", "disabled")
+            if moderation.every_line_required():
+                moderation.record_ai_off_hold("agent")
+                return self._send_json(moderation.http_body(
+                    moderation.AI_OFF_HOLD, agent="", persona="", node=""))
             return self._send_json({"response": guard.QUIET_RESPONSE,
                                     "agent": "", "persona": "", "node": "",
                                     "ai": False})
@@ -1604,16 +1637,16 @@ class Handler(BaseHTTPRequestHandler):
             # No agent by that name walks this world. Answered like an agent
             # that cannot speak, before the screen, any budget, or any row.
             return self._agent_voice_quiet(label, persona.name, node.name)
-        verdict = moderation.screen(
-            message, user_key=user_key or None, surface="agent")
+        # Same rule as /speak: recorded only where the agent's voice could
+        # have answered, so not with the kill switch on or no provider
+        # configured for this route; an unrecorded line is not shared.
+        recorded = not ai_off and runtime.configured(runtime.INHABITANT_TASK)
+        verdict, recorded = _screen_voice_line(
+            message, user_key or None, "agent", recorded, honest)
         if not verdict.allowed:
             _record_screen_hold("agent_voice", verdict)
             return self._send_json(moderation.http_body(
                 verdict, agent=agent_name, persona=persona.name, node=node.name))
-        # Same rule as /speak: recorded only where the agent's voice could
-        # have answered, so not with the kill switch on or no provider
-        # configured for this route.
-        recorded = not ai_off and runtime.configured(runtime.INHABITANT_TASK)
         if not (honest or recorded):
             observability.voice_outcome(
                 "agent_voice", model_dispatch.unavailable_reason(runtime.INHABITANT_TASK))

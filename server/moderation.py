@@ -11,15 +11,21 @@ profile, a registered name, and puzzle free text stored in the chronicle):
      (spaced/leet-spelled slurs or threats), or a long digit run (doxxing shape) marks
      the input AMBIGUOUS. These signals request a contextual verdict; they
      never block locally, including when they match benign fiction or reports.
-  2. **Model classification** — only ambiguous inputs escalate to one short
+  2. **Model classification** — ambiguous inputs escalate to one short
      call (`consciousness.classify_content`), charged to moderation's own
      daily budget (`guard.moderation_reserve`), never the voice budget.
-     The model id is `runtime.model_for("moderation")`.
+     The model id is `runtime.model_for("moderation")`. On a hosted world
+     (:func:`every_line_required`), every shared line on Speak, agent
+     voice, Ideas and a published profile (:data:`EVERY_LINE_SURFACES`)
+     takes that call too, locally clean or not (owner decision of
+     2026-11-18, item 30). Chat, puzzle free text, CLI speech and
+     registered names keep the local-first rule.
 
 **Shared text fails closed.** A timeout, a provider error, no free
 provider slot within the classify timeout, disabled moderation, an
-exhausted moderation budget, an undecided verdict, or a per-user cap holds
-the text: no chronicle row, no broadcast, no visible idea, no published
+exhausted moderation budget, an undecided verdict, a per-user cap, a spent
+dollar ceiling or, for the every-line surfaces on a hosted world, the AI
+kill switch holds the text: no chronicle row, no broadcast, no visible idea, no published
 profile, no registered name. A local or model BLOCK declines it. Neither
 path charges the voice budget. Private notes, unpublished profile text,
 movement, puzzle correctness, and scale actions are not held because the
@@ -29,7 +35,8 @@ uses this same rule.
 
 Design note on false positives: only the exact word-boundary tier can block
 on its own. The fuzzier signals never block locally — they only escalate.
-A flaky classifier holds the ambiguous line instead of publishing it.
+A flaky classifier holds the ambiguous line instead of publishing it, and on
+a hosted world it holds every shared line of the every-line surfaces.
 `moderation_call` records the outcome (allow, block, undecided, error,
 busy, disabled, budget, user_cap) with no player text and no raw address,
 and each logged line bumps one daily counter per surface and outcome
@@ -86,6 +93,29 @@ PROFILE_HOLD = (
 )
 
 
+# Surfaces whose shared lines are all classified on a hosted world (item 30
+# of the owner decisions of 2026-11-18). Chat ("chat"), puzzle free text
+# ("puzzle"), CLI speech ("cli") and the default ("shared") are not named
+# there and keep the local-first rule.
+EVERY_LINE_SURFACES = frozenset({"speak", "agent", "ideas", "profile"})
+
+
+def every_line_required() -> bool:
+    """True on a hosted world, where every shared line must be classified.
+
+    Hosted production and the staging twin both deploy with ``fly.toml``,
+    which sets ``NESTED_WORLDS_REQUIRE_MODEL_POLICY=1``; an explicit
+    ``NESTED_WORLDS_MODEL_POLICY`` file also counts. A local world and the
+    automated tests set neither (``NESTED_WORLDS_TEST_WORLD`` alone does not
+    count), so locally clean lines still publish there with no classifier,
+    as before. Env-only and never raises: a broken policy on a hosted world
+    still answers True, so the line is held rather than published.
+    """
+    from consciousness import model_policy
+    return (os.environ.get(model_policy.REQUIRED_ENV, "").strip() == "1"
+            or model_policy.POLICY_ENV in os.environ)
+
+
 class PolicyHold(Exception):
     """A definitive hold of a published profile.
 
@@ -123,10 +153,15 @@ def writes_shared_chronicle(seed: int) -> bool:
 class Verdict:
     allowed: bool
     tier: str  # clean | blocklist | classify | undecided | error | busy | disabled | budget | user_cap
-    outcome: str  # allow | block | undecided | error | busy | disabled | budget | user_cap
+    outcome: str  # allow | unshared | block | undecided | error | busy | disabled | budget | user_cap
 
 
 _ALLOW_CLEAN = Verdict(True, "clean", "allow")
+# A clean line allowed only on condition that it is neither stored nor shown
+# to anyone else: an identity question the hosted classifier could not judge.
+UNSHARED_CLEAN = Verdict(True, "clean", "unshared")
+# The AI kill switch on a hosted world: a shared voice line is held.
+AI_OFF_HOLD = Verdict(False, "disabled", "disabled")
 _BLOCK_LOCAL = Verdict(False, "blocklist", "block")
 
 
@@ -163,7 +198,8 @@ def _moderation_log(outcome: str, surface: str, elapsed_ms: float | None = None)
     observability.moderation_outcome(surface, outcome)
 
 
-def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -> Verdict:
+def screen(text: str, *, user_key: str | None = None, surface: str = "shared",
+           shared: bool = True, private_fallback: bool = False) -> Verdict:
     """Screen player-authored text before anyone else can see it.
 
     Empty text is allowed before the kill switch, so a blank published
@@ -171,8 +207,31 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     spend the action cap. The cap is charged only after that, so a clean
     line still spends it and a slur at the cap is declined. Ambiguous input
     then spends one classify call when the per-user and shared budgets allow
-    it. Shared text is allowed only for a local clean verdict or a clear
-    ALLOW. Every other result holds or declines it.
+    it.
+
+    On a hosted world (:func:`every_line_required`), a ``shared`` line on
+    one of :data:`EVERY_LINE_SURFACES` is held while the AI kill switch is
+    on, before any cap is charged; otherwise it takes the classify call even
+    when the local tier finds it clean. ``shared=False`` is for a line the
+    route will neither store nor show to anyone, such as an identity answer
+    given while no voice can answer; it keeps the local-first rule.
+
+    ``private_fallback`` is for a sincere identity question, which is owed
+    its authored answer. When the hosted classifier cannot judge a locally
+    clean line (a stop, a cap, a budget, an error or an undecided verdict),
+    the line is allowed as :data:`UNSHARED_CLEAN` instead of held: the caller
+    answers it and records nothing. The moderation action is charged once
+    either way, there is at most one classify attempt, and a BLOCK, a spent
+    moderation-action cap or a locally ambiguous line still refuses.
+
+    Two accepted costs on a hosted world: a Speak line is classified even
+    when the voice cap is spent and the place will answer with its quiet
+    line, and the spend ceiling is checked inside the dispatch, so a line
+    it holds has already spent one moderation action and one model action.
+
+    Text is allowed only for a local clean verdict where the local-first
+    rule applies, or for a clear ALLOW. Every other result holds or declines
+    it.
     """
     if not text or not str(text).strip():
         return _ALLOW_CLEAN
@@ -184,28 +243,42 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
     if tier == "block":
         _moderation_log("block", surface)
         return _BLOCK_LOCAL
+    every_line = (shared and surface in EVERY_LINE_SURFACES
+                  and every_line_required())
+    if every_line and guard.ai_disabled():
+        # Item 30: with the AI kill switch on, no shared line on these
+        # surfaces is classified, so none is published. Nothing is charged.
+        _moderation_log("disabled", surface)
+        return Verdict(False, "disabled", "disabled")
+    escalate = every_line or tier != "clean"
+    private = private_fallback and every_line and tier == "clean"
+
+    def held(verdict: Verdict) -> Verdict:
+        return UNSHARED_CLEAN if private else verdict
+
     from consciousness import model_dispatch, runtime
-    if tier != "clean":
+    if escalate:
         # An intentional route refusal or accounting stop sends no classify
         # request and must not spend any of the legacy call allowances.
-        try:
-            model_dispatch.preflight(runtime.MODERATION_TASK, user_key, max_tokens=32)
-        except model_dispatch.ModelControlStopped:
-            _moderation_log("control_stop", surface)
-            return Verdict(False, "control_stop", "control_stop")
-        except runtime.VoiceBudgetLimited:
-            outcome = "disabled" if model_dispatch.task_disabled(runtime.MODERATION_TASK) else "budget"
-            _moderation_log(outcome, surface)
-            return Verdict(False, outcome, outcome)
-        except (Exception, SystemExit) as exc:
-            _log.warning("moderation model preflight unavailable (%s)", type(exc).__name__)
-            _moderation_log("error", surface)
-            return Verdict(False, "error", "error")
+        stop = _preflight_stop(user_key)
+        if stop is not None:
+            if not private:
+                _moderation_log(stop.outcome, surface)
+                return stop
+            escalate = False
+    else:
+        stop = None
     if not guard.consume_moderation_action(user_key):
+        # One outcome per screen: a private identity question that also
+        # met a route stop is counted once, at the cap that refused it.
         _moderation_log("user_cap", surface)
         return Verdict(False, "user_cap", "user_cap")
-    if tier == "clean":
-        return _ALLOW_CLEAN
+    if stop is not None:
+        # The route could not classify this private identity question; it
+        # is answered unrecorded, and the stop is its one counted outcome.
+        _moderation_log(stop.outcome, surface)
+    if not escalate:
+        return UNSHARED_CLEAN if private else _ALLOW_CLEAN
 
     # A missing moderation id must not spend a model budget. generate()
     # raises the same error before its own charges. Any other failure while
@@ -215,13 +288,13 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
         runtime.require_model_id(runtime.model_for(runtime.MODERATION_TASK))
     except runtime.VoiceBudgetLimited:
         _moderation_log("budget", surface)
-        return Verdict(False, "budget", "budget")
+        return held(Verdict(False, "budget", "budget"))
     except Exception as exc:
         # The class only. The message can carry a pasted credential, and
         # the player text never belongs on this line.
         _log.warning("moderation model id unavailable (%s)", type(exc).__name__)
         _moderation_log("error", surface)
-        return Verdict(False, "error", "error")
+        return held(Verdict(False, "error", "error"))
 
     # Ambiguous → one classify call. The model-action cap is charged first,
     # through the same reservation generate() accepts, so a refusal does not
@@ -237,11 +310,11 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
         reservation = runtime.reserve_model_action(user_key)
     except runtime.ModelActionLimited:
         _moderation_log("user_cap", surface)
-        return Verdict(False, "user_cap", "user_cap")
+        return held(Verdict(False, "user_cap", "user_cap"))
     budget = guard.moderation_reserve(reservation.key)
     if budget != "ok":
         _moderation_log(budget, surface)
-        return Verdict(False, budget, budget)
+        return held(Verdict(False, budget, budget))
     started = _time.monotonic()
     try:
         import consciousness
@@ -249,27 +322,58 @@ def screen(text: str, *, user_key: str | None = None, surface: str = "shared") -
             text, surface=surface, user_key=reservation.key, reservation=reservation)
     except runtime.ProviderBusy:
         _moderation_log("busy", surface, (_time.monotonic() - started) * 1000.0)
-        return Verdict(False, "busy", "busy")
+        return held(Verdict(False, "busy", "busy"))
     except model_dispatch.ModelControlStopped:
         _moderation_log("control_stop", surface, (_time.monotonic() - started) * 1000.0)
-        return Verdict(False, "control_stop", "control_stop")
+        return held(Verdict(False, "control_stop", "control_stop"))
     except runtime.VoiceBudgetLimited:
         _moderation_log("budget", surface, (_time.monotonic() - started) * 1000.0)
-        return Verdict(False, "budget", "budget")
+        return held(Verdict(False, "budget", "budget"))
     except Exception:
         _moderation_log("error", surface, (_time.monotonic() - started) * 1000.0)
-        return Verdict(False, "error", "error")
+        return held(Verdict(False, "error", "error"))
     if outcome == "allow":
         return Verdict(True, "classify", "allow")
     if outcome == "block":
         return Verdict(False, "classify", "block")
-    return Verdict(False, "undecided", "undecided")
+    return held(Verdict(False, "undecided", "undecided"))
+
+
+def _preflight_stop(user_key: str | None) -> Verdict | None:
+    """The hold for a moderation route that cannot take a call, else None.
+
+    Not logged here: the caller records exactly one outcome per screen.
+    """
+    from consciousness import model_dispatch, runtime
+    try:
+        model_dispatch.preflight(runtime.MODERATION_TASK, user_key, max_tokens=32)
+    except model_dispatch.ModelControlStopped:
+        return Verdict(False, "control_stop", "control_stop")
+    except runtime.VoiceBudgetLimited:
+        outcome = "disabled" if model_dispatch.task_disabled(runtime.MODERATION_TASK) else "budget"
+        return Verdict(False, outcome, outcome)
+    except (Exception, SystemExit) as exc:
+        _log.warning("moderation model preflight unavailable (%s)", type(exc).__name__)
+        return Verdict(False, "error", "error")
+    return None
+
+
+def record_ai_off_hold(surface: str) -> None:
+    """Count a hosted voice line held by the AI kill switch before any screen.
+
+    Logged like any other screen outcome (``disabled``) so the reports that
+    count holds include it; nothing is charged.
+    """
+    _moderation_log(AI_OFF_HOLD.outcome, surface)
 
 
 def needs_model(text: str) -> bool:
-    """Whether :func:`screen` would ask the moderation model about ``text``.
+    """Whether the local tier asks the moderation model about ``text``.
 
-    Only the local tier's ambiguous verdict escalates to a classify call.
+    Only the local tier's ambiguous verdict counts here. On a hosted world
+    :func:`screen` also classifies a clean shared line of the every-line
+    surfaces; that depends on the route, not on the text, and is not
+    reported here.
     Empty text, a local block and a local clean verdict are settled here at
     no model cost. A switch, a cap or a budget can still stop the screen
     before the call; this answers only whether the text itself needs one.

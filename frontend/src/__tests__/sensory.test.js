@@ -2,8 +2,9 @@
 // so the same served node draws the same frame everywhere and nothing reads
 // the wall clock. The browser surface is stubbed with a recording 2D context.
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { ART_SOURCE, startSensory } from "../../../static/sensory.js";
 
-let startSensory, nextFrame;
+let nextFrame;
 function recordingContext(log) {
   const gradient = () => ({ addColorStop: (...a) => log.push(["stop", ...a]) });
   return new Proxy({}, {
@@ -17,7 +18,7 @@ function canvasFor(log) {
   return { width: 0, height: 0, getContext: () => recordingContext(log),
            getBoundingClientRect: () => ({ width: 320, height: 180 }) };
 }
-beforeAll(async () => {
+beforeAll(() => {
   const frames = [];
   nextFrame = () => { const pending = frames.splice(0); for (const cb of pending) cb(); };
   globalThis.requestAnimationFrame = cb => { frames.push(cb); return frames.length; };
@@ -28,7 +29,6 @@ beforeAll(async () => {
   globalThis.devicePixelRatio = 1;
   globalThis.Image = class { set src(_) {} };
   globalThis.performance = { now: () => { throw new Error("the renderer read the wall clock"); } };
-  ({ startSensory } = await import("../../../static/sensory.js"));
 });
 
 const node = { name: "Elder River Instrument-11111111", level: "Object", senses: {
@@ -42,6 +42,48 @@ function render(frames, transients = () => []) {
   stop();
   return log;
 }
+
+describe("scene artwork credits", () => {
+  it.each([
+    [undefined, "/media/places/gallery-v1.png", ART_SOURCE.bundled],
+    ["https://art.example/scene.png", null, ART_SOURCE.generated],
+  ])("credits the painted background for image URL %s and bundled plate %s", (imageUrl, plate, expected) => {
+    const images = [];
+    vi.stubGlobal("Image", class {
+      width = 320;
+      height = 180;
+      constructor() { images.push(this); }
+    });
+    const log = [];
+    const credits = [];
+    const place = { ...node, senses: { ...node.senses, plate } };
+    const stop = startSensory(canvasFor(log), place, {
+      imageUrl,
+      onArtSource: text => credits.push({ text, painted: log.some(([op]) => op === "drawImage") }),
+    });
+    try {
+      // An image still loading or one that never loads leaves the local art.
+      expect(images[0].src).toBe(imageUrl || plate);
+      expect(credits).toEqual([{ text: ART_SOURCE.drawn, painted: false }]);
+      const loaded = images[0].onload;
+      loaded();
+      expect(credits.at(-1)).toEqual({ text: expected, painted: true });
+      nextFrame();
+      stop();
+      loaded();  // A late callback from a closed scene cannot change its credit.
+      expect(credits).toHaveLength(2);
+    } finally {
+      stop();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("clears the credit when there is no drawing context", () => {
+    const onArtSource = vi.fn();
+    startSensory({ getContext: () => null }, node, { onArtSource })();
+    expect(onArtSource).toHaveBeenCalledWith("");
+  });
+});
 
 describe("scene renderer determinism", () => {
   it("draws the same frame for the same served node without reading the clock", () => {

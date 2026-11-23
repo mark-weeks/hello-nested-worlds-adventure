@@ -157,6 +157,7 @@ player chat included.
 | `ENFOLDED_BACKUP_S3_ENDPOINT` | `<OWNER: ENFOLDED_BACKUP_S3_ENDPOINT>` `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`. The account id is not a variable |
 | `ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID` | `<OWNER: ENFOLDED_BACKUP_S3_LIST_ACCESS_KEY_ID>` The read-only pair. Set both list secrets or neither |
 | `ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY` | `<OWNER: ENFOLDED_BACKUP_S3_LIST_SECRET_ACCESS_KEY>` |
+| `ENFOLDED_BACKUP_HEARTBEAT_URL` | Optional. `<OWNER: heartbeat URL>`. Only the ping step reads it. An empty value sends no request. [Backup dispatch and the heartbeat](backup-dispatch.md). Not one of the six bucket secrets |
 
 `<OWNER: delete the repository copies of the backup secrets>`
 If an environment secret is missing, `secrets.<NAME>` falls back to a
@@ -551,6 +552,12 @@ the bucket:
 python scripts/backup_health.py --app enfolded-beta --objects listing.json
 ```
 
+One fresh object is not the seven-day bound. Successive validated
+snapshot-start times are
+[`scripts/backup_freshness_proof.py`](backup-dispatch.md#the-seven-day-bound-proof).
+The external scheduler and the separately hosted heartbeat are
+[Backup dispatch and the heartbeat](backup-dispatch.md).
+
 ## Re-arming production backups
 
 A separate owner act, from
@@ -569,7 +576,8 @@ Before the first production boot:
    environment. `<OWNER: production backup token rotation>` replaces that
    secret before the 720 hours run out.
 2. Leave `ENFOLDED_BACKUP_APP` unset, or set it to `enfolded-beta`.
-3. Re-enable the "Off-host backup" workflow if it was disabled.
+3. Confirm `ENFOLDED_BACKUP_HEARTBEAT_URL` is unset, then re-enable the
+   "Off-host backup" workflow if it was disabled.
 4. Retarget the external dispatcher to production, and leave it paused.
 
 The pre-boot recovery evidence is the staging restore.
@@ -581,8 +589,20 @@ After the first production deploy, before any invitation:
 2. Only then `<OWNER: set ENFOLDED_BACKUP_REQUIRED=true>`.
 3. Enable the external dispatcher. GitHub's own schedule alone has shown
    five-hour gaps against the one-hour bound.
-4. Confirm successive validated production snapshots meet the one-hour bound.
-5. Point a new heartbeat monitor at production. Alerts go to the project
+4. Confirm successive validated production snapshots meet the one-hour bound
+   with `python scripts/backup_freshness_proof.py --app enfolded-beta --since <UTC snapshot-start of the dispatcher's first validated object>`.
+   That check ignores the manual dispatch and any older object, starts at the
+   first snapshot-start at or after that instant, and requires at least two
+   marker-confirmed snapshots. An unmarked object does not count toward that two.
+   The printed window starts at that snapshot, not at the filter. Each
+   checked snapshot needs the `.ready` marker the store writes after the
+   snapshot PUT returns. A snapshot from before that marker existed does not
+   pass. `--from-first` keeps the manual object, so a gap of more than an
+   hour before the dispatcher fails until seven days exist. The seven-day
+   window is not this gate. The twin's rehearsal stays the seven-day command.
+5. Point a new heartbeat monitor at production, and only then set
+   `ENFOLDED_BACKUP_HEARTBEAT_URL` to that monitor. The twin's URL has to be
+   gone already (the retirement step below). Alerts go to the project
    address, with the second operator copied (O14). The monitor is hosted
    separately from the dispatcher.
 
@@ -601,6 +621,10 @@ in place would be aimed at production.
 3. Delete the `ENFOLDED_BACKUP_REQUIRED` and `ENFOLDED_BACKUP_APP` variables.
 4. Revoke the backup token and delete its `backup` environment secret.
 5. Pause or delete the twin's heartbeat monitor.
+6. After the final twin ping, delete the `backup` environment secret
+   `ENFOLDED_BACKUP_HEARTBEAT_URL`. Do this before the workflow is enabled
+   for production. The secret is shared by both apps. O14's five steps
+   predate it; this is the extra step.
 
 Deleting the twin's objects by hand waits until the 7-day lock allows it.
 Emptying the bucket is refused while a bucket lock rule is still configured
@@ -618,6 +642,7 @@ Do this on the staging app before any production history.
 - [ ] `<OWNER: create the backup Fly token>` with `fly tokens create ssh -a enfolded-staging --expiry 720h`. Paste the printed line into `BACKUP_FLY_SSH_TOKEN` with no added quotes. `<OWNER: confirm the SSH token on the app>` with `FLY_CONFIG_DIR` set to an empty directory, `fly tokens debug`, and the two SSH commands bound to that token and `-a`. Remove any WireGuard peer that check added. Do not run `fly deploy` from this checkout.
 - [ ] Manual dispatch of `backup.yml` from `main` stores a validated snapshot. The job summary does not print the object key, the bucket, or the account id, and the log has no artifact upload.
 - [ ] `python scripts/backup_health.py --app <staging-app>` exits 0. `--max-age-minutes 1` against an old stamp exits 1.
+- [ ] The [dispatcher and the heartbeat](backup-dispatch.md) are the two hosts from O14. After seven days of validated snapshots, `python scripts/backup_freshness_proof.py --app <staging-app>` exits 0. A green workflow run is not that proof.
 - [ ] Download, `validate_backup.py`, checksum, and `python main.py restore` on the isolated staging machine. Every backup containing `private_chat_messages` requires `--deletions <latest-export>` with the latest independently preserved operator deletion record, even when a current database exists; a fresh-boot empty export is not authoritative. Follow the [restore procedure](fly-deployment.md#restoring-from-a-backup), then record the checksum, snapshot time, app, release SHA, and elapsed time.
 - [ ] A deliberately invalid snapshot (or a failed validation) is stored only under `offhost/unvalidated-worlds-backup-...` and the run is red. The health check does not count it.
 - [ ] With `ENFOLDED_BACKUP_REQUIRED=true` and one required value removed, a dispatch fails and uploads nothing. Restore the value afterward.

@@ -291,3 +291,244 @@ required; omitting either refuses the live run. They stop the run at those
 ceilings.
 Leave the twin's kill switches and policy file untouched while this process
 runs. Do not pass a twin URL, a check key, or a database path.
+
+## Clearing the stop
+
+There is still no unlatch command, no audit table, and no migration. The only
+application write to `model_spend_latch` is an insert that does nothing when
+the row is already there (`persistence/model_spend.py`, `_latch`). Nothing in
+application code deletes that row. [ADR-039](../decisions/ADR-039-controlled-model-spend.md)
+stays Proposed. Its decision text still stands: no automatic refund or unlatch,
+and an explicit tool is a "Revisit when" trigger, not this section.
+
+[Owner decision O9](../roadmap/owner-decisions-2026-11-20.md#o9-clearing-the-latched-spend-stop-items-3-28)
+(2026-11-20) adopts a hand-SQL clear for the disposable watch twin only. The
+machine commands and the guarded script are in
+[Clearing the stop](../infrastructure/incident-response.md#clearing-the-stop).
+This section is the accounting contract those steps implement.
+
+### What is true on this revision
+
+The stop is one row in `model_spend_latch`. The table's primary key allows
+only `singleton = 1`, and `reason` is one of `billing_anomaly`,
+`accounting_fault`, or `unsettled_startup`
+(`persistence/migrations/0032_model_spend.sql`). The migration states the
+consequence: a restart, a new UTC day, a policy replacement, or expired-row
+cleanup never clears the circuit, and there is no application reset operation.
+
+`check_unsettled_on_startup` runs inside the server's boot when controlled
+mode has a policy, including when the kill switches are on
+(`server/__init__.py` calls `initialize_accounting`). If any
+`model_spend_reservations` row still has `status = 'reserved'`, that function
+inserts `unsettled_startup` (leaving an existing reason in place) and sets
+`abandoned_at` on those rows. It does not change `accounted_microusd`. The
+same scan runs once per process and database (`_initialized_databases` in
+`consciousness/model_dispatch.py`). A later call in that process does not
+scan again.
+
+An `unsettled_startup` latch therefore leaves `status = 'reserved'` rows.
+Those rows latch again at the next start until they leave that status.
+`settle` refuses a row whose `abandoned_at` is set, so the application cannot
+finish them. Hand SQL is the resolution on the twin.
+
+`_settlement_fault` (`consciousness/model_dispatch.py`) is an event in the
+server process. A database clear does not reset it. The process keeps
+refusing controlled dispatch until the machine is restarted and a new process
+takes its place.
+
+### Where this procedure applies
+
+Run it on the disposable watch twin, and rehearse it first on a separate
+throwaway Fly app. Both need a fresh backup immediately before the write.
+
+The single-grader rubric run above is not a clear. It leaves the
+twin's kill switches and policy file untouched. This procedure changes
+the voice and moderation switches on the app being cleared, and it does
+not edit the policy file.
+
+A kept world that will serve any live model route needs an audited clear
+command first. That command is an ADR-039 revision and its own migration.
+Hand SQL on a kept world's volume is not acceptable. This section does not
+add the command. It waits until ADR-041 naming's migration has merged,
+because one migration pull request is open at a time, and until the owner
+has accepted the ADR-039 revision.
+
+### What a clear requires
+
+Record every item below before the write, in a dated private operator entry
+kept outside the world database and outside player-visible history. The entry
+names the Fly app, the backup path, and the UTC time. It is not a chronicle
+row and not a chat line. Items 1 to 4 are O9's evidence. Item 5 is required
+when the reason is `billing_anomaly`.
+
+1. The provider console's spend for every UTC day the read-only listing
+   prints under `reconcile days`. That set is the UTC day of `latched_at`,
+   every day that still has a `reserved` row, and every day that has an
+   `anomaly` row. An anomalous settlement after midnight keeps the charge
+   on the reservation's original day, so `latched_at` alone can miss it.
+   Beside each figure, the ledger's summed `accounted_microusd` for that
+   day. One USD is 1,000,000 microUSD. The console total and the ledger
+   total are both evidence. A lower console total is the usual case,
+   because admission reserves the full context bound. Do not write the
+   console's number into the ledger.
+2. The latch reason and `latched_at`.
+3. Every `reserved` row, listed before the write. The write refuses unless
+   those ids are exactly the reserved rows it sees, and then resolves them.
+4. The dated entry itself, completed with the backup path before the write.
+5. When the reason is `billing_anomaly`, each `anomaly` row's
+   `resolved_model`, `usage_json`, `reserved_microusd`, and
+   `accounted_microusd`, and the cause. Settlement flags an anomaly when
+   the resolved model is outside the route, the provider is not the route's
+   adapter, the billing evidence is inconsistent, or a token count exceeds
+   the route's bound. A priceable count above that bound can account more
+   than the reservation. That is the case where the ceiling does not hold.
+   Leave the latch until the owner corrects the deployed route's
+   resolved-model list, token bounds, or prices. The checked-in watch
+   example still leaves dollar amounts, prices, and call caps as
+   unconfirmed placeholders. Editing that example does not change the
+   policy on the machine, and this procedure does not fill it. O4 and O5
+   are the decision record for those amounts. They are not a checked-in
+   setting. With the same deployed policy, the next confirming call
+   latches again, or charges above the reservation again.
+
+If the console total is higher than this installation's ledger in a way the
+recorded calls do not explain, leave the latch in place and keep external
+routes off. The gap is a separate reconciliation. ADR-039 already treats
+other tools, console activity, and a restored older database as outside this
+ledger.
+
+A clear never refunds the day's spend. The write does not lower
+`accounted_microusd`, does not change `day`, and does not delete a
+reservation. Those columns are what the daily ceilings sum.
+
+A clear never shortens retention. The write does not change
+`retention_days` or `retain_until`, and it does not delete a row to make
+the latch disappear.
+
+A restart is not a clear. `fly machine restart`, `fly secrets set`, and a
+crash start a new process. That process runs the startup scan. An existing
+latch row stays. `reserved` rows are marked abandoned and, when no latch
+existed yet, become `unsettled_startup`. The old process's
+`_settlement_fault` dies with the process; the database latch remains.
+
+A new app, a new volume, or a re-created twin is not a clear. The provider
+has already billed the UTC day. Replacing the database leaves that bill in
+place and throws away the ledger that recorded it.
+
+### The five steps
+
+1. **Quiesce dispatch.** Record the current `NESTED_WORLDS_DISABLE_AI` and
+   `NESTED_WORLDS_DISABLE_MODERATION` values, including a name that is
+   unset. Then set both to `1` on that app, and confirm
+   `NESTED_WORLDS_DISABLE_IMAGES=1`. One `fly secrets set` restarts the
+   machine. That restart is not a clear. Wait until `/health` is ok and
+   `python main.py models`, run on the machine, shows every route
+   `disabled (intentional)`. The switches stay on until the post-write
+   restart has been confirmed. Between the commit and that restart, a
+   running process whose in-memory fault is clear would admit a new
+   reservation the moment the latch row is gone, and the next boot would
+   latch `unsettled_startup` again.
+2. **Reconcile outstanding reservations.** Take the fresh backup, copy it
+   off the machine, and record its path. Then resolve every `reserved` row
+   inside the same immediate transaction as the latch delete. Resolution
+   keeps the money and the retention columns, and moves the row to the
+   status the application already uses when usage is unknown:
+
+   ```sql
+   UPDATE model_spend_reservations
+   SET status = 'uncertain',
+       settled_at = :utc,
+       abandoned_at = NULL
+   WHERE status = 'reserved';
+   ```
+
+   `:utc` is a UTC stamp in the ledger's own form,
+   `2026-11-20T23:40:00.000000Z`. `settled_at` has to be set because a
+   non-reserved row must have it. `abandoned_at` has to become NULL because
+   the table allows that column only while `status = 'reserved'`.
+   `accounted_microusd` is already equal to `reserved_microusd` on a
+   reserved row; leaving it untouched satisfies the `uncertain` check and
+   does not refund the ceiling. Rows already `settled`, `uncertain`, or
+   `anomaly` stay as they are, including a `billing_anomaly` row that has
+   already been settled at or above its reservation.
+3. **Clear the latch row,** in that same transaction, only after the
+   reserved ids match the listing and a count of `status = 'reserved'` is
+   zero. The transaction also reads its rows before and after the update
+   and refuses if `accounted_microusd`, `day`, `retention_days`, or
+   `retain_until` changed. That comparison is against its own read, not
+   against the listing:
+
+   ```sql
+   DELETE FROM model_spend_latch WHERE singleton = 1;
+   ```
+
+   If any check fails, roll the transaction back. The latch stays. Do not
+   delete reservations, do not vacuum, and do not edit any other table.
+4. **Restart the machine.** The new process runs the startup scan. With no
+   reserved row and no latch row, the scan does not stop dispatch. The new
+   process's `_settlement_fault` starts clear.
+5. **Confirm, then one settled call.** On the machine, `python main.py models`
+   and `python main.py voice-health` must report `model accounting durable
+   stop: no`, `model accounting unresolved reservations: 0`, and
+   `model controls: no recorded stop`, and must not report `STOPPED`.
+   Those commands read the database and their own process, not the server's
+   memory. The restart is what drops the server's event. Restore the voice
+   and moderation values recorded in step 1, or unset a name that was unset.
+   Do not write `0` unless that was the recorded value. A `0` secret
+   overrides `fly.toml`, whose `NESTED_WORLDS_DISABLE_AI` is `1`. Unsetting
+   that name restores the committed `1`. If the restored voice value does
+   not admit a call, leave it. The clear stays incomplete until the owner
+   records the live value to restore. That set restarts the machine again
+   and is not a clear. Re-read the same lines.
+   Then make one ordinary authenticated gameplay call that is expected to
+   dispatch: a place line, an agent line, or an Act free-text intention.
+   Do not use an identity question, and do not use `--probe` (controlled
+   mode refuses it). Every reservation that call creates is `settled`, with
+   `accounted_microusd` less than or equal to `reserved_microusd`, and the
+   latch table is still empty. The clear is complete only then.
+
+   Those reservations count against the current UTC day's ceiling at their
+   full admission bound. Rows resolved onto an earlier `day` do not consume
+   today's ceiling. Rows whose `day` is today still do, at the full
+   `accounted_microusd` the clear refused to lower. The clear is complete
+   only when every row that call creates is `settled`. If any created row
+   is not `settled`, if no row was created, or if a latch row exists, set
+   both kill switches back to 1 before another paid call. An allowance
+   refusal and a usable reply that settled as `uncertain` write no latch.
+   Reconcile those rows, and make the confirming call only once the current
+   UTC day can admit one reservation and the recorded switch values are
+   restored again. Do not substitute `0`. A `reserved` row is latched again
+   as `unsettled_startup` by the restart that sets the switches back to 1.
+   An `anomaly` row is latched again as `billing_anomaly` by settlement.
+   Either one is a new incident: start again from the evidence, and for an
+   anomaly wait for the owner's route correction. Until a call's rows are
+   all `settled`, the clear is not complete and the switches stay at 1.
+
+The guarded script that performs steps 2 and 3, and the read-only listing
+for the evidence entry, are in the incident procedure. Before it opens the
+database writable, Fly's `FLY_APP_NAME` must equal the app name the operator
+passes, that name must not be `enfolded-beta`, and
+`NESTED_WORLDS_TEST_WORLD` must be on. The operator does not assign
+`FLY_APP_NAME`. The write also refuses unless `ENFOLDED_CLEAR_DAYS` names
+every reconcile day, including an anomaly row's original day, and unless
+`ENFOLDED_CLEAR_RESERVED` is exactly the reserved ids in that transaction.
+It opens only `/data/.nested-worlds/worlds.db`, read-write without creating
+the file. A `billing_anomaly` latch stays until the owner has corrected
+the deployed route. The
+off-machine backup goes into a fresh `0700` directory, and the downloaded
+file is mode `0600`.
+
+### Rehearsal
+
+By Friday 4 December 2026, before the first watch session, rehearse this
+procedure on a separate throwaway Fly app with
+`NESTED_WORLDS_TEST_WORLD=1` set before first boot. The gameplay calls use
+a credential that has accepted the current participation notice. The
+rehearsal covers one settled reservation, one stop produced by the
+application (a reserved row left by process death, then a restart that
+records the latch), the evidence items, the hand-SQL clear, the restart,
+and one settled call after it.
+Inserting a latch row by hand does not count as that stop. The steps are
+written in the incident procedure and are not run from this repository.
+ADR-039 is accepted only after that rehearsal passes, and only in the
+records or status pull request the owner names.
