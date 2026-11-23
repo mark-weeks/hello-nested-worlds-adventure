@@ -47,6 +47,11 @@ def read_exclude(text: str) -> list[str]:
             value = line[4:].strip()
             if " #" in value:
                 value = value.split(" #", 1)[0].rstrip()
+            if "\\" in value:
+                raise ValueError(
+                    f"line {lineno}: exclude path {value!r} uses a backslash. "
+                    "Use '/' so this guard and the Pages build drop the same file."
+                )
             if not value or value[0] in "\"'[{*&!|>%@`":
                 raise ValueError(
                     f"line {lineno}: exclude entries must be plain paths"
@@ -73,7 +78,7 @@ def is_excluded(relative: str, patterns: list[str]) -> bool:
     """
     relative = relative.replace("\\", "/")
     for pattern in patterns:
-        pattern = pattern.replace("\\", "/").lstrip("/")
+        pattern = pattern.lstrip("/")
         if pattern.startswith("./"):
             pattern = pattern[2:]
         if not pattern:
@@ -132,16 +137,39 @@ def test_unexcluded_liquid_names_the_file_and_the_remedy(tmp_path: Path):
     assert "Add the file to exclude or reword" in text
 
 
+# Jekyll 3.10's default exclude, plus the CNAME github-pages 232 appends
+# only while that default list is left unchanged. Setting exclude replaces
+# the list, so the config has to repeat these or a later Gemfile or
+# node_modules under docs/ would be published.
+_PAGES_DEFAULT_EXCLUDES = (
+    "CNAME",
+    "Gemfile",
+    "Gemfile.lock",
+    "node_modules",
+    "vendor/bundle/",
+    "vendor/cache/",
+    "vendor/gems/",
+    "vendor/ruby/",
+)
+
+
 def test_pages_config_excludes_the_changelog_and_nothing_nested():
     patterns = read_exclude(CONFIG.read_text(encoding="utf-8"))
     # Membership, not an exact list: the liquid-guard message tells an author
     # to add a file to exclude, and that remedy must not fail this test.
     assert "CHANGELOG.md" in patterns
-    assert "CNAME" in patterns
+    for name in _PAGES_DEFAULT_EXCLUDES:
+        assert name in patterns
     assert is_excluded("CHANGELOG.md", patterns)
     assert is_excluded("CNAME", patterns)
     assert not is_excluded("roadmap/README.md", patterns)
     assert not is_excluded("changelog.d/README.md", patterns)
+
+
+def test_a_backslash_exclude_is_rejected_and_does_not_hide_the_slash_path():
+    with pytest.raises(ValueError, match="Use '/'"):
+        read_exclude("exclude:\n  - examples\\actions.md\n")
+    assert not is_excluded("examples/actions.md", ["examples\\actions.md"])
 
 
 def test_pages_config_rejects_anything_but_the_exclude_list():
