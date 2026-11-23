@@ -117,10 +117,12 @@ invalid snapshot does not reset the monitor.
 ## How the workflow pings
 
 The job's "Ping the backup heartbeat" step runs only when validation
-succeeded and the store step succeeded. The condition is
-`steps.validate.outcome == 'success' && steps.store.outcome == 'success'`.
-A quarantined object takes the other branch of the store step, and this step
-does not run.
+succeeded, the store step succeeded, and the finish marker was written.
+The condition is `steps.validate.outcome == 'success' &&
+steps.store.outcome == 'success' && steps.store.outputs.marker == 'ready'`.
+A green store step is not enough. A missing marker leaves that step green
+and skips the ping. A quarantined object takes the other branch of the
+store step, and this step does not run.
 
 The step reads the optional `backup` environment secret
 `ENFOLDED_BACKUP_HEARTBEAT_URL`. An empty or whitespace-only value sends no

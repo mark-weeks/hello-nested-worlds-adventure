@@ -641,6 +641,8 @@ def test_the_heartbeat_step_is_gated_on_a_validated_store():
     assert condition == (
         "steps.validate.outcome == 'success' && steps.store.outcome == 'success' "
         "&& steps.store.outputs.marker == 'ready'")
+    handoff = (ROOT / 'docs' / 'infrastructure' / 'backup-dispatch.md').read_text()
+    assert condition in ' '.join(handoff.split())
     assert 'always()' not in condition
     assert 'secrets.ENFOLDED_BACKUP_HEARTBEAT_URL' in step
     assert 'curl' in script
